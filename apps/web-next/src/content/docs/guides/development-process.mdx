@@ -160,7 +160,7 @@ You decide code style, review standards, and internal conventions within your di
 - Choose your own state management, UI patterns, and testing strategy
 - Release to staging by merging to `develop`
 
-### What you should NOT do
+### Plugin team boundaries
 
 - **Do NOT import from other plugins.** Use the event bus (`@naap/plugin-sdk`) for cross-plugin communication
 - **Do NOT modify shared packages** (`packages/*`) without core team review
@@ -286,7 +286,7 @@ Core contributors maintain the platform that all plugin teams build on. Your wor
 - **Run the weekly production promotion.** Trigger the promote workflow, review the release PR
 - **Document changes.** SDK changes need updated docs before merge
 
-### What you should NOT do
+### Core team boundaries
 
 - **Do NOT merge plugin-only PRs.** Let plugin teams self-govern their code
 - **Do NOT make breaking SDK changes without an RFC.** Plugin teams depend on stable APIs
@@ -405,7 +405,7 @@ npm run typecheck
 
 ## Quick Reference
 
-### For plugin teams
+### Plugin team commands
 
 ```bash
 ./bin/setup.sh --start           # First-time setup + start
@@ -417,7 +417,7 @@ npm run typecheck
 ./bin/start.sh validate          # Health-check all services
 ```
 
-### For core contributors
+### Core contributor commands
 
 ```bash
 ./bin/start.sh start --all       # Full platform
