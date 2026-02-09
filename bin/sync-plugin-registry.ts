@@ -1,7 +1,7 @@
 /**
  * sync-plugin-registry.ts
  *
- * Standalone script that discovers all plugins from plugins/*/plugin.json
+ * Standalone script that discovers all plugins from plugins/{name}/plugin.json
  * and upserts WorkflowPlugin records in the database.
  *
  * Safe to run on every deploy — it is idempotent:
