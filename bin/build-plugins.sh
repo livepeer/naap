@@ -173,11 +173,14 @@ if [ "$PARALLEL" = true ]; then
   done
 
   # Wait for all to complete
+  # NOTE: Use $((x + 1)) instead of ((x++)) because when x=0 the
+  # post-increment evaluates to 0, making (( 0 )) return exit status 1
+  # which kills the script under set -e.
   for pid in "${pids[@]}"; do
     if wait $pid; then
-      ((success++))
+      success=$((success + 1))
     else
-      ((failed++))
+      failed=$((failed + 1))
     fi
   done
 else
@@ -186,9 +189,9 @@ else
 
   for plugin in "${PLUGINS[@]}"; do
     if build_plugin "$plugin"; then
-      ((success++))
+      success=$((success + 1))
     else
-      ((failed++))
+      failed=$((failed + 1))
     fi
     echo ""
   done
