@@ -26,6 +26,12 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 PLUGINS_DIR="$ROOT_DIR/plugins"
 OUTPUT_DIR="$ROOT_DIR/dist/plugins"
 
+# Ensure Node can resolve packages from the monorepo root node_modules.
+# In npm workspaces, devDependencies like tailwindcss/postcss/autoprefixer
+# are hoisted to root but may not be symlinked into each workspace's
+# node_modules. NODE_PATH makes them discoverable from any subdirectory.
+export NODE_PATH="$ROOT_DIR/node_modules${NODE_PATH:+:$NODE_PATH}"
+
 # Parse arguments
 PARALLEL=false
 CLEAN=false
