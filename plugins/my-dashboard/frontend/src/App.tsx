@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { MemoryRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { createPlugin, getPluginBackendUrl } from '@naap/plugin-sdk';
+import { createPlugin, getPluginBackendUrl, isProductionHost } from '@naap/plugin-sdk';
 import { GalleryPage } from './pages/Gallery';
 import { ViewerPage } from './pages/Viewer';
 import { SettingsPage } from './pages/Settings';
@@ -41,7 +41,10 @@ export const getApiUrl = () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return `${(context as any).config.apiBaseUrl}/api/v1/my-dashboard`;
   }
-  return getPluginBackendUrl('my-dashboard', { apiPath: '/api/v1/my-dashboard' });
+  // Next.js routes are at /api/v1/dashboard/ on Vercel, but the local
+  // backend serves under /api/v1/my-dashboard/
+  const apiPath = isProductionHost() ? '/api/v1/dashboard' : '/api/v1/my-dashboard';
+  return getPluginBackendUrl('my-dashboard', { apiPath });
 };
 
 /** @deprecated Use useApiClient() hook instead */

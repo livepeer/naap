@@ -58,12 +58,10 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     });
 
     return success({
-      data: {
-        id: comment.id,
-        author: comment.author,
-        text: comment.text,
-        timestamp: comment.createdAt.toISOString(),
-      },
+      id: comment.id,
+      author: comment.author,
+      text: comment.text,
+      timestamp: comment.createdAt.toISOString(),
     });
   } catch (err) {
     console.error('Error adding comment:', err);

@@ -33,11 +33,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     }
 
     const body = await request.json();
-    const { gpuCount } = body;
-
-    if (!gpuCount) {
-      return errors.badRequest('gpuCount is required');
-    }
+    const { userId: _clientUserId, userName: clientUserName } = body;
 
     // Verify the capacity request exists
     const capacityRequest = await prisma.capacityRequest.findUnique({
@@ -48,24 +44,30 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       return errors.notFound('Capacity request');
     }
 
-    // Create the soft commitment (upsert by requestId + userId)
-    const commitment = await prisma.capacitySoftCommit.upsert({
+    // Toggle soft commitment: if already committed, remove; otherwise, add
+    const existing = await prisma.capacitySoftCommit.findUnique({
       where: {
         requestId_userId: { requestId: id, userId: user.id },
       },
-      create: {
+    });
+
+    if (existing) {
+      await prisma.capacitySoftCommit.delete({
+        where: { id: existing.id },
+      });
+      return success({ action: 'removed' as const });
+    }
+
+    await prisma.capacitySoftCommit.create({
+      data: {
         requestId: id,
         userId: user.id,
-        userName: user.displayName || user.email || 'Anonymous',
-        gpuCount,
-      },
-      update: {
-        gpuCount,
-        userName: user.displayName || user.email || 'Anonymous',
+        userName: clientUserName || user.displayName || user.email || 'Anonymous',
+        gpuCount: 1,
       },
     });
 
-    return success({ commitment });
+    return success({ action: 'added' as const });
   } catch (err) {
     console.error('Error creating soft commitment:', err);
     return errors.internal('Failed to create soft commitment');
