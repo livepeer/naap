@@ -16,6 +16,7 @@ node_modules
 *.launch
 .settings/
 *.sublime-workspace
+.cursor/
 
 # IDE - VSCode
 .vscode/*
@@ -60,7 +61,12 @@ logs/
 
 # Platform runtime files
 .pids
+.pids.tmp
 .naap.lock
+
+# Build info
+tsconfig.tsbuildinfo
+**/tsconfig.tsbuildinfo
 
 # Migration phase markers
 .phase-*
