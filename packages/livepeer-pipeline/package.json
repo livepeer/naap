@@ -1,0 +1,11 @@
+{
+  "name": "@naap/livepeer-pipeline",
+  "version": "1.0.0",
+  "description": "Pipeline contract: adapter interfaces, registry, versioned envelope types for Livepeer AI/Video",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "developer-api",
+  "displayName": "Developer API Manager",
+  "version": "1.0.0",
+  "description": "Explore AI models, manage API keys, and track usage for developers integrating with the network.",
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io",
+    "url": "https://naap.io"
+  },
+  "repository": "https://github.com/naap/plugins/tree/main/developer-api",
+  "license": "MIT",
+  "keywords": ["developer", "api", "keys", "models", "usage"],
+  "category": "developer",
+  
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+  
+  "frontend": {
+    "entry": "./frontend/dist/production/developer-api.js",
+    "devPort": 3007,
+    "routes": [
+      "/developers",
+      "/developers/*"
+    ],
+    "navigation": {
+      "label": "Developer API",
+      "icon": "Code",
+      "order": 70,
+      "group": "developer"
+    }
+  },
+  
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devPort": 4007,
+    "port": 4107,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/developer",
+    "resources": {
+      "memory": "256Mi",
+      "cpu": "0.25"
+    }
+  },
+  
+  "integrations": {
+    "required": [],
+    "optional": ["openai"]
+  },
+  
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme"],
+    "apis": [],
+    "external": []
+  },
+  
+  "config": {
+    "schema": {}
+  }
+}

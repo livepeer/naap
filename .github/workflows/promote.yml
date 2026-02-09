@@ -1,0 +1,81 @@
+# =============================================================================
+# Release Promotion — Create PR from develop → main
+# =============================================================================
+# Manually triggered to promote staging (develop) to production (main).
+# Creates a release PR with the specified version tag.
+# =============================================================================
+
+name: Promote Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v1.2.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote:
+    name: Create Release PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "::error::Invalid version format '${VERSION}'. Expected format: v1.2.3 or v1.2.3-beta.1"
+            exit 1
+          fi
+          echo "Version ${VERSION} is valid"
+
+      - name: Read PR template
+        id: template
+        run: |
+          if [ -f ".github/PULL_REQUEST_TEMPLATE/release.md" ]; then
+            BODY=$(cat .github/PULL_REQUEST_TEMPLATE/release.md)
+          else
+            BODY="## Release ${{ github.event.inputs.version }}
+
+          ### Changes
+          _Auto-generated release PR from develop → main._
+
+          ### Checklist
+          - [ ] All CI checks passing on develop
+          - [ ] Staging smoke tests verified
+          - [ ] Release notes reviewed
+          - [ ] Breaking changes documented"
+          fi
+
+          # Write to file for gh pr create --body-file
+          echo "$BODY" > /tmp/pr-body.md
+
+      - name: Create release PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base main \
+            --head develop \
+            --title "Release ${{ github.event.inputs.version }}" \
+            --body-file /tmp/pr-body.md \
+            --label "release/production" \
+            || echo "::warning::PR may already exist for develop → main"
+
+      - name: Summary
+        run: |
+          echo "## Release Promotion" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Source:** develop" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target:** main" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY

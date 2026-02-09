@@ -1,0 +1,90 @@
+---
+title: "Contributing"
+description: "How to contribute to the NaaP platform and community."
+order: 1
+---
+
+## Overview
+
+NaaP is an open platform and we welcome contributions from the community. Whether you're fixing bugs, adding features, improving documentation, or building plugins, there are many ways to get involved.
+
+## Ways to Contribute
+
+### Build Plugins
+
+The most impactful way to contribute is by building plugins that extend the platform's functionality. See the [Plugin Development Guide](/docs/guides/your-first-plugin) to get started.
+
+### Report Issues
+
+Found a bug? Open an issue on GitHub with:
+
+1. A clear title and description
+2. Steps to reproduce the issue
+3. Expected vs. actual behavior
+4. Your environment (OS, Node version, browser)
+
+### Improve Documentation
+
+Documentation improvements are always welcome:
+
+1. Fix typos and clarify wording
+2. Add missing examples
+3. Update outdated information
+4. Translate docs to other languages
+
+### Submit Code
+
+For bug fixes and features:
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-change`
+3. Make your changes
+4. Write tests for new functionality
+5. Run the test suite: `npm test`
+6. Submit a pull request
+
+## Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/nicknaaplatform/NaaP.git
+cd NaaP
+
+# Install dependencies
+npm install
+
+# Start the development environment
+./bin/start.sh
+
+# Run tests
+npm test
+```
+
+## Code Style
+
+- **TypeScript**: All code should be written in TypeScript
+- **ESLint**: Follow the project's ESLint configuration
+- **Prettier**: Format code with Prettier before committing
+- **Naming**: Use camelCase for variables/functions, PascalCase for components/types
+- **Comments**: Write JSDoc comments for public APIs
+
+## Pull Request Guidelines
+
+1. **Keep PRs focused**: One feature or fix per PR
+2. **Write tests**: Include unit tests for new functionality
+3. **Update docs**: Update documentation if your change affects the public API
+4. **Follow conventions**: Match the existing code style
+5. **Describe your changes**: Write a clear PR description
+
+## Community Guidelines
+
+- Be respectful and inclusive
+- Provide constructive feedback
+- Help newcomers get started
+- Share knowledge and best practices
+
+## Getting Help
+
+- **GitHub Discussions**: Ask questions and share ideas
+- **Discord**: Join the NaaP community server
+- **Documentation**: Browse these docs for answers

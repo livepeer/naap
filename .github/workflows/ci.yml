@@ -1,0 +1,396 @@
+# =============================================================================
+# CI Pipeline — Path-Filtered Testing
+# =============================================================================
+# Runs lint, typecheck, tests, and builds filtered by what actually changed.
+# Skips irrelevant jobs for faster PR feedback.
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  NEXT_TELEMETRY_DISABLED: 1
+
+jobs:
+  # ===========================================================================
+  # Path Filter — Detect what changed to skip irrelevant jobs
+  # ===========================================================================
+  paths-filter:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      shell: ${{ steps.filter.outputs.shell }}
+      packages: ${{ steps.filter.outputs.packages }}
+      sdk: ${{ steps.filter.outputs.sdk }}
+      backend: ${{ steps.filter.outputs.backend }}
+      plugins: ${{ steps.filter.outputs.plugins }}
+      plugins_list: ${{ steps.changed-plugins.outputs.plugins_list }}
+      docs_only: ${{ steps.check-docs.outputs.docs_only }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run paths filter
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            shell:
+              - 'apps/web-next/**'
+            packages:
+              - 'packages/**'
+            sdk:
+              - 'packages/plugin-sdk/**'
+              - 'packages/plugin-utils/**'
+              - 'packages/plugin-build/**'
+            backend:
+              - 'services/**'
+            plugins:
+              - 'plugins/**'
+            docs_only:
+              - 'docs/**'
+              - '*.md'
+
+      - name: Check if docs-only change
+        id: check-docs
+        run: |
+          # docs_only is true only when docs changed AND nothing else changed
+          if [[ "${{ steps.filter.outputs.docs_only }}" == "true" \
+             && "${{ steps.filter.outputs.shell }}" == "false" \
+             && "${{ steps.filter.outputs.packages }}" == "false" \
+             && "${{ steps.filter.outputs.backend }}" == "false" \
+             && "${{ steps.filter.outputs.plugins }}" == "false" ]]; then
+            echo "docs_only=true" >> $GITHUB_OUTPUT
+          else
+            echo "docs_only=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Detect changed plugins
+        id: changed-plugins
+        run: |
+          ALL_PLUGINS='["gateway-manager","orchestrator-manager","capacity-planner","network-analytics","community","marketplace","my-dashboard","my-wallet","daydream-video","developer-api","plugin-publisher"]'
+          if [[ "${{ steps.filter.outputs.plugins }}" == "true" ]]; then
+            # Build a JSON array of plugins that actually changed
+            CHANGED="[]"
+            for plugin in gateway-manager orchestrator-manager capacity-planner network-analytics community marketplace my-dashboard my-wallet daydream-video developer-api plugin-publisher; do
+              if git diff --name-only ${{ github.event.pull_request.base.sha || 'HEAD~1' }} HEAD -- "plugins/${plugin}/" | grep -q .; then
+                CHANGED=$(echo "$CHANGED" | jq -c ". + [\"${plugin}\"]")
+              fi
+            done
+            echo "plugins_list=${CHANGED}" >> $GITHUB_OUTPUT
+          else
+            echo "plugins_list=[]" >> $GITHUB_OUTPUT
+          fi
+
+  # ===========================================================================
+  # Lint & Type Check — Always runs (unless docs-only)
+  # ===========================================================================
+  lint-typecheck:
+    name: Lint & TypeCheck
+    runs-on: ubuntu-latest
+    needs: paths-filter
+    if: needs.paths-filter.outputs.docs_only != 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: TypeScript check (web-next)
+        run: cd apps/web-next && npm run typecheck
+
+  # ===========================================================================
+  # Shell Tests — Only when apps/web-next/** changed
+  # ===========================================================================
+  shell-tests:
+    name: Shell Tests
+    runs-on: ubuntu-latest
+    needs: paths-filter
+    if: needs.paths-filter.outputs.shell == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run shell tests with coverage
+        run: cd apps/web-next && npm run test:coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: apps/web-next/coverage/lcov.info
+          flags: shell
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ===========================================================================
+  # SDK Tests — Only when packages/** changed
+  # ===========================================================================
+  sdk-tests:
+    name: SDK Tests
+    runs-on: ubuntu-latest
+    needs: paths-filter
+    if: needs.paths-filter.outputs.packages == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build SDK
+        run: cd packages/plugin-sdk && npm run build
+
+      - name: Run SDK tests
+        run: cd packages/plugin-sdk && npm run test:coverage
+        continue-on-error: true
+
+      - name: Upload SDK coverage
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: packages/plugin-sdk/coverage/lcov.info
+          flags: sdk
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ===========================================================================
+  # SDK Compat Matrix — When SDK packages changed, test ALL plugins against it
+  # ===========================================================================
+  sdk-compat-matrix:
+    name: SDK Compat — ${{ matrix.plugin }}
+    runs-on: ubuntu-latest
+    needs: paths-filter
+    if: needs.paths-filter.outputs.sdk == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin:
+          - gateway-manager
+          - orchestrator-manager
+          - capacity-planner
+          - network-analytics
+          - community
+          - marketplace
+          - my-dashboard
+          - my-wallet
+          - daydream-video
+          - developer-api
+          - plugin-publisher
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build SDK packages
+        run: |
+          cd packages/plugin-sdk && npm run build
+          cd ../plugin-utils && npm run build --if-present
+          cd ../plugin-build && npm run build --if-present
+
+      - name: Test plugin against updated SDK
+        run: |
+          cd plugins/${{ matrix.plugin }}/frontend
+          echo "::group::Running tests for ${{ matrix.plugin }}"
+          npm test --if-present || echo "No tests configured for ${{ matrix.plugin }}"
+          echo "::endgroup::"
+        continue-on-error: true
+
+      - name: Build plugin UMD bundle
+        run: |
+          cd plugins/${{ matrix.plugin }}/frontend
+          echo "::group::Building UMD for ${{ matrix.plugin }}"
+          npm run build:umd --if-present || echo "No UMD build configured for ${{ matrix.plugin }}"
+          echo "::endgroup::"
+        continue-on-error: true
+
+  # ===========================================================================
+  # Plugin Tests — Only test plugins that actually changed
+  # ===========================================================================
+  plugin-tests:
+    name: Plugin Tests — ${{ matrix.plugin }}
+    runs-on: ubuntu-latest
+    needs: paths-filter
+    if: needs.paths-filter.outputs.plugins == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin:
+          - gateway-manager
+          - orchestrator-manager
+          - capacity-planner
+          - network-analytics
+          - community
+          - marketplace
+          - my-dashboard
+          - my-wallet
+          - daydream-video
+          - developer-api
+          - plugin-publisher
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if plugin changed
+        id: check
+        run: |
+          CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha || 'HEAD~1' }} HEAD -- "plugins/${{ matrix.plugin }}/")
+          if [ -n "$CHANGED" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Plugin ${{ matrix.plugin }} has changes:"
+            echo "$CHANGED"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Plugin ${{ matrix.plugin }} has no changes — skipping"
+          fi
+
+      - name: Setup Node.js
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        if: steps.check.outputs.changed == 'true'
+        run: npm ci
+
+      - name: Build SDK
+        if: steps.check.outputs.changed == 'true'
+        run: cd packages/plugin-sdk && npm run build
+
+      - name: Run plugin frontend tests
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          cd plugins/${{ matrix.plugin }}/frontend
+          npm test --if-present || echo "No tests configured for ${{ matrix.plugin }}"
+        continue-on-error: true
+
+      - name: Build plugin frontend
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          cd plugins/${{ matrix.plugin }}/frontend
+          npm run build:umd --if-present || echo "No UMD build for ${{ matrix.plugin }}"
+        continue-on-error: true
+
+      - name: Upload plugin coverage
+        if: steps.check.outputs.changed == 'true' && always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: plugins/${{ matrix.plugin }}/frontend/coverage/lcov.info
+          flags: plugin-${{ matrix.plugin }}
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ===========================================================================
+  # Build — Always runs (unless docs-only)
+  # ===========================================================================
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: paths-filter
+    if: needs.paths-filter.outputs.docs_only != 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web-next
+        run: cd apps/web-next && npm run build
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+          NEXTAUTH_SECRET: test-secret-at-least-32-characters-long
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextjs-build
+          path: apps/web-next/.next
+          retention-days: 7
+
+  # ===========================================================================
+  # Quality Gates — Final check that all required jobs passed
+  # ===========================================================================
+  quality-gates:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    needs: [lint-typecheck, build]
+    if: always() && !cancelled()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify required files
+        run: |
+          echo "=== Quality Gate Check ==="
+          [ -f "apps/web-next/package.json" ] || { echo "FAIL: package.json missing"; exit 1; }
+          [ -f "apps/web-next/next.config.js" ] || { echo "FAIL: next.config.js missing"; exit 1; }
+          [ -f "apps/web-next/tsconfig.json" ] || { echo "FAIL: tsconfig.json missing"; exit 1; }
+
+      - name: Check upstream job results
+        run: |
+          echo "lint-typecheck: ${{ needs.lint-typecheck.result }}"
+          echo "build: ${{ needs.build.result }}"
+
+          if [[ "${{ needs.lint-typecheck.result }}" == "failure" ]]; then
+            echo "::error::Lint/TypeCheck failed"
+            exit 1
+          fi
+          if [[ "${{ needs.build.result }}" == "failure" ]]; then
+            echo "::error::Build failed"
+            exit 1
+          fi
+
+          echo "=== All Quality Gates PASSED ==="

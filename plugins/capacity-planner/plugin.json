@@ -1,0 +1,63 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "capacity-planner",
+  "displayName": "Capacity Planner",
+  "version": "1.0.0",
+  "description": "Coordinate GPU capacity requests between gateways and orchestrators with soft commits and deadline tracking.",
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io",
+    "url": "https://naap.io"
+  },
+  "repository": "https://github.com/naap/plugins/tree/main/capacity-planner",
+  "license": "MIT",
+  "keywords": ["capacity", "planning", "gpu", "coordination"],
+  "category": "operations",
+  
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+  
+  "frontend": {
+    "entry": "./frontend/dist/production/capacity-planner.js",
+    "devPort": 3003,
+    "routes": [
+      "/capacity",
+      "/capacity/*"
+    ],
+    "navigation": {
+      "label": "Capacity",
+      "icon": "Zap",
+      "order": 30,
+      "group": "operations"
+    }
+  },
+  
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devPort": 4003,
+    "port": 4103,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/capacity-planner",
+    "resources": {
+      "memory": "256Mi",
+      "cpu": "0.25"
+    }
+  },
+  
+  "integrations": {
+    "required": [],
+    "optional": []
+  },
+  
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme"],
+    "apis": [],
+    "external": []
+  },
+  
+  "config": {
+    "schema": {}
+  }
+}

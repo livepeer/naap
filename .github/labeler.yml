@@ -1,0 +1,80 @@
+# ---------------------------------------------------------------------------
+# Path-based label configuration for actions/labeler@v5
+# Automatically applies labels to PRs based on changed file paths.
+# ---------------------------------------------------------------------------
+
+# --- App / Shell ---
+scope/shell:
+  - changed-files:
+      - any-glob-to-any-file: 'apps/web-next/**'
+
+# --- SDK ---
+scope/sdk:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/plugin-sdk/**'
+
+# --- Shared packages (broader) ---
+scope/packages:
+  - changed-files:
+      - any-glob-to-any-file: 'packages/**'
+
+# --- Infrastructure / CI / DevOps ---
+scope/infra:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'bin/**'
+          - 'docker-compose*'
+          - 'vercel.json'
+
+# --- Backend services ---
+scope/backend:
+  - changed-files:
+      - any-glob-to-any-file: 'services/**'
+
+# ---------------------------------------------------------------------------
+# Per-plugin labels (one label per plugin directory)
+# ---------------------------------------------------------------------------
+plugin/gateway-manager:
+  - changed-files:
+      - any-glob-to-any-file: 'plugins/gateway-manager/**'
+
+plugin/orchestrator-manager:
+  - changed-files:
+      - any-glob-to-any-file: 'plugins/orchestrator-manager/**'
+
+plugin/capacity-planner:
+  - changed-files:
+      - any-glob-to-any-file: 'plugins/capacity-planner/**'
+
+plugin/network-analytics:
+  - changed-files:
+      - any-glob-to-any-file: 'plugins/network-analytics/**'
+
+plugin/community:
+  - changed-files:
+      - any-glob-to-any-file: 'plugins/community/**'
+
+plugin/marketplace:
+  - changed-files:
+      - any-glob-to-any-file: 'plugins/marketplace/**'
+
+plugin/my-dashboard:
+  - changed-files:
+      - any-glob-to-any-file: 'plugins/my-dashboard/**'
+
+plugin/my-wallet:
+  - changed-files:
+      - any-glob-to-any-file: 'plugins/my-wallet/**'
+
+plugin/daydream-video:
+  - changed-files:
+      - any-glob-to-any-file: 'plugins/daydream-video/**'
+
+plugin/developer-api:
+  - changed-files:
+      - any-glob-to-any-file: 'plugins/developer-api/**'
+
+plugin/plugin-publisher:
+  - changed-files:
+      - any-glob-to-any-file: 'plugins/plugin-publisher/**'

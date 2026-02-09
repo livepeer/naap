@@ -1,0 +1,14 @@
+import { Router } from 'express';
+import { prisma } from '../db/client.js';
+
+export const router = Router();
+
+// Example route
+router.get('/', async (req, res) => {
+  res.json({ 
+    message: '{{PLUGIN_NAME}} API',
+    version: '0.1.0',
+  });
+});
+
+// Add your routes here

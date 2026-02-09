@@ -1,0 +1,237 @@
+---
+title: "Troubleshooting"
+description: "Solutions for common issues when developing with the NaaP platform."
+order: 10
+---
+
+## Quick Diagnostics
+
+Run these commands to quickly identify issues:
+
+```bash
+# Check all service health
+./bin/start.sh validate
+
+# Check running services
+./bin/start.sh status
+
+# Check Docker containers
+docker ps | grep naap
+```
+
+## Startup Failures
+
+### Base Service Won't Start
+
+**Symptom**: `base-svc failed to start on port 4000`
+
+**Common causes**:
+
+1. **Database not running**:
+```bash
+docker ps | grep naap-db
+# If not running:
+docker start naap-db
+# Or re-create:
+./bin/setup.sh
+```
+
+2. **Port 4000 already in use**:
+```bash
+lsof -i :4000
+kill <PID>
+./bin/start.sh
+```
+
+3. **Missing .env file**:
+```bash
+# Auto-creates all missing .env files
+./bin/start.sh  # ensure_env_files runs automatically
+```
+
+### Shell Won't Start
+
+**Symptom**: `Shell failed to start on port 3000`
+
+1. **Missing .env.local**:
+```bash
+# Check if it exists
+ls apps/web-next/.env.local
+# If missing, re-run setup
+./bin/setup.sh
+```
+
+2. **Port 3000 in use**:
+```bash
+lsof -i :3000
+kill <PID>
+```
+
+3. **Node modules corrupted**:
+```bash
+rm -rf node_modules
+npm install
+```
+
+### Plugin Not Loading in Browser
+
+**Symptom**: Plugin shows as grey/disabled or errors in console
+
+1. **Check CDN bundle exists**:
+```bash
+curl -sf http://localhost:3000/cdn/plugins/<plugin-name>/1.0.0/<plugin-name>.js | head -1
+```
+
+2. **Rebuild the plugin**:
+```bash
+cd plugins/<plugin-name>/frontend
+npm run build
+```
+
+3. **Check plugin is registered**:
+```bash
+curl -sf http://localhost:4000/api/v1/base/plugins | python3 -m json.tool
+```
+
+## Database Issues
+
+### Connection Refused
+
+**Symptom**: `ECONNREFUSED 127.0.0.1:5432`
+
+```bash
+# Check if Docker is running
+docker info
+
+# Check if naap-db container exists
+docker ps -a | grep naap-db
+
+# Start it
+docker start naap-db
+
+# Or recreate from scratch
+docker rm -f naap-db
+./bin/setup.sh
+```
+
+### Schema Missing Tables
+
+**Symptom**: `validate` shows schema exists but no tables
+
+```bash
+# Push the unified Prisma schema
+cd packages/database
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap" npx prisma db push
+```
+
+### Prisma Client Not Generated
+
+**Symptom**: `Cannot find module './generated/client/index.js'`
+
+```bash
+cd packages/database
+npx prisma generate
+```
+
+## Build Issues
+
+### Plugin Build Fails
+
+```bash
+# Check the build log
+cat logs/<plugin-name>-build.log
+
+# Try building manually with verbose output
+cd plugins/<plugin-name>/frontend
+npx vite build --mode production
+```
+
+### TypeScript Errors
+
+```bash
+# Check types across the monorepo
+npx tsc --noEmit
+
+# Check a specific package
+cd packages/plugin-sdk
+npx tsc --noEmit
+```
+
+## Network/Port Issues
+
+### Default Port Assignments
+
+| Service | Port |
+|---------|------|
+| Next.js Shell | 3000 |
+| Plugin Server | 3100 |
+| Base Service | 4000 |
+| Gateway Manager | 4001 |
+| Orchestrator Manager | 4002 |
+| Capacity Planner | 4003 |
+| Network Analytics | 4004 |
+| Marketplace | 4005 |
+| Community | 4006 |
+| My Wallet | 4007 |
+| My Dashboard | 4008 |
+| Daydream Video | 4010 |
+| Developer API | 4011 |
+| Plugin Publisher | 4012 |
+| PostgreSQL | 5432 |
+
+### Kill All NaaP Processes
+
+```bash
+./bin/start.sh stop
+# If that doesn't work:
+pkill -f "next dev" 2>/dev/null
+pkill -f "tsx watch" 2>/dev/null
+```
+
+## Environment Issues
+
+### Missing .env Files After Clone
+
+The `.env` files are gitignored for security. They're auto-created by:
+
+```bash
+# Auto-creates all missing .env files
+./bin/start.sh       # Creates on every startup
+# OR
+./bin/setup.sh       # Creates during initial setup
+```
+
+### Wrong Database URL in .env
+
+```bash
+# Check what's configured
+grep DATABASE_URL plugins/*/backend/.env
+
+# All should point to:
+# postgresql://postgres:postgres@localhost:5432/naap?schema=plugin_<name>
+```
+
+## Performance
+
+### Slow Next.js Startup
+
+First startup compiles all pages. Subsequent starts are faster due to `.next` cache.
+
+```bash
+# Clear Next.js cache if needed
+rm -rf apps/web-next/.next
+```
+
+### Slow Plugin Builds
+
+```bash
+# Build plugins in parallel
+npm run build:plugins
+```
+
+## Getting Help
+
+1. Run `./bin/start.sh validate` for a comprehensive health check
+2. Check logs: `./bin/start.sh logs <service>`
+3. Check the [Architecture docs](/docs/concepts/architecture) for understanding
+4. File an issue on [GitHub](https://github.com/qianghan/NaaP/issues)

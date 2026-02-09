@@ -1,0 +1,62 @@
+# {{PLUGIN_DISPLAY_NAME}}
+
+{{PLUGIN_DESCRIPTION}}
+
+## Installation
+
+### From Marketplace
+
+1. Navigate to the Marketplace in your NAAP shell
+2. Search for "{{PLUGIN_DISPLAY_NAME}}"
+3. Click Install
+
+### Manual Installation
+
+```bash
+naap-plugin install {{PLUGIN_NAME}}
+```
+
+## Development
+
+### Prerequisites
+
+- Node.js 20+
+- npm 10+
+- Docker (for database)
+- NAAP CLI (`npm install -g @naap/plugin-sdk`)
+
+### Getting Started
+
+```bash
+# Install dependencies
+npm install
+cd frontend && npm install
+cd ../backend && npm install
+
+# Start development servers
+naap-plugin dev
+```
+
+### Building
+
+```bash
+naap-plugin build
+```
+
+### Testing
+
+```bash
+naap-plugin test
+```
+
+### Publishing
+
+```bash
+naap-plugin version patch
+naap-plugin package
+naap-plugin publish
+```
+
+## License
+
+MIT

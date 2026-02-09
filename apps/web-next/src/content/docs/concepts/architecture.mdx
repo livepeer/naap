@@ -1,0 +1,117 @@
+---
+title: "Architecture"
+description: "Deep dive into the NaaP micro-frontend architecture and how the shell, plugins, and services interact."
+order: 2
+---
+
+## High-Level Architecture
+
+NaaP follows a **micro-frontend architecture** where the shell application acts as a host and plugins are independently deployable frontends loaded at runtime.
+
+```
+┌─────────────────────────────────────────────────────┐
+│                 Shell (Next.js Host)                 │
+│                                                     │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │
+│  │   Auth   │  │  Theme   │  │  Plugin Registry  │  │
+│  └──────────┘  └──────────┘  └──────────────────┘  │
+│                                                     │
+│  ┌───────────────────────────────────────────────┐  │
+│  │            Plugin Container (UMD)             │  │
+│  │  ┌────────┐  ┌────────┐  ┌────────┐          │  │
+│  │  │Plugin A│  │Plugin B│  │Plugin C│  ...      │  │
+│  │  │(React) │  │(React) │  │(React) │          │  │
+│  │  └───┬────┘  └───┬────┘  └───┬────┘          │  │
+│  └──────┼───────────┼───────────┼────────────────┘  │
+└─────────┼───────────┼───────────┼───────────────────┘
+          │           │           │
+          ▼           ▼           ▼
+   ┌──────────┐ ┌──────────┐ ┌──────────┐
+   │Backend A │ │Backend B │ │Backend C │
+   │(Express) │ │(Express) │ │(Express) │
+   └────┬─────┘ └────┬─────┘ └────┬─────┘
+        │             │            │
+        └──────┬──────┘            │
+               ▼                   ▼
+        ┌─────────────────────────────┐
+        │  @naap/database (shared)    │
+        │  Single PostgreSQL + Schemas│
+        └─────────────────────────────┘
+```
+
+## Core Principles
+
+### 1. Vertical Slicing
+
+Each plugin owns its entire vertical slice:
+- **Frontend**: React components and pages
+- **Backend**: Express API server
+- **Database**: Isolated PostgreSQL schema within the unified database (see [Database Architecture](/docs/concepts/database-architecture))
+- **Documentation**: Plugin-specific docs
+
+This means teams can develop, test, and deploy plugins independently.
+
+### 2. Runtime Loading (UMD)
+
+Plugins are compiled to **UMD (Universal Module Definition)** bundles and loaded at runtime. The shell:
+
+1. Fetches the plugin manifest from the registry
+2. Loads the UMD bundle via a `<script>` tag
+3. Calls the plugin's `mount()` function with the shell context
+4. Renders the plugin inside a container element
+
+### 3. Shared Context via SDK
+
+Plugins receive a `ShellContext` object that provides access to all shell services:
+
+```typescript
+interface ShellContext {
+  auth: IAuthService;        // Authentication & authorization
+  navigate: NavigateFunction; // Client-side navigation
+  eventBus: IEventBus;       // Inter-plugin communication
+  theme: IThemeService;      // Theme management
+  notifications: INotificationService;  // Toast notifications
+  integrations: IIntegrationService;    // AI, storage, email
+  logger: ILoggerService;    // Structured logging
+  permissions: IPermissionService;      // Permission checking
+  tenant?: ITenantService;   // Tenant context
+  team?: ITeamContext;       // Team context
+}
+```
+
+### 4. API Proxy
+
+Plugin backend requests are proxied through the shell:
+
+```
+Browser → /api/v1/my-plugin/data
+  → Next.js API Route → Plugin Backend (Express)
+```
+
+This ensures:
+- Consistent authentication across all plugins
+- CORS is handled at the shell level
+- Plugin backends don't need to be publicly accessible
+
+## Request Flow
+
+1. User navigates to `/my-plugin`
+2. Middleware rewrites to `/plugins/myPlugin`
+3. Plugin loader fetches manifest from registry
+4. UMD bundle is loaded from CDN / Vercel Blob
+5. `mount()` is called with shell context
+6. Plugin renders inside the container
+7. API calls go through `/api/v1/my-plugin/*` proxy
+
+## Deployment Model
+
+### Plugin Assets
+Plugin frontend bundles are stored in **Vercel Blob Storage** and served through a CDN route at `/cdn/plugins/[name]/[version]/[file]`.
+
+### Plugin Backends
+Plugin backend servers run as independent processes or serverless functions. The shell proxies API requests to the appropriate backend.
+
+### Multi-Tenant
+- **Physical deployment**: One deployment per plugin (shared across users)
+- **Virtual installations**: Per-user/team installations with isolated configs
+- **Reference counting**: Cleanup when the last user uninstalls

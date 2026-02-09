@@ -1,0 +1,15 @@
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+async function main() {
+  console.log('Seeding database...');
+  
+  // Add your seed data here
+  
+  console.log('Seeding complete!');
+}
+
+main()
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());

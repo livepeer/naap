@@ -1,0 +1,210 @@
+---
+title: "Frontend Development"
+description: "Build plugin frontends with React, SDK hooks, and the NaaP design system."
+order: 2
+---
+
+## Overview
+
+Plugin frontends are React applications that run inside the NaaP shell. They use the **Plugin SDK** to access shell services and follow the NaaP design system for consistent UI.
+
+## Project Setup
+
+Every plugin frontend has this structure:
+
+```
+frontend/
+├── src/
+│   ├── App.tsx           # Root component
+│   ├── mount.tsx         # Shell mount/unmount
+│   └── pages/            # Plugin pages
+├── vite.config.ts        # UMD build config (createPluginConfig)
+├── tsconfig.json
+└── package.json
+```
+
+## Using SDK Hooks
+
+### Authentication
+
+```typescript
+import { useAuth, useUserHasRole } from '@naap/plugin-sdk';
+
+function MyComponent() {
+  const auth = useAuth();
+  const isAdmin = useUserHasRole('admin');
+
+  if (!auth.isAuthenticated()) {
+    return <div>Please log in</div>;
+  }
+
+  return (
+    <div>
+      <p>Welcome, {auth.getUser()?.displayName}</p>
+      {isAdmin && <AdminPanel />}
+    </div>
+  );
+}
+```
+
+### API Calls
+
+```typescript
+import { usePluginApi } from '@naap/plugin-sdk';
+
+function DataList() {
+  const api = usePluginApi();
+  const [data, setData] = useState([]);
+
+  useEffect(() => {
+    api.get('/items').then(setData);
+  }, []);
+
+  return (
+    <ul>
+      {data.map(item => (
+        <li key={item.id}>{item.name}</li>
+      ))}
+    </ul>
+  );
+}
+```
+
+### Event Communication
+
+```typescript
+import { useEvents } from '@naap/plugin-sdk';
+
+function StatusWidget() {
+  const events = useEvents();
+  const [status, setStatus] = useState('idle');
+
+  useEffect(() => {
+    // Listen for events from other plugins
+    const unsub = events.on('gateway:status-changed', (data) => {
+      setStatus(data.status);
+    });
+    return unsub;
+  }, [events]);
+
+  // Emit events for other plugins
+  const handleAction = () => {
+    events.emit('task-tracker:task-completed', { taskId: '123' });
+  };
+
+  return <button onClick={handleAction}>Complete ({status})</button>;
+}
+```
+
+### Notifications
+
+```typescript
+import { useNotify } from '@naap/plugin-sdk';
+
+function SaveButton() {
+  const notify = useNotify();
+
+  const handleSave = async () => {
+    try {
+      await saveData();
+      notify.success('Saved successfully!');
+    } catch (error) {
+      notify.error('Failed to save. Please try again.');
+    }
+  };
+
+  return <button onClick={handleSave}>Save</button>;
+}
+```
+
+### Theme-Aware Components
+
+```typescript
+import { useThemeService } from '@naap/plugin-sdk';
+
+function ThemedCard({ children }) {
+  const theme = useThemeService();
+
+  return (
+    <div className={`rounded-xl border p-4 ${
+      theme.mode === 'dark'
+        ? 'bg-gray-800 border-gray-700'
+        : 'bg-white border-gray-200'
+    }`}>
+      {children}
+    </div>
+  );
+}
+```
+
+## Styling
+
+### Tailwind CSS
+
+Plugins should use Tailwind CSS classes for styling. The shell provides CSS variables for all theme colors:
+
+```css
+/* Available CSS variables */
+--background
+--foreground
+--primary
+--primary-foreground
+--muted
+--muted-foreground
+--border
+--card
+--card-foreground
+```
+
+### Using the Theme
+
+```typescript
+// Use semantic color classes
+<div className="bg-background text-foreground">
+  <h1 className="text-primary">Title</h1>
+  <p className="text-muted-foreground">Description</p>
+  <div className="bg-card border border-border rounded-xl">
+    Card content
+  </div>
+</div>
+```
+
+## Routing Within a Plugin
+
+Plugins can have multiple pages using their route prefix:
+
+```typescript
+// plugin.json routes: ["/task-tracker", "/task-tracker/*"]
+
+function App() {
+  const path = window.location.pathname;
+
+  if (path === '/task-tracker/settings') {
+    return <SettingsPage />;
+  }
+
+  return <TaskListPage />;
+}
+```
+
+## Shared UI Components
+
+Use components from `@naap/ui` for consistent design:
+
+```typescript
+import { Card, Badge, DataTable, SearchInput } from '@naap/ui';
+
+function PluginPage() {
+  return (
+    <Card>
+      <SearchInput placeholder="Search tasks..." />
+      <DataTable columns={columns} data={data} />
+      <Badge variant="success">Active</Badge>
+    </Card>
+  );
+}
+```
+
+## Hot Reload
+
+During development, `naap-plugin dev` enables hot module replacement. Changes to your React components update instantly in the browser without losing state.

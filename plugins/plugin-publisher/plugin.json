@@ -1,0 +1,93 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "plugin-publisher",
+  "displayName": "Plugin Publisher",
+  "version": "1.0.0",
+  "description": "Publish, validate, and manage your plugins in the NAAP marketplace. Create API tokens, upload plugins from local folders or GitHub, and track download stats.",
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io",
+    "url": "https://naap.io"
+  },
+  "repository": "https://github.com/naap/plugins/tree/main/plugin-publisher",
+  "license": "MIT",
+  "keywords": ["publisher", "marketplace", "upload", "validate", "deploy"],
+  "category": "developer",
+  
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+  
+  "frontend": {
+    "entry": "./frontend/dist/production/plugin-publisher.js",
+    "devEntry": "./frontend/src/App.tsx",
+    "devPort": 3010,
+    "routes": [
+      "/publish",
+      "/publish/*"
+    ],
+    "navigation": {
+      "label": "Plugin Publisher",
+      "icon": "Upload",
+      "order": 75,
+      "group": "developer"
+    }
+  },
+  
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devEntry": "./backend/src/server.ts",
+    "devPort": 4010,
+    "port": 4110,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/plugin-publisher",
+    "resources": {
+      "memory": "256Mi",
+      "cpu": "0.25"
+    }
+  },
+  
+  "integrations": {
+    "required": [],
+    "optional": ["github", "docker"]
+  },
+  
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme", "auth"],
+    "apis": ["registry"],
+    "external": ["github.com", "hub.docker.com"]
+  },
+  
+  "rbac": {
+    "roles": [
+      {
+        "name": "plugin-publisher:admin",
+        "displayName": "Plugin Publisher Admin",
+        "description": "Full access to plugin publishing features",
+        "permissions": ["publish:read", "publish:create", "publish:update", "publish:delete", "publish:admin"]
+      },
+      {
+        "name": "plugin-publisher:user",
+        "displayName": "Plugin Publisher User",
+        "description": "Can publish and manage own plugins",
+        "permissions": ["publish:read", "publish:create", "publish:update"]
+      }
+    ]
+  },
+  
+  "config": {
+    "schema": {
+      "maxUploadSize": {
+        "type": "number",
+        "default": 50,
+        "description": "Maximum upload size in MB"
+      },
+      "allowedCategories": {
+        "type": "string",
+        "default": "monitoring,analytics,developer,social,finance,platform,other",
+        "description": "Comma-separated list of allowed plugin categories"
+      }
+    }
+  }
+}

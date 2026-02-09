@@ -1,0 +1,64 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "marketplace",
+  "displayName": "Plugin Marketplace",
+  "version": "1.0.0",
+  "description": "Discover, install, and manage plugins to extend your NAAP experience.",
+  "isCore": true,
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io",
+    "url": "https://naap.io"
+  },
+  "repository": "https://github.com/naap/plugins/tree/main/marketplace",
+  "license": "MIT",
+  "keywords": ["marketplace", "plugins", "extensions", "install"],
+  "category": "platform",
+  
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+  
+  "frontend": {
+    "entry": "./frontend/dist/production/marketplace.js",
+    "devPort": 3005,
+    "routes": [
+      "/marketplace",
+      "/marketplace/*"
+    ],
+    "navigation": {
+      "label": "Marketplace",
+      "icon": "ShoppingBag",
+      "order": 50,
+      "group": "platform"
+    }
+  },
+  
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devPort": 4005,
+    "port": 4105,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/marketplace",
+    "resources": {
+      "memory": "256Mi",
+      "cpu": "0.25"
+    }
+  },
+  
+  "integrations": {
+    "required": [],
+    "optional": []
+  },
+  
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme"],
+    "apis": [],
+    "external": []
+  },
+  
+  "config": {
+    "schema": {}
+  }
+}

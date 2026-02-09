@@ -1,0 +1,162 @@
+---
+title: "Plugin System"
+description: "How the NaaP plugin system works: types, lifecycle, manifest format, and loading mechanism."
+order: 3
+---
+
+## Plugin Types
+
+NaaP supports three types of plugins:
+
+### Full-Stack Plugins
+
+Complete features with frontend UI, backend API, and database:
+
+- **Frontend**: React app compiled to UMD
+- **Backend**: Express server with API routes
+- **Database**: PostgreSQL via Prisma ORM
+
+Examples: Dashboard, Gateway Manager, Community Forum
+
+### Frontend-Only Plugins
+
+UI components without a backend:
+
+- **Frontend**: React app compiled to UMD
+- Uses shell API proxy for data (e.g., external APIs)
+
+Examples: Network Analytics (reads from existing APIs), Wallet (Web3 integration)
+
+### Backend-Only Plugins
+
+API services without a UI:
+
+- **Backend**: Express server providing API endpoints
+- Other plugins can consume these APIs
+
+Examples: Data aggregation services, integration adapters
+
+## Plugin Lifecycle
+
+### 1. Discovery
+
+The shell queries the plugin registry to find available plugins:
+
+```typescript
+// Shell fetches installed plugins for the current user/team
+GET /api/v1/plugins?installed=true
+```
+
+### 2. Registration
+
+Plugins are registered in the database with their manifest:
+
+```json
+{
+  "name": "my-plugin",
+  "displayName": "My Plugin",
+  "version": "1.0.0",
+  "enabled": true,
+  "routes": ["/my-plugin", "/my-plugin/*"],
+  "order": 50
+}
+```
+
+### 3. Loading
+
+When a user navigates to a plugin route:
+
+1. The **Plugin Loader** component mounts
+2. It fetches the plugin manifest and UMD entry point URL
+3. The UMD bundle is loaded via a script tag
+4. The global `mount()` function is called with a container element and shell context
+
+### 4. Mounting
+
+```typescript
+// Plugin's mount.tsx
+export function mount(container: HTMLElement, context: ShellContext) {
+  const root = createRoot(container);
+  root.render(
+    <ShellProvider value={context}>
+      <App />
+    </ShellProvider>
+  );
+
+  // Return cleanup function
+  return () => root.unmount();
+}
+```
+
+### 5. Running
+
+While mounted, the plugin:
+- Receives updates through the shell context (theme changes, team switches)
+- Can emit and listen for events on the event bus
+- Makes API calls through the shell proxy
+
+### 6. Unmounting
+
+When the user navigates away:
+- The cleanup function returned by `mount()` is called
+- React root is unmounted
+- Event listeners are cleaned up
+
+## Plugin Manifest (`plugin.json`)
+
+The manifest file is the source of truth for a plugin's configuration:
+
+```json
+{
+  "name": "my-plugin",
+  "displayName": "My Plugin",
+  "version": "1.0.0",
+  "description": "A brief description",
+  "category": "monitoring",
+
+  "frontend": {
+    "entry": "./frontend/dist/production/my-plugin.js",
+    "devPort": 3010,
+    "routes": ["/my-plugin", "/my-plugin/*"],
+    "navigation": {
+      "label": "My Plugin",
+      "icon": "Activity",
+      "section": "main",
+      "order": 50
+    }
+  },
+
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "port": 4010,
+    "apiPrefix": "/api/v1/my-plugin",
+    "healthCheck": "/healthz"
+  },
+
+  "database": {
+    "type": "postgresql",
+    "schema": "./backend/prisma/schema.prisma"
+  },
+
+  "permissions": {
+    "required": ["read:data"],
+    "optional": ["write:data", "admin:settings"]
+  }
+}
+```
+
+## Plugin Categories
+
+| Category | Description |
+|---|---|
+| `analytics` | Data visualization and reporting |
+| `communication` | Messaging, forums, notifications |
+| `developer-tools` | Development utilities and APIs |
+| `finance` | Tokens, wallets, treasury |
+| `infrastructure` | Node management, scaling |
+| `integration` | External service connectors |
+| `monitoring` | Health checks, dashboards |
+| `networking` | Network protocols, routing |
+| `security` | Auth, encryption, auditing |
+| `storage` | File and data storage |
+| `other` | Uncategorized plugins |

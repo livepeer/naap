@@ -1,0 +1,73 @@
+# ---------------------------------------------------------------------------
+# Detect Prisma schema changes and flag PRs that include database migrations.
+# Adds a label, posts a warning comment, and requests a core team review.
+# ---------------------------------------------------------------------------
+name: Migration Check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  detect-migrations:
+    name: Check for Prisma schema changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect Prisma file changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            prisma:
+              - '**/*.prisma'
+
+      - name: Flag migration PR
+        if: steps.filter.outputs.prisma == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const marker = '<!-- migration-check-bot -->';
+
+            // Add migration label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: ['has-migration'],
+            });
+
+            // Check for existing bot comment to avoid duplicates
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+
+            if (!comments.some(c => c.body.includes(marker))) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: [
+                  marker,
+                  '🗃️ **Database Migration Detected**',
+                  '',
+                  'This PR includes changes to Prisma schema files. Please ensure:',
+                  '',
+                  '- [ ] Migration files have been generated (`npx prisma migrate dev`)',
+                  '- [ ] Migration is backward-compatible or a rollback plan exists',
+                  '- [ ] Data migration scripts are included if needed',
+                  '- [ ] The migration has been tested against a staging database',
+                  '',
+                  'Requesting review from the core team: @livepeer/core',
+                ].join('\n'),
+              });
+            }

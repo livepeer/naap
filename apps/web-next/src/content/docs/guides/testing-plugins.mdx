@@ -1,0 +1,206 @@
+---
+title: "Testing Plugins"
+description: "Unit testing with Vitest and end-to-end testing with Playwright for NaaP plugins."
+order: 4
+---
+
+## Overview
+
+NaaP supports two testing approaches:
+
+- **Unit Tests**: Vitest + React Testing Library for component testing
+- **E2E Tests**: Playwright for full integration testing
+
+## Unit Testing with Vitest
+
+### Setup
+
+```bash
+npm install -D vitest @testing-library/react @testing-library/jest-dom jsdom
+```
+
+Create `vitest.config.ts`:
+
+```typescript
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.ts'],
+  },
+});
+```
+
+### Mock Shell Provider
+
+The SDK provides a `MockShellProvider` for testing:
+
+```typescript
+import { render, screen } from '@testing-library/react';
+import { MockShellProvider } from '@naap/plugin-sdk/testing';
+import App from './App';
+
+describe('App', () => {
+  it('renders the main page', () => {
+    render(
+      <MockShellProvider>
+        <App />
+      </MockShellProvider>
+    );
+
+    expect(screen.getByText('Task Tracker')).toBeInTheDocument();
+  });
+
+  it('shows admin panel for admin users', () => {
+    render(
+      <MockShellProvider
+        auth={{
+          user: {
+            id: '1',
+            roles: ['admin'],
+            permissions: [{ resource: 'admin', action: 'access' }],
+          },
+        }}
+      >
+        <App />
+      </MockShellProvider>
+    );
+
+    expect(screen.getByText('Admin Panel')).toBeInTheDocument();
+  });
+});
+```
+
+### Testing API Calls
+
+```typescript
+import { render, screen, waitFor } from '@testing-library/react';
+import { MockShellProvider } from '@naap/plugin-sdk/testing';
+import { vi } from 'vitest';
+import TaskList from './TaskList';
+
+// Mock the fetch function
+global.fetch = vi.fn();
+
+describe('TaskList', () => {
+  beforeEach(() => {
+    (fetch as any).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        tasks: [
+          { id: '1', title: 'Test Task', status: 'todo' },
+        ],
+      }),
+    });
+  });
+
+  it('loads and displays tasks', async () => {
+    render(
+      <MockShellProvider>
+        <TaskList />
+      </MockShellProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Test Task')).toBeInTheDocument();
+    });
+  });
+});
+```
+
+### Testing Events
+
+```typescript
+import { MockShellProvider, createMockEventBus } from '@naap/plugin-sdk/testing';
+
+describe('Event handling', () => {
+  it('reacts to theme changes', () => {
+    const mockEvents = createMockEventBus();
+
+    render(
+      <MockShellProvider eventBus={mockEvents}>
+        <MyComponent />
+      </MockShellProvider>
+    );
+
+    // Simulate a theme change event
+    mockEvents.emit('theme:change', { mode: 'dark' });
+
+    expect(screen.getByTestId('theme-indicator')).toHaveTextContent('dark');
+  });
+});
+```
+
+## Running Tests
+
+```bash
+# Run all tests
+naap-plugin test
+
+# Watch mode
+naap-plugin test --watch
+
+# Coverage report
+naap-plugin test --coverage
+```
+
+## E2E Testing with Playwright
+
+### Setup
+
+```bash
+npm install -D @playwright/test
+npx playwright install
+```
+
+### Example E2E Test
+
+```typescript
+import { test, expect } from '@playwright/test';
+
+test.describe('Task Tracker Plugin', () => {
+  test.beforeEach(async ({ page }) => {
+    // Login to the shell
+    await page.goto('http://localhost:3000/login');
+    await page.fill('[name="email"]', 'test@example.com');
+    await page.fill('[name="password"]', 'password');
+    await page.click('button[type="submit"]');
+    await page.waitForURL('/dashboard');
+  });
+
+  test('can add a new task', async ({ page }) => {
+    // Navigate to plugin
+    await page.goto('http://localhost:3000/task-tracker');
+
+    // Add a task
+    await page.fill('input[placeholder*="Add"]', 'My new task');
+    await page.click('button:has-text("Add")');
+
+    // Verify it appears
+    await expect(page.locator('text=My new task')).toBeVisible();
+  });
+
+  test('can mark a task as done', async ({ page }) => {
+    await page.goto('http://localhost:3000/task-tracker');
+
+    // Click the toggle button for the first task
+    await page.click('[data-testid="task-toggle"]');
+
+    // Verify the task is marked as done
+    await expect(page.locator('[data-testid="task-item"]').first())
+      .toHaveClass(/done/);
+  });
+});
+```
+
+## Best Practices
+
+1. **Mock shell services** using `MockShellProvider` instead of real implementations
+2. **Test user interactions** not implementation details
+3. **Use data-testid** attributes for reliable element selection in E2E tests
+4. **Test both light and dark themes** for visual consistency
+5. **Test error states** to ensure graceful degradation

@@ -1,0 +1,302 @@
+---
+title: "SDK Hooks"
+description: "Complete reference for all React hooks provided by @naap/plugin-sdk."
+order: 1
+---
+
+## Authentication Hooks
+
+### useAuth
+
+Returns the authentication service with user state and authorization methods.
+
+```typescript
+import { useAuth } from '@naap/plugin-sdk';
+
+const auth = useAuth();
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getUser()` | `AuthUser \| null` | Current authenticated user |
+| `getToken()` | `Promise<string>` | JWT authentication token |
+| `isAuthenticated()` | `boolean` | Whether user is logged in |
+| `hasRole(role)` | `boolean` | Check if user has a role |
+| `hasPermission(resource, action)` | `boolean` | Check a specific permission |
+
+### useUser
+
+Convenience hook to get the current user directly.
+
+```typescript
+import { useUser } from '@naap/plugin-sdk';
+
+const user = useUser(); // AuthUser | null
+```
+
+### useUserHasRole
+
+Check if the current user has a specific role.
+
+```typescript
+import { useUserHasRole } from '@naap/plugin-sdk';
+
+const isAdmin = useUserHasRole('system:admin'); // boolean
+```
+
+### useUserHasPermission
+
+Check if the current user has a specific permission.
+
+```typescript
+import { useUserHasPermission } from '@naap/plugin-sdk';
+
+const canWrite = useUserHasPermission('plugins', 'write'); // boolean
+```
+
+## Shell Service Hooks
+
+### useShell
+
+Returns the full shell context with all services.
+
+```typescript
+import { useShell } from '@naap/plugin-sdk';
+
+const shell = useShell();
+// shell.auth, shell.navigate, shell.eventBus, shell.theme,
+// shell.notifications, shell.integrations, shell.logger,
+// shell.permissions, shell.tenant, shell.team
+```
+
+### useNotify
+
+Returns the notification service for displaying toasts.
+
+```typescript
+import { useNotify } from '@naap/plugin-sdk';
+
+const notify = useNotify();
+
+notify.success('Saved!');
+notify.error('Failed to save');
+notify.warning('Are you sure?');
+notify.info('Update available');
+```
+
+### useEvents
+
+Returns the event bus for inter-plugin communication.
+
+```typescript
+import { useEvents } from '@naap/plugin-sdk';
+
+const events = useEvents();
+
+// Emit
+events.emit('my-plugin:updated', { id: '123' });
+
+// Listen
+const unsub = events.on('theme:change', (data) => { ... });
+
+// Request/Response
+const result = await events.request('other:get-data', { query: 'test' });
+
+// Handle requests
+events.handleRequest('my:get-data', async (req) => {
+  return { items: await fetchItems(req.query) };
+});
+```
+
+### useThemeService
+
+Returns the theme service for reading and controlling the theme.
+
+```typescript
+import { useThemeService } from '@naap/plugin-sdk';
+
+const theme = useThemeService();
+
+theme.mode;       // 'light' | 'dark'
+theme.toggle();   // Toggle between light/dark
+theme.setMode('dark');
+```
+
+### useLogger
+
+Returns a structured logger scoped to your plugin.
+
+```typescript
+import { useLogger } from '@naap/plugin-sdk';
+
+const logger = useLogger();
+
+logger.info('Plugin loaded', { version: '1.0.0' });
+logger.warn('Deprecated', { feature: 'oldApi' });
+logger.error('Request failed', { status: 500 });
+logger.debug('Cache hit', { key: 'user-123' });
+```
+
+### useNavigate
+
+Returns the navigation function for programmatic routing.
+
+```typescript
+import { useNavigate } from '@naap/plugin-sdk';
+
+const navigate = useNavigate();
+
+navigate('/dashboard');
+navigate('/plugins/my-plugin/settings');
+```
+
+### usePermissions
+
+Returns the permission service for authorization checks.
+
+```typescript
+import { usePermissions } from '@naap/plugin-sdk';
+
+const perms = usePermissions();
+
+perms.can('plugins', 'write');    // boolean
+perms.hasRole('system:admin');    // boolean
+```
+
+## API Client Hooks
+
+### useApiClient
+
+Returns a configured HTTP client with authentication headers.
+
+```typescript
+import { useApiClient } from '@naap/plugin-sdk';
+
+const client = useApiClient();
+
+const data = await client.get('/api/v1/my-plugin/items');
+await client.post('/api/v1/my-plugin/items', { name: 'New' });
+```
+
+### usePluginApi
+
+Returns a simplified API client scoped to your plugin's API prefix.
+
+```typescript
+import { usePluginApi } from '@naap/plugin-sdk';
+
+const api = usePluginApi();
+
+// Automatically prefixes with your plugin's apiPrefix
+const items = await api.get('/items');
+await api.post('/items', { name: 'New' });
+await api.patch('/items/123', { status: 'done' });
+await api.delete('/items/123');
+```
+
+### useAuthHeaders
+
+Returns authentication headers for use with custom fetch calls.
+
+```typescript
+import { useAuthHeaders } from '@naap/plugin-sdk';
+
+const headers = useAuthHeaders();
+// { Authorization: 'Bearer ...', 'X-User-ID': '...' }
+
+const res = await fetch('/api/v1/external', { headers });
+```
+
+## Configuration Hooks
+
+### usePluginConfig
+
+Returns plugin configuration (merged from user, team, and global scopes).
+
+```typescript
+import { usePluginConfig } from '@naap/plugin-sdk';
+
+const config = usePluginConfig();
+// or scoped: usePluginConfig('user') | usePluginConfig('team')
+```
+
+### useConfigValue
+
+Returns a single configuration value with an optional default.
+
+```typescript
+import { useConfigValue } from '@naap/plugin-sdk';
+
+const pageSize = useConfigValue('pageSize', 20);
+const theme = useConfigValue('customTheme', 'default');
+```
+
+## Team & Tenant Hooks
+
+### useTeam
+
+Returns the current team context.
+
+```typescript
+import { useTeam } from '@naap/plugin-sdk';
+
+const team = useTeam();
+// team.id, team.name, team.role
+```
+
+### useTenant
+
+Returns the current tenant context.
+
+```typescript
+import { useTenant } from '@naap/plugin-sdk';
+
+const tenant = useTenant();
+// tenant.id, tenant.name, tenant.config
+```
+
+## Integration Hooks
+
+### useIntegrations
+
+Returns the integration service for AI, storage, and email.
+
+```typescript
+import { useIntegrations } from '@naap/plugin-sdk';
+
+const integrations = useIntegrations();
+
+// AI
+const response = await integrations.ai.complete({
+  prompt: 'Summarize...',
+  model: 'gpt-4',
+});
+
+// Storage
+const url = await integrations.storage.upload(file);
+
+// Email
+await integrations.email.send({ to, subject, body });
+```
+
+### useAI
+
+Shortcut to the AI integration service.
+
+```typescript
+import { useAI } from '@naap/plugin-sdk';
+
+const ai = useAI();
+const result = await ai.complete({ prompt: 'Hello' });
+```
+
+### useStorage
+
+Shortcut to the storage integration service.
+
+```typescript
+import { useStorage } from '@naap/plugin-sdk';
+
+const storage = useStorage();
+const url = await storage.upload(file, { path: 'uploads/' });
+```

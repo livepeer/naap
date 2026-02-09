@@ -1,0 +1,154 @@
+---
+title: "Event Bus"
+description: "Inter-plugin communication via the event bus: events, request/response patterns, and built-in event map."
+order: 3
+---
+
+## Overview
+
+The **Event Bus** is the primary mechanism for communication between plugins and the shell. It supports fire-and-forget events as well as request/response patterns.
+
+## Emitting Events
+
+```typescript
+import { useEvents } from '@naap/plugin-sdk';
+
+function MyComponent() {
+  const events = useEvents();
+
+  const handleSave = () => {
+    // Fire and forget
+    events.emit('my-plugin:item-saved', {
+      itemId: '123',
+      timestamp: Date.now(),
+    });
+  };
+
+  return <button onClick={handleSave}>Save</button>;
+}
+```
+
+## Listening for Events
+
+```typescript
+import { useEvents } from '@naap/plugin-sdk';
+import { useEffect, useState } from 'react';
+
+function StatusBadge() {
+  const events = useEvents();
+  const [status, setStatus] = useState('unknown');
+
+  useEffect(() => {
+    const unsubscribe = events.on('gateway:status-changed', (data) => {
+      setStatus(data.status);
+    });
+
+    // Clean up on unmount
+    return unsubscribe;
+  }, [events]);
+
+  return <span>{status}</span>;
+}
+```
+
+## Request / Response Pattern
+
+For synchronous-style communication between plugins:
+
+### Making a Request
+
+```typescript
+const events = useEvents();
+
+// Request data from another plugin
+const result = await events.request<
+  { query: string },           // Request type
+  { items: Item[] }            // Response type
+>('inventory-plugin:search', {
+  query: 'network adapter',
+}, {
+  timeout: 5000, // Optional timeout in ms
+});
+
+console.log(result.items);
+```
+
+### Handling Requests
+
+```typescript
+const events = useEvents();
+
+useEffect(() => {
+  const unsubscribe = events.handleRequest<
+    { query: string },
+    { items: Item[] }
+  >('my-plugin:search', async (data) => {
+    const items = await searchItems(data.query);
+    return { items };
+  });
+
+  return unsubscribe;
+}, [events]);
+```
+
+## Built-in Events
+
+These events are emitted by the shell and available to all plugins:
+
+### Shell Events
+
+| Event | Payload | When |
+|---|---|---|
+| `shell:ready` | `{ version: string }` | Shell initialization complete |
+| `shell:error` | `{ error: string }` | Unrecoverable shell error |
+
+### Auth Events
+
+| Event | Payload | When |
+|---|---|---|
+| `auth:login` | `{ userId: string, email?: string }` | User logged in |
+| `auth:logout` | `{}` | User logged out |
+| `auth:token-refreshed` | `{ token: string }` | Token was refreshed |
+
+### Theme Events
+
+| Event | Payload | When |
+|---|---|---|
+| `theme:change` | `{ mode: 'light' \| 'dark' }` | Theme was toggled |
+
+### Team Events
+
+| Event | Payload | When |
+|---|---|---|
+| `team:change` | `{ teamId: string \| null }` | Team context switched |
+| `team:created` | `{ teamId: string, name: string }` | New team created |
+
+### Plugin Events
+
+| Event | Payload | When |
+|---|---|---|
+| `plugin:preferences:changed` | `{ pluginName: string }` | Plugin preferences updated |
+| `plugin:installed` | `{ pluginName: string }` | Plugin was installed |
+| `plugin:uninstalled` | `{ pluginName: string }` | Plugin was uninstalled |
+
+## Naming Conventions
+
+Follow these conventions for custom events:
+
+```
+{plugin-name}:{action}
+{plugin-name}:{entity}-{action}
+```
+
+Examples:
+- `task-tracker:task-created`
+- `gateway-manager:gateway-status-changed`
+- `analytics:report-generated`
+
+## Best Practices
+
+1. **Always clean up listeners** -- Return the unsubscribe function in `useEffect` cleanup
+2. **Use TypeScript generics** -- Type your event payloads for safety
+3. **Namespace your events** -- Prefix with your plugin name to avoid collisions
+4. **Set timeouts on requests** -- Avoid hanging if the handler plugin is not loaded
+5. **Keep payloads small** -- Events are synchronous; pass IDs rather than full objects

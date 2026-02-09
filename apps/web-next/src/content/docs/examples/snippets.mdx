@@ -1,0 +1,292 @@
+---
+title: "Code Snippets"
+description: "Copy-paste code snippets for common patterns in NaaP plugin development."
+order: 1
+---
+
+## Authentication Check
+
+Guard a component or action behind authentication:
+
+```typescript
+import { useAuth } from '@naap/plugin-sdk';
+
+function ProtectedAction() {
+  const auth = useAuth();
+
+  if (!auth.isAuthenticated()) {
+    return (
+      <div className="text-center p-8 text-muted-foreground">
+        Please log in to access this feature.
+      </div>
+    );
+  }
+
+  return <div>Welcome, {auth.getUser()?.displayName}</div>;
+}
+```
+
+## Role-Based UI
+
+Show or hide UI elements based on user roles:
+
+```typescript
+import { useAuth } from '@naap/plugin-sdk';
+
+function AdminPanel() {
+  const auth = useAuth();
+  const isAdmin = auth.hasRole('system:admin');
+  const canEdit = auth.hasPermission('items', 'write');
+
+  return (
+    <div>
+      <h2>Dashboard</h2>
+      {canEdit && <button>Edit Item</button>}
+      {isAdmin && (
+        <div className="mt-4 p-4 border rounded-lg">
+          <h3>Admin Controls</h3>
+          <button>Manage Users</button>
+          <button>System Settings</button>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+## Fetch Data with Loading State
+
+```typescript
+import { useState, useEffect } from 'react';
+import { usePluginApi, useNotify } from '@naap/plugin-sdk';
+
+function DataList() {
+  const api = usePluginApi();
+  const notify = useNotify();
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const data = await api.get('/items');
+        setItems(data.items);
+      } catch (err) {
+        setError(err.message);
+        notify.error('Failed to load items');
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  if (loading) return <div className="animate-pulse">Loading...</div>;
+  if (error) return <div className="text-red-500">{error}</div>;
+
+  return (
+    <ul>
+      {items.map(item => (
+        <li key={item.id}>{item.name}</li>
+      ))}
+    </ul>
+  );
+}
+```
+
+## Form with API Submission
+
+```typescript
+import { useState } from 'react';
+import { usePluginApi, useNotify } from '@naap/plugin-sdk';
+
+function CreateItemForm() {
+  const api = usePluginApi();
+  const notify = useNotify();
+  const [name, setName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+
+    setSubmitting(true);
+    try {
+      await api.post('/items', { name });
+      notify.success('Item created!');
+      setName('');
+    } catch (err) {
+      notify.error('Failed to create item');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="flex gap-2">
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Item name..."
+        className="flex-1 px-3 py-2 border rounded-lg"
+        disabled={submitting}
+      />
+      <button
+        type="submit"
+        disabled={submitting}
+        className="px-4 py-2 bg-primary text-white rounded-lg disabled:opacity-50"
+      >
+        {submitting ? 'Creating...' : 'Create'}
+      </button>
+    </form>
+  );
+}
+```
+
+## Theme-Aware Component
+
+```typescript
+import { useThemeService } from '@naap/plugin-sdk';
+
+function StatusCard({ title, value, trend }) {
+  const theme = useThemeService();
+
+  return (
+    <div className="p-4 rounded-xl border border-border bg-card">
+      <p className="text-sm text-muted-foreground">{title}</p>
+      <p className="text-2xl font-bold mt-1">{value}</p>
+      <p className={`text-sm mt-1 ${
+        trend > 0 ? 'text-emerald-500' : 'text-red-500'
+      }`}>
+        {trend > 0 ? '+' : ''}{trend}%
+      </p>
+    </div>
+  );
+}
+```
+
+## Event-Driven Refresh
+
+Listen for events from other plugins to refresh data:
+
+```typescript
+import { useEffect, useState } from 'react';
+import { useEvents, usePluginApi } from '@naap/plugin-sdk';
+
+function LiveList() {
+  const events = useEvents();
+  const api = usePluginApi();
+  const [items, setItems] = useState([]);
+
+  const refresh = async () => {
+    const data = await api.get('/items');
+    setItems(data.items);
+  };
+
+  useEffect(() => {
+    refresh();
+
+    // Refresh when related events fire
+    const unsub1 = events.on('my-plugin:item-created', refresh);
+    const unsub2 = events.on('my-plugin:item-updated', refresh);
+    const unsub3 = events.on('team:change', refresh);
+
+    return () => {
+      unsub1();
+      unsub2();
+      unsub3();
+    };
+  }, []);
+
+  return (
+    <ul>
+      {items.map(item => (
+        <li key={item.id}>{item.name}</li>
+      ))}
+    </ul>
+  );
+}
+```
+
+## Confirmation Dialog
+
+```typescript
+import { useState } from 'react';
+import { usePluginApi, useNotify } from '@naap/plugin-sdk';
+
+function DeleteButton({ itemId, onDeleted }) {
+  const api = usePluginApi();
+  const notify = useNotify();
+  const [confirming, setConfirming] = useState(false);
+
+  const handleDelete = async () => {
+    try {
+      await api.delete(`/items/${itemId}`);
+      notify.success('Item deleted');
+      onDeleted();
+    } catch {
+      notify.error('Failed to delete item');
+    }
+    setConfirming(false);
+  };
+
+  if (confirming) {
+    return (
+      <div className="flex gap-2">
+        <button
+          onClick={handleDelete}
+          className="px-3 py-1 text-sm bg-red-500 text-white rounded"
+        >
+          Confirm
+        </button>
+        <button
+          onClick={() => setConfirming(false)}
+          className="px-3 py-1 text-sm border rounded"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setConfirming(true)}
+      className="px-3 py-1 text-sm text-red-500 hover:bg-red-500/10 rounded"
+    >
+      Delete
+    </button>
+  );
+}
+```
+
+## Plugin Mount Function
+
+The standard mount function pattern:
+
+```typescript
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { ShellProvider } from '@naap/plugin-sdk';
+import type { ShellContext } from '@naap/plugin-sdk';
+import App from './App';
+
+let root: ReturnType<typeof createRoot> | null = null;
+
+export function mount(container: HTMLElement, context: ShellContext) {
+  root = createRoot(container);
+  root.render(
+    <ShellProvider value={context}>
+      <App />
+    </ShellProvider>
+  );
+
+  return () => {
+    if (root) {
+      root.unmount();
+      root = null;
+    }
+  };
+}
+```

@@ -1,0 +1,241 @@
+---
+title: "Proxying External APIs"
+description: "How to safely call third-party APIs from your plugin without CORS issues, using the built-in createExternalProxy middleware."
+order: 4
+---
+
+## The Problem
+
+When your plugin frontend needs to communicate with a third-party API (e.g., Livepeer, Stripe, OpenAI), the browser will block the request with a **CORS error** if the external server doesn't include `Access-Control-Allow-Origin` in its response headers.
+
+```
+Access to fetch at 'https://api.external.com/...' from origin 'http://localhost:3000'
+has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present
+on the requested resource.
+```
+
+You **cannot fix this** from your frontend code. The external server controls its own CORS headers. The solution is to route the request through your plugin's **backend**, which acts as a transparent proxy.
+
+## The Solution: Backend Proxy
+
+```
+Browser ──fetch()──> Plugin Backend ──fetch()──> External API
+         (same origin,               (server-to-server,
+          no CORS issue)              no CORS restriction)
+```
+
+The `@naap/plugin-server-sdk` provides a **reusable `createExternalProxy` middleware** that handles this pattern with zero boilerplate. It includes:
+
+- **SSRF protection** — only allows requests to whitelisted hosts
+- **Content type handling** — works with JSON, SDP, XML, or any content type
+- **Error forwarding** — propagates external API errors cleanly
+- **Timeout handling** — configurable request timeouts
+- **Authorization** — optional auth callback before proxying
+- **Header exposure** — selectively expose response headers to the browser
+
+## Quick Start
+
+### 1. Add the proxy route to your backend
+
+```typescript
+// backend/src/server.ts
+import { createPluginServer, createExternalProxy } from '@naap/plugin-server-sdk';
+
+const { router, start } = createPluginServer({
+  name: 'my-plugin',
+  port: 4020,
+});
+
+// Proxy requests to an external API
+router.post(
+  '/my-prefix/external-proxy',
+  ...createExternalProxy({
+    allowedHosts: ['api.example.com', 'api.stripe.com'],
+    targetUrlHeader: 'X-Target-URL',
+  })
+);
+
+start();
+```
+
+### 2. Call the proxy from your frontend
+
+```typescript
+// frontend/src/lib/api.ts
+import { getPluginBackendUrl } from '@naap/plugin-sdk';
+
+async function callExternalApi(targetUrl: string, body: object) {
+  const proxyUrl = getPluginBackendUrl('my-plugin', {
+    apiPath: '/api/v1/my-prefix/external-proxy',
+  });
+
+  const response = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Target-URL': targetUrl,   // Tell the proxy where to forward
+      'Authorization': `Bearer ${authToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  return response.json();
+}
+```
+
+That's it. The proxy validates the target URL, forwards the request, and returns the response — all without CORS issues.
+
+## How It Works
+
+1. **Frontend** sends a POST to your backend with the target URL in a custom header
+2. **Backend proxy** validates the URL against the allowed hosts list (SSRF protection)
+3. **Backend proxy** forwards the request body and content type to the external API
+4. **External API** responds to the backend (server-to-server, no CORS)
+5. **Backend proxy** returns the external API's response to the browser
+
+## Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `allowedHosts` | `string[]` | (required) | Hostnames the proxy can forward to. Uses suffix matching, so `'stripe.com'` allows `api.stripe.com` |
+| `targetUrlHeader` | `string` | `'X-Target-URL'` | Request header containing the target URL |
+| `contentType` | `string` | `'application/json'` | Content type for the proxied request/response |
+| `bodyLimit` | `string` | `'1mb'` | Maximum body size |
+| `exposeHeaders` | `{ from, to }[]` | `[]` | External response headers to expose to the browser |
+| `forwardHeaders` | `Record \| Function` | — | Additional headers to send to the external API |
+| `timeout` | `number` | `30000` | Request timeout in milliseconds |
+| `authorize` | `(req) => boolean` | — | Optional authorization check before proxying |
+| `logger` | `{ info, error }` | `console` | Custom logger |
+
+## Real-World Example: WebRTC WHIP Proxy
+
+The Daydream AI Video plugin uses `createExternalProxy` to proxy WebRTC WHIP SDP handshakes to Livepeer's ingest server:
+
+```typescript
+// plugins/daydream-video/backend/src/server.ts
+import { createPluginServer, createExternalProxy } from '@naap/plugin-server-sdk';
+
+router.post(
+  '/daydream/whip-proxy',
+  ...createExternalProxy({
+    // Only allow Livepeer WHIP endpoints
+    allowedHosts: ['ai.livepeer.com', 'livepeer.studio', 'api.daydream.live'],
+    targetUrlHeader: 'X-WHIP-URL',
+    contentType: 'application/sdp',     // WebRTC SDP, not JSON
+    exposeHeaders: [
+      { from: 'Location', to: 'X-WHIP-Resource' },  // WHIP resource URL
+    ],
+    timeout: 30_000,
+    authorize: async (req) => {
+      // Only allow users with a valid API key
+      const userId = getUserId(req);
+      await getUserApiKey(userId);
+      return true;
+    },
+  })
+);
+```
+
+Frontend usage:
+
+```typescript
+// plugins/daydream-video/frontend/src/hooks/useWHIP.ts
+const proxyUrl = getPluginBackendUrl('daydream-video', {
+  apiPath: '/api/v1/daydream/whip-proxy',
+});
+
+const response = await fetch(proxyUrl, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/sdp',
+    'X-WHIP-URL': whipUrl,              // External WHIP endpoint
+    'Authorization': `Bearer ${token}`,
+    'X-Plugin-Name': 'daydream-video',
+  },
+  body: sdpOffer,  // WebRTC SDP offer (plain text, not JSON)
+});
+
+const answerSdp = await response.text();
+```
+
+## SSRF Protection
+
+The proxy validates every target URL against the `allowedHosts` list using **hostname suffix matching**. This prevents [Server-Side Request Forgery (SSRF)](https://owasp.org/www-community/attacks/Server_Side_Request_Forgery) attacks where an attacker could trick your backend into making requests to internal services.
+
+```typescript
+// This configuration:
+allowedHosts: ['api.stripe.com', 'livepeer.com']
+
+// Allows:
+'https://api.stripe.com/v1/charges'       // ✅ matches api.stripe.com
+'https://ai.livepeer.com/live/whip'       // ✅ ends with livepeer.com
+
+// Blocks:
+'http://localhost:3000/admin'             // ❌ not in allowed list
+'http://169.254.169.254/metadata'         // ❌ AWS metadata endpoint
+'https://evil.com?host=api.stripe.com'    // ❌ not a suffix match
+```
+
+## Adding Custom Headers to External Requests
+
+If the external API requires authentication or custom headers:
+
+```typescript
+router.post(
+  '/my-prefix/api-proxy',
+  ...createExternalProxy({
+    allowedHosts: ['api.openai.com'],
+    targetUrlHeader: 'X-Target-URL',
+    // Static headers
+    forwardHeaders: {
+      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    // OR dynamic headers based on request
+    forwardHeaders: (req) => ({
+      'Authorization': `Bearer ${getUserApiKey(req)}`,
+      'OpenAI-Organization': getOrgId(req),
+    }),
+  })
+);
+```
+
+## Error Handling
+
+The proxy forwards HTTP errors from the external API with structured error responses:
+
+```json
+{
+  "success": false,
+  "error": {
+    "message": "External API returned 429: Rate limit exceeded"
+  }
+}
+```
+
+| Scenario | HTTP Status | Error Message |
+|----------|-------------|---------------|
+| Missing target URL header | 400 | `Missing X-Target-URL header` |
+| Invalid URL format | 400 | `Invalid URL in X-Target-URL header` |
+| Host not in allowed list | 400 | `Host "evil.com" is not in the allowed list` |
+| Empty request body | 400 | `Request body is required` |
+| Auth callback returns false | 403 | `Proxy request not authorized` |
+| External API returns error | (forwarded) | `External API returned {status}: {body}` |
+| Request timeout | 504 | `External API request timed out` |
+| Network error | 500 | `External proxy failed` |
+
+## Best Practices
+
+1. **Always proxy external calls through your backend** — Never make direct `fetch()` from the browser to APIs you don't control
+2. **Whitelist specific hosts** — Don't use overly broad host patterns; list exactly the domains you need
+3. **Add authorization** — Use the `authorize` callback to ensure only authenticated users can use the proxy
+4. **Set appropriate timeouts** — Match the timeout to the expected response time of the external API
+5. **Keep API keys server-side** — Use `forwardHeaders` to inject API keys that never reach the browser
+6. **Log sparingly** — The proxy logs the target hostname and path by default; avoid logging request bodies that may contain sensitive data
+
+## When NOT to Use the Proxy
+
+- **Same-origin API calls** — Calls to your own backend don't need proxying (no CORS issue)
+- **iframe embeds** — Loading a URL in an `<iframe>` doesn't trigger CORS restrictions
+- **WebRTC media streams** — Only the SDP handshake needs proxying; the actual media goes peer-to-peer
+- **STUN/TURN servers** — WebRTC ICE servers use their own protocol, not HTTP CORS
+- **Image/font/CSS loading** — Browsers relax CORS for some resource types

@@ -1,0 +1,115 @@
+---
+title: "How to Use AI Prompt Templates"
+description: "A beginner-friendly guide to building NaaP plugins using AI assistants — no coding experience required."
+order: 1
+---
+
+## What Are These Prompt Templates?
+
+These prompt templates are **pre-written instructions** you copy and paste into an AI coding assistant. The AI will generate a complete, working NaaP plugin for you — including frontend UI, backend API, database schema, and configuration.
+
+You don't need to know how to code. You just need to:
+
+1. **Pick a prompt** that matches what you want to build
+2. **Copy it** (use the Copy button on each code block)
+3. **Paste it** into your AI assistant
+4. **Follow the AI's instructions** to run the generated code
+
+## Which AI Tools Work?
+
+These prompts are designed to work with any AI coding assistant:
+
+| Tool | Best For | How to Use |
+|------|----------|------------|
+| **Cursor** | Full IDE with AI built-in | Paste prompt in Composer (Cmd+I) |
+| **GitHub Copilot** | VS Code integration | Paste in Copilot Chat panel |
+| **ChatGPT** (GPT-4o) | General purpose | Paste in chat, copy code to files |
+| **Claude** | Detailed code generation | Paste in chat, copy code to files |
+| **Windsurf** | AI-native IDE | Paste in Cascade |
+| **Bolt.new** | Browser-based dev | Paste as project prompt |
+
+## Recommended Workflow
+
+### Option A: Using Cursor (Easiest)
+
+Cursor is an AI-powered code editor. It can create files, run commands, and test code for you.
+
+```bash
+# 1. Install Cursor from https://cursor.com
+# 2. Open your NaaP project folder in Cursor
+# 3. Press Cmd+I (Mac) or Ctrl+I (Windows) to open Composer
+# 4. Paste the prompt template
+# 5. Cursor will generate all the files and guide you
+```
+
+### Option B: Using ChatGPT / Claude
+
+If you prefer a browser-based AI, you can copy the generated code manually.
+
+```bash
+# 1. Open ChatGPT or Claude in your browser
+# 2. Paste the prompt template
+# 3. The AI will generate code files — copy each one
+# 4. Create the files in your project folder
+# 5. Follow the AI's setup instructions
+```
+
+### Option C: Using GitHub Copilot in VS Code
+
+```bash
+# 1. Open VS Code with the GitHub Copilot extension
+# 2. Open the Copilot Chat sidebar (Ctrl+Shift+I)
+# 3. Paste the prompt template
+# 4. Copilot will suggest file edits — accept them
+```
+
+## Before You Start
+
+Make sure you have the NaaP development environment ready:
+
+```bash
+# Install Node.js 20+ from https://nodejs.org
+node --version
+
+# Install the NaaP CLI
+npm install -g @naap/plugin-sdk
+
+# Verify it works
+naap-plugin --version
+```
+
+If you haven't set up the NaaP platform yet, see the [Quick Start](/docs/getting-started/quickstart) guide first.
+
+## How the Prompts Are Structured
+
+Every prompt template follows the same pattern:
+
+1. **Context block** — Tells the AI about NaaP's architecture, so it generates compatible code
+2. **Requirements** — Describes exactly what you want the plugin to do
+3. **Technical specs** — Specifies the frameworks, file structure, and patterns to use
+4. **Quality standards** — Ensures the AI generates production-quality code
+
+You can customize any prompt by editing the **Requirements** section before pasting it.
+
+## Tips for Best Results
+
+- **Be specific** about what you want. If you have a specific feature idea, add it to the requirements section.
+- **Iterate** — if the first result isn't perfect, tell the AI "change the UI to use a dark theme" or "add a search feature."
+- **Ask for explanations** — if you don't understand something, ask the AI to explain what a piece of code does.
+- **Test often** — run `naap-plugin dev` after each change to see your plugin in the shell.
+- **Start simple** — use the Frontend-Only plugin template first. Add a backend later if needed.
+
+## Available Templates
+
+| Template | Difficulty | Description |
+|----------|-----------|-------------|
+| [Create a Frontend Plugin](/docs/prompts/create-frontend-plugin) | Beginner | UI-only plugin, no backend needed |
+| [Create a Full-Stack Plugin](/docs/prompts/create-fullstack-plugin) | Intermediate | Frontend + backend + database |
+| [Design Professional UI](/docs/prompts/ui-design) | Beginner | Beautiful, polished interfaces |
+| [Build a Backend API](/docs/prompts/backend-api) | Intermediate | REST API with database |
+| [Add Features to a Plugin](/docs/prompts/add-features) | Beginner | Extend existing plugins |
+| [Debug and Fix Issues](/docs/prompts/debug-and-fix) | Beginner | Troubleshoot problems |
+| [Write Tests](/docs/prompts/testing-quality) | Intermediate | Automated testing |
+| [Publish Your Plugin](/docs/prompts/publish-and-deploy) | Beginner | Package and publish to marketplace |
+
+Start with **Create a Frontend Plugin** if this is your first time.

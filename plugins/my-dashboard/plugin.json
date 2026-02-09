@@ -1,0 +1,116 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "my-dashboard",
+  "displayName": "My Dashboard",
+  "version": "1.0.0",
+  "description": "Embed Metabase dashboards with interactive analytics within the NAAP shell",
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io",
+    "url": "https://naap.io"
+  },
+  "repository": "https://github.com/naap/plugins/tree/main/my-dashboard",
+  "license": "MIT",
+  "keywords": ["dashboard", "metabase", "analytics", "embed", "visualization"],
+  "category": "analytics",
+  
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+  
+  "frontend": {
+    "entry": "./frontend/dist/production/my-dashboard.js",
+    "devEntry": "./frontend/src/App.tsx",
+    "devPort": 3009,
+    "routes": [
+      "/plugins/my-dashboard",
+      "/plugins/my-dashboard/*"
+    ],
+    "navigation": {
+      "label": "My Dashboard",
+      "icon": "LayoutDashboard",
+      "order": 1,
+      "group": "main"
+    }
+  },
+  
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devEntry": "./backend/src/server.ts",
+    "devPort": 4009,
+    "port": 4109,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/my-dashboard",
+    "resources": {
+      "memory": "256Mi",
+      "cpu": "0.25"
+    }
+  },
+  
+  "database": {
+    "type": "postgresql",
+    "schema": "./backend/prisma/schema.prisma",
+    "migrations": "./backend/prisma/migrations",
+    "seed": "./backend/prisma/seed.ts"
+  },
+  
+  "integrations": {
+    "required": [],
+    "optional": ["metabase"]
+  },
+  
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme", "auth"],
+    "apis": [],
+    "external": ["metabase"]
+  },
+  
+  "rbac": {
+    "roles": [
+      {
+        "name": "my-dashboard:admin",
+        "displayName": "Dashboard Admin",
+        "description": "Full access to dashboard management and configuration",
+        "permissions": ["dashboard:read", "dashboard:write", "dashboard:admin", "dashboard:config"]
+      },
+      {
+        "name": "my-dashboard:user",
+        "displayName": "Dashboard User",
+        "description": "View dashboards and manage personal preferences",
+        "permissions": ["dashboard:read", "dashboard:preferences"]
+      }
+    ]
+  },
+  
+  "lifecycle": {
+    "postInstall": "npm run db:migrate && npm run db:seed",
+    "preUpdate": "npm run db:backup",
+    "postUpdate": "npm run db:migrate"
+  },
+  
+  "config": {
+    "schema": {
+      "metabaseUrl": {
+        "type": "string",
+        "default": "",
+        "description": "Metabase instance URL (e.g., https://your-org.metabaseapp.com)"
+      },
+      "metabaseSecretKey": {
+        "type": "string",
+        "default": "",
+        "description": "Metabase embedding secret key (from Admin > Embedding)"
+      },
+      "tokenExpiry": {
+        "type": "number",
+        "default": 600,
+        "description": "JWT token expiry in seconds (default: 10 minutes)"
+      },
+      "enableInteractive": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable interactive embedding (requires Metabase Pro/Enterprise)"
+      }
+    }
+  }
+}

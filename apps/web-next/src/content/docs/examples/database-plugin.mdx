@@ -1,0 +1,548 @@
+---
+title: "Database Plugin Example"
+description: "Complete worked example — building a plugin backend that follows the single-DB multi-schema architecture."
+order: 6
+icon: "Database"
+---
+
+## What We're Building
+
+A **Task Tracker** plugin that stores projects and tasks in the unified database using the `plugin_tracker` schema. This example demonstrates:
+
+- Registering a new schema
+- Defining models with proper naming and annotations
+- Using `@naap/database` for all data access
+- CRUD routes with typed Prisma queries
+
+## Complete File Structure
+
+```
+plugins/task-tracker/
+├── backend/
+│   ├── src/
+│   │   ├── server.ts
+│   │   ├── db/
+│   │   │   └── client.ts
+│   │   └── routes/
+│   │       ├── projects.ts
+│   │       └── tasks.ts
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── .env
+└── frontend/
+    └── ... (React code, not covered here)
+```
+
+## Step 1: Schema Registration
+
+### `docker/init-schemas.sql`
+
+```sql
+-- Add this line alongside the other schemas:
+CREATE SCHEMA IF NOT EXISTS plugin_tracker;
+```
+
+### `packages/database/prisma/schema.prisma`
+
+Add to the `schemas` array:
+
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = [
+    "public",
+    "plugin_community",
+    "plugin_wallet",
+    "plugin_dashboard",
+    "plugin_daydream",
+    "plugin_gateway",
+    "plugin_capacity",
+    "plugin_developer_api",
+    "plugin_tracker"              // ← New
+  ]
+}
+```
+
+Add the models:
+
+```prisma
+// =============================================
+// Task Tracker Plugin — plugin_tracker schema
+// =============================================
+
+enum TrackerProjectStatus {
+  ACTIVE
+  ARCHIVED
+  COMPLETED
+
+  @@schema("plugin_tracker")
+}
+
+enum TrackerTaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+
+  @@schema("plugin_tracker")
+}
+
+enum TrackerTaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+
+  @@schema("plugin_tracker")
+}
+
+model TrackerProject {
+  id          String               @id @default(uuid())
+  name        String
+  description String?
+  status      TrackerProjectStatus @default(ACTIVE)
+  ownerId     String
+  teamId      String
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  tasks       TrackerTask[]
+
+  @@index([teamId, status])
+  @@index([ownerId])
+  @@schema("plugin_tracker")
+}
+
+model TrackerTask {
+  id          String              @id @default(uuid())
+  title       String
+  description String?
+  status      TrackerTaskStatus   @default(TODO)
+  priority    TrackerTaskPriority @default(MEDIUM)
+  assigneeId  String?
+  dueDate     DateTime?
+  projectId   String
+  project     TrackerProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([projectId, status])
+  @@index([assigneeId])
+  @@schema("plugin_tracker")
+}
+```
+
+Then generate and push:
+
+```bash
+cd packages/database
+npx prisma generate
+npx prisma db push
+```
+
+## Step 2: Plugin Backend Files
+
+### `backend/package.json`
+
+```json
+{
+  "name": "@naap/plugin-task-tracker-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@naap/database": "workspace:*",
+    "@naap/plugin-server-sdk": "workspace:*",
+    "express": "^4.18.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}
+```
+
+Note: **No `@prisma/client`**, **no `prisma` devDependency**, **no `db:*` scripts**.
+
+### `backend/.env`
+
+```bash
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap"
+PORT=4070
+```
+
+### `backend/src/db/client.ts`
+
+```typescript
+/**
+ * Database client — imports the unified Prisma client.
+ * NEVER instantiate PrismaClient here. Always re-export from @naap/database.
+ */
+import { prisma } from '@naap/database';
+export const db = prisma;
+```
+
+This is the entire file. No `new PrismaClient()`, no generated imports.
+
+### `backend/src/server.ts`
+
+```typescript
+import express from 'express';
+import { db } from './db/client.js';
+import projectRoutes from './routes/projects.js';
+import taskRoutes from './routes/tasks.js';
+
+const app = express();
+app.use(express.json());
+
+// Health check
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', plugin: 'task-tracker' });
+});
+
+// Routes
+app.use('/api/v1/task-tracker/projects', projectRoutes);
+app.use('/api/v1/task-tracker/tasks', taskRoutes);
+
+const PORT = parseInt(process.env.PORT || '4070', 10);
+app.listen(PORT, () => {
+  console.log(`Task Tracker backend running on port ${PORT}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  await db.$disconnect();
+  process.exit(0);
+});
+```
+
+### `backend/src/routes/projects.ts`
+
+```typescript
+import { Router } from 'express';
+import { z } from 'zod';
+import { db } from '../db/client.js';
+
+const router = Router();
+
+// ── Validation ──────────────────────────────────────────
+const CreateProjectSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().optional(),
+});
+
+const UpdateProjectSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().optional(),
+  status: z.enum(['ACTIVE', 'ARCHIVED', 'COMPLETED']).optional(),
+});
+
+// ── Routes ──────────────────────────────────────────────
+
+// GET /projects — List projects for the team
+router.get('/', async (req, res) => {
+  try {
+    const teamId = req.headers['x-team-id'] as string;
+    const projects = await db.trackerProject.findMany({
+      where: { teamId },
+      include: { tasks: { select: { id: true, status: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Attach task counts
+    const data = projects.map((p) => ({
+      ...p,
+      taskCount: p.tasks.length,
+      doneCount: p.tasks.filter((t) => t.status === 'DONE').length,
+      tasks: undefined,
+    }));
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Failed to list projects:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /projects — Create a project
+router.post('/', async (req, res) => {
+  try {
+    const body = CreateProjectSchema.parse(req.body);
+    const project = await db.trackerProject.create({
+      data: {
+        ...body,
+        ownerId: req.headers['x-user-id'] as string,
+        teamId: req.headers['x-team-id'] as string,
+      },
+    });
+    res.status(201).json({ success: true, data: project });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ success: false, error: error.errors });
+    }
+    console.error('Failed to create project:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /projects/:id — Get project with all tasks
+router.get('/:id', async (req, res) => {
+  try {
+    const project = await db.trackerProject.findUnique({
+      where: { id: req.params.id },
+      include: {
+        tasks: { orderBy: { createdAt: 'desc' } },
+      },
+    });
+
+    if (!project) {
+      return res.status(404).json({ success: false, error: 'Project not found' });
+    }
+    res.json({ success: true, data: project });
+  } catch (error) {
+    console.error('Failed to get project:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PATCH /projects/:id — Update project
+router.patch('/:id', async (req, res) => {
+  try {
+    const body = UpdateProjectSchema.parse(req.body);
+    const project = await db.trackerProject.update({
+      where: { id: req.params.id },
+      data: body,
+    });
+    res.json({ success: true, data: project });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ success: false, error: error.errors });
+    }
+    console.error('Failed to update project:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /projects/:id — Delete project (cascades to tasks)
+router.delete('/:id', async (req, res) => {
+  try {
+    await db.trackerProject.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Failed to delete project:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+export default router;
+```
+
+### `backend/src/routes/tasks.ts`
+
+```typescript
+import { Router } from 'express';
+import { z } from 'zod';
+import { db } from '../db/client.js';
+
+const router = Router();
+
+// ── Validation ──────────────────────────────────────────
+const CreateTaskSchema = z.object({
+  title: z.string().min(1).max(500),
+  description: z.string().optional(),
+  priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).default('MEDIUM'),
+  assigneeId: z.string().uuid().optional(),
+  dueDate: z.string().datetime().optional(),
+  projectId: z.string().uuid(),
+});
+
+const UpdateTaskSchema = z.object({
+  title: z.string().min(1).max(500).optional(),
+  description: z.string().optional(),
+  status: z.enum(['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE']).optional(),
+  priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
+  assigneeId: z.string().uuid().nullable().optional(),
+  dueDate: z.string().datetime().nullable().optional(),
+});
+
+// ── Routes ──────────────────────────────────────────────
+
+// GET /tasks?projectId=xxx — List tasks for a project
+router.get('/', async (req, res) => {
+  try {
+    const { projectId, status, assigneeId } = req.query;
+
+    const tasks = await db.trackerTask.findMany({
+      where: {
+        projectId: projectId as string,
+        ...(status && { status: status as any }),
+        ...(assigneeId && { assigneeId: assigneeId as string }),
+      },
+      orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    res.json({ success: true, data: tasks });
+  } catch (error) {
+    console.error('Failed to list tasks:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /tasks — Create a task
+router.post('/', async (req, res) => {
+  try {
+    const body = CreateTaskSchema.parse(req.body);
+    const task = await db.trackerTask.create({
+      data: {
+        ...body,
+        dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
+      },
+    });
+    res.status(201).json({ success: true, data: task });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ success: false, error: error.errors });
+    }
+    console.error('Failed to create task:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PATCH /tasks/:id — Update task (status, assignee, etc.)
+router.patch('/:id', async (req, res) => {
+  try {
+    const body = UpdateTaskSchema.parse(req.body);
+    const task = await db.trackerTask.update({
+      where: { id: req.params.id },
+      data: {
+        ...body,
+        dueDate: body.dueDate === null ? null :
+                 body.dueDate ? new Date(body.dueDate) : undefined,
+      },
+    });
+    res.json({ success: true, data: task });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ success: false, error: error.errors });
+    }
+    console.error('Failed to update task:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /tasks/:id
+router.delete('/:id', async (req, res) => {
+  try {
+    await db.trackerTask.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Failed to delete task:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PATCH /tasks/:id/status — Quick status update (Kanban drag)
+router.patch('/:id/status', async (req, res) => {
+  try {
+    const { status } = z.object({
+      status: z.enum(['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE']),
+    }).parse(req.body);
+
+    const task = await db.trackerTask.update({
+      where: { id: req.params.id },
+      data: { status },
+    });
+    res.json({ success: true, data: task });
+  } catch (error) {
+    console.error('Failed to update task status:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+export default router;
+```
+
+## Key Patterns to Notice
+
+### 1. No PrismaClient instantiation
+
+The `db/client.ts` file is a one-liner that re-exports from `@naap/database`. There's zero boilerplate.
+
+### 2. Prefixed model names
+
+Every model starts with `Tracker` — this maps to the `db.trackerProject` and `db.trackerTask` accessors. No collisions with other plugins.
+
+### 3. Schema annotation on every model AND enum
+
+Even enums get `@@schema("plugin_tracker")`. This is required by Prisma's `multiSchema` preview feature.
+
+### 4. Single .env
+
+The `.env` file has one `DATABASE_URL` pointing to `localhost:5432/naap`. Same as every other plugin.
+
+### 5. No local Prisma commands
+
+The `package.json` has no `db:generate`, `db:push`, or `prisma` scripts. All schema management is done centrally from `packages/database`.
+
+## Testing the Example
+
+```bash
+# 1. Start the database
+docker-compose up -d database
+
+# 2. Generate + push from central package
+cd packages/database
+npx prisma generate && npx prisma db push
+
+# 3. Start the plugin
+cd plugins/task-tracker/backend
+pnpm dev
+
+# 4. Create a project
+curl -X POST http://localhost:4070/api/v1/task-tracker/projects \
+  -H "Content-Type: application/json" \
+  -H "x-team-id: team-1" \
+  -H "x-user-id: user-1" \
+  -d '{"name": "My First Project", "description": "Testing unified DB"}'
+
+# 5. Create a task in the project
+curl -X POST http://localhost:4070/api/v1/task-tracker/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Set up CI/CD", "priority": "HIGH", "projectId": "<PROJECT_ID>"}'
+```
+
+## Anti-Patterns (Do NOT Do This)
+
+```typescript
+// ❌ WRONG — Creating your own PrismaClient
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient();
+
+// ❌ WRONG — Importing from a local generated directory
+import { PrismaClient } from '../generated/client';
+
+// ❌ WRONG — Models without schema annotation
+model Task {
+  id String @id @default(uuid())
+  // missing @@schema("plugin_tracker")
+}
+
+// ❌ WRONG — Unprefixed model names (will collide)
+model Project { ... }   // Use TrackerProject instead
+
+// ❌ WRONG — Having prisma/ directory in your plugin
+plugins/task-tracker/backend/prisma/schema.prisma  // DELETE THIS
+```
+
+## See Also
+
+- [Database Architecture Rules](/docs/concepts/database-architecture) — The mandatory architecture
+- [Database Setup Tutorial](/docs/guides/database-setup) — Step-by-step schema guide
+- [AI Prompt: Database Compliance](/docs/prompts/database-architecture) — Copy-paste prompt

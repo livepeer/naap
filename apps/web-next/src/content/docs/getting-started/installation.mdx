@@ -1,0 +1,196 @@
+---
+title: "Prerequisites & Installation"
+description: "Install all required tools and set up your development environment."
+order: 2
+---
+
+## System Requirements
+
+| Requirement | Version | Purpose |
+|---|---|---|
+| Node.js | 18+ (20 recommended) | JavaScript runtime |
+| npm | 10+ | Package manager |
+| Docker Desktop | Latest | PostgreSQL database |
+| Git | 2.x+ | Version control |
+
+## Install Prerequisites
+
+### macOS
+
+```bash
+# Install Homebrew (if you don't have it)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install Node.js 20, Docker, and Git
+brew install node@20 git
+brew install --cask docker
+
+# Start Docker Desktop (must be running before setup)
+open -a Docker
+```
+
+Wait for the Docker whale icon to appear in the menu bar before proceeding.
+
+### Ubuntu / Debian
+
+```bash
+# Install Node.js 20 via NodeSource
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs git
+
+# Install Docker
+curl -fsSL https://get.docker.com | sudo sh
+sudo systemctl start docker && sudo systemctl enable docker
+
+# Add your user to the docker group (avoids needing sudo)
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+### Windows (WSL2)
+
+```powershell
+# In PowerShell (admin), install WSL2 if not installed
+wsl --install
+```
+
+Then inside WSL2 (Ubuntu):
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs git
+curl -fsSL https://get.docker.com | sudo sh
+sudo service docker start
+```
+
+## Verify Prerequisites
+
+```bash
+node --version     # Should be v18.x or higher
+npm --version      # Should be v10.x or higher
+docker --version   # Should show Docker version
+git --version      # Should be 2.x+
+docker info        # Should connect (Docker daemon running)
+```
+
+## Clone & Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/qianghan/NaaP.git
+cd NaaP
+
+# Run the automated setup (installs deps, starts DB, builds plugins)
+./bin/setup.sh
+
+# Start the platform
+./bin/start.sh
+```
+
+Or do it all in one line:
+
+```bash
+git clone https://github.com/qianghan/NaaP.git && cd NaaP && ./bin/setup.sh --start
+```
+
+## What Setup Does
+
+The `setup.sh` script automates these steps:
+
+| Step | What It Does |
+|------|--------------|
+| 1. Check Dependencies | Verifies Node.js, npm, Git, Docker are installed |
+| 2. Environment Config | Creates `.env.local` and all plugin `.env` files with dev defaults |
+| 3. Install Packages | Runs `npm install` for the monorepo + all workspaces |
+| 4. Database Setup | Starts PostgreSQL via Docker, creates schemas, seeds data |
+| 5. Build Plugins | Builds all 11 plugin UMD bundles for CDN serving |
+| 6. Verification | Checks critical files and workspace links |
+
+## Environment Variables
+
+The setup script auto-generates all `.env` files. If you need to customize:
+
+### Shell (`apps/web-next/.env.local`)
+
+```bash
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/naap
+NEXTAUTH_SECRET=dev-secret-change-me-in-production-min-32-chars
+BASE_SVC_URL=http://localhost:4000
+PLUGIN_SERVER_URL=http://localhost:3100
+```
+
+### Plugin Backends (`plugins/<name>/backend/.env`)
+
+```bash
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap?schema=plugin_<schema>"
+PORT=<plugin-port>
+```
+
+## IDE Setup
+
+### VS Code / Cursor (Recommended)
+
+Install recommended extensions:
+
+- **ESLint** -- Linting
+- **Tailwind CSS IntelliSense** -- Tailwind autocomplete
+- **Prisma** -- Database schema support
+- **TypeScript** -- Type checking
+
+### Workspace Settings
+
+Add to `.vscode/settings.json`:
+
+```json
+{
+  "typescript.preferences.importModuleSpecifier": "non-relative",
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode"
+}
+```
+
+## Troubleshooting Installation
+
+### Docker Not Running
+
+```bash
+# macOS
+open -a Docker
+
+# Linux
+sudo systemctl start docker
+```
+
+### Port 5432 Already in Use
+
+Another PostgreSQL instance is using the default port:
+
+```bash
+# Find what's using port 5432
+lsof -i :5432
+
+# Stop it, then retry setup
+kill <PID>
+./bin/setup.sh
+```
+
+### Node Version Too Old
+
+```bash
+# Install nvm (Node Version Manager)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+
+# Install and use Node 20
+nvm install 20
+nvm use 20
+```
+
+### npm Install Fails
+
+```bash
+# Clear npm cache and retry
+npm cache clean --force
+rm -rf node_modules package-lock.json
+npm install
+```

@@ -1,0 +1,61 @@
+---
+title: "What is NaaP?"
+description: "An introduction to the Network as a Platform ecosystem and why it exists."
+order: 1
+---
+
+## Overview
+
+**NaaP (Network as a Platform)** is a production-ready micro-frontend platform for building decentralized infrastructure management tools. It provides a shared shell application with a rich plugin system that allows teams to build, deploy, and manage independent features as plugins.
+
+NaaP was originally built for the **Livepeer Network** -- a decentralized video and AI infrastructure network -- but its architecture is generic enough to power any plugin-based platform.
+
+## Why NaaP?
+
+### The Problem
+
+Building a complex management dashboard for a decentralized network involves many independent features:
+
+- Gateway monitoring and management
+- Orchestrator management
+- Capacity planning and scaling
+- Network analytics
+- Token treasury and governance
+- Community forums
+- A marketplace for extensions
+
+Each feature needs its own UI, backend API, and database. Without a framework, teams end up with a monolithic application that becomes increasingly difficult to maintain, test, and deploy.
+
+### The Solution
+
+NaaP provides:
+
+- **Shell Application**: A shared host app with authentication, navigation, theming, and services
+- **Plugin System**: Independent micro-frontends loaded dynamically at runtime
+- **Shared SDK**: Hooks and utilities that give plugins access to shell services
+- **Backend Integration**: Each plugin can have its own Express backend and PostgreSQL database
+- **Multi-Tenancy**: User and team contexts with isolated configurations
+
+## Key Features
+
+### Plugin Architecture
+Build features as independent plugins with their own frontend, backend, and database. Plugins are loaded dynamically and communicate through a shared event bus.
+
+### Shared Services
+Plugins get access to authentication, notifications, theming, integrations (AI, storage, email), and more through the SDK.
+
+### Multi-Tenant
+Support for teams and organizations. Each team can have its own plugin configurations and data isolation.
+
+### Production Ready
+Built with Next.js 15, React 19, TypeScript, and Tailwind CSS. Deployable to Vercel with edge functions and serverless APIs.
+
+### Developer Experience
+CLI tooling for scaffolding, development, testing, and publishing plugins. Hot reload, automatic registration, and comprehensive documentation.
+
+## Who Is It For?
+
+- **Plugin Developers**: Build features for the NaaP ecosystem
+- **Platform Engineers**: Extend the shell with new services and integrations
+- **Network Operators**: Use plugins to manage infrastructure
+- **Community Contributors**: Publish plugins to the marketplace

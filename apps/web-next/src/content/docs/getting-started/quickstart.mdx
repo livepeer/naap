@@ -1,0 +1,95 @@
+---
+title: "Quick Start"
+description: "Go from zero to a running NaaP platform in under 3 minutes."
+order: 1
+---
+
+## One-Line Setup
+
+From a fresh clone to a fully running platform with a single command:
+
+```bash
+git clone https://github.com/qianghan/NaaP.git && cd NaaP && ./bin/setup.sh --start
+```
+
+This command handles everything automatically:
+
+1. Checks and installs dependencies (`npm install`)
+2. Starts a PostgreSQL database via Docker
+3. Creates all database schemas (public + 7 plugin schemas)
+4. Auto-generates all `.env` files with development defaults
+5. Seeds the database with initial data
+6. Builds all 11 plugin UMD bundles
+7. Starts the full platform (shell + core services)
+
+Open **http://localhost:3000** when setup completes.
+
+## Already Set Up?
+
+```bash
+# Shell + core only (fastest startup, ~20s)
+./bin/start.sh
+
+# Everything including all plugin backends
+./bin/start.sh start --all
+
+# Develop a specific plugin with hot reload
+./bin/start.sh dev my-dashboard
+```
+
+## Verify Everything Works
+
+```bash
+./bin/start.sh validate
+```
+
+You should see:
+
+```
+=== Core Services ===
+  [PASS] Base Service
+  [PASS] Plugin Server
+  [PASS] Shell
+
+=== Plugin Assets (CDN) ===
+  [PASS] Capacity Planner CDN bundle
+  [PASS] Community Hub CDN bundle
+  ... (all 11 plugins)
+
+=== Unified Database Schemas ===
+  [PASS] Schema public (67 tables)
+  [PASS] Schema plugin_community (exists)
+  ... (all 7 plugin schemas)
+
+Results: 38 passed, 0 failed
+```
+
+## Stop & Restart
+
+```bash
+# Graceful shutdown of all services
+./bin/start.sh stop
+
+# Restart (stop + start)
+./bin/start.sh restart
+
+# Live status dashboard (auto-refreshes)
+./bin/start.sh watch
+```
+
+## Development URLs
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| Shell | http://localhost:3000 | Main application |
+| Base Service | http://localhost:4000/healthz | Core API |
+| Plugin Server | http://localhost:3100/plugins | Plugin asset server |
+
+Plugin backends run on ports 4001-4012. Run `./bin/start.sh status` for the full list.
+
+## What's Next?
+
+- Learn about the [Architecture](/docs/concepts/architecture) behind NaaP
+- Follow the full [Plugin Development Guide](/docs/guides/your-first-plugin)
+- Explore the [SDK Hooks](/docs/api-reference/sdk-hooks) available to your plugin
+- Check out [Code Snippets](/docs/examples/snippets) for common patterns

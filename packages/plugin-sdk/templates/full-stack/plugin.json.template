@@ -1,0 +1,64 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "{{PLUGIN_NAME}}",
+  "displayName": "{{PLUGIN_DISPLAY_NAME}}",
+  "version": "0.1.0",
+  "description": "{{PLUGIN_DESCRIPTION}}",
+  "author": {
+    "name": "{{AUTHOR_NAME}}"
+  },
+  "license": "MIT",
+  "keywords": [],
+  "category": "{{CATEGORY}}",
+  
+  "shell": {
+    "minVersion": "0.1.0"
+  },
+  
+  "frontend": {
+    "entry": "./frontend/dist/production/{{PLUGIN_NAME}}.js",
+    "devPort": 3010,
+    "routes": [
+      "/{{PLUGIN_NAME}}",
+      "/{{PLUGIN_NAME}}/*"
+    ],
+    "navigation": {
+      "label": "{{PLUGIN_DISPLAY_NAME}}",
+      "icon": "Box",
+      "order": 100
+    }
+  },
+  
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devPort": 4010,
+    "port": 4100,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/{{PLUGIN_NAME}}",
+    "resources": {
+      "memory": "256Mi",
+      "cpu": "0.25"
+    }
+  },
+  
+  "database": {
+    "type": "postgresql",
+    "schema": "./backend/prisma/schema.prisma",
+    "migrations": "./backend/prisma/migrations",
+    "seed": "./backend/prisma/seed.ts"
+  },
+  
+  "integrations": {
+    "required": [],
+    "optional": []
+  },
+  
+  "permissions": {
+    "shell": ["navigation", "notifications"]
+  },
+  
+  "lifecycle": {
+    "postInstall": "npm run db:migrate && npm run db:seed",
+    "postUpdate": "npm run db:migrate"
+  }
+}

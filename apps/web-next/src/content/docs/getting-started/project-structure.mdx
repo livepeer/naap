@@ -1,0 +1,149 @@
+---
+title: "Project Structure"
+description: "Understand the NaaP monorepo layout and how all the pieces fit together."
+order: 4
+---
+
+## Monorepo Overview
+
+NaaP uses an **Nx monorepo** with the following top-level directories:
+
+```
+NaaP/
+├── apps/                    # Applications
+│   └── web-next/            # Main Next.js shell application
+│
+├── packages/                # Shared packages
+│   ├── database/            # Unified Prisma schema (single DB, multi-schema)
+│   ├── plugin-sdk/          # Plugin SDK (hooks, types, CLI)
+│   ├── plugin-build/        # Plugin build tooling (createPluginConfig)
+│   ├── types/               # Shared TypeScript types
+│   ├── ui/                  # Shared UI components
+│   ├── theme/               # Design tokens & Tailwind config
+│   ├── cache/               # Redis caching + rate limiting
+│   └── ...
+│
+├── plugins/                 # Plugin implementations
+│   ├── __template__/        # Plugin template (scaffolding source)
+│   ├── my-dashboard/        # Dashboard plugin
+│   ├── gateway-manager/     # Gateway management plugin
+│   ├── marketplace/         # Plugin marketplace
+│   └── ...
+│
+├── services/                # Backend microservices
+│   ├── base-svc/            # Core service (auth, RBAC, plugins)
+│   ├── plugin-server/       # Plugin asset server & registry
+│   └── ...
+│
+├── docs/                    # Platform documentation (source)
+├── examples/                # Example plugins
+├── bin/                     # Shell scripts (start/stop)
+├── scripts/                 # Utility & migration scripts
+└── nginx/                   # Nginx configuration
+```
+
+## Shell Application (`apps/web-next/`)
+
+The shell is the host application built with **Next.js 15** (App Router):
+
+```
+apps/web-next/src/
+├── app/                     # Next.js App Router
+│   ├── (auth)/              # Auth pages (login, register, etc.)
+│   ├── (dashboard)/         # Protected dashboard pages
+│   ├── docs/                # Documentation site
+│   ├── api/                 # API routes
+│   └── page.tsx             # Landing page
+│
+├── components/
+│   ├── layout/              # Shell layout (sidebar, top-bar)
+│   ├── plugin/              # Plugin loader
+│   └── ui/                  # Shell-specific UI components
+│
+├── contexts/                # React contexts
+│   ├── auth-context.tsx     # Authentication state
+│   ├── shell-context.tsx    # Shell services (events, theme, etc.)
+│   └── plugin-context.tsx   # Plugin registry
+│
+├── lib/                     # Utilities
+│   ├── plugins/             # Plugin loading (UMD loader, CDN)
+│   └── api/                 # API client utilities
+│
+└── middleware.ts            # Auth & routing middleware
+```
+
+## Plugin Structure
+
+Each plugin follows a consistent structure:
+
+```
+plugins/my-plugin/
+├── plugin.json              # Plugin manifest (identity, routes, config)
+│
+├── frontend/
+│   ├── src/
+│   │   ├── App.tsx          # Root component
+│   │   ├── mount.tsx        # Shell mount/unmount functions
+│   │   └── pages/           # Plugin pages
+│   ├── vite.config.ts       # UMD build configuration (createPluginConfig)
+│   ├── tsconfig.json
+│   └── package.json
+│
+├── backend/
+│   ├── src/
+│   │   ├── server.ts        # Express entry point
+│   │   └── routes/          # API route handlers
+│   ├── prisma/
+│   │   ├── schema.prisma    # Database schema
+│   │   └── seed.ts          # Seed data
+│   └── package.json
+│
+└── docs/                    # Plugin-specific documentation
+    └── CHANGELOG.md
+```
+
+## Key Configuration Files
+
+### `plugin.json` - Plugin Manifest
+
+Every plugin must have a `plugin.json` that defines its identity and capabilities:
+
+```json
+{
+  "name": "my-plugin",
+  "displayName": "My Plugin",
+  "version": "1.0.0",
+  "description": "Description of what the plugin does",
+  "category": "monitoring",
+  "frontend": {
+    "entry": "./frontend/dist/production/my-plugin.js",
+    "devPort": 3010,
+    "routes": ["/my-plugin", "/my-plugin/*"]
+  },
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "port": 4010,
+    "apiPrefix": "/api/v1/my-plugin",
+    "healthCheck": "/healthz"
+  }
+}
+```
+
+### `nx.json` - Workspace Configuration
+
+Nx manages build caching, task orchestration, and project dependencies across the monorepo.
+
+### `package.json` - Root Dependencies
+
+The root `package.json` contains shared development dependencies and workspace scripts.
+
+## Package Dependencies
+
+```
+@naap/plugin-sdk  ──── Used by plugins (hooks, types, CLI)
+@naap/plugin-build ─── Used by plugins (Vite build config)
+@naap/types ────────── Used everywhere (shared TypeScript types)
+@naap/ui ───────────── Used by shell + plugins (shared components)
+@naap/theme ────────── Used by shell + plugins (design tokens)
+@naap/utils ────────── Used by shell + services (utilities)
+```

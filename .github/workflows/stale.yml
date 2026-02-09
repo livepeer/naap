@@ -1,0 +1,53 @@
+# ---------------------------------------------------------------------------
+# Mark and close stale PRs and issues
+# Aggressive timelines to keep the backlog clean in a zero-coordination repo.
+# ---------------------------------------------------------------------------
+name: Stale
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    name: Flag stale PRs and issues
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stale check
+        uses: actions/stale@v9
+        with:
+          # --- PR settings ---
+          days-before-pr-stale: 7
+          days-before-pr-close: 5
+          stale-pr-message: >
+            This PR has been inactive for 7 days. It will be closed in 5 days
+            if no activity occurs. Feel free to reopen anytime.
+          close-pr-message: >
+            Closed due to inactivity. Feel free to reopen if you'd like to
+            continue this work.
+          stale-pr-label: stale
+
+          # --- Issue settings ---
+          days-before-issue-stale: 21
+          days-before-issue-close: 7
+          stale-issue-message: >
+            This issue has been inactive for 21 days. It will be closed in 7
+            days if no activity occurs. Feel free to reopen anytime.
+          close-issue-message: >
+            Closed due to inactivity. Feel free to reopen if this is still
+            relevant.
+          stale-issue-label: stale
+
+          # --- Exempt labels (never mark as stale) ---
+          exempt-pr-labels: 'P0/critical,status/blocked,pinned'
+          exempt-issue-labels: 'P0/critical,status/blocked,pinned'
+
+          # --- General ---
+          remove-stale-when-updated: true
+          operations-per-run: 100

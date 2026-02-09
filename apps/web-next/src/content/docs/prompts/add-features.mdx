@@ -1,0 +1,243 @@
+---
+title: "Add Features to a Plugin"
+description: "AI prompts to extend and enhance your existing NaaP plugins with new capabilities."
+order: 5
+---
+
+## When to Use This
+
+Use these prompts when you already have a working plugin and want to:
+
+- Add a new page, tab, or view
+- Add search, filtering, or sorting
+- Integrate with an external API
+- Add user preferences or settings
+- Improve the existing functionality
+
+## Prompt: Add a New Feature
+
+```markdown
+# Task: Add a New Feature to My NaaP Plugin
+
+## Context
+
+I have an existing NaaP plugin with the following structure:
+
+Plugin name: [YOUR_PLUGIN_NAME]
+Plugin type: [frontend-only / full-stack]
+
+Current features:
+[LIST WHAT YOUR PLUGIN CURRENTLY DOES — for example:
+- Displays a list of items in a card grid
+- Has a form to create new items
+- Supports filtering by category
+]
+
+Current file structure:
+[PASTE YOUR FILE STRUCTURE — you can get this by running: find . -type f -name "*.tsx" -o -name "*.ts" | head -30]
+
+Technology stack:
+- Frontend: React, TypeScript, Tailwind CSS, @naap/plugin-sdk
+- Backend (if full-stack): Express, Prisma, PostgreSQL
+
+SDK hooks being used:
+- useAuth() for user info
+- useNotify() for notifications
+- usePluginApi() for API calls
+[ADJUST BASED ON WHAT YOUR PLUGIN USES]
+
+## New Feature to Add
+
+[DESCRIBE THE FEATURE YOU WANT — for example:
+- "Add a search bar that filters items by title and description in real-time"
+- "Add a settings page where users can customize their dashboard layout"
+- "Add keyboard shortcuts (Cmd+K for search, Cmd+N for new item)"
+- "Add a sidebar with bookmarks and recent items"
+- "Add CSV export for all data"
+]
+
+## Requirements
+
+1. Modify only the files that need changing. Show the full updated file content.
+2. If new files are needed, provide complete code for each one.
+3. Keep the existing functionality working — don't break anything.
+4. Match the existing code style and patterns.
+5. Use the same Tailwind CSS approach as the existing code.
+6. Add proper TypeScript types for any new data structures.
+7. Include loading states, error handling, and edge cases.
+
+## Quality Standards
+
+- No `any` types
+- Reusable components where possible
+- Helpful comments on complex logic
+- Proper cleanup in useEffect hooks
+- Accessible UI (keyboard nav, aria labels)
+
+Tell me exactly which files to modify and which to create.
+```
+
+## Prompt: Add Search and Filtering
+
+A ready-to-use prompt for one of the most common features:
+
+```markdown
+# Task: Add Search and Filtering to My NaaP Plugin
+
+## Context
+
+My NaaP plugin "[PLUGIN_NAME]" displays a list/grid of items.
+I want to add powerful search and filtering capabilities.
+
+Current data structure:
+[DESCRIBE OR PASTE YOUR DATA TYPE — for example:
+```typescript
+interface Item {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  status: 'active' | 'archived';
+  createdAt: string;
+}
+```
+]
+
+## Feature Requirements
+
+1. **Search bar**
+   - Full-text search across title and description
+   - Debounced input (300ms delay before filtering)
+   - Clear button to reset search
+   - Show result count ("12 results" or "No results found")
+   - Keyboard shortcut: Cmd+K or Ctrl+K to focus search
+
+2. **Filter chips**
+   - Filter by category (show all categories as toggleable chips)
+   - Filter by status (active, archived, all)
+   - Combine search + filters (AND logic)
+   - Show active filter count
+   - "Clear all filters" button
+
+3. **Sort options**
+   - Sort by: newest, oldest, alphabetical, most popular
+   - Dropdown or segmented control for sort selection
+   - Remember last selected sort in localStorage
+
+4. **Results display**
+   - Highlight matching text in search results
+   - Show empty state when no results match
+   - Animate items in/out when filters change
+   - Show filter summary: "Showing 12 of 48 items"
+
+Match the existing plugin's Tailwind CSS styling.
+Generate all modified and new files with complete code.
+```
+
+## Prompt: Add User Settings / Preferences
+
+```markdown
+# Task: Add a Settings/Preferences Panel to My NaaP Plugin
+
+## Context
+
+My NaaP plugin "[PLUGIN_NAME]" needs a settings panel where users can
+customize their experience. The plugin runs inside the NaaP shell.
+
+## Settings to Include
+
+[CHOOSE AND CUSTOMIZE FROM THESE OPTIONS:]
+
+1. **Display preferences**
+   - View mode: grid vs list vs table
+   - Items per page: 10, 25, 50, 100
+   - Default sort order
+   - Compact vs comfortable spacing
+
+2. **Notification preferences**
+   - Enable/disable specific notification types
+   - Notification frequency (instant, daily digest, weekly)
+
+3. **Data preferences**
+   - Default category filter
+   - Date format (US, EU, ISO)
+   - Number format (1,000 vs 1.000)
+
+## Technical Requirements
+
+1. Store settings in localStorage using a key like "[plugin-name]:settings"
+2. Create a useSettings() custom hook that:
+   - Returns current settings
+   - Provides an updateSetting(key, value) function
+   - Auto-saves to localStorage on change
+   - Provides defaults for first-time users
+3. Settings panel design:
+   - Slide-over panel or modal (not a separate page)
+   - Grouped sections with clear labels
+   - Toggle switches for boolean settings
+   - Dropdown selects for choice settings
+   - "Reset to defaults" button
+   - Changes apply immediately (no save button needed)
+4. Use the shell theme for styling (Tailwind CSS, CSS variables)
+
+Generate the useSettings hook, Settings panel component, and show how to
+integrate them into the existing plugin code.
+```
+
+## Prompt: Add External API Integration
+
+```markdown
+# Task: Integrate an External API into My NaaP Plugin
+
+## Context
+
+My NaaP plugin needs to fetch data from an external API and display it.
+The plugin uses @naap/plugin-sdk's usePluginApi() hook which proxies
+requests through the shell's API gateway.
+
+## API to Integrate
+
+API: [NAME OR URL — for example: "OpenWeatherMap API", "GitHub API", "a REST API at https://api.example.com"]
+
+Endpoints I need:
+[LIST THE ENDPOINTS — for example:
+- GET /weather?city={city} → returns { temp, humidity, description }
+- GET /forecast?city={city}&days=5 → returns array of daily forecasts
+]
+
+Authentication: [None / API key in header / Bearer token]
+
+## Requirements
+
+1. Create a custom hook for the API (e.g., useWeatherApi):
+   - Handles loading, error, and data states
+   - Caches responses to avoid redundant requests
+   - Auto-refreshes on a configurable interval (if applicable)
+   - Provides retry functionality on error
+
+2. Display the data in a beautiful UI:
+   - Cards or dashboard layout
+   - Loading skeletons while fetching
+   - Error state with retry button
+   - Empty state with helpful message
+   - Auto-refresh indicator if applicable
+
+3. If the API requires a key, add a setup screen:
+   - Prompt user for their API key on first use
+   - Store securely in localStorage
+   - "Change API key" option in settings
+   - Validate the key with a test request
+
+Use Tailwind CSS, match the shell theme, include TypeScript types.
+Generate all files with complete code.
+```
+
+## Tips for Writing Feature Prompts
+
+When asking the AI to add features, always include:
+
+1. **What the plugin currently does** — so the AI knows the context
+2. **The current file structure** — paste output of `find . -name "*.tsx" -o -name "*.ts"`
+3. **The existing code style** — paste a small section of existing code as reference
+4. **What you want added** — be as specific as possible
+5. **What NOT to break** — mention features that must keep working

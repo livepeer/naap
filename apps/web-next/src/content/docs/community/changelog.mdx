@@ -1,0 +1,66 @@
+---
+title: "Changelog"
+description: "Version history and release notes for the NaaP platform."
+order: 3
+---
+
+## v1.0.0 - Current Release
+
+### Platform
+
+- **Next.js 15 Shell**: Migrated from Vite shell to Next.js 15 App Router
+- **UMD Plugin Loading**: Plugins compiled to UMD bundles, loaded at runtime
+- **Multi-Tenant Support**: Team-based plugin configurations and data isolation
+- **API Proxy**: Shell proxies all plugin API calls with authentication
+- **CDN Plugin Assets**: Plugin bundles served via Vercel Blob Storage
+
+### Plugin SDK
+
+- **React Hooks**: `useAuth`, `useShell`, `useNotify`, `useEvents`, `usePluginApi`, and more
+- **ShellProvider**: Context provider for plugin components
+- **MockShellProvider**: Testing utilities for unit tests
+- **CLI Tool**: `naap-plugin` CLI for scaffolding, development, testing, and publishing
+
+### Built-in Plugins
+
+- **Gateway Manager**: Monitor and manage AI gateways
+- **Orchestrator Manager**: Manage orchestrator nodes
+- **Capacity Planner**: Plan and scale infrastructure
+- **Network Analytics**: Network-wide statistics and leaderboards
+- **Community Forum**: Discussion forums
+- **Developer API**: API key management and documentation
+- **Marketplace**: Discover and install plugins
+- **Plugin Publisher**: Publish plugins to the registry
+- **My Dashboard**: Embedded analytics dashboard
+- **My Wallet**: Token management and transactions
+- **Daydream Video**: Real-time AI video generation
+
+### Infrastructure
+
+- **Authentication**: JWT-based auth with RBAC
+- **Event Bus**: Inter-plugin communication
+- **Theme System**: Light/dark mode with CSS variables
+- **Notification System**: Toast notifications
+- **Integration Services**: AI (OpenAI), Storage (Vercel Blob), Email (SendGrid)
+- **Real-time**: Ably-based real-time features
+
+---
+
+## Roadmap
+
+### Planned Features
+
+- **Plugin Marketplace v2**: Reviews, ratings, and featured plugins
+- **Plugin Versioning**: Automatic updates with rollback support
+- **WebSocket Events**: Real-time event bus via WebSocket
+- **Plugin Sandboxing**: Enhanced security isolation
+- **Custom Themes**: User-created theme presets
+- **Mobile App**: React Native companion app
+- **Plugin Analytics**: Usage metrics and crash reporting
+
+### Under Consideration
+
+- Federation-based plugin loading (alternative to UMD)
+- GraphQL API layer
+- Plugin-to-plugin direct communication
+- Multi-region deployment support

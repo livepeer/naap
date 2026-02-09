@@ -1,0 +1,106 @@
+# =============================================================================
+# SDK Compatibility Check — Verify all plugins work with SDK changes
+# =============================================================================
+# Triggered when plugin-sdk, plugin-utils, or plugin-build packages change.
+# Tests every plugin against the updated SDK to catch breaking changes early.
+# This is a blocking check — failures prevent merge.
+# =============================================================================
+
+name: SDK Compatibility
+
+on:
+  pull_request:
+    paths:
+      - 'packages/plugin-sdk/**'
+      - 'packages/plugin-utils/**'
+      - 'packages/plugin-build/**'
+
+concurrency:
+  group: sdk-compat-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  NEXT_TELEMETRY_DISABLED: 1
+
+jobs:
+  sdk-compat:
+    name: Compat — ${{ matrix.plugin }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin:
+          - gateway-manager
+          - orchestrator-manager
+          - capacity-planner
+          - network-analytics
+          - community
+          - marketplace
+          - my-dashboard
+          - my-wallet
+          - daydream-video
+          - developer-api
+          - plugin-publisher
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build SDK packages
+        run: |
+          echo "::group::Building plugin-sdk"
+          cd packages/plugin-sdk && npm run build
+          echo "::endgroup::"
+
+          echo "::group::Building plugin-utils"
+          cd ../plugin-utils && npm run build --if-present
+          echo "::endgroup::"
+
+          echo "::group::Building plugin-build"
+          cd ../plugin-build && npm run build --if-present
+          echo "::endgroup::"
+
+      - name: Run plugin tests
+        run: |
+          cd plugins/${{ matrix.plugin }}/frontend
+          echo "::group::Testing ${{ matrix.plugin }}"
+          npm test --if-present
+          echo "::endgroup::"
+
+      - name: Build plugin UMD bundle
+        run: |
+          cd plugins/${{ matrix.plugin }}/frontend
+          echo "::group::Building ${{ matrix.plugin }}"
+          npm run build:umd --if-present
+          echo "::endgroup::"
+
+  # ===========================================================================
+  # Summary — Aggregate results
+  # ===========================================================================
+  sdk-compat-summary:
+    name: SDK Compat Summary
+    runs-on: ubuntu-latest
+    needs: sdk-compat
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          if [[ "${{ needs.sdk-compat.result }}" == "failure" ]]; then
+            echo "::error::One or more plugins are incompatible with the SDK changes"
+            echo "## SDK Compatibility: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "One or more plugins failed to build or test against the updated SDK packages." >> $GITHUB_STEP_SUMMARY
+            echo "Review the individual plugin jobs above for details." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          echo "## SDK Compatibility: PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "All 11 plugins are compatible with the SDK changes." >> $GITHUB_STEP_SUMMARY

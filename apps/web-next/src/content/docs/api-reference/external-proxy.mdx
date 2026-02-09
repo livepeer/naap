@@ -1,0 +1,265 @@
+---
+title: "External API Proxy"
+description: "Full API reference for the createExternalProxy middleware in @naap/plugin-server-sdk."
+order: 6
+---
+
+## Overview
+
+`createExternalProxy` is a backend middleware factory from `@naap/plugin-server-sdk` that creates a transparent HTTP proxy for calling external APIs that don't support CORS. It returns an array of Express middleware handlers that you spread into your router.
+
+```typescript
+import { createExternalProxy } from '@naap/plugin-server-sdk';
+```
+
+## Signature
+
+```typescript
+function createExternalProxy(config: ExternalProxyConfig): RequestHandler[]
+```
+
+Returns `[bodyParser, proxyHandler]` — spread into `router.post()`:
+
+```typescript
+router.post('/my-proxy', ...createExternalProxy({ ... }));
+```
+
+## ExternalProxyConfig
+
+```typescript
+interface ExternalProxyConfig {
+  allowedHosts: string[];
+  targetUrlHeader?: string;
+  contentType?: string;
+  bodyLimit?: string;
+  exposeHeaders?: Array<{ from: string; to: string }>;
+  forwardHeaders?: Record<string, string> | ((req: Request) => Record<string, string>);
+  timeout?: number;
+  authorize?: (req: Request) => boolean | Promise<boolean>;
+  logger?: { info: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
+}
+```
+
+### allowedHosts
+
+**Type:** `string[]` | **Required**
+
+Hostnames the proxy is allowed to forward to. Uses suffix matching on the target URL's hostname. This prevents SSRF attacks.
+
+```typescript
+allowedHosts: ['api.stripe.com', 'livepeer.com']
+// Allows: api.stripe.com, ai.livepeer.com
+// Blocks: localhost, 169.254.169.254, evil.com
+```
+
+### targetUrlHeader
+
+**Type:** `string` | **Default:** `'X-Target-URL'`
+
+The HTTP request header that contains the full URL to forward to.
+
+```typescript
+targetUrlHeader: 'X-WHIP-URL'
+// Frontend sends: headers: { 'X-WHIP-URL': 'https://ai.livepeer.com/...' }
+```
+
+### contentType
+
+**Type:** `string` | **Default:** `'application/json'`
+
+The content type for the proxied request and response. Determines which Express body parser to use:
+
+- `'application/json'` — Uses `express.json()`, forwards JSON
+- `'application/sdp'` — Uses `express.text()`, forwards plain text
+- Any other type — Uses `express.text()`, forwards plain text
+
+```typescript
+contentType: 'application/sdp'  // For WebRTC SDP handshakes
+```
+
+### bodyLimit
+
+**Type:** `string` | **Default:** `'1mb'`
+
+Maximum allowed request body size. Uses Express size format.
+
+```typescript
+bodyLimit: '5mb'
+```
+
+### exposeHeaders
+
+**Type:** `Array<{ from: string; to: string }>` | **Default:** `[]`
+
+Maps response headers from the external API to custom headers on the proxy response. This is needed because browsers only expose "simple" response headers by default.
+
+```typescript
+exposeHeaders: [
+  { from: 'Location', to: 'X-WHIP-Resource' },
+  { from: 'X-RateLimit-Remaining', to: 'X-RateLimit-Remaining' },
+]
+```
+
+### forwardHeaders
+
+**Type:** `Record<string, string> | ((req: Request) => Record<string, string>)` | **Default:** `undefined`
+
+Additional headers to include in the request to the external API. Useful for injecting API keys that should never reach the browser.
+
+**Static headers:**
+
+```typescript
+forwardHeaders: {
+  'Authorization': `Bearer ${process.env.API_KEY}`,
+  'X-Custom': 'value',
+}
+```
+
+**Dynamic headers (function):**
+
+```typescript
+forwardHeaders: (req) => ({
+  'Authorization': `Bearer ${getApiKeyForUser(req)}`,
+})
+```
+
+### timeout
+
+**Type:** `number` | **Default:** `30000`
+
+Request timeout in milliseconds. If the external API doesn't respond within this time, the proxy returns a `504 Gateway Timeout`.
+
+```typescript
+timeout: 60_000  // 60 seconds for slow APIs
+```
+
+### authorize
+
+**Type:** `(req: Request) => boolean | Promise<boolean>` | **Default:** `undefined`
+
+Optional authorization callback. Called before the proxy forwards the request. Return `false` or throw an error to deny the request with a `403 Forbidden`.
+
+```typescript
+authorize: async (req) => {
+  const userId = getUserId(req);
+  const apiKey = await getUserApiKey(userId);
+  return !!apiKey;  // Only proxy if user has an API key
+}
+```
+
+### logger
+
+**Type:** `{ info: Function; error: Function }` | **Default:** `console`
+
+Custom logger for proxy events. The proxy logs:
+- `info`: When forwarding a request (hostname + path only)
+- `error`: When the external API returns an error or the proxy fails
+
+```typescript
+logger: {
+  info: (...args) => winston.info('[proxy]', ...args),
+  error: (...args) => winston.error('[proxy]', ...args),
+}
+```
+
+## Response Format
+
+### Success
+
+When the external API returns a successful response, the proxy returns:
+- **Status:** The external API's status code (typically 200)
+- **Content-Type:** Matches the configured `contentType`
+- **Body:** The external API's response body (JSON or text, depending on content type)
+- **Headers:** Any mapped `exposeHeaders`
+
+### Error Responses
+
+All error responses follow the standard NaaP format:
+
+```json
+{
+  "success": false,
+  "error": {
+    "message": "Description of the error"
+  }
+}
+```
+
+| Status | Condition |
+|--------|-----------|
+| 400 | Missing target URL header, invalid URL, blocked host, empty body |
+| 403 | `authorize` callback returned `false` |
+| 4xx/5xx | Forwarded from external API |
+| 504 | Request timed out |
+| 500 | Internal proxy error |
+
+## CORS Headers
+
+The proxy itself doesn't need special CORS configuration — it runs on your plugin backend which already has CORS configured by `createPluginServer`. The `X-WHIP-URL` and similar custom headers are included in `@naap/types` `CORS_ALLOWED_HEADERS`.
+
+If you use a custom `targetUrlHeader`, make sure it's listed in `CORS_ALLOWED_HEADERS` in `@naap/types/src/http-headers.ts`.
+
+## Complete Example
+
+```typescript
+// Backend: proxy Stripe API calls
+import { createPluginServer, createExternalProxy } from '@naap/plugin-server-sdk';
+
+const { router, start } = createPluginServer({
+  name: 'payment-plugin',
+  port: 4020,
+});
+
+router.post(
+  '/payments/stripe-proxy',
+  ...createExternalProxy({
+    allowedHosts: ['api.stripe.com'],
+    targetUrlHeader: 'X-Target-URL',
+    contentType: 'application/json',
+    timeout: 15_000,
+    forwardHeaders: {
+      'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+    },
+    authorize: async (req) => {
+      const user = (req as any).user;
+      return !!user?.id;
+    },
+    logger: {
+      info: (...args) => console.log('[stripe-proxy]', ...args),
+      error: (...args) => console.error('[stripe-proxy]', ...args),
+    },
+  })
+);
+
+start();
+```
+
+```typescript
+// Frontend: call Stripe through the proxy
+import { getPluginBackendUrl } from '@naap/plugin-sdk';
+
+async function createPaymentIntent(amount: number) {
+  const proxyUrl = getPluginBackendUrl('payment-plugin', {
+    apiPath: '/api/v1/payments/stripe-proxy',
+  });
+
+  const res = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Target-URL': 'https://api.stripe.com/v1/payment_intents',
+      'Authorization': `Bearer ${authToken}`,
+    },
+    body: JSON.stringify({ amount, currency: 'usd' }),
+  });
+
+  return res.json();
+}
+```
+
+## Related
+
+- [Proxying External APIs Guide](/docs/guides/external-api-proxy) — Tutorial with step-by-step walkthrough
+- [Backend Development](/docs/guides/backend-development) — General backend setup
+- [SDK Hooks](/docs/api-reference/sdk-hooks) — Frontend hooks including `getPluginBackendUrl`
+- [API Integration Example](/docs/examples/api-integration) — More API integration patterns

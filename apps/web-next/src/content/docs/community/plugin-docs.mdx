@@ -1,0 +1,174 @@
+---
+title: "Plugin Documentation"
+description: "How to publish documentation for your NaaP plugin."
+order: 2
+---
+
+## Overview
+
+Plugin developers can publish documentation that appears alongside their plugin in the marketplace and within the NaaP docs site. Well-documented plugins get more installations and better reviews.
+
+## Documentation Structure
+
+Include a `docs/` directory in your plugin:
+
+```
+my-plugin/
+├── plugin.json
+├── README.md              # Main plugin documentation
+├── CHANGELOG.md           # Version history
+├── docs/
+│   ├── getting-started.md  # Quick setup guide
+│   ├── configuration.md    # Configuration options
+│   ├── api.md              # Plugin API reference
+│   └── faq.md              # Frequently asked questions
+└── ...
+```
+
+## README Template
+
+Your `README.md` should include:
+
+```markdown
+# My Plugin
+
+Brief description of what the plugin does.
+
+## Features
+
+- Feature 1: Description
+- Feature 2: Description
+- Feature 3: Description
+
+## Screenshots
+
+![Dashboard View](./docs/images/dashboard.png)
+
+## Installation
+
+1. Open the NaaP Marketplace
+2. Search for "My Plugin"
+3. Click Install
+
+## Configuration
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| pageSize | number | 20 | Items per page |
+| refreshInterval | number | 30000 | Auto-refresh in ms |
+
+## Usage
+
+### Basic Usage
+
+Describe how to use the plugin's main features.
+
+### Advanced Usage
+
+Describe power-user features and customization.
+
+## API Reference
+
+If your plugin exposes events or APIs for other plugins:
+
+### Events Emitted
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `my-plugin:data-updated` | `{ id: string }` | Fired when data changes |
+
+### Events Listened
+
+| Event | Description |
+|-------|-------------|
+| `team:change` | Refreshes data for new team |
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md)
+
+## License
+
+MIT
+```
+
+## CHANGELOG Template
+
+Follow [Keep a Changelog](https://keepachangelog.com) format:
+
+```markdown
+# Changelog
+
+## [1.2.0] - 2025-12-01
+
+### Added
+- Dark mode support
+- Export to CSV feature
+
+### Fixed
+- Data refresh on team switch
+- Mobile layout issues
+
+## [1.1.0] - 2025-11-15
+
+### Added
+- Real-time data updates
+- Custom date range filter
+
+## [1.0.0] - 2025-11-01
+
+### Added
+- Initial release
+- Dashboard with key metrics
+- Data table with sorting and filtering
+```
+
+## Publishing Plugin Docs
+
+When you publish your plugin, documentation is automatically extracted:
+
+```bash
+naap-plugin publish
+```
+
+The publish process:
+
+1. Reads `README.md` for the marketplace listing
+2. Reads `CHANGELOG.md` for version history
+3. Reads `docs/` directory for extended documentation
+4. Uploads documentation to the registry
+
+## Documentation Best Practices
+
+1. **Start with why**: Explain what problem your plugin solves
+2. **Include screenshots**: Visual documentation is more engaging
+3. **Show code examples**: Developers learn by example
+4. **Document configuration**: List all settings with defaults and descriptions
+5. **Keep it updated**: Update docs with each new version
+6. **Add a FAQ**: Address common questions proactively
+7. **Link to related docs**: Reference NaaP SDK docs for SDK-related topics
+
+## In-App Documentation
+
+You can also render documentation within your plugin's UI:
+
+```typescript
+import { useState, useEffect } from 'react';
+
+function PluginDocs() {
+  const [content, setContent] = useState('');
+
+  useEffect(() => {
+    // Load your docs from the backend
+    fetch('/api/v1/my-plugin/docs/getting-started')
+      .then(res => res.text())
+      .then(setContent);
+  }, []);
+
+  return (
+    <div className="prose dark:prose-invert max-w-none">
+      <div dangerouslySetInnerHTML={{ __html: content }} />
+    </div>
+  );
+}
+```

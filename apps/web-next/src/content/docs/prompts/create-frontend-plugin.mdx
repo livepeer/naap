@@ -1,0 +1,189 @@
+---
+title: "Create a Frontend Plugin"
+description: "AI prompt to generate a complete frontend-only NaaP plugin with UI, routing, and shell integration."
+order: 2
+---
+
+## When to Use This
+
+Use this prompt when you want to build a **UI-only plugin** that:
+
+- Displays information or dashboards
+- Interacts with external APIs (via the shell's API proxy)
+- Doesn't need its own backend server or database
+- Is the simplest type of plugin to start with
+
+## The Prompt
+
+Copy the entire block below and paste it into your AI assistant:
+
+```markdown
+# Task: Create a NaaP Frontend-Only Plugin
+
+## Context: NaaP Platform
+
+NaaP (Network as a Platform) is a plugin-based platform. Plugins are built as
+React applications bundled in UMD format and loaded into a shell application.
+
+Key technical details:
+- Frontend: React 18+, TypeScript, Tailwind CSS, Vite
+- Bundle format: UMD (via vite.config.ts using createPluginConfig)
+- Shell integration: @naap/plugin-sdk provides hooks and components
+- The shell handles authentication, theming, notifications, and routing
+
+Available SDK hooks (import from @naap/plugin-sdk):
+- useAuth() → { user, token, hasRole(role), hasPermission(perm) }
+- useNotify() → { success(msg), error(msg), warning(msg), info(msg) }
+- usePluginApi() → { get(url), post(url, data), put(url, data), delete(url) }
+- useThemeService() → { theme, isDark }
+- useEvents() → { emit(event, data), on(event, callback), off(event, callback) }
+- usePluginContext() → { pluginId, teamId, config }
+
+Mount function pattern (frontend/src/mount.tsx):
+```tsx
+import { createRoot } from 'react-dom/client';
+import { ShellProvider } from '@naap/plugin-sdk';
+import App from './App';
+
+export function mount(container: HTMLElement, shellContext: any) {
+  const root = createRoot(container);
+  root.render(
+    <ShellProvider context={shellContext}>
+      <App />
+    </ShellProvider>
+  );
+  return () => root.unmount();
+}
+```
+
+## Requirements
+
+Create a frontend-only NaaP plugin called "[YOUR_PLUGIN_NAME]" that does:
+
+[DESCRIBE WHAT YOUR PLUGIN SHOULD DO HERE — for example:
+- "A bookmark manager that lets users save and organize links"
+- "A weather dashboard that shows current weather for cities"
+- "A Pomodoro timer with task tracking"
+- "A team announcement board"
+]
+
+## Technical Specifications
+
+1. Generate a complete plugin.json manifest:
+   ```json
+   {
+     "name": "[plugin-name]",
+     "displayName": "[Plugin Display Name]",
+     "version": "1.0.0",
+     "description": "[description]",
+     "category": "[pick: analytics|communication|developer-tools|finance|infrastructure|monitoring|other]",
+     "author": { "name": "[Your Name]" },
+     "frontend": {
+       "entry": "production/[plugin-name].js",
+       "routes": [{ "path": "/[plugin-name]", "component": "App" }],
+       "navigation": {
+         "label": "[Display Name]",
+         "icon": "[lucide-icon-name]",
+         "order": 50
+       }
+     },
+     "permissions": ["read:profile"]
+   }
+   ```
+
+2. Generate the full file structure:
+   ```
+   [plugin-name]/
+   ├── plugin.json
+   ├── frontend/
+   │   ├── package.json        (react, @naap/plugin-sdk, tailwindcss, vite deps)
+   │   ├── tsconfig.json
+   │   ├── vite.config.ts       (UMD build config via createPluginConfig)
+   │   ├── src/
+   │   │   ├── App.tsx          (main component with routing/layout)
+   │   │   ├── mount.tsx        (shell mount function)
+   │   │   └── components/      (reusable UI components)
+   │   └── index.html
+   ```
+
+3. Use Tailwind CSS for all styling. Make the UI look professional and modern.
+4. Use the useAuth() hook to show user-specific content.
+5. Use the useNotify() hook for success/error feedback.
+6. Use the usePluginApi() hook if the plugin needs to fetch external data.
+7. Include proper loading states, error handling, and empty states.
+8. Make the UI responsive (mobile + desktop).
+
+## Quality Standards
+
+- All TypeScript — no `any` types
+- Components are modular and reusable
+- Include helpful code comments
+- Follow React best practices (proper state management, effect cleanup)
+- Handle edge cases (loading, errors, empty data)
+
+Generate ALL files with complete, working code. Do not use placeholders.
+```
+
+## How to Customize
+
+Before pasting, replace these sections:
+
+1. **`[YOUR_PLUGIN_NAME]`** — your plugin's name (e.g., `bookmark-manager`)
+2. **`[DESCRIBE WHAT YOUR PLUGIN SHOULD DO]`** — write 2-3 sentences about what the plugin does
+3. **`[Your Name]`** — your name for the author field
+
+## After the AI Generates Code
+
+```bash
+# 1. Create the plugin directory
+naap-plugin create my-plugin --template frontend-only
+
+# 2. Replace the generated files with the AI's output
+# (copy each file the AI generated into the right location)
+
+# 3. Install dependencies
+cd my-plugin/frontend
+npm install
+
+# 4. Start the dev server
+naap-plugin dev
+
+# 5. Open http://localhost:3000 — your plugin appears in the sidebar
+```
+
+## Example: Bookmark Manager
+
+Here's a filled-in version of the requirements section:
+
+```markdown
+Create a frontend-only NaaP plugin called "bookmark-manager" that does:
+
+- Lets users save URLs with a title, description, and tags
+- Organizes bookmarks into folders/categories
+- Has a search bar to filter bookmarks by title or tag
+- Shows a grid view and a list view (toggle between them)
+- Uses localStorage to persist bookmarks (no backend needed)
+- Has an "import/export" feature to backup bookmarks as JSON
+- Shows a count of total bookmarks and most-used tags
+```
+
+## Follow-Up Prompts
+
+After the initial plugin is generated, you can refine it:
+
+```markdown
+# Add drag-and-drop reordering to the bookmark list
+# Use react-beautiful-dnd or a similar library
+
+Add drag-and-drop functionality so users can reorder their bookmarks
+by dragging them. Keep the existing grid/list toggle working.
+```
+
+```markdown
+# Make the UI more polished
+Improve the visual design of the bookmark manager:
+- Add subtle animations when adding/removing bookmarks
+- Use a card-based layout with hover effects
+- Add a dark mode that follows the shell theme (useThemeService)
+- Add favicon previews for each bookmarked URL
+```

@@ -1,0 +1,261 @@
+---
+title: "Publish and Deploy"
+description: "AI prompts to help you package, publish, and maintain your NaaP plugin in the marketplace."
+order: 9
+---
+
+## When to Use This
+
+Use these prompts when:
+
+- Your plugin is ready and you want to publish it
+- You need help writing a README or changelog
+- You want to set up CI/CD for automatic publishing
+- You need to update or version your plugin
+
+## Prompt: Prepare for Publishing
+
+```markdown
+# Task: Prepare My NaaP Plugin for Publishing
+
+## Context
+
+NaaP plugins are published to the NaaP marketplace. Before publishing,
+the plugin needs to be properly configured, documented, and validated.
+
+Publishing checklist:
+1. plugin.json has all required fields (name, displayName, version, description, category, author)
+2. Frontend builds successfully with `npm run build:umd`
+3. Backend builds successfully with `npm run build` (if full-stack)
+4. `naap-plugin doctor` passes all checks
+5. README.md exists with usage documentation
+6. CHANGELOG.md exists with version history
+7. assets/icon.png exists (256x256, plugin icon for marketplace)
+
+## My Plugin
+
+Plugin name: [YOUR_PLUGIN_NAME]
+Type: [frontend-only / full-stack]
+Version: 1.0.0
+
+Current plugin.json:
+[PASTE YOUR plugin.json]
+
+## Please Generate
+
+1. **Updated plugin.json** — review and fix any issues, add missing fields
+
+2. **README.md** — professional README with:
+   - Plugin description and screenshots section
+   - Features list
+   - Installation instructions
+   - Configuration options
+   - Usage guide
+   - API documentation (if full-stack)
+   - Contributing section
+   - License (MIT)
+
+3. **CHANGELOG.md** — initial changelog:
+   ```markdown
+   # Changelog
+
+   ## [1.0.0] - [TODAY'S DATE]
+   ### Added
+   - Initial release
+   - [LIST KEY FEATURES]
+   ```
+
+4. **Pre-publish validation script** — a shell script that:
+   - Runs linting
+   - Runs tests
+   - Builds frontend and backend
+   - Runs `naap-plugin doctor`
+   - Reports any issues
+
+5. **package.json scripts** — ensure these scripts exist:
+   - build:umd (frontend)
+   - build (backend, if applicable)
+   - test
+   - lint
+   - doctor (runs naap-plugin doctor)
+   - prepublish (runs build + test + doctor)
+```
+
+## Prompt: Write Plugin Documentation
+
+```markdown
+# Task: Write Documentation for My NaaP Plugin
+
+## Context
+
+I want to publish documentation for my NaaP plugin so other users
+know how to install, configure, and use it. NaaP supports plugin
+documentation published to the community docs section.
+
+## My Plugin
+
+Plugin name: [YOUR_PLUGIN_NAME]
+Description: [WHAT DOES YOUR PLUGIN DO]
+
+Features:
+[LIST ALL FEATURES — for example:
+- Real-time task tracking with drag-and-drop Kanban board
+- Team assignments and workload visualization
+- Due date reminders and notifications
+- CSV/JSON export
+- Customizable columns and labels
+]
+
+Configuration options:
+[LIST ANY SETTINGS — for example:
+- Default view (Kanban / List / Table)
+- Notification preferences
+- Color theme for labels
+]
+
+API endpoints (if full-stack):
+[LIST YOUR API ENDPOINTS]
+
+## Generate
+
+1. **User-facing documentation** (docs/README.md):
+   - Getting started guide
+   - Feature walkthrough with descriptions
+   - Configuration guide
+   - FAQ section
+   - Troubleshooting section
+
+2. **Developer documentation** (docs/DEVELOPER.md):
+   - Architecture overview
+   - Local development setup
+   - API reference (if backend exists)
+   - Contributing guidelines
+   - Code style guide
+
+3. **MDX documentation page** for the NaaP docs site (docs/plugin-doc.mdx):
+   - Frontmatter with title, description
+   - Overview section
+   - Installation section
+   - Usage guide with code examples
+   - Configuration reference
+   - Written in MDX format with proper headings
+
+Write in a friendly, professional tone. Include code examples where helpful.
+```
+
+## Prompt: Set Up CI/CD
+
+```markdown
+# Task: Set Up CI/CD for My NaaP Plugin
+
+## Context
+
+I want to set up GitHub Actions to automatically test, build, and
+optionally publish my NaaP plugin when I push to the repository.
+
+## My Plugin
+
+Plugin name: [YOUR_PLUGIN_NAME]
+Type: [frontend-only / full-stack]
+Repository: [github.com/YOUR_USERNAME/YOUR_REPO]
+
+## Generate GitHub Actions Workflows
+
+1. **CI Workflow** (.github/workflows/ci.yml):
+   - Triggers on: push to main, pull requests
+   - Steps:
+     - Checkout code
+     - Setup Node.js 20
+     - Install dependencies
+     - Run linting
+     - Run tests
+     - Build frontend (npm run build:umd)
+     - Build backend (if full-stack)
+     - Run naap-plugin doctor
+   - Report status as GitHub check
+
+2. **Publish Workflow** (.github/workflows/publish.yml):
+   - Triggers on: GitHub Release created
+   - Steps:
+     - Run full CI checks
+     - Package plugin (naap-plugin package)
+     - Publish to NaaP marketplace (naap-plugin publish)
+   - Uses NAAP_AUTH_TOKEN secret for authentication
+
+3. **PR Preview Workflow** (.github/workflows/preview.yml):
+   - Triggers on: pull request
+   - Runs tests and build
+   - Comments on PR with build status and size
+
+Generate complete workflow YAML files.
+```
+
+## Publishing Commands
+
+After the AI helps you prepare everything:
+
+```bash
+# 1. Validate everything
+naap-plugin doctor
+
+# 2. Build the plugin
+cd frontend && npm run build:umd
+cd ../backend && npm run build    # if full-stack
+
+# 3. Package it
+naap-plugin package
+# Creates: [plugin-name]-1.0.0.naap-plugin
+
+# 4. Log in to the marketplace
+naap-plugin login
+# Follow the authentication flow
+
+# 5. Publish!
+naap-plugin publish
+
+# 6. Verify it's live
+# Visit the marketplace in the NaaP shell
+```
+
+## Prompt: Version and Update
+
+When you want to release a new version:
+
+```markdown
+# Task: Prepare a New Version of My NaaP Plugin
+
+## Current Version: [e.g., 1.0.0]
+## New Version: [e.g., 1.1.0]
+
+## Changes Since Last Release
+
+[DESCRIBE WHAT CHANGED — for example:
+- Added dark mode support
+- Fixed a bug where tasks wouldn't save
+- Improved loading performance
+- Added CSV export feature
+]
+
+## Please Generate
+
+1. Updated version in plugin.json (and any package.json files)
+
+2. CHANGELOG.md entry for the new version:
+   - Group changes by: Added, Changed, Fixed, Removed
+   - Follow Keep a Changelog format
+
+3. Migration notes (if there are breaking changes):
+   - What changed
+   - How to update
+   - Any data migration needed
+
+4. Updated README.md (if new features need documentation)
+
+5. A git commit message and tag command:
+   ```bash
+   git add .
+   git commit -m "release: v[NEW_VERSION]"
+   git tag v[NEW_VERSION]
+   git push && git push --tags
+   ```
+```

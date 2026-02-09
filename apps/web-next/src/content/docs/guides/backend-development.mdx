@@ -1,0 +1,259 @@
+---
+title: "Backend Development"
+description: "Build plugin backends with Express, Prisma, and the NaaP backend SDK."
+order: 3
+---
+
+## Overview
+
+Plugin backends are **Express.js** servers that provide API endpoints. They use **Prisma** for database access and can optionally use the `@naap/plugin-server-sdk` for platform integration.
+
+The server SDK includes built-in middleware for common patterns:
+- **Auth** — JWT token validation and user extraction
+- **CORS** — Pre-configured with all NaaP custom headers
+- **External API Proxy** — Safely proxy requests to third-party APIs ([see guide](/docs/guides/external-api-proxy))
+
+## Project Structure
+
+```
+backend/
+├── src/
+│   ├── server.ts          # Express entry point
+│   ├── db/
+│   │   └── client.ts      # Re-exports prisma from @naap/database
+│   ├── routes/
+│   │   ├── index.ts       # Route aggregator
+│   │   └── tasks.ts       # Feature routes
+│   └── middleware/
+│       └── auth.ts        # Auth middleware
+├── .env                   # DATABASE_URL=...localhost:5432/naap
+├── tsconfig.json
+└── package.json           # Depends on @naap/database (NOT @prisma/client)
+```
+
+> **Note:** There is NO `prisma/` directory in plugin backends. All database models are defined centrally in `packages/database/prisma/schema.prisma`. See [Database Architecture](/docs/concepts/database-architecture).
+
+## Express Server Setup
+
+```typescript
+// backend/src/server.ts
+import express from 'express';
+import cors from 'cors';
+import { taskRoutes } from './routes/tasks.js';
+
+const app = express();
+const PORT = process.env.PORT || 4020;
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Health check (required by the shell)
+app.get('/healthz', (req, res) => {
+  res.json({
+    status: 'healthy',
+    service: 'my-plugin',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Routes
+app.use('/api/v1/my-plugin', taskRoutes);
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('[my-plugin]', err);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined,
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`My Plugin backend running on port ${PORT}`);
+});
+```
+
+## Database with Prisma (Unified Architecture)
+
+NaaP uses a **single PostgreSQL database** with **multi-schema isolation**. All models live in `packages/database/prisma/schema.prisma` — never in plugin directories. See [Database Architecture](/docs/concepts/database-architecture) for the full rules.
+
+### Adding Models for Your Plugin
+
+Add models to the unified schema at `packages/database/prisma/schema.prisma`:
+
+```prisma
+// packages/database/prisma/schema.prisma (append your models here)
+model MyPluginItem {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  status      String   @default("active")
+  userId      String
+  teamId      String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([teamId])
+  @@schema("plugin_my_plugin")    // ← MANDATORY
+}
+```
+
+Key requirements:
+- Every model MUST have `@@schema("plugin_<name>")`
+- Every model MUST be prefixed (e.g., `MyPluginItem`, not `Item`)
+- Enums also need `@@schema()` annotations
+
+### Schema Management
+
+All schema operations run from the **central** `packages/database` directory:
+
+```bash
+cd packages/database
+
+# Generate the typed client (after editing schema.prisma)
+npx prisma generate
+
+# Push schema to database (creates/updates tables)
+npx prisma db push
+
+# Open Prisma Studio
+npx prisma studio
+```
+
+### Database Client
+
+Every plugin uses the same one-liner:
+
+```typescript
+// backend/src/db/client.ts
+import { prisma } from '@naap/database';
+export const db = prisma;
+```
+
+**Do NOT:**
+- Import from `@prisma/client` or local `generated/` directories
+- Call `new PrismaClient()`
+- Create a `prisma/schema.prisma` in your plugin
+
+## API Routes
+
+```typescript
+// backend/src/routes/tasks.ts
+import { Router } from 'express';
+import { prisma } from '../db/client.js';
+
+export const taskRoutes = Router();
+
+// List items with pagination
+taskRoutes.get('/items', async (req, res) => {
+  const { page = '1', limit = '20', status } = req.query;
+  const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
+
+  const [items, total] = await Promise.all([
+    prisma.item.findMany({
+      where: status ? { status: status as string } : {},
+      skip,
+      take: parseInt(limit as string),
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.item.count({
+      where: status ? { status: status as string } : {},
+    }),
+  ]);
+
+  res.json({ items, total, page: parseInt(page as string) });
+});
+
+// Create item
+taskRoutes.post('/items', async (req, res) => {
+  const userId = req.headers['x-user-id'] as string;
+  const teamId = req.headers['x-team-id'] as string | undefined;
+
+  const item = await prisma.item.create({
+    data: {
+      ...req.body,
+      userId,
+      teamId,
+    },
+  });
+
+  res.status(201).json({ item });
+});
+
+// Get single item
+taskRoutes.get('/items/:id', async (req, res) => {
+  const item = await prisma.item.findUnique({
+    where: { id: req.params.id },
+  });
+
+  if (!item) {
+    return res.status(404).json({ error: 'Item not found' });
+  }
+
+  res.json({ item });
+});
+
+// Update item
+taskRoutes.patch('/items/:id', async (req, res) => {
+  const item = await prisma.item.update({
+    where: { id: req.params.id },
+    data: req.body,
+  });
+
+  res.json({ item });
+});
+
+// Delete item
+taskRoutes.delete('/items/:id', async (req, res) => {
+  await prisma.item.delete({
+    where: { id: req.params.id },
+  });
+
+  res.json({ success: true });
+});
+```
+
+## Authentication Headers
+
+The shell proxy forwards authentication headers to your backend:
+
+| Header | Description |
+|---|---|
+| `x-user-id` | Current user's ID |
+| `x-user-email` | Current user's email |
+| `x-team-id` | Current team's ID (if applicable) |
+| `x-request-id` | Unique request identifier |
+| `authorization` | Bearer token |
+
+## Seed Data
+
+Seed scripts use the unified client from `@naap/database`:
+
+```typescript
+// packages/database/prisma/seed.ts (add your seed data here)
+import { prisma } from '../src/index';
+
+async function main() {
+  await prisma.myPluginItem.createMany({
+    data: [
+      { name: 'Sample Item 1', userId: 'system', status: 'active' },
+      { name: 'Sample Item 2', userId: 'system', status: 'active' },
+    ],
+  });
+  console.log('Seed data created');
+}
+
+main()
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());
+```
+
+Run the seed from `packages/database`:
+
+```bash
+cd packages/database
+npx tsx prisma/seed.ts
+```

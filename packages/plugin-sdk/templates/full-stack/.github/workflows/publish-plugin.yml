@@ -1,0 +1,241 @@
+# NAAP Plugin Publishing Workflow
+# Automatically builds and publishes your plugin on GitHub releases
+
+name: Publish Plugin
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0)'
+        required: true
+      skip_tests:
+        description: 'Skip tests'
+        type: boolean
+        default: false
+
+env:
+  NODE_VERSION: '20'
+  REGISTRY_URL: ${{ secrets.NAAP_REGISTRY_URL || 'https://plugins.naap.io' }}
+
+jobs:
+  # ============================================
+  # Build and Test
+  # ============================================
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      frontend_built: ${{ steps.frontend.outputs.built }}
+      backend_built: ${{ steps.backend.outputs.built }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}" # Remove 'v' prefix if present
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing version: $VERSION"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint --if-present
+
+      - name: Run tests
+        if: ${{ github.event.inputs.skip_tests != 'true' }}
+        run: npm test --if-present
+
+      # Build Frontend
+      - name: Build frontend
+        id: frontend
+        if: hashFiles('frontend/package.json') != ''
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+          echo "built=true" >> $GITHUB_OUTPUT
+
+      - name: Upload frontend artifacts
+        if: steps.frontend.outputs.built == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-bundle
+          path: frontend/dist/
+          retention-days: 1
+
+      # Build Backend
+      - name: Build backend
+        id: backend
+        if: hashFiles('backend/Dockerfile') != ''
+        run: |
+          cd backend
+          npm ci --if-present
+          npm run build --if-present
+          echo "built=true" >> $GITHUB_OUTPUT
+
+  # ============================================
+  # Build and Push Docker Image
+  # ============================================
+  docker:
+    name: Build Docker Image
+    needs: build
+    runs-on: ubuntu-latest
+    if: needs.build.outputs.backend_built == 'true'
+    outputs:
+      image: ${{ steps.meta.outputs.tags }}
+      digest: ${{ steps.push.outputs.digest }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-backend
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.build.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.build.outputs.version }}
+            type=raw,value=latest,enable=${{ !contains(needs.build.outputs.version, '-') }}
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v5
+        with:
+          context: backend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.build.outputs.version }}
+            org.opencontainers.image.vendor=NAAP
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================
+  # Upload Frontend to Storage
+  # ============================================
+  upload:
+    name: Upload Frontend
+    needs: build
+    runs-on: ubuntu-latest
+    if: needs.build.outputs.frontend_built == 'true'
+    outputs:
+      remote_entry_url: ${{ steps.upload.outputs.remote_entry_url }}
+    
+    steps:
+      - name: Download frontend artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-bundle
+          path: dist/
+
+      - name: Upload to NAAP Storage
+        id: upload
+        env:
+          NAAP_REGISTRY_TOKEN: ${{ secrets.NAAP_REGISTRY_TOKEN }}
+        run: |
+          PLUGIN_NAME="${{ github.repository }}"
+          PLUGIN_NAME="${PLUGIN_NAME##*/}" # Get repo name only
+          VERSION="${{ needs.build.outputs.version }}"
+          
+          # Upload bundle
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer $NAAP_REGISTRY_TOKEN" \
+            -F "files=@dist/production/${PLUGIN_NAME}.js" \
+            -F "files=@dist/assets/*" \
+            "${{ env.REGISTRY_URL }}/api/v1/storage/plugins/${PLUGIN_NAME}/${VERSION}/bundle")
+          
+          CDN_BUNDLE_URL=$(echo $RESPONSE | jq -r '.cdnBundleUrl')
+          echo "cdn_bundle_url=$CDN_BUNDLE_URL" >> $GITHUB_OUTPUT
+          echo "Frontend uploaded: $CDN_BUNDLE_URL"
+
+  # ============================================
+  # Publish to Registry
+  # ============================================
+  publish:
+    name: Publish to Registry
+    needs: [build, docker, upload]
+    runs-on: ubuntu-latest
+    if: always() && needs.build.result == 'success'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install NAAP CLI
+        run: npm install -g @naap/plugin-sdk
+
+      - name: Publish to registry
+        env:
+          NAAP_REGISTRY_TOKEN: ${{ secrets.NAAP_REGISTRY_TOKEN }}
+          NAAP_REGISTRY_URL: ${{ env.REGISTRY_URL }}
+        run: |
+          naap-plugin publish \
+            --from-github \
+            --frontend-url "${{ needs.upload.outputs.remote_entry_url }}" \
+            --backend-image "${{ needs.docker.outputs.image }}" \
+            --release-notes "${{ github.event.release.body }}"
+
+      - name: Create GitHub deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'naap-registry',
+              description: 'Published to NAAP registry',
+              auto_merge: false,
+              required_contexts: []
+            });
+
+  # ============================================
+  # Notify on Failure
+  # ============================================
+  notify-failure:
+    name: Notify on Failure
+    needs: [build, docker, upload, publish]
+    runs-on: ubuntu-latest
+    if: failure()
+    
+    steps:
+      - name: Send failure notification
+        run: |
+          echo "::error::Plugin publishing failed. Check the workflow logs for details."

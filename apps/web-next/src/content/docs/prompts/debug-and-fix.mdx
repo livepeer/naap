@@ -1,0 +1,231 @@
+---
+title: "Debug and Fix Issues"
+description: "AI prompts to help troubleshoot errors, fix bugs, and resolve common NaaP plugin problems."
+order: 7
+---
+
+## When to Use This
+
+Use these prompts when:
+
+- Your plugin won't start or shows errors
+- Something used to work but broke after a change
+- You see error messages you don't understand
+- Your plugin loads but doesn't behave correctly
+- Build or compilation errors
+
+## Prompt: General Debugging
+
+```markdown
+# Task: Debug My NaaP Plugin
+
+## The Problem
+
+[DESCRIBE WHAT'S HAPPENING — for example:
+- "My plugin shows a blank white screen when I open it"
+- "The API call returns a 500 error"
+- "The page loads but the data doesn't appear"
+- "I get a TypeScript error when building"
+]
+
+## Error Messages
+
+[PASTE ANY ERROR MESSAGES YOU SEE — check:
+- Browser console (right-click → Inspect → Console tab)
+- Terminal where you ran `naap-plugin dev`
+- The browser's Network tab for failed API calls
+]
+
+```
+[PASTE ERROR OUTPUT HERE]
+```
+
+## What I Expected
+
+[DESCRIBE WHAT SHOULD HAPPEN]
+
+## What I Changed Recently
+
+[LIST ANY RECENT CHANGES — for example:
+- "I added a new component called TaskList.tsx"
+- "I changed the Prisma schema and ran prisma db push"
+- "I installed a new npm package"
+- "I didn't change anything, it just stopped working"
+]
+
+## Relevant Code
+
+[PASTE THE CODE YOU THINK IS CAUSING THE ISSUE — include the full file if it's small]
+
+## My Environment
+
+- Node.js version: [run `node --version`]
+- Running on: [Mac / Windows / Linux]
+- Browser: [Chrome / Firefox / Safari]
+
+## Please:
+
+1. Explain what's causing the error in simple terms
+2. Show me exactly which lines to change to fix it
+3. Explain why the fix works
+4. Tell me how to prevent this issue in the future
+```
+
+## Prompt: Fix Common Errors
+
+### Plugin Won't Load in Shell
+
+```markdown
+# My NaaP Plugin Won't Load
+
+The plugin doesn't appear in the shell sidebar, or it shows "Failed to load plugin."
+
+Here's my plugin.json:
+[PASTE YOUR plugin.json]
+
+Here's my mount.tsx:
+[PASTE YOUR mount.tsx]
+
+Here's my vite.config.ts:
+[PASTE YOUR vite.config.ts]
+
+Error in browser console:
+[PASTE ANY ERRORS]
+
+Please check:
+1. Is plugin.json valid and has the correct structure?
+2. Is the mount function exported correctly?
+3. Is the Vite UMD config correct?
+4. Are there any missing dependencies?
+5. Is the frontend building successfully? (check terminal output)
+
+Show me what to fix.
+```
+
+### API Calls Failing
+
+```markdown
+# My Plugin's API Calls Are Failing
+
+When my frontend calls the backend API, I get errors.
+
+Frontend code making the call:
+[PASTE THE COMPONENT/HOOK MAKING THE API CALL]
+
+Backend route handling the call:
+[PASTE THE ROUTE HANDLER]
+
+Error in browser Network tab:
+- URL: [the failing URL]
+- Status: [404 / 500 / CORS error / etc.]
+- Response body: [paste the error response]
+
+Error in backend terminal:
+[PASTE ANY BACKEND ERRORS]
+
+My plugin.json backend config:
+```json
+{
+  "backend": {
+    "port": [PORT],
+    "apiPrefix": "/api/v1/[plugin-name]"
+  }
+}
+```
+
+Please diagnose and fix the issue.
+```
+
+### Database/Prisma Errors
+
+```markdown
+# Prisma Database Error in My NaaP Plugin
+
+**Architecture context:** NaaP uses a single PostgreSQL database (`naap`) with
+multi-schema isolation. All models are in `packages/database/prisma/schema.prisma`.
+Plugins import from `@naap/database`, never from `@prisma/client` or local generated dirs.
+
+I'm getting a database error in my plugin backend.
+
+Error message:
+```
+[PASTE THE FULL PRISMA ERROR]
+```
+
+My models (from packages/database/prisma/schema.prisma):
+[PASTE THE RELEVANT MODELS]
+
+The code that triggers the error:
+[PASTE THE CODE MAKING THE DATABASE QUERY]
+
+What I was trying to do:
+[DESCRIBE THE OPERATION]
+
+Please:
+1. Explain what the Prisma error means
+2. Show me the fix
+3. Show the corrected Prisma query or schema (with @@schema annotations)
+4. Tell me if I need to run `cd packages/database && npx prisma generate && npx prisma db push`
+5. Verify I'm importing from @naap/database (not @prisma/client)
+```
+
+### Build/TypeScript Errors
+
+```markdown
+# Build Errors in My NaaP Plugin
+
+When I run `npm run build` or the dev server, I get TypeScript errors.
+
+Error output:
+```
+[PASTE THE FULL ERROR OUTPUT]
+```
+
+The file with the error:
+[PASTE THE FULL FILE CONTENT]
+
+Please:
+1. Explain each error in simple terms
+2. Show me the corrected code
+3. Explain the TypeScript concept behind each fix
+```
+
+## Quick Fix Reference
+
+Before using AI, try these common fixes:
+
+```bash
+# Plugin not showing up? Restart the dev server
+naap-plugin dev
+
+# Dependencies missing? Reinstall
+cd frontend && rm -rf node_modules && npm install
+cd ../backend && rm -rf node_modules && npm install
+
+# Database out of sync? Reset from the central package
+cd packages/database
+npx prisma generate
+npx prisma db push --force-reset
+
+# Port already in use?
+lsof -ti:4050 | xargs kill -9
+
+# TypeScript cache stale?
+rm -rf dist tsconfig.tsbuildinfo
+npm run build
+
+# Everything broken? Nuclear option
+rm -rf node_modules frontend/node_modules backend/node_modules
+npm install
+cd frontend && npm install
+cd ../backend && npm install
+npx prisma generate
+```
+
+## Tips for Better Debugging Prompts
+
+1. **Always paste the full error message** — AI assistants are very good at diagnosing errors when they can see the exact output
+2. **Include the relevant code** — paste the file that's causing the issue
+3. **Describe what changed** — "it worked before I did X" is extremely helpful
+4. **Include your environment** — Node.js version, OS, and browser matter
+5. **Be specific** — "it doesn't work" is less helpful than "clicking the Save button shows a 500 error with message 'Cannot read property id of undefined'"

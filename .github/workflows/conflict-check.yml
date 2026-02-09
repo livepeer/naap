@@ -1,0 +1,108 @@
+# ---------------------------------------------------------------------------
+# Detect merge conflicts on open PRs and label them with `needs-rebase`.
+# Runs every 2 hours. Removes the label once the conflict is resolved.
+# ---------------------------------------------------------------------------
+name: Conflict Check
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  conflict-check:
+    name: Check for merge conflicts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Detect and label conflicting PRs
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const LABEL = 'needs-rebase';
+            const MARKER = '<!-- conflict-check-bot -->';
+
+            // List all open PRs
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+            });
+
+            for (const pr of prs) {
+              // Fetch full PR data to get mergeable_state
+              const { data: fullPr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+              });
+
+              const { data: labels } = await github.rest.issues.listLabelsOnIssue({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+              });
+
+              const hasLabel = labels.some(l => l.name === LABEL);
+              const isDirty = fullPr.mergeable_state === 'dirty';
+
+              if (isDirty && !hasLabel) {
+                // PR has conflicts – add label and comment
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  labels: [LABEL],
+                });
+
+                // Check for existing bot comment to avoid duplicates
+                const { data: comments } = await github.rest.issues.listComments({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                });
+
+                if (!comments.some(c => c.body.includes(MARKER))) {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: pr.number,
+                    body: [
+                      MARKER,
+                      '⚠️ **Merge conflict detected**',
+                      '',
+                      'This PR has conflicts with the base branch. Please rebase to resolve them:',
+                      '',
+                      '```bash',
+                      'git fetch origin',
+                      `git rebase origin/${fullPr.base.ref}`,
+                      '# resolve conflicts, then:',
+                      'git push --force-with-lease',
+                      '```',
+                      '',
+                      'The `needs-rebase` label will be removed automatically once the conflicts are resolved.',
+                    ].join('\n'),
+                  });
+                }
+
+                core.info(`PR #${pr.number}: marked as needing rebase`);
+              } else if (!isDirty && hasLabel) {
+                // Conflicts resolved – remove the label
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: pr.number,
+                    name: LABEL,
+                  });
+                  core.info(`PR #${pr.number}: conflict resolved, removed ${LABEL} label`);
+                } catch (e) {
+                  // Label may have already been removed
+                  core.info(`PR #${pr.number}: could not remove label (may already be gone)`);
+                }
+              }
+            }

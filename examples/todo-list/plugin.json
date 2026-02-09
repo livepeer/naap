@@ -1,0 +1,49 @@
+{
+  "$schema": "../../packages/plugin-sdk/plugin.schema.json",
+  "name": "todo-list",
+  "displayName": "Todo List",
+  "version": "1.0.0",
+  "description": "A full-stack example plugin with CRUD operations and role-based access",
+  "category": "example",
+  "author": {
+    "name": "NAAP Examples",
+    "email": "examples@naap.dev"
+  },
+  "icon": "CheckSquare",
+  "routes": [
+    "/todos",
+    "/todos/*"
+  ],
+  "frontend": {
+    "devPort": 3021,
+    "entryPoint": "./frontend/src/App.tsx"
+  },
+  "backend": {
+    "devPort": 4021,
+    "entryPoint": "./backend/src/server.ts",
+    "database": true
+  },
+  "rbac": {
+    "roles": [
+      {
+        "name": "todo-list:admin",
+        "displayName": "Todo List Admin",
+        "description": "Can manage all todos",
+        "permissions": [
+          { "resource": "todo-list", "action": "*" }
+        ]
+      },
+      {
+        "name": "todo-list:user",
+        "displayName": "Todo List User",
+        "description": "Can manage own todos",
+        "permissions": [
+          { "resource": "todo-list", "action": "read" },
+          { "resource": "todo-list", "action": "create" },
+          { "resource": "todo-list:own", "action": "*" }
+        ]
+      }
+    ],
+    "defaultRole": "todo-list:user"
+  }
+}

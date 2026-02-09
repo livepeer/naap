@@ -1,0 +1,17 @@
+{
+  "name": "@naap/web3",
+  "version": "1.0.0",
+  "description": "Web3 provider abstraction for NaaP plugins -- wallet connection, signers, tx monitoring",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  }
+}

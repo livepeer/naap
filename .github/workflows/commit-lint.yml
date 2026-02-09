@@ -1,0 +1,46 @@
+# ---------------------------------------------------------------------------
+# Validate PR title against Conventional Commits format
+# Format: type(scope): description
+#   type  = feat | fix | refactor | docs | test | chore | perf | ci | build | style | revert
+#   scope = optional, in parentheses
+# ---------------------------------------------------------------------------
+name: Commit Lint
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  lint-pr-title:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check conventional commit format
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+
+            // Conventional Commits regex
+            // type(optional-scope): description
+            const pattern = /^(feat|fix|refactor|docs|test|chore|perf|ci|build|style|revert)(\([a-zA-Z0-9_\-./]+\))?!?:\s.+$/;
+
+            if (!pattern.test(title)) {
+              core.setFailed(
+                `❌ PR title does not match Conventional Commits format.\n\n` +
+                `  Got:      "${title}"\n` +
+                `  Expected: type(scope): description\n\n` +
+                `  Allowed types: feat, fix, refactor, docs, test, chore, perf, ci, build, style, revert\n` +
+                `  Scope is optional.\n\n` +
+                `  Examples:\n` +
+                `    feat(plugin-sdk): add validation helper\n` +
+                `    fix: resolve null pointer in gateway\n` +
+                `    docs(readme): update quickstart guide\n` +
+                `    chore!: drop Node 16 support`
+              );
+            } else {
+              core.info(`✅ PR title is valid: "${title}"`);
+            }

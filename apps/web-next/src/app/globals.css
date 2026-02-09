@@ -1,0 +1,306 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * NAAP Brand Theme - Professional Light/Dark Mode
+ * Light mode (default) with .dark class for dark mode
+ * WCAG AA compliant color contrasts
+ */
+
+/* ============================================
+   Light Mode (Default) - Professional Palette
+   ============================================ */
+:root {
+  /* Backgrounds - Clean whites/grays */
+  --bg-primary: #ffffff;           /* Pure white */
+  --bg-secondary: #f8fafc;         /* Slate-50: Cards */
+  --bg-tertiary: #f1f5f9;          /* Slate-100: Inputs */
+
+  /* Text - High contrast (WCAG AA compliant) */
+  --text-primary: #0f172a;         /* Slate-900 (7:1 contrast) */
+  --text-secondary: #475569;       /* Slate-600 (4.5:1) */
+  --text-tertiary: #94a3b8;        /* Slate-400: Muted */
+
+  /* Accents - Darker for light backgrounds */
+  --accent-emerald: #059669;       /* Emerald-600 */
+  --accent-blue: #2563eb;          /* Blue-600 */
+  --accent-amber: #d97706;         /* Amber-600 */
+  --accent-rose: #dc2626;          /* Rose-600 */
+  --accent-purple: #7c3aed;        /* Violet-600 */
+
+  /* Borders */
+  --border-color: #e2e8f0;         /* Slate-200 */
+
+  /* Semantic mappings for UI components (HSL for Tailwind) */
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  --card: 210 40% 98%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 160 84% 39%;          /* Emerald as primary */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 217 91% 60%;           /* Blue as accent */
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;        /* Red-500 */
+  --destructive-foreground: 0 0% 98%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 160 84% 39%;             /* Emerald ring */
+  --radius: 0.5rem;
+
+  /* Status Colors */
+  --success: 160 84% 39%;          /* Emerald */
+  --warning: 38 92% 50%;           /* Amber */
+  --error: 0 84% 60%;              /* Red */
+  --info: 217 91% 60%;             /* Blue */
+}
+
+/* ============================================
+   Dark Mode - NAAP Brand Theme
+   ============================================ */
+.dark {
+  /* Backgrounds - Deep navy brand colors */
+  --bg-primary: #0a0f1a;           /* Deep navy */
+  --bg-secondary: #111827;         /* Dark gray-blue */
+  --bg-tertiary: #1f2937;          /* Medium gray-blue */
+
+  /* Text */
+  --text-primary: #f9fafb;         /* Gray-50 */
+  --text-secondary: #9ca3af;       /* Gray-400 */
+  --text-tertiary: #6b7280;        /* Gray-500 */
+
+  /* Accents - Brighter for dark backgrounds */
+  --accent-emerald: #10b981;       /* Emerald-500 */
+  --accent-blue: #3b82f6;          /* Blue-500 */
+  --accent-amber: #f59e0b;         /* Amber-500 */
+  --accent-rose: #f43f5e;          /* Rose-500 */
+  --accent-purple: #8b5cf6;        /* Violet-500 */
+
+  /* Borders */
+  --border-color: rgba(255, 255, 255, 0.1);
+
+  /* Semantic mappings (HSL) */
+  --background: 220 47% 7%;        /* #0a0f1a */
+  --foreground: 210 20% 98%;       /* #f9fafb */
+  --card: 222 47% 11%;             /* #111827 */
+  --card-foreground: 210 20% 98%;
+  --popover: 222 47% 11%;
+  --popover-foreground: 210 20% 98%;
+  --primary: 160 84% 39%;          /* #10b981 */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 217 33% 17%;        /* #1f2937 */
+  --secondary-foreground: 210 20% 98%;
+  --muted: 217 33% 17%;
+  --muted-foreground: 218 11% 65%;
+  --accent: 217 91% 60%;           /* #3b82f6 */
+  --accent-foreground: 0 0% 100%;
+  --destructive: 350 89% 60%;      /* #f43f5e */
+  --destructive-foreground: 0 0% 98%;
+  --border: 217 33% 20%;
+  --input: 217 33% 17%;
+  --ring: 160 84% 39%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    /* Let color-scheme be set by JS based on theme */
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  html:not(.dark) {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Outfit', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+}
+
+/* ============================================
+   Glass Card Effect - Theme Aware
+   ============================================ */
+.glass-card {
+  @apply backdrop-blur-md rounded-2xl;
+  background-color: hsl(var(--card));
+  border: 1px solid var(--border-color);
+}
+
+.dark .glass-card {
+  background-color: rgba(17, 24, 39, 0.8);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* ============================================
+   Custom Scrollbar - Theme Aware
+   ============================================ */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.2);
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+  }
+
+  /* Custom scrollbar - dark mode */
+  .dark .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+  }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  /* Custom scrollbar - light mode */
+  html:not(.dark) .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  html:not(.dark) .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  html:not(.dark) .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 3px;
+  }
+
+  html:not(.dark) .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.25);
+  }
+}
+
+/* ============================================
+   Animation Utilities
+   ============================================ */
+@layer utilities {
+  .animate-in {
+    animation: animateIn 0.2s ease-out;
+  }
+
+  .animate-out {
+    animation: animateOut 0.2s ease-in;
+  }
+
+  @keyframes animateIn {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes animateOut {
+    from {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+}
+
+/* ============================================
+   Brand Accent Utility Classes
+   ============================================ */
+@layer utilities {
+  .text-accent-emerald {
+    color: var(--accent-emerald);
+  }
+  .text-accent-blue {
+    color: var(--accent-blue);
+  }
+  .text-accent-amber {
+    color: var(--accent-amber);
+  }
+  .text-accent-rose {
+    color: var(--accent-rose);
+  }
+  .text-accent-purple {
+    color: var(--accent-purple);
+  }
+
+  .bg-accent-emerald {
+    background-color: var(--accent-emerald);
+  }
+  .bg-accent-blue {
+    background-color: var(--accent-blue);
+  }
+  .bg-accent-amber {
+    background-color: var(--accent-amber);
+  }
+  .bg-accent-rose {
+    background-color: var(--accent-rose);
+  }
+  .bg-accent-purple {
+    background-color: var(--accent-purple);
+  }
+
+  .border-accent-emerald {
+    border-color: var(--accent-emerald);
+  }
+  .border-accent-blue {
+    border-color: var(--accent-blue);
+  }
+  .border-accent-amber {
+    border-color: var(--accent-amber);
+  }
+  .border-accent-rose {
+    border-color: var(--accent-rose);
+  }
+  .border-accent-purple {
+    border-color: var(--accent-purple);
+  }
+}

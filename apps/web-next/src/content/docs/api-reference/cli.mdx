@@ -1,0 +1,169 @@
+---
+title: "CLI Reference"
+description: "Complete reference for the naap-plugin CLI commands."
+order: 5
+---
+
+## Installation
+
+```bash
+npm install -g @naap/plugin-sdk
+```
+
+## Commands
+
+### naap-plugin create
+
+Scaffold a new plugin from a template.
+
+```bash
+naap-plugin create <name> [options]
+```
+
+| Option | Description | Default |
+|---|---|---|
+| `--template <type>` | Template type: `full-stack`, `frontend-only`, `backend-only` | Interactive |
+| `--category <cat>` | Plugin category | Interactive |
+| `--description <desc>` | Plugin description | Interactive |
+| `--no-git` | Skip git initialization | `false` |
+
+**Examples:**
+
+```bash
+# Interactive creation
+naap-plugin create my-plugin
+
+# Non-interactive
+naap-plugin create my-plugin \
+  --template full-stack \
+  --category monitoring \
+  --description "My monitoring plugin"
+```
+
+### naap-plugin dev
+
+Start the development server with hot reload.
+
+```bash
+naap-plugin dev [options]
+```
+
+| Option | Description | Default |
+|---|---|---|
+| `--port <number>` | Frontend dev port | From `plugin.json` |
+| `--backend-port <number>` | Backend dev port | From `plugin.json` |
+| `--no-backend` | Skip backend server | `false` |
+| `--shell-url <url>` | Shell URL for registration | `http://localhost:3000` |
+
+**What it does:**
+
+1. Starts the frontend Vite dev server with HMR
+2. Starts the backend Express server (if applicable)
+3. Auto-registers the plugin with the running shell
+4. Opens the browser with the plugin loaded
+
+### naap-plugin build
+
+Build the plugin for production.
+
+```bash
+naap-plugin build [options]
+```
+
+| Option | Description | Default |
+|---|---|---|
+| `--frontend-only` | Build only the frontend | `false` |
+| `--backend-only` | Build only the backend | `false` |
+
+This produces:
+- Frontend: UMD bundle in `frontend/dist/`
+- Backend: Compiled JS in `backend/dist/`
+
+### naap-plugin test
+
+Run the plugin's test suite.
+
+```bash
+naap-plugin test [options]
+```
+
+| Option | Description | Default |
+|---|---|---|
+| `--watch` | Watch mode | `false` |
+| `--coverage` | Generate coverage report | `false` |
+| `--e2e` | Run Playwright E2E tests | `false` |
+
+### naap-plugin package
+
+Package the plugin for distribution.
+
+```bash
+naap-plugin package [options]
+```
+
+Creates a `.naap-plugin` archive containing all necessary files.
+
+### naap-plugin publish
+
+Publish the plugin to the NaaP registry.
+
+```bash
+naap-plugin publish [options]
+```
+
+| Option | Description | Default |
+|---|---|---|
+| `--version <ver>` | Override version | From `plugin.json` |
+| `--tag <tag>` | Release tag (e.g., `beta`) | `latest` |
+| `--changelog <msg>` | Changelog message | None |
+
+### naap-plugin doctor
+
+Check your environment and plugin configuration.
+
+```bash
+naap-plugin doctor
+```
+
+Validates:
+- Node.js and npm versions
+- Plugin manifest (`plugin.json`)
+- Build outputs exist
+- Database schema is valid
+- Dependencies are installed
+- Port availability
+
+### naap-plugin login
+
+Authenticate with the NaaP plugin registry.
+
+```bash
+naap-plugin login
+```
+
+Opens a browser window for authentication and stores the token locally.
+
+### naap-plugin info
+
+Display information about the current plugin.
+
+```bash
+naap-plugin info
+```
+
+Shows:
+- Plugin name, version, category
+- Frontend and backend configuration
+- Database schema status
+- Installed dependencies
+
+## Global Options
+
+These options are available on all commands:
+
+| Option | Description |
+|---|---|
+| `--help` | Show help for the command |
+| `--version` | Show CLI version |
+| `--verbose` | Enable verbose logging |
+| `--no-color` | Disable colored output |

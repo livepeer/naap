@@ -1,0 +1,97 @@
+# NAAP Plugin Publishing Workflow (Frontend Only)
+# For plugins that only have a frontend component
+
+name: Publish Plugin
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0)'
+        required: true
+
+env:
+  NODE_VERSION: '20'
+  REGISTRY_URL: ${{ secrets.NAAP_REGISTRY_URL || 'https://plugins.naap.io' }}
+
+jobs:
+  build-and-publish:
+    name: Build & Publish
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint --if-present
+
+      - name: Run tests
+        run: npm test --if-present
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload to NAAP Storage
+        id: upload
+        env:
+          NAAP_REGISTRY_TOKEN: ${{ secrets.NAAP_REGISTRY_TOKEN }}
+        run: |
+          PLUGIN_NAME="${{ github.repository }}"
+          PLUGIN_NAME="${PLUGIN_NAME##*/}"
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          # Create tar of dist directory
+          cd dist
+          tar -czvf ../bundle.tar.gz *
+          cd ..
+          
+          # Upload using curl
+          curl -X POST \
+            -H "Authorization: Bearer $NAAP_REGISTRY_TOKEN" \
+            -F "file=@bundle.tar.gz" \
+            "${{ env.REGISTRY_URL }}/api/v1/storage/plugins/${PLUGIN_NAME}/${VERSION}/bundle"
+
+      - name: Publish to registry
+        env:
+          NAAP_REGISTRY_TOKEN: ${{ secrets.NAAP_REGISTRY_TOKEN }}
+          NAAP_REGISTRY_URL: ${{ env.REGISTRY_URL }}
+        run: |
+          PLUGIN_NAME="${{ github.repository }}"
+          PLUGIN_NAME="${PLUGIN_NAME##*/}"
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          # Read plugin.json
+          MANIFEST=$(cat plugin.json)
+          
+          curl -X POST \
+            -H "Authorization: Bearer $NAAP_REGISTRY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"manifest\": $MANIFEST,
+              \"frontendUrl\": \"${{ env.REGISTRY_URL }}/cdn/plugins/${PLUGIN_NAME}/${VERSION}/${PLUGIN_NAME}.js\",
+              \"releaseNotes\": $(echo '${{ github.event.release.body }}' | jq -Rs .)
+            }" \
+            "${{ env.REGISTRY_URL }}/api/v1/registry/publish"

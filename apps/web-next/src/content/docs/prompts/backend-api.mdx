@@ -1,0 +1,226 @@
+---
+title: "Build a Backend API"
+description: "AI prompt to create a robust backend with Express, Prisma, and PostgreSQL for your NaaP plugin."
+order: 6
+---
+
+## When to Use This
+
+Use this prompt when:
+
+- You have a frontend-only plugin and want to add a backend
+- You're building a full-stack plugin from scratch and need the API designed
+- You need to add new API endpoints to an existing backend
+- You want to redesign your database schema
+
+## Prompt: Create a Backend from Scratch
+
+```markdown
+# Task: Create a Backend API for My NaaP Plugin
+
+## Context
+
+NaaP plugins can have Express.js backends with PostgreSQL databases.
+The shell proxies frontend API calls to the plugin backend automatically.
+
+Technical requirements:
+- Runtime: Node.js 20+, TypeScript
+- Framework: Express.js
+- Database: PostgreSQL via Prisma ORM
+- Port: Each plugin backend runs on a unique port
+- Health check: Must expose GET /health returning { status: 'ok' }
+- API prefix: All routes are under /api/v1/[plugin-name]/
+
+**IMPORTANT — Database Architecture:**
+NaaP uses a single PostgreSQL database with multi-schema isolation.
+All models live in `packages/database/prisma/schema.prisma`, NOT in plugin directories.
+See [Database Architecture Rules](/docs/concepts/database-architecture) for full details.
+
+Database client (backend/src/db/client.ts):
+```typescript
+import { prisma } from '@naap/database';
+export const db = prisma;
+```
+
+- NEVER use `new PrismaClient()` or import from `@prisma/client`
+- ALWAYS import from `@naap/database`
+- Every model MUST have `@@schema("plugin_<name>")` annotation
+- Model names MUST be prefixed (e.g., `MyPluginTask`, not `Task`)
+
+## Plugin Description
+
+Plugin name: [YOUR_PLUGIN_NAME]
+Port: [PICK A PORT, e.g., 4050]
+
+Data this plugin manages:
+[DESCRIBE YOUR DATA — for example:
+- "Projects with name, description, status, and deadline"
+- "Team members assigned to projects"
+- "Tasks within projects with priority and assignee"
+- "Activity log of all changes"
+]
+
+## API Endpoints Needed
+
+[LIST YOUR ENDPOINTS — or write "Design the API for me based on the data description above"]
+
+Example format:
+- GET    /projects              → List all projects (paginated)
+- POST   /projects              → Create a new project
+- GET    /projects/:id          → Get single project with details
+- PUT    /projects/:id          → Update a project
+- DELETE /projects/:id          → Delete a project
+- GET    /projects/:id/tasks    → List tasks for a project
+- POST   /projects/:id/tasks    → Create a task in a project
+
+## Requirements
+
+1. **Prisma models** (add to `packages/database/prisma/schema.prisma`):
+   - Every model annotated with `@@schema("plugin_<name>")`
+   - Every model prefixed (e.g., `MyPluginTask`, not `Task`)
+   - All models with id (uuid), createdAt, updatedAt
+   - Proper relations between models
+   - Indexes on frequently queried fields
+   - Enum types where appropriate (also annotated with `@@schema`)
+
+2. **Express server** (backend/src/server.ts):
+   - CORS enabled
+   - JSON body parsing
+   - Health check at /health
+   - Route registration
+   - Error handling middleware
+   - Graceful shutdown
+
+3. **Route handlers** (backend/src/routes/):
+   - One file per resource (e.g., projects.ts, tasks.ts)
+   - Input validation on POST/PUT (check required fields)
+   - Proper HTTP status codes (200, 201, 400, 404, 500)
+   - Pagination on list endpoints (page, limit query params)
+   - Response format: { data, meta: { page, limit, total } }
+   - Try/catch with meaningful error messages
+
+4. **Seed data** (backend/prisma/seed.ts):
+   - Create 5-10 sample records for each model
+   - Use realistic data (not "test1", "test2")
+
+5. **package.json**:
+   - scripts: dev, build, start (NO db:generate, db:push, db:seed)
+   - dependencies: `@naap/database: "workspace:*"` (NOT `@prisma/client`)
+   - No `prisma` in devDependencies
+
+## Quality Standards
+
+- Full TypeScript with proper types
+- Prisma singleton pattern
+- Modular route handlers
+- Input validation helpers
+- Consistent error response format
+- Helpful comments
+
+Generate ALL files with complete code.
+```
+
+## Prompt: Add Endpoints to Existing Backend
+
+```markdown
+# Task: Add New API Endpoints to My NaaP Plugin Backend
+
+## Existing Setup
+
+Plugin name: [YOUR_PLUGIN_NAME]
+
+Current Prisma schema:
+[PASTE YOUR CURRENT schema.prisma HERE]
+
+Current routes:
+[LIST YOUR EXISTING ENDPOINTS]
+
+## New Endpoints Needed
+
+[DESCRIBE THE NEW FUNCTIONALITY — for example:
+- "Add a comments system: users can comment on items, edit their own comments, and delete them"
+- "Add a search endpoint that searches across all fields with full-text search"
+- "Add bulk operations: bulk delete, bulk update status, bulk export as CSV"
+- "Add an analytics endpoint that returns aggregated statistics"
+]
+
+## Requirements
+
+1. Add new Prisma models if needed (show the full updated schema)
+2. Create new route files for new resources
+3. Update server.ts to register new routes
+4. Add proper validation and error handling
+5. Include pagination where appropriate
+6. Don't modify existing endpoints unless necessary
+
+Generate updated schema.prisma, new route files, and updated server.ts.
+```
+
+## Prompt: Design a Database Schema
+
+If you're not sure how to structure your data, use this prompt first:
+
+```markdown
+# Task: Design a Database Schema for My NaaP Plugin
+
+## What the Plugin Does
+
+[DESCRIBE YOUR PLUGIN IN PLAIN LANGUAGE — for example:
+"A recipe management app where users can:
+- Create and organize recipes with ingredients and steps
+- Tag recipes with categories (breakfast, lunch, dinner, dessert)
+- Rate recipes and leave reviews
+- Create meal plans for the week
+- Generate shopping lists from selected recipes"
+]
+
+## Requirements
+
+Design a PostgreSQL database schema using Prisma syntax that:
+
+1. Supports all the features described above
+2. Uses proper data types (String, Int, Float, Boolean, DateTime, Json)
+3. Has proper relations (one-to-many, many-to-many)
+4. Uses enums for fixed choices
+5. Includes indexes for common queries
+6. Every model has: id (uuid, auto-generated), createdAt, updatedAt
+7. Uses soft deletes (deletedAt DateTime?) where appropriate
+8. Is normalized (no duplicate data)
+
+Output:
+1. The complete Prisma schema
+2. An explanation of each model and why it's structured that way
+3. Example queries for common operations
+4. Suggested API endpoints based on the schema
+
+Think step by step about the data relationships before generating the schema.
+```
+
+## After the AI Generates Code
+
+```bash
+# 1. Copy generated model definitions into packages/database/prisma/schema.prisma
+# 2. Copy route/server files into your plugin's backend/src/ directory
+
+# 3. Register the schema (if new)
+#    - Add CREATE SCHEMA to docker/init-schemas.sql
+#    - Add schema name to the schemas array in schema.prisma
+
+# 4. Generate and push from the central package
+cd packages/database
+npx prisma generate
+npx prisma db push
+
+# 5. Install plugin dependencies
+cd ../../plugins/[plugin-name]/backend
+pnpm install
+
+# 6. Start the backend
+pnpm dev
+
+# 7. Test an endpoint
+curl http://localhost:4050/health
+curl http://localhost:4050/api/v1/[plugin-name]/[resource]
+```
+
+> **Important:** Models go in `packages/database/prisma/schema.prisma`, NOT in the plugin directory. See [Database Architecture](/docs/concepts/database-architecture) for the full rules.

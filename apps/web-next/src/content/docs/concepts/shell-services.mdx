@@ -1,0 +1,175 @@
+---
+title: "Shell Services"
+description: "The services provided by the NaaP shell to plugins: authentication, events, theme, notifications, and more."
+order: 4
+---
+
+## Overview
+
+The shell provides a rich set of services to plugins through the `ShellContext`. These services abstract away platform concerns so plugins can focus on their domain logic.
+
+## Authentication Service
+
+Manages user identity, roles, and permissions.
+
+```typescript
+const auth = useAuth();
+
+// Check authentication state
+auth.isAuthenticated();   // boolean
+auth.getUser();           // AuthUser | null
+auth.getToken();          // Promise<string>
+
+// Authorization
+auth.hasRole('admin');                    // boolean
+auth.hasPermission('plugins', 'write');   // boolean
+```
+
+### AuthUser Object
+
+```typescript
+interface AuthUser {
+  id: string;
+  email?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  roles: string[];
+  permissions: Array<{
+    resource: string;
+    action: string;
+  }>;
+}
+```
+
+## Event Bus
+
+Enables communication between plugins and the shell.
+
+```typescript
+const eventBus = useEvents();
+
+// Emit an event
+eventBus.emit('my-plugin:data-updated', { itemId: '123' });
+
+// Listen for events
+const unsubscribe = eventBus.on('theme:change', (data) => {
+  console.log('Theme changed to:', data.mode);
+});
+
+// Request-response pattern
+const result = await eventBus.request<RequestType, ResponseType>(
+  'other-plugin:get-data',
+  { query: 'test' }
+);
+
+// Handle requests from other plugins
+eventBus.handleRequest('my-plugin:get-data', async (data) => {
+  return { items: await fetchItems(data.query) };
+});
+```
+
+### Built-in Events
+
+| Event | Payload | Description |
+|---|---|---|
+| `shell:ready` | `{ version: string }` | Shell initialization complete |
+| `auth:login` | `{ userId: string }` | User logged in |
+| `auth:logout` | `{}` | User logged out |
+| `theme:change` | `{ mode: 'light' \| 'dark' }` | Theme toggled |
+| `team:change` | `{ teamId: string \| null }` | Team context switched |
+| `plugin:preferences:changed` | `{ pluginName: string }` | Plugin preferences updated |
+
+## Notification Service
+
+Displays toast notifications to the user.
+
+```typescript
+const notify = useNotify();
+
+notify.success('Item saved successfully!');
+notify.error('Failed to save item');
+notify.warning('This action cannot be undone');
+notify.info('New version available');
+```
+
+## Theme Service
+
+Manages light/dark mode and provides theme state.
+
+```typescript
+const { theme } = useShell();
+
+// Read current theme
+theme.mode;        // 'light' | 'dark'
+
+// Toggle theme
+theme.toggle();
+
+// Set specific mode
+theme.setMode('dark');
+```
+
+## Logger Service
+
+Structured logging with levels and plugin context.
+
+```typescript
+const logger = useLogger();
+
+logger.info('Plugin loaded', { version: '1.0.0' });
+logger.warn('Deprecated API used', { endpoint: '/v1/old' });
+logger.error('Request failed', { status: 500, error: 'Timeout' });
+logger.debug('Cache hit', { key: 'user-123' });
+```
+
+## Integration Service
+
+Access to platform integrations: AI, storage, and email.
+
+```typescript
+const integrations = useIntegrations();
+
+// AI completions
+const response = await integrations.ai.complete({
+  prompt: 'Summarize this data...',
+  model: 'gpt-4',
+});
+
+// File storage
+const url = await integrations.storage.upload(file, {
+  path: 'uploads/document.pdf',
+});
+
+// Send email
+await integrations.email.send({
+  to: 'user@example.com',
+  subject: 'Notification',
+  body: 'Your report is ready.',
+});
+```
+
+## Permission Service
+
+Check granular permissions for the current user.
+
+```typescript
+const permissions = usePermissions();
+
+// Check a specific permission
+permissions.can('plugins', 'write');     // boolean
+permissions.can('admin', 'access');      // boolean
+
+// Check a role
+permissions.hasRole('system:admin');     // boolean
+```
+
+## Navigation
+
+Programmatic navigation within the shell.
+
+```typescript
+const { navigate } = useShell();
+
+navigate('/dashboard');
+navigate('/plugins/my-plugin/settings');
+```

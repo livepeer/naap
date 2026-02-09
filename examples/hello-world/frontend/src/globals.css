@@ -1,0 +1,14 @@
+/* Hello World Plugin Styles */
+/* Inherits CSS variables from shell */
+
+.hello-world-container {
+  @apply p-8 max-w-4xl mx-auto;
+}
+
+.hello-card {
+  @apply bg-bg-secondary border border-white/10 rounded-2xl p-6 mb-6;
+}
+
+.hello-button {
+  @apply px-4 py-2 rounded-lg text-sm transition-colors;
+}

@@ -1,0 +1,167 @@
+---
+title: "Design Professional UI"
+description: "AI prompt to create beautiful, polished user interfaces for NaaP plugins with modern design patterns."
+order: 4
+---
+
+## When to Use This
+
+Use this prompt when:
+
+- You have a working plugin but the UI looks basic
+- You want to redesign a plugin's interface to be more professional
+- You're starting fresh and want great design from the beginning
+- You want to match a specific design style (dashboard, SaaS, minimal, etc.)
+
+## The Prompt
+
+```markdown
+# Task: Design a Professional UI for a NaaP Plugin
+
+## Context
+
+I have a NaaP plugin that needs a professional, modern UI redesign.
+The plugin runs inside the NaaP shell (a React dashboard application).
+
+Technical stack:
+- React 18+ with TypeScript
+- Tailwind CSS for styling
+- Lucide React for icons (import { IconName } from 'lucide-react')
+- The shell provides dark/light theme via useThemeService() hook
+- The shell provides user info via useAuth() hook
+- Available CSS variables from the shell theme:
+  --background, --foreground, --card, --card-foreground, --primary,
+  --primary-foreground, --secondary, --muted, --muted-foreground,
+  --accent, --border, --ring, --destructive
+
+## Current Plugin Description
+
+[DESCRIBE YOUR PLUGIN AND ITS CURRENT STATE — for example:
+- "A task tracker with a list of tasks, add/edit forms, and filters"
+- "A dashboard showing network analytics with charts"
+- "A settings page with forms for configuring integrations"
+]
+
+## Design Requirements
+
+Redesign the UI with these principles:
+
+1. **Layout**: Clean, spacious layout with proper visual hierarchy
+   - Use a top section for page title, description, and primary actions
+   - Main content area with clear sections
+   - Use cards for grouping related content
+   - Proper spacing (gap-4/6 between sections, p-4/6 for card padding)
+
+2. **Typography**: Clear hierarchy
+   - Page title: text-2xl or text-3xl, font-bold
+   - Section headings: text-lg, font-semibold
+   - Body text: text-sm, text-muted-foreground
+   - Labels: text-xs, text-muted-foreground, uppercase tracking-wider
+
+3. **Colors**: Use the shell's CSS variables
+   - Primary actions: bg-primary text-primary-foreground
+   - Secondary actions: border border-border hover:bg-muted
+   - Cards: bg-card rounded-xl border border-border shadow-sm
+   - Status badges: Colored with low opacity backgrounds
+     (bg-emerald-500/10 text-emerald-500 for success, etc.)
+
+4. **Interactive Elements**:
+   - Buttons with hover/active states and transitions
+   - Smooth transitions (transition-all duration-200)
+   - Hover effects on cards and list items
+   - Loading skeletons (animated pulse placeholders)
+   - Empty states with illustrations or icons
+
+5. **Responsive**: Works on mobile (sm:), tablet (md:), and desktop (lg:)
+
+6. **Dark Mode**: Must work in both light and dark themes
+   - Use Tailwind's dark: prefix where needed
+   - Rely on CSS variables for automatic theme switching
+   - Test contrast in both modes
+
+7. **Data Display Patterns**:
+   - Stats: Row of metric cards (icon + number + label + trend)
+   - Tables: Rounded borders, striped rows, sticky headers
+   - Lists: Cards with hover states, badges for status
+   - Forms: Labeled inputs with helper text and validation states
+   - Charts: Clean, minimal style with proper legends
+
+## Components to Generate
+
+Create these reusable components:
+
+- PageHeader — title, description, action buttons
+- StatsCard — icon, metric value, label, trend indicator
+- DataTable — sortable columns, pagination, row actions
+- StatusBadge — colored badge for different statuses
+- EmptyState — icon, title, description, action button
+- LoadingSkeleton — animated placeholder for each component
+- SearchInput — search bar with icon and clear button
+- FilterBar — filter chips/dropdowns
+
+## Quality Standards
+
+- All components must be TypeScript with proper types
+- Each component in its own file in a components/ directory
+- Use Tailwind CSS only (no inline styles, no CSS modules)
+- Smooth animations and transitions
+- Accessible (proper aria labels, keyboard navigation, focus states)
+- Include a dark mode screenshot description in comments
+
+Generate complete, production-ready component code.
+```
+
+## How to Customize
+
+Replace:
+1. **`[DESCRIBE YOUR PLUGIN]`** — describe what your plugin shows and does
+2. Add or remove items from "Components to Generate" based on your needs
+3. Add a "Design Reference" section if you want a specific style:
+
+```markdown
+## Design Reference
+
+I want the UI to look similar to:
+- Linear.app (minimal, clean, fast-feeling)
+- Vercel Dashboard (dark, modern, metric-focused)
+- Notion (content-first, spacious, neutral colors)
+- Stripe Dashboard (data-rich, tables and charts)
+```
+
+## Follow-Up Prompts
+
+### Add Animations
+
+```markdown
+Add smooth micro-animations to the plugin UI:
+- Fade-in on page load (opacity 0 → 1 with slight upward motion)
+- Staggered list items (each card fades in 50ms after the previous)
+- Button press feedback (scale down slightly on click)
+- Smooth tab transitions
+- Loading spinner with the NaaP primary color
+Use Tailwind's animation utilities and CSS transitions. No external animation libraries.
+```
+
+### Add Data Visualization
+
+```markdown
+Add beautiful data visualizations to the plugin:
+- Use the recharts library (import { LineChart, BarChart, PieChart, ... } from 'recharts')
+- Style charts to match the shell theme (use CSS variable colors)
+- Add a chart wrapper component that handles loading/empty states
+- Charts should be responsive and resize with the container
+- Include tooltips on hover with formatted values
+- Add a time range selector (7d, 30d, 90d, 1y)
+```
+
+### Redesign to Match a Specific App
+
+```markdown
+Redesign the plugin UI to look like [APP_NAME]. Specifically:
+- Match their color palette and spacing
+- Use their layout patterns (sidebar nav, content area, etc.)
+- Copy their data display style (cards, tables, metrics)
+- Match their button and form input styling
+But keep using Tailwind CSS and the shell's theme CSS variables for
+dark/light mode compatibility.
+```

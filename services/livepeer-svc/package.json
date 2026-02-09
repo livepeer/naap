@@ -1,0 +1,17 @@
+{
+  "name": "@naap/livepeer-svc",
+  "version": "1.0.0",
+  "description": "NaaP Livepeer proxy service -- bridges frontend to go-livepeer nodes",
+  "main": "src/server.ts",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@naap/cache": "*",
+    "@naap/livepeer-node-client": "*",
+    "@naap/plugin-server-sdk": "*"
+  }
+}

@@ -1,0 +1,119 @@
+---
+title: "Hello World Plugin"
+description: "The simplest possible NaaP plugin -- a minimal example to understand the basics."
+order: 2
+---
+
+## Overview
+
+This is the absolute minimum code needed to create a working NaaP plugin. It displays a greeting and uses the shell's auth service to show the current user.
+
+## Create the Plugin
+
+```bash
+naap-plugin create hello-world --template frontend-only --category other
+cd hello-world
+npm install
+```
+
+## Plugin Manifest
+
+`plugin.json`:
+
+```json
+{
+  "name": "hello-world",
+  "displayName": "Hello World",
+  "version": "1.0.0",
+  "description": "A minimal NaaP plugin example",
+  "category": "other",
+  "frontend": {
+    "entry": "./frontend/dist/production/hello-world.js",
+    "devPort": 3099,
+    "routes": ["/hello-world"],
+    "navigation": {
+      "label": "Hello World",
+      "icon": "Smile",
+      "section": "main",
+      "order": 99
+    }
+  }
+}
+```
+
+## App Component
+
+`frontend/src/App.tsx`:
+
+```typescript
+import { useAuth, useNotify, useThemeService } from '@naap/plugin-sdk';
+
+export default function App() {
+  const auth = useAuth();
+  const notify = useNotify();
+  const theme = useThemeService();
+  const user = auth.getUser();
+
+  return (
+    <div className="p-8 max-w-lg mx-auto text-center">
+      <h1 className="text-3xl font-bold mb-4">
+        Hello, {user?.displayName || 'World'}! 👋
+      </h1>
+
+      <p className="text-muted-foreground mb-6">
+        This is a minimal NaaP plugin. The current theme is{' '}
+        <strong>{theme.mode}</strong>.
+      </p>
+
+      <button
+        onClick={() => notify.success('It works!')}
+        className="px-4 py-2 bg-primary text-primary-foreground rounded-lg"
+      >
+        Show Notification
+      </button>
+    </div>
+  );
+}
+```
+
+## Mount Function
+
+`frontend/src/mount.tsx`:
+
+```typescript
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { ShellProvider } from '@naap/plugin-sdk';
+import type { ShellContext } from '@naap/plugin-sdk';
+import App from './App';
+
+let root: ReturnType<typeof createRoot> | null = null;
+
+export function mount(container: HTMLElement, context: ShellContext) {
+  root = createRoot(container);
+  root.render(
+    <ShellProvider value={context}>
+      <App />
+    </ShellProvider>
+  );
+  return () => {
+    root?.unmount();
+    root = null;
+  };
+}
+```
+
+## Run It
+
+```bash
+naap-plugin dev
+```
+
+That's it! Open `http://localhost:3000` and your "Hello World" plugin will appear in the sidebar.
+
+## What to Try Next
+
+- Add a second page using client-side routing
+- Use `useEvents()` to listen for theme changes
+- Add a form that submits to an API
+- Follow the full [Your First Plugin](/docs/guides/your-first-plugin) guide

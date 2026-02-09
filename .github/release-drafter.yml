@@ -1,0 +1,58 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+categories:
+  - title: 'New Features'
+    labels:
+      - 'type/feature'
+  - title: 'Bug Fixes'
+    labels:
+      - 'type/bug'
+  - title: 'Plugins'
+    labels:
+      - 'plugin/gateway-manager'
+      - 'plugin/orchestrator-manager'
+      - 'plugin/capacity-planner'
+      - 'plugin/network-analytics'
+      - 'plugin/community'
+      - 'plugin/marketplace'
+      - 'plugin/my-dashboard'
+      - 'plugin/my-wallet'
+      - 'plugin/daydream-video'
+      - 'plugin/developer-api'
+      - 'plugin/plugin-publisher'
+  - title: 'SDK & Packages'
+    labels:
+      - 'scope/sdk'
+      - 'scope/packages'
+  - title: 'Infrastructure'
+    labels:
+      - 'type/ci'
+      - 'scope/infra'
+  - title: 'Documentation'
+    labels:
+      - 'type/docs'
+  - title: 'Dependencies'
+    labels:
+      - 'type/dependencies'
+change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
+change-title-escapes: '\<*_&'
+version-resolver:
+  major:
+    labels:
+      - 'breaking-change'
+  minor:
+    labels:
+      - 'type/feature'
+  patch:
+    labels:
+      - 'type/bug'
+      - 'type/refactor'
+  default: patch
+template: |
+  ## Changes
+
+  $CHANGES
+
+  ## Contributors
+
+  $CONTRIBUTORS

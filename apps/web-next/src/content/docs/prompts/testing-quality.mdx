@@ -1,0 +1,221 @@
+---
+title: "Write Tests and Improve Quality"
+description: "AI prompts to generate automated tests and improve code quality for NaaP plugins."
+order: 8
+---
+
+## When to Use This
+
+Use these prompts when:
+
+- You want to add automated tests to your plugin
+- You want the AI to review and improve your code quality
+- You're preparing to publish and want production-ready code
+- You want to catch bugs before users do
+
+## Prompt: Generate Tests for Frontend
+
+```markdown
+# Task: Write Tests for My NaaP Plugin Frontend
+
+## Context
+
+NaaP plugin frontends use:
+- React 18+ with TypeScript
+- Vitest as the test runner
+- @testing-library/react for component testing
+- @naap/plugin-sdk/testing for mock shell providers
+
+Test setup pattern:
+```typescript
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MockShellProvider } from '@naap/plugin-sdk/testing';
+
+function renderWithShell(ui: React.ReactElement) {
+  return render(
+    <MockShellProvider
+      user={{ id: '1', name: 'Test User', email: 'test@test.com' }}
+      config={{ teamId: 'team-1' }}
+    >
+      {ui}
+    </MockShellProvider>
+  );
+}
+```
+
+## Components to Test
+
+[PASTE YOUR COMPONENT CODE HERE — include the full file for each component you want tested]
+
+## Test Requirements
+
+For each component, generate tests covering:
+
+1. **Rendering**: Does it render without errors?
+2. **Content**: Does it show the expected text, labels, and data?
+3. **User interactions**: Click buttons, fill forms, toggle switches
+4. **Loading states**: Does it show a skeleton/spinner while loading?
+5. **Error states**: Does it show error messages when API calls fail?
+6. **Empty states**: Does it show a helpful message when there's no data?
+7. **Edge cases**: Very long text, special characters, missing optional fields
+8. **Accessibility**: Are buttons focusable, are labels associated with inputs?
+
+## Technical Requirements
+
+- Use Vitest (describe, it, expect)
+- Use @testing-library/react (render, screen, fireEvent, waitFor)
+- Use userEvent for realistic interactions
+- Mock API calls with vi.fn()
+- Each test file named: [ComponentName].test.tsx
+- Group tests with describe blocks
+
+Generate complete test files with no placeholders.
+```
+
+## Prompt: Generate Tests for Backend API
+
+```markdown
+# Task: Write Tests for My NaaP Plugin Backend API
+
+## Context
+
+NaaP plugin backends use Express.js with Prisma ORM.
+
+Test setup approach:
+- Use Vitest as the test runner
+- Use supertest for HTTP assertions
+- Mock Prisma client for unit tests
+- Test each route handler independently
+
+## Routes to Test
+
+[PASTE YOUR ROUTE FILES HERE — include server.ts and route handler files]
+
+## Prisma Schema
+
+[PASTE YOUR schema.prisma]
+
+## Test Requirements
+
+For each endpoint, generate tests covering:
+
+1. **Happy path**: Valid request returns expected response
+2. **Validation**: Missing required fields return 400
+3. **Not found**: Non-existent ID returns 404
+4. **Pagination**: List endpoints respect page/limit params
+5. **Error handling**: Database errors return 500 with message
+6. **Edge cases**: Empty strings, very long input, special characters
+
+## Technical Requirements
+
+- Use Vitest (describe, it, expect)
+- Use supertest to test Express routes
+- Mock Prisma with vi.mock
+- Test file per route: [resource].test.ts
+- Include setup/teardown for test data
+
+Generate complete test files.
+```
+
+## Prompt: Code Review and Quality Improvement
+
+```markdown
+# Task: Review and Improve My NaaP Plugin Code
+
+## Code to Review
+
+[PASTE ALL YOUR PLUGIN'S SOURCE FILES — or the specific files you want reviewed]
+
+## Please Review For:
+
+1. **TypeScript**: Any `any` types, missing types, or incorrect types?
+2. **Error handling**: Are all API calls wrapped in try/catch? Are errors shown to users?
+3. **Memory leaks**: Are useEffect cleanup functions missing? Are event listeners removed?
+4. **Performance**: Unnecessary re-renders? Missing useMemo/useCallback? Large bundle imports?
+5. **Security**: User input sanitization? SQL injection risk? XSS risk?
+6. **Accessibility**: Missing aria labels? Keyboard navigation? Color contrast?
+7. **Code organization**: Should anything be split into smaller components/functions?
+8. **Naming**: Are variable and function names clear and consistent?
+9. **Edge cases**: What happens with empty data? Network errors? Very long strings?
+10. **Best practices**: Is state management correct? Are hooks used properly?
+
+## Output Format
+
+For each issue found:
+1. **Location**: File name and line number
+2. **Issue**: What's wrong (in simple terms)
+3. **Why it matters**: What could go wrong
+4. **Fix**: Show the corrected code
+5. **Severity**: 🔴 Must fix / 🟡 Should fix / 🟢 Nice to have
+
+Then show the complete corrected files.
+```
+
+## Prompt: Add Error Boundaries and Resilience
+
+```markdown
+# Task: Make My NaaP Plugin More Resilient
+
+## Context
+
+My NaaP plugin needs better error handling and resilience.
+It should gracefully handle failures instead of crashing.
+
+## Current Code
+
+[PASTE YOUR MAIN APP COMPONENT AND KEY CHILD COMPONENTS]
+
+## Add the Following
+
+1. **React Error Boundary**
+   - Wrap main plugin content in an error boundary
+   - Show a friendly error message with a "Retry" button
+   - Log errors to console for debugging
+   - Style it to match the shell theme
+
+2. **API Error Handling**
+   - Create a custom useApi hook that wraps usePluginApi with:
+     - Automatic retry (3 attempts with exponential backoff)
+     - Loading state management
+     - Error state with retry callback
+     - Cancel on unmount (AbortController)
+   - Show toast notifications for errors (useNotify)
+
+3. **Offline Detection**
+   - Detect when the user goes offline
+   - Show a subtle banner: "You're offline. Changes will sync when reconnected."
+   - Queue actions and replay when back online (optional)
+
+4. **Loading States**
+   - Create skeleton components for each main view
+   - Show skeletons during initial load
+   - Show inline spinners for secondary actions (saving, deleting)
+
+5. **Input Validation**
+   - Validate form inputs before submission
+   - Show inline validation errors below each field
+   - Disable submit button when form is invalid
+
+Generate all code with complete implementations.
+```
+
+## After Generating Tests
+
+```bash
+# Install test dependencies
+cd frontend
+npm install -D vitest @testing-library/react @testing-library/jest-dom @testing-library/user-event jsdom
+
+# Add vitest config (if not already present)
+# The AI should generate vitest.config.ts
+
+# Run tests
+npx vitest run
+
+# Run tests in watch mode (re-runs on file changes)
+npx vitest
+
+# Run with coverage report
+npx vitest run --coverage
+```

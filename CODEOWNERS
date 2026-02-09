@@ -1,0 +1,67 @@
+# NaaP Platform -- Code Ownership
+#
+# CODEOWNERS automatically assigns reviewers based on changed files.
+# Plugin teams review their own PRs. Core team reviews shared code.
+#
+# HOW IT WORKS:
+# - When a PR is opened, GitHub matches changed files against the patterns
+#   below (last matching rule wins).
+# - The matched team is automatically added as a required reviewer.
+# - Plugin teams approve their own plugin PRs. Core team approves shared code.
+#
+# HOW TO ADD YOUR TEAM:
+# 1. Create a GitHub team in the org (e.g., @livepeer/my-plugin-team)
+# 2. Add a line below: /plugins/<your-plugin>/  @livepeer/<your-team>
+# 3. Add a labeler entry in .github/labeler.yml for auto-labeling
+# 4. Open a PR with both changes, targeting develop
+# 5. Core team approves once. You're autonomous from then on.
+#
+# TIERED REVIEW MODEL:
+# - Plugin teams self-govern: they review and merge their own plugin PRs
+#   with no core team involvement.
+# - Core team reviews: shell, packages, services, CI, and any file not
+#   matched by a more specific rule below.
+# - Cross-cutting PRs (touching both plugin and core) require approval
+#   from both the plugin team and core.
+
+# ============================================================================
+# Default: core team reviews anything not matched by a more specific rule
+# ============================================================================
+*                                       @livepeer/core
+
+# ============================================================================
+# Core platform
+# ============================================================================
+/apps/web-next/                         @livepeer/core
+/services/                              @livepeer/core
+/packages/                              @livepeer/core
+/bin/                                   @livepeer/core
+/.github/                               @livepeer/core
+/vercel.json                            @livepeer/core
+/docker-compose*.yml                    @livepeer/core
+
+# ============================================================================
+# Plugin teams (self-governing)
+# ============================================================================
+
+# Infrastructure plugins
+/plugins/gateway-manager/               @livepeer/plugin-infra
+/plugins/orchestrator-manager/          @livepeer/plugin-infra
+/plugins/capacity-planner/              @livepeer/plugin-infra
+/plugins/network-analytics/             @livepeer/plugin-infra
+
+# Social plugins
+/plugins/community/                     @livepeer/plugin-social
+/plugins/marketplace/                   @livepeer/plugin-social
+/plugins/my-dashboard/                  @livepeer/plugin-social
+/plugins/my-wallet/                     @livepeer/plugin-social
+
+# Media plugins
+/plugins/daydream-video/                @livepeer/plugin-media
+/plugins/developer-api/                 @livepeer/plugin-media
+/plugins/plugin-publisher/              @livepeer/plugin-media
+
+# ============================================================================
+# Documentation
+# ============================================================================
+/docs/                                  @livepeer/core

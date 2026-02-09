@@ -1,0 +1,206 @@
+---
+title: "Database Architecture"
+description: "Single database, multi-schema architecture — the mandatory pattern for all NaaP plugins and services."
+order: 3
+icon: "Database"
+---
+
+## The Golden Rule
+
+> **Every plugin and service MUST use the unified `@naap/database` package. Never create per-plugin databases, Prisma schemas, or PrismaClient instances.**
+
+NaaP uses a **single PostgreSQL database** with **multiple schemas** for data isolation. All 60+ models across 8 schemas are defined in one Prisma schema file and shared via the `@naap/database` package.
+
+## Why This Architecture
+
+| Concern | Multi-DB (old, removed) | Single-DB Multi-Schema (current) |
+|---|---|---|
+| **Docker containers** | 10 separate PostgreSQL containers | 1 container |
+| **Connection pools** | 10 x pool_size connections | 1 shared pool |
+| **Schema management** | 7 separate Prisma schemas | 1 unified schema |
+| **Migrations** | Run independently per plugin | Run once from `packages/database` |
+| **Cross-plugin queries** | Impossible (different DBs) | Supported (same DB, Prisma relations) |
+| **Dev setup** | ~30s to start all containers | ~3s for 1 container |
+| **Ops / backup** | Back up 10 databases | Back up 1 database |
+| **Memory usage** | ~500MB (10 x PostgreSQL) | ~50MB (1 x PostgreSQL) |
+
+## Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Application Layer                      │
+│                                                         │
+│  ┌──────────┐ ┌───────────┐ ┌──────────┐ ┌──────────┐ │
+│  │ base-svc │ │ community │ │ daydream │ │ gateway  │ │
+│  └────┬─────┘ └─────┬─────┘ └────┬─────┘ └────┬─────┘ │
+│       └─────────────┬────────────┘             │       │
+│                     │                          │       │
+│              ┌──────▼──────────────────────────▼──┐    │
+│              │         @naap/database              │    │
+│              │   Singleton PrismaClient            │    │
+│              │   multiSchema: enabled              │    │
+│              └──────────────┬──────────────────────┘    │
+└─────────────────────────────┼──────────────────────────┘
+                              │
+                    ┌─────────▼─────────┐
+                    │   naap-db          │
+                    │   PostgreSQL 16    │
+                    │                    │
+                    │  ┌──────────────┐  │
+                    │  │ public       │  │  Core (User, Auth, Team, RBAC)
+                    │  ├──────────────┤  │
+                    │  │ plugin_      │  │  Community Hub
+                    │  │ community    │  │
+                    │  ├──────────────┤  │
+                    │  │ plugin_      │  │  Daydream Video
+                    │  │ daydream     │  │
+                    │  ├──────────────┤  │
+                    │  │ plugin_      │  │  My Wallet
+                    │  │ wallet       │  │
+                    │  ├──────────────┤  │
+                    │  │ plugin_      │  │  Gateway, Dashboard,
+                    │  │ gateway ...  │  │  Capacity, Dev API
+                    │  └──────────────┘  │
+                    └────────────────────┘
+```
+
+## Schema Map
+
+| PostgreSQL Schema | Package/Plugin | Example Models |
+|---|---|---|
+| `public` | `base-svc` | User, Team, Plugin, Auth, RBAC |
+| `plugin_community` | `community` | CommunityProfile, CommunityPost, CommunityComment |
+| `plugin_wallet` | `my-wallet` | WalletConnection, WalletTransactionLog |
+| `plugin_dashboard` | `my-dashboard` | Dashboard, DashboardUserPreference |
+| `plugin_daydream` | `daydream-video` | DaydreamSettings, DaydreamSession |
+| `plugin_gateway` | `gateway-manager` | Gateway, GatewayOrchestratorConnection |
+| `plugin_capacity` | `capacity-planner` | CapacityRequest, CapacitySoftCommit |
+| `plugin_developer_api` | `developer-api` | DevApiAIModel, DevApiKey |
+
+## How It Works
+
+### 1. Single Source of Truth
+
+All models are defined in **one Prisma schema file**:
+
+```
+packages/database/prisma/schema.prisma
+```
+
+Every model uses `@@schema("plugin_xxx")` to assign it to a PostgreSQL schema:
+
+```prisma
+model CommunityPost {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@schema("plugin_community")   // ← This is mandatory
+}
+```
+
+### 2. One Prisma Client, Shared by All
+
+The `@naap/database` package exports a singleton client:
+
+```typescript
+// packages/database/src/index.ts
+import { PrismaClient } from './generated/client';
+
+export const prisma = globalForPrisma.prisma ?? new PrismaClient({...});
+```
+
+Every plugin imports from this package — **never** from a local generated client:
+
+```typescript
+// plugins/community/backend/src/db/client.ts
+import { prisma } from '@naap/database';
+export const db = prisma;
+```
+
+### 3. Schema Isolation at the PostgreSQL Level
+
+The `docker/init-schemas.sql` file runs on first boot and creates all schemas:
+
+```sql
+CREATE SCHEMA IF NOT EXISTS plugin_community;
+CREATE SCHEMA IF NOT EXISTS plugin_wallet;
+CREATE SCHEMA IF NOT EXISTS plugin_daydream;
+-- ... etc
+```
+
+Tables are created inside their schema automatically by Prisma's `multiSchema` feature.
+
+## Mandatory Rules
+
+These rules **must** be followed by every plugin and service:
+
+### Rule 1: No Per-Plugin Prisma Schemas
+
+```
+❌  plugins/my-plugin/backend/prisma/schema.prisma     ← NEVER
+✅  packages/database/prisma/schema.prisma              ← ALWAYS
+```
+
+### Rule 2: No Per-Plugin Generated Clients
+
+```
+❌  import { PrismaClient } from '../generated/client'  ← NEVER
+❌  import { PrismaClient } from '@prisma/client'       ← NEVER
+✅  import { prisma } from '@naap/database'              ← ALWAYS
+```
+
+### Rule 3: No Per-Plugin Database Containers
+
+```yaml
+# ❌ NEVER — separate containers per plugin
+gateway-db:
+  image: postgres:16-alpine
+  ports: ["5433:5432"]
+
+# ✅ ALWAYS — one unified container
+database:
+  image: postgres:16-alpine
+  ports: ["5432:5432"]
+  volumes:
+    - ./docker/init-schemas.sql:/docker-entrypoint-initdb.d/01-init-schemas.sql
+```
+
+### Rule 4: Every Model Must Have `@@schema()`
+
+```prisma
+// ❌ NEVER — model without schema annotation
+model MyWidget {
+  id String @id @default(uuid())
+}
+
+// ✅ ALWAYS — explicit schema
+model MyWidget {
+  id String @id @default(uuid())
+  @@schema("plugin_my_plugin")
+}
+```
+
+### Rule 5: Single DATABASE_URL
+
+All `.env` files must point to the same database:
+
+```bash
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap"
+```
+
+## Connection String
+
+| Environment | URL |
+|---|---|
+| **Local dev** | `postgresql://postgres:postgres@localhost:5432/naap` |
+| **Production** | Set via `DB_PASSWORD` env var in `docker-compose.production.yml` |
+
+## Next Steps
+
+- [Database Setup Tutorial](/docs/guides/database-setup) — Step-by-step guide for adding a schema
+- [Database Plugin Example](/docs/examples/database-plugin) — Full worked example
+- [AI Prompt: Database Compliance](/docs/prompts/database-architecture) — Copy-paste prompt for AI assistants

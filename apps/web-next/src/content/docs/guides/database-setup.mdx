@@ -1,0 +1,308 @@
+---
+title: "Database Setup & Schema Guide"
+description: "Step-by-step tutorial for setting up the unified database, adding new schemas, and migrating plugins."
+order: 7
+icon: "HardDrive"
+---
+
+## Prerequisites
+
+- Docker Desktop running
+- Node.js 20+, pnpm installed
+- NaaP repository cloned
+
+## Quick Start (30 seconds)
+
+Start the unified database and push all schemas:
+
+```bash
+# From the NaaP root
+docker-compose up -d database      # Starts naap-db container
+cd packages/database
+npx prisma generate                # Generates the typed client
+npx prisma db push                 # Creates all tables across all schemas
+```
+
+Or use the helper script:
+
+```bash
+bin/db-setup.sh
+```
+
+That's it. One database container, all schemas created, ready to go.
+
+## Verify Setup
+
+Check that all schemas exist:
+
+```bash
+docker exec naap-db psql -U postgres -d naap -c "\dn"
+```
+
+Expected output:
+
+```
+        List of schemas
+         Name          | Owner
+-----------------------+----------
+ plugin_capacity       | postgres
+ plugin_community      | postgres
+ plugin_dashboard      | postgres
+ plugin_daydream       | postgres
+ plugin_developer_api  | postgres
+ plugin_gateway        | postgres
+ plugin_wallet         | postgres
+ public                | postgres
+```
+
+## Tutorial: Adding a New Plugin Schema
+
+This walks through adding a brand-new plugin (e.g., `plugin_analytics`) to the unified database.
+
+### Step 1: Register the Schema
+
+Add the new schema name to three places:
+
+**A. `docker/init-schemas.sql`** — so it's created on first boot:
+
+```sql
+CREATE SCHEMA IF NOT EXISTS plugin_analytics;
+```
+
+**B. `packages/database/prisma/schema.prisma`** — datasource schemas list:
+
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = [
+    "public",
+    "plugin_community",
+    "plugin_wallet",
+    "plugin_dashboard",
+    "plugin_daydream",
+    "plugin_gateway",
+    "plugin_capacity",
+    "plugin_developer_api",
+    "plugin_analytics"          // ← Add here
+  ]
+}
+```
+
+**C. `bin/start.sh`** — `PLUGIN_SCHEMAS` array:
+
+```bash
+PLUGIN_SCHEMAS=(
+  plugin_community
+  plugin_wallet
+  plugin_dashboard
+  plugin_daydream
+  plugin_gateway
+  plugin_capacity
+  plugin_developer_api
+  plugin_analytics               # ← Add here
+)
+```
+
+### Step 2: Define Models
+
+Add your models to `packages/database/prisma/schema.prisma`. Follow the naming convention: **prefix every model** with a short name to avoid collisions.
+
+```prisma
+// =============================================
+// Analytics Plugin — plugin_analytics schema
+// =============================================
+
+model AnalyticsEvent {
+  id         String   @id @default(uuid())
+  eventType  String
+  payload    Json
+  userId     String?
+  sessionId  String
+  createdAt  DateTime @default(now())
+
+  @@index([eventType, createdAt])
+  @@schema("plugin_analytics")
+}
+
+model AnalyticsDashboard {
+  id          String   @id @default(uuid())
+  name        String
+  config      Json
+  ownerId     String
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  widgets AnalyticsWidget[]
+
+  @@schema("plugin_analytics")
+}
+
+model AnalyticsWidget {
+  id          String   @id @default(uuid())
+  type        String
+  query       String
+  position    Json
+  dashboardId String
+  dashboard   AnalyticsDashboard @relation(fields: [dashboardId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@schema("plugin_analytics")
+}
+```
+
+### Step 3: Generate and Push
+
+```bash
+cd packages/database
+npx prisma generate     # Regenerates the client with new models
+npx prisma db push      # Creates the tables in plugin_analytics schema
+```
+
+### Step 4: Use in Your Plugin Backend
+
+Create the database client file:
+
+```typescript
+// plugins/analytics/backend/src/db/client.ts
+import { prisma } from '@naap/database';
+export const db = prisma;
+```
+
+Use it in your routes:
+
+```typescript
+// plugins/analytics/backend/src/routes/events.ts
+import { Router } from 'express';
+import { db } from '../db/client.js';
+
+const router = Router();
+
+router.post('/', async (req, res) => {
+  const event = await db.analyticsEvent.create({
+    data: {
+      eventType: req.body.type,
+      payload: req.body.payload,
+      userId: req.user?.id,
+      sessionId: req.body.sessionId,
+    },
+  });
+  res.status(201).json({ success: true, data: event });
+});
+
+router.get('/dashboard/:id', async (req, res) => {
+  const dashboard = await db.analyticsDashboard.findUnique({
+    where: { id: req.params.id },
+    include: { widgets: true },
+  });
+  res.json({ success: true, data: dashboard });
+});
+
+export default router;
+```
+
+### Step 5: Wire Up package.json
+
+Your plugin's `package.json` should depend on `@naap/database`, **not** `@prisma/client`:
+
+```json
+{
+  "dependencies": {
+    "@naap/database": "workspace:*",
+    "express": "^4.18.0"
+  }
+}
+```
+
+No `db:generate`, `db:push`, or `db:migrate` scripts needed — the central `packages/database` handles all schema management.
+
+## Common Operations
+
+### View Tables in a Schema
+
+```bash
+docker exec naap-db psql -U postgres -d naap \
+  -c "SELECT tablename FROM pg_tables WHERE schemaname = 'plugin_analytics';"
+```
+
+### Open Prisma Studio (all schemas)
+
+```bash
+cd packages/database
+npx prisma studio
+```
+
+### Reset the Database (development only)
+
+```bash
+docker-compose down -v        # Destroys volumes
+docker-compose up -d database # Recreates with init-schemas.sql
+cd packages/database
+npx prisma db push            # Recreates all tables
+```
+
+### Seed Data
+
+```typescript
+// packages/database/prisma/seed.ts
+import { prisma } from '../src/index';
+
+async function seed() {
+  // Seed analytics data
+  await prisma.analyticsEvent.createMany({
+    data: [
+      { eventType: 'page_view', sessionId: 'demo-1', payload: { path: '/' } },
+      { eventType: 'click', sessionId: 'demo-1', payload: { target: 'signup' } },
+    ],
+  });
+}
+
+seed().then(() => prisma.$disconnect());
+```
+
+## Troubleshooting
+
+### "Schema does not exist"
+
+The schema isn't created yet. Either:
+1. Re-run `docker-compose down -v && docker-compose up -d database` (this executes `init-schemas.sql`), or
+2. Manually create it: `docker exec naap-db psql -U postgres -d naap -c "CREATE SCHEMA plugin_analytics;"`
+
+### "Model not found on prisma client"
+
+You forgot to run `npx prisma generate` after editing `schema.prisma`. Run:
+
+```bash
+cd packages/database && npx prisma generate
+```
+
+### "Cannot resolve @naap/database"
+
+Run `pnpm install` from the monorepo root to link the workspace package.
+
+### Prisma client type errors after adding models
+
+Restart your TypeScript server (VS Code: Cmd+Shift+P → "TypeScript: Restart TS Server").
+
+## Model Naming Convention
+
+To prevent collisions across plugins, prefix every model:
+
+| Plugin | Prefix | Example |
+|---|---|---|
+| community | `Community` | `CommunityPost`, `CommunityComment` |
+| my-wallet | `Wallet` | `WalletConnection`, `WalletTransactionLog` |
+| daydream-video | `Daydream` | `DaydreamSession`, `DaydreamSettings` |
+| gateway-manager | `Gateway` | `Gateway`, `GatewayOrchestratorConnection` |
+| capacity-planner | `Capacity` | `CapacityRequest`, `CapacitySoftCommit` |
+| developer-api | `DevApi` | `DevApiKey`, `DevApiAIModel` |
+| dashboard | `Dashboard` | `Dashboard`, `DashboardUserPreference` |
+| **your-plugin** | `YourPlugin` | `YourPluginWidget`, `YourPluginConfig` |
+
+## Next Steps
+
+- [Database Architecture Rules](/docs/concepts/database-architecture) — Why and how
+- [Full Example](/docs/examples/database-plugin) — Complete worked example
+- [AI Prompt](/docs/prompts/database-architecture) — Generate compliant code

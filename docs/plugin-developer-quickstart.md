@@ -1,0 +1,169 @@
+# Plugin Developer Quick Start
+
+A quick reference guide for common plugin development tasks.
+
+## 🚀 Quick Commands
+
+```bash
+# Create new plugin
+naap-plugin create my-plugin
+
+# Start development
+naap-plugin dev
+
+# Run tests
+naap-plugin test
+
+# Build
+naap-plugin build
+
+# Package
+naap-plugin package
+
+# Publish
+naap-plugin publish
+
+# Update version
+naap-plugin version patch|minor|major
+```
+
+## 📋 Development Workflow
+
+### 1. Create & Setup
+```bash
+naap-plugin create my-plugin --template full-stack
+cd my-plugin
+npm install
+cd frontend && npm install && cd ..
+cd backend && npm install && cd ..
+```
+
+### 2. Develop
+```bash
+# Start dev servers
+naap-plugin dev
+
+# Edit files:
+# - frontend/src/App.tsx (must export mount())
+# - frontend/src/pages/*.tsx
+# - backend/src/server.ts
+# - backend/src/routes/*.ts
+```
+
+### 3. Database
+```bash
+cd backend
+
+# Create migration
+npx prisma migrate dev --name init
+
+# Generate client
+npx prisma generate
+
+# Seed data
+npx tsx prisma/seed.ts
+```
+
+### 4. Test
+```bash
+# Unit tests
+naap-plugin test --unit
+
+# E2E tests
+naap-plugin test --e2e
+
+# With coverage
+naap-plugin test --coverage
+```
+
+### 5. Build & Publish
+```bash
+# Build
+naap-plugin build
+
+# Package
+naap-plugin package
+
+# Login (first time)
+naap-plugin login
+
+# Publish
+naap-plugin publish
+```
+
+### 6. Update
+```bash
+# Bump version
+naap-plugin version patch
+
+# Update CHANGELOG.md
+# Rebuild & republish
+naap-plugin build && naap-plugin package && naap-plugin publish
+```
+
+## 🔧 Essential Files
+
+### `plugin.json` (Required)
+```json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "frontend": {
+    "devPort": 3010,
+    "routes": ["/my-plugin", "/my-plugin/*"]
+  },
+  "backend": {
+    "devPort": 4010,
+    "port": 4100,
+    "apiPrefix": "/api/v1/my-plugin"
+  }
+}
+```
+
+### `frontend/src/App.tsx` (Required)
+```typescript
+import { createRoot } from 'react-dom/client';
+import { ShellProvider } from '@naap/plugin-sdk/hooks';
+
+export function mount(container: HTMLElement, context: ShellContext) {
+  const root = createRoot(container);
+  root.render(
+    <ShellProvider value={context}>
+      <YourApp />
+    </ShellProvider>
+  );
+  return () => root.unmount();
+}
+```
+
+### `backend/src/server.ts` (Required)
+```typescript
+import express from 'express';
+
+const app = express();
+app.use(express.json());
+
+app.get('/healthz', (req, res) => {
+  res.json({ status: 'healthy' });
+});
+
+app.use('/api/v1/my-plugin', router);
+
+app.listen(process.env.PORT || 4010);
+```
+
+## 🐛 Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Plugin not loading | Check the UMD bundle (`production/<plugin-name>.js`) is accessible |
+| Backend won't start | Check port availability, DATABASE_URL |
+| Database errors | Verify Docker is running, run migrations |
+| Build fails | Check TypeScript errors, clear cache |
+| Publish fails | Verify login, check version doesn't exist |
+
+## 📚 More Information
+
+- **Full Guide**: [plugin-developer-guide.md](./plugin-developer-guide.md)
+- **Architecture**: [plugin-development.md](./plugin-development.md)
+- **Examples**: Check `plugins/` directory

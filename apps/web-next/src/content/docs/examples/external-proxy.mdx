@@ -1,0 +1,340 @@
+---
+title: "External API Proxy"
+description: "Complete example: proxy third-party API calls through your plugin backend to avoid CORS issues."
+order: 5
+---
+
+## Overview
+
+This example demonstrates the complete pattern for calling an external API from your plugin frontend by proxying through your plugin backend. We'll build two real-world scenarios:
+
+1. **JSON API proxy** — Call a REST API (like Stripe or OpenAI) through your backend
+2. **Binary/SDP proxy** — Proxy non-JSON content like WebRTC SDP handshakes
+
+## Scenario 1: JSON API Proxy
+
+A plugin that calls the OpenAI API from the frontend, proxied through the backend to keep the API key server-side and avoid CORS.
+
+### Backend Setup
+
+```typescript
+// backend/src/server.ts
+import { createPluginServer, createExternalProxy } from '@naap/plugin-server-sdk';
+
+const { router, start } = createPluginServer({
+  name: 'ai-assistant',
+  port: 4020,
+});
+
+// Proxy OpenAI API calls
+router.post(
+  '/assistant/openai-proxy',
+  ...createExternalProxy({
+    allowedHosts: ['api.openai.com'],
+    targetUrlHeader: 'X-Target-URL',
+    contentType: 'application/json',
+    bodyLimit: '1mb',
+    timeout: 60_000,  // LLM calls can be slow
+    forwardHeaders: {
+      // API key stays server-side — never reaches the browser
+      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    authorize: async (req) => {
+      // Only authenticated users can use the proxy
+      const userId = (req as any).user?.id;
+      if (!userId) return false;
+
+      // Optional: rate limiting, usage tracking, etc.
+      return true;
+    },
+  })
+);
+
+start();
+```
+
+### Frontend Hook
+
+```typescript
+// frontend/src/hooks/useAICompletion.ts
+import { useState, useCallback } from 'react';
+import { getPluginBackendUrl, getCsrfToken } from '@naap/plugin-sdk';
+
+export function useAICompletion() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const complete = useCallback(async (prompt: string): Promise<string> => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const proxyUrl = getPluginBackendUrl('ai-assistant', {
+        apiPath: '/api/v1/assistant/openai-proxy',
+      });
+
+      const response = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Target-URL': 'https://api.openai.com/v1/chat/completions',
+          'X-CSRF-Token': getCsrfToken() || '',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 500,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error?.message || 'AI request failed');
+      }
+
+      const data = await response.json();
+      return data.choices[0].message.content;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { complete, loading, error };
+}
+```
+
+### React Component
+
+```typescript
+// frontend/src/components/AIChat.tsx
+import React, { useState } from 'react';
+import { useAICompletion } from '../hooks/useAICompletion';
+
+export function AIChat() {
+  const { complete, loading, error } = useAICompletion();
+  const [prompt, setPrompt] = useState('');
+  const [response, setResponse] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!prompt.trim()) return;
+
+    try {
+      const result = await complete(prompt);
+      setResponse(result);
+    } catch {
+      // Error is already in the hook's state
+    }
+  };
+
+  return (
+    <div className="p-6 max-w-2xl mx-auto">
+      <form onSubmit={handleSubmit} className="flex gap-2">
+        <input
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Ask anything..."
+          className="flex-1 px-4 py-2 border rounded-lg"
+          disabled={loading}
+        />
+        <button
+          type="submit"
+          disabled={loading}
+          className="px-6 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50"
+        >
+          {loading ? 'Thinking...' : 'Ask'}
+        </button>
+      </form>
+
+      {error && (
+        <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-lg">
+          {error}
+        </div>
+      )}
+
+      {response && (
+        <div className="mt-4 p-4 bg-gray-50 rounded-lg whitespace-pre-wrap">
+          {response}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+## Scenario 2: WebRTC SDP Proxy (Non-JSON)
+
+The Daydream AI Video plugin proxies WebRTC WHIP SDP handshakes — plain text with `Content-Type: application/sdp`.
+
+### Backend
+
+```typescript
+// backend/src/server.ts
+import { createPluginServer, createExternalProxy } from '@naap/plugin-server-sdk';
+
+const { router, start } = createPluginServer({
+  name: 'daydream-video',
+  port: 4111,
+});
+
+router.post(
+  '/daydream/whip-proxy',
+  ...createExternalProxy({
+    allowedHosts: ['ai.livepeer.com', 'livepeer.studio', 'api.daydream.live'],
+    targetUrlHeader: 'X-WHIP-URL',
+    contentType: 'application/sdp',       // Not JSON!
+    exposeHeaders: [
+      { from: 'Location', to: 'X-WHIP-Resource' },
+    ],
+    timeout: 30_000,
+    authorize: async (req) => {
+      const userId = getUserId(req);
+      await getUserApiKey(userId);        // Throws if no key
+      return true;
+    },
+  })
+);
+
+start();
+```
+
+### Frontend
+
+```typescript
+// frontend/src/hooks/useWHIP.ts
+import { getPluginBackendUrl } from '@naap/plugin-sdk';
+
+async function sendSdpOffer(whipUrl: string, sdpOffer: string): Promise<string> {
+  const proxyUrl = getPluginBackendUrl('daydream-video', {
+    apiPath: '/api/v1/daydream/whip-proxy',
+  });
+
+  const response = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/sdp',
+      'X-WHIP-URL': whipUrl,
+      'Authorization': `Bearer ${getAuthToken()}`,
+    },
+    body: sdpOffer,   // Raw SDP text, not JSON
+  });
+
+  if (!response.ok) {
+    throw new Error(`WHIP failed: ${response.status}`);
+  }
+
+  // Response is also raw SDP text
+  return response.text();
+}
+```
+
+## Key Differences by Content Type
+
+| Feature | JSON Proxy | SDP/Text Proxy |
+|---------|-----------|---------------|
+| Content-Type | `application/json` | `application/sdp` (or any text type) |
+| Body parser | `express.json()` | `express.text()` |
+| Request body | `JSON.stringify(data)` | Raw text string |
+| Response parsing | `response.json()` | `response.text()` |
+| Use case | REST APIs (Stripe, OpenAI, etc.) | WebRTC, XML, CSV, etc. |
+
+## Adding a Custom Header to CORS
+
+If your proxy uses a custom `targetUrlHeader` (not one of the built-in headers), you need to add it to the shared CORS headers so the browser's preflight `OPTIONS` request succeeds:
+
+```typescript
+// packages/types/src/http-headers.ts
+export const CUSTOM_HEADERS = [
+  'X-CSRF-Token',
+  'X-Correlation-ID',
+  'X-Plugin-Name',
+  'X-Request-ID',
+  'X-Trace-ID',
+  'X-Team-ID',
+  'X-WHIP-URL',            // Already included
+  'X-My-Custom-Header',    // Add your custom header here
+] as const;
+```
+
+This single change propagates to all plugin backends automatically via `CORS_ALLOWED_HEADERS`.
+
+## Testing Your Proxy
+
+### Health check
+
+```bash
+curl http://localhost:4020/healthz
+```
+
+### CORS preflight
+
+```bash
+curl -X OPTIONS http://localhost:4020/api/v1/assistant/openai-proxy \
+  -H "Origin: http://localhost:3000" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: Content-Type,X-Target-URL" \
+  -v 2>&1 | grep -i access-control
+```
+
+Expected:
+```
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Headers: Content-Type,...,X-Target-URL,...
+```
+
+### Proxy request (with auth)
+
+```bash
+curl -X POST http://localhost:4020/api/v1/assistant/openai-proxy \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-Target-URL: https://api.openai.com/v1/models" \
+  -d '{}'
+```
+
+## Common Mistakes
+
+### 1. Calling external APIs directly from the browser
+
+```typescript
+// BAD: Direct browser call — will fail with CORS error
+const res = await fetch('https://api.stripe.com/v1/charges', { ... });
+
+// GOOD: Route through your backend proxy
+const res = await fetch(proxyUrl, {
+  headers: { 'X-Target-URL': 'https://api.stripe.com/v1/charges' },
+  ...
+});
+```
+
+### 2. Exposing API keys in the frontend
+
+```typescript
+// BAD: API key in browser code
+headers: { 'Authorization': `Bearer ${process.env.STRIPE_KEY}` }
+
+// GOOD: Use forwardHeaders in the backend proxy
+forwardHeaders: {
+  'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+}
+```
+
+### 3. Using overly broad allowed hosts
+
+```typescript
+// BAD: Too permissive
+allowedHosts: ['.com']
+
+// GOOD: Specific hosts only
+allowedHosts: ['api.stripe.com']
+```
+
+## Related
+
+- [Proxying External APIs Guide](/docs/guides/external-api-proxy) — Step-by-step tutorial
+- [External Proxy API Reference](/docs/api-reference/external-proxy) — Full API docs
+- [Backend Development](/docs/guides/backend-development) — General backend setup

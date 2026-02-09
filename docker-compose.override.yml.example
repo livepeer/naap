@@ -1,0 +1,22 @@
+# Example docker-compose override file
+# Copy this to docker-compose.override.yml to customize local development
+# This file is gitignored, so your local changes won't be committed
+
+version: '3.8'
+
+services:
+  # Example: Change port mappings
+  # base-db:
+  #   ports:
+  #     - "15432:5432"
+  
+  # Example: Add resource limits
+  # kafka:
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '2'
+  #         memory: 2G
+  #       reservations:
+  #         cpus: '1'
+  #         memory: 1G

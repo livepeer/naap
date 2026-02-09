@@ -1,0 +1,317 @@
+---
+title: "Your First Plugin"
+description: "A complete end-to-end walkthrough of building a NaaP plugin from scratch."
+order: 1
+---
+
+## What We'll Build
+
+In this guide, we'll build a **Task Tracker** plugin with:
+
+- A React frontend showing a task list
+- An Express backend with CRUD API
+- A PostgreSQL database for persistence
+- Full integration with shell services (auth, notifications, events)
+
+## Step 1: Scaffold the Plugin
+
+```bash
+naap-plugin create task-tracker --template full-stack --category developer-tools
+```
+
+This creates a complete plugin skeleton. Navigate into the directory:
+
+```bash
+cd task-tracker
+npm install
+```
+
+## Step 2: Define the Plugin Manifest
+
+Edit `plugin.json`:
+
+```json
+{
+  "name": "task-tracker",
+  "displayName": "Task Tracker",
+  "version": "1.0.0",
+  "description": "Track and manage development tasks",
+  "category": "developer-tools",
+
+  "frontend": {
+    "entry": "./frontend/dist/production/task-tracker.js",
+    "devPort": 3020,
+    "routes": ["/task-tracker", "/task-tracker/*"],
+    "navigation": {
+      "label": "Tasks",
+      "icon": "CheckSquare",
+      "section": "main",
+      "order": 45
+    }
+  },
+
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "port": 4020,
+    "apiPrefix": "/api/v1/task-tracker",
+    "healthCheck": "/healthz"
+  },
+
+  "database": {
+    "type": "postgresql",
+    "schema": "plugin_task_tracker"
+  }
+}
+```
+
+## Step 3: Set Up the Database
+
+NaaP uses a **single database with multi-schema isolation**. Models are defined centrally in `packages/database/prisma/schema.prisma` — never in the plugin directory. See [Database Architecture](/docs/concepts/database-architecture).
+
+Add your models to `packages/database/prisma/schema.prisma`:
+
+```prisma
+// Append to packages/database/prisma/schema.prisma
+model TrackerTask {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  status      String   @default("todo")
+  priority    String   @default("medium")
+  assigneeId  String?
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@schema("plugin_task_tracker")
+}
+```
+
+Also register the schema:
+1. Add `"plugin_task_tracker"` to the `schemas` array in `packages/database/prisma/schema.prisma`
+2. Add `CREATE SCHEMA IF NOT EXISTS plugin_task_tracker;` to `docker/init-schemas.sql`
+
+Generate and push:
+
+```bash
+cd packages/database
+npx prisma generate
+npx prisma db push
+```
+
+Create the database client file:
+
+```typescript
+// backend/src/db/client.ts
+import { prisma } from '@naap/database';
+export const db = prisma;
+```
+
+## Step 4: Build the Backend API
+
+Edit `backend/src/server.ts`:
+
+```typescript
+import express from 'express';
+import { db } from './db/client.js';
+
+const app = express();
+const PORT = process.env.PORT || 4020;
+
+app.use(express.json());
+
+// Health check
+app.get('/healthz', (_req, res) => {
+  res.json({ status: 'healthy', service: 'task-tracker' });
+});
+
+// List tasks — note the prefixed model name: db.trackerTask
+app.get('/api/v1/task-tracker/tasks', async (req, res) => {
+  const tasks = await db.trackerTask.findMany({
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json({ tasks });
+});
+
+// Create task
+app.post('/api/v1/task-tracker/tasks', async (req, res) => {
+  const { title, description, priority } = req.body;
+  const userId = req.headers['x-user-id'] as string;
+
+  const task = await db.trackerTask.create({
+    data: { title, description, priority, createdBy: userId },
+  });
+  res.status(201).json({ task });
+});
+
+// Update task
+app.patch('/api/v1/task-tracker/tasks/:id', async (req, res) => {
+  const { id } = req.params;
+  const task = await db.trackerTask.update({
+    where: { id },
+    data: req.body,
+  });
+  res.json({ task });
+});
+
+// Delete task
+app.delete('/api/v1/task-tracker/tasks/:id', async (req, res) => {
+  await db.trackerTask.delete({ where: { id: req.params.id } });
+  res.json({ success: true });
+});
+
+app.listen(PORT, () => {
+  console.log(`Task Tracker backend running on port ${PORT}`);
+});
+```
+
+## Step 5: Build the Frontend
+
+Edit `frontend/src/App.tsx`:
+
+```typescript
+import { useState, useEffect } from 'react';
+import { useAuth, useNotify, usePluginApi } from '@naap/plugin-sdk';
+
+interface Task {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  createdAt: string;
+}
+
+export default function App() {
+  const auth = useAuth();
+  const notify = useNotify();
+  const api = usePluginApi();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [title, setTitle] = useState('');
+
+  useEffect(() => {
+    loadTasks();
+  }, []);
+
+  async function loadTasks() {
+    const res = await api.get('/tasks');
+    setTasks(res.tasks);
+  }
+
+  async function addTask() {
+    if (!title.trim()) return;
+    await api.post('/tasks', { title });
+    setTitle('');
+    notify.success('Task created!');
+    loadTasks();
+  }
+
+  async function toggleTask(task: Task) {
+    const newStatus = task.status === 'done' ? 'todo' : 'done';
+    await api.patch(`/tasks/${task.id}`, { status: newStatus });
+    loadTasks();
+  }
+
+  return (
+    <div className="p-6 max-w-2xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">Task Tracker</h1>
+
+      {/* Add task form */}
+      <div className="flex gap-2 mb-6">
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && addTask()}
+          placeholder="Add a new task..."
+          className="flex-1 px-3 py-2 rounded-lg border"
+        />
+        <button
+          onClick={addTask}
+          className="px-4 py-2 bg-primary text-white rounded-lg"
+        >
+          Add
+        </button>
+      </div>
+
+      {/* Task list */}
+      <div className="space-y-2">
+        {tasks.map((task) => (
+          <div
+            key={task.id}
+            className="flex items-center gap-3 p-3 rounded-lg border"
+          >
+            <button onClick={() => toggleTask(task)}>
+              {task.status === 'done' ? '✅' : '⬜'}
+            </button>
+            <span className={task.status === 'done' ? 'line-through opacity-50' : ''}>
+              {task.title}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+## Step 6: Set Up the Mount Function
+
+Edit `frontend/src/mount.tsx`:
+
+```typescript
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { ShellProvider } from '@naap/plugin-sdk';
+import type { ShellContext } from '@naap/plugin-sdk';
+import App from './App';
+
+let root: ReturnType<typeof createRoot> | null = null;
+
+export function mount(container: HTMLElement, context: ShellContext) {
+  root = createRoot(container);
+  root.render(
+    <ShellProvider value={context}>
+      <App />
+    </ShellProvider>
+  );
+
+  return () => {
+    if (root) {
+      root.unmount();
+      root = null;
+    }
+  };
+}
+```
+
+## Step 7: Configure the Build
+
+Edit `frontend/vite.config.ts`:
+
+```typescript
+import { createPluginConfig } from '@naap/plugin-build/vite';
+
+export default createPluginConfig({
+  name: 'task-tracker',
+  displayName: 'Task Tracker',
+  globalName: 'NaapPluginTaskTracker',
+  defaultCategory: 'developer-tools',
+});
+```
+
+## Step 8: Run and Test
+
+```bash
+# Start the dev server
+naap-plugin dev
+
+# Open the shell
+open http://localhost:3000
+```
+
+Your Task Tracker plugin should appear in the sidebar. You can add tasks, mark them as done, and see notifications.
+
+## Next Steps
+
+- Add [testing](/docs/guides/testing-plugins) to your plugin
+- [Publish](/docs/guides/publishing-plugins) to the marketplace
+- Explore the full [SDK API](/docs/api-reference/sdk-hooks)

@@ -1,0 +1,16 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "noUnusedLocals": false,
+    "noEmit": true,
+    "paths": {
+      "@naap/ui": ["../../../packages/ui/src/index.ts"],
+      "@naap/types": ["../../../packages/types/src/index.ts"],
+      "@naap/theme": ["../../../packages/theme/src/index.ts"],
+      "@naap/utils": ["../../../packages/utils/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}

@@ -1,0 +1,106 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "daydream-video",
+  "displayName": "Daydream AI Video",
+  "version": "1.0.3",
+  "description": "Real-time AI video transformation using Daydream.live StreamDiffusion API",
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io",
+    "url": "https://naap.io"
+  },
+  "repository": "https://github.com/naap/plugins/tree/main/daydream-video",
+  "license": "MIT",
+  "keywords": ["video", "ai", "streaming", "webrtc", "daydream", "stable-diffusion"],
+  "category": "media",
+  
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+  
+  "frontend": {
+    "entry": "./frontend/dist/production/daydream-video.js",
+    "devEntry": "./frontend/src/App.tsx",
+    "devPort": 3111,
+    "routes": [
+      "/daydream",
+      "/daydream/*"
+    ],
+    "navigation": {
+      "label": "AI Video",
+      "icon": "Video",
+      "order": 50,
+      "group": "main"
+    }
+  },
+  
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devEntry": "./backend/src/server.ts",
+    "devPort": 4111,
+    "port": 4211,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/daydream",
+    "resources": {
+      "memory": "512Mi",
+      "cpu": "0.5"
+    }
+  },
+  
+  "database": {
+    "type": "postgresql",
+    "schema": "./backend/prisma/schema.prisma",
+    "migrations": "./backend/prisma/migrations"
+  },
+  
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme", "auth"],
+    "apis": [],
+    "external": ["daydream.live", "livepeer"],
+    "browser": ["camera", "microphone", "display-capture"]
+  },
+  
+  "rbac": {
+    "roles": [
+      {
+        "name": "daydream-video:admin",
+        "displayName": "AI Video Admin",
+        "description": "Full access to AI Video settings and streaming",
+        "permissions": ["daydream:read", "daydream:write", "daydream:admin", "daydream:stream"]
+      },
+      {
+        "name": "daydream-video:user",
+        "displayName": "AI Video User",
+        "description": "Use AI Video streaming with personal API key",
+        "permissions": ["daydream:read", "daydream:stream"]
+      }
+    ]
+  },
+  
+  "lifecycle": {
+    "postInstall": "npm run db:migrate",
+    "preUpdate": "npm run db:backup",
+    "postUpdate": "npm run db:migrate"
+  },
+  
+  "config": {
+    "schema": {
+      "apiKey": {
+        "type": "string",
+        "secret": true,
+        "description": "Daydream.live API key (get from https://app.daydream.live/dashboard/api-keys)"
+      },
+      "defaultPrompt": {
+        "type": "string",
+        "default": "superman",
+        "description": "Default prompt for video transformation"
+      },
+      "defaultSeed": {
+        "type": "number",
+        "default": 42,
+        "description": "Default seed for reproducible results"
+      }
+    }
+  }
+}

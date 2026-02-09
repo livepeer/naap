@@ -1,0 +1,194 @@
+---
+title: "Platform Operations"
+description: "Start, stop, monitor, and validate the NaaP platform services."
+order: 3
+---
+
+## Service Architecture
+
+The NaaP platform consists of these services:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| **Next.js Shell** | 3000 | Main web application (hosts plugins) |
+| **Base Service** | 4000 | Core API (auth, teams, plugin registry) |
+| **Plugin Server** | 3100 | Plugin asset server + CDN proxy |
+| **PostgreSQL** | 5432 | Unified database (Docker) |
+| Plugin Backends | 4001-4012 | Per-plugin Express APIs |
+
+## Starting Services
+
+### Shell + Core (Default)
+
+```bash
+./bin/start.sh
+```
+
+Starts: Database, Base Service, Plugin Server, Next.js Shell.
+Plugins are served as static UMD bundles -- no plugin backends needed for basic operation.
+
+### Everything
+
+```bash
+./bin/start.sh start --all
+```
+
+Starts all of the above plus all 11 plugin backends.
+
+### Dev Mode (Single Plugin)
+
+```bash
+./bin/start.sh dev my-dashboard
+```
+
+Starts shell + core + one plugin with hot-reload frontend and live backend.
+
+### Services Only (No Frontend)
+
+```bash
+./bin/start.sh start --services
+```
+
+Starts core services and all plugin backends without the Next.js shell.
+
+## Stopping Services
+
+```bash
+# Graceful shutdown of everything
+./bin/start.sh stop
+
+# Stop a specific plugin
+./bin/start.sh stop my-dashboard
+
+# Restart (stop + start)
+./bin/start.sh restart
+```
+
+Shutdown order: Shell -> Plugin backends -> Core services -> Health monitor.
+Each service gets 10 seconds for graceful shutdown before force-kill.
+
+## Monitoring
+
+### Status Dashboard
+
+```bash
+./bin/start.sh status
+```
+
+Shows all running services with PID, uptime, and port information.
+
+### Live Watch
+
+```bash
+./bin/start.sh watch
+```
+
+Auto-refreshing status dashboard (default: every 5 seconds). Press `Ctrl+C` to exit.
+
+### Tail Logs
+
+```bash
+# Tail a specific service log
+./bin/start.sh logs base-svc
+./bin/start.sh logs shell-web
+./bin/start.sh logs my-dashboard-svc
+```
+
+Log files are stored in the `logs/` directory.
+
+## Validation
+
+```bash
+./bin/start.sh validate
+```
+
+Runs a comprehensive health check covering:
+
+- **Core Services** -- HTTP health endpoints for Base Service, Plugin Server, Shell
+- **Plugin Backends** -- Health endpoints for each running plugin backend
+- **Plugin CDN Assets** -- Verifies all 11 UMD bundles are accessible via CDN
+- **Plugin .env Files** -- Ensures all DATABASE_URLs point to the unified database
+- **Database Schemas** -- Checks all PostgreSQL schemas exist
+- **Core API Endpoints** -- Verifies auth, feature flags, plugins, marketplace, health APIs
+
+### Interpreting Results
+
+| Status | Meaning |
+|--------|---------|
+| **PASS** | Service or check is healthy |
+| **SKIP** | Service not running (expected if not started) |
+| **FAIL** | Something is broken (action needed) |
+
+A clean validation shows: `38 passed, 0 failed`.
+
+## Database Operations
+
+### Prisma Studio (Visual DB Editor)
+
+```bash
+cd packages/database
+npx prisma studio
+```
+
+Opens a visual database editor at http://localhost:5555.
+
+### Reset Database
+
+```bash
+# Drop all data and re-create tables
+cd packages/database
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap" npx prisma db push --force-reset
+
+# Re-seed initial data
+cd apps/web-next
+npx tsx prisma/seed.ts
+```
+
+### View Schemas
+
+```bash
+docker exec naap-db psql -U postgres -d naap -c "\dn"
+```
+
+## Plugin Build Operations
+
+```bash
+# Build all plugins
+npm run build:plugins
+
+# Build a single plugin
+cd plugins/my-dashboard/frontend && npm run build
+```
+
+Plugin UMD bundles are output to `plugins/<name>/frontend/dist/production/<name>.js`
+and served via CDN at `http://localhost:3000/cdn/plugins/<name>/1.0.0/<name>.js`.
+
+## Common Workflows
+
+### Fresh Start (Clean Slate)
+
+```bash
+./bin/start.sh stop
+docker rm -f naap-db            # Remove database container
+docker volume rm naap-db-data   # Remove database data
+./bin/setup.sh --start          # Full re-setup + start
+```
+
+### Update After Git Pull
+
+```bash
+git pull
+npm install
+npm run build:plugins
+./bin/start.sh restart
+```
+
+### Port Conflicts
+
+```bash
+# Find what's using a port
+lsof -i :3000
+
+# Force-kill all NaaP processes
+./bin/start.sh stop
+```

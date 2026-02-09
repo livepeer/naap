@@ -1,0 +1,257 @@
+---
+title: "Database Architecture Compliance"
+description: "AI prompt to ensure your plugin follows the mandatory single-DB multi-schema architecture."
+order: 2
+icon: "ShieldCheck"
+---
+
+## When to Use This
+
+Use this prompt **every time** you ask an AI assistant to:
+
+- Create a new plugin with a backend
+- Add database models to a plugin
+- Modify an existing database schema
+- Debug database connection issues
+- Generate Prisma code for NaaP
+
+This ensures the AI does not generate old-style per-plugin databases or local Prisma schemas.
+
+## Prompt: Database Architecture Rules (Copy This First)
+
+Paste this block **before any other NaaP prompt** to set the ground rules:
+
+```markdown
+# MANDATORY: NaaP Database Architecture Rules
+
+## Critical Constraints (MUST follow)
+
+NaaP uses a **single PostgreSQL database** with **multiple PostgreSQL schemas**
+for data isolation. This is non-negotiable. Every plugin and service MUST
+follow these rules:
+
+### Rule 1: Single Database
+- There is ONE PostgreSQL instance: `naap-db` on port 5432, database name: `naap`
+- Connection string: `postgresql://postgres:postgres@localhost:5432/naap`
+- NEVER create per-plugin database containers
+- NEVER start a separate PostgreSQL instance for any plugin
+
+### Rule 2: Unified Prisma Schema
+- ALL models are defined in `packages/database/prisma/schema.prisma`
+- NEVER create a local `prisma/schema.prisma` in any plugin backend
+- NEVER have a `prisma/` directory inside a plugin backend
+- The generator uses `previewFeatures = ["multiSchema"]`
+
+### Rule 3: Schema Annotations
+- EVERY model MUST have `@@schema("plugin_xxx")` annotation
+- EVERY enum MUST have `@@schema("plugin_xxx")` annotation
+- Core platform models use `@@schema("public")`
+- Plugin models use `@@schema("plugin_<plugin_name>")`
+
+### Rule 4: Prefixed Model Names
+- ALL plugin models MUST be prefixed to avoid name collisions
+- Convention: `<PluginPrefix><ModelName>`
+- Examples: CommunityPost, WalletConnection, DaydreamSession, TrackerProject
+
+### Rule 5: Unified Client Import
+- ALWAYS import from `@naap/database`:
+  ```typescript
+  import { prisma } from '@naap/database';
+  ```
+- NEVER import from `@prisma/client` or local generated directories:
+  ```typescript
+  // ❌ NEVER
+  import { PrismaClient } from '@prisma/client';
+  import { PrismaClient } from '../generated/client';
+  import { PrismaClient } from './generated/prisma';
+  const prisma = new PrismaClient();
+  ```
+
+### Rule 6: No Local Prisma Commands in Plugins
+- Plugin `package.json` must NOT contain: db:generate, db:push, db:migrate, db:seed
+- Plugin `package.json` must NOT list `prisma` as a devDependency
+- All schema management runs from `packages/database/`
+
+### Rule 7: Plugin package.json Dependencies
+```json
+{
+  "dependencies": {
+    "@naap/database": "workspace:*"
+  }
+}
+```
+NOT:
+```json
+{
+  "dependencies": {
+    "@prisma/client": "^5.x"
+  }
+}
+```
+
+### Rule 8: Standard db/client.ts Pattern
+Every plugin backend that uses the database MUST have:
+```typescript
+// plugins/<name>/backend/src/db/client.ts
+import { prisma } from '@naap/database';
+export const db = prisma;
+```
+
+### Existing Schemas
+| Schema | Prefix | Owner |
+|--------|--------|-------|
+| public | (none) | base-svc (User, Auth, Team, RBAC) |
+| plugin_community | Community | community plugin |
+| plugin_wallet | Wallet | my-wallet plugin |
+| plugin_dashboard | Dashboard | my-dashboard plugin |
+| plugin_daydream | Daydream | daydream-video plugin |
+| plugin_gateway | Gateway | gateway-manager plugin |
+| plugin_capacity | Capacity | capacity-planner plugin |
+| plugin_developer_api | DevApi | developer-api plugin |
+
+### Adding a New Schema
+If you need a new schema (e.g., `plugin_analytics` with prefix `Analytics`):
+1. Add `"plugin_analytics"` to the `schemas` array in `packages/database/prisma/schema.prisma`
+2. Add `CREATE SCHEMA IF NOT EXISTS plugin_analytics;` to `docker/init-schemas.sql`
+3. Add models with `@@schema("plugin_analytics")` and `Analytics` prefix
+4. Run `npx prisma generate && npx prisma db push` from `packages/database/`
+
+Now proceed with the actual task below, following ALL rules above.
+```
+
+## Prompt: Create a New Plugin with Database
+
+```markdown
+# Task: Create a NaaP Plugin Backend with Database
+
+[Paste the MANDATORY rules block above first]
+
+## Plugin Details
+
+Plugin name: [YOUR_PLUGIN_NAME]
+Schema name: plugin_[YOUR_PLUGIN_NAME]
+Model prefix: [YourPrefix]
+Port: [PICK A PORT, e.g., 4080]
+
+## Data Models
+
+[DESCRIBE YOUR DATA — for example:
+- "Bookmarks with title, URL, description, and tags"
+- "Bookmark folders that organize bookmarks"
+- "Share links for making bookmark collections public"
+]
+
+## Generate
+
+1. Prisma models (to add to `packages/database/prisma/schema.prisma`):
+   - Every model has: id (uuid), createdAt, updatedAt
+   - Every model has @@schema("plugin_[name]")
+   - All models prefixed with [YourPrefix]
+   - Proper relations, indexes, enums
+
+2. The SQL line for `docker/init-schemas.sql`:
+   - CREATE SCHEMA IF NOT EXISTS plugin_[name];
+
+3. Plugin backend files:
+   - `backend/src/db/client.ts` → import from @naap/database only
+   - `backend/src/server.ts` → Express routes
+   - `backend/src/routes/*.ts` → CRUD handlers
+   - `backend/package.json` → with @naap/database dependency (NOT @prisma/client)
+
+4. Verify checklist:
+   - ✅ No `prisma/` directory in the plugin
+   - ✅ No `@prisma/client` dependency
+   - ✅ No `new PrismaClient()` anywhere
+   - ✅ All models have @@schema() annotation
+   - ✅ All model names are prefixed
+   - ✅ .env points to postgresql://postgres:postgres@localhost:5432/naap
+```
+
+## Prompt: Add Models to Existing Plugin
+
+```markdown
+# Task: Add Database Models to an Existing NaaP Plugin
+
+[Paste the MANDATORY rules block above first]
+
+## Existing Plugin
+
+Plugin name: [YOUR_PLUGIN_NAME]
+Schema: plugin_[YOUR_PLUGIN_NAME]
+Prefix: [YourPrefix]
+
+Current models (already in packages/database/prisma/schema.prisma):
+[LIST YOUR CURRENT MODELS]
+
+## New Models Needed
+
+[DESCRIBE THE NEW DATA — for example:
+- "Comments on existing TrackerTask records"
+- "Activity log tracking all changes to projects and tasks"
+- "Labels/tags that can be applied to tasks (many-to-many)"
+]
+
+## Generate
+
+1. New Prisma models to APPEND to `packages/database/prisma/schema.prisma`
+2. Relations to existing models (if any)
+3. Updated route handlers to use the new models
+4. All models use @@schema("plugin_[name]") and [Prefix] naming
+
+## After Implementation
+
+```bash
+cd packages/database
+npx prisma generate
+npx prisma db push
+```
+```
+
+## Prompt: Audit Existing Plugin for Compliance
+
+```markdown
+# Task: Audit NaaP Plugin for Database Architecture Compliance
+
+[Paste the MANDATORY rules block above first]
+
+## Plugin to Audit
+
+[PASTE YOUR PLUGIN'S FILE TREE AND KEY FILES]
+
+## Check For
+
+1. ❌ Any `prisma/` directory in the plugin backend
+2. ❌ Any `import` from `@prisma/client` or local `generated/` directories
+3. ❌ Any `new PrismaClient()` calls
+4. ❌ Any `db:generate`, `db:push`, `db:migrate` scripts in package.json
+5. ❌ Any `prisma` in devDependencies
+6. ❌ Any models WITHOUT `@@schema()` annotation
+7. ❌ Any unprefixed model names that could collide
+8. ❌ Any `.env` pointing to a database other than `naap` on port 5432
+9. ❌ Any Docker container definitions for per-plugin databases
+
+## Output
+
+For each violation found:
+1. The file and line number
+2. What's wrong
+3. The exact fix (show before/after)
+```
+
+## Quick Reference Card
+
+| Do This | Not This |
+|---|---|
+| `import { prisma } from '@naap/database'` | `import { PrismaClient } from '@prisma/client'` |
+| `"@naap/database": "workspace:*"` | `"@prisma/client": "^5.x"` |
+| `@@schema("plugin_myapp")` | (no schema annotation) |
+| `MyAppProject` | `Project` |
+| Models in `packages/database/prisma/schema.prisma` | Models in `plugins/myapp/backend/prisma/schema.prisma` |
+| `bin/db-setup.sh` or `cd packages/database && npx prisma db push` | `cd plugins/myapp/backend && npx prisma db push` |
+| `DATABASE_URL=...localhost:5432/naap` | `DATABASE_URL=...localhost:5433/myapp_db` |
+
+## See Also
+
+- [Database Architecture Rules](/docs/concepts/database-architecture) — The full architecture guide
+- [Database Setup Tutorial](/docs/guides/database-setup) — Step-by-step tutorial
+- [Database Plugin Example](/docs/examples/database-plugin) — Complete worked example

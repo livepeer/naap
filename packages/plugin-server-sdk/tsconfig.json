@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "noUnusedLocals": false
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../types" }
+  ],
+  "exclude": ["node_modules", "dist"]
+}

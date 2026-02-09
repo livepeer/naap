@@ -1,0 +1,82 @@
+/**
+ * Plugin Theme CSS
+ *
+ * Shared theme variables for all plugins.
+ * Light mode (default) with .dark class for dark mode.
+ * CSS variables auto-update when shell toggles the .dark class on <html>.
+ *
+ * Usage: Import this file in your plugin's globals.css or main entry point.
+ * @import '@naap/plugin-sdk/styles/plugin-theme.css';
+ */
+
+/* ============================================
+   Light Mode (Default) - Professional Palette
+   ============================================ */
+:root {
+  /* Backgrounds - Clean whites/grays */
+  --bg-primary: #ffffff;           /* Pure white */
+  --bg-secondary: #f8fafc;         /* Slate-50: Cards */
+  --bg-tertiary: #f1f5f9;          /* Slate-100: Inputs */
+
+  /* Text - High contrast (WCAG AA compliant) */
+  --text-primary: #0f172a;         /* Slate-900 (7:1 contrast) */
+  --text-secondary: #475569;       /* Slate-600 (4.5:1) */
+  --text-tertiary: #94a3b8;        /* Slate-400: Muted */
+
+  /* Accents - Darker for light backgrounds */
+  --accent-emerald: #059669;       /* Emerald-600 */
+  --accent-blue: #2563eb;          /* Blue-600 */
+  --accent-amber: #d97706;         /* Amber-600 */
+  --accent-rose: #dc2626;          /* Rose-600 */
+  --accent-purple: #7c3aed;        /* Violet-600 */
+
+  /* Borders */
+  --border-color: #e2e8f0;         /* Slate-200 */
+}
+
+/* ============================================
+   Dark Mode - NAAP Brand Theme
+   ============================================ */
+.dark {
+  /* Backgrounds - Deep navy brand colors */
+  --bg-primary: #0a0f1a;           /* Deep navy */
+  --bg-secondary: #111827;         /* Dark gray-blue */
+  --bg-tertiary: #1f2937;          /* Medium gray-blue */
+
+  /* Text */
+  --text-primary: #f9fafb;         /* Gray-50 */
+  --text-secondary: #9ca3af;       /* Gray-400 */
+  --text-tertiary: #6b7280;        /* Gray-500 */
+
+  /* Accents - Brighter for dark backgrounds */
+  --accent-emerald: #10b981;       /* Emerald-500 */
+  --accent-blue: #3b82f6;          /* Blue-500 */
+  --accent-amber: #f59e0b;         /* Amber-500 */
+  --accent-rose: #f43f5e;          /* Rose-500 */
+  --accent-purple: #8b5cf6;        /* Violet-500 */
+
+  /* Borders */
+  --border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* ============================================
+   Common Utility Classes
+   ============================================ */
+
+/* Glass card effect - works in both themes */
+.glass-card {
+  background-color: var(--bg-secondary);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+  border-radius: 1rem;
+}
+
+.dark .glass-card {
+  background-color: rgba(17, 24, 39, 0.8);
+}
+
+/* Theme-aware hover for borders */
+.hover-border:hover {
+  border-color: var(--accent-emerald);
+}

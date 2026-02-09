@@ -1,0 +1,152 @@
+---
+title: "Shell Context"
+description: "The ShellContext object that provides all platform services to plugins."
+order: 6
+---
+
+## Overview
+
+When a plugin is mounted, it receives a `ShellContext` object containing all shell services. The Plugin SDK wraps this context in React context providers, making services accessible via hooks.
+
+## Accessing the Context
+
+### Via SDK Hooks (Recommended)
+
+```typescript
+import { useShell } from '@naap/plugin-sdk';
+
+function MyComponent() {
+  const shell = useShell();
+  // Use shell.auth, shell.eventBus, etc.
+}
+```
+
+### Via Mount Function (Advanced)
+
+```typescript
+export function mount(container: HTMLElement, context: ShellContext) {
+  // Direct access to context
+  const user = context.auth.getUser();
+  const isDark = context.theme.mode === 'dark';
+}
+```
+
+## Service Reference
+
+### auth: IAuthService
+
+Authentication and authorization.
+
+```typescript
+// Check if user is authenticated
+context.auth.isAuthenticated();  // boolean
+
+// Get user info
+context.auth.getUser();  // AuthUser | null
+
+// Get JWT token
+await context.auth.getToken();  // string
+
+// Check roles
+context.auth.hasRole('admin');  // boolean
+
+// Check permissions
+context.auth.hasPermission('data', 'write');  // boolean
+```
+
+### navigate: NavigateFunction
+
+Client-side routing within the shell.
+
+```typescript
+context.navigate('/dashboard');
+context.navigate('/plugins/my-plugin/settings');
+```
+
+### eventBus: IEventBus
+
+Inter-plugin communication.
+
+```typescript
+// Fire-and-forget
+context.eventBus.emit('my:event', { data: 'value' });
+
+// Listen
+const unsub = context.eventBus.on('other:event', (data) => { ... });
+
+// Request/Response
+const result = await context.eventBus.request('other:query', { q: 'test' });
+```
+
+### theme: IThemeService
+
+Theme management.
+
+```typescript
+context.theme.mode;           // 'light' | 'dark'
+context.theme.toggle();       // Toggle theme
+context.theme.setMode('dark');
+```
+
+### notifications: INotificationService
+
+User-facing toast notifications.
+
+```typescript
+context.notifications.success('Saved!');
+context.notifications.error('Failed');
+context.notifications.warning('Caution');
+context.notifications.info('FYI');
+```
+
+### integrations: IIntegrationService
+
+Platform integrations (AI, storage, email).
+
+```typescript
+// AI
+await context.integrations.ai.complete({ prompt: '...' });
+
+// Storage
+await context.integrations.storage.upload(file);
+
+// Email
+await context.integrations.email.send({ to, subject, body });
+```
+
+### logger: ILoggerService
+
+Structured logging.
+
+```typescript
+context.logger.info('Loaded', { plugin: 'my-plugin' });
+context.logger.error('Failed', { error: err.message });
+```
+
+### permissions: IPermissionService
+
+Permission checking.
+
+```typescript
+context.permissions.can('resource', 'action');  // boolean
+context.permissions.hasRole('admin');  // boolean
+```
+
+### team: ITeamContext (Optional)
+
+Current team context. Available when user is in a team.
+
+```typescript
+context.team?.id;      // string | null
+context.team?.name;    // string | null
+context.team?.role;    // string | null
+context.team?.config;  // Record<string, unknown>
+```
+
+### version: string
+
+The shell version string.
+
+```typescript
+context.version;  // e.g., '1.0.0'
+```

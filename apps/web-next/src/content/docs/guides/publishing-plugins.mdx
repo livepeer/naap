@@ -1,0 +1,151 @@
+---
+title: "Publishing Plugins"
+description: "Build, package, and publish your plugin to the NaaP marketplace."
+order: 5
+---
+
+## Overview
+
+Once your plugin is ready, you can publish it to the NaaP marketplace so other users can discover and install it.
+
+## Build for Production
+
+### 1. Build the Frontend
+
+```bash
+cd frontend
+npm run build:umd
+```
+
+This produces a UMD bundle in `frontend/dist/` containing:
+- `production/<plugin-name>.js` -- The main UMD bundle
+- CSS and asset files
+
+### 2. Build the Backend
+
+```bash
+cd backend
+npm run build
+```
+
+This compiles TypeScript to JavaScript in `backend/dist/`.
+
+### 3. Run the Doctor
+
+```bash
+naap-plugin doctor
+```
+
+The doctor command validates:
+- Plugin manifest completeness
+- Frontend build output exists
+- Backend build output exists
+- Database schema is valid
+- Required fields are present
+
+## Package Your Plugin
+
+```bash
+naap-plugin package
+```
+
+This creates a `.naap-plugin` file containing:
+- Plugin manifest
+- Frontend bundle
+- Backend code
+- Prisma schema
+- README and documentation
+
+## Publish to the Registry
+
+### Authenticate
+
+```bash
+naap-plugin login
+```
+
+This authenticates you with the NaaP plugin registry using your shell credentials.
+
+### Publish
+
+```bash
+naap-plugin publish
+```
+
+The publish command:
+1. Validates the package
+2. Uploads the frontend bundle to CDN (Vercel Blob)
+3. Registers the plugin in the marketplace
+4. Creates a version record
+
+### Publish Options
+
+```bash
+# Publish as a specific version
+naap-plugin publish --version 1.2.0
+
+# Publish as a pre-release
+naap-plugin publish --tag beta
+
+# Publish with a changelog
+naap-plugin publish --changelog "Added dark mode support"
+```
+
+## Version Management
+
+Follow **semantic versioning** (semver):
+
+| Change Type | Version Bump | Example |
+|---|---|---|
+| Bug fix | Patch | 1.0.0 → 1.0.1 |
+| New feature | Minor | 1.0.0 → 1.1.0 |
+| Breaking change | Major | 1.0.0 → 2.0.0 |
+
+Update your `plugin.json` version before publishing:
+
+```json
+{
+  "version": "1.1.0"
+}
+```
+
+## Plugin Marketplace Listing
+
+Your plugin's marketplace listing is generated from:
+
+- `plugin.json` -- Name, description, category, version
+- `README.md` -- Detailed description and screenshots
+- `CHANGELOG.md` -- Version history
+- Plugin icon (optional) -- `assets/icon.png`
+
+### Optimizing Your Listing
+
+1. Write a clear, concise description
+2. Include screenshots in your README
+3. Choose the most appropriate category
+4. List required permissions clearly
+5. Document configuration options
+
+## Updating a Published Plugin
+
+```bash
+# Bump version in plugin.json
+# Make your changes
+# Rebuild
+naap-plugin build
+
+# Publish the update
+naap-plugin publish
+```
+
+Users who have installed your plugin will see an update notification in the shell.
+
+## Unpublishing
+
+```bash
+# Unpublish a specific version
+naap-plugin unpublish --version 1.0.0
+
+# Deprecate (soft unpublish)
+naap-plugin deprecate --message "Use v2 instead"
+```

@@ -1,0 +1,18 @@
+{
+  "name": "@naap/pipeline-gateway",
+  "version": "1.0.0",
+  "description": "AI/Video pipeline gateway -- separate deployable from livepeer-svc for fast iteration",
+  "main": "src/server.ts",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@naap/cache": "*",
+    "@naap/livepeer-node-client": "*",
+    "@naap/livepeer-pipeline": "*",
+    "@naap/plugin-server-sdk": "*"
+  }
+}

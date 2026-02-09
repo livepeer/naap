@@ -1,0 +1,233 @@
+---
+title: "API Integration"
+description: "Build a plugin that integrates with external APIs using shell services."
+order: 4
+---
+
+## Overview
+
+This example shows how to build a plugin that fetches data from an external API, uses the shell's AI service for analysis, and stores results in the plugin database.
+
+## Using the API Client
+
+The SDK provides an authenticated API client that automatically includes auth headers:
+
+```typescript
+import { useApiClient } from '@naap/plugin-sdk';
+
+function ExternalData() {
+  const client = useApiClient();
+
+  useEffect(() => {
+    // Calls go through the shell's API proxy
+    // /api/v1/my-plugin/external-data
+    client.get('/api/v1/my-plugin/external-data')
+      .then(setData);
+  }, []);
+}
+```
+
+## Backend: External API Proxy
+
+Create a backend route that fetches from external services:
+
+```typescript
+// backend/src/routes/external.ts
+import { Router } from 'express';
+
+export const externalRoutes = Router();
+
+externalRoutes.get('/external-data', async (req, res) => {
+  try {
+    const response = await fetch('https://api.example.com/data', {
+      headers: {
+        'Authorization': `Bearer ${process.env.EXTERNAL_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`External API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('[my-plugin] External API error:', error);
+    res.status(502).json({
+      error: 'Failed to fetch external data',
+    });
+  }
+});
+```
+
+## Using AI Integration
+
+The shell provides AI services that plugins can use:
+
+```typescript
+import { useIntegrations, useNotify } from '@naap/plugin-sdk';
+
+function AIAnalyzer({ data }) {
+  const { ai } = useIntegrations();
+  const notify = useNotify();
+  const [analysis, setAnalysis] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const analyze = async () => {
+    setLoading(true);
+    try {
+      const result = await ai.complete({
+        prompt: `Analyze this network data and provide insights:\n${JSON.stringify(data)}`,
+        model: 'gpt-4',
+        maxTokens: 500,
+      });
+      setAnalysis(result.text);
+    } catch (err) {
+      notify.error('AI analysis failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="p-4 border rounded-xl">
+      <button
+        onClick={analyze}
+        disabled={loading}
+        className="px-4 py-2 bg-primary text-white rounded-lg"
+      >
+        {loading ? 'Analyzing...' : 'Analyze with AI'}
+      </button>
+      {analysis && (
+        <div className="mt-4 p-4 bg-muted rounded-lg text-sm">
+          {analysis}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+## Using Storage Integration
+
+Upload and manage files through the shell's storage service:
+
+```typescript
+import { useStorage, useNotify } from '@naap/plugin-sdk';
+
+function FileUploader() {
+  const storage = useStorage();
+  const notify = useNotify();
+  const [uploading, setUploading] = useState(false);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const url = await storage.upload(file, {
+        path: `reports/${file.name}`,
+      });
+      notify.success(`Uploaded! URL: ${url}`);
+    } catch {
+      notify.error('Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <label className="cursor-pointer px-4 py-2 border rounded-lg hover:bg-muted">
+      {uploading ? 'Uploading...' : 'Upload File'}
+      <input type="file" className="hidden" onChange={handleUpload} />
+    </label>
+  );
+}
+```
+
+## Webhook Pattern
+
+Handle incoming webhooks from external services:
+
+```typescript
+// backend/src/routes/webhooks.ts
+import { Router } from 'express';
+import crypto from 'crypto';
+
+export const webhookRoutes = Router();
+
+webhookRoutes.post('/webhooks/github', async (req, res) => {
+  // Verify webhook signature
+  const signature = req.headers['x-hub-signature-256'] as string;
+  const expected = `sha256=${crypto
+    .createHmac('sha256', process.env.WEBHOOK_SECRET!)
+    .update(JSON.stringify(req.body))
+    .digest('hex')}`;
+
+  if (signature !== expected) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
+  // Process the webhook
+  const event = req.headers['x-github-event'];
+  console.log(`Received GitHub event: ${event}`);
+
+  // Store or process the data
+  // ...
+
+  res.json({ received: true });
+});
+```
+
+## Reusable External API Proxy
+
+For plugins that need to call third-party APIs directly from the frontend, use the built-in `createExternalProxy` middleware. It handles CORS, SSRF protection, error forwarding, and timeouts automatically:
+
+```typescript
+// backend/src/server.ts
+import { createPluginServer, createExternalProxy } from '@naap/plugin-server-sdk';
+
+const { router, start } = createPluginServer({ name: 'my-plugin', port: 4020 });
+
+router.post(
+  '/my-prefix/api-proxy',
+  ...createExternalProxy({
+    allowedHosts: ['api.example.com'],
+    targetUrlHeader: 'X-Target-URL',
+    forwardHeaders: {
+      'Authorization': `Bearer ${process.env.EXTERNAL_API_KEY}`,
+    },
+  })
+);
+```
+
+```typescript
+// frontend/src/lib/api.ts
+import { getPluginBackendUrl } from '@naap/plugin-sdk';
+
+const proxyUrl = getPluginBackendUrl('my-plugin', {
+  apiPath: '/api/v1/my-prefix/api-proxy',
+});
+
+const res = await fetch(proxyUrl, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Target-URL': 'https://api.example.com/data',
+  },
+  body: JSON.stringify({ query: 'test' }),
+});
+```
+
+See the [External API Proxy Guide](/docs/guides/external-api-proxy) and [full API reference](/docs/api-reference/external-proxy) for detailed configuration options.
+
+## Best Practices
+
+1. **Proxy external calls through backend** -- Use `createExternalProxy` from `@naap/plugin-server-sdk` instead of writing custom proxy logic
+2. **Handle errors gracefully** -- Show user-friendly messages, log details server-side
+3. **Cache responses** -- Use in-memory or database caching for frequently accessed data
+4. **Rate limit** -- Respect external API rate limits with backoff strategies
+5. **Use environment variables** -- Store API keys and secrets in `.env`, never hardcode
+6. **Whitelist specific hosts** -- Always set `allowedHosts` to prevent SSRF attacks

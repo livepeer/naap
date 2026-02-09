@@ -1,0 +1,118 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "my-wallet",
+  "displayName": "My Wallet",
+  "version": "1.0.0",
+  "description": "MetaMask wallet integration for staking and Web3 transactions on the Livepeer network",
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io",
+    "url": "https://naap.io"
+  },
+  "repository": "https://github.com/naap/plugins/tree/main/my-wallet",
+  "license": "MIT",
+  "keywords": ["wallet", "metamask", "web3", "staking", "ethereum", "livepeer"],
+  "category": "finance",
+  
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+  
+  "frontend": {
+    "entry": "./frontend/dist/production/my-wallet.js",
+    "devEntry": "./frontend/src/App.tsx",
+    "devPort": 3008,
+    "routes": [
+      "/wallet",
+      "/wallet/*"
+    ],
+    "navigation": {
+      "label": "My Wallet",
+      "icon": "Wallet",
+      "order": 0,
+      "group": "user"
+    }
+  },
+  
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devEntry": "./backend/src/server.ts",
+    "devPort": 4008,
+    "port": 4108,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/wallet",
+    "resources": {
+      "memory": "256Mi",
+      "cpu": "0.25"
+    }
+  },
+  
+  "database": {
+    "type": "postgresql",
+    "schema": "./backend/prisma/schema.prisma",
+    "migrations": "./backend/prisma/migrations",
+    "seed": "./backend/prisma/seed.ts"
+  },
+  
+  "integrations": {
+    "required": [],
+    "optional": []
+  },
+  
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme", "auth"],
+    "apis": [],
+    "external": ["ethereum"]
+  },
+  
+  "rbac": {
+    "roles": [
+      {
+        "name": "my-wallet:admin",
+        "displayName": "Wallet Admin",
+        "description": "Full access to wallet management and settings",
+        "permissions": ["wallet:read", "wallet:write", "wallet:stake", "wallet:admin"]
+      },
+      {
+        "name": "my-wallet:user",
+        "displayName": "Wallet User",
+        "description": "Basic wallet access and staking",
+        "permissions": ["wallet:read", "wallet:stake"]
+      }
+    ]
+  },
+  
+  "lifecycle": {
+    "postInstall": "npm run db:migrate && npm run db:seed",
+    "preUpdate": "npm run db:backup",
+    "postUpdate": "npm run db:migrate"
+  },
+  
+  "config": {
+    "schema": {
+      "defaultNetwork": {
+        "type": "string",
+        "default": "arbitrum-one",
+        "description": "Default blockchain network for wallet operations",
+        "enum": ["mainnet", "arbitrum-one", "goerli", "arbitrum-goerli"]
+      },
+      "autoConnect": {
+        "type": "boolean",
+        "default": true,
+        "description": "Automatically connect wallet on page load if previously connected"
+      },
+      "showTestnets": {
+        "type": "boolean",
+        "default": false,
+        "description": "Show testnet networks in the network selector"
+      },
+      "gasStrategy": {
+        "type": "string",
+        "default": "standard",
+        "description": "Default gas price strategy",
+        "enum": ["slow", "standard", "fast"]
+      }
+    }
+  }
+}

@@ -1,0 +1,168 @@
+---
+title: "Plugin Manifest"
+description: "Complete reference for the plugin.json manifest file schema."
+order: 4
+---
+
+## Overview
+
+Every NaaP plugin must include a `plugin.json` file at its root. This manifest defines the plugin's identity, routes, backend configuration, database schema, and more.
+
+## Complete Schema
+
+```json
+{
+  "name": "my-plugin",
+  "displayName": "My Plugin",
+  "version": "1.0.0",
+  "description": "What the plugin does",
+  "category": "monitoring",
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": "https://github.com/user/plugin",
+
+  "frontend": {
+    "entry": "./frontend/dist/production/my-plugin.js",
+    "devPort": 3010,
+    "routes": ["/my-plugin", "/my-plugin/*"],
+    "navigation": {
+      "label": "My Plugin",
+      "icon": "Activity",
+      "section": "main",
+      "order": 50
+    }
+  },
+
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "port": 4010,
+    "apiPrefix": "/api/v1/my-plugin",
+    "healthCheck": "/healthz"
+  },
+
+  "database": {
+    "type": "postgresql",
+    "schema": "plugin_my_plugin"
+  },
+
+  "permissions": {
+    "required": ["read:data"],
+    "optional": ["write:data", "admin:settings"]
+  },
+
+  "config": {
+    "schema": {
+      "pageSize": { "type": "number", "default": 20 },
+      "enableNotifications": { "type": "boolean", "default": true }
+    }
+  }
+}
+```
+
+## Field Reference
+
+### Root Fields
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | Yes | Unique plugin identifier (kebab-case) |
+| `displayName` | `string` | Yes | Human-readable name shown in UI |
+| `version` | `string` | Yes | Semantic version (e.g., `1.0.0`) |
+| `description` | `string` | No | Brief description |
+| `category` | `PluginCategory` | Yes | Plugin category |
+| `author` | `string` | No | Plugin author name |
+| `license` | `string` | No | License identifier |
+| `repository` | `string` | No | Source code URL |
+
+### Frontend Configuration
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `frontend.entry` | `string` | Yes | Path to UMD bundle entry |
+| `frontend.devPort` | `number` | No | Development server port |
+| `frontend.routes` | `string[]` | Yes | URL routes handled by this plugin |
+| `frontend.navigation.label` | `string` | Yes | Sidebar label |
+| `frontend.navigation.icon` | `string` | No | Lucide icon name |
+| `frontend.navigation.section` | `string` | No | Sidebar section (`main` or `network`) |
+| `frontend.navigation.order` | `number` | No | Sort order in sidebar |
+
+### Backend Configuration
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `backend.entry` | `string` | Yes | Path to compiled server |
+| `backend.port` | `number` | Yes | Server port |
+| `backend.apiPrefix` | `string` | Yes | API route prefix |
+| `backend.healthCheck` | `string` | No | Health check endpoint path |
+
+### Database Configuration
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `database.type` | `string` | Yes | Database type (currently only `postgresql`) |
+| `database.schema` | `string` | Yes | PostgreSQL schema name (e.g., `plugin_my_plugin`) |
+
+> **Architecture:** NaaP uses a single database with multi-schema isolation. The `schema` field identifies which PostgreSQL schema this plugin owns. All Prisma models are defined centrally in `packages/database/prisma/schema.prisma`. See [Database Architecture](/docs/concepts/database-architecture).
+
+### Permissions
+
+| Field | Type | Description |
+|---|---|---|
+| `permissions.required` | `string[]` | Permissions the plugin needs to function |
+| `permissions.optional` | `string[]` | Permissions that enhance functionality |
+
+### Configuration Schema
+
+Define user-configurable settings:
+
+```json
+{
+  "config": {
+    "schema": {
+      "pageSize": {
+        "type": "number",
+        "default": 20,
+        "description": "Number of items per page"
+      },
+      "theme": {
+        "type": "string",
+        "default": "auto",
+        "enum": ["auto", "compact", "expanded"],
+        "description": "Display theme"
+      }
+    }
+  }
+}
+```
+
+## Navigation Icons
+
+The `navigation.icon` field accepts any [Lucide icon](https://lucide.dev/icons) name:
+
+| Icon Name | Use Case |
+|---|---|
+| `Activity` | Monitoring, health |
+| `BarChart3` | Analytics, dashboards |
+| `Code` | Developer tools |
+| `Cpu` | Infrastructure |
+| `Radio` | Networking |
+| `Shield` | Security |
+| `Video` | Media, streaming |
+| `Wallet` | Finance |
+| `Users` | Community, teams |
+| `Zap` | Performance |
+
+## Validation
+
+Run the doctor command to validate your manifest:
+
+```bash
+naap-plugin doctor
+```
+
+This checks for:
+- Required fields are present
+- Version follows semver
+- Routes are valid URL patterns
+- Ports are in valid ranges
+- Referenced files exist

@@ -1,0 +1,187 @@
+---
+title: "Dashboard Plugin"
+description: "Build a data dashboard plugin with charts, stats, and real-time updates."
+order: 3
+---
+
+## Overview
+
+This example builds a monitoring dashboard plugin with:
+- Stat cards showing key metrics
+- A chart component
+- Real-time data refresh via events
+- Theme-aware styling
+
+## App Component
+
+```typescript
+import { useState, useEffect } from 'react';
+import { usePluginApi, useEvents, useThemeService } from '@naap/plugin-sdk';
+
+interface Stats {
+  totalNodes: number;
+  activeNodes: number;
+  totalRequests: number;
+  errorRate: number;
+}
+
+export default function DashboardApp() {
+  const api = usePluginApi();
+  const events = useEvents();
+  const theme = useThemeService();
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadStats = async () => {
+    try {
+      const data = await api.get('/stats');
+      setStats(data);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStats();
+
+    // Refresh every 30 seconds
+    const interval = setInterval(loadStats, 30000);
+
+    // Also refresh on relevant events
+    const unsub = events.on('gateway:status-changed', loadStats);
+
+    return () => {
+      clearInterval(interval);
+      unsub();
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="p-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="h-24 bg-muted animate-pulse rounded-xl" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-bold">Network Dashboard</h1>
+
+      {/* Stat Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          label="Total Nodes"
+          value={stats?.totalNodes || 0}
+          format="number"
+        />
+        <StatCard
+          label="Active Nodes"
+          value={stats?.activeNodes || 0}
+          format="number"
+          trend={5.2}
+        />
+        <StatCard
+          label="Total Requests"
+          value={stats?.totalRequests || 0}
+          format="compact"
+          trend={12.8}
+        />
+        <StatCard
+          label="Error Rate"
+          value={stats?.errorRate || 0}
+          format="percent"
+          trend={-2.1}
+          invertTrend
+        />
+      </div>
+
+      {/* Placeholder for chart */}
+      <div className="p-6 rounded-xl border border-border bg-card">
+        <h2 className="text-lg font-semibold mb-4">Request Volume</h2>
+        <div className="h-64 flex items-center justify-center text-muted-foreground">
+          Chart would go here (use Recharts or similar)
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Stat Card Component
+function StatCard({
+  label,
+  value,
+  format,
+  trend,
+  invertTrend,
+}: {
+  label: string;
+  value: number;
+  format: 'number' | 'compact' | 'percent';
+  trend?: number;
+  invertTrend?: boolean;
+}) {
+  const formatted = formatValue(value, format);
+  const trendColor = trend
+    ? (trend > 0 ? (invertTrend ? 'text-red-500' : 'text-emerald-500')
+                  : (invertTrend ? 'text-emerald-500' : 'text-red-500'))
+    : '';
+
+  return (
+    <div className="p-4 rounded-xl border border-border bg-card">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="text-2xl font-bold mt-1">{formatted}</p>
+      {trend !== undefined && (
+        <p className={`text-sm mt-1 ${trendColor}`}>
+          {trend > 0 ? '+' : ''}{trend}%
+        </p>
+      )}
+    </div>
+  );
+}
+
+function formatValue(value: number, format: string): string {
+  switch (format) {
+    case 'compact':
+      return value >= 1000000
+        ? `${(value / 1000000).toFixed(1)}M`
+        : value >= 1000
+        ? `${(value / 1000).toFixed(1)}K`
+        : String(value);
+    case 'percent':
+      return `${value.toFixed(1)}%`;
+    default:
+      return value.toLocaleString();
+  }
+}
+```
+
+## Backend API
+
+```typescript
+// backend/src/routes/stats.ts
+import { Router } from 'express';
+
+export const statsRoutes = Router();
+
+statsRoutes.get('/stats', async (req, res) => {
+  // In production, query your database or external APIs
+  const stats = {
+    totalNodes: 1247,
+    activeNodes: 892,
+    totalRequests: 4567890,
+    errorRate: 0.3,
+  };
+
+  res.json(stats);
+});
+```
+
+## Key Patterns Used
+
+1. **Polling + Events**: Combines interval-based refresh with event-driven updates
+2. **Loading skeletons**: Shows animated placeholders while data loads
+3. **Semantic colors**: Uses `border-border`, `bg-card`, `text-muted-foreground` for theme compatibility
+4. **Responsive grid**: Adapts from 1 column on mobile to 4 columns on desktop

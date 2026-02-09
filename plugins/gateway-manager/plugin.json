@@ -1,0 +1,111 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "gateway-manager",
+  "displayName": "Gateway Manager",
+  "version": "1.0.0",
+  "description": "Manage and monitor your AI gateway infrastructure with real-time metrics, configuration management, and performance analytics.",
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io",
+    "url": "https://naap.io"
+  },
+  "repository": "https://github.com/naap/plugins/tree/main/gateway-manager",
+  "license": "MIT",
+  "keywords": ["gateway", "monitoring", "infrastructure", "metrics", "ai"],
+  "category": "monitoring",
+  
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+  
+  "frontend": {
+    "entry": "./frontend/dist/production/gateway-manager.js",
+    "devEntry": "./frontend/src/App.tsx",
+    "devPort": 3001,
+    "routes": [
+      "/gateways",
+      "/gateways/*"
+    ],
+    "navigation": {
+      "label": "Gateways",
+      "icon": "Radio",
+      "order": 10,
+      "group": "infrastructure"
+    }
+  },
+  
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devEntry": "./backend/src/server.ts",
+    "devPort": 4001,
+    "port": 4101,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/gateway-manager",
+    "resources": {
+      "memory": "512Mi",
+      "cpu": "0.5"
+    }
+  },
+  
+  "database": {
+    "type": "postgresql",
+    "schema": "./backend/prisma/schema.prisma",
+    "migrations": "./backend/prisma/migrations",
+    "seed": "./backend/prisma/seed.ts"
+  },
+  
+  "integrations": {
+    "required": [],
+    "optional": ["openai", "aws-s3"]
+  },
+  
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme"],
+    "apis": [],
+    "external": []
+  },
+  
+  "rbac": {
+    "roles": [
+      {
+        "name": "gateway-manager:admin",
+        "displayName": "Gateway Manager Admin",
+        "description": "Full access to gateway management",
+        "permissions": ["gateway:read", "gateway:write", "gateway:delete", "gateway:configure"]
+      },
+      {
+        "name": "gateway-manager:user",
+        "displayName": "Gateway Manager User",
+        "description": "Read-only access to gateways",
+        "permissions": ["gateway:read"]
+      }
+    ]
+  },
+  
+  "lifecycle": {
+    "postInstall": "npm run db:migrate && npm run db:seed",
+    "preUpdate": "npm run db:backup",
+    "postUpdate": "npm run db:migrate"
+  },
+  
+  "config": {
+    "schema": {
+      "refreshInterval": {
+        "type": "number",
+        "default": 30,
+        "description": "Metrics refresh interval in seconds"
+      },
+      "alertThreshold": {
+        "type": "number",
+        "default": 90,
+        "description": "CPU/Memory alert threshold percentage"
+      },
+      "retentionDays": {
+        "type": "number",
+        "default": 30,
+        "description": "Metrics retention period in days"
+      }
+    }
+  }
+}

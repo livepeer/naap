@@ -1,0 +1,278 @@
+---
+title: "Create a Full-Stack Plugin"
+description: "AI prompt to generate a complete NaaP plugin with frontend, backend API, and database."
+order: 3
+---
+
+## When to Use This
+
+Use this prompt when you need a plugin with:
+
+- Its own backend API server (Express.js)
+- A PostgreSQL database (with Prisma ORM)
+- Full CRUD operations (create, read, update, delete)
+- Server-side logic, scheduled tasks, or external API integrations
+
+## The Prompt
+
+Copy the entire block below and paste it into your AI assistant:
+
+```markdown
+# Task: Create a NaaP Full-Stack Plugin
+
+## Context: NaaP Platform
+
+NaaP (Network as a Platform) is a plugin-based platform. Plugins can have a
+React frontend, Express backend, and PostgreSQL database.
+
+Key technical details:
+- Frontend: React 18+, TypeScript, Tailwind CSS, Vite (UMD bundle)
+- Backend: Express.js, TypeScript, Prisma ORM
+- Database: PostgreSQL (via Prisma)
+- Shell integration: @naap/plugin-sdk
+- Backend runs on its own port, shell proxies API calls to /api/v1/[plugin-name]/*
+
+Available SDK hooks (import from @naap/plugin-sdk):
+- useAuth() → { user, token, hasRole(role), hasPermission(perm) }
+- useNotify() → { success(msg), error(msg), warning(msg), info(msg) }
+- usePluginApi() → { get(url), post(url, data), put(url, data), delete(url) }
+  - URLs are relative: api.get('/items') calls /api/v1/[plugin-name]/items
+- useThemeService() → { theme, isDark }
+- useEvents() → { emit(event, data), on(event, callback) }
+- usePluginContext() → { pluginId, teamId, config }
+
+Mount function pattern (frontend/src/mount.tsx):
+```tsx
+import { createRoot } from 'react-dom/client';
+import { ShellProvider } from '@naap/plugin-sdk';
+import App from './App';
+
+export function mount(container: HTMLElement, shellContext: any) {
+  const root = createRoot(container);
+  root.render(
+    <ShellProvider context={shellContext}>
+      <App />
+    </ShellProvider>
+  );
+  return () => root.unmount();
+}
+```
+
+**IMPORTANT — Database Architecture:**
+NaaP uses a single PostgreSQL database (`naap`) with multi-schema isolation.
+All models are defined in `packages/database/prisma/schema.prisma`, NOT in
+plugin directories. Every model MUST have `@@schema("plugin_<name>")` and
+a prefix (e.g., `MyPluginTask`). See [Database Architecture](/docs/concepts/database-architecture).
+
+Backend db client (backend/src/db/client.ts):
+```typescript
+import { prisma } from '@naap/database';
+export const db = prisma;
+```
+
+Backend server pattern (backend/src/server.ts):
+```typescript
+import express from 'express';
+import { db } from './db/client.js';
+
+const app = express();
+const PORT = process.env.PORT || 4XX; // unique port
+
+app.use(express.json());
+
+// Health check — required by the shell
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', plugin: '[plugin-name]' });
+});
+
+// Your routes here (use `db.myPrefixedModel.findMany()`, etc.)
+
+app.listen(PORT, () => {
+  console.log(`[plugin-name] backend running on port ${PORT}`);
+});
+```
+
+## Requirements
+
+Create a full-stack NaaP plugin called "[YOUR_PLUGIN_NAME]" that does:
+
+[DESCRIBE WHAT YOUR PLUGIN SHOULD DO HERE — for example:
+- "A project management tool with tasks, assignees, and due dates"
+- "An inventory tracker for warehouse items with categories and stock levels"
+- "A customer feedback board where users can submit and vote on ideas"
+- "A time tracking app that logs hours per project"
+]
+
+## Technical Specifications
+
+1. Generate plugin.json manifest:
+   ```json
+   {
+     "name": "[plugin-name]",
+     "displayName": "[Plugin Display Name]",
+     "version": "1.0.0",
+     "description": "[description]",
+     "category": "[pick: analytics|communication|developer-tools|finance|infrastructure|monitoring|other]",
+     "author": { "name": "[Your Name]" },
+     "frontend": {
+       "entry": "production/[plugin-name].js",
+       "routes": [{ "path": "/[plugin-name]", "component": "App" }],
+       "navigation": { "label": "[Display Name]", "icon": "[lucide-icon]", "order": 50 }
+     },
+     "backend": {
+       "entry": "dist/server.js",
+       "port": 4XX,
+       "apiPrefix": "/api/v1/[plugin-name]",
+       "healthCheck": "/health"
+     },
+     "database": {
+       "type": "postgresql",
+       "schema": "backend/prisma/schema.prisma"
+     },
+     "permissions": ["read:profile", "read:team"]
+   }
+   ```
+
+2. Generate full file structure:
+   ```
+   [plugin-name]/
+   ├── plugin.json
+   ├── frontend/
+   │   ├── package.json
+   │   ├── tsconfig.json
+   │   ├── vite.config.ts       # UMD build config (createPluginConfig)
+   │   ├── src/
+   │   │   ├── App.tsx
+   │   │   ├── mount.tsx
+   │   │   ├── components/
+   │   │   └── hooks/         (custom hooks if needed)
+   │   └── index.html
+   ├── backend/
+   │   ├── package.json        (depends on @naap/database, NOT @prisma/client)
+   │   ├── tsconfig.json
+   │   ├── .env                (DATABASE_URL=...localhost:5432/naap)
+   │   └── src/
+   │       ├── server.ts       (Express app)
+   │       ├── routes/         (route handlers)
+   │       └── db/
+   │           └── client.ts   (re-exports prisma from @naap/database)
+   ```
+   **NOTE:** NO `prisma/` directory in the plugin. Models are added to
+   `packages/database/prisma/schema.prisma` with `@@schema("plugin_<name>")`.
+
+3. Database model requirements (models go in `packages/database/prisma/schema.prisma`):
+   - Every model MUST have `@@schema("plugin_[name]")` annotation
+   - Every model MUST be prefixed (e.g., `FeedbackItem`, not `Item`)
+   - Every enum MUST also have `@@schema("plugin_[name]")`
+   - Define all models with proper relations, indexes, and timestamps
+   - Use meaningful field names and types
+   - Add `createdAt` and `updatedAt` to every model
+
+4. Backend API requirements:
+   - RESTful routes under /api/v1/[plugin-name]/
+   - Proper error handling with try/catch and status codes
+   - Input validation on POST/PUT routes
+   - GET routes support pagination (page, limit query params)
+   - Health check endpoint at /health
+
+5. Frontend requirements:
+   - Use Tailwind CSS for professional styling
+   - Use usePluginApi() for all API calls
+   - Use useAuth() for user context
+   - Use useNotify() for success/error feedback
+   - Include loading skeletons, error states, and empty states
+   - Responsive design (mobile + desktop)
+   - Include a form for creating/editing records
+   - Include a list/table view with sorting and filtering
+
+## Quality Standards
+
+- Full TypeScript — no `any` types
+- Prisma singleton pattern for database client
+- Modular components and route handlers
+- Helpful code comments explaining logic
+- Proper error handling everywhere
+- Handle edge cases (empty data, network errors, validation errors)
+
+Generate ALL files with complete, working code. No placeholders.
+```
+
+## How to Customize
+
+Before pasting, replace:
+
+1. **`[YOUR_PLUGIN_NAME]`** — your plugin's name in kebab-case (e.g., `task-tracker`)
+2. **`[DESCRIBE WHAT YOUR PLUGIN SHOULD DO]`** — write 3-5 sentences about the features
+3. **`[Your Name]`** — your name
+4. **`4XX`** — pick a unique port number (e.g., 4050, 4060)
+
+## After the AI Generates Code
+
+```bash
+# 1. Scaffold the plugin
+naap-plugin create my-plugin --template full-stack
+
+# 2. Copy AI-generated model definitions into packages/database/prisma/schema.prisma
+#    (Remember: @@schema("plugin_my_plugin") on every model and enum)
+
+# 3. Register the schema (if new)
+#    Add to docker/init-schemas.sql: CREATE SCHEMA IF NOT EXISTS plugin_my_plugin;
+
+# 4. Generate and push the unified schema
+cd packages/database
+npx prisma generate
+npx prisma db push
+
+# 5. Install plugin dependencies
+cd ../../plugins/my-plugin/frontend && pnpm install
+cd ../backend && pnpm install
+
+# 6. Start everything
+cd ../../..
+naap-plugin dev
+```
+
+> **Key:** Models live in `packages/database/`, not in the plugin. See [Database Architecture](/docs/concepts/database-architecture).
+
+## Example: Feedback Board
+
+Here's a filled-in requirements section:
+
+```markdown
+Create a full-stack NaaP plugin called "feedback-board" that does:
+
+- Users can submit feature requests with a title, description, and category
+- Other users can upvote/downvote feedback items
+- Items can be filtered by category (Bug, Feature, Improvement) and sorted
+  by votes, newest, or oldest
+- Each item shows the author's name, vote count, and creation date
+- Admins (users with "admin" role) can change the status of items:
+  Under Review, Planned, In Progress, Completed, Declined
+- A dashboard shows stats: total items, items by status, top voted items
+- Users can comment on feedback items
+```
+
+## Follow-Up Prompts
+
+```markdown
+# Add real-time updates
+When someone votes on a feedback item or changes its status, other users
+should see the update without refreshing the page. Use the shell's event
+bus: useEvents().emit('feedback:updated', { id }) and listen on mount.
+```
+
+```markdown
+# Add email notifications
+When an admin changes the status of a feedback item, notify the original
+author. Add a notifications table in Prisma and a /notifications endpoint.
+Show unread notification count in the plugin header.
+```
+
+```markdown
+# Add analytics dashboard
+Create an analytics tab that shows:
+- Feedback items over time (line chart)
+- Items by category (pie chart)
+- Average votes per category (bar chart)
+Use recharts or chart.js for the visualizations.
+```

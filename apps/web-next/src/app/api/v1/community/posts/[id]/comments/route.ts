@@ -1,0 +1,129 @@
+/**
+ * Post Comments API Routes
+ * GET /api/v1/community/posts/:id/comments - List comments
+ * POST /api/v1/community/posts/:id/comments - Create comment
+ */
+
+import { NextRequest } from 'next/server';
+import { prisma } from '@/lib/db';
+import { validateSession } from '@/lib/api/auth';
+import { success, errors, getAuthToken } from '@/lib/api/response';
+import { validateCSRF } from '@/lib/api/csrf';
+
+const REPUTATION_POINTS = {
+  COMMENT_CREATED: 2,
+};
+
+interface RouteParams {
+  params: Promise<{ id: string }>;
+}
+
+async function getOrCreateCommunityUser(walletAddress: string, displayName?: string) {
+  let user = await prisma.communityUser.findUnique({ where: { walletAddress } });
+  if (!user) {
+    user = await prisma.communityUser.create({
+      data: {
+        walletAddress,
+        displayName: displayName || walletAddress.slice(0, 10),
+      },
+    });
+  }
+  return user;
+}
+
+export async function GET(request: NextRequest, { params }: RouteParams) {
+  try {
+    const { id: postId } = await params;
+
+    const comments = await prisma.communityComment.findMany({
+      where: { postId },
+      include: {
+        author: {
+          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+        },
+      },
+      orderBy: [{ isAccepted: 'desc' }, { upvotes: 'desc' }, { createdAt: 'asc' }],
+    });
+
+    return success({ comments });
+  } catch (err) {
+    console.error('Comments list error:', err);
+    return errors.internal('Failed to list comments');
+  }
+}
+
+export async function POST(request: NextRequest, { params }: RouteParams) {
+  try {
+    const { id: postId } = await params;
+
+    const token = getAuthToken(request);
+    if (!token) {
+      return errors.unauthorized('No auth token provided');
+    }
+
+    const csrfError = validateCSRF(request, token);
+    if (csrfError) {
+      return csrfError;
+    }
+
+    const authUser = await validateSession(token);
+    if (!authUser) {
+      return errors.unauthorized('Invalid or expired session');
+    }
+
+    const body = await request.json();
+    const { content } = body;
+
+    if (!content) {
+      return errors.badRequest('content is required');
+    }
+
+    // Check if post exists
+    const post = await prisma.communityPost.findUnique({ where: { id: postId } });
+    if (!post) {
+      return errors.notFound('Post');
+    }
+
+    // Get or create community user
+    const communityUser = await getOrCreateCommunityUser(authUser.id, authUser.displayName || undefined);
+
+    const comment = await prisma.communityComment.create({
+      data: {
+        postId,
+        authorId: communityUser.id,
+        content,
+      },
+      include: {
+        author: {
+          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+        },
+      },
+    });
+
+    // Update comment count
+    await prisma.communityPost.update({
+      where: { id: postId },
+      data: { commentCount: { increment: 1 } },
+    });
+
+    // Award reputation
+    await prisma.communityReputationLog.create({
+      data: {
+        userId: communityUser.id,
+        action: 'COMMENT_CREATED',
+        points: REPUTATION_POINTS.COMMENT_CREATED,
+        sourceType: 'comment',
+        sourceId: comment.id,
+      },
+    });
+    await prisma.communityUser.update({
+      where: { id: communityUser.id },
+      data: { reputation: { increment: REPUTATION_POINTS.COMMENT_CREATED } },
+    });
+
+    return success({ comment });
+  } catch (err) {
+    console.error('Create comment error:', err);
+    return errors.internal('Failed to create comment');
+  }
+}

@@ -1,0 +1,243 @@
+---
+title: "TypeScript Types"
+description: "All TypeScript interfaces and types used across the NaaP plugin ecosystem."
+order: 2
+---
+
+## Core Types
+
+### AuthUser
+
+Represents the authenticated user.
+
+```typescript
+interface AuthUser {
+  id: string;
+  email?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  roles: string[];
+  permissions: Array<{
+    resource: string;
+    action: string;
+  }>;
+}
+```
+
+### ShellContext
+
+The context object passed to plugins at mount time.
+
+```typescript
+interface ShellContext {
+  auth: IAuthService;
+  navigate: (path: string) => void;
+  eventBus: IEventBus;
+  theme: IThemeService;
+  notifications: INotificationService;
+  integrations: IIntegrationService;
+  logger: ILoggerService;
+  permissions: IPermissionService;
+  tenant?: ITenantService;
+  team?: ITeamContext;
+  capabilities?: ICapabilityService;
+  version: string;
+}
+```
+
+## Plugin Types
+
+### PluginManifest
+
+The runtime representation of a plugin's configuration.
+
+```typescript
+interface PluginManifest {
+  name: string;
+  displayName: string;
+  version: string;
+  description?: string;
+  category: PluginCategory;
+  enabled: boolean;
+  order: number;
+  routes?: string[];
+  entryUrl?: string;
+  metadata?: Record<string, unknown>;
+}
+```
+
+### PluginCategory
+
+Valid plugin category values.
+
+```typescript
+type PluginCategory =
+  | 'analytics'
+  | 'communication'
+  | 'developer-tools'
+  | 'finance'
+  | 'infrastructure'
+  | 'integration'
+  | 'monitoring'
+  | 'networking'
+  | 'security'
+  | 'storage'
+  | 'other';
+```
+
+### PluginFrontend
+
+Frontend configuration in the manifest.
+
+```typescript
+interface PluginFrontend {
+  entry: string;
+  devPort?: number;
+  routes: string[];
+  navigation?: {
+    label: string;
+    icon: string;
+    section?: 'main' | 'network';
+    order?: number;
+  };
+}
+```
+
+### PluginBackend
+
+Backend configuration in the manifest.
+
+```typescript
+interface PluginBackend {
+  entry: string;
+  port: number;
+  apiPrefix: string;
+  healthCheck?: string;
+}
+```
+
+### PluginDatabase
+
+Database configuration in the manifest.
+
+```typescript
+interface PluginDatabase {
+  type: 'postgresql';
+  schema: string;
+}
+```
+
+## Service Interfaces
+
+### IAuthService
+
+```typescript
+interface IAuthService {
+  getUser(): AuthUser | null;
+  getToken(): Promise<string>;
+  hasRole(role: string): boolean;
+  hasPermission(resource: string, action: string): boolean;
+  isAuthenticated(): boolean;
+}
+```
+
+### IEventBus
+
+```typescript
+interface IEventBus {
+  emit(event: string, data?: unknown): void;
+  on(event: string, callback: (data: unknown) => void): () => void;
+  request<TReq, TRes>(
+    event: string,
+    data?: TReq,
+    options?: { timeout?: number }
+  ): Promise<TRes>;
+  handleRequest<TReq, TRes>(
+    event: string,
+    handler: (data: TReq) => Promise<TRes>
+  ): () => void;
+}
+```
+
+### INotificationService
+
+```typescript
+interface INotificationService {
+  success(message: string, options?: NotificationOptions): void;
+  error(message: string, options?: NotificationOptions): void;
+  warning(message: string, options?: NotificationOptions): void;
+  info(message: string, options?: NotificationOptions): void;
+}
+
+interface NotificationOptions {
+  duration?: number;
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
+}
+```
+
+### IThemeService
+
+```typescript
+interface IThemeService {
+  mode: 'light' | 'dark';
+  toggle(): void;
+  setMode(mode: 'light' | 'dark'): void;
+}
+```
+
+### ILoggerService
+
+```typescript
+interface ILoggerService {
+  info(message: string, meta?: Record<string, unknown>): void;
+  warn(message: string, meta?: Record<string, unknown>): void;
+  error(message: string, meta?: Record<string, unknown>): void;
+  debug(message: string, meta?: Record<string, unknown>): void;
+}
+```
+
+### IIntegrationService
+
+```typescript
+interface IIntegrationService {
+  ai: IAIService;
+  storage: IStorageService;
+  email: IEmailService;
+}
+
+interface IAIService {
+  complete(options: {
+    prompt: string;
+    model?: string;
+    maxTokens?: number;
+  }): Promise<{ text: string }>;
+}
+
+interface IStorageService {
+  upload(file: File, options?: { path?: string }): Promise<string>;
+  delete(path: string): Promise<void>;
+  getUrl(path: string): string;
+}
+
+interface IEmailService {
+  send(options: {
+    to: string;
+    subject: string;
+    body: string;
+  }): Promise<void>;
+}
+```
+
+### ITeamContext
+
+```typescript
+interface ITeamContext {
+  id: string | null;
+  name: string | null;
+  role: string | null;
+  config: Record<string, unknown>;
+}
+```

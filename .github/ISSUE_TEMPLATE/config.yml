@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions & Help
+    url: https://github.com/livepeer/naap/discussions/categories/q-a
+    about: Ask questions and get help from the community
+  - name: Architecture RFCs
+    url: https://github.com/livepeer/naap/discussions/categories/rfcs
+    about: Propose architecture changes via the RFC process
+  - name: Plugin Ideas
+    url: https://github.com/livepeer/naap/discussions/categories/plugin-ideas
+    about: Discuss plugin ideas before creating a formal proposal

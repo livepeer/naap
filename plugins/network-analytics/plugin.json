@@ -1,0 +1,71 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "network-analytics",
+  "displayName": "Network Analytics",
+  "version": "1.0.0",
+  "description": "Real-time network performance metrics, charts, and leaderboards for the AI compute network.",
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io",
+    "url": "https://naap.io"
+  },
+  "repository": "https://github.com/naap/plugins/tree/main/network-analytics",
+  "license": "MIT",
+  "keywords": ["analytics", "metrics", "charts", "leaderboard", "performance"],
+  "category": "analytics",
+  
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+  
+  "frontend": {
+    "entry": "./frontend/dist/production/network-analytics.js",
+    "devPort": 3004,
+    "routes": [
+      "/analytics",
+      "/analytics/*",
+      "/leaderboard",
+      "/leaderboard/*"
+    ],
+    "navigation": {
+      "label": "Analytics",
+      "icon": "BarChart3",
+      "order": 40,
+      "group": "analytics"
+    }
+  },
+  
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devPort": 4004,
+    "port": 4104,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/network-analytics",
+    "resources": {
+      "memory": "256Mi",
+      "cpu": "0.25"
+    }
+  },
+  
+  "integrations": {
+    "required": [],
+    "optional": []
+  },
+  
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme"],
+    "apis": [],
+    "external": []
+  },
+  
+  "config": {
+    "schema": {
+      "refreshInterval": {
+        "type": "number",
+        "default": 30,
+        "description": "Metrics refresh interval in seconds"
+      }
+    }
+  }
+}
