@@ -147,7 +147,7 @@ jobs:
         run: cd apps/web-next && npm run test:coverage
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: apps/web-next/coverage/lcov.info
           flags: shell
@@ -183,7 +183,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload SDK coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         if: always()
         with:
           files: packages/plugin-sdk/coverage/lcov.info
@@ -322,7 +322,7 @@ jobs:
 
       - name: Upload plugin coverage
         if: steps.check.outputs.changed == 'true' && always()
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: plugins/${{ matrix.plugin }}/frontend/coverage/lcov.info
           flags: plugin-${{ matrix.plugin }}
