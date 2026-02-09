@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "export DATABASE_URL=\"${DATABASE_URL:-$POSTGRES_PRISMA_URL}\" && ./bin/build-plugins.sh --parallel && mkdir -p apps/web-next/public/cdn/plugins && cp -r dist/plugins/* apps/web-next/public/cdn/plugins/ && cd apps/web-next && npm run build && cd ../.. && npx tsx bin/sync-plugin-registry.ts",
+  "buildCommand": "./bin/vercel-build.sh",
   "outputDirectory": "apps/web-next/.next",
   "installCommand": "export DATABASE_URL=\"${DATABASE_URL:-$POSTGRES_PRISMA_URL}\" && npm install",
   "regions": ["iad1"],
