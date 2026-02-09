@@ -60,10 +60,9 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
 
     // Optional auth — enrich embed token with userId when available
     const authToken = getAuthToken(request);
-    let userId: string | undefined;
     if (authToken) {
-      const user = await validateSession(authToken);
-      userId = user?.id;
+      // Validate the session (enriches embed context if needed in the future)
+      await validateSession(authToken);
     }
 
     // Verify Metabase is configured

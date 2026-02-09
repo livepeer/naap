@@ -342,7 +342,7 @@ async function main() {
   // ---------------------------------------------------------------------------
 
   // Import shared discovery utilities
-  const { discoverPlugins, toWorkflowPluginData, getBundleUrl, toCamelCase } = await import(
+  const { discoverPlugins, toWorkflowPluginData, getBundleUrl } = await import(
     '../../../packages/database/src/plugin-discovery.js'
   );
 

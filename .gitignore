@@ -77,3 +77,6 @@ tsconfig.tsbuildinfo
 .phase-*
 .architecture-mode
 .migration-complete
+packages/types/src/*.js
+packages/types/src/*.d.ts
+packages/types/src/*.d.ts.map
