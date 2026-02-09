@@ -3,7 +3,7 @@
  *
  * These ports must match the values in:
  *   - packages/plugin-sdk/src/config/ports.ts (PLUGIN_PORTS)
- *   - plugins/*/plugin.json → backend.devPort
+ *   - plugins/{name}/plugin.json (backend.devPort)
  *
  * This is a local copy to avoid importing from @naap/plugin-sdk in
  * server-side API routes, which triggers barrel-export resolution
