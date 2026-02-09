@@ -69,7 +69,18 @@ export function getBackendUrl(
     return deploymentUrl;
   }
 
-  // 3. Development convention: use predictable port based on plugin name
+  // 3. Production / deployed environments: use same-origin (no port).
+  //    On Vercel (or any non-localhost deployment) plugin backends don't
+  //    run as separate services — all API traffic goes through the
+  //    Next.js API proxy on the same origin.
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      return '';  // same-origin, paths only
+    }
+  }
+
+  // 4. Development convention: use predictable port based on plugin name
   // This matches the common pattern where plugins use sequential ports
   const pluginPort = getPluginPort(pluginName, basePort);
   

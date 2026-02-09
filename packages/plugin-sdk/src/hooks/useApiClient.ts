@@ -141,9 +141,17 @@ export function useApiClient(options: UseApiClientOptions = {}): EnhancedApiClie
       }
     } else {
       // Use shell's base service URL
-      baseUrl = typeof window !== 'undefined'
-        ? `${window.location.protocol}//${window.location.hostname}:4000`
-        : 'http://localhost:4000';
+      if (typeof window !== 'undefined') {
+        const hostname = window.location.hostname;
+        if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+          // Production: same-origin, Next.js API proxy handles routing
+          baseUrl = '';
+        } else {
+          baseUrl = `${window.location.protocol}//${hostname}:4000`;
+        }
+      } else {
+        baseUrl = 'http://localhost:4000';
+      }
     }
 
     // Create the base client
