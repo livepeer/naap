@@ -7,6 +7,8 @@ out-tsc
 
 # dependencies
 node_modules
+pnpm-lock.yaml
+yarn.lock
 
 # IDEs and editors
 /.idea
