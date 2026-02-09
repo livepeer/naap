@@ -26,21 +26,6 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 PLUGINS_DIR="$ROOT_DIR/plugins"
 OUTPUT_DIR="$ROOT_DIR/dist/plugins"
 
-# All plugins to build
-PLUGINS=(
-  "capacity-planner"
-  "community"
-  "daydream-video"
-  "developer-api"
-  "gateway-manager"
-  "marketplace"
-  "my-dashboard"
-  "my-wallet"
-  "network-analytics"
-  "orchestrator-manager"
-  "plugin-publisher"
-)
-
 # Parse arguments
 PARALLEL=false
 CLEAN=false
@@ -76,6 +61,28 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Auto-discover plugins: find all plugin directories that have a frontend vite config
+# This means any new plugin with plugins/{name}/frontend/vite.config.ts is automatically included.
+if [ -n "$SPECIFIC_PLUGIN" ]; then
+  PLUGINS=("$SPECIFIC_PLUGIN")
+else
+  PLUGINS=()
+  for config in "$PLUGINS_DIR"/*/frontend/vite.config.ts; do
+    [ -f "$config" ] || continue
+    plugin_name="$(basename "$(dirname "$(dirname "$config")")")"
+    PLUGINS+=("$plugin_name")
+  done
+  # Sort for deterministic output
+  IFS=$'\n' PLUGINS=($(sort <<<"${PLUGINS[*]}")); unset IFS
+fi
+
+if [ ${#PLUGINS[@]} -eq 0 ]; then
+  log_warn "No plugins found in $PLUGINS_DIR with frontend/vite.config.ts"
+  exit 0
+fi
+
+log_info "Auto-discovered ${#PLUGINS[@]} plugins: ${PLUGINS[*]}"
 
 # Clean output directory if requested
 if [ "$CLEAN" = true ]; then
@@ -134,11 +141,6 @@ build_plugin() {
 
   return 0
 }
-
-# Build specific plugin or all
-if [ -n "$SPECIFIC_PLUGIN" ]; then
-  PLUGINS=("$SPECIFIC_PLUGIN")
-fi
 
 echo ""
 echo "========================================================"

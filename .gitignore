@@ -59,6 +59,9 @@ logs/
 # Vercel
 .vercel/
 
+# Generated plugin bundles (built during deployment)
+apps/web-next/public/cdn/
+
 # Platform runtime files
 .pids
 .pids.tmp

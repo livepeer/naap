@@ -198,6 +198,12 @@ const loadingPromises = new Map<string, Promise<LoadedUMDPlugin>>();
  * Validates CDN URL security
  */
 function validateCDNUrl(url: string): void {
+  // Relative URLs (same-origin) are always safe — they resolve to the
+  // current deployment origin, so no cross-origin or protocol concerns.
+  if (url.startsWith('/')) {
+    return;
+  }
+
   try {
     const parsed = new URL(url);
     const hostname = parsed.hostname;

@@ -22,7 +22,7 @@ export interface CDNConfig {
  * Default CDN configuration
  */
 const defaultConfig: CDNConfig = {
-  baseUrl: process.env.NEXT_PUBLIC_PLUGIN_CDN_URL || 'https://cdn.naap.io/plugins',
+  baseUrl: process.env.NEXT_PUBLIC_PLUGIN_CDN_URL || '/cdn/plugins',
   includeVersion: true,
 };
 
@@ -119,6 +119,11 @@ export function parsePluginUrl(url: string): {
  * Validates a CDN URL
  */
 export function isValidPluginCDNUrl(url: string): boolean {
+  // Relative URLs (same-origin) are valid when they point to a plugin bundle
+  if (url.startsWith('/') && url.includes('/plugins/') && url.endsWith('.js')) {
+    return true;
+  }
+
   try {
     const parsed = new URL(url);
     // Must be HTTPS or localhost
@@ -168,6 +173,15 @@ function hashString(str: string): string {
  * Gets optimized CDN URL with query params for cache busting
  */
 export function getOptimizedUrl(url: string, options: { forceFresh?: boolean } = {}): string {
+  // Relative URLs don't need URL parsing for optimization
+  if (url.startsWith('/')) {
+    if (options.forceFresh) {
+      const separator = url.includes('?') ? '&' : '?';
+      return `${url}${separator}t=${Date.now()}`;
+    }
+    return url;
+  }
+
   const parsed = new URL(url);
 
   if (options.forceFresh) {

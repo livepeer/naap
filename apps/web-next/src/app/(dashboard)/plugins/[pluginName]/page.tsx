@@ -83,17 +83,21 @@ export default function PluginPage() {
     if (!plugin.bundleUrl) return 'No CDN bundle URL configured for this plugin';
 
     // Validate the bundleUrl host
-    try {
-      const url = new URL(plugin.bundleUrl);
-      const hostname = url.hostname;
-      const isAllowed = ALLOWED_HOSTS.some(host =>
-        hostname === host || hostname.endsWith('.' + host)
-      );
-      if (!isAllowed && process.env.NODE_ENV === 'production') {
-        return 'Plugin CDN URL not in allowed hosts';
+    if (plugin.bundleUrl.startsWith('/')) {
+      // Relative URL = same origin, always valid
+    } else {
+      try {
+        const url = new URL(plugin.bundleUrl);
+        const hostname = url.hostname;
+        const isAllowed = ALLOWED_HOSTS.some(host =>
+          hostname === host || hostname.endsWith('.' + host)
+        );
+        if (!isAllowed && process.env.NODE_ENV === 'production') {
+          return 'Plugin CDN URL not in allowed hosts';
+        }
+      } catch {
+        return 'Invalid plugin CDN URL';
       }
-    } catch {
-      return 'Invalid plugin CDN URL';
     }
 
     return null;
