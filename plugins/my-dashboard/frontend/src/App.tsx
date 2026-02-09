@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { MemoryRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { createPlugin, getPluginBackendUrl, isProductionHost } from '@naap/plugin-sdk';
+import { createPlugin, getPluginBackendUrl } from '@naap/plugin-sdk';
 import { GalleryPage } from './pages/Gallery';
 import { ViewerPage } from './pages/Viewer';
 import { SettingsPage } from './pages/Settings';
@@ -43,7 +43,10 @@ export const getApiUrl = () => {
   }
   // Next.js routes are at /api/v1/dashboard/ on Vercel, but the local
   // backend serves under /api/v1/my-dashboard/
-  const apiPath = isProductionHost() ? '/api/v1/dashboard' : '/api/v1/my-dashboard';
+  const isProduction =
+    typeof window !== 'undefined' &&
+    !['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const apiPath = isProduction ? '/api/v1/dashboard' : '/api/v1/my-dashboard';
   return getPluginBackendUrl('my-dashboard', { apiPath });
 };
 
