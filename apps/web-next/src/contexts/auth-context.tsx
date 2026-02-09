@@ -10,17 +10,10 @@ import {
   type ReactNode,
 } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import type { User } from '@naap/types';
 
-// Types
-export interface User {
-  id: string;
-  email: string | null;
-  displayName: string | null;
-  avatarUrl: string | null;
-  address: string | null;
-  roles?: string[];
-  permissions?: string[];
-}
+// Re-export for consumers that import User from here
+export type { User };
 
 export interface AuthState {
   user: User | null;

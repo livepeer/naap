@@ -11,35 +11,10 @@ import {
   type ReactNode,
 } from 'react';
 import { useAuth } from './auth-context';
+import type { RuntimePlugin } from '@naap/types';
 
-// Plugin manifest type
-export interface PluginManifest {
-  name: string;
-  displayName: string;
-  version: string;
-  routes: string[];
-  enabled: boolean;
-  order: number;
-  icon?: string;
-  metadata?: Record<string, unknown>;
-  // CDN/UMD deployment fields
-  bundleUrl?: string;
-  stylesUrl?: string;
-  bundleHash?: string;
-  bundleSize?: number;
-  globalName?: string; // UMD global name (e.g., NaapPluginMyWallet)
-  // Additional metadata for plugin info
-  author?: string;
-  publisher?: string;
-  latestVersion?: string;
-  installedAt?: string;
-  createdAt?: string;
-  category?: string;
-  description?: string;
-  // Legacy field - kept for backward compatibility with API responses
-  remoteUrl?: string;
-  deploymentType?: string;
-}
+// Backward-compatible alias so downstream imports of PluginManifest keep working
+export type PluginManifest = RuntimePlugin;
 
 export type PluginStatus = 'enabled' | 'disabled' | 'error' | 'loading' | 'missing';
 

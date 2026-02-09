@@ -36,17 +36,9 @@ export interface INotificationService {
 // Auth Service
 // ============================================
 
-export interface AuthUser {
-  id: string;
-  email?: string | null;
-  displayName?: string | null;
-  avatar?: string | null;
-  avatarUrl?: string | null;
-  address?: string | null;
-  walletAddress?: string | null;
-  roles: string[];
-  permissions: Array<{ resource: string; action: string }> | string[];
-}
+// Canonical AuthUser from @naap/types (re-exported for plugin SDK consumers)
+import type { AuthUser } from '@naap/types';
+export type { AuthUser };
 
 export interface IAuthService {
   /** Get current authenticated user */

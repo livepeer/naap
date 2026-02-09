@@ -6,6 +6,7 @@
  */
 
 import dotenv from 'dotenv';
+import { readFileSync } from 'node:fs';
 import type { Request } from 'express';
 import { createPluginServer, createExternalProxy } from '@naap/plugin-server-sdk';
 import { prisma } from './db/client.js';
@@ -34,7 +35,10 @@ import {
 
 dotenv.config();
 
-const PORT = process.env.PORT || 4111;
+const pluginConfig = JSON.parse(
+  readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
+);
+const PORT = process.env.PORT || pluginConfig.backend?.devPort || 4111;
 const API_PREFIX = '/daydream';
 
 const { router, start, stop } = createPluginServer({

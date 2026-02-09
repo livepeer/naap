@@ -16,6 +16,8 @@
 
 import { PrismaClient } from '@naap/database';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const prisma = new PrismaClient();
 
@@ -326,118 +328,87 @@ async function main() {
   // ============================================
   console.log('🔌 Creating workflow plugins...');
 
-  // Plugin URLs:
-  // - PLUGIN_BASE_URL: CDN plugin URLs (fallback)
-  // - PLUGIN_CDN_URL: New CDN/UMD bundle URLs (same-origin, enables camera/mic)
-  const PLUGIN_BASE_URL = process.env.PLUGIN_BASE_URL || 'http://localhost:3100/plugins';
+  // CDN/UMD bundle URLs (same-origin, enables camera/mic)
   const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || 'http://localhost:3000/cdn/plugins';
 
-  const pluginDirMap: Record<string, string> = {
-    gatewayManager: 'gateway-manager',
-    orchestratorManager: 'orchestrator-manager',
-    capacityPlanner: 'capacity-planner',
-    networkAnalytics: 'network-analytics',
-    marketplace: 'marketplace',
-    community: 'community',
-    developerApi: 'developer-api',
-    myWallet: 'my-wallet',
-    myDashboard: 'my-dashboard',
-    pluginPublisher: 'plugin-publisher',
-    daydreamVideo: 'daydream-video',
-  };
+  // ---------------------------------------------------------------------------
+  // Dynamic plugin discovery from plugins/*/plugin.json
+  // This replaces ~70 lines of hardcoded plugin data that could drift from the
+  // actual plugin manifests. plugin.json is the single source of truth.
+  // ---------------------------------------------------------------------------
 
-  // Plugin versions for CDN URLs
-  // NOTE: These MUST match the actual built bundle versions in dist/plugins/
-  const pluginVersions: Record<string, string> = {
-    gatewayManager: '1.0.0',
-    orchestratorManager: '1.0.0',
-    capacityPlanner: '1.0.0',
-    networkAnalytics: '1.0.0',
-    marketplace: '1.0.0',
-    community: '1.0.0',  // Built as 1.0.0, not 1.2.0
-    developerApi: '1.0.0',
-    myWallet: '1.0.0',
-    myDashboard: '1.0.0',
-    pluginPublisher: '1.0.0',
-    daydreamVideo: '1.0.0',  // Built as 1.0.0, not 1.0.3
-  };
+  /** Convert kebab-case to camelCase: "my-wallet" -> "myWallet" */
+  const toCamelCase = (s: string) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 
-  // Map plugin names to UMD global names
-  const pluginGlobalNames: Record<string, string> = {
-    gatewayManager: 'NaapPluginGatewayManager',
-    orchestratorManager: 'NaapPluginOrchestratorManager',
-    capacityPlanner: 'NaapPluginCapacityPlanner',
-    networkAnalytics: 'NaapPluginNetworkAnalytics',
-    marketplace: 'NaapPluginMarketplace',
-    community: 'NaapPluginCommunity',
-    developerApi: 'NaapPluginDeveloperApi',
-    myWallet: 'NaapPluginMyWallet',
-    myDashboard: 'NaapPluginMyDashboard',
-    pluginPublisher: 'NaapPluginPluginPublisher',
-    daydreamVideo: 'NaapPluginDaydreamVideo',
-  };
+  /** Convert camelCase to PascalCase: "myWallet" -> "MyWallet" */
+  const toPascalCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-  // Legacy URL (kept for backward compatibility, points to CDN bundle)
-  const getPluginUrl = (name: string) => {
-    const dir = pluginDirMap[name] || name;
-    const version = pluginVersions[name] || '1.0.0';
-    return `${PLUGIN_CDN_URL}/${dir}/${version}/${dir}.js`;
-  };
+  /** Scan plugins directory and read each plugin.json */
+  function discoverPlugins(rootDir: string) {
+    const pluginsDir = path.join(rootDir, 'plugins');
+    if (!fs.existsSync(pluginsDir)) {
+      console.warn(`   ⚠️  plugins directory not found at ${pluginsDir}`);
+      return [];
+    }
+    return fs.readdirSync(pluginsDir)
+      .filter(dir => fs.existsSync(path.join(pluginsDir, dir, 'plugin.json')))
+      .map(dir => {
+        const manifest = JSON.parse(
+          fs.readFileSync(path.join(pluginsDir, dir, 'plugin.json'), 'utf8')
+        );
+        const camelName = toCamelCase(dir);
+        return {
+          dirName: dir,                                          // kebab-case for CDN paths
+          name: camelName,                                       // camelCase for DB (backward compat)
+          displayName: manifest.displayName || dir,
+          version: '1.0.0',                                     // CDN bundles are always built as 1.0.0
+          routes: manifest.frontend?.routes || [],
+          icon: manifest.frontend?.navigation?.icon || 'Box',
+          order: manifest.frontend?.navigation?.order ?? 99,
+          globalName: `NaapPlugin${toPascalCase(camelName)}`,    // e.g., NaapPluginMyWallet
+        };
+      })
+      .sort((a, b) => a.order - b.order);
+  }
 
-  // CDN Bundle URL - matches route: /cdn/plugins/[pluginName]/[version]/[...file]
-  // Example: http://localhost:3000/cdn/plugins/gateway-manager/1.0.0/gateway-manager.js
-  const getBundleUrl = (name: string) => {
-    const dir = pluginDirMap[name] || name;
-    const version = pluginVersions[name] || '1.0.0';
-    return `${PLUGIN_CDN_URL}/${dir}/${version}/${dir}.js`;
-  };
+  // Resolve monorepo root (seed.ts is at apps/web-next/prisma/seed.ts)
+  const MONOREPO_ROOT = path.resolve(__dirname, '../../..');
+  const discovered = discoverPlugins(MONOREPO_ROOT);
 
-  // CDN Styles URL
-  // Example: http://localhost:3000/cdn/plugins/gateway-manager/1.0.0/gateway-manager.css
-  const getStylesUrl = (name: string) => {
-    const dir = pluginDirMap[name] || name;
-    const version = pluginVersions[name] || '1.0.0';
-    return `${PLUGIN_CDN_URL}/${dir}/${version}/${dir}.css`;
-  };
+  console.log(`   📦 Discovered ${discovered.length} plugins from plugin.json files`);
 
-  // Helper to build a plugin definition.
-  // CDN fields (bundleUrl, stylesUrl, globalName, deploymentType) are stored
-  // as direct columns on the WorkflowPlugin model so the API returns them
-  // without any metadata extraction needed on the frontend.
-  const mkPlugin = (
-    name: string,
-    displayName: string,
-    routes: string[],
-    order: number,
-    icon: string,
-  ) => ({
-    name,
-    displayName,
-    version: '1.0.0',
-    remoteUrl: getPluginUrl(name),
-    bundleUrl: getBundleUrl(name),
-    stylesUrl: getStylesUrl(name),
-    globalName: pluginGlobalNames[name],
+  // CDN URL helpers
+  const getBundleUrl = (dirName: string, version: string) =>
+    `${PLUGIN_CDN_URL}/${dirName}/${version}/${dirName}.js`;
+  const getStylesUrl = (dirName: string, version: string) =>
+    `${PLUGIN_CDN_URL}/${dirName}/${version}/${dirName}.css`;
+
+  const defaultPlugins = discovered.map(p => ({
+    name: p.name,
+    displayName: p.displayName,
+    version: p.version,
+    remoteUrl: getBundleUrl(p.dirName, p.version),
+    bundleUrl: getBundleUrl(p.dirName, p.version),
+    stylesUrl: getStylesUrl(p.dirName, p.version),
+    globalName: p.globalName,
     deploymentType: 'cdn',
-    routes,
+    routes: p.routes,
     enabled: true,
-    order,
-    icon,
-  });
+    order: p.order,
+    icon: p.icon,
+  }));
 
-  const defaultPlugins = [
-    mkPlugin('myWallet',            'My Wallet',              ['/wallet', '/wallet/*'],                                     0,  'Wallet'),
-    mkPlugin('gatewayManager',      'Gateway Manager',        ['/gateways', '/gateways/*'],                                 1,  'Radio'),
-    mkPlugin('orchestratorManager', 'Orchestrator Manager',   ['/orchestrators', '/orchestrators/*'],                        2,  'Cpu'),
-    mkPlugin('capacityPlanner',     'Capacity Planner',       ['/capacity', '/capacity/*'],                                  3,  'Zap'),
-    mkPlugin('networkAnalytics',    'Network Analytics',      ['/analytics', '/analytics/*', '/leaderboard', '/leaderboard/*'], 4, 'BarChart3'),
-    mkPlugin('marketplace',         'Plugin Marketplace',     ['/marketplace', '/marketplace/*'],                             5,  'ShoppingBag'),
-    mkPlugin('community',           'Community Hub',          ['/forum', '/forum/*'],                                         6,  'Users'),
-    mkPlugin('developerApi',        'Developer API Manager',  ['/developers', '/developers/*'],                               7,  'Code'),
-    mkPlugin('myDashboard',         'My Dashboard',           ['/my-dashboard', '/my-dashboard/*'],                           8,  'LayoutDashboard'),
-    mkPlugin('pluginPublisher',     'Plugin Publisher',       ['/publish', '/publish/*'],                                     9,  'Upload'),
-    mkPlugin('daydreamVideo',       'Daydream AI Video',      ['/daydream', '/daydream/*'],                                  10,  'Video'),
-  ];
+  // Build a lookup from camelCase name -> discovered plugin for use by marketplace section
+  const discoveredByName = new Map(discovered.map(p => [p.name, p]));
+
+  /** Get the CDN bundle URL for a plugin by its camelCase name */
+  const getPluginUrl = (camelName: string) => {
+    const p = discoveredByName.get(camelName);
+    if (p) return getBundleUrl(p.dirName, p.version);
+    // Fallback: derive kebab-case from camelCase
+    const kebab = camelName.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '');
+    return getBundleUrl(kebab, '1.0.0');
+  };
 
   for (const plugin of defaultPlugins) {
     await prisma.workflowPlugin.upsert({

@@ -7,6 +7,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
+import { readFileSync } from 'node:fs';
 import dotenv from 'dotenv';
 import { dashboardRoutes } from './routes/dashboards.js';
 import { embedRoutes } from './routes/embed.js';
@@ -21,8 +22,11 @@ import {
 
 dotenv.config();
 
+const pluginConfig = JSON.parse(
+  readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
+);
 const app = express();
-const PORT = process.env.PORT || 4009;
+const PORT = process.env.PORT || pluginConfig.backend?.devPort || 4009;
 
 // Initialize Redis (will fallback to memory if unavailable)
 const redis = getRedis();

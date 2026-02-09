@@ -13,8 +13,13 @@
  */
 
 import 'dotenv/config';
+import { readFileSync } from 'node:fs';
 import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
+
+const pluginConfig = JSON.parse(
+  readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
+);
 
 // ============================================
 // REPUTATION POINTS CONFIG
@@ -215,7 +220,7 @@ async function checkBadges(profileId: string) {
 
 const server = createPluginServer({
   name: 'community',
-  port: parseInt(process.env.PORT || '4006', 10),
+  port: parseInt(process.env.PORT || String(pluginConfig.backend?.devPort || 4006), 10),
   prisma: db,
   publicRoutes: ['/healthz', '/api/v1/community/posts', '/api/v1/community/tags', '/api/v1/community/badges', '/api/v1/community/leaderboard', '/api/v1/community/stats', '/api/v1/community/search'],
 });

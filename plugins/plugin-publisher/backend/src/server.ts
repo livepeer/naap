@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
-import { createReadStream, existsSync } from 'fs';
+import { createReadStream, existsSync, readFileSync } from 'fs';
 import { createHash } from 'crypto';
 // @ts-ignore
 import unzipper from 'unzipper';
@@ -17,24 +17,16 @@ import {
 } from './services/pluginTester.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Port Configuration - Using centralized config from @naap/plugin-sdk
-// Import from config when available, fallback to inline value
+// Port Configuration - Reads from plugin.json (single source of truth)
 // ─────────────────────────────────────────────────────────────────────────────
 
+const pluginConfig = JSON.parse(
+  readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
+);
 const PLUGIN_NAME = 'plugin-publisher';
-const EXPECTED_PORT = 4012; // Should match PLUGIN_PORTS['plugin-publisher'] in @naap/plugin-sdk/config
 
 const app = express();
-const PORT = process.env.PORT || EXPECTED_PORT;
-
-// Validate port at startup
-if (Number(PORT) !== EXPECTED_PORT && !process.env.PORT) {
-  console.warn(
-    `[${PLUGIN_NAME}] WARNING: Default port mismatch. ` +
-    `Expected ${EXPECTED_PORT}, but configured for ${PORT}. ` +
-    `Update PLUGIN_PORTS in @naap/plugin-sdk/config/ports.ts if this is intentional.`
-  );
-}
+const PORT = process.env.PORT || pluginConfig.backend?.devPort || 4010;
 const UPLOAD_DIR = process.env.UPLOAD_DIR || (process.env.VERCEL ? '/tmp/uploads' : './uploads');
 const STATIC_DIR = process.env.STATIC_DIR || (process.env.VERCEL ? '/tmp/static' : './static');
 const BASE_SVC_URL = process.env.BASE_SVC_URL || 'http://localhost:4000';
@@ -828,8 +820,5 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 });
 
 app.listen(PORT, () => {
-  console.log(`[${PLUGIN_NAME}] Backend running on port ${PORT}`);
-  if (Number(PORT) === EXPECTED_PORT) {
-    console.log(`[${PLUGIN_NAME}] Port matches centralized config (PLUGIN_PORTS['${PLUGIN_NAME}'] = ${EXPECTED_PORT})`);
-  }
+  console.log(`[${PLUGIN_NAME}] Backend running on port ${PORT} (from plugin.json devPort: ${pluginConfig.backend?.devPort})`);
 });
