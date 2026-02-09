@@ -168,8 +168,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Login failed');
+        const body = await response.json();
+        // API returns { error: { code, message } } or { message }
+        const msg = body.error?.message || body.message || 'Login failed';
+        throw new Error(msg);
       }
       const data = await response.json();
 

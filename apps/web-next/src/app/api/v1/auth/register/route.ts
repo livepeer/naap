@@ -3,9 +3,9 @@
  * Register a new user with email/password
  */
 
-import {NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { register } from '@/lib/api/auth';
-import { success, errors } from '@/lib/api/response';
+import { success, errors, isDatabaseError } from '@/lib/api/response';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -35,6 +35,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return response;
   } catch (err) {
+    // Surface database connection issues as 503
+    if (isDatabaseError(err)) {
+      console.error('[AUTH] Database connection error:', (err as Error).message);
+      return errors.serviceUnavailable(
+        'Database is not available. Please configure DATABASE_URL or try again later.'
+      );
+    }
+
     const message = err instanceof Error ? err.message : 'Registration failed';
 
     if (message.includes('already registered')) {
