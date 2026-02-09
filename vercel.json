@@ -3,7 +3,7 @@
   "framework": "nextjs",
   "buildCommand": "./bin/vercel-build.sh",
   "outputDirectory": "apps/web-next/.next",
-  "installCommand": "export DATABASE_URL=\"${DATABASE_URL:-$POSTGRES_PRISMA_URL}\" && npm install",
+  "installCommand": "export DATABASE_URL=\"${DATABASE_URL:-$POSTGRES_PRISMA_URL}\" && npm install --include=dev",
   "regions": ["iad1"],
   "git": {
     "deploymentEnabled": true
