@@ -138,6 +138,46 @@ fetch(`${base}/api/v1/registry/packages`); // DOUBLED!
 
 Run `./bin/validate-plugin-urls.sh` before committing to catch common URL mistakes.
 
+#### Pre-Built API Clients
+
+The SDK also exports two higher-level clients that use `getServiceOrigin('base')` internally.
+You do **not** need to call `getServiceOrigin()` yourself when using these:
+
+```typescript
+import { createShellApiClient, createIntegrationClient } from '@naap/plugin-sdk';
+
+// For core shell endpoints (auth, teams, installations, etc.)
+const shell = createShellApiClient();
+await shell.get('/api/v1/registry/packages');
+
+// For plugin-to-plugin integration calls
+const integration = createIntegrationClient();
+await integration.get('/api/v1/community/posts');
+```
+
+#### How Production Detection Works
+
+The SDK uses `isProductionHost()` for unified environment detection:
+
+- **In the browser:** checks `window.location.hostname` against known production hosts
+- **On the server (SSR):** checks environment variables (`VERCEL`, `NEXT_PUBLIC_VERCEL_URL`, etc.)
+
+You should never implement your own environment detection — always rely on the SDK functions.
+
+#### Catch-All Proxy & API Route Parity
+
+On **Vercel / production**, the Next.js catch-all proxy (`/api/v1/[plugin]/[...path]`) returns
+**501 Not Implemented** for any route that does not have a dedicated Next.js route handler.
+This means every plugin API endpoint must have a corresponding file at:
+
+```
+apps/web-next/src/app/api/v1/{plugin-name}/...
+```
+
+There are currently **46+ dedicated route handlers** covering all plugin endpoints.
+If you add a new API endpoint to your plugin backend, you must also add a matching
+Next.js route handler — otherwise the endpoint will not work in production.
+
 ### Event Communication
 
 ```typescript

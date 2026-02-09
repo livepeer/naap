@@ -58,36 +58,6 @@ export function getApiUrl(
   return getPluginBackendUrl(pluginName, { apiPath });
 }
 
-/**
- * Get CSRF token from storage or meta tags
- * 
- * @returns CSRF token or null if not found
- */
-export function getCsrfToken(): string | null {
-  // Check session storage first
-  if (typeof window !== 'undefined') {
-    const sessionToken = sessionStorage.getItem('naap_csrf_token');
-    if (sessionToken) return sessionToken;
-
-    // Check localStorage as fallback
-    const localToken = localStorage.getItem('csrf_token');
-    if (localToken) return localToken;
-
-    // Check meta tag
-    const metaTag = document.querySelector('meta[name="csrf-token"]');
-    if (metaTag) {
-      return metaTag.getAttribute('content');
-    }
-  }
-
-  return null;
-}
-
-/**
- * Generate a correlation ID for request tracing
- * 
- * @returns A unique correlation ID
- */
-export function generateCorrelationId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-}
+// Re-export active utilities from their canonical location (utils/headers.ts).
+// These are NOT deprecated — they live here only for backward-compatible imports.
+export { getCsrfToken, generateCorrelationId } from './headers.js';

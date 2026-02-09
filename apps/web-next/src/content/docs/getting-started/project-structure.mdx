@@ -122,12 +122,29 @@ Every plugin must have a `plugin.json` that defines its identity and capabilitie
   },
   "backend": {
     "entry": "./backend/dist/server.js",
-    "port": 4010,
+    "devPort": 4010,
     "apiPrefix": "/api/v1/my-plugin",
     "healthCheck": "/healthz"
   }
 }
 ```
+
+> **Port Single Source of Truth:** `plugin.json → backend.devPort` is the
+> authoritative port for each plugin's backend in local development. The
+> `PLUGIN_PORTS` map in `packages/plugin-sdk/src/config/ports.ts` **must mirror**
+> the values in `plugin.json`. When adding or changing a port, update
+> `plugin.json` first, then sync `ports.ts` to match.
+
+### Plugin Discovery
+
+The shared utility at `packages/database/src/plugin-discovery.ts` scans all
+`plugins/*/plugin.json` manifests and is used by:
+
+- **`prisma/seed.ts`** — registers plugins in the database during local development
+- **`bin/sync-plugin-registry.ts`** — syncs the plugin registry during Vercel builds
+
+This ensures both local dev and production environments share the same discovery
+logic and stay in sync.
 
 ### `nx.json` - Workspace Configuration
 

@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { success, errors } from '@/lib/api/response';
+import { success } from '@/lib/api/response';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {

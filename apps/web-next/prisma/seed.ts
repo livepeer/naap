@@ -1,13 +1,21 @@
 /**
  * Comprehensive Seed script for web-next database
- * Ported from base-svc seed to ensure feature parity
- * 
+ * Ported from base-svc seed to ensure feature parity.
+ *
+ * Execution context:
+ *   - LOCAL DEVELOPMENT ONLY: `npx prisma db seed` or `start.sh` first run.
+ *   - On Vercel, WorkflowPlugin records are managed by bin/sync-plugin-registry.ts
+ *     (called during vercel-build.sh). This seed is NOT run on Vercel.
+ *
+ * Plugin discovery logic is delegated to the shared utility at
+ * packages/database/src/plugin-discovery.ts — the single source of truth.
+ *
  * Creates:
  * - System roles (4)
  * - Plugin admin roles (10)
  * - Test users with roles (12+)
  * - Feature flags (4)
- * - Workflow plugins (12)
+ * - Workflow plugins (auto-discovered from plugins/{name}/plugin.json)
  * - Marketplace packages (10+)
  * - Plugin deployments
  * - Tenant installations
@@ -16,7 +24,6 @@
 
 import { PrismaClient } from '@naap/database';
 import * as crypto from 'crypto';
-import * as fs from 'fs';
 import * as path from 'path';
 
 const prisma = new PrismaClient();
@@ -328,49 +335,18 @@ async function main() {
   // ============================================
   console.log('🔌 Creating workflow plugins...');
 
-  // CDN/UMD bundle URLs — use relative paths so the same DB records work on
-  // any deployment (localhost, Vercel preview, production).
+  // ---------------------------------------------------------------------------
+  // Dynamic plugin discovery — delegates to shared utility
+  // (packages/database/src/plugin-discovery.ts)
+  // This is the single source of truth for plugin discovery logic.
+  // ---------------------------------------------------------------------------
+
+  // Import shared discovery utilities
+  const { discoverPlugins, toWorkflowPluginData, getBundleUrl, toCamelCase } = await import(
+    '../../../packages/database/src/plugin-discovery.js'
+  );
+
   const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || '/cdn/plugins';
-
-  // ---------------------------------------------------------------------------
-  // Dynamic plugin discovery from plugins/*/plugin.json
-  // This replaces ~70 lines of hardcoded plugin data that could drift from the
-  // actual plugin manifests. plugin.json is the single source of truth.
-  // ---------------------------------------------------------------------------
-
-  /** Convert kebab-case to camelCase: "my-wallet" -> "myWallet" */
-  const toCamelCase = (s: string) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-
-  /** Convert camelCase to PascalCase: "myWallet" -> "MyWallet" */
-  const toPascalCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-
-  /** Scan plugins directory and read each plugin.json */
-  function discoverPlugins(rootDir: string) {
-    const pluginsDir = path.join(rootDir, 'plugins');
-    if (!fs.existsSync(pluginsDir)) {
-      console.warn(`   ⚠️  plugins directory not found at ${pluginsDir}`);
-      return [];
-    }
-    return fs.readdirSync(pluginsDir)
-      .filter(dir => fs.existsSync(path.join(pluginsDir, dir, 'plugin.json')))
-      .map(dir => {
-        const manifest = JSON.parse(
-          fs.readFileSync(path.join(pluginsDir, dir, 'plugin.json'), 'utf8')
-        );
-        const camelName = toCamelCase(dir);
-        return {
-          dirName: dir,                                          // kebab-case for CDN paths
-          name: camelName,                                       // camelCase for DB (backward compat)
-          displayName: manifest.displayName || dir,
-          version: '1.0.0',                                     // CDN bundles are always built as 1.0.0
-          routes: manifest.frontend?.routes || [],
-          icon: manifest.frontend?.navigation?.icon || 'Box',
-          order: manifest.frontend?.navigation?.order ?? 99,
-          globalName: `NaapPlugin${toPascalCase(camelName)}`,    // e.g., NaapPluginMyWallet
-        };
-      })
-      .sort((a, b) => a.order - b.order);
-  }
 
   // Resolve monorepo root (seed.ts is at apps/web-next/prisma/seed.ts)
   const MONOREPO_ROOT = path.resolve(__dirname, '../../..');
@@ -378,37 +354,19 @@ async function main() {
 
   console.log(`   📦 Discovered ${discovered.length} plugins from plugin.json files`);
 
-  // CDN URL helpers
-  const getBundleUrl = (dirName: string, version: string) =>
-    `${PLUGIN_CDN_URL}/${dirName}/${version}/${dirName}.js`;
-  const getStylesUrl = (dirName: string, version: string) =>
-    `${PLUGIN_CDN_URL}/${dirName}/${version}/${dirName}.css`;
-
-  const defaultPlugins = discovered.map(p => ({
-    name: p.name,
-    displayName: p.displayName,
-    version: p.version,
-    remoteUrl: getBundleUrl(p.dirName, p.version),
-    bundleUrl: getBundleUrl(p.dirName, p.version),
-    stylesUrl: getStylesUrl(p.dirName, p.version),
-    globalName: p.globalName,
-    deploymentType: 'cdn',
-    routes: p.routes,
-    enabled: true,
-    order: p.order,
-    icon: p.icon,
-  }));
+  // Build WorkflowPlugin records using shared utility
+  const defaultPlugins = discovered.map((p: any) => toWorkflowPluginData(p, PLUGIN_CDN_URL));
 
   // Build a lookup from camelCase name -> discovered plugin for use by marketplace section
-  const discoveredByName = new Map(discovered.map(p => [p.name, p]));
+  const discoveredByName = new Map(discovered.map((p: any) => [p.name, p]));
 
   /** Get the CDN bundle URL for a plugin by its camelCase name */
   const getPluginUrl = (camelName: string) => {
     const p = discoveredByName.get(camelName);
-    if (p) return getBundleUrl(p.dirName, p.version);
+    if (p) return getBundleUrl(PLUGIN_CDN_URL, p.dirName, p.version);
     // Fallback: derive kebab-case from camelCase
     const kebab = camelName.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '');
-    return getBundleUrl(kebab, '1.0.0');
+    return getBundleUrl(PLUGIN_CDN_URL, kebab, '1.0.0');
   };
 
   for (const plugin of defaultPlugins) {

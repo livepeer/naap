@@ -15,7 +15,7 @@ import { useMemo } from 'react';
 import { useShell } from './useShell.js';
 import { createApiClient, type ApiClient } from '../utils/api.js';
 import { getServiceOrigin, getPluginBackendUrl } from '../config/ports.js';
-import { getCsrfToken, generateCorrelationId } from '../utils/backend-url.js';
+import { getCsrfToken, generateCorrelationId } from '../utils/headers.js';
 import { HEADER_CSRF_TOKEN, HEADER_CORRELATION, HEADER_PLUGIN_NAME } from '@naap/types';
 
 /**

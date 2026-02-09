@@ -8,28 +8,58 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthToken } from '@/lib/api/response';
+import { PLUGIN_PORTS, DEFAULT_PORT } from '@naap/plugin-sdk';
 
-// Plugin service URLs (in development, these point to local services)
-const PLUGIN_SERVICES: Record<string, string> = {
-  'gateway': process.env.GATEWAY_MANAGER_URL || 'http://localhost:4001',
-  'gateway-manager': process.env.GATEWAY_MANAGER_URL || 'http://localhost:4001',
-  'orchestrator': process.env.ORCHESTRATOR_MANAGER_URL || 'http://localhost:4002',
-  'orchestrator-manager': process.env.ORCHESTRATOR_MANAGER_URL || 'http://localhost:4002',
-  'capacity': process.env.CAPACITY_PLANNER_URL || 'http://localhost:4003',
-  'capacity-planner': process.env.CAPACITY_PLANNER_URL || 'http://localhost:4003',
-  'analytics': process.env.NETWORK_ANALYTICS_URL || 'http://localhost:4004',
-  'network-analytics': process.env.NETWORK_ANALYTICS_URL || 'http://localhost:4004',
-  'marketplace': process.env.MARKETPLACE_URL || 'http://localhost:4005',
-  'community': process.env.COMMUNITY_URL || 'http://localhost:4006',
-  'wallet': process.env.WALLET_URL || 'http://localhost:4007',
-  'my-wallet': process.env.WALLET_URL || 'http://localhost:4007',
-  'dashboard': process.env.DASHBOARD_URL || 'http://localhost:4008',
-  'my-dashboard': process.env.DASHBOARD_URL || 'http://localhost:4008',
-  'daydream': process.env.DAYDREAM_VIDEO_URL || 'http://localhost:4010',
-  'daydream-video': process.env.DAYDREAM_VIDEO_URL || 'http://localhost:4010',
-  'developer-api': process.env.DEVELOPER_API_URL || 'http://localhost:4011',
-  'plugin-publisher': process.env.PLUGIN_PUBLISHER_URL || 'http://localhost:4012',
+// ─── Plugin service URL map ─────────────────────────────────────────────────
+// Ports come from PLUGIN_PORTS (which mirrors plugin.json devPort values).
+// Env-var overrides allow production deployments to point at real hosts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Mapping from plugin kebab-name to its env-var override key. */
+const PLUGIN_ENV_MAP: Record<string, string> = {
+  'gateway-manager': 'GATEWAY_MANAGER_URL',
+  'orchestrator-manager': 'ORCHESTRATOR_MANAGER_URL',
+  'capacity-planner': 'CAPACITY_PLANNER_URL',
+  'network-analytics': 'NETWORK_ANALYTICS_URL',
+  'marketplace': 'MARKETPLACE_URL',
+  'community': 'COMMUNITY_URL',
+  'my-wallet': 'WALLET_URL',
+  'my-dashboard': 'DASHBOARD_URL',
+  'daydream-video': 'DAYDREAM_VIDEO_URL',
+  'developer-api': 'DEVELOPER_API_URL',
+  'plugin-publisher': 'PLUGIN_PUBLISHER_URL',
 };
+
+/** Short aliases so both `/api/v1/wallet/...` and `/api/v1/my-wallet/...` resolve. */
+const SHORT_ALIASES: Record<string, string> = {
+  'gateway': 'gateway-manager',
+  'orchestrator': 'orchestrator-manager',
+  'capacity': 'capacity-planner',
+  'analytics': 'network-analytics',
+  'wallet': 'my-wallet',
+  'dashboard': 'my-dashboard',
+  'daydream': 'daydream-video',
+};
+
+function buildPluginServices(): Record<string, string> {
+  const services: Record<string, string> = {};
+
+  for (const [name, envKey] of Object.entries(PLUGIN_ENV_MAP)) {
+    const port = (PLUGIN_PORTS as Record<string, number>)[name] ?? DEFAULT_PORT;
+    services[name] = process.env[envKey] || `http://localhost:${port}`;
+  }
+
+  // Register short aliases pointing to the same resolved URL
+  for (const [alias, canonical] of Object.entries(SHORT_ALIASES)) {
+    if (services[canonical]) {
+      services[alias] = services[canonical];
+    }
+  }
+
+  return services;
+}
+
+const PLUGIN_SERVICES = buildPluginServices();
 
 async function handleRequest(
   request: NextRequest,
@@ -55,35 +85,25 @@ async function handleRequest(
   }
 
   // On Vercel (production), localhost services are not available.
-  // For GET requests, return empty data so the UI degrades gracefully.
-  // For mutations, return a clear error.
+  // Every plugin endpoint should have a dedicated Next.js route handler.
+  // If a request reaches this catch-all, it means the route is missing.
   const isVercel = process.env.VERCEL === '1';
   if (isVercel && serviceUrl.includes('localhost')) {
-    if (request.method === 'GET') {
-      // Return empty data — the UI should handle empty arrays/objects gracefully
-      console.warn(
-        `[proxy] Vercel: returning empty data for GET /api/v1/${plugin}/${path.join('/')}. ` +
-        `Add a dedicated Next.js route handler to serve real data.`
-      );
-      return NextResponse.json(
-        { posts: [], entries: [], tags: [], items: [], total: 0, data: null },
-        {
-          status: 200,
-          headers: { 'X-Fallback': 'true' },
-        }
-      );
-    }
+    console.warn(
+      `[proxy] Vercel: unhandled route /api/v1/${plugin}/${path.join('/')} (${request.method}). ` +
+      `Add a dedicated Next.js route handler for this endpoint.`
+    );
     return NextResponse.json(
       {
         success: false,
         error: {
-          code: 'SERVICE_UNAVAILABLE',
-          message: `Plugin service "${plugin}" is not available in this environment. ` +
-            `This write endpoint needs a dedicated Next.js route handler.`,
+          code: 'NOT_IMPLEMENTED',
+          message: `Endpoint /api/v1/${plugin}/${path.join('/')} is not yet available in this environment. ` +
+            `A dedicated Next.js route handler is needed.`,
         },
         meta: { timestamp: new Date().toISOString() },
       },
-      { status: 503 }
+      { status: 501 }
     );
   }
 

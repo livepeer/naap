@@ -4,20 +4,24 @@
  * Standalone script that discovers all plugins from plugins/{name}/plugin.json
  * and upserts WorkflowPlugin records in the database.
  *
+ * Delegates to the shared discovery utility in packages/database/src/plugin-discovery.ts
+ * to avoid duplicating logic with the local seed script (apps/web-next/prisma/seed.ts).
+ *
  * Safe to run on every deploy — it is idempotent:
  *   - Creates new plugins that were added to the repo
  *   - Updates existing plugins (CDN URLs, routes, order, etc.)
  *   - Soft-disables plugins that were removed from the repo
  *
- * Usage:
- *   npx tsx bin/sync-plugin-registry.ts
+ * Execution contexts:
+ *   - Vercel build: called by bin/vercel-build.sh step [4/4]
+ *   - Manual: `npx tsx bin/sync-plugin-registry.ts`
  *
  * Environment:
  *   DATABASE_URL or POSTGRES_PRISMA_URL must be set.
  */
 
 import { PrismaClient } from '../packages/database/src/generated/client/index.js';
-import * as fs from 'fs';
+import { discoverPlugins, toWorkflowPluginData } from '../packages/database/src/plugin-discovery.js';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -25,73 +29,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MONOREPO_ROOT = path.resolve(__dirname, '..');
-const PLUGINS_DIR = path.join(MONOREPO_ROOT, 'plugins');
 const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || '/cdn/plugins';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Convert kebab-case to camelCase: "my-wallet" -> "myWallet" */
-function toCamelCase(s: string): string {
-  return s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
-}
-
-/** Convert camelCase to PascalCase: "myWallet" -> "MyWallet" */
-function toPascalCase(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function getBundleUrl(dirName: string, version: string): string {
-  return `${PLUGIN_CDN_URL}/${dirName}/${version}/${dirName}.js`;
-}
-
-function getStylesUrl(dirName: string, version: string): string {
-  return `${PLUGIN_CDN_URL}/${dirName}/${version}/${dirName}.css`;
-}
-
-// ---------------------------------------------------------------------------
-// Discovery
-// ---------------------------------------------------------------------------
-
-interface DiscoveredPlugin {
-  dirName: string;
-  name: string;
-  displayName: string;
-  version: string;
-  routes: string[];
-  icon: string;
-  order: number;
-  globalName: string;
-}
-
-function discoverPlugins(): DiscoveredPlugin[] {
-  if (!fs.existsSync(PLUGINS_DIR)) {
-    console.warn(`  [WARN] plugins directory not found at ${PLUGINS_DIR}`);
-    return [];
-  }
-
-  return fs
-    .readdirSync(PLUGINS_DIR)
-    .filter((dir) => fs.existsSync(path.join(PLUGINS_DIR, dir, 'plugin.json')))
-    .map((dir) => {
-      const manifest = JSON.parse(
-        fs.readFileSync(path.join(PLUGINS_DIR, dir, 'plugin.json'), 'utf8'),
-      );
-      const camelName = toCamelCase(dir);
-      return {
-        dirName: dir,
-        name: camelName,
-        displayName: manifest.displayName || dir,
-        version: '1.0.0',
-        routes: manifest.frontend?.routes || [],
-        icon: manifest.frontend?.navigation?.icon || 'Box',
-        order: manifest.frontend?.navigation?.order ?? 99,
-        globalName: `NaapPlugin${toPascalCase(camelName)}`,
-      };
-    })
-    .sort((a, b) => a.order - b.order);
-}
 
 // ---------------------------------------------------------------------------
 // Main
@@ -118,7 +56,7 @@ async function main(): Promise<void> {
   });
 
   try {
-    const discovered = discoverPlugins();
+    const discovered = discoverPlugins(MONOREPO_ROOT);
     console.log(
       `[sync-plugin-registry] Discovered ${discovered.length} plugins from plugin.json files`,
     );
@@ -128,25 +66,12 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Upsert each discovered plugin
+    // Upsert each discovered plugin using shared utility
     let created = 0;
     let updated = 0;
 
     for (const p of discovered) {
-      const data = {
-        name: p.name,
-        displayName: p.displayName,
-        version: p.version,
-        remoteUrl: getBundleUrl(p.dirName, p.version),
-        bundleUrl: getBundleUrl(p.dirName, p.version),
-        stylesUrl: getStylesUrl(p.dirName, p.version),
-        globalName: p.globalName,
-        deploymentType: 'cdn',
-        routes: p.routes,
-        enabled: true,
-        order: p.order,
-        icon: p.icon,
-      };
+      const data = toWorkflowPluginData(p, PLUGIN_CDN_URL);
 
       const existing = await prisma.workflowPlugin.findUnique({
         where: { name: p.name },

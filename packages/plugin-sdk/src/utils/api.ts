@@ -4,6 +4,7 @@
  */
 
 import { HEADER_PLUGIN_NAME } from '@naap/types';
+import { getServiceOrigin } from '../config/ports.js';
 
 export interface ApiClientOptions {
   baseUrl: string;
@@ -168,18 +169,8 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
  * ```
  */
 export function createShellApiClient(authToken?: string): ApiClient {
-  let baseUrl: string;
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      // Production: same-origin, Next.js API proxy handles routing
-      baseUrl = '';
-    } else {
-      baseUrl = `${window.location.protocol}//${hostname}:4000`;
-    }
-  } else {
-    baseUrl = 'http://localhost:4000';
-  }
+  // Uses getServiceOrigin('base') — returns '' in production, 'http://localhost:4000' in dev.
+  const baseUrl = getServiceOrigin('base');
 
   return createApiClient({
     baseUrl,
@@ -208,17 +199,8 @@ export function createShellApiClient(authToken?: string): ApiClient {
  * ```
  */
 export function createIntegrationClient(pluginName: string, authToken?: string): IntegrationClient {
-  let baseUrl: string;
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      baseUrl = '';
-    } else {
-      baseUrl = `${window.location.protocol}//${hostname}:4000`;
-    }
-  } else {
-    baseUrl = 'http://localhost:4000';
-  }
+  // Uses getServiceOrigin('base') — returns '' in production, 'http://localhost:4000' in dev.
+  const baseUrl = getServiceOrigin('base');
 
   return {
     async call<T>(integrationType: string, method: string, args: unknown[]): Promise<T> {

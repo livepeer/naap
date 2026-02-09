@@ -24,7 +24,7 @@ import {
   getPluginBackendUrl,
   type ApiResponse,
 } from '../utils/api.js';
-import { getCsrfToken, generateCorrelationId } from '../utils/backend-url.js';
+import { getCsrfToken, generateCorrelationId } from '../utils/headers.js';
 import { HEADER_CSRF_TOKEN, HEADER_CORRELATION, HEADER_PLUGIN_NAME } from '@naap/types';
 
 /**

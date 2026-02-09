@@ -27,9 +27,9 @@
 export const PLUGIN_PORTS = {
   // Core services
   'base': 4000,
-  'plugin-server': 4050,
+  'plugin-server': 3100,
 
-  // Core plugins
+  // Core plugins (ports must match plugins/*/plugin.json → backend.devPort)
   'gateway-manager': 4001,
   'orchestrator-manager': 4002,
   'capacity-planner': 4003,
@@ -39,9 +39,7 @@ export const PLUGIN_PORTS = {
   'developer-api': 4007,
   'my-wallet': 4008,
   'my-dashboard': 4009,
-  'livepeer': 4010,
-  'developer-api-svc': 4011,
-  'plugin-publisher': 4012,
+  'plugin-publisher': 4010,
 
   // Extended plugins (4100+)
   'daydream-video': 4111,
@@ -311,12 +309,9 @@ export function getPluginBackendUrl(pluginName: string, options?: PluginBackendU
   //    On Vercel (or any non-localhost deployment) plugin backends don't
   //    run as separate services — all API traffic goes through the
   //    Next.js API proxy on the same origin.
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      // Same-origin: just the API path, no host/port needed.
-      return apiPath || `/api/v1/${pluginName}`;
-    }
+  //    Uses isProductionHost() for consistency with getServiceOrigin().
+  if (isProductionHost()) {
+    return apiPath || `/api/v1/${pluginName}`;
   }
 
   // 5. Development convention: localhost with known port

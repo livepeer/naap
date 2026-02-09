@@ -32,7 +32,7 @@ echo ""
 # Check 1: getPluginBackendUrl('...') WITHOUT apiPath, followed
 #           by /api/v1/ in the same file = DOUBLED URL on Vercel
 # ──────────────────────────────────────────────────────────────
-echo "[1/5] Checking for doubled-URL pattern (getPluginBackendUrl without apiPath)..."
+echo "[1/6] Checking for doubled-URL pattern (getPluginBackendUrl without apiPath)..."
 
 while IFS= read -r file; do
   # Check if file has getPluginBackendUrl('xxx') without apiPath
@@ -52,7 +52,7 @@ echo ""
 # ──────────────────────────────────────────────────────────────
 # Check 2: Hardcoded localhost:PORT in non-dev files
 # ──────────────────────────────────────────────────────────────
-echo "[2/5] Checking for hardcoded localhost:PORT..."
+echo "[2/6] Checking for hardcoded localhost:PORT..."
 
 while IFS= read -r file; do
   # Skip main.tsx files (standalone dev mode only)
@@ -75,7 +75,7 @@ echo ""
 # ──────────────────────────────────────────────────────────────
 # Check 3: window.location.hostname + port concatenation
 # ──────────────────────────────────────────────────────────────
-echo "[3/5] Checking for manual hostname:port construction..."
+echo "[3/6] Checking for manual hostname:port construction..."
 
 while IFS= read -r file; do
   if grep -qP 'window\.location\.(hostname|host).*:\d' "$file" 2>/dev/null; then
@@ -90,7 +90,7 @@ echo ""
 # ──────────────────────────────────────────────────────────────
 # Check 4: Using deprecated getBackendUrl / getApiUrl
 # ──────────────────────────────────────────────────────────────
-echo "[4/5] Checking for deprecated getBackendUrl/getApiUrl imports..."
+echo "[4/6] Checking for deprecated getBackendUrl/getApiUrl imports..."
 
 while IFS= read -r file; do
   if grep -qP "import.*\b(getBackendUrl|getApiUrl)\b.*from" "$file" 2>/dev/null; then
@@ -106,7 +106,7 @@ echo ""
 # ──────────────────────────────────────────────────────────────
 # Check 5: postcss.config.js files that shouldn't exist
 # ──────────────────────────────────────────────────────────────
-echo "[5/5] Checking for postcss.config.js (should use shared Vite config)..."
+echo "[5/6] Checking for postcss.config.js (should use shared Vite config)..."
 
 while IFS= read -r file; do
   echo -e "  ${YELLOW}WARN${NC}: $file"
@@ -114,6 +114,36 @@ while IFS= read -r file; do
   echo "    configured inline in @naap/plugin-build's shared Vite config."
   warnings=$((warnings + 1))
 done < <(find plugins/*/frontend -not -path '*/node_modules/*' \( -name 'postcss.config.js' -o -name 'postcss.config.cjs' \) 2>/dev/null)
+
+echo ""
+
+# ──────────────────────────────────────────────────────────────
+# Check 6: Port consistency across plugin.json / PLUGIN_PORTS
+# ──────────────────────────────────────────────────────────────
+echo "[6/6] Checking port consistency (plugin.json vs PLUGIN_PORTS vs route.ts)..."
+
+PORTS_TS="packages/plugin-sdk/src/config/ports.ts"
+
+if [ -f "$PORTS_TS" ]; then
+  for plugin_dir in plugins/*/plugin.json; do
+    [ -f "$plugin_dir" ] || continue
+    name=$(basename "$(dirname "$plugin_dir")")
+
+    # Extract devPort from plugin.json
+    json_port=$(python3 -c "import json; d=json.load(open('$plugin_dir')); print(d.get('backend',{}).get('devPort',''))" 2>/dev/null || true)
+    [ -z "$json_port" ] && continue
+
+    # Extract port from PLUGIN_PORTS in ports.ts
+    sdk_port=$(grep -oP "'${name}'\\s*:\\s*\\K[0-9]+" "$PORTS_TS" 2>/dev/null || true)
+
+    if [ -n "$sdk_port" ] && [ "$sdk_port" != "$json_port" ]; then
+      echo -e "  ${RED}ERROR${NC}: Port mismatch for '$name'"
+      echo "    plugin.json devPort = $json_port"
+      echo "    PLUGIN_PORTS (SDK)  = $sdk_port"
+      errors=$((errors + 1))
+    fi
+  done
+fi
 
 echo ""
 

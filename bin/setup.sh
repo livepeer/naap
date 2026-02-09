@@ -154,18 +154,18 @@ PIPELINE_GATEWAY_URL=http://localhost:4200
 STORAGE_SVC_URL=http://localhost:4300
 INFRASTRUCTURE_SVC_URL=http://localhost:4400
 
-# Plugin backends (local)
+# Plugin backends (local) — ports match plugins/*/plugin.json → backend.devPort
 GATEWAY_MANAGER_URL=http://localhost:4001
 ORCHESTRATOR_MANAGER_URL=http://localhost:4002
 CAPACITY_PLANNER_URL=http://localhost:4003
 NETWORK_ANALYTICS_URL=http://localhost:4004
 MARKETPLACE_URL=http://localhost:4005
 COMMUNITY_URL=http://localhost:4006
-WALLET_URL=http://localhost:4007
-DASHBOARD_URL=http://localhost:4008
-DAYDREAM_VIDEO_URL=http://localhost:4010
-DEVELOPER_API_URL=http://localhost:4011
-PLUGIN_PUBLISHER_URL=http://localhost:4012
+DEVELOPER_API_URL=http://localhost:4007
+WALLET_URL=http://localhost:4008
+DASHBOARD_URL=http://localhost:4009
+PLUGIN_PUBLISHER_URL=http://localhost:4010
+DAYDREAM_VIDEO_URL=http://localhost:4111
 
 # Caching (optional, uses in-memory fallback if not set)
 # REDIS_URL=redis://localhost:6379

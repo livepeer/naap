@@ -21,6 +21,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useShell } from './useShell.js';
+import { PLUGIN_PORTS } from '../config/ports.js';
 
 export interface UseWebSocketOptions {
   /** Whether to auto-connect (default: true) */
@@ -111,9 +112,11 @@ export function useWebSocket<T = unknown>(
   const connect = useCallback(() => {
     if (!enabled || !mountedRef.current) return;
 
-    // Determine WebSocket URL
+    // Determine WebSocket URL — uses same-origin in production, localhost:4000 in dev
     const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = typeof window !== 'undefined' ? window.location.host : 'localhost:4000';
+    const host = typeof window !== 'undefined'
+      ? window.location.host
+      : `localhost:${PLUGIN_PORTS['base'] || 4000}`;
     const wsUrl = `${protocol}//${host}/ws?channel=${encodeURIComponent(channel)}`;
 
     try {
