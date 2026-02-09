@@ -1,5 +1,5 @@
 /**
- * Community Hub Backend - v1.2
+ * Community Hub Backend - v1.3
  * Complete implementation with all features:
  * - Posts CRUD
  * - Comments/Answers
@@ -9,6 +9,7 @@
  * - Badges
  *
  * Migrated to @naap/plugin-server-sdk for standardized server setup.
+ * Uses unified database schema (packages/database) with CommunityProfile.
  */
 
 import 'dotenv/config';
@@ -42,6 +43,45 @@ function calculateLevel(reputation: number): number {
 }
 
 // ============================================
+// SHARED SELECT & FORMAT HELPERS
+// ============================================
+
+/**
+ * Standard select clause for CommunityProfile when used as author.
+ * CommunityProfile links to User via userId; displayName/avatarUrl/address
+ * live on the User model, so we include the `user` relation.
+ */
+const PROFILE_WITH_USER_SELECT = {
+  id: true,
+  reputation: true,
+  level: true,
+  user: {
+    select: {
+      id: true,
+      address: true,
+      displayName: true,
+      avatarUrl: true,
+    },
+  },
+} as const;
+
+/**
+ * Flatten a CommunityProfile (with nested user) into the API response shape.
+ * Frontend expects: { id, walletAddress, displayName, avatarUrl, reputation, level }
+ */
+function formatProfile(profile: any) {
+  if (!profile) return null;
+  return {
+    id: profile.id,
+    walletAddress: profile.user?.address || '',
+    displayName: profile.user?.displayName || '',
+    avatarUrl: profile.user?.avatarUrl || '',
+    reputation: profile.reputation,
+    level: profile.level,
+  };
+}
+
+// ============================================
 // HELPER: Get userId from request (JWT auth or body fallback)
 // ============================================
 
@@ -54,34 +94,32 @@ function getUserIdFromQuery(req: any): string | null {
 }
 
 // ============================================
-// HELPER: Get or Create User
+// HELPER: Get or Create CommunityProfile
+// In the unified schema, CommunityProfile.userId is a @unique FK to User.id.
+// The userId here is the User.id (from JWT or request).
 // ============================================
 
-async function getOrCreateUser(userId: string, displayName?: string) {
-  // userId is stored in walletAddress field (unique identifier)
-  let user = await db.communityProfile.findUnique({ where: { walletAddress: userId } });
-  if (!user) {
-    user = await db.communityProfile.create({
-      data: {
-        walletAddress: userId,
-        displayName: displayName || userId.slice(0, 10),
-      },
-    });
-  } else if (displayName && user.displayName !== displayName) {
-    user = await db.communityProfile.update({
-      where: { id: user.id },
-      data: { displayName },
+async function getOrCreateProfile(userId: string): Promise<any> {
+  let profile = await db.communityProfile.findUnique({
+    where: { userId },
+    include: { user: { select: { id: true, address: true, displayName: true, avatarUrl: true } } },
+  });
+  if (!profile) {
+    profile = await db.communityProfile.create({
+      data: { userId },
+      include: { user: { select: { id: true, address: true, displayName: true, avatarUrl: true } } },
     });
   }
-  return user;
+  return profile;
 }
 
 // ============================================
 // HELPER: Award Reputation
+// CommunityReputationLog uses profileId (not userId) in the unified schema.
 // ============================================
 
 async function awardReputation(
-  userId: string,
+  profileId: string,
   action: string,
   points: number,
   sourceType?: string,
@@ -89,7 +127,7 @@ async function awardReputation(
 ) {
   await db.communityReputationLog.create({
     data: {
-      userId,
+      profileId,
       action: action as any,
       points,
       sourceType,
@@ -97,30 +135,31 @@ async function awardReputation(
     },
   });
 
-  const user = await db.communityProfile.update({
-    where: { id: userId },
+  const profile = await db.communityProfile.update({
+    where: { id: profileId },
     data: { reputation: { increment: points } },
   });
 
-  const newLevel = calculateLevel(user.reputation);
-  if (newLevel !== user.level) {
+  const newLevel = calculateLevel(profile.reputation);
+  if (newLevel !== profile.level) {
     await db.communityProfile.update({
-      where: { id: userId },
+      where: { id: profileId },
       data: { level: newLevel },
     });
-    await checkBadges(userId);
+    await checkBadges(profileId);
   }
 
-  return user;
+  return profile;
 }
 
 // ============================================
 // HELPER: Check and Award Badges
+// CommunityUserBadge uses profileId (not userId) in the unified schema.
 // ============================================
 
-async function checkBadges(userId: string) {
-  const user = await db.communityProfile.findUnique({
-    where: { id: userId },
+async function checkBadges(profileId: string) {
+  const profile = await db.communityProfile.findUnique({
+    where: { id: profileId },
     include: {
       posts: true,
       comments: { where: { isAccepted: true } },
@@ -128,13 +167,13 @@ async function checkBadges(userId: string) {
     },
   });
 
-  if (!user) return;
+  if (!profile) return;
 
   const allBadges = await db.communityBadge.findMany();
 
   for (const badge of allBadges) {
     const alreadyEarned = await db.communityUserBadge.findFirst({
-      where: { userId, badgeId: badge.id },
+      where: { profileId, badgeId: badge.id },
     });
     if (alreadyEarned) continue;
 
@@ -142,29 +181,29 @@ async function checkBadges(userId: string) {
 
     switch (badge.slug) {
       case 'first-post':
-        shouldAward = user.posts.length >= 1;
+        shouldAward = profile.posts.length >= 1;
         break;
       case 'helpful':
-        shouldAward = user.reputation >= 100;
+        shouldAward = profile.reputation >= 100;
         break;
       case 'problem-solver':
-        shouldAward = user.comments.length >= 3;
+        shouldAward = profile.comments.length >= 3;
         break;
       case 'popular':
-        const popularPost = user.posts.find((p) => p.upvotes >= 25);
+        const popularPost = profile.posts.find((p: any) => p.upvotes >= 25);
         shouldAward = !!popularPost;
         break;
       case 'top-contributor':
-        shouldAward = user.level >= 5;
+        shouldAward = profile.level >= 5;
         break;
     }
 
     if (shouldAward) {
       await db.communityUserBadge.create({
-        data: { userId, badgeId: badge.id },
+        data: { profileId, badgeId: badge.id },
       });
       if (badge.points > 0) {
-        await awardReputation(userId, 'BADGE_EARNED', badge.points, 'badge', badge.id);
+        await awardReputation(profileId, 'BADGE_EARNED', badge.points, 'badge', badge.id);
       }
     }
   }
@@ -241,7 +280,7 @@ router.get('/community/posts', async (req, res) => {
         where,
         include: {
           author: {
-            select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+            select: PROFILE_WITH_USER_SELECT,
           },
           postTags: { include: { tag: true } },
           _count: { select: { comments: true, votes: true } },
@@ -267,7 +306,7 @@ router.get('/community/posts', async (req, res) => {
       isPinned: post.isPinned,
       createdAt: post.createdAt.toISOString(),
       updatedAt: post.updatedAt.toISOString(),
-      author: post.author,
+      author: formatProfile(post.author),
       tags: post.postTags.map((pt) => ({
         id: pt.tag.id,
         name: pt.tag.name,
@@ -295,13 +334,13 @@ router.get('/community/posts/:id', async (req, res) => {
       where: { id: req.params.id },
       include: {
         author: {
-          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+          select: PROFILE_WITH_USER_SELECT,
         },
         postTags: { include: { tag: true } },
         comments: {
           include: {
             author: {
-              select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+              select: PROFILE_WITH_USER_SELECT,
             },
           },
           orderBy: [{ isAccepted: 'desc' }, { upvotes: 'desc' }, { createdAt: 'asc' }],
@@ -320,6 +359,11 @@ router.get('/community/posts/:id', async (req, res) => {
 
     res.json({
       ...post,
+      author: formatProfile(post.author),
+      comments: post.comments.map((c) => ({
+        ...c,
+        author: formatProfile(c.author),
+      })),
       tags: post.postTags.map((pt) => ({
         id: pt.tag.id,
         name: pt.tag.name,
@@ -344,11 +388,11 @@ router.post('/community/posts', async (req, res) => {
       return res.status(400).json({ error: 'Authentication, title, and content are required' });
     }
 
-    const user = await getOrCreateUser(userId);
+    const profile = await getOrCreateProfile(userId);
 
     const post = await db.communityPost.create({
       data: {
-        authorId: user.id,
+        authorId: profile.id,
         title,
         content,
         postType: postType.toUpperCase(),
@@ -356,7 +400,7 @@ router.post('/community/posts', async (req, res) => {
       },
       include: {
         author: {
-          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+          select: PROFILE_WITH_USER_SELECT,
         },
       },
     });
@@ -373,10 +417,10 @@ router.post('/community/posts', async (req, res) => {
       }
     }
 
-    await awardReputation(user.id, 'POST_CREATED', REPUTATION_POINTS.POST_CREATED, 'post', post.id);
-    await checkBadges(user.id);
+    await awardReputation(profile.id, 'POST_CREATED', REPUTATION_POINTS.POST_CREATED, 'post', post.id);
+    await checkBadges(profile.id);
 
-    res.status(201).json(post);
+    res.status(201).json({ ...post, author: formatProfile(post.author) });
   } catch (error) {
     console.error('Create post error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -395,14 +439,15 @@ router.put('/community/posts/:id', async (req, res) => {
 
     const post = await db.communityPost.findUnique({
       where: { id: req.params.id },
-      include: { author: true },
+      include: { author: { include: { user: true } } },
     });
 
     if (!post) {
       return res.status(404).json({ error: 'Post not found' });
     }
 
-    if (post.author.walletAddress !== userId) {
+    // Auth check: compare User.id (the authenticated user) with the author's linked User.id
+    if (post.author.userId !== userId) {
       return res.status(403).json({ error: 'Not authorized to edit this post' });
     }
 
@@ -415,12 +460,12 @@ router.put('/community/posts/:id', async (req, res) => {
       },
       include: {
         author: {
-          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+          select: PROFILE_WITH_USER_SELECT,
         },
       },
     });
 
-    res.json(updatedPost);
+    res.json({ ...updatedPost, author: formatProfile(updatedPost.author) });
   } catch (error) {
     console.error('Update post error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -438,14 +483,14 @@ router.delete('/community/posts/:id', async (req, res) => {
 
     const post = await db.communityPost.findUnique({
       where: { id: req.params.id },
-      include: { author: true },
+      include: { author: { include: { user: true } } },
     });
 
     if (!post) {
       return res.status(404).json({ error: 'Post not found' });
     }
 
-    if (post.author.walletAddress !== userId) {
+    if (post.author.userId !== userId) {
       return res.status(403).json({ error: 'Not authorized to delete this post' });
     }
 
@@ -459,6 +504,8 @@ router.delete('/community/posts/:id', async (req, res) => {
 
 // ============================================
 // VOTING API
+// In the unified schema, CommunityVote uses profileId (not userId)
+// and the unique constraint is profileId_targetType_targetId.
 // ============================================
 
 // Vote on post
@@ -470,7 +517,7 @@ router.post('/community/posts/:id/vote', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const user = await getOrCreateUser(userId);
+    const profile = await getOrCreateProfile(userId);
     const postId = req.params.id;
 
     const post = await db.communityPost.findUnique({
@@ -484,8 +531,8 @@ router.post('/community/posts/:id/vote', async (req, res) => {
 
     const existingVote = await db.communityVote.findUnique({
       where: {
-        userId_targetType_targetId: {
-          userId: user.id,
+        profileId_targetType_targetId: {
+          profileId: profile.id,
           targetType: 'POST',
           targetId: postId,
         },
@@ -498,7 +545,7 @@ router.post('/community/posts/:id/vote', async (req, res) => {
 
     await db.communityVote.create({
       data: {
-        userId: user.id,
+        profileId: profile.id,
         targetType: 'POST',
         targetId: postId,
         postId: postId,
@@ -511,10 +558,10 @@ router.post('/community/posts/:id/vote', async (req, res) => {
       data: { upvotes: { increment: 1 } },
     });
 
-    await awardReputation(user.id, 'POST_UPVOTED', REPUTATION_POINTS.POST_UPVOTED, 'post', postId);
+    await awardReputation(profile.id, 'POST_UPVOTED', REPUTATION_POINTS.POST_UPVOTED, 'post', postId);
     await awardReputation(post.author.id, 'POST_RECEIVED_UPVOTE', REPUTATION_POINTS.POST_RECEIVED_UPVOTE, 'post', postId);
 
-    await checkBadges(user.id);
+    await checkBadges(profile.id);
     await checkBadges(post.author.id);
 
     res.json({ upvotes: updatedPost.upvotes, voted: true });
@@ -533,13 +580,13 @@ router.delete('/community/posts/:id/vote', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const user = await getOrCreateUser(userId);
+    const profile = await getOrCreateProfile(userId);
     const postId = req.params.id;
 
     const vote = await db.communityVote.findUnique({
       where: {
-        userId_targetType_targetId: {
-          userId: user.id,
+        profileId_targetType_targetId: {
+          profileId: profile.id,
           targetType: 'POST',
           targetId: postId,
         },
@@ -573,15 +620,16 @@ router.get('/community/posts/:id/vote', async (req, res) => {
       return res.json({ voted: false });
     }
 
-    const user = await db.communityProfile.findUnique({ where: { walletAddress: userId.toString() } });
-    if (!user) {
+    // Look up CommunityProfile by userId (FK to User.id)
+    const profile = await db.communityProfile.findUnique({ where: { userId: userId.toString() } });
+    if (!profile) {
       return res.json({ voted: false });
     }
 
     const vote = await db.communityVote.findUnique({
       where: {
-        userId_targetType_targetId: {
-          userId: user.id,
+        profileId_targetType_targetId: {
+          profileId: profile.id,
           targetType: 'POST',
           targetId: req.params.id,
         },
@@ -606,13 +654,13 @@ router.get('/community/posts/:id/comments', async (req, res) => {
       where: { postId: req.params.id },
       include: {
         author: {
-          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+          select: PROFILE_WITH_USER_SELECT,
         },
       },
       orderBy: [{ isAccepted: 'desc' }, { upvotes: 'desc' }, { createdAt: 'asc' }],
     });
 
-    res.json(comments);
+    res.json(comments.map((c) => ({ ...c, author: formatProfile(c.author) })));
   } catch (error) {
     console.error('Comments list error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -635,17 +683,17 @@ router.post('/community/posts/:id/comments', async (req, res) => {
       return res.status(404).json({ error: 'Post not found' });
     }
 
-    const user = await getOrCreateUser(userId);
+    const profile = await getOrCreateProfile(userId);
 
     const comment = await db.communityComment.create({
       data: {
         postId,
-        authorId: user.id,
+        authorId: profile.id,
         content,
       },
       include: {
         author: {
-          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+          select: PROFILE_WITH_USER_SELECT,
         },
       },
     });
@@ -655,9 +703,9 @@ router.post('/community/posts/:id/comments', async (req, res) => {
       data: { commentCount: { increment: 1 } },
     });
 
-    await awardReputation(user.id, 'COMMENT_CREATED', REPUTATION_POINTS.COMMENT_CREATED, 'comment', comment.id);
+    await awardReputation(profile.id, 'COMMENT_CREATED', REPUTATION_POINTS.COMMENT_CREATED, 'comment', comment.id);
 
-    res.status(201).json(comment);
+    res.status(201).json({ ...comment, author: formatProfile(comment.author) });
   } catch (error) {
     console.error('Create comment error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -676,14 +724,14 @@ router.put('/community/comments/:id', async (req, res) => {
 
     const comment = await db.communityComment.findUnique({
       where: { id: req.params.id },
-      include: { author: true },
+      include: { author: { include: { user: true } } },
     });
 
     if (!comment) {
       return res.status(404).json({ error: 'Comment not found' });
     }
 
-    if (comment.author.walletAddress !== userId) {
+    if (comment.author.userId !== userId) {
       return res.status(403).json({ error: 'Not authorized to edit this comment' });
     }
 
@@ -692,12 +740,12 @@ router.put('/community/comments/:id', async (req, res) => {
       data: { content },
       include: {
         author: {
-          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+          select: PROFILE_WITH_USER_SELECT,
         },
       },
     });
 
-    res.json(updatedComment);
+    res.json({ ...updatedComment, author: formatProfile(updatedComment.author) });
   } catch (error) {
     console.error('Update comment error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -715,14 +763,14 @@ router.delete('/community/comments/:id', async (req, res) => {
 
     const comment = await db.communityComment.findUnique({
       where: { id: req.params.id },
-      include: { author: true },
+      include: { author: { include: { user: true } } },
     });
 
     if (!comment) {
       return res.status(404).json({ error: 'Comment not found' });
     }
 
-    if (comment.author.walletAddress !== userId) {
+    if (comment.author.userId !== userId) {
       return res.status(403).json({ error: 'Not authorized to delete this comment' });
     }
 
@@ -749,7 +797,7 @@ router.post('/community/comments/:id/vote', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const user = await getOrCreateUser(userId);
+    const profile = await getOrCreateProfile(userId);
     const commentId = req.params.id;
 
     const comment = await db.communityComment.findUnique({
@@ -763,8 +811,8 @@ router.post('/community/comments/:id/vote', async (req, res) => {
 
     const existingVote = await db.communityVote.findUnique({
       where: {
-        userId_targetType_targetId: {
-          userId: user.id,
+        profileId_targetType_targetId: {
+          profileId: profile.id,
           targetType: 'COMMENT',
           targetId: commentId,
         },
@@ -777,7 +825,7 @@ router.post('/community/comments/:id/vote', async (req, res) => {
 
     await db.communityVote.create({
       data: {
-        userId: user.id,
+        profileId: profile.id,
         targetType: 'COMMENT',
         targetId: commentId,
         commentId: commentId,
@@ -790,7 +838,7 @@ router.post('/community/comments/:id/vote', async (req, res) => {
       data: { upvotes: { increment: 1 } },
     });
 
-    await awardReputation(user.id, 'COMMENT_UPVOTED', REPUTATION_POINTS.COMMENT_UPVOTED, 'comment', commentId);
+    await awardReputation(profile.id, 'COMMENT_UPVOTED', REPUTATION_POINTS.COMMENT_UPVOTED, 'comment', commentId);
     await awardReputation(comment.author.id, 'COMMENT_RECEIVED_UPVOTE', REPUTATION_POINTS.COMMENT_RECEIVED_UPVOTE, 'comment', commentId);
 
     res.json({ upvotes: updatedComment.upvotes, voted: true });
@@ -811,14 +859,18 @@ router.post('/community/comments/:id/accept', async (req, res) => {
 
     const comment = await db.communityComment.findUnique({
       where: { id: req.params.id },
-      include: { post: { include: { author: true } }, author: true },
+      include: {
+        post: { include: { author: { include: { user: true } } } },
+        author: true,
+      },
     });
 
     if (!comment) {
       return res.status(404).json({ error: 'Comment not found' });
     }
 
-    if (comment.post.author.walletAddress !== userId) {
+    // Only the post author can accept an answer — compare via User.id
+    if (comment.post.author.userId !== userId) {
       return res.status(403).json({ error: 'Only the post author can accept an answer' });
     }
 
@@ -832,7 +884,7 @@ router.post('/community/comments/:id/accept', async (req, res) => {
       data: { isAccepted: true },
       include: {
         author: {
-          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+          select: PROFILE_WITH_USER_SELECT,
         },
       },
     });
@@ -847,7 +899,7 @@ router.post('/community/comments/:id/accept', async (req, res) => {
 
     await checkBadges(comment.author.id);
 
-    res.json(updatedComment);
+    res.json({ ...updatedComment, author: formatProfile(updatedComment.author) });
   } catch (error) {
     console.error('Accept answer error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -861,24 +913,26 @@ router.post('/community/comments/:id/accept', async (req, res) => {
 // Get user profile
 router.get('/community/users/:id', async (req, res) => {
   try {
-    const user = await db.communityProfile.findUnique({
+    const profile = await db.communityProfile.findUnique({
       where: { id: req.params.id },
       include: {
+        user: { select: { id: true, address: true, displayName: true, avatarUrl: true } },
         badges: { include: { badge: true } },
         _count: { select: { posts: true, comments: true } },
       },
     });
 
-    if (!user) {
+    if (!profile) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     res.json({
-      ...user,
-      levelName: LEVEL_NAMES[user.level - 1] || 'Unknown',
-      badges: user.badges.map((ub) => ub.badge),
-      postCount: user._count.posts,
-      commentCount: user._count.comments,
+      ...formatProfile(profile),
+      bio: profile.user?.bio || '',
+      levelName: LEVEL_NAMES[profile.level - 1] || 'Unknown',
+      badges: profile.badges.map((ub: any) => ub.badge),
+      postCount: profile._count.posts,
+      commentCount: profile._count.comments,
     });
   } catch (error) {
     console.error('User profile error:', error);
@@ -886,27 +940,39 @@ router.get('/community/users/:id', async (req, res) => {
   }
 });
 
-// Get user by wallet address
+// Get user by wallet address (look up User by address, then find their CommunityProfile)
 router.get('/community/users/wallet/:address', async (req, res) => {
   try {
-    const user = await db.communityProfile.findUnique({
-      where: { walletAddress: req.params.address },
-      include: {
-        badges: { include: { badge: true } },
-        _count: { select: { posts: true, comments: true } },
-      },
+    // In the unified schema, address lives on User, so find the User first
+    const user = await db.user.findUnique({
+      where: { address: req.params.address },
+      select: { id: true },
     });
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    const profile = await db.communityProfile.findUnique({
+      where: { userId: user.id },
+      include: {
+        user: { select: { id: true, address: true, displayName: true, avatarUrl: true, bio: true } },
+        badges: { include: { badge: true } },
+        _count: { select: { posts: true, comments: true } },
+      },
+    });
+
+    if (!profile) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
     res.json({
-      ...user,
-      levelName: LEVEL_NAMES[user.level - 1] || 'Unknown',
-      badges: user.badges.map((ub) => ub.badge),
-      postCount: user._count.posts,
-      commentCount: user._count.comments,
+      ...formatProfile(profile),
+      bio: profile.user?.bio || '',
+      levelName: LEVEL_NAMES[profile.level - 1] || 'Unknown',
+      badges: profile.badges.map((ub: any) => ub.badge),
+      postCount: profile._count.posts,
+      commentCount: profile._count.comments,
     });
   } catch (error) {
     console.error('User profile error:', error);
@@ -920,22 +986,41 @@ router.put('/community/users/:id', async (req, res) => {
     const userId = getUserId(req);
     const { displayName, bio, avatarUrl } = req.body;
 
-    const user = await db.communityProfile.findUnique({ where: { id: req.params.id } });
+    const profile = await db.communityProfile.findUnique({
+      where: { id: req.params.id },
+    });
 
-    if (!user) {
+    if (!profile) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (user.walletAddress !== userId) {
+    // Auth check: compare the authenticated user's id with the profile's linked userId
+    if (profile.userId !== userId) {
       return res.status(403).json({ error: 'Not authorized to update this profile' });
     }
 
-    const updatedUser = await db.communityProfile.update({
-      where: { id: req.params.id },
-      data: { displayName, bio, avatarUrl },
+    // displayName, bio, avatarUrl live on the User model in the unified schema
+    await db.user.update({
+      where: { id: profile.userId },
+      data: {
+        ...(displayName !== undefined ? { displayName } : {}),
+        ...(bio !== undefined ? { bio } : {}),
+        ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+      },
     });
 
-    res.json(updatedUser);
+    // Return the updated profile with user data
+    const updatedProfile = await db.communityProfile.findUnique({
+      where: { id: req.params.id },
+      include: {
+        user: { select: { id: true, address: true, displayName: true, avatarUrl: true, bio: true } },
+      },
+    });
+
+    res.json({
+      ...formatProfile(updatedProfile),
+      bio: updatedProfile?.user?.bio || '',
+    });
   } catch (error) {
     console.error('Update user error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -947,23 +1032,16 @@ router.get('/community/leaderboard', async (req, res) => {
   try {
     const { limit = '10' } = req.query;
 
-    const users = await db.communityProfile.findMany({
+    const profiles = await db.communityProfile.findMany({
       orderBy: { reputation: 'desc' },
       take: parseInt(limit.toString()),
-      select: {
-        id: true,
-        walletAddress: true,
-        displayName: true,
-        avatarUrl: true,
-        reputation: true,
-        level: true,
-      },
+      select: PROFILE_WITH_USER_SELECT,
     });
 
-    const leaderboard = users.map((user, index) => ({
+    const leaderboard = profiles.map((profile, index) => ({
       rank: index + 1,
-      ...user,
-      levelName: LEVEL_NAMES[user.level - 1] || 'Unknown',
+      ...formatProfile(profile),
+      levelName: LEVEL_NAMES[profile.level - 1] || 'Unknown',
     }));
 
     res.json(leaderboard);
@@ -1013,13 +1091,13 @@ router.get('/community/badges', async (req, res) => {
 // Get user badges
 router.get('/community/users/:id/badges', async (req, res) => {
   try {
-    const user = await db.communityProfile.findUnique({ where: { id: req.params.id } });
-    if (!user) {
+    const profile = await db.communityProfile.findUnique({ where: { id: req.params.id } });
+    if (!profile) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     const userBadges = await db.communityUserBadge.findMany({
-      where: { userId: user.id },
+      where: { profileId: profile.id },
       include: { badge: true },
       orderBy: { earnedAt: 'desc' },
     });
@@ -1065,7 +1143,7 @@ router.get('/community/search', async (req, res) => {
         where,
         include: {
           author: {
-            select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+            select: PROFILE_WITH_USER_SELECT,
           },
           postTags: { include: { tag: true } },
         },
@@ -1080,6 +1158,7 @@ router.get('/community/search', async (req, res) => {
       query: q,
       posts: posts.map((post) => ({
         ...post,
+        author: formatProfile(post.author),
         tags: post.postTags.map((pt) => pt.tag),
         postTags: undefined,
       })),

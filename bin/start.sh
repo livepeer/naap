@@ -277,6 +277,70 @@ check_health() {
   echo "${code:-000}"
 }
 
+# Deep health check: verify a plugin backend can actually serve API requests
+# (not just respond to /healthz). This catches database schema mismatches,
+# missing tables, and Prisma client staleness that /healthz won't detect.
+get_plugin_api_prefix() {
+  local pj="$ROOT_DIR/plugins/$1/plugin.json"
+  if [ -f "$pj" ]; then
+    local ap
+    ap=$(grep -o '"apiPrefix"[[:space:]]*:[[:space:]]*"[^"]*"' "$pj" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    echo "${ap:-}"
+  fi
+}
+
+deep_health_check_plugin() {
+  local name=$1 port=$2 display_name=$3
+  local api_prefix
+  api_prefix=$(get_plugin_api_prefix "$name")
+  [ -z "$api_prefix" ] && { log_debug "No apiPrefix for $name, skipping deep check"; return 0; }
+
+  # Build a smoke-test URL using a safe read-only endpoint.
+  # Convention: <apiPrefix>/stats or <apiPrefix>/tags are lightweight GET endpoints.
+  # We try a few common ones; any non-5xx response is a pass.
+  local smoke_urls=(
+    "http://localhost:$port${api_prefix}/stats"
+    "http://localhost:$port${api_prefix}/tags"
+  )
+
+  local passed=false
+  for url in "${smoke_urls[@]}"; do
+    local sc
+    sc=$(curl -s -o /dev/null -w "%{http_code}" "$url" --connect-timeout 5 --max-time 10 2>/dev/null) || true
+    log_debug "Deep check $url -> HTTP $sc"
+    if [ -n "$sc" ] && [ "$sc" != "000" ] && [ "$sc" -lt 500 ] 2>/dev/null; then
+      passed=true
+      break
+    fi
+  done
+
+  if [ "$passed" = true ]; then
+    log_success "$display_name deep health check passed (API responds without 5xx)"
+    return 0
+  else
+    log_warn "$display_name deep health check FAILED — API returns 5xx errors."
+    echo -e "  ${YELLOW}The /healthz endpoint is OK, but actual API queries are failing.${NC}"
+    echo -e "  ${DIM}This usually means:${NC}"
+    echo -e "  ${DIM}  - Database schema mismatch (Prisma client out of date)${NC}"
+    echo -e "  ${DIM}  - Missing database tables/schemas${NC}"
+    echo -e "  ${DIM}  - Code references fields that don't exist in the schema${NC}"
+    echo -e "  ${DIM}Fix: cd packages/database && npx prisma generate && npx prisma db push${NC}"
+    echo -e "  ${DIM}Then restart: ./bin/start.sh restart $name${NC}"
+
+    # Show recent errors from the log
+    if [ -f "$LOG_DIR/${name}-svc.log" ]; then
+      local err_lines
+      err_lines=$(grep -i -E "(error|prisma|Invalid|unknown|column|field|table)" "$LOG_DIR/${name}-svc.log" 2>/dev/null | tail -5)
+      if [ -n "$err_lines" ]; then
+        echo -e "  ${DIM}--- Recent errors from ${name}-svc.log ---${NC}"
+        echo "$err_lines" | while IFS= read -r l; do echo -e "  ${DIM}  $l${NC}"; done
+        echo -e "  ${DIM}--- End ---${NC}"
+      fi
+    fi
+    return 1
+  fi
+}
+
 ###############################################################################
 # ARCHITECTURE DETECTION
 ###############################################################################
@@ -570,6 +634,49 @@ check_plugin_db_connectivity() {
 # START FUNCTIONS
 ###############################################################################
 
+###############################################################################
+# PRISMA CLIENT FRESHNESS CHECK
+# Ensures the generated Prisma client matches the schema. If schema.prisma
+# is newer than the generated client, we regenerate to prevent runtime errors
+# like "Unknown field" or "Invalid model" which manifest as 500s.
+###############################################################################
+
+ensure_prisma_client_fresh() {
+  local schema_file="$ROOT_DIR/packages/database/prisma/schema.prisma"
+  local client_dir="$ROOT_DIR/node_modules/.prisma/client"
+  local client_marker="$client_dir/index.js"
+
+  if [ ! -f "$schema_file" ]; then
+    log_debug "No schema.prisma found at $schema_file, skipping freshness check"
+    return 0
+  fi
+
+  local needs_regen=false
+
+  # Check 1: Generated client doesn't exist
+  if [ ! -f "$client_marker" ]; then
+    log_warn "Prisma client not generated. Generating now..."
+    needs_regen=true
+  fi
+
+  # Check 2: Schema is newer than generated client
+  if [ "$needs_regen" = false ] && [ -f "$client_marker" ]; then
+    if [ "$schema_file" -nt "$client_marker" ]; then
+      log_warn "Prisma schema is newer than generated client. Regenerating..."
+      needs_regen=true
+    fi
+  fi
+
+  if [ "$needs_regen" = true ]; then
+    cd "$ROOT_DIR/packages/database"
+    npx prisma generate > /dev/null 2>&1 && \
+      log_success "Prisma client regenerated (matches current schema)" || \
+      log_error "Prisma client regeneration failed! Plugin backends may 500."
+  else
+    log_debug "Prisma client is up to date"
+  fi
+}
+
 ensure_plugins_built() {
   log_info "Checking plugin builds..."
   local to_build=()
@@ -696,12 +803,18 @@ start_plugin_backend() {
   wait_for_health "http://localhost:$port${health_path}" "$display_name" 20 && {
     register_pid $pid "$svc_name"
     log_success "$display_name Backend: http://localhost:$port${health_path}"
+
+    # Deep health check: verify actual API queries work (catches schema mismatches).
+    # This runs asynchronously — won't block startup, but will warn if queries fail.
+    deep_health_check_plugin "$name" "$port" "$display_name" || \
+      log_warn "$display_name is running but may have issues (see warnings above)"
   } || {
     log_error "$display_name backend failed to start on port $port."
     echo -e "  ${DIM}Common fixes:${NC}"
     echo -e "  ${DIM}  - Port in use? Run: lsof -i :$port${NC}"
     echo -e "  ${DIM}  - Missing node_modules? Run: cd plugins/$name/backend && npm install${NC}"
     echo -e "  ${DIM}  - Database not ready? Run: docker ps | grep naap${NC}"
+    echo -e "  ${DIM}  - Schema mismatch? Run: cd packages/database && npx prisma generate && npx prisma db push${NC}"
     echo -e "  ${DIM}  - Check full log: logs/${name}-svc.log${NC}"
     show_failure_context "$LOG_DIR/${name}-svc.log"
     kill $pid 2>/dev/null || true; return 1
@@ -956,6 +1069,27 @@ cmd_validate() {
     echo -e "  ${YELLOW}[SKIP]${NC} Unified database not running"; ((skipped++)) || true
   fi
 
+  log_section "Plugin API Deep Checks (DB connectivity)"
+  for plugin in $(get_all_plugins); do
+    local bp=$(get_plugin_backend_port "$plugin")
+    [ -z "$bp" ] && continue
+    local dn=$(get_plugin_display_name "$plugin")
+    local api_prefix=$(get_plugin_api_prefix "$plugin")
+    [ -z "$api_prefix" ] && continue
+
+    # Try stats or tags endpoint to verify actual DB queries work
+    local smoke_url="http://localhost:$bp${api_prefix}/stats"
+    local smoke_code=$(check_health "$smoke_url")
+    if [ "$smoke_code" = "000" ]; then
+      echo -e "  ${YELLOW}[SKIP]${NC} $dn API deep check (not running)"; ((skipped++)) || true
+    elif [ -n "$smoke_code" ] && [ "$smoke_code" -lt 500 ] 2>/dev/null; then
+      echo -e "  ${GREEN}[PASS]${NC} $dn API deep check (HTTP $smoke_code)"; ((passed++)) || true
+    else
+      echo -e "  ${RED}[FAIL]${NC} $dn API deep check (HTTP $smoke_code — likely schema/DB mismatch)"; ((failed++)) || true
+      echo -e "         ${DIM}Fix: cd packages/database && npx prisma generate && npx prisma db push${NC}"
+    fi
+  done
+
   log_section "Core API Endpoints"
   _vld_multi "Auth API (Legacy)" "http://localhost:$BASE_SVC_PORT/api/v1/base/auth/session" "200|401"
   _vld "Feature Flags" "http://localhost:$BASE_SVC_PORT/api/v1/base/config/features"
@@ -1046,7 +1180,7 @@ WEOF
 ###############################################################################
 
 setup_infra()      { log_section "Infrastructure"; ensure_env_files; ensure_databases || { log_error "Database setup failed."; exit 1; }; }
-setup_infra_full() { setup_infra; sync_unified_database; validate_plugin_envs; check_plugin_db_connectivity; }
+setup_infra_full() { setup_infra; sync_unified_database; ensure_prisma_client_fresh; validate_plugin_envs; check_plugin_db_connectivity; }
 start_core()       { log_section "Core Services"; start_base_service || { log_error "Base service failed."; exit 1; }; start_plugin_server || { log_error "Plugin server failed."; exit 1; }; start_health_monitor; }
 
 # Sequential backend startup
