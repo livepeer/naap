@@ -55,15 +55,31 @@ async function handleRequest(
   }
 
   // On Vercel (production), localhost services are not available.
-  // Return a clear error instead of attempting a doomed proxy.
+  // For GET requests, return empty data so the UI degrades gracefully.
+  // For mutations, return a clear error.
   const isVercel = process.env.VERCEL === '1';
   if (isVercel && serviceUrl.includes('localhost')) {
+    if (request.method === 'GET') {
+      // Return empty data — the UI should handle empty arrays/objects gracefully
+      console.warn(
+        `[proxy] Vercel: returning empty data for GET /api/v1/${plugin}/${path.join('/')}. ` +
+        `Add a dedicated Next.js route handler to serve real data.`
+      );
+      return NextResponse.json(
+        { posts: [], entries: [], tags: [], items: [], total: 0, data: null },
+        {
+          status: 200,
+          headers: { 'X-Fallback': 'true' },
+        }
+      );
+    }
     return NextResponse.json(
       {
         success: false,
         error: {
           code: 'SERVICE_UNAVAILABLE',
-          message: `Plugin service "${plugin}" is not available in production. This API endpoint needs a dedicated Next.js route handler.`,
+          message: `Plugin service "${plugin}" is not available in this environment. ` +
+            `This write endpoint needs a dedicated Next.js route handler.`,
         },
         meta: { timestamp: new Date().toISOString() },
       },

@@ -5,37 +5,17 @@
  */
 
 import {
-  getPluginBackendUrl,
+  getServiceOrigin,
   getCsrfToken,
   generateCorrelationId,
 } from '@naap/plugin-sdk';
 import { HEADER_CSRF_TOKEN, HEADER_CORRELATION, HEADER_PLUGIN_NAME } from '@naap/types';
 
-/**
- * Get the base-svc URL.
- *
- * In production (Vercel) the Next.js app IS the base service, so we use
- * same-origin (empty string) and let the browser resolve paths like
- * /api/v1/registry/packages directly.
- *
- * In development the base-svc runs on a separate port (localhost:4000).
- */
-function getBaseSvcUrl(): string {
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      return ''; // Production: same-origin
-    }
-  }
-  // Dev: returns http://localhost:4000
-  return getPluginBackendUrl('base');
-}
+// Base-svc origin: '' in production (same-origin), 'http://localhost:4000' in dev
+const BASE_SVC_URL = getServiceOrigin('base');
 
-const BASE_SVC_URL = getBaseSvcUrl();
-
-// Get Publisher service URL.
-// Same pattern as base-svc: empty string in production, localhost:4012 in dev.
-const PUBLISHER_API_URL = getBaseSvcUrl();
+// Publisher-svc origin: '' in production (same-origin), 'http://localhost:4012' in dev
+const PUBLISHER_API_URL = getServiceOrigin('plugin-publisher');
 
 // Auth token storage key (must match shell's STORAGE_KEYS.AUTH_TOKEN)
 const AUTH_TOKEN_KEY = 'naap_auth_token';

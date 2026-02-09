@@ -247,11 +247,18 @@ import {
   PLUGIN_PORTS,
   getPluginPort,
   getPluginBackendUrl as configGetPluginBackendUrl,
+  getServiceOrigin as configGetServiceOrigin,
   type PluginBackendUrlOptions,
 } from '../config/ports.js';
 
 // Re-export for backwards compatibility
 export { PLUGIN_PORTS, getPluginPort, PluginBackendUrlOptions };
+
+/**
+ * Re-export of `getServiceOrigin` from config/ports.
+ * @see getServiceOrigin in config/ports.ts for full docs.
+ */
+export const getServiceOrigin = configGetServiceOrigin;
 
 /**
  * Get the backend URL for a specific plugin.

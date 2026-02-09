@@ -35,9 +35,11 @@ Key technical details:
 **CRITICAL — Deployment-Safe API Patterns:**
 - NEVER hardcode `http://localhost:PORT` in frontend code
 - NEVER use `window.location.hostname + ':PORT'` for API URLs
-- ALWAYS use `getPluginBackendUrl()` from @naap/plugin-sdk for backend URLs
-- On Vercel, there are no separate backend ports — all API calls go through
-  the Next.js API proxy at the same origin (e.g., `/api/v1/my-plugin/items`)
+- ALWAYS use one of these two SDK functions:
+  - `getPluginBackendUrl(name, { apiPath })` — returns a prefix you append relative paths to (e.g., `/posts`)
+  - `getServiceOrigin(name)` — returns just the origin; use when you build full paths (e.g., `/api/v1/registry/packages`)
+- On Vercel, there are NO separate backend ports — all API traffic is same-origin
+- NEVER call `getPluginBackendUrl('base')` and then append `/api/v1/...` — this creates doubled URLs in production
 
 **CRITICAL — Build Configuration:**
 - Use `createPluginConfig()` from `@naap/plugin-build/vite` for vite.config.ts

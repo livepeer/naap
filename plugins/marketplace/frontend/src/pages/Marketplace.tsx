@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ShoppingBag, Search, Download, Check, Star, Users, Package, ExternalLink, X, Loader2, Sparkles, Settings, Cloud, Server, MessageSquare, Send } from 'lucide-react';
 import { Card, Badge } from '@naap/ui';
-import { usePluginConfig, useTenantContext, useAuthService, useTeam, useEvents, getPluginBackendUrl } from '@naap/plugin-sdk';
+import { usePluginConfig, useTenantContext, useAuthService, useTeam, useEvents, getServiceOrigin } from '@naap/plugin-sdk';
 
 // ============================================
 // Tenant Personalization Config
@@ -91,33 +91,9 @@ const categoryColors: Record<string, 'blue' | 'emerald' | 'amber' | 'rose'> = {
   other: 'blue',
 };
 
-/**
- * Get API base URL.
- *
- * In production (Vercel) the Next.js app IS the API, so we return empty
- * string (same-origin) and let paths like /api/v1/registry/packages resolve
- * directly.  In dev the base-svc runs on localhost:4000.
- */
-const getApiBaseUrl = (): string => {
-  // Check for window-injected config first (set by shell)
-  if (typeof window !== 'undefined') {
-    const shellContext = (window as unknown as { __SHELL_CONTEXT__?: { config?: { apiBaseUrl?: string } } }).__SHELL_CONTEXT__;
-    if (shellContext?.config?.apiBaseUrl) {
-      return shellContext.config.apiBaseUrl;
-    }
-    // Production: same-origin (empty string)
-    const hostname = window.location.hostname;
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      return '';
-    }
-  }
-  // Check for environment variable (build-time)
-  if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL;
-  }
-  // Dev: returns http://localhost:4000
-  return getPluginBackendUrl('base');
-};
+// Get API base URL: '' in production (same-origin), 'http://localhost:4000' in dev.
+// getServiceOrigin already checks shell context, env vars, and hostname.
+const getApiBaseUrl = (): string => getServiceOrigin('base');
 
 const BASE_URL = getApiBaseUrl();
 

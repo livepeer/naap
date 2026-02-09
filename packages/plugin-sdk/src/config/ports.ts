@@ -160,6 +160,93 @@ export function assertCorrectPort(pluginName: string, actualPort: number): void 
 // URL Resolution (for frontend use)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Check whether we are running in a production/deployed environment
+ * (i.e. NOT on localhost).
+ */
+function isProductionHost(): boolean {
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    return hostname !== 'localhost' && hostname !== '127.0.0.1';
+  }
+  // SSR / Node – check for VERCEL env
+  return process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+}
+
+/**
+ * Get the *origin* (scheme + host + port) of a plugin service.
+ *
+ * This is the correct function when the caller supplies a **full path**
+ * that already starts with `/api/v1/…`.
+ *
+ * | Environment | Returns                                     |
+ * |-------------|---------------------------------------------|
+ * | Dev         | `http://localhost:{port}` (e.g. `:4000`)    |
+ * | Production  | `''` (empty string → same-origin)           |
+ *
+ * ### When to use this vs `getPluginBackendUrl`
+ *
+ * ```ts
+ * // ✅ USE getServiceOrigin  –  you already have a full API path
+ * const origin = getServiceOrigin('base');       // '' in prod, 'http://localhost:4000' in dev
+ * fetch(`${origin}/api/v1/registry/packages`);   // works in both environments
+ *
+ * // ✅ USE getPluginBackendUrl  –  you want an API *prefix* and will append a relative path
+ * const prefix = getPluginBackendUrl('community', { apiPath: '/api/v1/community' });
+ * fetch(`${prefix}/posts`);                      // /api/v1/community/posts in prod
+ *
+ * // ❌ NEVER do this  –  creates /api/v1/base/api/v1/registry/packages on Vercel
+ * const bad = getPluginBackendUrl('base');
+ * fetch(`${bad}/api/v1/registry/packages`);
+ * ```
+ *
+ * @param pluginName - Plugin or service name (used to look up the dev port)
+ * @param overridePort - Optional port override for development
+ */
+export function getServiceOrigin(pluginName: string = 'base', overridePort?: number): string {
+  // 1. Shell context override (iframe mode)
+  if (typeof window !== 'undefined') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const shellContext = (window as any).__SHELL_CONTEXT__ as
+      | { config?: Record<string, unknown> }
+      | undefined;
+    if (shellContext?.config) {
+      const camelCaseName = pluginName.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+      const configKey = `${camelCaseName}ApiUrl`;
+      const configUrl = shellContext.config[configKey];
+      if (configUrl && typeof configUrl === 'string') {
+        // Strip any trailing path — we only want the origin
+        try {
+          const u = new URL(configUrl);
+          return u.origin;
+        } catch {
+          return configUrl;
+        }
+      }
+    }
+  }
+
+  // 2. Environment variable overrides
+  const envKey = pluginName.toUpperCase().replace(/-/g, '_');
+  if (typeof process !== 'undefined' && process.env) {
+    const nodeUrl = process.env[`${envKey}_BACKEND_URL`] || process.env[`NEXT_PUBLIC_${envKey}_API_URL`];
+    if (nodeUrl) {
+      try { return new URL(nodeUrl).origin; } catch { return nodeUrl; }
+    }
+  }
+
+  // 3. Production / Vercel — same-origin
+  if (isProductionHost()) {
+    return '';
+  }
+
+  // 4. Development — localhost + port
+  const resolvedPort = overridePort || getPluginPort(pluginName);
+  return typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:${resolvedPort}`
+    : `http://localhost:${resolvedPort}`;
+}
+
 export interface PluginBackendUrlOptions {
   /** Custom port override for development */
   port?: number;

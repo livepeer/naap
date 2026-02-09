@@ -79,20 +79,42 @@ NaaP plugins run in two environments with **very different** network topologies:
 | **Local dev** | Each plugin backend runs on its own port | `http://localhost:4006/api/v1/community/posts` |
 | **Vercel / production** | All traffic goes through the Next.js API proxy on the same origin | `/api/v1/community/posts` |
 
-The SDK's `getPluginBackendUrl()` handles this automatically — **always use it** instead of hardcoding URLs:
+The SDK provides **two functions** for URL resolution. Use the one that matches your call pattern:
+
+#### Pattern A: API Prefix + Relative Suffix (recommended for most plugins)
+
+Use `getPluginBackendUrl()` when your plugin calls endpoints under a single API prefix:
 
 ```typescript
 import { getPluginBackendUrl } from '@naap/plugin-sdk';
 
-// Correct — works everywhere
 const API_BASE = getPluginBackendUrl('community', {
   apiPath: '/api/v1/community',
 });
-// Local dev  → http://localhost:4006/api/v1/community
-// Production → /api/v1/community
+// Dev:  http://localhost:4006/api/v1/community
+// Prod: /api/v1/community
+
+fetch(`${API_BASE}/posts`);       // /api/v1/community/posts
+fetch(`${API_BASE}/leaderboard`); // /api/v1/community/leaderboard
 ```
 
-**Never do this:**
+#### Pattern B: Origin + Full Path (for cross-service calls)
+
+Use `getServiceOrigin()` when your plugin calls **multiple different API paths** (e.g., registry, teams, installations):
+
+```typescript
+import { getServiceOrigin } from '@naap/plugin-sdk';
+
+const origin = getServiceOrigin('base');
+// Dev:  http://localhost:4000
+// Prod: '' (empty string = same-origin)
+
+fetch(`${origin}/api/v1/registry/packages`);
+fetch(`${origin}/api/v1/teams/${teamId}/plugins`);
+fetch(`${origin}/api/v1/installations`);
+```
+
+#### What NOT to Do
 
 ```typescript
 // WRONG — breaks on Vercel (port 4006 does not exist)
@@ -100,9 +122,21 @@ const API_BASE = 'http://localhost:4006/api/v1/community';
 
 // WRONG — appends port to production hostname
 const API_BASE = `${window.location.protocol}//${window.location.hostname}:4006`;
+
+// WRONG — creates /api/v1/base/api/v1/registry/packages (doubled path!)
+const base = getPluginBackendUrl('base');  // returns '/api/v1/base' in prod
+fetch(`${base}/api/v1/registry/packages`); // DOUBLED!
 ```
 
-If you need an API client, the SDK also provides `usePluginApi()` (recommended for React components) and `createPluginApiClient()` (for non-React code). Both resolve URLs correctly in all environments.
+#### Quick Reference
+
+| I want to... | Use this function |
+|---|---|
+| Call `/api/v1/community/posts`, `/api/v1/community/tags` | `getPluginBackendUrl('community', { apiPath: '/api/v1/community' })` then append `/posts`, `/tags` |
+| Call `/api/v1/registry/packages`, `/api/v1/teams/...` | `getServiceOrigin('base')` then append the full path |
+| Build a React hook with automatic URL resolution | `usePluginApi({ pluginName: 'my-plugin', apiPath: '/api/v1/my-plugin' })` |
+
+Run `./bin/validate-plugin-urls.sh` before committing to catch common URL mistakes.
 
 ### Event Communication
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Box, Key, BarChart3, BookOpen, Plus, Copy, RefreshCw, Trash2, Search } from 'lucide-react';
 import { Card, Badge } from '@naap/ui';
-import { getPluginBackendUrl } from '@naap/plugin-sdk';
+import { getServiceOrigin } from '@naap/plugin-sdk';
 
 type TabId = 'models' | 'api-keys' | 'usage' | 'docs';
 
@@ -29,21 +29,8 @@ interface ApiKey {
   lastUsedAt: string | null;
 }
 
-/**
- * In production (Vercel) the Next.js app IS the API — use same-origin.
- * In dev the developer-api service runs on its own port.
- */
-function getDevApiBaseUrl(): string {
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      return ''; // Production: same-origin
-    }
-  }
-  return getPluginBackendUrl('developer-api');
-}
-
-const BASE_URL = getDevApiBaseUrl();
+// '' in production (same-origin), 'http://localhost:4011' in dev
+const BASE_URL = getServiceOrigin('developer-api');
 
 const tabs = [
   { id: 'models' as TabId, label: 'Models', icon: <Box size={18} /> },
