@@ -120,16 +120,32 @@ export function PluginProvider({ children }: { children: ReactNode }) {
       const normalizePluginName = (name: string) => 
         name.toLowerCase().replace(/[-_]/g, '');
 
+      // Extract CDN fields from metadata if not present as top-level fields.
+      // The WorkflowPlugin Prisma model stores bundleUrl, stylesUrl, globalName,
+      // and deploymentType inside the `metadata` JSON column.
+      const hydratePluginCDNFields = (plugin: PluginManifest): PluginManifest => {
+        const meta = (plugin.metadata ?? {}) as Record<string, unknown>;
+        return {
+          ...plugin,
+          bundleUrl: plugin.bundleUrl || (meta.bundleUrl as string | undefined),
+          stylesUrl: plugin.stylesUrl || (meta.stylesUrl as string | undefined),
+          globalName: plugin.globalName || (meta.globalName as string | undefined),
+          deploymentType: plugin.deploymentType || (meta.deploymentType as string | undefined),
+        };
+      };
+
       // Deduplicate plugins by normalized name (keep first occurrence)
       const seenNames = new Set<string>();
-      const fetchedPlugins = rawPlugins.filter(plugin => {
-        const normalized = normalizePluginName(plugin.name);
-        if (seenNames.has(normalized)) {
-          return false;
-        }
-        seenNames.add(normalized);
-        return true;
-      });
+      const fetchedPlugins = rawPlugins
+        .map(hydratePluginCDNFields)
+        .filter(plugin => {
+          const normalized = normalizePluginName(plugin.name);
+          if (seenNames.has(normalized)) {
+            return false;
+          }
+          seenNames.add(normalized);
+          return true;
+        });
 
       // Sort by order
       fetchedPlugins.sort((a, b) => a.order - b.order);
