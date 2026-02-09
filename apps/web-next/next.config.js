@@ -1,3 +1,6 @@
+const path = require('path');
+const { PrismaPlugin } = require('@prisma/nextjs-monorepo-workaround-plugin');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Enable React 19 features
@@ -9,15 +12,9 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', 'framer-motion'],
   },
 
-  // Include Prisma engine binaries in the standalone output.
-  // Required because the Prisma client is generated in a monorepo workspace
-  // package (packages/database/src/generated/client/) which Next.js standalone
-  // tracing doesn't automatically include.
-  outputFileTracingIncludes: {
-    '/api/**': ['../../packages/database/src/generated/client/**'],
-    '/dashboard/**': ['../../packages/database/src/generated/client/**'],
-    '/plugins/**': ['../../packages/database/src/generated/client/**'],
-  },
+  // Monorepo: set tracing root to the repo root so Next.js can find
+  // files from workspace packages (e.g. @naap/database engine binaries).
+  outputFileTracingRoot: path.join(__dirname, '../../'),
 
   // Transpile monorepo packages
   // Note: @naap/database is excluded — Prisma generates JS output via postinstall,
@@ -47,9 +44,10 @@ const nextConfig = {
 
   // Webpack configuration for monorepo
   webpack: (config, { isServer }) => {
-    // Handle node modules in server components
+    // Prisma: ensure engine binaries are included in the standalone bundle.
+    // This is the official fix for Prisma + Next.js monorepo deployments.
     if (isServer) {
-      config.externals = config.externals || [];
+      config.plugins = [...config.plugins, new PrismaPlugin()];
     }
 
     // Reduce file watcher scope to prevent EMFILE errors in large monorepos.

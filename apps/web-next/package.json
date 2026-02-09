@@ -23,12 +23,12 @@
   },
   "dependencies": {
     "@naap/config": "*",
+    "@naap/database": "*",
     "@naap/plugin-sdk": "*",
     "@naap/theme": "*",
     "@naap/types": "*",
     "@naap/ui": "*",
     "@naap/utils": "*",
-    "@naap/database": "*",
     "@vercel/blob": "^2.0.1",
     "ably": "^2.17.1",
     "framer-motion": "^12.0.0",
@@ -48,6 +48,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",
+    "@prisma/nextjs-monorepo-workaround-plugin": "^7.3.0",
     "@tailwindcss/forms": "^0.5.9",
     "@tailwindcss/typography": "^0.5.15",
     "@testing-library/jest-dom": "^6.6.0",
