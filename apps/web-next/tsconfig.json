@@ -32,8 +32,7 @@
       "@naap/theme": ["../../packages/theme/src/index.ts"],
       "@naap/utils": ["../../packages/utils/src/index.ts"],
       "@naap/config": ["../../packages/config/src/index.ts"],
-      "@naap/plugin-sdk": ["../../packages/plugin-sdk/src/index.ts"],
-      "@naap/plugin-sdk/ports": ["../../packages/plugin-sdk/src/config/ports.ts"]
+      "@naap/plugin-sdk": ["../../packages/plugin-sdk/src/index.ts"]
     }
   },
   "include": [
