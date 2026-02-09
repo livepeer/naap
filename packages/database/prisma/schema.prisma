@@ -38,6 +38,7 @@ model User {
   address       String?   @unique // Wallet address for Web3 auth
   displayName   String?
   avatarUrl     String?
+  bio           String?
   lockedUntil   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -54,6 +55,10 @@ model User {
   // Team relations
   ownedTeams      Team[]       @relation("TeamOwner")
   teamMemberships TeamMember[]
+
+  // Platform relations
+  pluginReviews    PluginReview[]
+  feedbacks        Feedback[]
 
   // Plugin relations - Community
   communityProfile CommunityProfile?
@@ -342,10 +347,12 @@ model UserPluginPreference {
 model Publisher {
   id          String          @id @default(uuid())
   name        String          @unique
-  displayName String?
+  displayName String
+  description String?
+  website     String?
   githubOrg   String?         @unique
   githubUser  String?         @unique
-  email       String?
+  email       String          @unique
   avatarUrl   String?
   verified    Boolean         @default(false)
   packages    PluginPackage[] @relation("PackagePublisher")
@@ -414,6 +421,7 @@ model PluginPackage {
   versions      PluginVersion[]
   installations PluginInstallation[]
   deployment    PluginDeployment?
+  reviews       PluginReview[]
 
   @@index([category])
   @@index([deprecated])
@@ -437,12 +445,21 @@ model PluginVersion {
   deprecationMsg String?
   downloads      Int                  @default(0)
   publishedAt    DateTime             @default(now())
+
+  // CDN deployment fields (for UMD bundles)
+  bundleUrl      String?              // CDN URL for the UMD bundle
+  stylesUrl      String?              // CDN URL for styles
+  bundleHash     String?              // Content hash for cache validation
+  bundleSize     Int?                 // Bundle size in bytes
+  deploymentType String?              @default("cdn") // cdn | container
+
   installations  PluginInstallation[]
   deployments    PluginDeployment[]
   pinnedByTeams  TeamPluginInstall[]  @relation("PinnedVersion")
 
   @@unique([packageId, version])
   @@index([packageId, publishedAt])
+  @@index([deploymentType])
   @@schema("public")
 }
 
@@ -483,17 +500,28 @@ model PluginDeployment {
   backendUrl      String?
   containerPort   Int?
   databaseSchema  String?
+
+  // CDN deployment fields
+  bundleUrl       String?               // CDN URL for UMD bundle
+  stylesUrl       String?               // CDN URL for styles
+  bundleHash      String?               // Content hash for cache busting
+  bundleSize      Int?                  // Bundle size in bytes
+  deploymentType  String                @default("cdn") // cdn | container
+
   activeInstalls  Int                   @default(0)
   deployedAt      DateTime?
   lastHealthCheck DateTime?
   healthStatus    String?
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
+
   tenantInstalls  TenantPluginInstall[]
   teamInstalls    TeamPluginInstall[]
+  slots           PluginDeploymentSlot[]
 
   @@index([status])
   @@index([healthStatus])
+  @@index([deploymentType])
   @@schema("public")
 }
 
@@ -1369,4 +1397,177 @@ model DevApiUsageLog {
   @@index([apiKeyId])
   @@index([timestamp])
   @@schema("plugin_developer_api")
+}
+
+// ============================================
+// PLATFORM - PLUGIN REVIEWS
+// ============================================
+
+model PluginReview {
+  id          String        @id @default(uuid())
+  packageId   String
+  package     PluginPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating      Int           // 1-5 star rating
+  comment     String?       // Optional review comment
+  displayName String?       // Cached display name at time of review
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([packageId, userId]) // One review per user per plugin
+  @@index([packageId, createdAt])
+  @@index([userId])
+  @@schema("public")
+}
+
+// ============================================
+// PLATFORM - FEEDBACK
+// ============================================
+
+model Feedback {
+  id          String   @id @default(uuid())
+  type        String   // bug, feature, general
+  title       String
+  description String
+  status      String   @default("open") // open, investigating, roadmap, released, closed
+  releaseTag  String?  // e.g. "v1.2.0" – set when status = released
+  adminNote   String?  // internal admin note
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userEmail   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@map("feedback")
+  @@schema("public")
+}
+
+model FeedbackConfig {
+  id             String   @id @default(uuid())
+  githubIssueUrl String   @default("")
+  discordUrl     String   @default("")
+  updatedBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("feedback_config")
+  @@schema("public")
+}
+
+// ============================================
+// PLATFORM - BLUE-GREEN DEPLOYMENT INFRASTRUCTURE
+// ============================================
+
+// Deployment slot for blue-green deployments
+// Each deployment has two slots (blue/green) for zero-downtime updates
+model PluginDeploymentSlot {
+  id              String           @id @default(uuid())
+  deploymentId    String
+  deployment      PluginDeployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  slot            String           // "blue" | "green"
+  version         String           // Version deployed to this slot
+  status          String           @default("inactive") // active, inactive, deploying, failed, draining
+  trafficPercent  Int              @default(0) // 0-100
+  frontendUrl     String?          // CDN URL for this slot's frontend bundle
+  backendUrl      String?          // Container URL for this slot's backend
+  healthStatus    String?          // healthy, unhealthy, unknown
+  lastHealthCheck DateTime?
+  healthCheckFailures Int          @default(0)
+  deployedAt      DateTime?
+  deployedBy      String?
+  metadata        Json?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([deploymentId, slot])
+  @@index([deploymentId])
+  @@index([status])
+  @@index([healthStatus])
+  @@schema("public")
+}
+
+// Deployment events for audit trail and history
+model DeploymentEvent {
+  id             String   @id @default(uuid())
+  deploymentId   String
+  type           String   // deploy_start, deploy_complete, health_check, traffic_shift, rollback, failure
+  fromSlot       String?
+  toSlot         String?
+  fromVersion    String?
+  toVersion      String?
+  trafficPercent Int?
+  status         String   @default("success") // success, failure, in_progress
+  error          String?
+  initiatedBy    String?
+  metadata       Json?
+  duration       Int?     // Duration in milliseconds
+  createdAt      DateTime @default(now())
+
+  @@index([deploymentId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([deploymentId, createdAt])
+  @@schema("public")
+}
+
+// ============================================
+// PLATFORM - PLUGIN OBSERVABILITY
+// ============================================
+
+// Time-series metrics for plugin monitoring
+model PluginMetrics {
+  id             String   @id @default(uuid())
+  deploymentId   String
+  slot           String?  // Optional slot identifier for per-slot metrics
+  timestamp      DateTime @default(now())
+  requestCount   Int      @default(0)
+  errorCount     Int      @default(0)
+  latencyP50     Float?
+  latencyP95     Float?
+  latencyP99     Float?
+  latencyAvg     Float?
+  activeUsers    Int      @default(0)
+  uniqueSessions Int      @default(0)
+  memoryUsageMb  Float?
+  cpuUsagePercent Float?
+  periodSeconds  Int      @default(60) // Aggregation window
+
+  @@index([deploymentId, timestamp])
+  @@index([deploymentId, slot, timestamp])
+  @@index([timestamp])
+  @@schema("public")
+}
+
+// Alert configuration for plugin monitoring
+model PluginAlert {
+  id              String    @id @default(uuid())
+  deploymentId    String
+  name            String
+  description     String?
+  metric          String    // error_rate, latency_p99, health_check, cpu_usage, memory_usage
+  operator        String    // gt, gte, lt, lte, eq
+  threshold       Float
+  duration        Int       @default(60)
+  severity        String    @default("warning") // critical, warning, info
+  autoRollback    Boolean   @default(false)
+  channels        Json      @default("[]")
+  enabled         Boolean   @default(true)
+  lastTriggeredAt DateTime?
+  lastResolvedAt  DateTime?
+  triggerCount    Int       @default(0)
+  cooldownSeconds Int       @default(300)
+  createdBy       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([deploymentId, name])
+  @@index([deploymentId])
+  @@index([enabled])
+  @@index([severity])
+  @@schema("public")
 }
