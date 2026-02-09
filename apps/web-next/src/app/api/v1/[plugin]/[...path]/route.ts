@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthToken } from '@/lib/api/response';
-import { PLUGIN_PORTS, DEFAULT_PORT } from '@naap/plugin-sdk/config';
+import { PLUGIN_PORTS, DEFAULT_PORT } from '@naap/plugin-sdk/ports';
 
 // ─── Plugin service URL map ─────────────────────────────────────────────────
 // Ports come from PLUGIN_PORTS (which mirrors plugin.json devPort values).
