@@ -121,18 +121,10 @@ build_plugin() {
     npm install --silent 2>/dev/null || npm install
   fi
 
-  # Ensure PostCSS plugins are resolvable from the plugin directory.
-  # Vite's PostCSS loader uses createRequire() which only looks in
-  # local node_modules. In npm workspaces these deps are hoisted to
-  # the root, so we symlink them if missing locally.
-  for dep in tailwindcss autoprefixer postcss; do
-    if [ ! -e "node_modules/$dep" ] && [ -d "$ROOT_DIR/node_modules/$dep" ]; then
-      mkdir -p node_modules
-      ln -sf "$ROOT_DIR/node_modules/$dep" "node_modules/$dep"
-    fi
-  done
-
   # Build with production mode
+  # PostCSS (tailwindcss/autoprefixer) is configured inline in
+  # @naap/plugin-build's shared Vite config, so no postcss.config.js
+  # or local symlinks are needed.
   npx vite build --mode production 2>&1 | while read line; do
     echo "  $line"
   done
