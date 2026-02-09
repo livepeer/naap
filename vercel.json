@@ -1,9 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "cd apps/web-next && npm run build",
+  "buildCommand": "export DATABASE_URL=\"${DATABASE_URL:-$POSTGRES_PRISMA_URL}\" && cd apps/web-next && npm run build",
   "outputDirectory": "apps/web-next/.next",
-  "installCommand": "npm install",
+  "installCommand": "export DATABASE_URL=\"${DATABASE_URL:-$POSTGRES_PRISMA_URL}\" && npm install",
   "regions": ["iad1"],
   "git": {
     "deploymentEnabled": true
@@ -97,12 +97,6 @@
       "destination": "/cdn/plugins/:path*"
     }
   ],
-  "redirects": [
-    {
-      "source": "/docs",
-      "destination": "/docs/getting-started",
-      "permanent": false
-    }
-  ],
+  "redirects": [],
   "crons": []
 }
