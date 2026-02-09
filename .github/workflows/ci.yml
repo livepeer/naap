@@ -20,6 +20,7 @@ concurrency:
 env:
   NODE_VERSION: '20'
   NEXT_TELEMETRY_DISABLED: 1
+  NX_PACKAGE_MANAGER: npm
 
 jobs:
   # ===========================================================================
