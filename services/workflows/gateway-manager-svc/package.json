@@ -11,7 +11,7 @@
   "dependencies": {
     "@naap/types": "*",
     "@naap/database": "*",
-    "cors": "^2.8.5",
+    "cors": "^2.8.6",
     "express": "^4.21.0"
   },
   "devDependencies": {

@@ -11,7 +11,7 @@
   "dependencies": {
     "@naap/plugin-server-sdk": "*",
     "@naap/database": "*",
-    "cors": "^2.8.5",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.7",
     "express": "^4.21.0"
   },
