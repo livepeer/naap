@@ -5,11 +5,11 @@
  * Ports legacy base-svc registry endpoint to Next.js.
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors, parsePagination } from '@/lib/api/response';
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const searchParams = request.nextUrl.searchParams;
     const search = searchParams.get('search');

@@ -3,12 +3,12 @@
  * GET /api/v1/admin/users - List all users (admin only)
  */
 
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) {
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
         address: true,
         emailVerified: true,
         createdAt: true,
-        userRoles: {
+        roles: {
           select: {
             role: {
               select: {
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
       displayName: user.displayName,
       avatarUrl: user.avatarUrl,
       walletAddress: user.address,
-      roles: user.userRoles.map(ur => ur.role.name),
+      roles: user.roles.map(ur => ur.role.name),
       emailVerified: !!user.emailVerified,
       createdAt: user.createdAt,
       lastLoginAt: null, // Not tracked in this schema

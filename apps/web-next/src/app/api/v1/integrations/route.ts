@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { success, errors } from '@/lib/api/response';
 
 // Available integrations
@@ -48,7 +48,7 @@ const INTEGRATIONS = [
 ];
 
 // GET /api/v1/integrations - Get available integrations
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     // In production, check which integrations are actually configured
     // by looking at the IntegrationConfig table

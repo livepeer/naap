@@ -3,7 +3,7 @@
  * GET /api/v1/admin/feedback - List all feedback with search/filter/pagination
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import {
@@ -14,7 +14,7 @@ import {
 } from '@/lib/api/response';
 import { Prisma } from '@naap/database';
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) return errors.unauthorized('No auth token provided');

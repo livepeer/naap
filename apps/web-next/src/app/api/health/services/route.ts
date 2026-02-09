@@ -107,7 +107,7 @@ async function checkService(name: string, baseUrl: string): Promise<ServiceHealt
  * Returns health status of all off-Vercel services.
  * Used by monitoring systems and deployment validation.
  */
-export async function GET() {
+export async function GET(): Promise<NextResponse> {
   const services = [
     { name: 'base-svc', url: baseSvcUrl },
     { name: 'plugin-server', url: pluginServerUrl },

@@ -114,7 +114,7 @@ const orchestrators = [
   },
 ];
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');

@@ -44,7 +44,7 @@ function deepMerge(base: Record<string, unknown>, override: Record<string, unkno
 
 // GET /api/v1/teams/[teamId]/members/me/plugins/[installId]/config
 // Returns shared config, personal config, and merged result
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { teamId, installId } = await params;
 
@@ -121,7 +121,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 // PUT /api/v1/teams/[teamId]/members/me/plugins/[installId]/config
 // Update personal config overrides
-export async function PUT(request: NextRequest, { params }: RouteParams) {
+export async function PUT(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { teamId, installId } = await params;
 
@@ -217,7 +217,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
 // DELETE /api/v1/teams/[teamId]/members/me/plugins/[installId]/config
 // Reset personal config to team defaults
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { teamId, installId } = await params;
 

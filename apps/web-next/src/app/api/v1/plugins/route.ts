@@ -4,12 +4,12 @@
  * POST /api/v1/plugins - Register a new plugin
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { errors, getAuthToken, success } from '@/lib/api/response';
 import { getPluginRegistry } from '@/lib/plugins/registry';
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     // Validate session
     const token = getAuthToken(request);
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     // Validate session
     const token = getAuthToken(request);

@@ -3,7 +3,7 @@
  * POST /api/v1/plugin-publisher/validate - Validate a plugin manifest
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 
@@ -95,7 +95,7 @@ function validateManifest(manifest: unknown): ValidationResult {
   return { valid: validationErrors.length === 0, errors: validationErrors, warnings };
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) {

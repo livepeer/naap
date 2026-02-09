@@ -3,11 +3,11 @@
  * Login with email/password
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { login } from '@/lib/api/auth';
 import { success, errors, getClientIP } from '@/lib/api/response';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();
     const { email, password } = body;

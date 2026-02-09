@@ -3,7 +3,7 @@
  * Get OAuth authorization URL
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { getOAuthUrl, generateCSRFToken } from '@/lib/api/auth';
 import { success, errors } from '@/lib/api/response';
 
@@ -11,7 +11,7 @@ interface RouteParams {
   params: Promise<{ provider: string }>;
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { provider } = await params;
 

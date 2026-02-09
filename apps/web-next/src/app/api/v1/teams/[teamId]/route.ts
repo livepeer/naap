@@ -5,7 +5,7 @@
  * DELETE /api/v1/teams/:teamId - Delete team
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { getTeam, getTeamMember, updateTeam, deleteTeam } from '@/lib/api/teams';
 import { success, errors, getAuthToken } from '@/lib/api/response';
@@ -15,7 +15,7 @@ interface RouteParams {
   params: Promise<{ teamId: string }>;
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { teamId } = await params;
 
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function PUT(request: NextRequest, { params }: RouteParams) {
+export async function PUT(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { teamId } = await params;
 
@@ -86,7 +86,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { teamId } = await params;
 

@@ -4,7 +4,7 @@
  * DELETE /api/v1/developer/keys/:id - Revoke API key
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
@@ -14,7 +14,7 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id } = await params;
 
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return errors.unauthorized('Invalid or expired session');
     }
 
-    const apiKey = await prisma.developerApiKey.findFirst({
+    const apiKey = await prisma.devApiKey.findFirst({
       where: {
         id,
         userId: user.id, // Ensure user owns this key
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id } = await params;
 
@@ -67,7 +67,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check if key exists and belongs to user
-    const apiKey = await prisma.developerApiKey.findFirst({
+    const apiKey = await prisma.devApiKey.findFirst({
       where: {
         id,
         userId: user.id,
@@ -79,9 +79,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     // Revoke the key (soft delete)
-    const revokedKey = await prisma.developerApiKey.update({
+    const revokedKey = await prisma.devApiKey.update({
       where: { id },
-      data: { status: 'revoked' },
+      data: { status: 'REVOKED', revokedAt: new Date() },
     });
 
     return success({

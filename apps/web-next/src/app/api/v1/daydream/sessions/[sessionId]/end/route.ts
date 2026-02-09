@@ -3,7 +3,7 @@
  * POST /api/v1/daydream/sessions/:sessionId/end - End a session
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
@@ -13,7 +13,7 @@ interface RouteParams {
   params: Promise<{ sessionId: string }>;
 }
 
-export async function POST(request: NextRequest, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { sessionId } = await params;
 

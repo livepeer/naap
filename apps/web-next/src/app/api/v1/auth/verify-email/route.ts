@@ -3,11 +3,11 @@
  * Verify email with token
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { verifyEmail } from '@/lib/api/auth';
 import { success, errors } from '@/lib/api/response';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();
     const { token } = body;

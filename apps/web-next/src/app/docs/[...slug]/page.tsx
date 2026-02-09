@@ -85,6 +85,7 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
                 components={components}
                 options={{
                   mdxOptions: {
+                    format: 'md',
                     remarkPlugins: [remarkGfm],
                     rehypePlugins: [rehypeSlug],
                   },

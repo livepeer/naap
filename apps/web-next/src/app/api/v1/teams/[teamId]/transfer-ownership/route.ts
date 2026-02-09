@@ -3,7 +3,7 @@
  * POST /api/v1/teams/:teamId/transfer-ownership
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { transferOwnership } from '@/lib/api/teams';
 import { success, errors, getAuthToken } from '@/lib/api/response';
@@ -13,7 +13,7 @@ interface RouteParams {
   params: Promise<{ teamId: string }>;
 }
 
-export async function POST(request: NextRequest, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { teamId } = await params;
 

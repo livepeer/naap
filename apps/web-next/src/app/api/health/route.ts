@@ -45,7 +45,7 @@ const startTime = Date.now();
  * - Load balancer health probes
  * - Monitoring systems (UptimeRobot, Checkly, etc.)
  */
-export async function GET() {
+export async function GET(): Promise<NextResponse> {
   const requestStart = Date.now();
 
   const health: HealthStatus = {

@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { success, errors } from '@/lib/api/response';
 
 // Mock tenant installations for now
@@ -34,7 +34,7 @@ const MOCK_INSTALLATIONS = [
 ];
 
 // GET /api/v1/tenant/installations - Get user's plugin installations
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const userId = request.nextUrl.searchParams.get('userId');
 

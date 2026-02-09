@@ -4,7 +4,7 @@
  * POST /api/v1/developer/keys - Create new API key
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import * as crypto from 'crypto';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
@@ -20,7 +20,7 @@ function hashApiKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex').slice(0, 16);
 }
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) {
@@ -36,13 +36,13 @@ export async function GET(request: NextRequest) {
     const { page, pageSize, skip } = parsePagination(searchParams);
 
     const [keys, total] = await Promise.all([
-      prisma.developerApiKey.findMany({
+      prisma.devApiKey.findMany({
         where: { userId: user.id },
         orderBy: { createdAt: 'desc' },
         take: pageSize,
         skip,
       }),
-      prisma.developerApiKey.count({
+      prisma.devApiKey.count({
         where: { userId: user.id },
       }),
     ]);
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) {
@@ -103,16 +103,15 @@ export async function POST(request: NextRequest) {
     const rawKey = generateApiKey();
     const keyHash = hashApiKey(rawKey);
 
-    const apiKey = await prisma.developerApiKey.create({
+    const apiKey = await prisma.devApiKey.create({
       data: {
         userId: user.id,
         projectName,
         modelId,
-        modelName: model.name,
-        gatewayId,
-        gatewayName: gateway.gatewayName,
+        gatewayOfferId: gatewayId || undefined,
         keyHash,
-        status: 'active',
+        keyPrefix: rawKey.slice(0, 8),
+        status: 'ACTIVE',
       },
     });
 

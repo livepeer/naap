@@ -28,7 +28,7 @@
     "@naap/types": "*",
     "@naap/ui": "*",
     "@naap/utils": "*",
-    "@naap/database": "workspace:*",
+    "@naap/database": "*",
     "@vercel/blob": "^2.0.1",
     "ably": "^2.17.1",
     "framer-motion": "^12.0.0",

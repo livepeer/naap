@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@naap/types": "workspace:*",
+    "@naap/types": "*",
     "cors": "^2.8.5",
     "express": "^4.21.0",
     "helmet": "^8.0.0",
