@@ -288,18 +288,22 @@ model FeatureFlag {
 // ============================================
 
 model WorkflowPlugin {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  displayName String
-  version     String
-  remoteUrl   String
-  routes      String[]
-  enabled     Boolean  @default(true)
-  order       Int      @default(0)
-  icon        String?
-  metadata    Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(uuid())
+  name           String   @unique
+  displayName    String
+  version        String
+  remoteUrl      String
+  bundleUrl      String?  // CDN UMD bundle URL (e.g., /cdn/plugins/my-wallet/1.0.0/my-wallet.js)
+  stylesUrl      String?  // CDN styles URL (e.g., /cdn/plugins/my-wallet/1.0.0/my-wallet.css)
+  globalName     String?  // UMD global name (e.g., NaapPluginMyWallet)
+  deploymentType String?  @default("cdn") // 'cdn' | 'container'
+  routes         String[]
+  enabled        Boolean  @default(true)
+  order          Int      @default(0)
+  icon           String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@index([enabled, order])
   @@schema("public")

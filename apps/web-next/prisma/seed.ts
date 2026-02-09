@@ -400,11 +400,10 @@ async function main() {
     return `${PLUGIN_CDN_URL}/${dir}/${version}/${dir}.css`;
   };
 
-  // Helper to build a plugin definition with schema-compatible fields.
-  // The generated Prisma client (from packages/database) does NOT have
-  // bundleUrl/stylesUrl/globalName/deploymentType as direct columns on
-  // WorkflowPlugin — only the metadata JSON column.  The plugin context
-  // on the frontend extracts these from metadata at runtime.
+  // Helper to build a plugin definition.
+  // CDN fields (bundleUrl, stylesUrl, globalName, deploymentType) are stored
+  // as direct columns on the WorkflowPlugin model so the API returns them
+  // without any metadata extraction needed on the frontend.
   const mkPlugin = (
     name: string,
     displayName: string,
@@ -416,16 +415,14 @@ async function main() {
     displayName,
     version: '1.0.0',
     remoteUrl: getPluginUrl(name),
+    bundleUrl: getBundleUrl(name),
+    stylesUrl: getStylesUrl(name),
+    globalName: pluginGlobalNames[name],
+    deploymentType: 'cdn',
     routes,
     enabled: true,
     order,
     icon,
-    metadata: {
-      bundleUrl: getBundleUrl(name),
-      stylesUrl: getStylesUrl(name),
-      globalName: pluginGlobalNames[name],
-      deploymentType: 'cdn',
-    },
   });
 
   const defaultPlugins = [

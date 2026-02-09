@@ -415,10 +415,16 @@ ensure_databases() {
   fi
 }
 
-# Generate the unified Prisma client and push the schema.
+# Generate the unified Prisma client, push the schema, and ensure seed data.
 # All plugins and services share packages/database as their Prisma source.
+#
+# This function is idempotent — safe to run on every start:
+#   1. Regenerates the Prisma client (picks up any schema changes)
+#   2. Pushes the schema to the DB (adds new columns/tables non-destructively)
+#   3. Checks data integrity (users exist, plugins have CDN URLs)
+#   4. Re-seeds if data is missing or incomplete
 sync_unified_database() {
-  log_info "Generating unified Prisma client and pushing schema..."
+  log_info "Syncing unified database (schema + data)..."
 
   # Ensure plugin schemas exist in the database
   local c="$UNIFIED_DB_CONTAINER"
@@ -431,17 +437,63 @@ sync_unified_database() {
 
   cd "$ROOT_DIR/packages/database"
 
-  # Generate Prisma client from unified schema
+  # Step 1: Regenerate Prisma client from the source-of-truth schema.
+  # This ensures the client always matches packages/database/prisma/schema.prisma
+  # even after git pull brings new columns.
   npx prisma generate > /dev/null 2>&1 || {
     log_error "Prisma generate failed for packages/database"
     return 1
   }
   log_debug "Prisma client generated"
 
-  # Push schema to unified database (creates tables in all schemas)
+  # Step 2: Push schema to database (creates tables + adds new columns).
+  # This is non-destructive — existing data is preserved, only missing
+  # columns/tables are added.  --accept-data-loss allows dropping columns
+  # that were removed from the schema (safe for dev).
   DATABASE_URL="$UNIFIED_DB_URL" npx prisma db push --skip-generate --accept-data-loss > /dev/null 2>&1 && \
-    log_success "Unified schema pushed to database" || \
+    log_success "Schema pushed to database" || \
     log_warn "Schema push had issues (may be fine on first run)"
+
+  # Step 3: Check data integrity.
+  # We verify two things:
+  #   a) Users exist (empty → fresh DB, need full seed)
+  #   b) Plugins have bundleUrl set (null → schema was updated but seed
+  #      was run with old schema; need re-seed to populate CDN URLs)
+  local need_seed=false
+
+  local user_count
+  user_count=$(docker exec "$c" psql -U "$UNIFIED_DB_USER" -d "$UNIFIED_DB_NAME" -t -c \
+    "SELECT count(*) FROM \"User\"" 2>/dev/null | tr -d ' ')
+  if [ "$user_count" = "0" ] 2>/dev/null; then
+    log_info "Empty database detected (no users)"
+    need_seed=true
+  fi
+
+  # Check if any plugin is missing its bundleUrl (CDN URL).
+  # This catches the case where DB has plugins from an older seed that
+  # stored CDN fields in metadata JSON instead of direct columns.
+  if [ "$need_seed" = "false" ]; then
+    local null_bundle_count
+    null_bundle_count=$(docker exec "$c" psql -U "$UNIFIED_DB_USER" -d "$UNIFIED_DB_NAME" -t -c \
+      "SELECT count(*) FROM \"WorkflowPlugin\" WHERE \"bundleUrl\" IS NULL" 2>/dev/null | tr -d ' ')
+    if [ -n "$null_bundle_count" ] && [ "$null_bundle_count" -gt 0 ] 2>/dev/null; then
+      log_info "Found $null_bundle_count plugin(s) missing CDN bundle URL"
+      need_seed=true
+    fi
+  fi
+
+  # Step 4: Run seed if data is missing or incomplete.
+  # The seed uses upsert so it's safe to re-run — existing records are
+  # updated with current values, new records are created.
+  if [ "$need_seed" = "true" ]; then
+    log_info "Running database seed (upsert — safe to re-run)..."
+    cd "$ROOT_DIR/apps/web-next"
+    DATABASE_URL="$UNIFIED_DB_URL" npx tsx prisma/seed.ts > "$LOG_DIR/seed.log" 2>&1 && \
+      log_success "Database seeded (users, roles, plugins, marketplace)" || \
+      log_warn "Seed had issues (check logs/seed.log)"
+  else
+    log_success "Database data verified (users + plugin CDN URLs present)"
+  fi
 }
 
 ###############################################################################
