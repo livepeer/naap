@@ -9,23 +9,23 @@
     "deploymentEnabled": true
   },
   "functions": {
-    "apps/web-next/src/app/api/v1/auth/**/*.ts": {
+    "app/api/v1/auth/**": {
       "maxDuration": 30
     },
-    "apps/web-next/src/app/api/v1/base/**/*.ts": {
+    "app/api/v1/base/**": {
       "maxDuration": 60
     },
-    "apps/web-next/src/app/api/v1/livepeer/**/*.ts": {
+    "app/api/v1/livepeer/**": {
       "maxDuration": 60
     },
-    "apps/web-next/src/app/api/v1/pipelines/**/*.ts": {
+    "app/api/v1/pipelines/**": {
       "maxDuration": 120
     },
-    "apps/web-next/src/app/api/v1/storage/**/*.ts": {
+    "app/api/v1/storage/**": {
       "maxDuration": 60,
       "memory": 1024
     },
-    "apps/web-next/src/app/api/v1/[plugin]/**/*.ts": {
+    "app/api/v1/[plugin]/**": {
       "maxDuration": 30
     }
   },
