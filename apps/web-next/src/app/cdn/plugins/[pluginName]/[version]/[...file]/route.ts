@@ -117,7 +117,7 @@ export async function GET(
       headers: {
         'Content-Type': contentType,
         'Cache-Control': process.env.NODE_ENV === 'production'
-          ? 'public, max-age=31536000, immutable'  // 1 year for versioned assets
+          ? 'public, max-age=0, must-revalidate'  // Revalidate on each request until content-hash versioning is added
           : 'no-cache',  // No caching in development
         'X-Content-Type-Options': 'nosniff',
       },
