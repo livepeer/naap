@@ -29,7 +29,21 @@ interface ApiKey {
   lastUsedAt: string | null;
 }
 
-const BASE_URL = getPluginBackendUrl('developer-api');
+/**
+ * In production (Vercel) the Next.js app IS the API — use same-origin.
+ * In dev the developer-api service runs on its own port.
+ */
+function getDevApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      return ''; // Production: same-origin
+    }
+  }
+  return getPluginBackendUrl('developer-api');
+}
+
+const BASE_URL = getDevApiBaseUrl();
 
 const tabs = [
   { id: 'models' as TabId, label: 'Models', icon: <Box size={18} /> },

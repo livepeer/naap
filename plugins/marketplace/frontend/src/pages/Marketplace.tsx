@@ -91,7 +91,13 @@ const categoryColors: Record<string, 'blue' | 'emerald' | 'amber' | 'rose'> = {
   other: 'blue',
 };
 
-// Get API base URL from environment or use default
+/**
+ * Get API base URL.
+ *
+ * In production (Vercel) the Next.js app IS the API, so we return empty
+ * string (same-origin) and let paths like /api/v1/registry/packages resolve
+ * directly.  In dev the base-svc runs on localhost:4000.
+ */
 const getApiBaseUrl = (): string => {
   // Check for window-injected config first (set by shell)
   if (typeof window !== 'undefined') {
@@ -99,12 +105,17 @@ const getApiBaseUrl = (): string => {
     if (shellContext?.config?.apiBaseUrl) {
       return shellContext.config.apiBaseUrl;
     }
+    // Production: same-origin (empty string)
+    const hostname = window.location.hostname;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      return '';
+    }
   }
   // Check for environment variable (build-time)
   if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL;
   }
-  // Use SDK resolution (same-origin on production, localhost:port on dev)
+  // Dev: returns http://localhost:4000
   return getPluginBackendUrl('base');
 };
 

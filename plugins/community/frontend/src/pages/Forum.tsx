@@ -69,14 +69,15 @@ export const ForumPage: React.FC = () => {
       if (searchQuery) params.search = searchQuery;
 
       const data = await fetchPosts(params);
-      setPosts(data.posts);
-      setTotal(data.total);
+      const postsList = Array.isArray(data?.posts) ? data.posts : [];
+      setPosts(postsList);
+      setTotal(data?.total ?? 0);
 
       // Check which posts the user has voted on
-      if (isUserLoggedIn()) {
+      if (isUserLoggedIn() && postsList.length > 0) {
         const votedIds = new Set<string>();
         await Promise.all(
-          data.posts.map(async (post) => {
+          postsList.map(async (post) => {
             const voted = await checkVoted(post.id);
             if (voted) votedIds.add(post.id);
           })
@@ -90,10 +91,14 @@ export const ForumPage: React.FC = () => {
     }
   }, [categoryFilter, searchQuery, sortBy]);
 
-  // Load sidebar data
+  // Load sidebar data (defensive: ensure arrays)
   useEffect(() => {
-    fetchLeaderboard(5).then(setLeaderboard).catch(console.error);
-    fetchTags(8).then(setTags).catch(console.error);
+    fetchLeaderboard(5)
+      .then((data) => setLeaderboard(Array.isArray(data) ? data : []))
+      .catch(() => setLeaderboard([]));
+    fetchTags(8)
+      .then((data) => setTags(Array.isArray(data) ? data : []))
+      .catch(() => setTags([]));
   }, []);
 
   useEffect(() => {

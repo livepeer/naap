@@ -173,7 +173,8 @@ export async function fetchPosts(params?: {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch posts');
-  return res.json();
+  const data = await res.json();
+  return { posts: Array.isArray(data?.posts) ? data.posts : [], total: data?.total ?? 0 };
 }
 
 export async function fetchPost(id: string): Promise<Post> {
@@ -328,7 +329,8 @@ export async function fetchLeaderboard(limit = 10): Promise<LeaderboardEntry[]> 
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch leaderboard');
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data : (Array.isArray(data?.entries) ? data.entries : []);
 }
 
 export async function fetchTags(limit = 20): Promise<Tag[]> {
@@ -336,7 +338,8 @@ export async function fetchTags(limit = 20): Promise<Tag[]> {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch tags');
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data : (Array.isArray(data?.tags) ? data.tags : []);
 }
 
 export async function fetchUser(id: string): Promise<User> {

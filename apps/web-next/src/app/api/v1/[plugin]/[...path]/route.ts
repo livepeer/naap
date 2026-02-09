@@ -54,6 +54,23 @@ async function handleRequest(
     );
   }
 
+  // On Vercel (production), localhost services are not available.
+  // Return a clear error instead of attempting a doomed proxy.
+  const isVercel = process.env.VERCEL === '1';
+  if (isVercel && serviceUrl.includes('localhost')) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: `Plugin service "${plugin}" is not available in production. This API endpoint needs a dedicated Next.js route handler.`,
+        },
+        meta: { timestamp: new Date().toISOString() },
+      },
+      { status: 503 }
+    );
+  }
+
   // Get auth token if present
   const token = getAuthToken(request);
 
