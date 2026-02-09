@@ -55,6 +55,23 @@ function setTokenStorage(token: string | null) {
   }
 }
 
+// Fetch a CSRF token from the server and store it in sessionStorage.
+// Called after successful login so that plugin API calls include the token.
+async function fetchAndStoreCsrfToken() {
+  try {
+    const res = await fetch('/api/v1/auth/csrf', { credentials: 'include' });
+    if (res.ok) {
+      const json = await res.json();
+      const token = json.data?.token || json.token;
+      if (token && typeof window !== 'undefined') {
+        sessionStorage.setItem(STORAGE_KEYS.CSRF_TOKEN, token);
+      }
+    }
+  } catch {
+    // Non-critical — the SDK's getCsrfToken() will generate a fallback
+  }
+}
+
 // Clear ALL auth-related storage (use on logout or invalid session)
 function clearAllAuthStorage() {
   if (typeof window === 'undefined') return;
@@ -134,6 +151,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
       }
 
+      // Ensure CSRF token is available for plugin mutations (non-blocking)
+      if (!sessionStorage.getItem(STORAGE_KEYS.CSRF_TOKEN)) {
+        fetchAndStoreCsrfToken();
+      }
+
       return userData;
     } catch (error) {
       console.error('Error fetching user:', error);
@@ -184,6 +206,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (tokenData) {
         setTokenStorage(tokenData);
       }
+
+      // Fetch CSRF token so plugin mutations include X-CSRF-Token
+      await fetchAndStoreCsrfToken();
 
       setState({
         user: userData,
@@ -244,6 +269,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (tokenData) {
         setTokenStorage(tokenData);
       }
+
+      // Fetch CSRF token so plugin mutations include X-CSRF-Token
+      await fetchAndStoreCsrfToken();
 
       setState({
         user: userData,
