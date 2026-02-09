@@ -328,8 +328,9 @@ async function main() {
   // ============================================
   console.log('🔌 Creating workflow plugins...');
 
-  // CDN/UMD bundle URLs (same-origin, enables camera/mic)
-  const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || 'http://localhost:3000/cdn/plugins';
+  // CDN/UMD bundle URLs — use relative paths so the same DB records work on
+  // any deployment (localhost, Vercel preview, production).
+  const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || '/cdn/plugins';
 
   // ---------------------------------------------------------------------------
   // Dynamic plugin discovery from plugins/*/plugin.json
