@@ -44,9 +44,22 @@ function getConnectionUrl(): string {
     '';
 
   if (!baseUrl) {
-    console.warn('[database] No DATABASE_URL or POSTGRES_* env var found – queries will fail.');
+    console.warn(
+      '[database] No database URL found. Checked: DATABASE_URL=%s, POSTGRES_PRISMA_URL=%s, POSTGRES_URL=%s',
+      process.env.DATABASE_URL ? 'SET' : 'EMPTY',
+      process.env.POSTGRES_PRISMA_URL ? 'SET' : 'EMPTY',
+      process.env.POSTGRES_URL ? 'SET' : 'EMPTY',
+    );
     return '';
   }
+
+  // Log which env var was resolved (mask the value for security)
+  const source = process.env.DATABASE_URL
+    ? 'DATABASE_URL'
+    : process.env.POSTGRES_PRISMA_URL
+    ? 'POSTGRES_PRISMA_URL'
+    : 'POSTGRES_URL';
+  console.log(`[database] Using ${source} (${baseUrl.substring(0, 30)}...)`);
 
   // If URL already has query params, don't modify
   if (baseUrl.includes('?')) {
