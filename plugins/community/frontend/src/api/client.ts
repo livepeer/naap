@@ -173,8 +173,11 @@ export async function fetchPosts(params?: {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch posts');
-  const data = await res.json();
-  return { posts: Array.isArray(data?.posts) ? data.posts : [], total: data?.total ?? 0 };
+  const json = await res.json();
+  // Unwrap envelope: API may return { success, data: { posts }, meta } or { posts }
+  const payload = json.data ?? json;
+  const meta = json.meta ?? payload;
+  return { posts: Array.isArray(payload?.posts) ? payload.posts : [], total: meta?.total ?? 0 };
 }
 
 export async function fetchPost(id: string): Promise<Post> {
@@ -182,7 +185,8 @@ export async function fetchPost(id: string): Promise<Post> {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch post');
-  return res.json();
+  const json = await res.json();
+  return json.data?.post ?? json.data ?? json;
 }
 
 export async function createPost(data: {
@@ -201,7 +205,8 @@ export async function createPost(data: {
     body: JSON.stringify({ ...data, userId: user.userId, displayName: user.displayName }),
   });
   if (!res.ok) throw new Error('Failed to create post');
-  return res.json();
+  const json = await res.json();
+  return json.data?.post ?? json.data ?? json;
 }
 
 export async function updatePost(id: string, data: {
@@ -279,7 +284,9 @@ export async function fetchComments(postId: string): Promise<Comment[]> {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch comments');
-  return res.json();
+  const json = await res.json();
+  const payload = json.data ?? json;
+  return Array.isArray(payload) ? payload : (Array.isArray(payload?.comments) ? payload.comments : []);
 }
 
 export async function createComment(postId: string, content: string): Promise<Comment> {
@@ -329,8 +336,10 @@ export async function fetchLeaderboard(limit = 10): Promise<LeaderboardEntry[]> 
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch leaderboard');
-  const data = await res.json();
-  return Array.isArray(data) ? data : (Array.isArray(data?.entries) ? data.entries : []);
+  const json = await res.json();
+  // Unwrap envelope: API may return { success, data: [...] } or [...]
+  const payload = json.data ?? json;
+  return Array.isArray(payload) ? payload : (Array.isArray(payload?.entries) ? payload.entries : []);
 }
 
 export async function fetchTags(limit = 20): Promise<Tag[]> {
@@ -338,8 +347,10 @@ export async function fetchTags(limit = 20): Promise<Tag[]> {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch tags');
-  const data = await res.json();
-  return Array.isArray(data) ? data : (Array.isArray(data?.tags) ? data.tags : []);
+  const json = await res.json();
+  // Unwrap envelope: API may return { success, data: [...] } or [...]
+  const payload = json.data ?? json;
+  return Array.isArray(payload) ? payload : (Array.isArray(payload?.tags) ? payload.tags : []);
 }
 
 export async function fetchUser(id: string): Promise<User> {
@@ -347,7 +358,8 @@ export async function fetchUser(id: string): Promise<User> {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch user');
-  return res.json();
+  const json = await res.json();
+  return json.data?.user ?? json.data ?? json;
 }
 
 export async function fetchStats(): Promise<{
@@ -360,7 +372,8 @@ export async function fetchStats(): Promise<{
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch stats');
-  return res.json();
+  const json = await res.json();
+  return json.data ?? json;
 }
 
 export async function searchPosts(query: string, params?: {
@@ -378,5 +391,7 @@ export async function searchPosts(query: string, params?: {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to search');
-  return res.json();
+  const json = await res.json();
+  const payload = json.data ?? json;
+  return { posts: Array.isArray(payload?.posts) ? payload.posts : [], total: payload?.total ?? 0, query };
 }
