@@ -9,6 +9,16 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', 'framer-motion'],
   },
 
+  // Include Prisma engine binaries in the standalone output.
+  // Required because the Prisma client is generated in a monorepo workspace
+  // package (packages/database/src/generated/client/) which Next.js standalone
+  // tracing doesn't automatically include.
+  outputFileTracingIncludes: {
+    '/api/**': ['../../packages/database/src/generated/client/**'],
+    '/dashboard/**': ['../../packages/database/src/generated/client/**'],
+    '/plugins/**': ['../../packages/database/src/generated/client/**'],
+  },
+
   // Transpile monorepo packages
   // Note: @naap/database is excluded — Prisma generates JS output via postinstall,
   // and adding it here causes type-portability errors with Prisma runtime internals.

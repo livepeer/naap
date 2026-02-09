@@ -39,14 +39,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Surface database connection issues as 503 instead of misleading 401
     if (isDatabaseError(err)) {
       const dbErr = err as Error & { code?: string };
-      const envStatus = [
-        `DATABASE_URL=${process.env.DATABASE_URL ? 'SET' : 'EMPTY'}`,
-        `POSTGRES_PRISMA_URL=${process.env.POSTGRES_PRISMA_URL ? 'SET' : 'EMPTY'}`,
-        `POSTGRES_URL=${process.env.POSTGRES_URL ? 'SET' : 'EMPTY'}`,
-      ].join(', ');
-      console.error(`[AUTH] Database error: ${dbErr.name}: ${dbErr.message} [code=${dbErr.code}] [env: ${envStatus}]`);
+      console.error(`[AUTH] Database error: ${dbErr.name}: ${dbErr.message}`);
       return errors.serviceUnavailable(
-        `Database is not available. ${dbErr.message || 'Connection failed.'} [${envStatus}]`
+        'Database is not available. Please try again later.'
       );
     }
 
