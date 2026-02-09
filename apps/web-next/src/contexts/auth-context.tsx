@@ -25,7 +25,7 @@ export interface AuthState {
 export interface AuthContextValue extends AuthState {
   login: (email: string, password: string) => Promise<void>;
   loginWithOAuth: (provider: 'google' | 'github') => Promise<void>;
-  loginWithWallet: (address: string, signature: string) => Promise<void>;
+  loginWithWallet: (address: string, signature: string, jwt?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   hasRole: (role: string) => boolean;
@@ -245,14 +245,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const loginWithWallet = useCallback(async (address: string, signature: string) => {
+  const loginWithWallet = useCallback(async (address: string, signature: string, jwt?: string) => {
     setState(prev => ({ ...prev, isLoading: true }));
     try {
-      const response = await fetch(`${API_BASE}/v1/auth/wallet`, {
+      const response = await fetch(`${API_BASE}/v1/auth/siwe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include', // Include cookies
-        body: JSON.stringify({ address, signature }),
+        body: JSON.stringify({ 
+          address, 
+          signature,
+          jwt, // JWT from jwt-issuer for verification
+        }),
       });
       if (!response.ok) {
         const error = await response.json();

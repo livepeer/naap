@@ -50,6 +50,32 @@ const nextConfig = {
       config.plugins = [...config.plugins, new PrismaPlugin()];
     }
 
+    // Ignore optional dependencies that aren't needed in browser/Node.js environment
+    // These are React Native and pretty-printing dependencies for wallet connectors
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      '@react-native-async-storage/async-storage': false,
+      'pino-pretty': false,
+      'lokijs': false,
+      'encoding': false,
+    };
+
+    // Fallback for Node.js built-ins (needed for some Web3 libraries)
+    config.resolve.fallback = {
+      ...(config.resolve.fallback || {}),
+      fs: false,
+      net: false,
+      tls: false,
+      crypto: false,
+      stream: false,
+      http: false,
+      https: false,
+      zlib: false,
+      path: false,
+      os: false,
+    };
+
     // Reduce file watcher scope to prevent EMFILE errors in large monorepos.
     // Without this, Watchpack tries to watch all node_modules directories
     // across every package/plugin, exhausting macOS file descriptor limits.

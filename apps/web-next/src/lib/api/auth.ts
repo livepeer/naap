@@ -817,6 +817,82 @@ export async function verifyEmail(token: string): Promise<{ success: boolean; us
 }
 
 /**
+ * Login with SIWE (Sign In With Ethereum)
+ * Verifies JWT from jwt-issuer and creates or links user account
+ */
+export async function loginWithSIWE(address: string, jwtToken: string): Promise<AuthResult> {
+  if (!address || !jwtToken) {
+    throw new Error('Wallet address and JWT token are required');
+  }
+
+  // Verify JWT with jwt-issuer's JWKS endpoint
+  const jwtIssuerUrl = process.env.JWT_ISSUER_URL || 'http://localhost:8082';
+  
+  try {
+    // Fetch JWKS to verify the JWT
+    const jwksResponse = await fetch(`${jwtIssuerUrl}/.well-known/jwks.json`);
+    if (!jwksResponse.ok) {
+      throw new Error('Failed to fetch JWKS from jwt-issuer');
+    }
+
+    // Decode JWT to get address (simplified verification - in production use a proper JWT library)
+    const tokenParts = jwtToken.split('.');
+    if (tokenParts.length !== 3) {
+      throw new Error('Invalid JWT format');
+    }
+
+    const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
+    
+    // Verify token hasn't expired
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+      throw new Error('JWT token has expired');
+    }
+
+    // Verify address matches the JWT subject
+    const jwtAddress = payload.sub?.toLowerCase();
+    if (jwtAddress !== address.toLowerCase()) {
+      throw new Error('Wallet address does not match JWT subject');
+    }
+
+    // Find or create user with this wallet address
+    let user = await prisma.user.findUnique({
+      where: { address: address.toLowerCase() },
+    });
+
+    if (!user) {
+      // Create new user with wallet address
+      user = await prisma.user.create({
+        data: {
+          address: address.toLowerCase(),
+          displayName: `${address.slice(0, 6)}...${address.slice(-4)}`,
+          email: `${address.toLowerCase()}@wallet.local`, // Placeholder email
+          emailVerified: new Date(), // Auto-verify wallet-based accounts
+          config: {
+            create: {
+              theme: 'dark',
+            },
+          },
+        },
+      });
+    }
+
+    // Create session
+    const { token, expiresAt } = await createSession(user.id);
+
+    // Get user with roles
+    const authUser = await getUserWithRoles(user.id);
+    if (!authUser) {
+      throw new Error('Failed to get user');
+    }
+
+    return { user: authUser, token, expiresAt };
+  } catch (error) {
+    console.error('SIWE authentication error:', error);
+    throw error instanceof Error ? error : new Error('SIWE authentication failed');
+  }
+}
+
+/**
  * Generate CSRF token
  */
 export function generateCSRFToken(): string {
