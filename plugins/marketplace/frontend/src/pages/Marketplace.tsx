@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ShoppingBag, Search, Download, Check, Star, Users, Package, ExternalLink, X, Loader2, Sparkles, Settings, Cloud, Server, MessageSquare, Send } from 'lucide-react';
 import { Card, Badge } from '@naap/ui';
-import { usePluginConfig, useTenantContext, useAuthService, useTeam, useEvents } from '@naap/plugin-sdk';
+import { usePluginConfig, useTenantContext, useAuthService, useTeam, useEvents, getPluginBackendUrl } from '@naap/plugin-sdk';
 
 // ============================================
 // Tenant Personalization Config
@@ -104,8 +104,8 @@ const getApiBaseUrl = (): string => {
   if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL;
   }
-  // Default for local development
-  return 'http://localhost:4000';
+  // Use SDK resolution (same-origin on production, localhost:port on dev)
+  return getPluginBackendUrl('base');
 };
 
 const BASE_URL = getApiBaseUrl();

@@ -5,7 +5,7 @@
 import React, { useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { MemoryRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { createPlugin, useShell, useNotify, useEvents } from '@naap/plugin-sdk';
+import { createPlugin, useShell, useNotify, useEvents, getPluginBackendUrl } from '@naap/plugin-sdk';
 import type { ShellContext } from '@naap/plugin-sdk';
 import { WalletProvider } from './context/WalletContext';
 import { ConnectPage } from './pages/Connect';
@@ -89,7 +89,7 @@ export const getApiUrl = () => {
   if (context?.config?.apiBaseUrl) {
     return `${context.config.apiBaseUrl}/api/v1/wallet`;
   }
-  return 'http://localhost:4008/api/v1/wallet';
+  return getPluginBackendUrl('my-wallet', { apiPath: '/api/v1/wallet' });
 };
 
 export const manifest = plugin;

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Box, Key, BarChart3, BookOpen, Plus, Copy, RefreshCw, Trash2, Search } from 'lucide-react';
 import { Card, Badge } from '@naap/ui';
+import { getPluginBackendUrl } from '@naap/plugin-sdk';
 
 type TabId = 'models' | 'api-keys' | 'usage' | 'docs';
 
@@ -28,7 +29,7 @@ interface ApiKey {
   lastUsedAt: string | null;
 }
 
-const BASE_URL = 'http://localhost:4007';
+const BASE_URL = getPluginBackendUrl('developer-api');
 
 const tabs = [
   { id: 'models' as TabId, label: 'Models', icon: <Box size={18} /> },

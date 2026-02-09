@@ -168,9 +168,18 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
  * ```
  */
 export function createShellApiClient(authToken?: string): ApiClient {
-  const baseUrl = typeof window !== 'undefined' 
-    ? `${window.location.protocol}//${window.location.hostname}:4000`
-    : 'http://localhost:4000';
+  let baseUrl: string;
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      // Production: same-origin, Next.js API proxy handles routing
+      baseUrl = '';
+    } else {
+      baseUrl = `${window.location.protocol}//${hostname}:4000`;
+    }
+  } else {
+    baseUrl = 'http://localhost:4000';
+  }
 
   return createApiClient({
     baseUrl,
@@ -199,9 +208,17 @@ export function createShellApiClient(authToken?: string): ApiClient {
  * ```
  */
 export function createIntegrationClient(pluginName: string, authToken?: string): IntegrationClient {
-  const baseUrl = typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:4000`
-    : 'http://localhost:4000';
+  let baseUrl: string;
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      baseUrl = '';
+    } else {
+      baseUrl = `${window.location.protocol}//${hostname}:4000`;
+    }
+  } else {
+    baseUrl = 'http://localhost:4000';
+  }
 
   return {
     async call<T>(integrationType: string, method: string, args: unknown[]): Promise<T> {

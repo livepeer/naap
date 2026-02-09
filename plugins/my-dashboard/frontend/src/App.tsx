@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { MemoryRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { createPlugin } from '@naap/plugin-sdk';
+import { createPlugin, getPluginBackendUrl } from '@naap/plugin-sdk';
 import { GalleryPage } from './pages/Gallery';
 import { ViewerPage } from './pages/Viewer';
 import { SettingsPage } from './pages/Settings';
@@ -41,7 +41,7 @@ export const getApiUrl = () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return `${(context as any).config.apiBaseUrl}/api/v1/my-dashboard`;
   }
-  return 'http://localhost:4009/api/v1/my-dashboard';
+  return getPluginBackendUrl('my-dashboard', { apiPath: '/api/v1/my-dashboard' });
 };
 
 /** @deprecated Use useApiClient() hook instead */

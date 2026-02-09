@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useWallet } from '../context/WalletContext';
-import { useShell } from '@naap/plugin-sdk';
+import { useShell, getPluginBackendUrl } from '@naap/plugin-sdk';
 
 export interface Transaction {
   id: string;
@@ -37,7 +37,7 @@ export function useTransactions(limit = 20): UseTransactionsReturn {
     if (config?.apiBaseUrl) {
       return `${config.apiBaseUrl}/api/v1/wallet`;
     }
-    return 'http://localhost:4008/api/v1/wallet';
+    return getPluginBackendUrl('my-wallet', { apiPath: '/api/v1/wallet' });
   }, [shell]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(false);

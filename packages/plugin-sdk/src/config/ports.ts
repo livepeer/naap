@@ -220,7 +220,19 @@ export function getPluginBackendUrl(pluginName: string, options?: PluginBackendU
     if (nodeUrl) return `${nodeUrl}${apiPath}`;
   }
 
-  // 4. Development convention: localhost with known port
+  // 4. Production / deployed environments: use same-origin (no port).
+  //    On Vercel (or any non-localhost deployment) plugin backends don't
+  //    run as separate services — all API traffic goes through the
+  //    Next.js API proxy on the same origin.
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      // Same-origin: just the API path, no host/port needed.
+      return apiPath || `/api/v1/${pluginName}`;
+    }
+  }
+
+  // 5. Development convention: localhost with known port
   const resolvedPort = port || getPluginPort(pluginName);
   const baseUrl =
     typeof window !== 'undefined'
