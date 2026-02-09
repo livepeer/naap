@@ -23,6 +23,9 @@ export const metadata: Metadata = {
   keywords: ['NaaP', 'decentralized', 'infrastructure', 'Livepeer', 'AI', 'video'],
   authors: [{ name: 'NaaP Team' }],
   creator: 'NaaP Platform',
+  icons: {
+    icon: '/icon.svg',
+  },
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'),
   openGraph: {
     type: 'website',
