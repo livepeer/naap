@@ -229,9 +229,98 @@ rm -rf apps/web-next/.next
 npm run build:plugins
 ```
 
+## Vercel Deployment Issues
+
+### Plugin API Calls Timeout on Vercel
+
+**Symptom**: `GET https://naap-....vercel.app:4006/api/v1/community/posts net::ERR_TIMED_OUT`
+
+**Cause**: Hardcoded `localhost:PORT` or `window.location.hostname + ':PORT'` in frontend code. On Vercel, there are no backend microservices — only the Next.js API proxy on port 443.
+
+**Fix**: Use `getPluginBackendUrl()` from `@naap/plugin-sdk`:
+
+```typescript
+// WRONG
+const API_BASE = 'http://localhost:4006/api/v1/community';
+const API_BASE = `${window.location.hostname}:4006/api/v1/community`;
+
+// CORRECT
+import { getPluginBackendUrl } from '@naap/plugin-sdk';
+const API_BASE = getPluginBackendUrl('community', {
+  apiPath: '/api/v1/community',
+});
+```
+
+Search your plugin for hardcoded ports:
+
+```bash
+# Find hardcoded localhost ports in frontend code
+grep -r "localhost:[0-9]" plugins/my-plugin/frontend/src/
+grep -r "location\.hostname.*:[0-9]" plugins/my-plugin/frontend/src/
+```
+
+### Cannot Find Module 'tailwindcss' on Vercel
+
+**Symptom**: `Loading PostCSS Plugin failed: Cannot find module 'tailwindcss'`
+
+**Cause**: A `postcss.config.js` exists in your plugin's `frontend/` directory. On Vercel, PostCSS tries to `require('tailwindcss')` from the plugin directory, where hoisted dependencies aren't reachable.
+
+**Fix**: Delete your plugin's `postcss.config.js`. PostCSS is configured centrally in `@naap/plugin-build`'s shared Vite config:
+
+```bash
+# Remove if it exists
+rm plugins/my-plugin/frontend/postcss.config.js
+
+# Keep your tailwind.config.js — that's fine
+ls plugins/my-plugin/frontend/tailwind.config.js
+```
+
+### Vercel buildCommand Too Long
+
+**Symptom**: `buildCommand should NOT be longer than 256 characters`
+
+**Cause**: Complex multi-step build commands in `vercel.json`.
+
+**Fix**: Use `bin/vercel-build.sh` as the build command. All build steps are in this script.
+
+### Prisma Query Engine Not Found on Vercel
+
+**Symptom**: `Prisma Client could not locate the Query Engine for runtime "rhel-openssl-3.0.x"`
+
+**Fix**: Ensure `next.config.js` includes:
+
+```javascript
+const { PrismaPlugin } = require('@prisma/nextjs-monorepo-workaround-plugin');
+
+module.exports = {
+  output: 'standalone',
+  outputFileTracingRoot: path.join(__dirname, '../../'),
+  webpack: (config) => {
+    config.plugins.push(new PrismaPlugin());
+    return config;
+  },
+};
+```
+
+### JSDoc Comment Breaks esbuild
+
+**Symptom**: `Expected ";" but found "some_word"` during `npx tsx` execution
+
+**Cause**: A JSDoc comment contains `*/` (e.g., in a glob path like `plugins/*/plugin.json`), which prematurely closes the comment block.
+
+**Fix**: Avoid `*/` in comments. Use `{name}` or spell it out:
+
+```typescript
+// WRONG — the */ closes the comment!
+/** Discovers plugins from plugins/*/plugin.json */
+
+// CORRECT
+/** Discovers plugins from plugins/{name}/plugin.json */
+```
+
 ## Getting Help
 
 1. Run `./bin/start.sh validate` for a comprehensive health check
 2. Check logs: `./bin/start.sh logs <service>`
 3. Check the [Architecture docs](/docs/concepts/architecture) for understanding
-4. File an issue on [GitHub](https://github.com/qianghan/NaaP/issues)
+4. File an issue on [GitHub](https://github.com/livepeer/naap/issues)

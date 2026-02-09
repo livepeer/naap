@@ -70,6 +70,40 @@ function DataList() {
 }
 ```
 
+### Deployment-Aware Backend URLs
+
+NaaP plugins run in two environments with **very different** network topologies:
+
+| Environment | Backend access | Example URL |
+|-------------|----------------|-------------|
+| **Local dev** | Each plugin backend runs on its own port | `http://localhost:4006/api/v1/community/posts` |
+| **Vercel / production** | All traffic goes through the Next.js API proxy on the same origin | `/api/v1/community/posts` |
+
+The SDK's `getPluginBackendUrl()` handles this automatically — **always use it** instead of hardcoding URLs:
+
+```typescript
+import { getPluginBackendUrl } from '@naap/plugin-sdk';
+
+// Correct — works everywhere
+const API_BASE = getPluginBackendUrl('community', {
+  apiPath: '/api/v1/community',
+});
+// Local dev  → http://localhost:4006/api/v1/community
+// Production → /api/v1/community
+```
+
+**Never do this:**
+
+```typescript
+// WRONG — breaks on Vercel (port 4006 does not exist)
+const API_BASE = 'http://localhost:4006/api/v1/community';
+
+// WRONG — appends port to production hostname
+const API_BASE = `${window.location.protocol}//${window.location.hostname}:4006`;
+```
+
+If you need an API client, the SDK also provides `usePluginApi()` (recommended for React components) and `createPluginApiClient()` (for non-React code). Both resolve URLs correctly in all environments.
+
 ### Event Communication
 
 ```typescript
@@ -204,6 +238,43 @@ function PluginPage() {
   );
 }
 ```
+
+## Build Configuration
+
+### Shared Vite Config
+
+All plugins use the shared build configuration from `@naap/plugin-build`. Your `vite.config.ts` should look like this:
+
+```typescript
+import { createPluginConfig } from '@naap/plugin-build/vite';
+
+export default createPluginConfig({
+  name: 'my-plugin',
+  displayName: 'My Plugin',
+  globalName: 'NaapPluginMyPlugin',
+  defaultCategory: 'platform',
+});
+```
+
+This shared config handles:
+- UMD bundle output, React externals, rollup globals
+- **PostCSS / Tailwind CSS** — configured inline; do **not** add a `postcss.config.js` to your plugin
+- Manifest generation and bundle validation
+
+### Do NOT Add postcss.config.js
+
+PostCSS (Tailwind CSS, Autoprefixer) is configured centrally in the shared Vite config. Adding a `postcss.config.js` in your plugin will **break Vercel builds** because PostCSS tries to `require('tailwindcss')` from your plugin directory, where it cannot find the hoisted dependency.
+
+```
+plugins/my-plugin/frontend/
+├── tailwind.config.js      ← YES — keep this (per-plugin theme/content)
+├── postcss.config.js       ← NO — do NOT create this file
+└── vite.config.ts          ← Uses createPluginConfig (includes PostCSS)
+```
+
+### Tailwind Config
+
+Each plugin keeps its own `tailwind.config.js` for content paths and theme extensions. The shared Vite config passes `{ config: './tailwind.config.js' }` to Tailwind, so your config is automatically picked up.
 
 ## Hot Reload
 

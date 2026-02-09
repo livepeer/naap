@@ -307,6 +307,59 @@ When a plugin team needs a change in shared code:
 
 ---
 
+## Deployment-Safe Development
+
+NaaP deploys to **Vercel** (staging + production). Plugins are built as UMD bundles and served from the same origin. Understanding the deployment model prevents the most common breakages.
+
+### How It Works on Vercel
+
+```
+Local Dev                          Vercel Production
+─────────                          ──────────────────
+Shell:     localhost:3000           naap.vercel.app (Next.js)
+Plugin UI: loaded via CDN bundle   loaded via /cdn/plugins/...
+Plugin API: localhost:4006          /api/v1/community (same-origin proxy)
+Database:  localhost:5432           Neon PostgreSQL (via DATABASE_URL)
+```
+
+On Vercel, there are **no separate backend processes** — all API calls go through the Next.js API proxy at the same origin. Plugin frontends must use deployment-aware URL resolution.
+
+### Rules for Plugin Developers
+
+**Always do:**
+- Use `getPluginBackendUrl()` from `@naap/plugin-sdk` for all API URLs
+- Use `usePluginApi()` hook for API calls in React components
+- Use `createPluginConfig()` from `@naap/plugin-build/vite` for your Vite config
+- Keep your `tailwind.config.js` (per-plugin theme/content paths)
+- Test your plugin loads correctly at `/plugins/<your-plugin>` after building
+
+**Never do:**
+- Hardcode `localhost:PORT` in frontend code (breaks on Vercel)
+- Hardcode `window.location.hostname + ':' + port` (appends dev port to production domain)
+- Add a `postcss.config.js` to your plugin (breaks Vercel builds — PostCSS is in the shared Vite config)
+- Use `*/` inside JSDoc comments (e.g., `plugins/*/plugin.json` — the `*/` closes the comment and breaks esbuild)
+- Use `((count++))` in bash scripts with `set -e` (when count=0, returns exit code 1)
+
+### API URL Quick Reference
+
+```typescript
+// In React components (recommended):
+import { usePluginApi } from '@naap/plugin-sdk';
+const api = usePluginApi();
+const data = await api.get('/api/v1/my-plugin/items');
+
+// In non-React code:
+import { getPluginBackendUrl } from '@naap/plugin-sdk';
+const BASE = getPluginBackendUrl('my-plugin', { apiPath: '/api/v1/my-plugin' });
+// Local → http://localhost:4020/api/v1/my-plugin
+// Vercel → /api/v1/my-plugin
+
+// WRONG — will break on Vercel:
+const BASE = 'http://localhost:4020/api/v1/my-plugin';
+```
+
+---
+
 ## Commit Conventions
 
 Use [Conventional Commits](https://www.conventionalcommits.org/). This is enforced by CI.

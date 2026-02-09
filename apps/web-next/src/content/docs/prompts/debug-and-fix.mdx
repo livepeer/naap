@@ -109,6 +109,12 @@ Show me what to fix.
 
 When my frontend calls the backend API, I get errors.
 
+**IMPORTANT context:** NaaP deploys to Vercel. On Vercel, there are NO separate
+backend ports — all API calls must go through the Next.js API proxy at the same
+origin. Frontend code must NEVER hardcode `localhost:PORT` or
+`window.location.hostname + ':PORT'`. Use `getPluginBackendUrl()` from
+@naap/plugin-sdk which resolves correctly in both local dev and production.
+
 Frontend code making the call:
 [PASTE THE COMPONENT/HOOK MAKING THE API CALL]
 
@@ -117,7 +123,7 @@ Backend route handling the call:
 
 Error in browser Network tab:
 - URL: [the failing URL]
-- Status: [404 / 500 / CORS error / etc.]
+- Status: [404 / 500 / CORS error / ERR_TIMED_OUT / etc.]
 - Response body: [paste the error response]
 
 Error in backend terminal:
@@ -133,7 +139,10 @@ My plugin.json backend config:
 }
 ```
 
-Please diagnose and fix the issue.
+Please:
+1. Check if the URL contains a hardcoded port number (common on Vercel deploys)
+2. Show how to replace it with getPluginBackendUrl()
+3. Diagnose and fix the issue
 ```
 
 ### Database/Prisma Errors
@@ -190,6 +199,38 @@ Please:
 3. Explain the TypeScript concept behind each fix
 ```
 
+### Vercel Deployment Failures
+
+```markdown
+# My Plugin Breaks on Vercel
+
+It works locally but fails on Vercel deployment. Common patterns:
+
+## Build Failures
+[PASTE THE VERCEL BUILD LOG ERROR — look for the first error line]
+
+Known causes:
+1. `Cannot find module 'tailwindcss'` → Delete postcss.config.js from your
+   plugin. PostCSS is configured in the shared @naap/plugin-build Vite config.
+2. `buildCommand should NOT be longer than 256 characters` → Use bin/vercel-build.sh
+3. `Expected ";" but found "word"` in .ts file → Check for `*/` inside JSDoc
+   comments (e.g., glob paths like `foo/*/bar` close the comment block)
+4. `Prisma Client could not locate the Query Engine` → Check next.config.js
+   has PrismaPlugin and outputFileTracingRoot configured
+
+## Runtime Failures (works locally, fails on Vercel)
+[PASTE THE BROWSER CONSOLE ERRORS]
+
+Known causes:
+1. `ERR_TIMED_OUT` with a port number in the URL → Hardcoded localhost:PORT.
+   Fix: use getPluginBackendUrl() from @naap/plugin-sdk
+2. `net::ERR_CONNECTION_REFUSED` → Same as above, hardcoded port
+3. CSP violation → Update vercel.json Content-Security-Policy headers
+4. `Database is not available` → Check DATABASE_URL env var on Vercel dashboard
+
+Please diagnose and show the fix.
+```
+
 ## Quick Fix Reference
 
 Before using AI, try these common fixes:
@@ -220,6 +261,32 @@ npm install
 cd frontend && npm install
 cd ../backend && npm install
 npx prisma generate
+```
+
+## Vercel Deployment Checklist
+
+Before deploying, verify your plugin passes these checks:
+
+```bash
+# 1. No hardcoded localhost ports in frontend code
+grep -r "localhost:[0-9]" plugins/my-plugin/frontend/src/
+# Should return ZERO results (only mock/standalone dev files are ok)
+
+# 2. No postcss.config.js in your plugin
+ls plugins/my-plugin/frontend/postcss.config.js
+# Should say "No such file or directory"
+
+# 3. Uses shared Vite config
+grep "createPluginConfig" plugins/my-plugin/frontend/vite.config.ts
+# Should match
+
+# 4. Uses SDK for API URLs
+grep -r "getPluginBackendUrl\|usePluginApi" plugins/my-plugin/frontend/src/
+# Should match wherever API calls are made
+
+# 5. Plugin builds successfully
+cd plugins/my-plugin/frontend && npx vite build --mode production
+# Should produce dist/production/*.js
 ```
 
 ## Tips for Better Debugging Prompts
