@@ -21,9 +21,10 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-  schemas  = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api"]
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
+  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api"]
 }
 
 // ============================================
