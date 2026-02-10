@@ -77,6 +77,11 @@ describe('useJobFeedStream', () => {
     onCleanups = [];
   });
 
+  afterEach(() => {
+    // Always restore real timers to prevent leaking fake timers across tests
+    vi.useRealTimers();
+  });
+
   it('discovers channel info from event bus', async () => {
     mockEventBus.request.mockResolvedValueOnce(mockChannelInfo);
 
@@ -159,8 +164,7 @@ describe('useJobFeedStream', () => {
     expect(result.current.error).not.toBeNull();
     expect(result.current.error!.type).toBe('no-provider');
     expect(result.current.connected).toBe(false);
-
-    vi.useRealTimers();
+    // vi.useRealTimers() handled by afterEach
   });
 
   it('cleans up subscriptions on unmount', async () => {

@@ -391,7 +391,7 @@ export async function acceptAnswer(commentId: string): Promise<Comment> {
   });
   if (!res.ok) throw new Error('Failed to accept answer');
   const json = await res.json();
-  const raw = json.data ?? json;
+  const raw = json.data?.comment ?? json.data ?? json;
   return normalizeComment(raw);
 }
 

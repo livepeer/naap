@@ -5,6 +5,13 @@
  * Core plugins are determined dynamically from PluginPackage.isCore in the
  * database (configurable by admins). Core plugins are auto-installed for
  * users who don't have a preference record yet.
+ *
+ * NOTE: This GET endpoint performs a lazy write (auto-install) for core
+ * plugins that haven't been provisioned for the user yet. This is a
+ * deliberate design choice — it ensures core plugins are available on first
+ * load without requiring a separate onboarding step. The operation is fully
+ * idempotent (uses skipDuplicates) so repeated GETs produce the same result.
+ * Cache-Control: no-store is set to prevent HTTP caches from serving stale data.
  */
 
 import {NextRequest, NextResponse } from 'next/server';
@@ -263,7 +270,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return true;
     });
 
-    return success({ plugins: personalizedPlugins, context: 'personal' });
+    const response = success({ plugins: personalizedPlugins, context: 'personal' });
+    // Prevent HTTP caching since this endpoint may perform a lazy write (core plugin auto-install)
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   } catch (err) {
     console.error('Error fetching personalized plugins:', err);
     return errors.internal('Failed to fetch personalized plugins');
