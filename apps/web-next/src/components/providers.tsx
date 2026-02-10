@@ -6,6 +6,7 @@ import { ShellProvider } from '@/contexts/shell-context';
 import { PluginProvider } from '@/contexts/plugin-context';
 import { NotificationToast } from '@/components/ui/notification-toast';
 import { ThemeInitializer } from '@/components/theme-initializer';
+import { BackgroundPluginLoader } from '@/components/plugin/BackgroundPluginLoader';
 
 interface ProvidersProps {
   children: ReactNode;
@@ -17,6 +18,7 @@ export function Providers({ children }: ProvidersProps) {
       <ShellProvider>
         <PluginProvider>
           <ThemeInitializer />
+          <BackgroundPluginLoader />
           {children}
           <NotificationToast />
         </PluginProvider>
