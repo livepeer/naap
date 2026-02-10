@@ -18,7 +18,8 @@ import { useEffect, useRef, useMemo, useCallback } from 'react';
 import { usePlugins } from '@/contexts/plugin-context';
 import { useShell } from '@/contexts/shell-context';
 import { loadUMDPlugin, type UMDLoadOptions } from '@/lib/plugins/umd-loader';
-import { createSandboxedContext } from '@/lib/plugins/sandbox';
+
+const TAG = '[BackgroundPluginLoader]';
 
 export function BackgroundPluginLoader() {
   const { plugins, isLoading } = usePlugins();
@@ -26,16 +27,44 @@ export function BackgroundPluginLoader() {
   const mountedPlugins = useRef<Map<string, () => void>>(new Map());
   const containersRef = useRef<Map<string, HTMLDivElement>>(new Map());
 
+  // Log raw plugin list for diagnostics
+  useEffect(() => {
+    console.log(`${TAG} plugins loaded (isLoading=${isLoading}, total=${plugins.length})`);
+    if (plugins.length > 0) {
+      const summary = plugins.map((p) => ({
+        name: p.name,
+        enabled: p.enabled,
+        bundleUrl: p.bundleUrl ? '✓' : '✗',
+        routes: Array.isArray(p.routes) ? p.routes.length : 'n/a',
+        globalName: p.globalName || 'auto',
+      }));
+      console.table(summary);
+    }
+  }, [plugins, isLoading]);
+
   // Find headless plugins: enabled, have a bundleUrl, but no routes
   const headlessPlugins = useMemo(() => {
-    return plugins.filter(
+    const result = plugins.filter(
       (p) => p.enabled && p.bundleUrl && (!p.routes || p.routes.length === 0)
     );
+    console.log(
+      `${TAG} headless plugin candidates: ${result.length}`,
+      result.map((p) => p.name),
+    );
+    return result;
   }, [plugins]);
 
   const loadPlugin = useCallback(async (plugin: typeof headlessPlugins[0]) => {
     // Skip if already mounted
-    if (mountedPlugins.current.has(plugin.name)) return;
+    if (mountedPlugins.current.has(plugin.name)) {
+      console.log(`${TAG} ${plugin.name}: already mounted, skipping`);
+      return;
+    }
+
+    console.log(`${TAG} ${plugin.name}: starting load...`, {
+      bundleUrl: plugin.bundleUrl,
+      globalName: plugin.globalName,
+    });
 
     try {
       // Create a hidden container for the plugin
@@ -65,10 +94,12 @@ export function BackgroundPluginLoader() {
         timeout: 15000,
       };
 
+      console.log(`${TAG} ${plugin.name}: calling loadUMDPlugin`, { globalName, bundleUrl: plugin.bundleUrl });
       const loaded = await loadUMDPlugin(options);
+      console.log(`${TAG} ${plugin.name}: UMD loaded, module keys:`, Object.keys(loaded.module));
 
       // Build the shell context for the plugin (same pattern as PluginLoader)
-      const baseContext = {
+      const pluginContext = {
         auth: shell.auth,
         notifications: shell.notifications,
         navigate: shell.navigate,
@@ -85,26 +116,49 @@ export function BackgroundPluginLoader() {
         team: shell.team,
       };
 
-      const pluginContext = baseContext;
-
       // Mount the plugin
+      console.log(`${TAG} ${plugin.name}: calling mount()...`);
       const cleanup = loaded.module.mount(container, pluginContext);
       const cleanupFn = typeof cleanup === 'function' ? cleanup : () => {};
       mountedPlugins.current.set(plugin.name, cleanupFn);
 
-      console.log(`[BackgroundPluginLoader] Mounted headless plugin: ${plugin.name}`);
+      console.log(`${TAG} ✅ Mounted headless plugin: ${plugin.name}`);
+
+      // Verify: wait a tick for React effects to fire, then check event bus
+      setTimeout(() => {
+        try {
+          // Quick smoke test: try requesting to see if handler is registered
+          shell.eventBus.request('dashboard:query', { query: '{ __typename }' }, { timeout: 2000 })
+            .then(() => {
+              console.log(`${TAG} ✅ Verified: dashboard:query handler is responding`);
+            })
+            .catch((err: any) => {
+              console.warn(`${TAG} ⚠ Post-mount verification: dashboard:query handler NOT responding:`, err?.code, err?.message);
+            });
+        } catch (e) {
+          // Ignore verification errors
+        }
+      }, 500);
     } catch (err) {
-      console.warn(
-        `[BackgroundPluginLoader] Failed to load headless plugin ${plugin.name}:`,
-        (err as Error).message
+      console.error(
+        `${TAG} ❌ Failed to load headless plugin ${plugin.name}:`,
+        err,
       );
     }
   }, [shell]);
 
   // Load headless plugins once the plugin list is ready
   useEffect(() => {
-    if (isLoading || headlessPlugins.length === 0) return;
+    if (isLoading) {
+      console.log(`${TAG} waiting for plugin list to load...`);
+      return;
+    }
+    if (headlessPlugins.length === 0) {
+      console.log(`${TAG} no headless plugins found, nothing to load`);
+      return;
+    }
 
+    console.log(`${TAG} loading ${headlessPlugins.length} headless plugins...`);
     for (const plugin of headlessPlugins) {
       loadPlugin(plugin);
     }
@@ -116,9 +170,9 @@ export function BackgroundPluginLoader() {
       for (const [name, cleanup] of mountedPlugins.current.entries()) {
         try {
           cleanup();
-          console.log(`[BackgroundPluginLoader] Unmounted headless plugin: ${name}`);
+          console.log(`${TAG} Unmounted headless plugin: ${name}`);
         } catch (err) {
-          console.warn(`[BackgroundPluginLoader] Error unmounting ${name}:`, err);
+          console.warn(`${TAG} Error unmounting ${name}:`, err);
         }
       }
       mountedPlugins.current.clear();
