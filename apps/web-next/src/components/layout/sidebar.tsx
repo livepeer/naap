@@ -237,6 +237,8 @@ export function Sidebar() {
     const seenPlugins = new Set<string>();
     const uniquePlugins = (plugins || []).filter(p => {
       if (!p?.enabled) return false;
+      // Skip headless plugins (no routes) — they are background providers, not nav items
+      if (!p.routes || p.routes.length === 0) return false;
       const normalized = normalizePluginName(p.name);
       if (seenPlugins.has(normalized)) return false;
       seenPlugins.add(normalized);
