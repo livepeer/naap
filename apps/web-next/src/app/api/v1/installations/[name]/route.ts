@@ -43,7 +43,7 @@ export async function DELETE(
       return errors.unauthorized('Invalid session');
     }
 
-    // Remove user preference for this plugin
+    // Remove user preference for this plugin (truly delete, not just disable)
     try {
       await prisma.userPluginPreference.delete({
         where: {
@@ -54,26 +54,8 @@ export async function DELETE(
         },
       });
     } catch {
-      // Preference may not exist, ignore error
+      // Preference may not exist — plugin is already uninstalled
     }
-
-    // Also set to disabled via upsert as fallback
-    await prisma.userPluginPreference.upsert({
-      where: {
-        userId_pluginName: {
-          userId: user.id,
-          pluginName: name,
-        },
-      },
-      update: {
-        enabled: false,
-      },
-      create: {
-        userId: user.id,
-        pluginName: name,
-        enabled: false,
-      },
-    });
 
     return success({
       message: `Plugin "${name}" has been uninstalled`,

@@ -565,16 +565,23 @@ export default function MarketplacePage() {
       const data = await res.json();
       if (data.success) {
         const plugins = data.data?.plugins || data.plugins || [];
-        const installed = new Set<string>(plugins.map((p: { name: string }) => p.name));
+        // Only treat plugins with enabled !== false as "installed"
+        const installed = new Set<string>(
+          plugins
+            .filter((p: { name: string; enabled?: boolean }) => p.enabled !== false)
+            .map((p: { name: string }) => p.name)
+        );
         setInstalledIds(installed);
 
         const instMap = new Map<string, string>();
-        plugins.forEach((p: { name: string; installId?: string; id?: string }) => {
-          const installId = p.installId || p.id;
-          if (installId) {
-            instMap.set(p.name, installId);
-          }
-        });
+        plugins
+          .filter((p: { name: string; enabled?: boolean }) => p.enabled !== false)
+          .forEach((p: { name: string; installId?: string; id?: string }) => {
+            const installId = p.installId || p.id;
+            if (installId) {
+              instMap.set(p.name, installId);
+            }
+          });
         setInstallationMap(instMap);
       }
     } catch (err) {
@@ -608,6 +615,7 @@ export default function MarketplacePage() {
   async function handleInstall(pkg: PluginPackage) {
     setInstallingId(pkg.id);
     try {
+      let success = false;
       if (teamId) {
         const res = await fetch(`/api/v1/teams/${teamId}/plugins`, {
           method: 'POST',
@@ -618,6 +626,7 @@ export default function MarketplacePage() {
         const data = await res.json();
         if (data.success) {
           setInstalledIds(prev => new Set([...prev, pkg.name]));
+          success = true;
         }
       } else {
         const res = await fetch('/api/v1/base/plugins/preferences', {
@@ -629,9 +638,12 @@ export default function MarketplacePage() {
         const data = await res.json();
         if (data.success) {
           setInstalledIds(prev => new Set([...prev, pkg.name]));
+          success = true;
         }
       }
-      eventBus.emit('plugin:installed', { pluginName: pkg.name, teamId });
+      if (success) {
+        eventBus.emit('plugin:installed', { pluginName: pkg.name, teamId });
+      }
     } catch (err) {
       console.error('Failed to install plugin:', err);
     } finally {

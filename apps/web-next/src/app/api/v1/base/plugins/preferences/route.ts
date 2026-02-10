@@ -13,7 +13,7 @@ import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 
 // Core plugins that cannot be uninstalled
-const CORE_PLUGINS = ['marketplace', 'plugin-publisher', 'pluginPublisher'];
+const CORE_PLUGINS = ['marketplace', 'plugin-publisher', 'pluginPublisher', 'my-wallet', 'my-dashboard'];
 
 /**
  * GET /api/v1/base/plugins/preferences
@@ -150,7 +150,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       return errors.badRequest('Core plugins cannot be uninstalled');
     }
 
-    // Delete the preference (this "uninstalls" the plugin for the user)
+    // Delete the preference (truly uninstalls the plugin for the user)
     try {
       await prisma.userPluginPreference.delete({
         where: {
@@ -161,26 +161,8 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
         },
       });
     } catch {
-      // Preference may not exist, that's fine
+      // Preference may not exist — plugin is already uninstalled
     }
-
-    // Also disable via update in case deletion fails due to cascade
-    await prisma.userPluginPreference.upsert({
-      where: {
-        userId_pluginName: {
-          userId: user.id,
-          pluginName,
-        },
-      },
-      update: {
-        enabled: false,
-      },
-      create: {
-        userId: user.id,
-        pluginName,
-        enabled: false,
-      },
-    });
 
     return success({
       message: `Plugin "${pluginName}" has been uninstalled`,

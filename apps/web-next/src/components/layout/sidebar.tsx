@@ -170,9 +170,15 @@ export function Sidebar() {
     };
   }, [isResizing, sidebarWidth, eventBus]);
 
-  // Listen for plugin preference changes to refresh the sidebar
+  // Listen for plugin preference/install/uninstall changes to refresh the sidebar
   useEffect(() => {
     const unsubscribePlugin = eventBus.on('plugin:preferences:changed', () => {
+      refreshPlugins();
+    });
+    const unsubscribeInstalled = eventBus.on('plugin:installed', () => {
+      refreshPlugins();
+    });
+    const unsubscribeUninstalled = eventBus.on('plugin:uninstalled', () => {
       refreshPlugins();
     });
     const unsubscribeTeam = eventBus.on('team:change', () => {
@@ -180,6 +186,8 @@ export function Sidebar() {
     });
     return () => {
       unsubscribePlugin();
+      unsubscribeInstalled();
+      unsubscribeUninstalled();
       unsubscribeTeam();
     };
   }, [eventBus, refreshPlugins]);

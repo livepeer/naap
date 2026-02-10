@@ -627,6 +627,7 @@ export default function SettingsPage() {
       if (res.ok) {
         setUserPreferences(prev => prev.filter(p => p.name !== uninstallingPlugin.name));
         await refreshPlugins();
+        eventBus.emit('plugin:uninstalled', { pluginName: uninstallingPlugin.name, teamId: currentTeamId });
         notifications.success(`${uninstallingPlugin.displayName} has been uninstalled`);
       } else {
         notifications.error('Failed to uninstall plugin');
