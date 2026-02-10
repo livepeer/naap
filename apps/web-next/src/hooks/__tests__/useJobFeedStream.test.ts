@@ -141,18 +141,26 @@ describe('useJobFeedStream', () => {
   });
 
   it('returns error when no provider registered', async () => {
+    vi.useFakeTimers();
     const noHandlerError = new Error('No handler');
     (noHandlerError as any).code = 'NO_HANDLER';
-    mockEventBus.request.mockRejectedValueOnce(noHandlerError);
+    // Reject all retry attempts (initial + 4 retries)
+    mockEventBus.request.mockRejectedValue(noHandlerError);
 
     const { result } = renderHook(() => useJobFeedStream());
 
-    await waitFor(() => {
-      expect(result.current.error).not.toBeNull();
-    });
+    // Flush all retry timers (1000, 2000, 3000, 5000ms)
+    for (let i = 0; i < 5; i++) {
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+    }
 
+    expect(result.current.error).not.toBeNull();
     expect(result.current.error!.type).toBe('no-provider');
     expect(result.current.connected).toBe(false);
+
+    vi.useRealTimers();
   });
 
   it('cleans up subscriptions on unmount', async () => {

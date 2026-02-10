@@ -74,19 +74,26 @@ describe('useDashboardQuery', () => {
   });
 
   it('returns error with type=no-provider when no handler registered', async () => {
+    vi.useFakeTimers();
     const noHandlerError = new Error('No handler registered for event: dashboard:query');
     (noHandlerError as any).code = 'NO_HANDLER';
-    mockEventBus.request.mockRejectedValueOnce(noHandlerError);
+    // Reject all retry attempts (initial + 4 retries)
+    mockEventBus.request.mockRejectedValue(noHandlerError);
 
     const { result } = renderHook(() => useDashboardQuery(testQuery));
 
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
+    // Flush all retry timers (1000, 2000, 3000, 5000ms)
+    for (let i = 0; i < 5; i++) {
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+    }
 
     expect(result.current.error).toBeDefined();
     expect(result.current.error!.type).toBe('no-provider');
     expect(result.current.data).toBeNull();
+
+    vi.useRealTimers();
   });
 
   it('returns error with type=timeout on timeout', async () => {
