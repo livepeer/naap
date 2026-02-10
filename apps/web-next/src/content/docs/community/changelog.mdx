@@ -4,15 +4,16 @@ description: "Version history and release notes for the NaaP platform."
 order: 3
 ---
 
-## v1.0.0 - Current Release
+## v0.1.0 - Initial MVP (February 9, 2026)
 
 ### Platform
 
-- **Next.js 15 Shell**: Migrated from Vite shell to Next.js 15 App Router
-- **UMD Plugin Loading**: Plugins compiled to UMD bundles, loaded at runtime
+- **Next.js 15 Shell**: App Router with UMD plugin loading
+- **Vercel Deployment**: Fully deployed on Vercel with API route handlers for all plugins
+- **UMD Plugin Loading**: Plugins compiled to UMD bundles, served via same-origin CDN route
 - **Multi-Tenant Support**: Team-based plugin configurations and data isolation
-- **API Proxy**: Shell proxies all plugin API calls with authentication
-- **CDN Plugin Assets**: Plugin bundles served via Vercel Blob Storage
+- **API Proxy**: Dedicated Next.js API route handlers per plugin (46+ routes)
+- **Unified Database**: Single PostgreSQL with multi-schema isolation via Prisma
 
 ### Plugin SDK
 

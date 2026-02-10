@@ -16,7 +16,7 @@ Publish, validate, and manage your plugins in the NAAP marketplace.
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - A NAAP account with publisher permissions
 
 ### Development

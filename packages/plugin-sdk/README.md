@@ -92,7 +92,7 @@ function MyPlugin() {
 
 ## Requirements
 
-- Node.js 18+
+- Node.js 20+
 - React 18+
 - TypeScript 5+
 

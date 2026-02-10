@@ -80,7 +80,7 @@ check_dep() {
 }
 
 DEPS_OK=true
-check_dep node "Node.js" "https://nodejs.org/ (v18+ required)" || DEPS_OK=false
+check_dep node "Node.js" "https://nodejs.org/ (v20+ required)" || DEPS_OK=false
 check_dep npm  "npm"     "Comes with Node.js" || DEPS_OK=false
 check_dep git  "Git"     "https://git-scm.com/" || DEPS_OK=false
 
@@ -115,10 +115,10 @@ if [ "$DEPS_OK" = false ]; then
   exit 1
 fi
 
-# Check Node.js version (require 18+)
+# Check Node.js version (require 20+)
 NODE_MAJOR=$(node -v | sed 's/v\([0-9]*\).*/\1/')
-if [ "$NODE_MAJOR" -lt 18 ]; then
-  log_error "Node.js v18+ required (found $(node -v))."
+if [ "$NODE_MAJOR" -lt 20 ]; then
+  log_error "Node.js v20+ required (found $(node -v))."
   echo -e "  ${DIM}Fix: Use nvm to install a newer version: nvm install 20${NC}"
   exit 1
 fi

@@ -16,7 +16,7 @@ sudo apt-get install -y nodejs git
 curl -fsSL https://get.docker.com | sudo sh && sudo systemctl start docker
 ```
 
-**Required**: Node.js 18+, Git, Docker (running)
+**Required**: Node.js 20+, Git, Docker (running)
 
 ## Step 1: Create Your Plugin (2 minutes)
 
