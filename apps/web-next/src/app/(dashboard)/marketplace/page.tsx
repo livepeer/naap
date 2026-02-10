@@ -565,17 +565,23 @@ export default function MarketplacePage() {
       const data = await res.json();
       if (data.success) {
         const plugins = data.data?.plugins || data.plugins || [];
-        // Only treat plugins with enabled !== false as "installed"
+        // Only treat plugins that are explicitly installed (have a preference record
+        // or are core) as "installed". Use the `installed` flag from the personalized
+        // API, falling back to `enabled` for backward compatibility.
         const installed = new Set<string>(
           plugins
-            .filter((p: { name: string; enabled?: boolean }) => p.enabled !== false)
+            .filter((p: { name: string; enabled?: boolean; installed?: boolean }) =>
+              p.installed !== undefined ? p.installed : p.enabled !== false
+            )
             .map((p: { name: string }) => p.name)
         );
         setInstalledIds(installed);
 
         const instMap = new Map<string, string>();
         plugins
-          .filter((p: { name: string; enabled?: boolean }) => p.enabled !== false)
+          .filter((p: { name: string; enabled?: boolean; installed?: boolean }) =>
+            p.installed !== undefined ? p.installed : p.enabled !== false
+          )
           .forEach((p: { name: string; installId?: string; id?: string }) => {
             const installId = p.installId || p.id;
             if (installId) {

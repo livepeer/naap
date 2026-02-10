@@ -188,18 +188,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       userPreferences.map((p) => [p.pluginName, p])
     );
 
-    // Merge global plugins with user preferences
-    // Note: We return ALL plugins (both enabled and disabled) so the settings page
-    // can show toggles for disabled plugins. The sidebar/navigation should filter
-    // by enabled status on the frontend.
+    // Core plugin names that are always considered "installed"
+    const CORE_PLUGIN_NAMES = ['marketplace', 'plugin-publisher', 'pluginpublisher', 'my-wallet', 'my-dashboard'];
+    const normalizeForCore = (name: string) => name.toLowerCase().replace(/[-_]/g, '');
+
+    // Merge global plugins with user preferences.
+    // Each plugin gets an `installed` flag: true if the user has a preference record
+    // OR the plugin is a core plugin. Uninstalled plugins fall back to global defaults
+    // but are marked as not installed so the settings page can distinguish them.
     const mergedPlugins = globalPlugins
       .map((plugin) => {
         const userPref = preferencesMap.get(plugin.name);
+        const isCore = CORE_PLUGIN_NAMES.includes(normalizeForCore(plugin.name));
         return {
           ...plugin,
           enabled: userPref ? userPref.enabled : plugin.enabled,
           order: userPref?.order ?? plugin.order,
           pinned: userPref?.pinned ?? false,
+          installed: !!userPref || isCore,
         };
       })
       .sort((a, b) => {

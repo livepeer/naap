@@ -358,6 +358,9 @@ export interface RuntimePlugin {
   // Legacy field - kept for backward compatibility with API responses
   remoteUrl?: string;
   deploymentType?: string;
+  // Whether this plugin has been explicitly installed by the user (has a preference record)
+  // or is a core plugin. Plugins without this flag are globally available but not installed.
+  installed?: boolean;
 }
 
 // ============================================
