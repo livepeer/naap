@@ -11,6 +11,7 @@
  * describes what it needs (the query) and renders what it receives.
  */
 
+import { useState } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useDashboardQuery } from '@/hooks/useDashboardQuery';
 import { useJobFeedStream } from '@/hooks/useJobFeedStream';
@@ -39,6 +40,7 @@ import {
   Zap,
   AlertCircle,
   Loader2,
+  Timer,
 } from 'lucide-react';
 
 // ============================================================================
@@ -516,16 +518,66 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
 }
 
 // ============================================================================
+// Polling Interval Selector
+// ============================================================================
+
+const POLL_INTERVAL_KEY = 'naap_dashboard_poll_interval';
+const DEFAULT_POLL_INTERVAL = 15_000;
+
+const POLL_OPTIONS = [
+  { label: '5s',  value: 5_000  },
+  { label: '15s', value: 15_000 },
+  { label: '30s', value: 30_000 },
+  { label: '90s', value: 90_000 },
+] as const;
+
+function getStoredPollInterval(): number {
+  if (typeof window === 'undefined') return DEFAULT_POLL_INTERVAL;
+  const stored = localStorage.getItem(POLL_INTERVAL_KEY);
+  if (!stored) return DEFAULT_POLL_INTERVAL;
+  const parsed = Number(stored);
+  return POLL_OPTIONS.some((o) => o.value === parsed) ? parsed : DEFAULT_POLL_INTERVAL;
+}
+
+function PollIntervalSelector({ value, onChange }: { value: number; onChange: (ms: number) => void }) {
+  return (
+    <div className="flex items-center gap-1 px-1 py-0.5 rounded-full bg-muted/50 border border-border/50">
+      <Timer className="w-3 h-3 text-muted-foreground ml-1.5" />
+      {POLL_OPTIONS.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          className={`px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${
+            value === opt.value
+              ? 'bg-foreground/10 text-foreground'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================================
 // Main Dashboard
 // ============================================================================
 
 export default function DashboardPage() {
   useAuth();
 
+  const [pollInterval, setPollInterval] = useState(getStoredPollInterval);
+
+  const handlePollIntervalChange = (ms: number) => {
+    setPollInterval(ms);
+    localStorage.setItem(POLL_INTERVAL_KEY, String(ms));
+  };
+
   const { data, loading, error } = useDashboardQuery<DashboardData>(
     NETWORK_OVERVIEW_QUERY,
     undefined,
-    { pollInterval: 30_000, timeout: 8000 }
+    { pollInterval, timeout: 8000 }
   );
 
   const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8 });
@@ -539,7 +591,7 @@ export default function DashboardPage() {
   if (error?.type === 'no-provider') {
     return (
       <div className="space-y-6 max-w-[1440px] mx-auto">
-        <DashboardHeader />
+        <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
         <NoProviderMessage />
       </div>
     );
@@ -547,7 +599,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 max-w-[1440px] mx-auto">
-      <DashboardHeader />
+      <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
 
       {/* Row 1: Key Performance Indicators */}
       {data?.kpi ? (
@@ -575,7 +627,13 @@ export default function DashboardPage() {
   );
 }
 
-function DashboardHeader() {
+function DashboardHeader({
+  pollInterval,
+  onPollIntervalChange,
+}: {
+  pollInterval: number;
+  onPollIntervalChange: (ms: number) => void;
+}) {
   return (
     <div className="flex items-end justify-between">
       <div className="space-y-1">
@@ -584,9 +642,12 @@ function DashboardHeader() {
           Livepeer network health, performance, and cost at a glance
         </p>
       </div>
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-        <span className="text-xs font-medium text-emerald-400">Network Online</span>
+      <div className="flex items-center gap-3">
+        <PollIntervalSelector value={pollInterval} onChange={onPollIntervalChange} />
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-xs font-medium text-emerald-400">Network Online</span>
+        </div>
       </div>
     </div>
   );

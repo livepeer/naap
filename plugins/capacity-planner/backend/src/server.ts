@@ -361,14 +361,14 @@ app.post('/api/v1/capacity-planner/requests/:id/commit', async (req, res) => {
       if (existing) {
         // Remove commitment
         await prisma.capacitySoftCommit.delete({ where: { id: existing.id } });
-        return res.json({ success: true, action: 'removed' });
+        return res.json({ success: true, data: { action: 'removed' } });
       }
 
       // Add commitment
       await prisma.capacitySoftCommit.create({
         data: { requestId: req.params.id, userId, userName },
       });
-      return res.json({ success: true, action: 'added' });
+      return res.json({ success: true, data: { action: 'added' } });
     }
 
     // In-memory fallback
