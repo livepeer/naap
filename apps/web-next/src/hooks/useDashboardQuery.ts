@@ -17,11 +17,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useShell } from '@/contexts/shell-context';
-import {
-  DASHBOARD_QUERY_EVENT,
-  type DashboardQueryRequest,
-  type DashboardQueryResponse,
-} from '@naap/plugin-sdk';
+import { DASHBOARD_QUERY_EVENT } from './dashboard-constants';
+import type { DashboardQueryRequest, DashboardQueryResponse } from '@naap/plugin-sdk';
 
 // ============================================================================
 // Types

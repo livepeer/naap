@@ -4,12 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import {
-  DASHBOARD_JOB_FEED_EVENT,
-  DASHBOARD_JOB_FEED_EMIT_EVENT,
-  type JobFeedEntry,
-  type JobFeedSubscribeResponse,
-} from '@naap/plugin-sdk';
+import { DASHBOARD_JOB_FEED_EVENT, DASHBOARD_JOB_FEED_EMIT_EVENT } from '../dashboard-constants';
+import type { JobFeedEntry, JobFeedSubscribeResponse } from '@naap/plugin-sdk';
 
 // ============================================================================
 // Mocks
@@ -152,7 +148,7 @@ describe('useJobFeedStream', () => {
     const { result } = renderHook(() => useJobFeedStream());
 
     await waitFor(() => {
-      expect(result.current.error).toBeDefined();
+      expect(result.current.error).not.toBeNull();
     });
 
     expect(result.current.error!.type).toBe('no-provider');

@@ -16,12 +16,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useShell } from '@/contexts/shell-context';
-import {
-  DASHBOARD_JOB_FEED_EVENT,
-  DASHBOARD_JOB_FEED_EMIT_EVENT,
-  type JobFeedSubscribeResponse,
-  type JobFeedEntry,
-} from '@naap/plugin-sdk';
+import { DASHBOARD_JOB_FEED_EVENT, DASHBOARD_JOB_FEED_EMIT_EVENT } from './dashboard-constants';
+import type { JobFeedSubscribeResponse, JobFeedEntry } from '@naap/plugin-sdk';
 import type { DashboardError } from './useDashboardQuery';
 
 // ============================================================================
