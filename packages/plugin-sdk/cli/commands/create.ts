@@ -22,7 +22,7 @@ const CATEGORIES: { value: PluginCategory; name: string }[] = [
   { value: 'analytics', name: 'Analytics' },
   { value: 'monitoring', name: 'Monitoring' },
   { value: 'integration', name: 'Integration' },
-  { value: 'tool', name: 'Tool' },
+  { value: 'developer-tools', name: 'Developer Tools' },
   { value: 'communication', name: 'Communication' },
   { value: 'security', name: 'Security' },
   { value: 'other', name: 'Other' },
@@ -52,7 +52,17 @@ export const createCommand = new Command('create')
     console.log(chalk.bold.blue('\n🚀 NAAP Plugin Creator\n'));
 
     // Interactive prompts if options not provided
-    const answers = await inquirer.prompt([
+    interface CreateAnswers {
+      name?: string;
+      template?: string;
+      category?: PluginCategory;
+      displayName?: string;
+      description?: string;
+      author?: string;
+      integrations?: string[];
+    }
+
+    const answers = await inquirer.prompt<CreateAnswers>([
       {
         type: 'input',
         name: 'name',
@@ -99,13 +109,13 @@ export const createCommand = new Command('create')
         name: 'integrations',
         message: 'Include integrations:',
         choices: INTEGRATIONS,
-        when: (ans: { template?: string }) => 
+        when: (ans: CreateAnswers) => 
           (ans.template || options?.template) !== 'frontend-only',
       },
     ]);
 
-    const pluginName = name || answers.name;
-    const template = (options?.template || answers.template) as PluginTemplate;
+    const pluginName = name || answers.name || 'my-plugin';
+    const template = (options?.template || answers.template || 'full-stack') as PluginTemplate;
     const targetDir = options?.directory || path.join(process.cwd(), pluginName);
 
     // Check if directory exists
@@ -133,11 +143,11 @@ export const createCommand = new Command('create')
 
       // Create manifest
       const manifest = createDefaultManifest(pluginName, template, {
-        displayName: answers.displayName,
-        description: answers.description,
-        author: answers.author,
+        displayName: answers.displayName || pluginName,
+        description: answers.description || '',
+        author: answers.author || '',
       });
-      manifest.category = answers.category;
+      manifest.category = answers.category || 'other';
       manifest.integrations = {
         required: [],
         optional: answers.integrations || [],
@@ -159,7 +169,7 @@ export const createCommand = new Command('create')
 
       // Create frontend if applicable
       if (template === 'full-stack' || template === 'frontend-only') {
-        await createFrontend(targetDir, pluginName, manifest.displayName);
+        await createFrontend(targetDir, pluginName, manifest.displayName || pluginName);
       }
 
       // Create backend if applicable
@@ -168,7 +178,7 @@ export const createCommand = new Command('create')
       }
 
       // Create docs
-      await createDocs(targetDir, pluginName, answers.description);
+      await createDocs(targetDir, pluginName, answers.description || '');
 
       // Create .gitignore
       await fs.writeFile(
