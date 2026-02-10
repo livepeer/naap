@@ -1,0 +1,257 @@
+---
+title: "Building a Dashboard Data Provider"
+description: "Step-by-step guide for creating a plugin that provides data to the Network Overview dashboard"
+order: 10
+---
+
+## Overview
+
+The Network Overview dashboard (`/dashboard`) gets its data from a **provider plugin** via the event bus. Any plugin can become a dashboard data provider by implementing resolver functions against the shared GraphQL schema.
+
+This guide walks you through creating a provider from scratch, or starting from the reference mock plugin.
+
+---
+
+## Quick Start (5 minutes)
+
+The fastest way to get started is to clone the mock provider plugin:
+
+```bash
+# Clone the reference implementation
+cp -r plugins/dashboard-provider-mock plugins/my-network-provider
+
+# Update the name in plugin.json
+# Update the name in frontend/src/App.tsx
+# Update the name in frontend/package.json
+
+# Replace mock data with real API calls in frontend/src/data/
+# Update frontend/src/provider.ts to use async fetchers
+```
+
+---
+
+## Prerequisites
+
+Your plugin needs the `graphql` package (used internally by `createDashboardProvider`):
+
+```bash
+npm install graphql @naap/plugin-sdk
+```
+
+---
+
+## Step 1: Implement Resolvers
+
+Each resolver corresponds to a dashboard widget. Implement only the ones your plugin provides:
+
+```typescript
+// frontend/src/provider.ts
+import {
+  createDashboardProvider,
+  type IEventBus,
+  type DashboardKPI,
+  type DashboardProtocol,
+} from '@naap/plugin-sdk';
+
+export function registerProvider(eventBus: IEventBus, api: IApiClient) {
+  return createDashboardProvider(eventBus, {
+    // Each resolver returns typed data matching the GraphQL schema
+    kpi: async (args) => {
+      const stats = await api.get('/api/v1/my-service/stats');
+      return {
+        successRate: { value: stats.successRate, delta: stats.successRateDelta },
+        orchestratorsOnline: { value: stats.orchCount, delta: stats.orchDelta },
+        dailyUsageMins: { value: stats.usageMins, delta: stats.usageDelta },
+        dailyStreamCount: { value: stats.streams, delta: stats.streamsDelta },
+      };
+    },
+
+    protocol: async () => {
+      const proto = await api.get('/api/v1/my-service/protocol');
+      return {
+        currentRound: proto.round,
+        blockProgress: proto.blockProgress,
+        totalBlocks: proto.totalBlocks,
+        totalStakedLPT: proto.totalStaked,
+      };
+    },
+
+    // Omit resolvers you don't support — they return null
+  });
+}
+```
+
+---
+
+## Step 2: Register on Mount
+
+In your plugin's App component, register the provider in a `useEffect`:
+
+```typescript
+// frontend/src/App.tsx
+import React, { useEffect, useRef } from 'react';
+import { createPlugin, useShell } from '@naap/plugin-sdk';
+import { registerProvider } from './provider';
+
+const ProviderApp: React.FC = () => {
+  const shell = useShell();
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    const cleanup = registerProvider(shell.eventBus, shell.api!);
+    cleanupRef.current = cleanup;
+    return () => {
+      cleanup();
+      cleanupRef.current = null;
+    };
+  }, [shell.eventBus, shell.api]);
+
+  return null; // Headless — no UI
+};
+
+const plugin = createPlugin({
+  name: 'my-network-provider',
+  version: '1.0.0',
+  routes: [],
+  App: ProviderApp,
+});
+
+export default plugin;
+```
+
+---
+
+## Step 3: Implement the Job Feed (Optional)
+
+If your plugin provides live job data, register a job feed handler:
+
+```typescript
+import {
+  DASHBOARD_JOB_FEED_EVENT,
+  DASHBOARD_JOB_FEED_EMIT_EVENT,
+  type IEventBus,
+  type JobFeedSubscribeResponse,
+  type JobFeedEntry,
+} from '@naap/plugin-sdk';
+
+export function registerJobFeed(eventBus: IEventBus) {
+  // Option A: Event bus fallback (local dev)
+  const unsubscribe = eventBus.handleRequest(
+    DASHBOARD_JOB_FEED_EVENT,
+    async (): Promise<JobFeedSubscribeResponse> => ({
+      channelName: null,
+      eventName: 'job',
+      useEventBusFallback: true,
+    })
+  );
+
+  // Emit job events (from your backend or simulated)
+  // eventBus.emit(DASHBOARD_JOB_FEED_EMIT_EVENT, jobEntry);
+
+  return unsubscribe;
+
+  // Option B: Ably channel (production)
+  // Return { channelName: 'my-jobs-channel', eventName: 'job', useEventBusFallback: false }
+  // Your backend publishes to the Ably channel
+}
+```
+
+---
+
+## GraphQL Schema Reference
+
+The full schema is exported as `DASHBOARD_SCHEMA` from `@naap/plugin-sdk`:
+
+```graphql
+type Query {
+  kpi(window: String): KPI
+  protocol: Protocol
+  fees(days: Int): FeesInfo
+  pipelines(limit: Int): [PipelineUsage!]
+  gpuCapacity: GPUCapacity
+  pricing: [PipelinePricing!]
+}
+```
+
+### Types
+
+| Type | Fields |
+|---|---|
+| `KPI` | `successRate`, `orchestratorsOnline`, `dailyUsageMins`, `dailyStreamCount` (all `MetricDelta!`) |
+| `MetricDelta` | `value: Float!`, `delta: Float!` |
+| `Protocol` | `currentRound: Int!`, `blockProgress: Int!`, `totalBlocks: Int!`, `totalStakedLPT: Float!` |
+| `FeesInfo` | `totalEth: Float!`, `entries: [FeeEntry!]!` |
+| `FeeEntry` | `day: String!`, `eth: Float!` |
+| `PipelineUsage` | `name: String!`, `mins: Int!`, `color: String` |
+| `GPUCapacity` | `totalGPUs: Int!`, `availableCapacity: Float!` |
+| `PipelinePricing` | `pipeline: String!`, `unit: String!`, `price: Float!`, `outputPerDollar: String!` |
+
+---
+
+## Testing Your Provider
+
+Write tests using a mock event bus:
+
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+import { DASHBOARD_QUERY_EVENT } from '@naap/plugin-sdk';
+import { registerProvider } from './provider';
+
+function createMockEventBus() {
+  const handlers = new Map();
+  return {
+    // ...same pattern as SDK contract tests
+    handleRequest: vi.fn((event, handler) => {
+      handlers.set(event, handler);
+      return () => handlers.delete(event);
+    }),
+    _invoke: async (event, data) => handlers.get(event)?.(data),
+  };
+}
+
+describe('My provider', () => {
+  it('responds with KPI data', async () => {
+    const bus = createMockEventBus();
+    registerProvider(bus as any, mockApi);
+
+    const response = await bus._invoke(DASHBOARD_QUERY_EVENT, {
+      query: '{ kpi { successRate { value } } }',
+    });
+
+    expect(response.data.kpi.successRate.value).toBeGreaterThan(0);
+  });
+});
+```
+
+---
+
+## Adding a New Widget
+
+To add a custom widget to the dashboard:
+
+1. **Schema** — Add a new root field and type to `DASHBOARD_SCHEMA` in `packages/plugin-sdk/src/contracts/dashboard.ts`
+2. **TypeScript** — Add the corresponding TypeScript interface
+3. **Resolver** — Implement the resolver in your provider plugin
+4. **Query** — Add the field to the `NETWORK_OVERVIEW_QUERY` in the dashboard page
+5. **Render** — Add the widget component to the dashboard page
+
+No changes needed to hooks, event bus, or other existing widgets.
+
+---
+
+## Troubleshooting
+
+### "No dashboard data provider installed"
+
+The dashboard shows this when no plugin has registered a handler for `dashboard:query`. Ensure your provider plugin is installed and mounts successfully.
+
+### Timeout errors
+
+The dashboard waits 8 seconds for a response. If your API calls take longer, consider:
+- Caching data in the plugin
+- Returning partial results (implement fast resolvers first)
+- Increasing the timeout in `useDashboardQuery` options
+
+### Schema mismatch
+
+If your resolver returns data that doesn't match the schema types, GraphQL will return null for those fields with an error message. Check the browser console for partial error warnings.
