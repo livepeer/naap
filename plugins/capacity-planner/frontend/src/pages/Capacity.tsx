@@ -145,30 +145,29 @@ export const CapacityPage: React.FC = () => {
         return next;
       });
 
-      // Update selected request if open
-      if (selectedRequest?.id === request.id) {
-        setSelectedRequest((prev) => {
-          if (!prev) return prev;
-          if (alreadyCommitted) {
-            return {
-              ...prev,
-              softCommits: prev.softCommits.filter((sc) => sc.userId !== user.id),
-            };
-          }
+      // Update selected request if open — use functional updater to avoid
+      // stale closure over selectedRequest
+      setSelectedRequest((prev) => {
+        if (!prev || prev.id !== request.id) return prev;
+        if (alreadyCommitted) {
           return {
             ...prev,
-            softCommits: [
-              ...prev.softCommits,
-              {
-                id: `sc-${Date.now()}`,
-                userId: user.id,
-                userName: user.name,
-                timestamp: new Date().toISOString(),
-              },
-            ],
+            softCommits: prev.softCommits.filter((sc) => sc.userId !== user.id),
           };
-        });
-      }
+        }
+        return {
+          ...prev,
+          softCommits: [
+            ...prev.softCommits,
+            {
+              id: `sc-${Date.now()}`,
+              userId: user.id,
+              userName: user.name,
+              timestamp: new Date().toISOString(),
+            },
+          ],
+        };
+      });
 
       // Call API (fire and forget with error handling)
       try {
@@ -211,33 +210,34 @@ export const CapacityPage: React.FC = () => {
           }
           return next;
         });
-        // Also revert selected request if it was open
-        if (selectedRequest?.id === request.id) {
-          setSelectedRequest((prev) => {
-            if (!prev) return prev;
-            if (alreadyCommitted) {
-              return {
-                ...prev,
-                softCommits: [
-                  ...prev.softCommits,
-                  {
-                    id: `sc-${Date.now()}`,
-                    userId: user.id,
-                    userName: user.name,
-                    timestamp: new Date().toISOString(),
-                  },
-                ],
-              };
-            }
+        // Also revert selected request if it was open.
+        // Use the functional updater to read current state and avoid stale closure
+        // over `selectedRequest` — the user may have switched to a different request
+        // between the optimistic update and the error callback.
+        setSelectedRequest((prev) => {
+          if (!prev || prev.id !== request.id) return prev;
+          if (alreadyCommitted) {
             return {
               ...prev,
-              softCommits: prev.softCommits.filter((sc) => sc.userId !== user.id),
+              softCommits: [
+                ...prev.softCommits,
+                {
+                  id: `sc-${Date.now()}`,
+                  userId: user.id,
+                  userName: user.name,
+                  timestamp: new Date().toISOString(),
+                },
+              ],
             };
-          });
-        }
+          }
+          return {
+            ...prev,
+            softCommits: prev.softCommits.filter((sc) => sc.userId !== user.id),
+          };
+        });
       }
     },
-    [committedIds, selectedRequest]
+    [committedIds]
   );
 
   const handleAddComment = useCallback(

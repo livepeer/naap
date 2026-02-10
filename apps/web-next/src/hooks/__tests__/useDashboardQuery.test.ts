@@ -2,7 +2,7 @@
  * useDashboardQuery Hook Tests
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { DASHBOARD_QUERY_EVENT } from '../dashboard-constants';
 
@@ -56,6 +56,11 @@ describe('useDashboardQuery', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    // Always restore real timers to prevent leaking fake timers across tests
+    vi.useRealTimers();
+  });
+
   it('returns loading=true initially, then data on success', async () => {
     mockEventBus.request.mockResolvedValueOnce({ data: testData, errors: undefined });
 
@@ -92,8 +97,7 @@ describe('useDashboardQuery', () => {
     expect(result.current.error).toBeDefined();
     expect(result.current.error!.type).toBe('no-provider');
     expect(result.current.data).toBeNull();
-
-    vi.useRealTimers();
+    // vi.useRealTimers() handled by afterEach
   });
 
   it('returns error with type=timeout on timeout', async () => {

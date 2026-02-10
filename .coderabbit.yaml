@@ -20,8 +20,11 @@ reviews:
   high_level_summary: true
   high_level_summary_placeholder: "@coderabbitai summary"
 
-  # Don't block PRs with "request changes" — use comments instead
-  request_changes_workflow: false
+  # When CodeRabbit finds issues, post a "Request Changes" review so the PR
+  # is blocked until all comments are resolved (either fixed or dismissed).
+  # Combined with GitHub's "Require conversation resolution before merging"
+  # branch protection rule, this ensures no review comment is silently ignored.
+  request_changes_workflow: true
 
   # Collapse review comments after they're resolved
   collapse_finished_reviews: true
