@@ -1,24 +1,11 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+/**
+ * Vite Configuration for Dashboard Provider Mock Plugin
+ */
+import { createPluginConfig } from '@naap/plugin-build/vite';
 
-export default defineConfig({
-  plugins: [react()],
-  build: {
-    outDir: 'dist/production',
-    lib: {
-      entry: 'src/mount.tsx',
-      name: 'NaapPluginDashboardProviderMock',
-      fileName: 'dashboard-provider-mock',
-      formats: ['umd'],
-    },
-    rollupOptions: {
-      external: ['react', 'react-dom'],
-      output: {
-        globals: {
-          react: 'React',
-          'react-dom': 'ReactDOM',
-        },
-      },
-    },
-  },
+export default createPluginConfig({
+  name: 'dashboard-provider-mock',
+  displayName: 'Dashboard Provider (Mock)',
+  globalName: 'NaapPluginDashboardProviderMock',
+  defaultCategory: 'analytics',
 });

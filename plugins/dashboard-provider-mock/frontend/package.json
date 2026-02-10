@@ -1,16 +1,18 @@
 {
-  "name": "@naap/plugin-dashboard-provider-mock",
+  "name": "@naap/plugin-dashboard-provider-mock-frontend",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "vite --port 3020",
+    "build": "vite build --mode production",
+    "preview": "vite preview --port 3020 --host 0.0.0.0 --strictPort",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@naap/plugin-sdk": "*",
+    "@naap/types": "*",
     "graphql": "^16.10.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -19,6 +21,9 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
     "typescript": "~5.8.2",
     "vite": "^6.0.0",
     "vitest": "^4.0.18"
