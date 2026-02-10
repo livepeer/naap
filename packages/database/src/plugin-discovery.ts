@@ -60,6 +60,23 @@ export interface DiscoveredPlugin {
   order: number;
   /** UMD global name (e.g. "NaapPluginMyWallet") */
   globalName: string;
+
+  // ── Marketplace metadata (optional, from plugin.json) ──
+
+  /** Plugin description for marketplace listings */
+  description?: string;
+  /** Author name */
+  author?: string;
+  /** Author email */
+  authorEmail?: string;
+  /** Plugin category (e.g. "analytics", "monitoring", "developer") */
+  category?: string;
+  /** Search keywords */
+  keywords?: string[];
+  /** License identifier (e.g. "MIT") */
+  license?: string;
+  /** Source repository URL */
+  repository?: string;
 }
 
 /**
@@ -83,6 +100,12 @@ export function discoverPlugins(rootDir: string): DiscoveredPlugin[] {
         fs.readFileSync(path.join(pluginsDir, dir, 'plugin.json'), 'utf8'),
       );
       const camelName = toCamelCase(dir);
+
+      // Extract author — supports both string and { name, email } forms
+      const rawAuthor = manifest.author;
+      const authorName = typeof rawAuthor === 'string' ? rawAuthor : rawAuthor?.name;
+      const authorEmail = typeof rawAuthor === 'object' ? rawAuthor?.email : undefined;
+
       return {
         dirName: dir,
         name: camelName,
@@ -92,6 +115,14 @@ export function discoverPlugins(rootDir: string): DiscoveredPlugin[] {
         icon: manifest.frontend?.navigation?.icon || 'Box',
         order: manifest.frontend?.navigation?.order ?? 99,
         globalName: `NaapPlugin${toPascalCase(camelName)}`,
+        // Marketplace metadata
+        description: manifest.description,
+        author: authorName,
+        authorEmail,
+        category: manifest.category,
+        keywords: manifest.keywords,
+        license: manifest.license,
+        repository: manifest.repository,
       };
     })
     .sort((a, b) => a.order - b.order);
@@ -140,5 +171,57 @@ export function toWorkflowPluginData(
     enabled: true,
     order: plugin.order,
     icon: plugin.icon,
+  };
+}
+
+// ─── Marketplace (PluginPackage) Data ──────────────────────────────────────────
+
+/**
+ * Build the PluginPackage upsert data for a discovered plugin.
+ * Only plugins that have at least a `description` in their plugin.json
+ * will produce meaningful marketplace entries.
+ *
+ * Shape matches `prisma.pluginPackage.upsert()`.
+ */
+export function toPluginPackageData(
+  plugin: DiscoveredPlugin,
+  cdnBase: string = '/cdn/plugins',
+) {
+  return {
+    name: plugin.name,
+    displayName: plugin.displayName,
+    description: plugin.description || `${plugin.displayName} plugin for NAAP`,
+    category: plugin.category || 'other',
+    author: plugin.author || 'NAAP Team',
+    authorEmail: plugin.authorEmail || 'team@naap.io',
+    repository: plugin.repository || `https://github.com/livepeer/naap/tree/main/plugins/${plugin.dirName}`,
+    license: plugin.license || 'MIT',
+    keywords: plugin.keywords || [],
+    icon: plugin.icon,
+    isCore: false,
+    publishStatus: 'published',
+  };
+}
+
+/**
+ * Build the PluginVersion data for the initial version of a marketplace entry.
+ */
+export function toPluginVersionData(
+  plugin: DiscoveredPlugin,
+  packageId: string,
+  cdnBase: string = '/cdn/plugins',
+) {
+  return {
+    packageId,
+    version: plugin.version,
+    frontendUrl: getBundleUrl(cdnBase, plugin.dirName, plugin.version),
+    manifest: {
+      name: plugin.name,
+      displayName: plugin.displayName,
+      version: plugin.version,
+      description: plugin.description || '',
+      category: plugin.category || 'other',
+      icon: plugin.icon,
+    },
   };
 }

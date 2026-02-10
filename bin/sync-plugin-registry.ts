@@ -21,7 +21,13 @@
  */
 
 import { PrismaClient } from '../packages/database/src/generated/client/index.js';
-import { discoverPlugins, toWorkflowPluginData } from '../packages/database/src/plugin-discovery.js';
+import {
+  discoverPlugins,
+  toWorkflowPluginData,
+  toPluginPackageData,
+  toPluginVersionData,
+  getBundleUrl,
+} from '../packages/database/src/plugin-discovery.js';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -111,8 +117,103 @@ async function main(): Promise<void> {
     }
 
     console.log(
-      `[sync-plugin-registry] Done: ${created} created, ${updated} updated, ${disabled} disabled`,
+      `[sync-plugin-registry] WorkflowPlugins: ${created} created, ${updated} updated, ${disabled} disabled`,
     );
+
+    // ------------------------------------------------------------------
+    // Sync PluginPackage records (marketplace)
+    // ------------------------------------------------------------------
+    console.log('[sync-plugin-registry] Syncing marketplace PluginPackage records...');
+
+    let pkgCreated = 0;
+    let pkgUpdated = 0;
+
+    for (const p of discovered) {
+      const pkgData = toPluginPackageData(p, PLUGIN_CDN_URL);
+
+      const existingPkg = await prisma.pluginPackage.findUnique({
+        where: { name: p.name },
+        select: { id: true },
+      });
+
+      const pkg = await prisma.pluginPackage.upsert({
+        where: { name: p.name },
+        update: {
+          displayName: pkgData.displayName,
+          description: pkgData.description,
+          category: pkgData.category,
+          author: pkgData.author,
+          authorEmail: pkgData.authorEmail,
+          repository: pkgData.repository,
+          license: pkgData.license,
+          keywords: pkgData.keywords,
+          icon: pkgData.icon,
+          publishStatus: 'published',
+        },
+        create: pkgData,
+      });
+
+      if (existingPkg) {
+        pkgUpdated++;
+      } else {
+        pkgCreated++;
+      }
+
+      // Ensure a PluginVersion exists
+      const versionData = toPluginVersionData(p, pkg.id, PLUGIN_CDN_URL);
+
+      await prisma.pluginVersion.upsert({
+        where: {
+          packageId_version: {
+            packageId: pkg.id,
+            version: p.version,
+          },
+        },
+        update: {
+          frontendUrl: versionData.frontendUrl,
+          manifest: versionData.manifest as any,
+        },
+        create: versionData,
+      });
+
+      // Ensure a PluginDeployment exists
+      const version = await prisma.pluginVersion.findUnique({
+        where: {
+          packageId_version: {
+            packageId: pkg.id,
+            version: p.version,
+          },
+        },
+        select: { id: true },
+      });
+
+      if (version) {
+        await prisma.pluginDeployment.upsert({
+          where: { packageId: pkg.id },
+          update: {
+            versionId: version.id,
+            status: 'running',
+            frontendUrl: getBundleUrl(PLUGIN_CDN_URL, p.dirName, p.version),
+            deployedAt: new Date(),
+            healthStatus: 'healthy',
+          },
+          create: {
+            packageId: pkg.id,
+            versionId: version.id,
+            status: 'running',
+            frontendUrl: getBundleUrl(PLUGIN_CDN_URL, p.dirName, p.version),
+            deployedAt: new Date(),
+            healthStatus: 'healthy',
+            activeInstalls: 0,
+          },
+        });
+      }
+    }
+
+    console.log(
+      `[sync-plugin-registry] PluginPackages: ${pkgCreated} created, ${pkgUpdated} updated`,
+    );
+    console.log('[sync-plugin-registry] Done.');
   } finally {
     await prisma.$disconnect();
   }
