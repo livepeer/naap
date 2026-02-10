@@ -105,13 +105,35 @@ export function toWorkflowPluginData(
   plugin: DiscoveredPlugin,
   cdnBase: string = '/cdn/plugins',
 ) {
+  // Only set stylesUrl if the plugin's build output actually contains a CSS file.
+  // Headless plugins (like dashboard-provider-mock) produce no CSS, and a 404
+  // stylesheet URL causes MIME-type errors in the browser.
+  let stylesUrl: string | undefined;
+  try {
+    const manifestPath = path.join(
+      'dist', 'plugins', plugin.dirName, plugin.version, 'manifest.json',
+    );
+    if (fs.existsSync(manifestPath)) {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      if (manifest.stylesFile) {
+        stylesUrl = getStylesUrl(cdnBase, plugin.dirName, plugin.version);
+      }
+    } else {
+      // Fallback: assume CSS exists (safe — non-blocking load handles 404 gracefully)
+      stylesUrl = getStylesUrl(cdnBase, plugin.dirName, plugin.version);
+    }
+  } catch {
+    // On any error, default to setting the URL (non-blocking load is safe)
+    stylesUrl = getStylesUrl(cdnBase, plugin.dirName, plugin.version);
+  }
+
   return {
     name: plugin.name,
     displayName: plugin.displayName,
     version: plugin.version,
     remoteUrl: getBundleUrl(cdnBase, plugin.dirName, plugin.version),
     bundleUrl: getBundleUrl(cdnBase, plugin.dirName, plugin.version),
-    stylesUrl: getStylesUrl(cdnBase, plugin.dirName, plugin.version),
+    stylesUrl,
     globalName: plugin.globalName,
     deploymentType: 'cdn',
     routes: plugin.routes,
