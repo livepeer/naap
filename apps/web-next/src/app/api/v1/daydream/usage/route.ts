@@ -3,12 +3,12 @@
  * GET /api/v1/daydream/usage - Get usage statistics
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) {
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
         where: {
           userId: user.id,
           status: 'ended',
-          durationMins: { not: null },
+          durationMins: { gt: 0 },
         },
         select: { durationMins: true },
       }),

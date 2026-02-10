@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { success, errors } from '@/lib/api/response';
 
 // Mock releases data
@@ -50,7 +50,7 @@ const RELEASES = [
 ];
 
 // GET /api/v1/releases - Get release notes
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     // In production, fetch from database or GitHub Releases API
     return success({

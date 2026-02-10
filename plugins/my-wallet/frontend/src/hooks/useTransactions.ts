@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useWallet } from '../context/WalletContext';
-import { useShell } from '@naap/plugin-sdk';
+import { useShell, getPluginBackendUrl } from '@naap/plugin-sdk';
 
 export interface Transaction {
   id: string;
@@ -37,7 +37,7 @@ export function useTransactions(limit = 20): UseTransactionsReturn {
     if (config?.apiBaseUrl) {
       return `${config.apiBaseUrl}/api/v1/wallet`;
     }
-    return 'http://localhost:4008/api/v1/wallet';
+    return getPluginBackendUrl('my-wallet', { apiPath: '/api/v1/wallet' });
   }, [shell]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -65,7 +65,9 @@ export function useTransactions(limit = 20): UseTransactionsReturn {
         throw new Error(`HTTP ${response.status}`);
       }
 
-      const data = await response.json();
+      const json = await response.json();
+      // API routes wrap responses in { success, data: { transactions }, meta }
+      const data = json.data ?? json;
       
       if (reset) {
         setTransactions(data.transactions || []);
@@ -75,7 +77,7 @@ export function useTransactions(limit = 20): UseTransactionsReturn {
         setOffset(prev => prev + limit);
       }
       
-      setTotal(data.total || 0);
+      setTotal(json.meta?.total ?? data.total ?? 0);
     } catch (err: any) {
       console.error('Failed to fetch transactions:', err);
       setError(err?.message || 'Failed to fetch transactions');

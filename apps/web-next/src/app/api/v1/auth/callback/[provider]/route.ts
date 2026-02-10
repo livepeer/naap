@@ -10,7 +10,7 @@ interface RouteParams {
   params: Promise<{ provider: string }>;
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { provider } = await params;
 
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
  * POST /api/v1/auth/callback/:provider
  * Handle OAuth callback (for frontend-initiated flows)
  */
-export async function POST(request: NextRequest, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { provider } = await params;
 

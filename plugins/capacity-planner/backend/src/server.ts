@@ -1,11 +1,15 @@
 import express from 'express';
 import cors from 'cors';
+import { readFileSync } from 'node:fs';
 import { config } from 'dotenv';
 
 config();
 
+const pluginConfig = JSON.parse(
+  readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
+);
 const app = express();
-const PORT = process.env.PORT || 4003;
+const PORT = process.env.PORT || pluginConfig.backend?.devPort || 4003;
 
 app.use(cors());
 app.use(express.json());

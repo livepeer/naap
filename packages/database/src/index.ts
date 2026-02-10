@@ -24,9 +24,42 @@ const globalForPrisma = globalThis as unknown as {
   prisma: GeneratedPrismaClient | undefined;
 };
 
-// Build connection URL with pool configuration
+/**
+ * Resolve the database connection URL.
+ *
+ * Vercel Storage (Neon) sets env vars with POSTGRES_* prefixes.
+ * Local development uses DATABASE_URL.  We check all known names
+ * so the same code works everywhere without extra config.
+ *
+ * Priority:
+ *   1. DATABASE_URL          – explicit override / local dev
+ *   2. POSTGRES_PRISMA_URL   – Vercel Storage (includes connect_timeout)
+ *   3. POSTGRES_URL          – Vercel Storage pooled URL
+ */
 function getConnectionUrl(): string {
-  const baseUrl = process.env.DATABASE_URL || '';
+  const baseUrl =
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL ||
+    '';
+
+  if (!baseUrl) {
+    console.warn(
+      '[database] No database URL found. Checked: DATABASE_URL=%s, POSTGRES_PRISMA_URL=%s, POSTGRES_URL=%s',
+      process.env.DATABASE_URL ? 'SET' : 'EMPTY',
+      process.env.POSTGRES_PRISMA_URL ? 'SET' : 'EMPTY',
+      process.env.POSTGRES_URL ? 'SET' : 'EMPTY',
+    );
+    return '';
+  }
+
+  // Log which env var was resolved (mask the value for security)
+  const source = process.env.DATABASE_URL
+    ? 'DATABASE_URL'
+    : process.env.POSTGRES_PRISMA_URL
+    ? 'POSTGRES_PRISMA_URL'
+    : 'POSTGRES_URL';
+  console.log(`[database] Using ${source} (${baseUrl.substring(0, 30)}...)`);
 
   // If URL already has query params, don't modify
   if (baseUrl.includes('?')) {

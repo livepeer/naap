@@ -3,11 +3,11 @@
  * Logout - revoke session
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { logout } from '@/lib/api/auth';
 import { successNoContent, getAuthToken } from '@/lib/api/response';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
 

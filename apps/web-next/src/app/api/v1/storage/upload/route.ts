@@ -28,7 +28,7 @@ const ALLOWED_TYPES = [
   'text/css',
 ];
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     // Validate session
     const token = getAuthToken(request);

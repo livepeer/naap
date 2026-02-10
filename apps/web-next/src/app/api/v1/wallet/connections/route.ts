@@ -5,7 +5,7 @@
  * DELETE /api/v1/wallet/connections - Delete wallet connection
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
@@ -20,7 +20,7 @@ const isValidChainId = (chainId: number): boolean => {
   return [1, 5, 42161, 421613].includes(chainId);
 };
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) {
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) {
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function DELETE(request: NextRequest) {
+export async function DELETE(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) {

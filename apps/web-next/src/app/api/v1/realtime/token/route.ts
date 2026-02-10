@@ -11,7 +11,7 @@ import { validateSession } from '@/lib/api/auth';
 import { errors, getAuthToken } from '@/lib/api/response';
 import Ably from 'ably';
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     // Validate user session
     const token = getAuthToken(request);

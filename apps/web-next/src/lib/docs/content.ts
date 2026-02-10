@@ -200,6 +200,25 @@ export function getNavigation(): NavSection[] {
   return sections.sort((a, b) => a.order - b.order);
 }
 
+/** Get the first doc in a section (for section-level redirects) */
+export function getFirstDocInSection(sectionKey: string): DocPage | null {
+  const sectionDir = path.join(CONTENT_DIR, sectionKey);
+  if (!fs.existsSync(sectionDir) || !fs.statSync(sectionDir).isDirectory()) return null;
+
+  const files = getMdxFiles(sectionDir, [sectionKey]);
+  if (files.length === 0) return null;
+
+  // Sort by frontmatter order, return the first
+  const docs = files.map(({ slug, filePath }) => {
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const { frontmatter, content } = parseFrontmatter(raw);
+    return { slug, frontmatter, content };
+  });
+
+  docs.sort((a, b) => (a.frontmatter.order ?? 99) - (b.frontmatter.order ?? 99));
+  return docs[0];
+}
+
 /** Build flat search index */
 export function getSearchIndex(): SearchEntry[] {
   const docs = getAllDocs();

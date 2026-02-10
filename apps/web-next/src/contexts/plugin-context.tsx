@@ -11,35 +11,10 @@ import {
   type ReactNode,
 } from 'react';
 import { useAuth } from './auth-context';
+import type { RuntimePlugin } from '@naap/types';
 
-// Plugin manifest type
-export interface PluginManifest {
-  name: string;
-  displayName: string;
-  version: string;
-  routes: string[];
-  enabled: boolean;
-  order: number;
-  icon?: string;
-  metadata?: Record<string, unknown>;
-  // CDN/UMD deployment fields
-  bundleUrl?: string;
-  stylesUrl?: string;
-  bundleHash?: string;
-  bundleSize?: number;
-  globalName?: string; // UMD global name (e.g., NaapPluginMyWallet)
-  // Additional metadata for plugin info
-  author?: string;
-  publisher?: string;
-  latestVersion?: string;
-  installedAt?: string;
-  createdAt?: string;
-  category?: string;
-  description?: string;
-  // Legacy field - kept for backward compatibility with API responses
-  remoteUrl?: string;
-  deploymentType?: string;
-}
+// Backward-compatible alias so downstream imports of PluginManifest keep working
+export type PluginManifest = RuntimePlugin;
 
 export type PluginStatus = 'enabled' | 'disabled' | 'error' | 'loading' | 'missing';
 
@@ -120,16 +95,32 @@ export function PluginProvider({ children }: { children: ReactNode }) {
       const normalizePluginName = (name: string) => 
         name.toLowerCase().replace(/[-_]/g, '');
 
+      // Extract CDN fields from metadata if not present as top-level fields.
+      // The WorkflowPlugin Prisma model stores bundleUrl, stylesUrl, globalName,
+      // and deploymentType inside the `metadata` JSON column.
+      const hydratePluginCDNFields = (plugin: PluginManifest): PluginManifest => {
+        const meta = (plugin.metadata ?? {}) as Record<string, unknown>;
+        return {
+          ...plugin,
+          bundleUrl: plugin.bundleUrl || (meta.bundleUrl as string | undefined),
+          stylesUrl: plugin.stylesUrl || (meta.stylesUrl as string | undefined),
+          globalName: plugin.globalName || (meta.globalName as string | undefined),
+          deploymentType: plugin.deploymentType || (meta.deploymentType as string | undefined),
+        };
+      };
+
       // Deduplicate plugins by normalized name (keep first occurrence)
       const seenNames = new Set<string>();
-      const fetchedPlugins = rawPlugins.filter(plugin => {
-        const normalized = normalizePluginName(plugin.name);
-        if (seenNames.has(normalized)) {
-          return false;
-        }
-        seenNames.add(normalized);
-        return true;
-      });
+      const fetchedPlugins = rawPlugins
+        .map(hydratePluginCDNFields)
+        .filter(plugin => {
+          const normalized = normalizePluginName(plugin.name);
+          if (seenNames.has(normalized)) {
+            return false;
+          }
+          seenNames.add(normalized);
+          return true;
+        });
 
       // Sort by order
       fetchedPlugins.sort((a, b) => a.order - b.order);

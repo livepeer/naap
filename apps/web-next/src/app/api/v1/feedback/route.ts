@@ -4,7 +4,7 @@
  * GET  /api/v1/feedback - Get current user's feedback list + aggregate stats
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import {
@@ -16,7 +16,7 @@ import {
 
 // ─── POST: Submit Feedback ──────────────────────────────────────────────────
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) return errors.unauthorized('No auth token provided');
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
 
 // ─── GET: List current user's feedback + aggregate stats ────────────────────
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) return errors.unauthorized('No auth token provided');

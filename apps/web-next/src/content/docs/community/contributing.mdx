@@ -8,11 +8,13 @@ order: 1
 
 NaaP is an open platform and we welcome contributions from the community. Whether you're fixing bugs, adding features, improving documentation, or building plugins, there are many ways to get involved.
 
+> **New to NaaP?** Read the [Development Process](/docs/guides/development-process) guide for the full branch strategy, PR workflow, and team-specific guidance.
+
 ## Ways to Contribute
 
 ### Build Plugins
 
-The most impactful way to contribute is by building plugins that extend the platform's functionality. See the [Plugin Development Guide](/docs/guides/your-first-plugin) to get started.
+The most impactful way to contribute is by building plugins that extend the platform's functionality. See the [Plugin Development Guide](/docs/guides/your-first-plugin) to get started, then follow the [Development Process](/docs/guides/development-process#for-plugin-teams) for how to set up your team's workflow.
 
 ### Report Issues
 
@@ -37,32 +39,37 @@ Documentation improvements are always welcome:
 For bug fixes and features:
 
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-change`
-3. Make your changes
+2. Create a feature branch following the naming convention: `feat/<team>/<description>`
+3. Make your changes following [Conventional Commits](/docs/guides/development-process#commit-conventions)
 4. Write tests for new functionality
 5. Run the test suite: `npm test`
-6. Submit a pull request
+6. Open a PR against `develop` (not `main`)
+
+See the full [PR process](/docs/guides/development-process#pr-process--step-by-step) for details.
 
 ## Development Setup
 
 ```bash
-# Clone the repository
-git clone https://github.com/nicknaaplatform/NaaP.git
+# Fork on GitHub, then clone your fork
+git clone https://github.com/<your-username>/NaaP.git
 cd NaaP
 
-# Install dependencies
-npm install
+# Add upstream remote
+git remote add upstream https://github.com/livepeer/naap.git
 
-# Start the development environment
-./bin/start.sh
+# First-time setup (installs deps, starts DB, seeds data)
+./bin/setup.sh --start
 
-# Run tests
-npm test
+# Or, if already set up:
+./bin/start.sh start --all
+
+# Login at http://localhost:3000
+# Email: admin@livepeer.org  Password: livepeer
 ```
 
 ## Code Style
 
-- **TypeScript**: All code should be written in TypeScript
+- **TypeScript**: All code should be written in TypeScript with strict mode
 - **ESLint**: Follow the project's ESLint configuration
 - **Prettier**: Format code with Prettier before committing
 - **Naming**: Use camelCase for variables/functions, PascalCase for components/types
@@ -70,11 +77,13 @@ npm test
 
 ## Pull Request Guidelines
 
-1. **Keep PRs focused**: One feature or fix per PR
-2. **Write tests**: Include unit tests for new functionality
-3. **Update docs**: Update documentation if your change affects the public API
-4. **Follow conventions**: Match the existing code style
-5. **Describe your changes**: Write a clear PR description
+1. **Target `develop`**: All PRs go to the `develop` branch, never directly to `main`
+2. **Keep PRs focused**: One feature or fix per PR, under 400 lines when possible
+3. **Use Conventional Commits**: `feat(plugin/name): add feature`
+4. **Write tests**: Include unit tests for new functionality
+5. **Update docs**: Update documentation if your change affects the public API
+6. **Follow conventions**: Match the existing code style
+7. **Describe your changes**: Write a clear PR description
 
 ## Community Guidelines
 
@@ -86,5 +95,6 @@ npm test
 ## Getting Help
 
 - **GitHub Discussions**: Ask questions and share ideas
-- **Discord**: Join the NaaP community server
+- **GitHub Issues**: Report bugs and request features
 - **Documentation**: Browse these docs for answers
+- **[Development Process](/docs/guides/development-process)**: Full guide for plugin teams and core contributors

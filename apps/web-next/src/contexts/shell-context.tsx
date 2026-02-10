@@ -12,22 +12,10 @@ import {
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, type User } from './auth-context';
+import type { AuthUser } from '@naap/types';
 
-// ============================================
-// Types matching plugin-sdk/types/services.ts
-// ============================================
-
-export interface AuthUser {
-  id: string;
-  email?: string | null;
-  displayName?: string | null;
-  avatar?: string | null;
-  avatarUrl?: string | null;
-  address?: string | null;
-  walletAddress?: string | null;
-  roles: string[];
-  permissions: Array<{ resource: string; action: string }> | string[];
-}
+// Re-export for consumers that import AuthUser from here
+export type { AuthUser };
 
 export interface IAuthService {
   getUser(): AuthUser | null;

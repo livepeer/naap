@@ -285,6 +285,9 @@ export interface BillingPeriod {
   invoices: Invoice[];
 }
 
+// Re-export canonical user types
+export type { AuthUser, User } from './user';
+
 // Re-export manifest types (legacy - for MFE workflow compatibility)
 export * from './manifest';
 

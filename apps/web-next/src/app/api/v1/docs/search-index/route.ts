@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSearchIndex } from '@/lib/docs/content';
 
-export async function GET() {
+export async function GET(): Promise<NextResponse> {
   const index = getSearchIndex();
   return NextResponse.json(index, {
     headers: {

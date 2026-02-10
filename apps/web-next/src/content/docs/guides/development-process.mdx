@@ -1,0 +1,506 @@
+---
+title: "Development Process"
+description: "Branch strategy, PR workflow, plugin team independence, and contribution guidelines for the NaaP platform."
+order: 0
+---
+
+## Overview
+
+NaaP is a monorepo that powers the Livepeer Network-as-a-Platform. It is maintained by **core contributors** who own the shell, shared packages, and infrastructure, and by **plugin teams** who independently build and ship features within their plugin directories.
+
+This guide covers everything you need to know to contribute effectively — whether you are a new plugin team, a core contributor, or a first-time open source contributor.
+
+---
+
+## Repository Layout
+
+```
+livepeer/naap                     ← upstream (public)
+├── apps/web-next/                ← Next.js shell (core team)
+├── packages/                     ← shared SDK, types, utils (core team)
+├── services/                     ← core backend services (core team)
+├── plugins/
+│   ├── gateway-manager/          ← plugin team A owns this
+│   ├── community/                ← plugin team B owns this
+│   ├── daydream-video/           ← plugin team C owns this
+│   └── ...                       ← each team owns their directory
+├── .github/workflows/            ← CI/CD (core team)
+├── bin/                          ← platform scripts (core team)
+└── docker/                       ← infrastructure (core team)
+```
+
+**Key principle:** Plugin teams own their `plugins/<name>/` directory. Core contributors own everything else. Ownership is enforced via CODEOWNERS.
+
+---
+
+## Branch Strategy
+
+NaaP uses a two-branch model with staging and production environments:
+
+```
+  feature branches          develop (staging)          main (production)
+  ─────────────────         ──────────────────         ─────────────────
+
+  feat/video/webrtc ──PR──►│                  │        │                │
+                            │  auto-deploy     │        │                │
+  fix/social/auth ────PR──►│  to staging      │─weekly─►  auto-deploy  │
+                            │                  │promote │  to production│
+  feat/infra/cache ───PR──►│                  │        │                │
+```
+
+| Branch | Purpose | Deploys To | Who Merges |
+|--------|---------|------------|------------|
+| `develop` | Integration & staging. All PRs target here. | Staging (auto) | Plugin teams + core |
+| `main` | Production. Updated weekly. | Production (auto) | Core maintainers only |
+| `feat/<team>/<desc>` | New features | — | Author opens PR |
+| `fix/<team>/<desc>` | Bug fixes | — | Author opens PR |
+| `chore/<desc>` | Docs, CI, tooling | — | Author opens PR |
+
+### Branch naming conventions
+
+```bash
+# Plugin team features
+feat/video/webrtc-input        # team: video, feature: webrtc-input
+feat/social/threaded-replies   # team: social, feature: threaded-replies
+
+# Plugin team fixes
+fix/wallet/staking-overflow    # team: wallet, fix: staking-overflow
+
+# Core contributor work
+feat/infra/redis-rate-limit
+fix/shell/plugin-loader-race
+chore/ci/add-e2e-matrix
+docs/sdk/hook-migration-guide
+```
+
+---
+
+## PR Process — Step by Step
+
+### 1. Create your branch
+
+```bash
+# Fork the repo (first time only)
+# Clone your fork
+git clone https://github.com/<you>/NaaP.git
+cd NaaP
+git remote add upstream https://github.com/livepeer/naap.git
+
+# Always branch from latest develop
+git fetch upstream
+git checkout -b feat/my-team/my-feature upstream/develop
+```
+
+### 2. Make your changes
+
+- Run the platform locally: `./bin/start.sh start --all`
+- Make focused, incremental changes
+- Write tests for new functionality
+- Follow [Conventional Commits](#commit-conventions) for all commit messages
+
+### 3. Open a PR against `develop`
+
+```bash
+git push origin feat/my-team/my-feature
+# Then open a PR on GitHub: base = develop, compare = your branch
+```
+
+### 4. Automated checks run
+
+Once your PR is open, the following happens automatically:
+
+| Step | What happens | Who is responsible |
+|------|--------------|--------------------|
+| **Labeler** | Auto-labels PR based on changed file paths | Bot |
+| **CODEOWNERS** | Assigns reviewers — your team for plugin code, core team for shared code | Bot |
+| **CI** | Runs path-filtered tests — only affected packages are tested | Bot |
+| **Commit lint** | Validates commit messages follow Conventional Commits | Bot |
+| **PR size** | Warns if PR exceeds 400 changed lines | Bot |
+| **Conflict check** | Alerts if PR conflicts with other open PRs | Bot |
+
+### 5. Review and iterate
+
+- Plugin-only PRs: your team reviews and approves
+- Cross-cutting PRs: core team is auto-assigned and must also approve
+- All review conversations must be resolved before merge
+
+### 6. Merge
+
+Once approved and CI passes, the PR enters the **merge queue** and merges automatically. Changes are **auto-deployed to staging**.
+
+### 7. Production release (weekly)
+
+A core maintainer triggers the **"Promote to Production"** workflow every week:
+
+1. A release PR is created from `develop` → `main`
+2. Changelog is auto-generated from commit messages
+3. Core team reviews and approves
+4. Merged to `main` and auto-deployed to production
+
+---
+
+## For Plugin Teams
+
+### You own your directory
+
+Your team has full autonomy over `plugins/<your-plugin>/`. This includes:
+
+- **Frontend** (`plugins/<name>/frontend/`) — React components, styles, state
+- **Backend** (`plugins/<name>/backend/`) — Express API, business logic
+- **Config** (`plugins/<name>/plugin.json`) — manifest, routes, permissions
+
+You decide code style, review standards, and internal conventions within your directory.
+
+### What you CAN do (freely)
+
+- Ship features, fixes, and refactors within your plugin directory
+- Review and approve your own team's PRs (no core team needed)
+- Add dependencies to your plugin's `package.json`
+- Create your own database tables in your plugin's schema
+- Choose your own state management, UI patterns, and testing strategy
+- Release to staging by merging to `develop`
+
+### Plugin team boundaries
+
+- **Do NOT import from other plugins.** Use the event bus (`@naap/plugin-sdk`) for cross-plugin communication
+- **Do NOT modify shared packages** (`packages/*`) without core team review
+- **Do NOT modify the shell** (`apps/web-next/`) without core team review
+- **Do NOT hardcode your plugin in the shell.** Everything is driven by `plugin.json` manifests
+- **Do NOT modify CI workflows** (`.github/workflows/`) without core team review
+- **Do NOT commit secrets** (`.env` files, API keys) — these are gitignored
+
+### Setting up your plugin development
+
+```bash
+# 1. Fork and clone
+git clone https://github.com/<you>/NaaP.git
+cd NaaP
+git remote add upstream https://github.com/livepeer/naap.git
+
+# 2. First-time setup (installs deps, starts DB, seeds data, builds plugins)
+./bin/setup.sh --start
+
+# 3. For daily development, start your plugin in dev mode (HMR + backend)
+./bin/start.sh dev <your-plugin-name>
+
+# 4. Or start everything
+./bin/start.sh start --all
+
+# 5. Login at http://localhost:3000
+#    Email: admin@livepeer.org  Password: livepeer
+```
+
+### Plugin directory structure
+
+```
+plugins/your-plugin/
+├── plugin.json               ← manifest (routes, permissions, config)
+├── frontend/
+│   ├── package.json
+│   ├── src/
+│   │   ├── App.tsx           ← main component (loaded by shell)
+│   │   ├── components/       ← your UI components
+│   │   └── hooks/            ← your custom hooks
+│   └── vite.config.ts        ← build config (UMD bundle)
+├── backend/
+│   ├── package.json
+│   ├── src/
+│   │   ├── server.ts         ← Express server
+│   │   ├── routes/           ← API routes
+│   │   └── services/         ← business logic
+│   └── .env                  ← local config (gitignored)
+└── README.md
+```
+
+### Your plugin.json is your contract
+
+The `plugin.json` manifest tells the shell everything it needs to know:
+
+```json
+{
+  "name": "myPlugin",
+  "displayName": "My Plugin",
+  "version": "1.0.0",
+  "frontend": {
+    "entry": "dist/production/my-plugin.js",
+    "devPort": 5180,
+    "routes": ["/my-route", "/my-route/*"],
+    "navigation": {
+      "label": "My Plugin",
+      "icon": "Star",
+      "order": 10
+    }
+  },
+  "backend": {
+    "entry": "dist/server.js",
+    "devPort": 4020,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/my-plugin"
+  },
+  "permissions": {
+    "shell": ["navigation", "theme", "notifications"]
+  }
+}
+```
+
+### Daily workflow for plugin teams
+
+```bash
+# Start your day — sync with upstream
+git fetch upstream
+git rebase upstream/develop
+
+# Work on a feature
+git checkout -b feat/my-team/cool-feature
+
+# Start dev server for your plugin (HMR + backend + shell)
+./bin/start.sh dev my-plugin
+
+# Make changes... frontend auto-reloads via HMR
+
+# Commit using conventional commits
+git commit -m "feat(plugin/my-plugin): add cool feature"
+
+# Push and open PR against develop
+git push origin feat/my-team/cool-feature
+```
+
+---
+
+## For Core Contributors
+
+Core contributors maintain the platform that all plugin teams build on. Your work directly affects every team's productivity.
+
+### What you own
+
+- **Shell** (`apps/web-next/`) — the Next.js host that loads plugins
+- **Shared packages** (`packages/*`) — SDK, types, utils, theme, UI components
+- **Core services** (`services/*`) — base-svc, plugin-server, infrastructure
+- **Infrastructure** (`bin/`, `docker/`, `.github/`) — scripts, CI/CD, Docker
+
+### What you should do
+
+- **Review cross-cutting PRs promptly.** Plugin teams are blocked until you review changes that touch shared code. Aim for < 24h review SLA
+- **Keep the SDK stable.** Breaking changes require an RFC, migration guide, and version bump
+- **Maintain CI health.** Fix flaky tests immediately — they erode trust
+- **Run the weekly production promotion.** Trigger the promote workflow, review the release PR
+- **Document changes.** SDK changes need updated docs before merge
+
+### Core team boundaries
+
+- **Do NOT merge plugin-only PRs.** Let plugin teams self-govern their code
+- **Do NOT make breaking SDK changes without an RFC.** Plugin teams depend on stable APIs
+- **Do NOT bypass CI.** Even urgent fixes must pass automated checks
+- **Do NOT block plugin teams unnecessarily.** If a cross-cutting change is low-risk, review and approve quickly
+- **Do NOT force-push to `develop` or `main`.** These are protected branches
+
+### Handling cross-cutting changes
+
+When a plugin team needs a change in shared code:
+
+1. Plugin team opens an issue describing the need
+2. Core team evaluates and either:
+   - Makes the change themselves, or
+   - Guides the plugin team to submit a PR with core team as reviewer
+3. The PR requires both plugin team approval AND core team approval
+4. CI runs the SDK compatibility matrix to ensure no regressions
+
+---
+
+## Deployment-Safe Development
+
+NaaP deploys to **Vercel** (staging + production). Plugins are built as UMD bundles and served from the same origin. Understanding the deployment model prevents the most common breakages.
+
+### How It Works on Vercel
+
+```
+Local Dev                          Vercel Production
+─────────                          ──────────────────
+Shell:     localhost:3000           naap.vercel.app (Next.js)
+Plugin UI: loaded via CDN bundle   loaded via /cdn/plugins/...
+Plugin API: localhost:4006          /api/v1/community (same-origin proxy)
+Database:  localhost:5432           Neon PostgreSQL (via DATABASE_URL)
+```
+
+On Vercel, there are **no separate backend processes** — all API calls go through the Next.js API proxy at the same origin. Plugin frontends must use deployment-aware URL resolution.
+
+### Rules for Plugin Developers
+
+**Always do:**
+- Use `getPluginBackendUrl()` from `@naap/plugin-sdk` for all API URLs
+- Use `usePluginApi()` hook for API calls in React components
+- Use `createPluginConfig()` from `@naap/plugin-build/vite` for your Vite config
+- Keep your `tailwind.config.js` (per-plugin theme/content paths)
+- Test your plugin loads correctly at `/plugins/<your-plugin>` after building
+
+**Never do:**
+- Hardcode `localhost:PORT` in frontend code (breaks on Vercel)
+- Hardcode `window.location.hostname + ':' + port` (appends dev port to production domain)
+- Add a `postcss.config.js` to your plugin (breaks Vercel builds — PostCSS is in the shared Vite config)
+- Use `*/` inside JSDoc comments (e.g., `plugins/*/plugin.json` — the `*/` closes the comment and breaks esbuild)
+- Use `((count++))` in bash scripts with `set -e` (when count=0, returns exit code 1)
+
+### API URL Quick Reference
+
+```typescript
+// In React components (recommended):
+import { usePluginApi } from '@naap/plugin-sdk';
+const api = usePluginApi();
+const data = await api.get('/api/v1/my-plugin/items');
+
+// In non-React code:
+import { getPluginBackendUrl } from '@naap/plugin-sdk';
+const BASE = getPluginBackendUrl('my-plugin', { apiPath: '/api/v1/my-plugin' });
+// Local → http://localhost:4020/api/v1/my-plugin
+// Vercel → /api/v1/my-plugin
+
+// WRONG — will break on Vercel:
+const BASE = 'http://localhost:4020/api/v1/my-plugin';
+```
+
+---
+
+## Commit Conventions
+
+Use [Conventional Commits](https://www.conventionalcommits.org/). This is enforced by CI.
+
+```
+<type>(<scope>): <short description>
+```
+
+### Types
+
+| Type | When to use |
+|------|-------------|
+| `feat` | New feature or capability |
+| `fix` | Bug fix |
+| `refactor` | Code restructuring, no behavior change |
+| `docs` | Documentation only |
+| `test` | Adding or updating tests |
+| `chore` | Tooling, CI, dependencies |
+| `perf` | Performance improvement |
+
+### Scopes
+
+| Scope | Example |
+|-------|---------|
+| `shell` | `feat(shell): add plugin error boundary` |
+| `sdk` | `feat(sdk): add usePluginConfig hook` |
+| `plugin/<name>` | `fix(plugin/community): handle empty post list` |
+| `base-svc` | `refactor(base-svc): extract auth routes` |
+| `infra` | `chore(infra): upgrade postgres to 16` |
+| `ci` | `chore(ci): add e2e test matrix` |
+| `docs` | `docs(sdk): update hook reference` |
+
+---
+
+## Hotfix Process
+
+For critical production issues that cannot wait for the weekly release:
+
+```bash
+# 1. Branch from main (not develop)
+git checkout -b fix/hotfix-description upstream/main
+
+# 2. Make the minimal fix
+# 3. Open a PR directly against main (mark as emergency)
+# 4. Core maintainer reviews and approves
+# 5. After merge, cherry-pick back to develop:
+git checkout develop
+git cherry-pick <commit-hash>
+# Open a follow-up PR to develop
+```
+
+Hotfixes skip the staging cycle and deploy directly to production. Use sparingly.
+
+---
+
+## Testing Requirements
+
+| Change type | Required tests |
+|-------------|---------------|
+| SDK / shared packages | Unit tests. Coverage must not decrease |
+| Plugin backend | Health check + basic endpoint tests |
+| Plugin frontend | Component tests for critical flows |
+| Shell changes | Manual smoke test with 2+ plugins loaded |
+| Breaking changes | Migration notes in PR description |
+
+Run tests before pushing:
+
+```bash
+# Run all tests
+npm test
+
+# Run tests for a specific plugin
+cd plugins/my-plugin/frontend && npm test
+cd plugins/my-plugin/backend && npm test
+
+# Typecheck
+npm run typecheck
+```
+
+---
+
+## Environment and Tools
+
+| Tool | Version | Purpose |
+|------|---------|---------|
+| Node.js | 18+ (22 recommended) | Runtime |
+| npm | 9+ | Package manager (workspaces) |
+| Docker | Latest | PostgreSQL database |
+| TypeScript | ~5.8 | Type safety |
+| React | 19 | UI framework |
+| Next.js | 15.5 | Shell framework |
+| Vite | 6 | Plugin builds |
+| Nx | 22 | Monorepo task runner |
+
+---
+
+## Quick Reference
+
+### Plugin team commands
+
+```bash
+./bin/setup.sh --start           # First-time setup + start
+./bin/start.sh dev my-plugin     # Dev mode for one plugin
+./bin/start.sh start --all       # Start everything
+./bin/start.sh status            # Check what's running
+./bin/start.sh stop              # Stop everything
+./bin/start.sh logs my-plugin    # Tail plugin logs
+./bin/start.sh validate          # Health-check all services
+```
+
+### Core contributor commands
+
+```bash
+./bin/start.sh start --all       # Full platform
+./bin/start.sh validate          # Verify all 49 checks pass
+npm test                         # Run test suite
+npm run typecheck                # TypeScript check
+npm run lint                     # Lint all packages
+```
+
+### Login credentials (dev environment)
+
+| Email | Password | Role |
+|-------|----------|------|
+| `admin@livepeer.org` | `livepeer` | System Admin |
+| `viewer@livepeer.org` | `livepeer` | Read-only Viewer |
+| `gateway@livepeer.org` | `livepeer` | Gateway Manager Admin |
+| `community@livepeer.org` | `livepeer` | Community Admin |
+| `developer@livepeer.org` | `livepeer` | Developer API Admin |
+
+All 12 test users share the same password: **livepeer**
+
+---
+
+## Summary
+
+| | Plugin Teams | Core Contributors |
+|---|---|---|
+| **Own** | `plugins/<name>/` | Shell, packages, services, infra |
+| **PR target** | `develop` | `develop` |
+| **Reviewers** | Your own team (auto-assigned) | Core team (auto-assigned) |
+| **Can merge** | Plugin-only PRs | Cross-cutting PRs, releases |
+| **Release** | Auto-deploy to staging on merge | Weekly promote to production |
+| **Independence** | Full autonomy within your directory | Steward the platform for all teams |

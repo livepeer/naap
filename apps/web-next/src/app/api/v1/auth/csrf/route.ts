@@ -6,7 +6,7 @@ import { generateCsrfToken } from '@/lib/api/csrf';
  * Generate and return a CSRF token.
  * The token is also set as a cookie for double-submit verification.
  */
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   const token = generateCsrfToken();
   
   const response = NextResponse.json({

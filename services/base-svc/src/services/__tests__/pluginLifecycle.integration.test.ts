@@ -104,7 +104,7 @@ describe('Plugin Lifecycle Integration', () => {
         healthCheck: '/healthz',
       },
       database: {
-        type: 'postgresql',
+        type: 'postgresql' as const,
       },
     };
 

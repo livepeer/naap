@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { MemoryRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { createPlugin } from '@naap/plugin-sdk';
+import { createPlugin, getPluginBackendUrl } from '@naap/plugin-sdk';
 import './globals.css';
 
 // Import pages
@@ -68,7 +68,7 @@ export const getApiUrl = () => {
   if (context?.config?.apiBaseUrl) {
     return `${context.config.apiBaseUrl}/api/v1/plugins`;
   }
-  return 'http://localhost:4010/api/v1/plugins';
+  return getPluginBackendUrl('plugin-publisher', { apiPath: '/api/v1/plugins' });
 };
 
 /** @deprecated Use useApiClient() hook instead */

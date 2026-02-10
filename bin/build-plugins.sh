@@ -26,20 +26,11 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 PLUGINS_DIR="$ROOT_DIR/plugins"
 OUTPUT_DIR="$ROOT_DIR/dist/plugins"
 
-# All plugins to build
-PLUGINS=(
-  "capacity-planner"
-  "community"
-  "daydream-video"
-  "developer-api"
-  "gateway-manager"
-  "marketplace"
-  "my-dashboard"
-  "my-wallet"
-  "network-analytics"
-  "orchestrator-manager"
-  "plugin-publisher"
-)
+# Ensure Node can resolve packages from the monorepo root node_modules.
+# In npm workspaces, devDependencies like tailwindcss/postcss/autoprefixer
+# are hoisted to root but may not be symlinked into each workspace's
+# node_modules. NODE_PATH makes them discoverable from any subdirectory.
+export NODE_PATH="$ROOT_DIR/node_modules${NODE_PATH:+:$NODE_PATH}"
 
 # Parse arguments
 PARALLEL=false
@@ -77,6 +68,28 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Auto-discover plugins: find all plugin directories that have a frontend vite config
+# This means any new plugin with plugins/{name}/frontend/vite.config.ts is automatically included.
+if [ -n "$SPECIFIC_PLUGIN" ]; then
+  PLUGINS=("$SPECIFIC_PLUGIN")
+else
+  PLUGINS=()
+  for config in "$PLUGINS_DIR"/*/frontend/vite.config.ts; do
+    [ -f "$config" ] || continue
+    plugin_name="$(basename "$(dirname "$(dirname "$config")")")"
+    PLUGINS+=("$plugin_name")
+  done
+  # Sort for deterministic output
+  IFS=$'\n' PLUGINS=($(sort <<<"${PLUGINS[*]}")); unset IFS
+fi
+
+if [ ${#PLUGINS[@]} -eq 0 ]; then
+  log_warn "No plugins found in $PLUGINS_DIR with frontend/vite.config.ts"
+  exit 0
+fi
+
+log_info "Auto-discovered ${#PLUGINS[@]} plugins: ${PLUGINS[*]}"
+
 # Clean output directory if requested
 if [ "$CLEAN" = true ]; then
   log_info "Cleaning output directory..."
@@ -109,6 +122,9 @@ build_plugin() {
   fi
 
   # Build with production mode
+  # PostCSS (tailwindcss/autoprefixer) is configured inline in
+  # @naap/plugin-build's shared Vite config, so no postcss.config.js
+  # or local symlinks are needed.
   npx vite build --mode production 2>&1 | while read line; do
     echo "  $line"
   done
@@ -135,11 +151,6 @@ build_plugin() {
   return 0
 }
 
-# Build specific plugin or all
-if [ -n "$SPECIFIC_PLUGIN" ]; then
-  PLUGINS=("$SPECIFIC_PLUGIN")
-fi
-
 echo ""
 echo "========================================================"
 echo "           Building Plugin Bundles (CDN/UMD)             "
@@ -162,11 +173,14 @@ if [ "$PARALLEL" = true ]; then
   done
 
   # Wait for all to complete
+  # NOTE: Use $((x + 1)) instead of ((x++)) because when x=0 the
+  # post-increment evaluates to 0, making (( 0 )) return exit status 1
+  # which kills the script under set -e.
   for pid in "${pids[@]}"; do
     if wait $pid; then
-      ((success++))
+      success=$((success + 1))
     else
-      ((failed++))
+      failed=$((failed + 1))
     fi
   done
 else
@@ -175,9 +189,9 @@ else
 
   for plugin in "${PLUGINS[@]}"; do
     if build_plugin "$plugin"; then
-      ((success++))
+      success=$((success + 1))
     else
-      ((failed++))
+      failed=$((failed + 1))
     fi
     echo ""
   done

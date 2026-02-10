@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ShoppingBag, Search, Download, Check, Star, Users, Package, ExternalLink, X, Loader2, Sparkles, Settings, Cloud, Server, MessageSquare, Send } from 'lucide-react';
 import { Card, Badge } from '@naap/ui';
-import { usePluginConfig, useTenantContext, useAuthService, useTeam, useEvents } from '@naap/plugin-sdk';
+import { usePluginConfig, useTenantContext, useAuthService, useTeam, useEvents, getServiceOrigin } from '@naap/plugin-sdk';
 
 // ============================================
 // Tenant Personalization Config
@@ -91,22 +91,9 @@ const categoryColors: Record<string, 'blue' | 'emerald' | 'amber' | 'rose'> = {
   other: 'blue',
 };
 
-// Get API base URL from environment or use default
-const getApiBaseUrl = (): string => {
-  // Check for window-injected config first (set by shell)
-  if (typeof window !== 'undefined') {
-    const shellContext = (window as unknown as { __SHELL_CONTEXT__?: { config?: { apiBaseUrl?: string } } }).__SHELL_CONTEXT__;
-    if (shellContext?.config?.apiBaseUrl) {
-      return shellContext.config.apiBaseUrl;
-    }
-  }
-  // Check for environment variable (build-time)
-  if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL;
-  }
-  // Default for local development
-  return 'http://localhost:4000';
-};
+// Get API base URL: '' in production (same-origin), 'http://localhost:4000' in dev.
+// getServiceOrigin already checks shell context, env vars, and hostname.
+const getApiBaseUrl = (): string => getServiceOrigin('base');
 
 const BASE_URL = getApiBaseUrl();
 
@@ -530,7 +517,9 @@ export const MarketplacePage: React.FC = () => {
 
       const response = await fetch(`${BASE_URL}/api/v1/registry/packages?${params}`);
       if (response.ok) {
-        const data = await response.json();
+        const json = await response.json();
+        // API routes wrap responses in { success, data: { packages }, meta }
+        const data = json.data ?? json;
         setPackages(data.packages || []);
       } else {
         setPackages(getMockPackages());

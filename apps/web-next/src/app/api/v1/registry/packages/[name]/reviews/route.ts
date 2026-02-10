@@ -7,7 +7,7 @@
  * Uses Prisma directly (same pattern as community comments).
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
@@ -17,7 +17,7 @@ interface RouteParams {
 }
 
 // GET - List reviews for a package (paginated, with aggregate)
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { name } = await params;
 
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // POST - Submit or update a review (upsert)
-export async function POST(request: NextRequest, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { name } = await params;
 
@@ -166,7 +166,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE - Delete own review
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { name } = await params;
 

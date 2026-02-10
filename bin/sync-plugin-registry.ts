@@ -1,0 +1,125 @@
+/**
+ * sync-plugin-registry.ts
+ *
+ * Standalone script that discovers all plugins from plugins/{name}/plugin.json
+ * and upserts WorkflowPlugin records in the database.
+ *
+ * Delegates to the shared discovery utility in packages/database/src/plugin-discovery.ts
+ * to avoid duplicating logic with the local seed script (apps/web-next/prisma/seed.ts).
+ *
+ * Safe to run on every deploy — it is idempotent:
+ *   - Creates new plugins that were added to the repo
+ *   - Updates existing plugins (CDN URLs, routes, order, etc.)
+ *   - Soft-disables plugins that were removed from the repo
+ *
+ * Execution contexts:
+ *   - Vercel build: called by bin/vercel-build.sh step [4/4]
+ *   - Manual: `npx tsx bin/sync-plugin-registry.ts`
+ *
+ * Environment:
+ *   DATABASE_URL or POSTGRES_PRISMA_URL must be set.
+ */
+
+import { PrismaClient } from '../packages/database/src/generated/client/index.js';
+import { discoverPlugins, toWorkflowPluginData } from '../packages/database/src/plugin-discovery.js';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+// Resolve paths — works with both tsx/esm and cjs
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const MONOREPO_ROOT = path.resolve(__dirname, '..');
+const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || '/cdn/plugins';
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+async function main(): Promise<void> {
+  // Resolve DATABASE_URL — mirror the logic from packages/database/src/index.ts
+  const dbUrl =
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL ||
+    '';
+
+  if (!dbUrl) {
+    console.error(
+      '[sync-plugin-registry] No database URL found (checked DATABASE_URL, POSTGRES_PRISMA_URL, POSTGRES_URL). Skipping registry sync.',
+    );
+    // Exit 0 so the build does not fail — the registry can be synced later via seed.
+    process.exit(0);
+  }
+
+  const prisma = new PrismaClient({
+    datasources: { db: { url: dbUrl } },
+  });
+
+  try {
+    const discovered = discoverPlugins(MONOREPO_ROOT);
+    console.log(
+      `[sync-plugin-registry] Discovered ${discovered.length} plugins from plugin.json files`,
+    );
+
+    if (discovered.length === 0) {
+      console.log('[sync-plugin-registry] Nothing to sync.');
+      return;
+    }
+
+    // Upsert each discovered plugin using shared utility
+    let created = 0;
+    let updated = 0;
+
+    for (const p of discovered) {
+      const data = toWorkflowPluginData(p, PLUGIN_CDN_URL);
+
+      const existing = await prisma.workflowPlugin.findUnique({
+        where: { name: p.name },
+        select: { id: true },
+      });
+
+      await prisma.workflowPlugin.upsert({
+        where: { name: p.name },
+        update: data,
+        create: data,
+      });
+
+      if (existing) {
+        updated++;
+      } else {
+        created++;
+      }
+    }
+
+    // Soft-disable stale plugins that are no longer in the repo
+    const discoveredNames = new Set(discovered.map((p) => p.name));
+    const dbPlugins = await prisma.workflowPlugin.findMany({
+      where: { enabled: true },
+      select: { name: true },
+    });
+
+    let disabled = 0;
+    for (const db of dbPlugins) {
+      if (!discoveredNames.has(db.name)) {
+        await prisma.workflowPlugin.update({
+          where: { name: db.name },
+          data: { enabled: false },
+        });
+        disabled++;
+        console.log(`  [DISABLED] ${db.name} (no longer in repo)`);
+      }
+    }
+
+    console.log(
+      `[sync-plugin-registry] Done: ${created} created, ${updated} updated, ${disabled} disabled`,
+    );
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+main().catch((err) => {
+  console.error('[sync-plugin-registry] Fatal error:', err);
+  // Exit 0 to not fail the Vercel build — registry will be synced on next deploy or via seed
+  process.exit(0);
+});

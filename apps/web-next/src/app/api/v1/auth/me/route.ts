@@ -3,12 +3,12 @@
  * Get current user and CSRF token
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { validateSessionWithExpiry } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { createSessionCSRFToken } from '@/lib/api/csrf';
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
 

@@ -3,16 +3,16 @@
  * GET /api/v1/community/stats - Get community statistics
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 
-export async function GET(_request: NextRequest) {
+export async function GET(_request: NextRequest): Promise<NextResponse> {
   try {
     const [totalPosts, totalComments, totalUsers, solvedQuestions] = await Promise.all([
       prisma.communityPost.count(),
       prisma.communityComment.count(),
-      prisma.communityUser.count(),
+      prisma.communityProfile.count(),
       prisma.communityPost.count({ where: { isSolved: true } }),
     ]);
 

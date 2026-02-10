@@ -21,6 +21,8 @@
 
 import { defineConfig, type UserConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from 'tailwindcss';
+import autoprefixer from 'autoprefixer';
 import path from 'path';
 import { createHash } from 'crypto';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
@@ -185,6 +187,18 @@ export function createPluginConfig(options: PluginBuildOptions) {
       ],
       resolve: {
         alias: standardAlias,
+      },
+      css: {
+        // Configure PostCSS inline so plugins resolve from THIS package
+        // (packages/plugin-build/) instead of the plugin's postcss.config.js.
+        // This avoids module-resolution failures in monorepo/Vercel environments
+        // where hoisted deps aren't reachable from plugin subdirectories.
+        postcss: {
+          plugins: [
+            tailwindcss({ config: './tailwind.config.js' }),
+            autoprefixer(),
+          ],
+        },
       },
       define: {
         'process.env.NODE_ENV': JSON.stringify(mode),

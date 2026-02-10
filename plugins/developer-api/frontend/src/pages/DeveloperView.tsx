@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Box, Key, BarChart3, BookOpen, Plus, Copy, RefreshCw, Trash2, Search } from 'lucide-react';
 import { Card, Badge } from '@naap/ui';
+import { getServiceOrigin } from '@naap/plugin-sdk';
 
 type TabId = 'models' | 'api-keys' | 'usage' | 'docs';
 
@@ -28,7 +29,8 @@ interface ApiKey {
   lastUsedAt: string | null;
 }
 
-const BASE_URL = 'http://localhost:4007';
+// '' in production (same-origin), 'http://localhost:4011' in dev
+const BASE_URL = getServiceOrigin('developer-api');
 
 const tabs = [
   { id: 'models' as TabId, label: 'Models', icon: <Box size={18} /> },
@@ -51,12 +53,15 @@ export const DeveloperView: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [modelsRes, keysRes] = await Promise.all([
+      const [modelsJson, keysJson] = await Promise.all([
         fetch(`${BASE_URL}/api/v1/developer/models`).then(r => r.json()),
         fetch(`${BASE_URL}/api/v1/developer/keys`).then(r => r.json()),
       ]);
-      setModels(modelsRes.models || []);
-      setApiKeys(keysRes.keys || []);
+      // API routes wrap responses in { success, data: { models/keys }, meta }
+      const modelsPayload = modelsJson.data ?? modelsJson;
+      const keysPayload = keysJson.data ?? keysJson;
+      setModels(modelsPayload.models || []);
+      setApiKeys(keysPayload.keys || []);
     } catch (err) {
       console.error('Failed to load data:', err);
       setModels(getMockModels());

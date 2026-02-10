@@ -13,7 +13,7 @@ import { validateCSRF } from '@/lib/api/csrf';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
 
-export async function DELETE(request: NextRequest) {
+export async function DELETE(request: NextRequest): Promise<NextResponse> {
   try {
     // Validate session
     const token = getAuthToken(request);

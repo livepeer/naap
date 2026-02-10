@@ -3,11 +3,11 @@
  * Login with email/password
  */
 
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { login } from '@/lib/api/auth';
-import { success, errors, getClientIP } from '@/lib/api/response';
+import { success, errors, getClientIP, isDatabaseError } from '@/lib/api/response';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();
     const { email, password } = body;
@@ -36,6 +36,15 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (err) {
+    // Surface database connection issues as 503 instead of misleading 401
+    if (isDatabaseError(err)) {
+      const dbErr = err as Error & { code?: string };
+      console.error(`[AUTH] Database error: ${dbErr.name}: ${dbErr.message}`);
+      return errors.serviceUnavailable(
+        'Database is not available. Please try again later.'
+      );
+    }
+
     const error = err as Error & { code?: string; lockedUntil?: Date };
 
     if (error.code === 'ACCOUNT_LOCKED' && error.lockedUntil) {

@@ -4,7 +4,7 @@
  * POST /api/v1/teams/:teamId/members - Invite member
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import {
   validateTeamAccess,
@@ -20,7 +20,7 @@ interface RouteParams {
   params: Promise<{ teamId: string }>;
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { teamId } = await params;
 
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function POST(request: NextRequest, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { teamId } = await params;
 

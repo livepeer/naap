@@ -5,17 +5,17 @@
  */
 
 import {
-  getPluginBackendUrl,
+  getServiceOrigin,
   getCsrfToken,
   generateCorrelationId,
 } from '@naap/plugin-sdk';
 import { HEADER_CSRF_TOKEN, HEADER_CORRELATION, HEADER_PLUGIN_NAME } from '@naap/types';
 
-// Get base-svc URL using SDK
-const BASE_SVC_URL = getPluginBackendUrl('base');
+// Base-svc origin: '' in production (same-origin), 'http://localhost:4000' in dev
+const BASE_SVC_URL = getServiceOrigin('base');
 
-// Get Publisher service URL using SDK
-const PUBLISHER_API_URL = getPluginBackendUrl('plugin-publisher');
+// Publisher-svc origin: '' in production (same-origin), 'http://localhost:4012' in dev
+const PUBLISHER_API_URL = getServiceOrigin('plugin-publisher');
 
 // Auth token storage key (must match shell's STORAGE_KEYS.AUTH_TOKEN)
 const AUTH_TOKEN_KEY = 'naap_auth_token';
@@ -191,7 +191,8 @@ export async function listTokens(): Promise<ApiToken[]> {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to list tokens');
-  const data = await res.json();
+  const json = await res.json();
+  const data = json.data ?? json;
   return data.tokens || [];
 }
 
@@ -220,7 +221,9 @@ export async function listMyPackages(): Promise<PluginPackage[]> {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to list packages');
-  const data = await res.json();
+  const json = await res.json();
+  // API routes wrap responses in { success, data: { packages }, meta }
+  const data = json.data ?? json;
   return data.packages || [];
 }
 
@@ -230,8 +233,9 @@ export async function getPackage(name: string): Promise<PluginPackage> {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to get package');
-  const data = await res.json();
-  // base-svc wraps the response in { package: ... }
+  const json = await res.json();
+  // API routes wrap responses in { success, data: { package: ... } }
+  const data = json.data ?? json;
   return data.package || data;
 }
 
@@ -335,7 +339,8 @@ export async function getPluginStats(packageName: string): Promise<PluginStats> 
 
     if (!pkgRes.ok) throw new Error('Package not found');
 
-    const pkgData = await pkgRes.json();
+    const pkgJson = await pkgRes.json();
+    const pkgData = pkgJson.data ?? pkgJson;
     const pkg = pkgData.package || pkgData;
 
     // Generate timeline data from package info

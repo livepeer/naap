@@ -3,7 +3,7 @@
  * GET /api/v1/plugin-publisher/stats/:packageName - Get plugin statistics
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 
@@ -13,7 +13,7 @@ interface RouteParams {
   params: Promise<{ packageName: string }>;
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { packageName } = await params;
 

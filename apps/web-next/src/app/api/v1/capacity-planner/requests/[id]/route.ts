@@ -1,176 +1,124 @@
+/**
+ * Capacity Request Detail API Route
+ * GET    /api/v1/capacity-planner/requests/:id - Get request details
+ * PATCH  /api/v1/capacity-planner/requests/:id - Update request
+ * DELETE /api/v1/capacity-planner/requests/:id - Delete request
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
+import { validateSession } from '@/lib/api/auth';
+import { success, errors, getAuthToken } from '@/lib/api/response';
+import { validateCSRF } from '@/lib/api/csrf';
 
-// Mock capacity request data (matches new CapacityRequest type)
-const capacityRequests = [
-  {
-    id: 'req-1',
-    requesterName: 'Livepeer Gateway Primary',
-    requesterAccount: '0x7a3b...f29c',
-    gpuModel: 'RTX 4090',
-    vram: 24,
-    osVersion: 'Ubuntu 22.04',
-    cudaVersion: '12.2',
-    count: 8,
-    pipeline: 'text-to-image',
-    startDate: '2026-02-15',
-    endDate: '2026-04-15',
-    validUntil: '2026-02-28',
-    hourlyRate: 1.20,
-    reason: 'Increased demand for Stable Diffusion workloads expected during product launch',
-    riskLevel: 5,
-    softCommits: [
-      { id: 'sc-1', userId: 'u-1', userName: 'NodeRunner Pro', timestamp: '2026-01-20T10:00:00Z' },
-    ],
-    comments: [
-      { id: 'c1', author: 'ops@livepeer.org', text: 'Reviewing current orchestrator availability', timestamp: '2026-02-01T10:00:00Z' },
-    ],
-    createdAt: '2026-01-28T14:00:00Z',
-    status: 'active',
-  },
-  {
-    id: 'req-2',
-    requesterName: 'AI Services Gateway',
-    requesterAccount: '0x3f91...a84e',
-    gpuModel: 'A100 80GB',
-    vram: 80,
-    osVersion: 'Ubuntu 22.04',
-    cudaVersion: '12.1',
-    count: 4,
-    pipeline: 'llm',
-    startDate: '2026-03-01',
-    endDate: '2026-06-01',
-    validUntil: '2026-02-20',
-    hourlyRate: 2.50,
-    reason: 'New LLM inference endpoint launching, need high-memory GPUs',
-    riskLevel: 4,
-    softCommits: [],
-    comments: [],
-    createdAt: '2026-01-30T09:00:00Z',
-    status: 'active',
-  },
-  {
-    id: 'req-3',
-    requesterName: 'Media Processing Hub',
-    requesterAccount: '0x8bc2...d71f',
-    gpuModel: 'H100',
-    vram: 80,
-    osVersion: 'Ubuntu 24.04',
-    cudaVersion: '12.4',
-    count: 2,
-    pipeline: 'image-to-video',
-    startDate: '2026-03-15',
-    endDate: '2026-05-15',
-    validUntil: '2026-03-01',
-    hourlyRate: 3.80,
-    reason: 'Video generation feature beta launch',
-    riskLevel: 3,
-    softCommits: [],
-    comments: [
-      { id: 'c2', author: 'capacity@livepeer.org', text: 'Reaching out to H100 operators', timestamp: '2026-02-02T15:30:00Z' },
-    ],
-    createdAt: '2026-02-01T11:00:00Z',
-    status: 'active',
-  },
-  {
-    id: 'req-4',
-    requesterName: 'Enterprise Gateway',
-    requesterAccount: '0x5d4a...e38b',
-    gpuModel: 'RTX 4080',
-    vram: 16,
-    osVersion: 'Ubuntu 22.04',
-    cudaVersion: '12.3',
-    count: 16,
-    pipeline: 'upscale',
-    startDate: '2026-02-10',
-    endDate: '2026-04-10',
-    validUntil: '2026-02-10',
-    hourlyRate: 0.95,
-    reason: 'Enterprise customer onboarding with high-volume upscaling needs',
-    riskLevel: 4,
-    softCommits: [
-      { id: 'sc-5', userId: 'u-5', userName: 'EcoCompute', timestamp: '2026-01-25T08:00:00Z' },
-    ],
-    comments: [],
-    createdAt: '2026-01-25T08:00:00Z',
-    status: 'active',
-  },
-];
+interface RouteParams {
+  params: Promise<{ id: string }>;
+}
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const capacityRequest = capacityRequests.find(r => r.id === id);
+
+    const capacityRequest = await prisma.capacityRequest.findUnique({
+      where: { id },
+      include: {
+        comments: {
+          orderBy: { createdAt: 'desc' },
+        },
+        softCommits: {
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
 
     if (!capacityRequest) {
-      return NextResponse.json(
-        { error: 'Capacity request not found' },
-        { status: 404 }
-      );
+      return errors.notFound('Capacity request');
     }
 
-    return NextResponse.json({ success: true, data: capacityRequest });
-  } catch (error) {
-    console.error('Error fetching capacity request:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch capacity request' },
-      { status: 500 }
-    );
+    return success(capacityRequest);
+  } catch (err) {
+    console.error('Error fetching capacity request:', err);
+    return errors.internal('Failed to fetch capacity request');
   }
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id } = await params;
+
+    const token = getAuthToken(request);
+    if (!token) {
+      return errors.unauthorized('No auth token provided');
+    }
+
+    const csrfError = validateCSRF(request, token);
+    if (csrfError) {
+      return csrfError;
+    }
+
+    const user = await validateSession(token);
+    if (!user) {
+      return errors.unauthorized('Invalid or expired session');
+    }
+
     const body = await request.json();
-    const capacityRequest = capacityRequests.find(r => r.id === id);
 
-    if (!capacityRequest) {
-      return NextResponse.json(
-        { error: 'Capacity request not found' },
-        { status: 404 }
-      );
+    // Verify the capacity request exists
+    const existing = await prisma.capacityRequest.findUnique({ where: { id } });
+    if (!existing) {
+      return errors.notFound('Capacity request');
     }
 
-    // In a real implementation, this would update the database
-    const updated = { ...capacityRequest, ...body };
-    return NextResponse.json({ success: true, data: updated });
-  } catch (error) {
-    console.error('Error updating capacity request:', error);
-    return NextResponse.json(
-      { error: 'Failed to update capacity request' },
-      { status: 500 }
-    );
+    const updated = await prisma.capacityRequest.update({
+      where: { id },
+      data: {
+        ...(body.status && { status: body.status }),
+        ...(body.gpuModel && { gpuModel: body.gpuModel }),
+        ...(body.count !== undefined && { count: body.count }),
+        ...(body.pipeline && { pipeline: body.pipeline }),
+        ...(body.hourlyRate !== undefined && { hourlyRate: body.hourlyRate }),
+        ...(body.reason && { reason: body.reason }),
+        ...(body.riskLevel !== undefined && { riskLevel: body.riskLevel }),
+      },
+    });
+
+    return success(updated);
+  } catch (err) {
+    console.error('Error updating capacity request:', err);
+    return errors.internal('Failed to update capacity request');
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const capacityRequest = capacityRequests.find(r => r.id === id);
 
-    if (!capacityRequest) {
-      return NextResponse.json(
-        { error: 'Capacity request not found' },
-        { status: 404 }
-      );
+    const token = getAuthToken(request);
+    if (!token) {
+      return errors.unauthorized('No auth token provided');
     }
 
-    // In a real implementation, this would delete from the database
-    return NextResponse.json({ success: true, deletedId: id });
-  } catch (error) {
-    console.error('Error deleting capacity request:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete capacity request' },
-      { status: 500 }
-    );
+    const csrfError = validateCSRF(request, token);
+    if (csrfError) {
+      return csrfError;
+    }
+
+    const user = await validateSession(token);
+    if (!user) {
+      return errors.unauthorized('Invalid or expired session');
+    }
+
+    // Verify the capacity request exists
+    const existing = await prisma.capacityRequest.findUnique({ where: { id } });
+    if (!existing) {
+      return errors.notFound('Capacity request');
+    }
+
+    await prisma.capacityRequest.delete({ where: { id } });
+
+    return success({ deletedId: id });
+  } catch (err) {
+    console.error('Error deleting capacity request:', err);
+    return errors.internal('Failed to delete capacity request');
   }
 }

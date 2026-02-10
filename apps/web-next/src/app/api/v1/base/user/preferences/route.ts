@@ -1,9 +1,9 @@
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 
 // GET /api/v1/base/user/preferences - Get user plugin preferences
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const userId = request.nextUrl.searchParams.get('userId');
 
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/v1/base/user/preferences - Save user plugin preference
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();
     const { userId, pluginName, enabled, pinned, order } = body;

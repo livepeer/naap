@@ -4,7 +4,7 @@
  * POST /api/v1/community/posts/:id/comments - Create comment
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
@@ -18,20 +18,17 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-async function getOrCreateCommunityUser(walletAddress: string, displayName?: string) {
-  let user = await prisma.communityUser.findUnique({ where: { walletAddress } });
-  if (!user) {
-    user = await prisma.communityUser.create({
-      data: {
-        walletAddress,
-        displayName: displayName || walletAddress.slice(0, 10),
-      },
+async function getOrCreateCommunityProfile(userId: string) {
+  let profile = await prisma.communityProfile.findUnique({ where: { userId } });
+  if (!profile) {
+    profile = await prisma.communityProfile.create({
+      data: { userId },
     });
   }
-  return user;
+  return profile;
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id: postId } = await params;
 
@@ -39,7 +36,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: { postId },
       include: {
         author: {
-          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+          select: { id: true, userId: true, reputation: true, level: true, user: { select: { displayName: true, address: true, avatarUrl: true } } },
         },
       },
       orderBy: [{ isAccepted: 'desc' }, { upvotes: 'desc' }, { createdAt: 'asc' }],
@@ -52,7 +49,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function POST(request: NextRequest, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id: postId } = await params;
 
@@ -84,18 +81,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return errors.notFound('Post');
     }
 
-    // Get or create community user
-    const communityUser = await getOrCreateCommunityUser(authUser.id, authUser.displayName || undefined);
+    // Get or create community profile
+    const profile = await getOrCreateCommunityProfile(authUser.id);
 
     const comment = await prisma.communityComment.create({
       data: {
         postId,
-        authorId: communityUser.id,
+        authorId: profile.id,
         content,
       },
       include: {
         author: {
-          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+          select: { id: true, userId: true, reputation: true, level: true, user: { select: { displayName: true, address: true, avatarUrl: true } } },
         },
       },
     });
@@ -109,15 +106,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Award reputation
     await prisma.communityReputationLog.create({
       data: {
-        userId: communityUser.id,
+        profileId: profile.id,
         action: 'COMMENT_CREATED',
         points: REPUTATION_POINTS.COMMENT_CREATED,
         sourceType: 'comment',
         sourceId: comment.id,
       },
     });
-    await prisma.communityUser.update({
-      where: { id: communityUser.id },
+    await prisma.communityProfile.update({
+      where: { id: profile.id },
       data: { reputation: { increment: REPUTATION_POINTS.COMMENT_CREATED } },
     });
 

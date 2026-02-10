@@ -1,9 +1,13 @@
 import express from 'express';
 import cors from 'cors';
+import { readFileSync } from 'node:fs';
 import { db } from './db/client.js';
 
+const pluginConfig = JSON.parse(
+  readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
+);
 const app = express();
-const PORT = process.env.PORT || 4001;
+const PORT = process.env.PORT || pluginConfig.backend?.devPort || 4001;
 
 app.use(cors());
 app.use(express.json());

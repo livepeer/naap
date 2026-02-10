@@ -7,7 +7,7 @@
  * - GET: Get user's plugin preferences
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
@@ -19,7 +19,7 @@ const CORE_PLUGINS = ['marketplace', 'plugin-publisher', 'pluginPublisher'];
  * GET /api/v1/base/plugins/preferences
  * Get user's plugin preferences
  */
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) {
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
  * POST /api/v1/base/plugins/preferences
  * Install/enable a plugin for user
  */
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) {
@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
  * Uninstall/remove a plugin preference
  * Accepts pluginName via query param or request body
  */
-export async function DELETE(request: NextRequest) {
+export async function DELETE(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) {

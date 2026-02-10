@@ -14,7 +14,8 @@
 import { useMemo } from 'react';
 import { useShell } from './useShell.js';
 import { createApiClient, type ApiClient } from '../utils/api.js';
-import { getBackendUrl, getApiUrl, getCsrfToken, generateCorrelationId } from '../utils/backend-url.js';
+import { getServiceOrigin, getPluginBackendUrl } from '../config/ports.js';
+import { getCsrfToken, generateCorrelationId } from '../utils/headers.js';
 import { HEADER_CSRF_TOKEN, HEADER_CORRELATION, HEADER_PLUGIN_NAME } from '@naap/types';
 
 /**
@@ -133,17 +134,17 @@ export function useApiClient(options: UseApiClientOptions = {}): EnhancedApiClie
       // Use custom URL if provided
       baseUrl = customBaseUrl;
     } else if (pluginName) {
-      // Auto-resolve plugin backend URL
+      // Auto-resolve plugin backend URL using canonical functions:
+      // - With apiPath: use getPluginBackendUrl (returns prefix like /api/v1/wallet)
+      // - Without apiPath: use getServiceOrigin (returns origin only, e.g. '' or http://localhost:4008)
       if (apiPath) {
-        baseUrl = getBackendUrl(pluginName);
+        baseUrl = getPluginBackendUrl(pluginName, { apiPath });
       } else {
-        baseUrl = getApiUrl(pluginName);
+        baseUrl = getServiceOrigin(pluginName);
       }
     } else {
-      // Use shell's base service URL
-      baseUrl = typeof window !== 'undefined'
-        ? `${window.location.protocol}//${window.location.hostname}:4000`
-        : 'http://localhost:4000';
+      // Use shell's base service origin
+      baseUrl = getServiceOrigin('base');
     }
 
     // Create the base client

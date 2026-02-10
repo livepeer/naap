@@ -10,6 +10,7 @@
  */
 
 import { allocatePort, releasePort } from './portAllocator';
+import type { PluginManifest, DeepPartial } from '@naap/types';
 
 export interface ProvisionResult {
   pluginName: string;
@@ -34,30 +35,15 @@ export interface HealthCheck {
   responseTime?: number;
 }
 
-export interface PluginManifest {
-  name: string;
-  version: string;
-  frontend?: {
-    entry?: string;
-    devPort?: number;
-  };
-  backend?: {
-    entry?: string;
-    port?: number;
-    healthCheck?: string;
-  };
-  database?: {
-    type?: string;
-    schema?: string;
-  };
-}
+// Re-export PluginManifest for consumers that imported it from here
+export type { PluginManifest };
 
 /**
  * Provision infrastructure for a plugin
  */
 export async function provisionPluginInfrastructure(
   pluginName: string,
-  manifest: PluginManifest,
+  manifest: DeepPartial<PluginManifest>,
   backendImage?: string
 ): Promise<ProvisionResult> {
   try {

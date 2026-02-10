@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 // GET /api/v1/admin/audit - List audit logs
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '50');
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/v1/admin/audit - Create an audit log entry
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();
     const { action, resource, resourceId, userId, details, status = 'success', errorMsg } = body;

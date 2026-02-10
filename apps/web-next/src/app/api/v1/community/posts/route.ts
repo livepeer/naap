@@ -4,7 +4,7 @@
  * POST /api/v1/community/posts - Create post
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken, parsePagination } from '@/lib/api/response';
@@ -14,20 +14,17 @@ const REPUTATION_POINTS = {
   POST_CREATED: 5,
 };
 
-async function getOrCreateCommunityUser(walletAddress: string, displayName?: string) {
-  let user = await prisma.communityUser.findUnique({ where: { walletAddress } });
-  if (!user) {
-    user = await prisma.communityUser.create({
-      data: {
-        walletAddress,
-        displayName: displayName || walletAddress.slice(0, 10),
-      },
+async function getOrCreateCommunityProfile(userId: string) {
+  let profile = await prisma.communityProfile.findUnique({ where: { userId } });
+  if (!profile) {
+    profile = await prisma.communityProfile.create({
+      data: { userId },
     });
   }
-  return user;
+  return profile;
 }
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const searchParams = request.nextUrl.searchParams;
     const { page, pageSize, skip } = parsePagination(searchParams);
@@ -37,13 +34,8 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search');
     const sort = searchParams.get('sort') || 'recent';
 
-    const where: {
-      category?: string;
-      postType?: string;
-      isSolved?: boolean;
-      commentCount?: number;
-      OR?: Array<{ title?: { contains: string; mode: 'insensitive' }; content?: { contains: string; mode: 'insensitive' } }>;
-    } = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: Record<string, any> = {};
 
     if (category && category !== 'all') {
       where.category = category.toUpperCase().replace(/-/g, '_');
@@ -76,7 +68,7 @@ export async function GET(request: NextRequest) {
         where,
         include: {
           author: {
-            select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+            select: { id: true, userId: true, reputation: true, level: true, user: { select: { displayName: true, address: true, avatarUrl: true } } },
           },
           postTags: { include: { tag: true } },
           _count: { select: { comments: true, votes: true } },
@@ -121,7 +113,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
     if (!token) {
@@ -145,13 +137,13 @@ export async function POST(request: NextRequest) {
       return errors.badRequest('title and content are required');
     }
 
-    // Get or create community user using auth user's ID as wallet address
-    const communityUser = await getOrCreateCommunityUser(authUser.id, authUser.displayName || undefined);
+    // Get or create community profile
+    const profile = await getOrCreateCommunityProfile(authUser.id);
 
     // Create post
     const post = await prisma.communityPost.create({
       data: {
-        authorId: communityUser.id,
+        authorId: profile.id,
         title,
         content,
         postType: postType.toUpperCase(),
@@ -159,7 +151,7 @@ export async function POST(request: NextRequest) {
       },
       include: {
         author: {
-          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+          select: { id: true, userId: true, reputation: true, level: true, user: { select: { displayName: true, address: true, avatarUrl: true } } },
         },
       },
     });
@@ -180,15 +172,15 @@ export async function POST(request: NextRequest) {
     // Award reputation
     await prisma.communityReputationLog.create({
       data: {
-        userId: communityUser.id,
+        profileId: profile.id,
         action: 'POST_CREATED',
         points: REPUTATION_POINTS.POST_CREATED,
         sourceType: 'post',
         sourceId: post.id,
       },
     });
-    await prisma.communityUser.update({
-      where: { id: communityUser.id },
+    await prisma.communityProfile.update({
+      where: { id: profile.id },
       data: { reputation: { increment: REPUTATION_POINTS.POST_CREATED } },
     });
 

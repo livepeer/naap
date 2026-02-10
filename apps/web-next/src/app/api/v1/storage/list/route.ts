@@ -5,7 +5,7 @@
  * Lists files from Vercel Blob or local storage.
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { list } from '@vercel/blob';
 import { validateSession } from '@/lib/api/auth';
 import { errors, getAuthToken, success } from '@/lib/api/response';
@@ -13,7 +13,7 @@ import { readdir, stat } from 'fs/promises';
 import { join } from 'path';
 import { lookup } from 'mime-types';
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     // Validate session
     const token = getAuthToken(request);

@@ -7,6 +7,8 @@
  * - Manifest validation
  */
 
+import type { PluginManifest, DeepPartial } from '@naap/types';
+
 export interface VerificationResult {
   valid: boolean;
   errors: VerificationError[];
@@ -34,29 +36,12 @@ export interface VerificationCheck {
 }
 
 export interface VerifyPublishOptions {
-  manifest: PluginManifest;
+  manifest: DeepPartial<PluginManifest>;
   frontendUrl?: string;
   backendImage?: string;
   skipUrlCheck?: boolean;
   skipDockerCheck?: boolean;
   timeout?: number;
-}
-
-interface PluginManifest {
-  name: string;
-  version: string;
-  displayName?: string;
-  description?: string;
-  frontend?: {
-    entry?: string;
-    routes?: string[];
-    navigation?: Record<string, unknown>;
-  };
-  backend?: {
-    entry?: string;
-    port?: number;
-  };
-  [key: string]: unknown;
 }
 
 /**
@@ -223,7 +208,7 @@ export async function verifyDockerImage(
 /**
  * Validate manifest for publishing
  */
-export function validatePublishManifest(manifest: PluginManifest): {
+export function validatePublishManifest(manifest: DeepPartial<PluginManifest>): {
   valid: boolean;
   errors: VerificationError[];
   warnings: VerificationWarning[];

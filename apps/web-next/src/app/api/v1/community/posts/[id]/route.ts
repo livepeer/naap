@@ -5,7 +5,7 @@
  * DELETE /api/v1/community/posts/:id - Delete post
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
@@ -15,7 +15,7 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id } = await params;
 
@@ -23,13 +23,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: { id },
       include: {
         author: {
-          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+          select: { id: true, userId: true, reputation: true, level: true, user: { select: { displayName: true, address: true, avatarUrl: true } } },
         },
         postTags: { include: { tag: true } },
         comments: {
           include: {
             author: {
-              select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+              select: { id: true, userId: true, reputation: true, level: true, user: { select: { displayName: true, address: true, avatarUrl: true } } },
             },
           },
           orderBy: [{ isAccepted: 'desc' }, { upvotes: 'desc' }, { createdAt: 'asc' }],
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function PUT(request: NextRequest, { params }: RouteParams) {
+export async function PUT(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id } = await params;
 
@@ -91,7 +91,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check ownership
-    if (post.author.walletAddress !== authUser.id) {
+    if (post.author.userId !== authUser.id) {
       return errors.forbidden('Not authorized to edit this post');
     }
 
@@ -107,7 +107,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       },
       include: {
         author: {
-          select: { id: true, walletAddress: true, displayName: true, avatarUrl: true, reputation: true, level: true },
+          select: { id: true, userId: true, reputation: true, level: true, user: { select: { displayName: true, address: true, avatarUrl: true } } },
         },
       },
     });
@@ -119,7 +119,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id } = await params;
 
@@ -148,7 +148,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check ownership
-    if (post.author.walletAddress !== authUser.id) {
+    if (post.author.userId !== authUser.id) {
       return errors.forbidden('Not authorized to delete this post');
     }
 

@@ -26,11 +26,37 @@ NaaP (Network as a Platform) is a plugin-based platform. Plugins can have a
 React frontend, Express backend, and PostgreSQL database.
 
 Key technical details:
-- Frontend: React 18+, TypeScript, Tailwind CSS, Vite (UMD bundle)
+- Frontend: React 18+, TypeScript, Tailwind CSS, Vite (UMD bundle via createPluginConfig)
 - Backend: Express.js, TypeScript, Prisma ORM
 - Database: PostgreSQL (via Prisma)
 - Shell integration: @naap/plugin-sdk
-- Backend runs on its own port, shell proxies API calls to /api/v1/[plugin-name]/*
+- Backend runs on its own port in local dev (`plugin.json → backend.devPort` is the single source of truth); on Vercel, the shell proxies API calls to /api/v1/[plugin-name]/* via dedicated Next.js route handlers
+
+**CRITICAL — Deployment-Safe API Patterns:**
+- NEVER hardcode `http://localhost:PORT` in frontend code for API calls
+- NEVER use `window.location.hostname + ':PORT'` for API URLs
+- NEVER import or reference port numbers directly — `plugin.json → backend.devPort` is the single source of truth for ports; the SDK resolves them for you
+- ALWAYS use one of these two SDK functions:
+  - `getPluginBackendUrl(name, { apiPath })` — returns a prefix you append relative paths to (e.g., `/posts`)
+  - `getServiceOrigin(name)` — returns just the origin; use when you build full paths (e.g., `/api/v1/registry/packages`)
+- For pre-built clients, use `createShellApiClient()` or `createIntegrationClient()` from `@naap/plugin-sdk` — they use `getServiceOrigin('base')` internally
+- In React components, prefer `usePluginApi()` hook which handles URL resolution
+- On Vercel, there are NO separate backend ports — all API traffic is same-origin via relative paths (`/api/v1/...`)
+- NEVER call `getPluginBackendUrl('base')` and then append `/api/v1/...` — this creates doubled URLs in production
+
+**CRITICAL — Next.js Route Handlers (Vercel/Production):**
+- Every plugin API endpoint **must** have a dedicated Next.js route handler at
+  `apps/web-next/src/app/api/v1/{plugin-name}/...`
+- The catch-all proxy (`/api/v1/[plugin]/[...path]`) returns **501 Not Implemented**
+  on Vercel for any unhandled route — it is NOT a passthrough
+- When adding a new backend endpoint, always create a matching route handler file
+- There are currently 46+ dedicated route handlers covering all plugin endpoints
+
+**CRITICAL — Build Configuration:**
+- Use `createPluginConfig()` from `@naap/plugin-build/vite` in vite.config.ts
+- Do NOT add a `postcss.config.js` to your plugin — PostCSS (tailwindcss,
+  autoprefixer) is configured centrally in the shared Vite config
+- DO keep a `tailwind.config.js` in your frontend directory (for content paths)
 
 Available SDK hooks (import from @naap/plugin-sdk):
 - useAuth() → { user, token, hasRole(role), hasPermission(perm) }
@@ -76,7 +102,7 @@ import express from 'express';
 import { db } from './db/client.js';
 
 const app = express();
-const PORT = process.env.PORT || 4XX; // unique port
+const PORT = process.env.PORT || 4XX; // must match plugin.json → backend.devPort
 
 app.use(express.json());
 
@@ -121,7 +147,7 @@ Create a full-stack NaaP plugin called "[YOUR_PLUGIN_NAME]" that does:
      },
      "backend": {
        "entry": "dist/server.js",
-       "port": 4XX,
+       "devPort": 4XX,
        "apiPrefix": "/api/v1/[plugin-name]",
        "healthCheck": "/health"
      },
@@ -159,6 +185,7 @@ Create a full-stack NaaP plugin called "[YOUR_PLUGIN_NAME]" that does:
    ```
    **NOTE:** NO `prisma/` directory in the plugin. Models are added to
    `packages/database/prisma/schema.prisma` with `@@schema("plugin_<name>")`.
+   **NOTE:** NO `postcss.config.js` — PostCSS is in the shared Vite config.
 
 3. Database model requirements (models go in `packages/database/prisma/schema.prisma`):
    - Every model MUST have `@@schema("plugin_[name]")` annotation
@@ -177,7 +204,8 @@ Create a full-stack NaaP plugin called "[YOUR_PLUGIN_NAME]" that does:
 
 5. Frontend requirements:
    - Use Tailwind CSS for professional styling
-   - Use usePluginApi() for all API calls
+   - Use usePluginApi() for all API calls in React components
+   - For non-React API URLs, use getPluginBackendUrl() — NEVER hardcode localhost:port
    - Use useAuth() for user context
    - Use useNotify() for success/error feedback
    - Include loading skeletons, error states, and empty states

@@ -1,22 +1,32 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { MDXRemote } from 'next-mdx-remote/rsc';
 import remarkGfm from 'remark-gfm';
 import rehypeSlug from 'rehype-slug';
-import { getDocBySlug, getAllDocSlugs, getNavigation, extractHeadings, getPrevNext } from '@/lib/docs/content';
+import { getDocBySlug, getAllDocSlugs, getNavigation, extractHeadings, getPrevNext, getFirstDocInSection } from '@/lib/docs/content';
 import { DocsSidebar } from '@/components/docs/docs-sidebar';
 import { getMdxComponents } from '@/components/docs/mdx-components';
 import { DocPageClient } from './doc-page-client';
 
 export async function generateStaticParams() {
   const slugs = getAllDocSlugs();
-  return slugs.map((slug) => ({ slug }));
+  // Include section-level paths (e.g. ['getting-started']) so redirects are pre-rendered
+  const sectionKeys = new Set(slugs.map(s => s[0]));
+  const sectionSlugs = [...sectionKeys].map(key => ({ slug: [key] }));
+  return [...slugs.map((slug) => ({ slug })), ...sectionSlugs];
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string[] }> }) {
   const { slug } = await params;
   const doc = getDocBySlug(slug);
-  if (!doc) return { title: 'Not Found' };
+  if (!doc) {
+    // Section-level slug — redirect will fire from the page, so use section name
+    if (slug.length === 1) {
+      const label = slug[0].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      return { title: `${label} - NaaP Docs` };
+    }
+    return { title: 'Not Found' };
+  }
 
   return {
     title: `${doc.frontmatter.title} - NaaP Docs`,
@@ -29,6 +39,13 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
   const doc = getDocBySlug(slug);
 
   if (!doc) {
+    // If the slug matches a section directory, redirect to its first page
+    if (slug.length === 1) {
+      const firstDoc = getFirstDocInSection(slug[0]);
+      if (firstDoc) {
+        redirect(`/docs/${firstDoc.slug.join('/')}`);
+      }
+    }
     notFound();
   }
 
@@ -85,6 +102,7 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
                 components={components}
                 options={{
                   mdxOptions: {
+                    format: 'md',
                     remarkPlugins: [remarkGfm],
                     rehypePlugins: [rehypeSlug],
                   },

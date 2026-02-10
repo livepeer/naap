@@ -27,9 +27,26 @@ React applications bundled in UMD format and loaded into a shell application.
 
 Key technical details:
 - Frontend: React 18+, TypeScript, Tailwind CSS, Vite
-- Bundle format: UMD (via vite.config.ts using createPluginConfig)
+- Bundle format: UMD (via vite.config.ts using createPluginConfig from @naap/plugin-build/vite)
 - Shell integration: @naap/plugin-sdk provides hooks and components
 - The shell handles authentication, theming, notifications, and routing
+- Deployment: Vercel (production) — plugins are UMD bundles served from same origin
+
+**CRITICAL — Deployment-Safe API Patterns:**
+- NEVER hardcode `http://localhost:PORT` in frontend code
+- NEVER use `window.location.hostname + ':PORT'` for API URLs
+- NEVER import or reference port numbers directly — `plugin.json → backend.devPort` is the single source of truth for ports; the SDK resolves them for you
+- ALWAYS use one of these two SDK functions:
+  - `getPluginBackendUrl(name, { apiPath })` — returns a prefix you append relative paths to (e.g., `/posts`)
+  - `getServiceOrigin(name)` — returns just the origin; use when you build full paths (e.g., `/api/v1/registry/packages`)
+- For pre-built clients, use `createShellApiClient()` or `createIntegrationClient()` from `@naap/plugin-sdk` — they use `getServiceOrigin('base')` internally
+- On Vercel, there are NO separate backend ports — all API traffic is same-origin via relative paths (`/api/v1/...`)
+- NEVER call `getPluginBackendUrl('base')` and then append `/api/v1/...` — this creates doubled URLs in production
+
+**CRITICAL — Build Configuration:**
+- Use `createPluginConfig()` from `@naap/plugin-build/vite` for vite.config.ts
+- Do NOT add a `postcss.config.js` — PostCSS is configured in the shared Vite config
+- Keep a `tailwind.config.js` in your frontend directory (it IS needed)
 
 Available SDK hooks (import from @naap/plugin-sdk):
 - useAuth() → { user, token, hasRole(role), hasPermission(perm) }
@@ -99,19 +116,22 @@ Create a frontend-only NaaP plugin called "[YOUR_PLUGIN_NAME]" that does:
    │   ├── package.json        (react, @naap/plugin-sdk, tailwindcss, vite deps)
    │   ├── tsconfig.json
    │   ├── vite.config.ts       (UMD build config via createPluginConfig)
+   │   ├── tailwind.config.js   (content paths & theme extensions)
    │   ├── src/
    │   │   ├── App.tsx          (main component with routing/layout)
    │   │   ├── mount.tsx        (shell mount function)
    │   │   └── components/      (reusable UI components)
    │   └── index.html
    ```
+   **Do NOT include:** `postcss.config.js` (PostCSS is configured in the shared Vite config)
 
 3. Use Tailwind CSS for all styling. Make the UI look professional and modern.
 4. Use the useAuth() hook to show user-specific content.
 5. Use the useNotify() hook for success/error feedback.
 6. Use the usePluginApi() hook if the plugin needs to fetch external data.
-7. Include proper loading states, error handling, and empty states.
-8. Make the UI responsive (mobile + desktop).
+7. If you need a direct API URL (outside React), use getPluginBackendUrl() — NEVER hardcode localhost:port.
+8. Include proper loading states, error handling, and empty states.
+9. Make the UI responsive (mobile + desktop).
 
 ## Quality Standards
 

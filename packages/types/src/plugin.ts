@@ -8,6 +8,15 @@
  * - apps/web-next (frontend shell)
  */
 
+/** Recursively makes all properties optional (useful for validation inputs) */
+export type DeepPartial<T> = {
+  [P in keyof T]?: T[P] extends (infer U)[]
+    ? DeepPartial<U>[]
+    : T[P] extends object | undefined
+    ? DeepPartial<NonNullable<T[P]>>
+    : T[P];
+};
+
 // ============================================
 // Plugin Manifest Types
 // ============================================
@@ -312,6 +321,43 @@ export interface PluginManifest {
    * @default 'none'
    */
   isolation?: PluginIsolationMode;
+}
+
+// ============================================
+// Runtime Plugin (API / DB shape)
+// ============================================
+
+/**
+ * Runtime representation of a plugin as returned by the API / WorkflowPlugin DB row.
+ * This is distinct from the design-time `PluginManifest` (plugin.json shape).
+ * Use this for frontend contexts, plugin loading, and API responses.
+ */
+export interface RuntimePlugin {
+  name: string;
+  displayName: string;
+  version: string;
+  routes: string[];
+  enabled: boolean;
+  order: number;
+  icon?: string;
+  metadata?: Record<string, unknown>;
+  // CDN/UMD deployment fields
+  bundleUrl?: string;
+  stylesUrl?: string;
+  bundleHash?: string;
+  bundleSize?: number;
+  globalName?: string;
+  // Additional metadata for plugin info
+  author?: string;
+  publisher?: string;
+  latestVersion?: string;
+  installedAt?: string;
+  createdAt?: string;
+  category?: string;
+  description?: string;
+  // Legacy field - kept for backward compatibility with API responses
+  remoteUrl?: string;
+  deploymentType?: string;
 }
 
 // ============================================

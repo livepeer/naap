@@ -109,6 +109,7 @@ export {
   getRegisteredPlugins,
   validatePort,
   assertCorrectPort,
+  getServiceOrigin,
   API_PATHS,
   getApiPath,
   type PluginName,

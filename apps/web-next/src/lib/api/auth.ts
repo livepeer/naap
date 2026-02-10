@@ -26,15 +26,9 @@ function generateToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
-export interface AuthUser {
-  id: string;
-  email: string | null;
-  displayName: string | null;
-  avatarUrl: string | null;
-  address: string | null;
-  roles: string[];
-  permissions: Array<{ resource: string; action: string }>;
-}
+// Canonical AuthUser type from @naap/types
+import type { AuthUser } from '@naap/types';
+export type { AuthUser };
 
 export interface AuthResult {
   user: AuthUser;

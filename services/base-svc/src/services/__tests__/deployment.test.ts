@@ -44,7 +44,7 @@ describe('provisionPluginInfrastructure', () => {
       name: 'db-plugin',
       version: '1.0.0',
       backend: { entry: './server.js' },
-      database: { type: 'postgresql' },
+      database: { type: 'postgresql' as const },
     };
 
     const result = await provisionPluginInfrastructure('db-plugin', manifest);

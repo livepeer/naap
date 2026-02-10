@@ -4,6 +4,7 @@
  */
 
 import { HEADER_PLUGIN_NAME } from '@naap/types';
+import { getServiceOrigin } from '../config/ports.js';
 
 export interface ApiClientOptions {
   baseUrl: string;
@@ -168,9 +169,8 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
  * ```
  */
 export function createShellApiClient(authToken?: string): ApiClient {
-  const baseUrl = typeof window !== 'undefined' 
-    ? `${window.location.protocol}//${window.location.hostname}:4000`
-    : 'http://localhost:4000';
+  // Uses getServiceOrigin('base') — returns '' in production, 'http://localhost:4000' in dev.
+  const baseUrl = getServiceOrigin('base');
 
   return createApiClient({
     baseUrl,
@@ -199,9 +199,8 @@ export function createShellApiClient(authToken?: string): ApiClient {
  * ```
  */
 export function createIntegrationClient(pluginName: string, authToken?: string): IntegrationClient {
-  const baseUrl = typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:4000`
-    : 'http://localhost:4000';
+  // Uses getServiceOrigin('base') — returns '' in production, 'http://localhost:4000' in dev.
+  const baseUrl = getServiceOrigin('base');
 
   return {
     async call<T>(integrationType: string, method: string, args: unknown[]): Promise<T> {
@@ -230,11 +229,18 @@ import {
   PLUGIN_PORTS,
   getPluginPort,
   getPluginBackendUrl as configGetPluginBackendUrl,
+  getServiceOrigin as configGetServiceOrigin,
   type PluginBackendUrlOptions,
 } from '../config/ports.js';
 
 // Re-export for backwards compatibility
 export { PLUGIN_PORTS, getPluginPort, PluginBackendUrlOptions };
+
+/**
+ * Re-export of `getServiceOrigin` from config/ports.
+ * @see getServiceOrigin in config/ports.ts for full docs.
+ */
+export const getServiceOrigin = configGetServiceOrigin;
 
 /**
  * Get the backend URL for a specific plugin.

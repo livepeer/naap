@@ -3,7 +3,7 @@
  * PATCH /api/v1/wallet/transactions/:txHash - Update transaction status
  */
 
-import { NextRequest } from 'next/server';
+import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
@@ -19,7 +19,7 @@ interface RouteParams {
   params: Promise<{ txHash: string }>;
 }
 
-export async function PATCH(request: NextRequest, { params }: RouteParams) {
+export async function PATCH(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { txHash } = await params;
 

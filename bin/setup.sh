@@ -154,18 +154,18 @@ PIPELINE_GATEWAY_URL=http://localhost:4200
 STORAGE_SVC_URL=http://localhost:4300
 INFRASTRUCTURE_SVC_URL=http://localhost:4400
 
-# Plugin backends (local)
+# Plugin backends (local) — ports match plugins/*/plugin.json → backend.devPort
 GATEWAY_MANAGER_URL=http://localhost:4001
 ORCHESTRATOR_MANAGER_URL=http://localhost:4002
 CAPACITY_PLANNER_URL=http://localhost:4003
 NETWORK_ANALYTICS_URL=http://localhost:4004
 MARKETPLACE_URL=http://localhost:4005
 COMMUNITY_URL=http://localhost:4006
-WALLET_URL=http://localhost:4007
-DASHBOARD_URL=http://localhost:4008
-DAYDREAM_VIDEO_URL=http://localhost:4010
-DEVELOPER_API_URL=http://localhost:4011
-PLUGIN_PUBLISHER_URL=http://localhost:4012
+DEVELOPER_API_URL=http://localhost:4007
+WALLET_URL=http://localhost:4008
+DASHBOARD_URL=http://localhost:4009
+PLUGIN_PUBLISHER_URL=http://localhost:4010
+DAYDREAM_VIDEO_URL=http://localhost:4111
 
 # Caching (optional, uses in-memory fallback if not set)
 # REDIS_URL=redis://localhost:6379
@@ -292,19 +292,7 @@ else
     log_success "Database already running"
   fi
 
-  # Push main schema
-  log_info "Syncing main database schema..."
-  FRONTEND_DIR="$ROOT_DIR/apps/web-next"
-  if [ -f "$FRONTEND_DIR/prisma/schema.prisma" ]; then
-    cd "$FRONTEND_DIR"
-    DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap?schema=public" \
-      npx prisma db push --skip-generate --accept-data-loss >/dev/null 2>&1 && \
-      log_success "Main database schema synced" || \
-      log_warn "Main schema sync had warnings (may be fine for first run)"
-    cd "$ROOT_DIR"
-  fi
-
-  # Ensure plugin schemas exist
+  # Ensure plugin schemas exist (e.g., plugin_community, plugin_wallet, etc.)
   log_info "Creating plugin database schemas..."
   if [ -f "$ROOT_DIR/docker/init-schemas.sql" ]; then
     docker exec -i $CONTAINER_NAME psql -U postgres -d naap < "$ROOT_DIR/docker/init-schemas.sql" >/dev/null 2>&1 && \
@@ -312,14 +300,20 @@ else
       log_warn "Schema creation had warnings (may already exist)"
   fi
 
-  # Generate unified Prisma client (packages/database)
-  log_info "Generating unified Prisma client..."
+  # Single source of truth: packages/database/prisma/schema.prisma
+  # This schema defines ALL tables (core + plugins) and generates the
+  # Prisma client used by both seed scripts and backend services.
+  FRONTEND_DIR="$ROOT_DIR/apps/web-next"
+  log_info "Generating unified Prisma client and pushing schema..."
   if [ -f "$ROOT_DIR/packages/database/prisma/schema.prisma" ]; then
     cd "$ROOT_DIR/packages/database"
+
+    # Generate Prisma client (picks up any new columns/models)
     npx prisma generate >/dev/null 2>&1 && \
       log_success "Unified Prisma client generated" || \
       log_warn "Prisma client generation had warnings"
-    # Push all schemas (public + plugin_*) to database
+
+    # Push schema to database (adds new columns/tables, preserves data)
     DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap" \
       npx prisma db push --skip-generate --accept-data-loss >/dev/null 2>&1 && \
       log_success "All database schemas synced (public + plugin schemas)" || \
@@ -334,8 +328,8 @@ else
       cd "$FRONTEND_DIR"
       DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap?schema=public" \
         npx tsx prisma/seed.ts >/dev/null 2>&1 && \
-        log_success "Main database seeded" || \
-        log_warn "Main database seeding skipped (may need tsx: npm install -g tsx)"
+        log_success "Database seeded (users, roles, plugins, marketplace)" || \
+        log_warn "Database seeding had issues (may need tsx: npm install -g tsx)"
       cd "$ROOT_DIR"
     fi
     # Seed plugin databases if seed scripts exist
@@ -428,6 +422,16 @@ echo -e "${BOLD}║          Setup Complete! (${ELAPSED}s)              ║${NC}
 echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 
+echo -e "${BOLD}Login Credentials (all passwords: livepeer):${NC}"
+echo ""
+echo -e "  ${CYAN}admin@livepeer.org${NC}        System Admin"
+echo -e "  ${CYAN}viewer@livepeer.org${NC}       Read-only Viewer"
+echo -e "  ${DIM}gateway@livepeer.org      Gateway Manager Admin${NC}"
+echo -e "  ${DIM}community@livepeer.org    Community Admin${NC}"
+echo -e "  ${DIM}developer@livepeer.org    Developer API Admin${NC}"
+echo -e "  ${DIM}...and 7 more plugin admins (same password)${NC}"
+echo ""
+
 if [ "$AUTO_START" = "1" ]; then
   log_info "Starting NAAP Platform..."
   exec "$SCRIPT_DIR/start.sh" start --all
@@ -440,6 +444,7 @@ else
   echo ""
   echo "  2. Open in browser:"
   echo -e "     ${CYAN}http://localhost:3000${NC}"
+  echo -e "     Login: ${CYAN}admin@livepeer.org${NC} / ${CYAN}livepeer${NC}"
   echo ""
   echo "  3. Develop a plugin:"
   echo -e "     ${CYAN}./bin/start.sh dev my-dashboard${NC}"

@@ -5,6 +5,7 @@
  */
 
 import { getStorageAdapter } from '@/lib/storage';
+import type { RuntimePlugin } from '@naap/types';
 
 export interface PluginVersion {
   version: string;
@@ -15,25 +16,8 @@ export interface PluginVersion {
   changelog?: string;
 }
 
-export interface PluginManifest {
-  name: string;
-  displayName: string;
-  description: string;
-  version: string;
-  author: string;
-  homepage?: string;
-  repository?: string;
-  license?: string;
-  keywords?: string[];
-  icon?: string;
-  routes: string[];
-  permissions?: string[];
-  dependencies?: Record<string, string>;
-  peerDependencies?: Record<string, string>;
-  enabled: boolean;
-  order: number;
-  metadata?: Record<string, unknown>;
-}
+// Use the canonical RuntimePlugin type; alias as PluginManifest for registry compat
+export type PluginManifest = RuntimePlugin;
 
 export interface PluginRegistryEntry {
   manifest: PluginManifest;

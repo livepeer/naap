@@ -77,7 +77,7 @@ export function DocsHeader({ onToggleSidebar, isSidebarOpen }: DocsHeaderProps) 
 
           {/* GitHub - optional */}
           <a
-            href="https://github.com/nicknaaplatform/NaaP"
+            href="https://github.com/livepeer/naap"
             target="_blank"
             rel="noopener noreferrer"
             className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all"

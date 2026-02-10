@@ -28,7 +28,7 @@ function maskValue(key: string): string {
 }
 
 // GET /api/v1/secrets - List all secrets (masked values)
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url);
     const scope = searchParams.get('scope') || 'global';
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/v1/secrets - Create a new secret
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();
     const { key, value, description, scope = 'global' } = body;

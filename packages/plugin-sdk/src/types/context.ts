@@ -10,6 +10,7 @@ export type { ShellContext } from './services.js';
 
 // Import for use in this file
 import type { ShellContext } from './services.js';
+import type { AuthUser } from '@naap/types';
 
 // ============================================
 // Plugin Mount Types
@@ -84,17 +85,6 @@ export interface PluginModule {
 /**
  * @deprecated Use ShellContext instead.
  */
-export interface LegacyShellUser {
-  id: string;
-  walletAddress: string;
-  displayName?: string;
-  avatar?: string;
-  roles?: string[];
-}
-
-/**
- * @deprecated Use ShellContext instead.
- */
 export interface LegacyShellTheme {
   mode: 'light' | 'dark';
   primaryColor?: string;
@@ -130,7 +120,7 @@ export interface LegacyShellContext {
   authToken?: string;
 
   /** Get current user */
-  user: () => LegacyShellUser | null;
+  user: () => AuthUser | null;
 
   /** Navigate to a route */
   navigate: (path: string) => void;

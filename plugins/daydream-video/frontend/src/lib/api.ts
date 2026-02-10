@@ -254,7 +254,12 @@ export async function getSessionHistory(
   limit = 50,
   offset = 0
 ): Promise<SessionRecord[]> {
-  return apiRequest<SessionRecord[]>(`/sessions?limit=${limit}&offset=${offset}`);
+  const result = await apiRequest<{ sessions: SessionRecord[] } | SessionRecord[]>(
+    `/sessions?limit=${limit}&offset=${offset}`
+  );
+  // Route returns { sessions: [...] } inside the envelope
+  if (Array.isArray(result)) return result;
+  return result.sessions ?? [];
 }
 
 export async function getActiveSession(): Promise<SessionRecord | null> {
@@ -267,7 +272,10 @@ export async function getControlNets(): Promise<ControlNetInfo[]> {
 }
 
 export async function getPresets(): Promise<PresetInfo[]> {
-  return apiRequest<PresetInfo[]>('/presets');
+  const result = await apiRequest<Record<string, Omit<PresetInfo, 'id'>> | PresetInfo[]>('/presets');
+  // Route returns an object keyed by preset name; convert to array
+  if (Array.isArray(result)) return result;
+  return Object.entries(result).map(([id, preset]) => ({ id, ...preset }));
 }
 
 export async function getModels(): Promise<ModelInfo[]> {

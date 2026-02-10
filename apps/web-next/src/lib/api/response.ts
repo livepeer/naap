@@ -113,9 +113,34 @@ export const errors = {
   internal: (message: string = 'Internal server error') =>
     error('INTERNAL_ERROR', message, 500),
 
+  serviceUnavailable: (message: string = 'Service temporarily unavailable') =>
+    error('SERVICE_UNAVAILABLE', message, 503),
+
   validationError: (fieldErrors: Record<string, string>) =>
     error('VALIDATION_ERROR', 'Validation failed', 400, { fields: fieldErrors }),
 };
+
+/**
+ * Check if an error is a Prisma/database connection failure.
+ * Used to return 503 instead of misleading 401/400 when the DB is unreachable.
+ */
+export function isDatabaseError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const name = (err as { name?: string }).name || '';
+  const message = (err as { message?: string }).message || '';
+  if (
+    name === 'PrismaClientInitializationError' ||
+    name === 'PrismaClientRustPanicError' ||
+    /Can't reach database|Connection refused|ECONNREFUSED|timed?\s*out|datasource.*url/i.test(message)
+  ) {
+    return true;
+  }
+  const code = (err as { code?: string }).code;
+  if (code && ['P1001', 'P1002', 'P1003', 'P1008', 'P1017'].includes(code)) {
+    return true;
+  }
+  return false;
+}
 
 /**
  * Parse pagination query params from URLSearchParams
