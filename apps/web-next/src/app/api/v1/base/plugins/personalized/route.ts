@@ -33,6 +33,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       orderBy: { order: 'asc' },
     });
 
+    // Headless plugins (no routes) are background data providers that must always
+    // be loaded regardless of context — they register event bus handlers the shell
+    // and dashboard rely on. We extract them once and append to every response.
+    const headlessPlugins = globalPlugins.filter(
+      (p) => !p.routes || (Array.isArray(p.routes) && (p.routes as string[]).length === 0),
+    );
+
     if (!userIdOrAddress) {
       // No user context, return global plugins
       return success({ plugins: globalPlugins });
@@ -133,8 +140,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
               enabled: true, // Core plugins always enabled in team context
             }));
 
-          // Combine team plugins with core plugins
-          const allTeamPlugins = [...teamPlugins, ...corePlugins];
+          // Combine team plugins with core plugins and headless providers
+          const allTeamPlugins = [...teamPlugins, ...corePlugins, ...headlessPlugins];
 
           // Sort and deduplicate
           const seenNames = new Set<string>();
@@ -152,24 +159,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         }
       } catch (teamErr) {
         console.warn('Error fetching team plugins:', teamErr);
-        // On error, still return only core plugins for team context
+        // On error, still return core plugins + headless providers for team context
         const CORE_PLUGIN_NAMES = ['marketplace', 'plugin-publisher', 'pluginpublisher'];
         const normalizePluginName = (name: string) =>
           name.toLowerCase().replace(/[-_]/g, '');
         const corePlugins = globalPlugins
           .filter(p => CORE_PLUGIN_NAMES.includes(normalizePluginName(p.name)))
           .map(plugin => ({ ...plugin, enabled: true }));
-        return success({ plugins: corePlugins, context: 'team', teamId, error: 'Failed to load team plugins' });
+        return success({ plugins: [...corePlugins, ...headlessPlugins], context: 'team', teamId, error: 'Failed to load team plugins' });
       }
 
-      // User is not a team member - return only core plugins for team context
+      // User is not a team member - return core plugins + headless providers for team context
       const CORE_PLUGIN_NAMES = ['marketplace', 'plugin-publisher', 'pluginpublisher'];
       const normalizePluginName = (name: string) =>
         name.toLowerCase().replace(/[-_]/g, '');
       const corePlugins = globalPlugins
         .filter(p => CORE_PLUGIN_NAMES.includes(normalizePluginName(p.name)))
         .map(plugin => ({ ...plugin, enabled: true }));
-      return success({ plugins: corePlugins, context: 'team', teamId });
+      return success({ plugins: [...corePlugins, ...headlessPlugins], context: 'team', teamId });
     }
 
     // Personal context: Get user preferences
