@@ -441,6 +441,7 @@ const GLOBAL_EVENT_PREFIXES = [
   'navigation:',   // Navigation events
   'tenant:',   // Tenant context changes
   'team:',     // Team context changes (switching teams)
+  'dashboard:',    // Dashboard data contracts (system-level, not team-scoped)
 ];
 
 /**
