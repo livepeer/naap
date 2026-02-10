@@ -10,6 +10,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import * as LucideIcons from 'lucide-react';
 import {
   Blocks,
   Shield,
@@ -22,6 +23,13 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
+
+/** Resolve a Lucide icon name (e.g. "ShoppingBag") to a React component, with fallback. */
+function getPluginIcon(iconName?: string | null): React.ReactNode {
+  if (!iconName) return <Blocks size={18} />;
+  const Icon = (LucideIcons as unknown as Record<string, React.ComponentType<{ size?: number }>>)[iconName];
+  return Icon ? <Icon size={18} /> : <Blocks size={18} />;
+}
 
 interface PluginEntry {
   id: string;
@@ -291,11 +299,7 @@ function PluginRow({
     >
       {/* Icon */}
       <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-muted-foreground flex-shrink-0">
-        {plugin.icon ? (
-          <span className="text-lg">{plugin.icon}</span>
-        ) : (
-          <Blocks size={18} />
-        )}
+        {getPluginIcon(plugin.icon)}
       </div>
 
       {/* Info */}
