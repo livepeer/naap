@@ -4,7 +4,7 @@
  */
 
 import { HEADER_PLUGIN_NAME } from '@naap/types';
-import { getServiceOrigin } from '../config/ports.js';
+import { getServiceOrigin as _getServiceOrigin } from '../config/ports.js';
 
 export interface ApiClientOptions {
   baseUrl: string;
@@ -170,7 +170,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
  */
 export function createShellApiClient(authToken?: string): ApiClient {
   // Uses getServiceOrigin('base') — returns '' in production, 'http://localhost:4000' in dev.
-  const baseUrl = getServiceOrigin('base');
+  const baseUrl = _getServiceOrigin('base');
 
   return createApiClient({
     baseUrl,
@@ -200,7 +200,7 @@ export function createShellApiClient(authToken?: string): ApiClient {
  */
 export function createIntegrationClient(pluginName: string, authToken?: string): IntegrationClient {
   // Uses getServiceOrigin('base') — returns '' in production, 'http://localhost:4000' in dev.
-  const baseUrl = getServiceOrigin('base');
+  const baseUrl = _getServiceOrigin('base');
 
   return {
     async call<T>(integrationType: string, method: string, args: unknown[]): Promise<T> {
