@@ -51,6 +51,14 @@ export interface UseDashboardQueryResult<T> {
 // Hook
 // ============================================================================
 
+/**
+ * Retry delays (ms) when the provider hasn't loaded yet.
+ * Background plugins need time to load their UMD bundle and mount —
+ * we retry with increasing back-off so the dashboard resolves
+ * automatically once the plugin is ready.
+ */
+const NO_PROVIDER_RETRY_DELAYS = [1000, 2000, 3000, 5000];
+
 export function useDashboardQuery<T = Record<string, unknown>>(
   query: string,
   variables?: Record<string, unknown>,
@@ -67,6 +75,8 @@ export function useDashboardQuery<T = Record<string, unknown>>(
   const queryRef = useRef(query);
   const variablesRef = useRef(variables);
   const mountedRef = useRef(true);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   queryRef.current = query;
   variablesRef.current = variables;
@@ -88,6 +98,9 @@ export function useDashboardQuery<T = Record<string, unknown>>(
 
       if (!mountedRef.current) return;
 
+      // Success — reset retry counter
+      retryCountRef.current = 0;
+
       if (response.errors && response.errors.length > 0 && !response.data) {
         setError({
           type: 'query-error',
@@ -107,6 +120,20 @@ export function useDashboardQuery<T = Record<string, unknown>>(
 
       const code = (err as any)?.code;
       if (code === 'NO_HANDLER') {
+        // Provider plugin may still be loading — schedule a retry
+        const retryIndex = retryCountRef.current;
+        if (retryIndex < NO_PROVIDER_RETRY_DELAYS.length) {
+          const delay = NO_PROVIDER_RETRY_DELAYS[retryIndex];
+          retryCountRef.current = retryIndex + 1;
+          console.log(
+            `[useDashboardQuery] No provider yet, retry ${retryIndex + 1}/${NO_PROVIDER_RETRY_DELAYS.length} in ${delay}ms`
+          );
+          retryTimerRef.current = setTimeout(() => {
+            if (mountedRef.current) fetchData();
+          }, delay);
+          return; // Keep loading=true, don't set error yet
+        }
+        // All retries exhausted
         setError({ type: 'no-provider', message: 'No dashboard data provider is registered' });
       } else if (code === 'TIMEOUT') {
         setError({ type: 'timeout', message: 'Dashboard data provider did not respond in time' });
@@ -127,11 +154,16 @@ export function useDashboardQuery<T = Record<string, unknown>>(
   // Initial fetch
   useEffect(() => {
     mountedRef.current = true;
+    retryCountRef.current = 0;
     if (!skip) {
       fetchData();
     }
     return () => {
       mountedRef.current = false;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
     };
   }, [fetchData, skip]);
 

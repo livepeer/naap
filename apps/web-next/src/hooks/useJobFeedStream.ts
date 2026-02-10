@@ -43,6 +43,13 @@ export interface UseJobFeedStreamResult {
 // Hook
 // ============================================================================
 
+/**
+ * Retry delays (ms) when the job feed provider hasn't loaded yet.
+ * Background plugins need time to load their UMD bundle and mount —
+ * we retry with increasing back-off so the feed connects once ready.
+ */
+const NO_PROVIDER_RETRY_DELAYS = [1000, 2000, 3000, 5000];
+
 export function useJobFeedStream(
   options?: UseJobFeedStreamOptions
 ): UseJobFeedStreamResult {
@@ -71,6 +78,8 @@ export function useJobFeedStream(
 
     mountedRef.current = true;
     let eventBusCleanup: (() => void) | null = null;
+    let retryCount = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     async function connect() {
       try {
@@ -81,6 +90,9 @@ export function useJobFeedStream(
         >(DASHBOARD_JOB_FEED_EVENT, undefined, { timeout });
 
         if (!mountedRef.current) return;
+
+        // Success — reset retry counter
+        retryCount = 0;
 
         if (channelInfo.useEventBusFallback || !channelInfo.channelName) {
           // Event bus fallback mode — provider emits events directly
@@ -111,6 +123,19 @@ export function useJobFeedStream(
 
         const code = (err as any)?.code;
         if (code === 'NO_HANDLER') {
+          // Provider plugin may still be loading — schedule a retry
+          if (retryCount < NO_PROVIDER_RETRY_DELAYS.length) {
+            const delay = NO_PROVIDER_RETRY_DELAYS[retryCount];
+            retryCount++;
+            console.log(
+              `[useJobFeedStream] No provider yet, retry ${retryCount}/${NO_PROVIDER_RETRY_DELAYS.length} in ${delay}ms`
+            );
+            retryTimer = setTimeout(() => {
+              if (mountedRef.current) connect();
+            }, delay);
+            return; // Don't set error yet — still trying
+          }
+          // All retries exhausted
           setError({
             type: 'no-provider',
             message: 'No job feed provider is registered',
@@ -134,6 +159,10 @@ export function useJobFeedStream(
 
     return () => {
       mountedRef.current = false;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
       if (eventBusCleanup) {
         eventBusCleanup();
         eventBusCleanup = null;
