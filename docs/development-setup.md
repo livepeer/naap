@@ -2,402 +2,179 @@
 
 ## Prerequisites
 
-- **Node.js**: 18+ or 20+
+- **Node.js**: 20+
 - **npm**: 10+
-- **Docker**: 20.10+ (for databases and Kafka)
-- **Docker Compose**: 2.0+
+- **Docker**: 20.10+ (for local PostgreSQL)
+- **Git**: 2.x+
 
-## Initial Setup
+> **Note:** NaaP uses **npm** as its package manager. Do not use pnpm or yarn.
 
-### 1. Clone and Install
+## Quick Setup
 
 ```bash
 # Clone repository
-git clone <repository-url>
-cd NaaP
+git clone https://github.com/livepeer/naap.git
+cd naap
 
-# Install dependencies
-npm install
+# Run the automated setup (installs deps, starts DB, builds plugins)
+./bin/setup.sh
+
+# Start the platform
+./bin/start.sh
 ```
 
-### 2. Start Infrastructure Services
-
-Start all databases and Kafka:
+Or all in one line:
 
 ```bash
-./bin/services-start.sh
+git clone https://github.com/livepeer/naap.git && cd naap && ./bin/setup.sh --start
 ```
 
-This will:
-- Start all PostgreSQL containers
-- Start Kafka and Zookeeper
-- Wait for services to be ready
+Open **http://localhost:3000** when setup completes.
 
-### 3. Setup Databases
+## What Setup Does
 
-Initialize all databases with schemas and seed data:
+The `setup.sh` script automates:
 
-```bash
-./bin/db-setup.sh
-```
+| Step | What It Does |
+|------|--------------|
+| 1. Check Dependencies | Verifies Node.js 20+, npm, Git, Docker |
+| 2. Environment Config | Creates `.env.local` and all plugin `.env` files |
+| 3. Install Packages | Runs `npm install` for the monorepo + all workspaces |
+| 4. Database Setup | Starts single PostgreSQL via Docker, creates schemas, seeds data |
+| 5. Build Plugins | Builds all 11 plugin UMD bundles for CDN serving |
+| 6. Verification | Checks critical files and workspace links |
 
-This will:
-- Run migrations for all services
-- Seed development data
+## Architecture Overview
 
-### 4. Setup Kafka Topics
+NaaP uses a **single PostgreSQL database** with **multi-schema isolation**:
 
-Create required Kafka topics:
+- All models live in `packages/database/prisma/schema.prisma`
+- Each plugin gets its own schema (e.g., `plugin_community`, `plugin_daydream`)
+- All services/plugins import from `@naap/database`
 
-```bash
-./bin/kafka-setup.sh
-```
-
-### 5. Configure Environment Variables
-
-Copy environment templates (if available):
-
-```bash
-# For each service, copy .env.example to .env
-cp services/base-svc/.env.example services/base-svc/.env
-# Update with your values
-```
-
-### 6. Generate Prisma Clients
-
-Generate Prisma clients for all services:
-
-```bash
-# Base service
-cd services/base-svc
-npm run db:generate
-
-# Gateway service
-cd ../workflows/gateway-manager-svc
-npm run db:generate
-
-# Repeat for other services
-```
-
-### 7. Start Platform Services
-
-Start all platform services:
-
-```bash
-./bin/start.sh --all
-```
-
-Or start specific services:
-
-```bash
-# Shell only
-./bin/start.sh --shell
-
-# Specific workflows
-./bin/start.sh gateway-manager orchestrator-manager
-```
+There is **no Kafka**. Inter-service communication uses the in-app event bus.
 
 ## Development Workflow
 
-### Working on a Service
+### Starting the Platform
 
-1. **Start infrastructure** (if not running):
-   ```bash
-   ./bin/services-start.sh
-   ```
+```bash
+# Shell + core only (fastest startup)
+./bin/start.sh
 
-2. **Start the service**:
-   ```bash
-   cd services/base-svc
-   npm run dev
-   ```
+# Everything including all plugin backends
+./bin/start.sh start --all
 
-3. **Make changes** - The service will auto-reload
-
-4. **Test changes**:
-   ```bash
-   # Run smoke tests
-   ./bin/smoke.sh
-   ```
+# Develop a specific plugin with hot reload
+./bin/start.sh dev my-dashboard
+```
 
 ### Database Changes
 
-1. **Modify Prisma schema**:
-   ```bash
-   cd services/your-service-svc
-   # Edit prisma/schema.prisma
-   ```
+All schema operations run from the central `packages/database` directory:
 
-2. **Create migration**:
-   ```bash
-   npm run db:migrate
-   ```
+```bash
+cd packages/database
 
-3. **Generate client**:
-   ```bash
-   npm run db:generate
-   ```
+# Edit schema.prisma, then:
+npx prisma generate    # Generate the typed client
+npx prisma db push     # Push schema to database
+npx prisma studio      # Open Prisma Studio (GUI)
+```
 
-4. **Update seed script** (if needed):
-   ```bash
-   # Edit prisma/seed.ts
-   npm run db:seed
-   ```
+### Reset Database
 
-### Adding a New Service
+```bash
+cd packages/database
+npx prisma db push --force-reset
+```
 
-1. **Create service directory**:
-   ```bash
-   mkdir -p services/workflows/new-service-svc/src
-   ```
+### Working on a Plugin
 
-2. **Initialize package.json**:
-   ```bash
-   cd services/workflows/new-service-svc
-   npm init -y
-   ```
-
-3. **Add dependencies**:
-   ```bash
-   npm install express cors @naap/types @naap/database
-   npm install -D typescript tsx prisma @types/express
-   ```
-
-4. **Create Prisma schema** (see [database.md](./database.md))
-
-5. **Create service files**:
-   - `src/server.ts` - Express server
-   - `src/db/client.ts` - Database client
-   - `prisma/schema.prisma` - Database schema
-   - `prisma/seed.ts` - Seed script
-
-6. **Add to Docker Compose** (see [database.md](./database.md))
-
-7. **Update scripts**:
-   - Add to `bin/start.sh` port mappings
-   - Add to `bin/db-setup.sh` service list
+1. Start the platform: `./bin/start.sh`
+2. Start the plugin in dev mode: `./bin/start.sh dev my-plugin`
+3. Make changes — hot reload is automatic
+4. Test with `./bin/start.sh validate`
 
 ## Environment Variables
 
-### Service-Specific
-
-Each service needs a `.env` file:
+### Shell (`apps/web-next/.env.local`)
 
 ```bash
-# Database
-DATABASE_URL=postgresql://user:password@localhost:port/database
-
-# Service
-PORT=4000
-NODE_ENV=development
-
-# Kafka (if using)
-KAFKA_BROKERS=localhost:9092
-KAFKA_CLIENT_ID=service-name
-KAFKA_GROUP_ID=service-group
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/naap
+NEXTAUTH_SECRET=dev-secret-change-me-in-production-min-32-chars
+BASE_SVC_URL=http://localhost:4000
+PLUGIN_SERVER_URL=http://localhost:3100
 ```
 
-### Global
-
-Root `.env` (optional):
+### Plugin Backends (`plugins/<name>/backend/.env`)
 
 ```bash
-# Database URLs
-DATABASE_URL_BASE=postgresql://...
-DATABASE_URL_GATEWAY=postgresql://...
-
-# Kafka
-KAFKA_BROKERS=localhost:9092
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap?schema=plugin_<schema>"
+PORT=<plugin-port>
 ```
 
-## Common Tasks
+## Development URLs
 
-### Reset a Database
+| Service | URL | Description |
+|---------|-----|-------------|
+| Shell | http://localhost:3000 | Main application |
+| Base Service | http://localhost:4000/healthz | Core API |
+| Plugin Server | http://localhost:3100/plugins | Plugin asset server |
 
-```bash
-./bin/db-reset.sh base-svc
-```
+Plugin backends run on ports 4001-4012. Run `./bin/start.sh status` for the full list.
 
-### Run Migrations
+## Deployment
 
-```bash
-# All services
-./bin/db-migrate.sh
+The platform deploys to **Vercel** as a single Next.js application. On Vercel:
+- Plugin API routes are handled by Next.js API route handlers (no separate Express servers)
+- Plugin UMD bundles are served via same-origin CDN routes
+- Database is a managed PostgreSQL (e.g., Neon) connected via `DATABASE_URL`
 
-# Specific service
-./bin/db-migrate.sh base-svc
-```
-
-### Seed Data
-
-```bash
-# All services
-./bin/db-seed.sh
-
-# Specific service
-./bin/db-seed.sh base-svc
-```
-
-### View Database
-
-```bash
-# Using Prisma Studio
-cd services/base-svc
-npm run db:studio
-```
-
-### View Kafka Topics
-
-```bash
-docker-compose exec kafka kafka-topics --list --bootstrap-server localhost:9092
-```
-
-### View Kafka Messages
-
-```bash
-docker-compose exec kafka kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
-  --topic gateway.job.created \
-  --from-beginning
-```
-
-### Stop All Services
-
-```bash
-./bin/stop.sh
-```
-
-### Stop Infrastructure
-
-```bash
-docker-compose down
-```
+See [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md) for production deployment details.
 
 ## Troubleshooting
 
 ### Port Already in Use
 
 ```bash
-# Find process using port
-lsof -ti:3000
-
-# Kill process
-kill $(lsof -ti:3000)
+lsof -ti:3000 | xargs kill -9
 ```
 
 ### Database Connection Failed
 
-1. Check Docker containers:
-   ```bash
-   docker-compose ps
-   ```
-
-2. Check database logs:
-   ```bash
-   docker-compose logs base-db
-   ```
-
-3. Verify connection string in `.env`
-
-### Kafka Not Working
-
-1. Check Kafka is running:
-   ```bash
-   docker-compose ps kafka
-   ```
-
-2. Check Kafka logs:
-   ```bash
-   docker-compose logs kafka
-   ```
-
-3. Verify topics exist:
-   ```bash
-   ./bin/kafka-setup.sh
-   ```
+```bash
+docker-compose ps          # Check container is running
+docker-compose logs database  # Check DB logs
+```
 
 ### Prisma Client Not Found
 
-1. Generate client:
-   ```bash
-   npm run db:generate
-   ```
-
-2. Check schema path in `package.json`
-
-3. Verify Prisma is installed:
-   ```bash
-   npm list prisma
-   ```
+```bash
+cd packages/database
+npx prisma generate
+```
 
 ### Service Not Starting
 
-1. Check service logs:
-   ```bash
-   cd services/your-service-svc
-   npm run dev
-   ```
-
-2. Verify dependencies installed:
-   ```bash
-   npm install
-   ```
-
-3. Check TypeScript errors:
-   ```bash
-   npm run build
-   ```
-
-## Development Tips
-
-### Hot Reload
-
-Services use `tsx watch` for hot reload. Changes to `.ts` files will automatically restart the service.
-
-### Database Migrations
-
-- Always create migrations for schema changes
-- Test migrations on a copy of production data
-- Never modify existing migrations
-
-### Debugging
-
-1. **Add console logs** for debugging
-2. **Use Prisma Studio** to inspect database
-3. **Check service logs** in terminal
-4. **Use health endpoints** to verify service status
-
-### Testing
-
 ```bash
-# Run smoke tests
-./bin/smoke.sh
-
-# Test specific endpoint
-curl http://localhost:4000/healthz
+npm install                # Reinstall dependencies
+./bin/start.sh validate    # Check platform health
 ```
 
 ## IDE Setup
 
-### VS Code
+### VS Code / Cursor (Recommended)
 
-Recommended extensions:
-- Prisma
-- ESLint
-- Prettier
-- Docker
-
-### TypeScript
-
-The project uses TypeScript with path aliases. Configure your IDE to recognize:
-- `@naap/types`
-- `@naap/database`
-- `@naap/service-registry`
-- `@naap/services/kafka`
-- `@naap/services/rest-client`
+Install recommended extensions:
+- **Prisma** — Database schema support
+- **ESLint** — Linting
+- **Tailwind CSS IntelliSense** — Tailwind autocomplete
+- **TypeScript** — Type checking
 
 ## Next Steps
 
 - Read [Database Guide](./database.md) for database architecture
-- Read [Services Guide](./services.md) for service integration
-- Review [Architecture](./architecture.md) for system overview
+- Read [Architecture](./architecture.md) for system overview
+- Follow the [Plugin Development Guide](/docs/guides/your-first-plugin) to build a plugin

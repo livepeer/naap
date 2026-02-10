@@ -96,7 +96,8 @@ Example format:
    - Input validation on POST/PUT (check required fields)
    - Proper HTTP status codes (200, 201, 400, 404, 500)
    - Pagination on list endpoints (page, limit query params)
-   - Response format: { data, meta: { page, limit, total } }
+   - Response format: { success: true, data: T, meta?: { page, limit, total } }
+   - Error format: { success: false, error: { code, message } }
    - Try/catch with meaningful error messages
 
 4. **Seed data** (backend/prisma/seed.ts):
@@ -213,10 +214,10 @@ npx prisma db push
 
 # 5. Install plugin dependencies
 cd ../../plugins/[plugin-name]/backend
-pnpm install
+npm install
 
 # 6. Start the backend
-pnpm dev
+npm run dev
 
 # 7. Test an endpoint
 curl http://localhost:4050/health

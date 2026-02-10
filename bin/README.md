@@ -405,7 +405,7 @@ jobs:
 ## Requirements
 
 - **Bash** 3.2+ (macOS default)
-- **Node.js** 18+ or 20+
+- **Node.js** 20+
 - **npm** (comes with Node.js)
 - **Docker** (for databases and Kafka)
 - **curl** (for smoke tests)

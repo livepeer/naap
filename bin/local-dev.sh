@@ -1,4 +1,17 @@
 #!/bin/bash
+
+# ╔════════════════════════════════════════════════════════════════╗
+# ║  DEPRECATED — This script uses pnpm and an older setup flow.  ║
+# ║  NaaP now uses npm as its package manager.                     ║
+# ║                                                                ║
+# ║  Use instead:                                                  ║
+# ║    ./bin/setup.sh        # Full automated setup                ║
+# ║    ./bin/start.sh        # Start the platform                  ║
+# ╚════════════════════════════════════════════════════════════════╝
+
+echo "WARNING: This script is DEPRECATED. Use ./bin/setup.sh instead."
+exit 1
+
 set -e
 
 echo "=== NaaP Local Development Setup ==="

@@ -1,7 +1,22 @@
 #!/bin/bash
 
-# NAAP Platform - Database Reset Script
-# Drops and recreates database for a specific service or all services
+# ╔════════════════════════════════════════════════════════════════╗
+# ║  DEPRECATED — This script references the old multi-database   ║
+# ║  architecture with separate Prisma schemas per service.       ║
+# ║                                                                ║
+# ║  NaaP now uses a SINGLE PostgreSQL database with multi-schema  ║
+# ║  isolation. All models are in packages/database/prisma/        ║
+# ║  schema.prisma.                                                ║
+# ║                                                                ║
+# ║  Use instead:                                                  ║
+# ║    cd packages/database                                        ║
+# ║    npx prisma db push --force-reset                            ║
+# ╚════════════════════════════════════════════════════════════════╝
+
+echo "WARNING: This script is DEPRECATED."
+echo "NaaP now uses a unified database. To reset:"
+echo "  cd packages/database && npx prisma db push --force-reset"
+exit 1
 
 set -e
 

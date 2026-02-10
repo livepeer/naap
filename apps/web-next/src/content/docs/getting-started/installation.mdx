@@ -8,7 +8,7 @@ order: 2
 
 | Requirement | Version | Purpose |
 |---|---|---|
-| Node.js | 18+ (20 recommended) | JavaScript runtime |
+| Node.js | 20+ | JavaScript runtime |
 | npm | 10+ | Package manager |
 | Docker Desktop | Latest | PostgreSQL database |
 | Git | 2.x+ | Version control |
@@ -66,7 +66,7 @@ sudo service docker start
 ## Verify Prerequisites
 
 ```bash
-node --version     # Should be v18.x or higher
+node --version     # Should be v20.x or higher
 npm --version      # Should be v10.x or higher
 docker --version   # Should show Docker version
 git --version      # Should be 2.x+
@@ -77,8 +77,8 @@ docker info        # Should connect (Docker daemon running)
 
 ```bash
 # Clone the repository
-git clone https://github.com/qianghan/NaaP.git
-cd NaaP
+git clone https://github.com/livepeer/naap.git
+cd naap
 
 # Run the automated setup (installs deps, starts DB, builds plugins)
 ./bin/setup.sh
@@ -90,7 +90,7 @@ cd NaaP
 Or do it all in one line:
 
 ```bash
-git clone https://github.com/qianghan/NaaP.git && cd NaaP && ./bin/setup.sh --start
+git clone https://github.com/livepeer/naap.git && cd naap && ./bin/setup.sh --start
 ```
 
 ## What Setup Does

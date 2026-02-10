@@ -1,7 +1,13 @@
 #!/bin/bash
 
-# NAAP Platform - Kafka Topic Setup Script
-# Creates Kafka topics and configures consumer groups
+# ╔════════════════════════════════════════════════════════════════╗
+# ║  DEPRECATED — Kafka is not part of the current NaaP            ║
+# ║  architecture. The platform uses direct API calls and          ║
+# ║  an in-app event bus instead.                                  ║
+# ╚════════════════════════════════════════════════════════════════╝
+
+echo "WARNING: This script is DEPRECATED. Kafka is not used in the current architecture."
+exit 1
 
 set -e
 
