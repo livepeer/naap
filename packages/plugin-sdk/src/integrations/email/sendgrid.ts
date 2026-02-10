@@ -66,7 +66,7 @@ export class SendGridIntegration implements EmailIntegration {
       to,
       subject,
       content: [{ type: 'text/plain', value: body }],
-      ...options,
+      ...this.convertOptions(options),
     });
   }
 
@@ -80,8 +80,25 @@ export class SendGridIntegration implements EmailIntegration {
       to,
       subject,
       content: [{ type: 'text/html', value: html }],
-      ...options,
+      ...this.convertOptions(options),
     });
+  }
+
+  /** Convert EmailOptions (with EmailRecipient objects) to plain string fields for sendMail */
+  private convertOptions(options?: EmailOptions): {
+    from?: string;
+    replyTo?: string;
+    cc?: string[];
+    bcc?: string[];
+  } {
+    if (!options) return {};
+    const toEmail = (r?: { email: string }) => r?.email;
+    return {
+      ...(options.from ? { from: toEmail(options.from) } : {}),
+      ...(options.replyTo ? { replyTo: toEmail(options.replyTo) } : {}),
+      ...(options.cc ? { cc: options.cc.map(r => r.email) } : {}),
+      ...(options.bcc ? { bcc: options.bcc.map(r => r.email) } : {}),
+    };
   }
 
   async sendTemplate(

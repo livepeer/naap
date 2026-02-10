@@ -49,7 +49,8 @@ export const devCommand = new Command('dev')
     
     const shellUrl = options.shell || config.devShell || 'http://localhost:3000';
 
-    const processes: { name: string; process: ReturnType<typeof import('execa')['execa']> }[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const processes: { name: string; process: any }[] = [];
 
     try {
       const { execa } = await import('execa');

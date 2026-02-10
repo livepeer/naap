@@ -160,7 +160,7 @@ export const packageCommand = new Command('package')
       checkSpinner.succeed('Build artifacts present');
 
       // Validate UMD bundle for frontend plugins
-      if (manifest.frontend && !options.skipMfValidation) {
+      if (manifest.frontend && !options.skipBundleValidation) {
         const bundleSpinner = ora('Validating UMD bundle...').start();
         const productionDir = path.join(cwd, 'frontend', 'dist', 'production');
         
