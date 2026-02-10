@@ -8,7 +8,7 @@ import { Command } from 'commander';
 import { createCommand } from './commands/create.js';
 import { devCommand } from './commands/dev.js';
 import { testCommand } from './commands/test.js';
-import { buildCommand } from './commands/build.js';
+import { createBuildCommand } from './commands/build.js';
 import { packageCommand } from './commands/package.js';
 import { publishCommand } from './commands/publish.js';
 import { versionCommand } from './commands/version.js';
@@ -33,7 +33,7 @@ program
 program.addCommand(createCommand);
 program.addCommand(devCommand);
 program.addCommand(testCommand);
-program.addCommand(buildCommand);
+program.addCommand(createBuildCommand());
 program.addCommand(packageCommand);
 program.addCommand(publishCommand);
 program.addCommand(versionCommand);
