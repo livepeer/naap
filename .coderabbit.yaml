@@ -1,0 +1,57 @@
+# =============================================================================
+# CodeRabbit AI PR Review Configuration
+# =============================================================================
+# Free for open-source repos. Provides automated code review on every PR.
+# Docs: https://docs.coderabbit.ai/getting-started/configure-coderabbit
+# =============================================================================
+
+language: en-US
+
+reviews:
+  # Automatically review every PR
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - develop
+      - main
+
+  # Post a high-level summary at the top of each review
+  high_level_summary: true
+  high_level_summary_placeholder: "@coderabbitai summary"
+
+  # Don't block PRs with "request changes" — use comments instead
+  request_changes_workflow: false
+
+  # Collapse review comments after they're resolved
+  collapse_finished_reviews: true
+
+  # Files to ignore in reviews (large auto-generated files)
+  path_filters:
+    - "!package-lock.json"
+    - "!**/*.lock"
+    - "!**/dist/**"
+    - "!**/.next/**"
+    - "!**/coverage/**"
+
+  # Poem in the review summary (fun touch, can disable if you prefer)
+  poem: false
+
+  # Review tools to enable
+  tools:
+    github-checks:
+      enabled: true
+    # Static analysis
+    eslint:
+      enabled: true
+    biome:
+      enabled: false
+
+chat:
+  # Allow conversational interaction via PR comments
+  auto_reply: true
+
+# Knowledge base — learns from your repo over time
+knowledge_base:
+  learnings:
+    scope: auto
