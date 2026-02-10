@@ -42,14 +42,19 @@ export function BackgroundPluginLoader() {
     }
   }, [plugins, isLoading]);
 
-  // Find headless plugins: enabled, have a bundleUrl, but no routes
+  // Find headless plugins: have a bundleUrl but no routes.
+  // NOTE: We intentionally do NOT check p.enabled here. Headless plugins are
+  // infrastructure-level background providers (e.g., dashboard data sources).
+  // They must always load so their event bus handlers are available to the shell,
+  // regardless of user/team enable/disable preferences which only apply to
+  // navigable UI plugins.
   const headlessPlugins = useMemo(() => {
     const result = plugins.filter(
-      (p) => p.enabled && p.bundleUrl && (!p.routes || p.routes.length === 0)
+      (p) => p.bundleUrl && (!p.routes || p.routes.length === 0)
     );
     console.log(
       `${TAG} headless plugin candidates: ${result.length}`,
-      result.map((p) => p.name),
+      result.map((p) => `${p.name} (enabled=${p.enabled})`),
     );
     return result;
   }, [plugins]);
