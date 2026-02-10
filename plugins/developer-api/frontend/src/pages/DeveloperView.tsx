@@ -142,9 +142,17 @@ export const DeveloperView: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const modelsRes = await fetch(`${BASE_URL}/api/v1/developer/models`).then(r => r.json());
-      setModels(modelsRes.models || []);
-    } catch {
+      const [modelsJson, keysJson] = await Promise.all([
+        fetch(`${BASE_URL}/api/v1/developer/models`).then(r => r.json()),
+        fetch(`${BASE_URL}/api/v1/developer/keys`).then(r => r.json()),
+      ]);
+      // API routes wrap responses in { success, data: { models/keys }, meta }
+      const modelsPayload = modelsJson.data ?? modelsJson;
+      const keysPayload = keysJson.data ?? keysJson;
+      setModels(modelsPayload.models || []);
+      setApiKeys(keysPayload.keys || []);
+    } catch (err) {
+      console.error('Failed to load data:', err);
       setModels(getMockModels());
     } finally {
       setLoading(false);

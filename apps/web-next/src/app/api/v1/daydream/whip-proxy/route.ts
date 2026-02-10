@@ -22,7 +22,7 @@ const PROXY_TIMEOUT = 30_000;
  * Verify the user has a valid Daydream API key
  */
 async function verifyUserApiKey(userId: string): Promise<void> {
-  let settings = await prisma.daydreamSettings.findUnique({
+  const settings = await prisma.daydreamSettings.findUnique({
     where: { userId },
   });
 

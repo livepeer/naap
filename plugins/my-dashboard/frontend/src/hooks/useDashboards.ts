@@ -37,10 +37,12 @@ export function useDashboards(): UseDashboardsReturn {
         throw new Error('Failed to fetch dashboards');
       }
       
-      const dashboardsData: ApiResponse<Dashboard[]> = await dashboardsRes.json();
+      const dashboardsJson: ApiResponse<{ dashboards: Dashboard[] } | Dashboard[]> = await dashboardsRes.json();
       
-      if (dashboardsData.success && dashboardsData.data) {
-        setDashboards(dashboardsData.data);
+      if (dashboardsJson.success && dashboardsJson.data) {
+        // Route wraps in { dashboards: [...] } inside the envelope
+        const payload = dashboardsJson.data;
+        setDashboards(Array.isArray(payload) ? payload : (payload as any).dashboards ?? []);
       }
 
       // Fetch user preferences
@@ -51,10 +53,12 @@ export function useDashboards(): UseDashboardsReturn {
         });
         
         if (prefsRes.ok) {
-          const prefsData: ApiResponse<UserPreference[]> = await prefsRes.json();
-          if (prefsData.success && prefsData.data) {
+          const prefsJson: ApiResponse<{ preferences: UserPreference[] } | UserPreference[]> = await prefsRes.json();
+          if (prefsJson.success && prefsJson.data) {
+            const payload = prefsJson.data;
+            const prefsArr = Array.isArray(payload) ? payload : (payload as any).preferences ?? [];
             const prefsMap = new Map<string, UserPreference>();
-            prefsData.data.forEach(pref => {
+            prefsArr.forEach((pref: UserPreference) => {
               prefsMap.set(pref.dashboardId, pref);
             });
             setPreferences(prefsMap);

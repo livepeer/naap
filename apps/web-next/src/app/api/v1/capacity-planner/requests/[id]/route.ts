@@ -35,7 +35,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
       return errors.notFound('Capacity request');
     }
 
-    return success({ data: capacityRequest });
+    return success(capacityRequest);
   } catch (err) {
     console.error('Error fetching capacity request:', err);
     return errors.internal('Failed to fetch capacity request');
@@ -82,7 +82,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams): Prom
       },
     });
 
-    return success({ data: updated });
+    return success(updated);
   } catch (err) {
     console.error('Error updating capacity request:', err);
     return errors.internal('Failed to update capacity request');

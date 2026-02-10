@@ -5,10 +5,26 @@
  *
  * Network status overview showing key metrics, performance, costs, and live activity.
  * Designed as a single-page command center for the Livepeer network.
+ *
+ * All data is fetched from a provider plugin via a single GraphQL query
+ * over the event bus. The dashboard has ZERO hardcoded data — it only
+ * describes what it needs (the query) and renders what it receives.
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAuth } from '@/contexts/auth-context';
+import { useDashboardQuery } from '@/hooks/useDashboardQuery';
+import { useJobFeedStream } from '@/hooks/useJobFeedStream';
+import type {
+  DashboardData,
+  DashboardKPI,
+  DashboardProtocol,
+  DashboardFeesInfo,
+  DashboardPipelineUsage,
+  DashboardGPUCapacity,
+  DashboardPipelinePricing,
+  JobFeedEntry,
+} from '@naap/plugin-sdk'; // type-only import — erased at compile time
 import {
   Activity,
   CheckCircle2,
@@ -22,69 +38,45 @@ import {
   TrendingDown,
   Minus,
   Zap,
+  AlertCircle,
+  Loader2,
+  Timer,
 } from 'lucide-react';
 
 // ============================================================================
-// Mock Data
+// GraphQL Query — the ONLY place data requirements are declared
 // ============================================================================
 
-const MOCK_STATS = {
-  successRate: { value: 97.3, delta: 1.2 },
-  orchestratorsOnline: { value: 142, delta: 8 },
-  dailyUsageMins: { value: 48720, delta: 3200 },
-  dailyStreamCount: { value: 1843, delta: -47 },
-};
-
-const MOCK_PROTOCOL = {
-  currentRound: 4127,
-  blockProgress: 72,
-  totalBlocks: 5760,
-  totalStakedLPT: 31_245_890,
-};
-
-const MOCK_DAILY_FEES = [
-  { day: 'Mon', eth: 12.4 },
-  { day: 'Tue', eth: 15.1 },
-  { day: 'Wed', eth: 14.8 },
-  { day: 'Thu', eth: 18.3 },
-  { day: 'Fri', eth: 16.9 },
-  { day: 'Sat', eth: 11.2 },
-  { day: 'Sun', eth: 13.7 },
-];
-
-const MOCK_PIPELINE_USAGE = [
-  { name: 'Text-to-Image', mins: 14200, color: '#8b5cf6' },
-  { name: 'Image-to-Video', mins: 11300, color: '#06b6d4' },
-  { name: 'Video-to-Video', mins: 9800, color: '#10b981' },
-  { name: 'Upscale', mins: 7100, color: '#f59e0b' },
-  { name: 'Audio-to-Text', mins: 5400, color: '#ef4444' },
-];
-
-const MOCK_GPU_CAPACITY = {
-  totalGPUs: 384,
-  availableCapacity: 61, // percent
-};
-
-const MOCK_JOB_FEED = [
-  { id: 'job_8f2a1c', startedAt: '2026-02-05T23:14:02Z', pipeline: 'Text-to-Image', status: 'running' as const },
-  { id: 'job_7e3b9d', startedAt: '2026-02-05T23:13:45Z', pipeline: 'Video-to-Video', status: 'completed' as const },
-  { id: 'job_6d4c8e', startedAt: '2026-02-05T23:13:22Z', pipeline: 'Image-to-Video', status: 'running' as const },
-  { id: 'job_5c5d7f', startedAt: '2026-02-05T23:12:58Z', pipeline: 'Upscale', status: 'completed' as const },
-  { id: 'job_4b6e6g', startedAt: '2026-02-05T23:12:31Z', pipeline: 'Text-to-Image', status: 'completed' as const },
-  { id: 'job_3a7f5h', startedAt: '2026-02-05T23:12:04Z', pipeline: 'Audio-to-Text', status: 'completed' as const },
-  { id: 'job_2z8g4i', startedAt: '2026-02-05T23:11:42Z', pipeline: 'Video-to-Video', status: 'completed' as const },
-  { id: 'job_1y9h3j', startedAt: '2026-02-05T23:11:18Z', pipeline: 'Image-to-Video', status: 'failed' as const },
-];
-
-const MOCK_PIPELINE_PRICING = [
-  { pipeline: 'Text-to-Image', unit: 'image', price: 0.004, outputPerDollar: '250 images' },
-  { pipeline: 'Image-to-Video', unit: 'second', price: 0.05, outputPerDollar: '20 seconds' },
-  { pipeline: 'Video-to-Video', unit: 'minute', price: 0.12, outputPerDollar: '8.3 minutes' },
-  { pipeline: 'Upscale', unit: 'image', price: 0.008, outputPerDollar: '125 images' },
-  { pipeline: 'Audio-to-Text', unit: 'minute', price: 0.006, outputPerDollar: '166 minutes' },
-  { pipeline: 'Segment Anything 2', unit: 'image', price: 0.005, outputPerDollar: '200 images' },
-  { pipeline: 'LLM', unit: '1K tokens', price: 0.0002, outputPerDollar: '5M tokens' },
-];
+const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
+  query NetworkOverview {
+    kpi(window: "1h") {
+      successRate { value delta }
+      orchestratorsOnline { value delta }
+      dailyUsageMins { value delta }
+      dailyStreamCount { value delta }
+    }
+    protocol {
+      currentRound
+      blockProgress
+      totalBlocks
+      totalStakedLPT
+    }
+    fees(days: 7) {
+      totalEth
+      entries { day eth }
+    }
+    pipelines(limit: 5) {
+      name mins color
+    }
+    gpuCapacity {
+      totalGPUs
+      availableCapacity
+    }
+    pricing {
+      pipeline unit price outputPerDollar
+    }
+  }
+`;
 
 // ============================================================================
 // Utility Components
@@ -117,6 +109,63 @@ function formatNumber(n: number): string {
 function formatTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}
+
+// ============================================================================
+// Skeleton & Fallback Components
+// ============================================================================
+
+function WidgetSkeleton({ className = '' }: { className?: string }) {
+  return (
+    <div className={`p-5 rounded-2xl bg-card border border-border animate-pulse ${className}`}>
+      <div className="flex items-center gap-2 mb-4">
+        <div className="w-7 h-7 rounded-lg bg-muted" />
+        <div className="w-24 h-3 rounded bg-muted" />
+      </div>
+      <div className="space-y-3">
+        <div className="w-32 h-8 rounded bg-muted" />
+        <div className="w-20 h-4 rounded bg-muted" />
+      </div>
+    </div>
+  );
+}
+
+function WidgetUnavailable({ label }: { label: string }) {
+  return (
+    <div className="p-5 rounded-2xl bg-card border border-border/50">
+      <div className="flex flex-col items-center justify-center h-24 text-muted-foreground">
+        <AlertCircle className="w-5 h-5 mb-2 opacity-50" />
+        <span className="text-xs">{label} unavailable</span>
+      </div>
+    </div>
+  );
+}
+
+function DashboardLoading() {
+  return (
+    <div className="space-y-6 max-w-[1440px] mx-auto">
+      <div className="flex items-center gap-3">
+        <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
+        <span className="text-sm text-muted-foreground">Loading dashboard data...</span>
+      </div>
+      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+        <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
+      </div>
+      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+        <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
+      </div>
+    </div>
+  );
+}
+
+function NoProviderMessage() {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+      <AlertCircle className="w-8 h-8 mb-3 opacity-50" />
+      <p className="text-sm font-medium">No dashboard data provider installed</p>
+      <p className="text-xs mt-1 opacity-70">Install a dashboard provider plugin to see network data</p>
+    </div>
+  );
 }
 
 // ============================================================================
@@ -161,13 +210,54 @@ function KPICard({
   );
 }
 
+function KPIRow({ data }: { data: DashboardKPI }) {
+  return (
+    <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+      <KPICard
+        icon={CheckCircle2}
+        iconColor="bg-emerald-500/15 text-emerald-400"
+        label="Success Rate (1h)"
+        value={`${data.successRate.value}%`}
+        delta={data.successRate.delta}
+        deltaUnit="% vs prev hr"
+      />
+      <KPICard
+        icon={Server}
+        iconColor="bg-blue-500/15 text-blue-400"
+        label="Orchestrators Online"
+        value={data.orchestratorsOnline.value}
+        delta={data.orchestratorsOnline.delta}
+        deltaUnit=""
+      />
+      <KPICard
+        icon={Clock}
+        iconColor="bg-violet-500/15 text-violet-400"
+        label="Daily Usage"
+        value={formatNumber(data.dailyUsageMins.value)}
+        delta={data.dailyUsageMins.delta}
+        deltaUnit=" mins"
+        suffix="mins"
+      />
+      <KPICard
+        icon={Radio}
+        iconColor="bg-amber-500/15 text-amber-400"
+        label="Daily Streams"
+        value={data.dailyStreamCount.value.toLocaleString()}
+        delta={data.dailyStreamCount.delta}
+        deltaUnit=""
+      />
+    </div>
+  );
+}
+
 // ============================================================================
 // Row 2: Protocol, Fees, Pipelines, Capacity
 // ============================================================================
 
-function ProtocolCard() {
-  const { currentRound, blockProgress, totalBlocks, totalStakedLPT } = MOCK_PROTOCOL;
-  const progressPct = Math.round((blockProgress / totalBlocks) * 100);
+function ProtocolCard({ data }: { data: DashboardProtocol }) {
+  const progressPct = data.totalBlocks > 0
+    ? Math.round((data.blockProgress / data.totalBlocks) * 100)
+    : 0;
 
   return (
     <div className="p-5 rounded-2xl bg-card border border-border">
@@ -180,12 +270,12 @@ function ProtocolCard() {
       <div className="space-y-4">
         <div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-foreground">Round {currentRound.toLocaleString()}</span>
+            <span className="text-2xl font-bold text-foreground">Round {data.currentRound.toLocaleString()}</span>
           </div>
           <div className="mt-2">
             <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
               <span>Block Progress</span>
-              <span>{progressPct}% ({blockProgress.toLocaleString()} / {totalBlocks.toLocaleString()})</span>
+              <span>{progressPct}% ({data.blockProgress.toLocaleString()} / {data.totalBlocks.toLocaleString()})</span>
             </div>
             <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div
@@ -198,7 +288,7 @@ function ProtocolCard() {
         <div className="pt-3 border-t border-border">
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">Total Staked</span>
-            <span className="text-sm font-semibold text-foreground">{formatNumber(totalStakedLPT)} LPT</span>
+            <span className="text-sm font-semibold text-foreground">{formatNumber(data.totalStakedLPT)} LPT</span>
           </div>
         </div>
       </div>
@@ -206,9 +296,8 @@ function ProtocolCard() {
   );
 }
 
-function FeesCard() {
-  const maxFee = Math.max(...MOCK_DAILY_FEES.map(d => d.eth));
-  const totalFees = MOCK_DAILY_FEES.reduce((sum, d) => sum + d.eth, 0);
+function FeesCard({ data }: { data: DashboardFeesInfo }) {
+  const maxFee = Math.max(...data.entries.map(d => d.eth), 1);
 
   return (
     <div className="p-5 rounded-2xl bg-card border border-border">
@@ -219,10 +308,10 @@ function FeesCard() {
           </div>
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Fees (7d)</span>
         </div>
-        <span className="text-sm font-semibold text-foreground">{totalFees.toFixed(1)} ETH</span>
+        <span className="text-sm font-semibold text-foreground">{data.totalEth.toFixed(1)} ETH</span>
       </div>
       <div className="flex items-end gap-1.5 h-24">
-        {MOCK_DAILY_FEES.map((d) => (
+        {data.entries.map((d) => (
           <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
             <div className="w-full relative">
               <div
@@ -239,8 +328,8 @@ function FeesCard() {
   );
 }
 
-function PipelinesCard() {
-  const maxMins = Math.max(...MOCK_PIPELINE_USAGE.map(p => p.mins));
+function PipelinesCard({ data }: { data: DashboardPipelineUsage[] }) {
+  const maxMins = Math.max(...data.map(p => p.mins), 1);
 
   return (
     <div className="p-5 rounded-2xl bg-card border border-border">
@@ -251,7 +340,7 @@ function PipelinesCard() {
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Top Pipelines (Daily)</span>
       </div>
       <div className="space-y-2.5">
-        {MOCK_PIPELINE_USAGE.map((p) => (
+        {data.map((p) => (
           <div key={p.name} className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground w-28 truncate" title={p.name}>{p.name}</span>
             <div className="flex-1 h-4 bg-muted rounded-full overflow-hidden">
@@ -259,7 +348,7 @@ function PipelinesCard() {
                 className="h-full rounded-full transition-all duration-700"
                 style={{
                   width: `${(p.mins / maxMins) * 100}%`,
-                  backgroundColor: p.color,
+                  backgroundColor: p.color ?? '#8b5cf6',
                   opacity: 0.7,
                 }}
               />
@@ -272,9 +361,8 @@ function PipelinesCard() {
   );
 }
 
-function GPUCapacityCard() {
-  const { totalGPUs, availableCapacity } = MOCK_GPU_CAPACITY;
-  const usedPct = 100 - availableCapacity;
+function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
+  const usedPct = 100 - data.availableCapacity;
   const radius = 40;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference - (usedPct / 100) * circumference;
@@ -288,7 +376,6 @@ function GPUCapacityCard() {
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">GPU Capacity</span>
       </div>
       <div className="flex items-center gap-5">
-        {/* Circular gauge */}
         <div className="relative w-24 h-24 flex-shrink-0">
           <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
             <circle cx="50" cy="50" r={radius} fill="none" stroke="currentColor" className="text-muted" strokeWidth="8" />
@@ -304,23 +391,23 @@ function GPUCapacityCard() {
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-lg font-bold text-foreground">{availableCapacity}%</span>
+            <span className="text-lg font-bold text-foreground">{data.availableCapacity}%</span>
             <span className="text-[9px] text-muted-foreground">Available</span>
           </div>
         </div>
         <div className="space-y-2">
           <div>
-            <span className="text-2xl font-bold text-foreground">{totalGPUs}</span>
+            <span className="text-2xl font-bold text-foreground">{data.totalGPUs}</span>
             <span className="text-sm text-muted-foreground ml-1">GPUs</span>
           </div>
           <div className="text-xs text-muted-foreground space-y-0.5">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-cyan-400 inline-block" />
-              <span>Used: {usedPct}% ({Math.round(totalGPUs * usedPct / 100)})</span>
+              <span>Used: {usedPct}% ({Math.round(data.totalGPUs * usedPct / 100)})</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-muted inline-block" />
-              <span>Free: {availableCapacity}% ({Math.round(totalGPUs * availableCapacity / 100)})</span>
+              <span>Free: {data.availableCapacity}% ({Math.round(data.totalGPUs * data.availableCapacity / 100)})</span>
             </div>
           </div>
         </div>
@@ -333,28 +420,7 @@ function GPUCapacityCard() {
 // Row 3: Live Job Feed & Pipeline Pricing
 // ============================================================================
 
-function JobFeedCard() {
-  const [jobs, setJobs] = useState(MOCK_JOB_FEED);
-
-  // Simulate live feed with new jobs appearing
-  useEffect(() => {
-    const pipelines = ['Text-to-Image', 'Image-to-Video', 'Video-to-Video', 'Upscale', 'Audio-to-Text', 'LLM'];
-    const interval = setInterval(() => {
-      const newJob = {
-        id: `job_${Math.random().toString(36).slice(2, 8)}`,
-        startedAt: new Date().toISOString(),
-        pipeline: pipelines[Math.floor(Math.random() * pipelines.length)],
-        status: 'running' as const,
-      };
-      setJobs(prev => {
-        // Mark the oldest running jobs as completed
-        const updated = prev.map(j => j.status === 'running' ? { ...j, status: 'completed' as const } : j);
-        return [newJob, ...updated].slice(0, 8);
-      });
-    }, 4000);
-    return () => clearInterval(interval);
-  }, []);
-
+function JobFeedCard({ jobs, connected }: { jobs: JobFeedEntry[]; connected: boolean }) {
   const statusStyles: Record<string, string> = {
     running: 'bg-emerald-500/15 text-emerald-400',
     completed: 'bg-blue-500/10 text-blue-400',
@@ -370,45 +436,53 @@ function JobFeedCard() {
           </div>
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Live Job Feed</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-[10px] text-emerald-400 font-medium">LIVE</span>
-        </div>
+        {connected && (
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[10px] text-emerald-400 font-medium">LIVE</span>
+          </div>
+        )}
       </div>
       <div className="overflow-hidden">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-muted-foreground border-b border-border">
-              <th className="text-left pb-2 font-medium">Job ID</th>
-              <th className="text-left pb-2 font-medium">Time</th>
-              <th className="text-left pb-2 font-medium">Pipeline</th>
-              <th className="text-right pb-2 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.map((job, i) => (
-              <tr
-                key={job.id}
-                className={`border-b border-border/50 last:border-0 transition-colors ${i === 0 ? 'animate-pulse-once' : ''}`}
-              >
-                <td className="py-2 font-mono text-foreground">{job.id}</td>
-                <td className="py-2 text-muted-foreground">{formatTime(job.startedAt)}</td>
-                <td className="py-2 text-foreground">{job.pipeline}</td>
-                <td className="py-2 text-right">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusStyles[job.status]}`}>
-                    {job.status}
-                  </span>
-                </td>
+        {jobs.length === 0 ? (
+          <div className="flex items-center justify-center h-32 text-xs text-muted-foreground">
+            {connected ? 'Waiting for jobs...' : 'Job feed not connected'}
+          </div>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-muted-foreground border-b border-border">
+                <th className="text-left pb-2 font-medium">Job ID</th>
+                <th className="text-left pb-2 font-medium">Time</th>
+                <th className="text-left pb-2 font-medium">Pipeline</th>
+                <th className="text-right pb-2 font-medium">Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {jobs.map((job, i) => (
+                <tr
+                  key={job.id}
+                  className={`border-b border-border/50 last:border-0 transition-colors ${i === 0 ? 'animate-pulse-once' : ''}`}
+                >
+                  <td className="py-2 font-mono text-foreground">{job.id}</td>
+                  <td className="py-2 text-muted-foreground">{formatTime(job.startedAt)}</td>
+                  <td className="py-2 text-foreground">{job.pipeline}</td>
+                  <td className="py-2 text-right">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusStyles[job.status] ?? ''}`}>
+                      {job.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
 }
 
-function PricingCard() {
+function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
   return (
     <div className="p-5 rounded-2xl bg-card border border-border">
       <div className="flex items-center gap-2 mb-4">
@@ -428,7 +502,7 @@ function PricingCard() {
             </tr>
           </thead>
           <tbody>
-            {MOCK_PIPELINE_PRICING.map((p) => (
+            {data.map((p) => (
               <tr key={p.pipeline} className="border-b border-border/50 last:border-0">
                 <td className="py-2 text-foreground font-medium">{p.pipeline}</td>
                 <td className="py-2 text-muted-foreground">per {p.unit}</td>
@@ -444,88 +518,136 @@ function PricingCard() {
 }
 
 // ============================================================================
+// Polling Interval Selector
+// ============================================================================
+
+const POLL_INTERVAL_KEY = 'naap_dashboard_poll_interval';
+const DEFAULT_POLL_INTERVAL = 15_000;
+
+const POLL_OPTIONS = [
+  { label: '5s',  value: 5_000  },
+  { label: '15s', value: 15_000 },
+  { label: '30s', value: 30_000 },
+  { label: '90s', value: 90_000 },
+] as const;
+
+function getStoredPollInterval(): number {
+  if (typeof window === 'undefined') return DEFAULT_POLL_INTERVAL;
+  const stored = localStorage.getItem(POLL_INTERVAL_KEY);
+  if (!stored) return DEFAULT_POLL_INTERVAL;
+  const parsed = Number(stored);
+  return POLL_OPTIONS.some((o) => o.value === parsed) ? parsed : DEFAULT_POLL_INTERVAL;
+}
+
+function PollIntervalSelector({ value, onChange }: { value: number; onChange: (ms: number) => void }) {
+  return (
+    <div className="flex items-center gap-1 px-1 py-0.5 rounded-full bg-muted/50 border border-border/50">
+      <Timer className="w-3 h-3 text-muted-foreground ml-1.5" />
+      {POLL_OPTIONS.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          className={`px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${
+            value === opt.value
+              ? 'bg-foreground/10 text-foreground'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================================
 // Main Dashboard
 // ============================================================================
 
 export default function DashboardPage() {
   useAuth();
 
+  const [pollInterval, setPollInterval] = useState(getStoredPollInterval);
+
+  const handlePollIntervalChange = (ms: number) => {
+    setPollInterval(ms);
+    localStorage.setItem(POLL_INTERVAL_KEY, String(ms));
+  };
+
+  const { data, loading, error } = useDashboardQuery<DashboardData>(
+    NETWORK_OVERVIEW_QUERY,
+    undefined,
+    { pollInterval, timeout: 8000 }
+  );
+
+  const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8 });
+
+  // Loading state
+  if (loading && !data) {
+    return <DashboardLoading />;
+  }
+
+  // No provider installed
+  if (error?.type === 'no-provider') {
+    return (
+      <div className="space-y-6 max-w-[1440px] mx-auto">
+        <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
+        <NoProviderMessage />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-[1440px] mx-auto">
-      {/* Header */}
-      <div className="flex items-end justify-between">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold text-foreground">
-            Network Overview
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Livepeer network health, performance, and cost at a glance
-          </p>
+      <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
+
+      {/* Row 1: Key Performance Indicators */}
+      {data?.kpi ? (
+        <KPIRow data={data.kpi} />
+      ) : (
+        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+          <WidgetUnavailable label="KPI" />
         </div>
+      )}
+
+      {/* Row 2: Protocol, Fees, Pipelines, GPU */}
+      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+        {data?.protocol ? <ProtocolCard data={data.protocol} /> : <WidgetUnavailable label="Protocol" />}
+        {data?.fees ? <FeesCard data={data.fees} /> : <WidgetUnavailable label="Fees" />}
+        {data?.pipelines ? <PipelinesCard data={data.pipelines} /> : <WidgetUnavailable label="Pipelines" />}
+        {data?.gpuCapacity ? <GPUCapacityCard data={data.gpuCapacity} /> : <WidgetUnavailable label="GPU Capacity" />}
+      </div>
+
+      {/* Row 3: Live Feed & Pricing */}
+      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))' }}>
+        <JobFeedCard jobs={jobs} connected={jobFeedConnected} />
+        {data?.pricing ? <PricingCard data={data.pricing} /> : <WidgetUnavailable label="Pricing" />}
+      </div>
+    </div>
+  );
+}
+
+function DashboardHeader({
+  pollInterval,
+  onPollIntervalChange,
+}: {
+  pollInterval: number;
+  onPollIntervalChange: (ms: number) => void;
+}) {
+  return (
+    <div className="flex items-end justify-between">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-bold text-foreground">Network Overview</h1>
+        <p className="text-sm text-muted-foreground">
+          Livepeer network health, performance, and cost at a glance
+        </p>
+      </div>
+      <div className="flex items-center gap-3">
+        <PollIntervalSelector value={pollInterval} onChange={onPollIntervalChange} />
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-xs font-medium text-emerald-400">Network Online</span>
         </div>
-      </div>
-
-      {/* Row 1: Key Performance Indicators */}
-      <div
-        className="grid gap-4"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
-      >
-        <KPICard
-          icon={CheckCircle2}
-          iconColor="bg-emerald-500/15 text-emerald-400"
-          label="Success Rate (1h)"
-          value={`${MOCK_STATS.successRate.value}%`}
-          delta={MOCK_STATS.successRate.delta}
-          deltaUnit="% vs prev hr"
-        />
-        <KPICard
-          icon={Server}
-          iconColor="bg-blue-500/15 text-blue-400"
-          label="Orchestrators Online"
-          value={MOCK_STATS.orchestratorsOnline.value}
-          delta={MOCK_STATS.orchestratorsOnline.delta}
-          deltaUnit=""
-        />
-        <KPICard
-          icon={Clock}
-          iconColor="bg-violet-500/15 text-violet-400"
-          label="Daily Usage"
-          value={formatNumber(MOCK_STATS.dailyUsageMins.value)}
-          delta={MOCK_STATS.dailyUsageMins.delta}
-          deltaUnit=" mins"
-          suffix="mins"
-        />
-        <KPICard
-          icon={Radio}
-          iconColor="bg-amber-500/15 text-amber-400"
-          label="Daily Streams"
-          value={MOCK_STATS.dailyStreamCount.value.toLocaleString()}
-          delta={MOCK_STATS.dailyStreamCount.delta}
-          deltaUnit=""
-        />
-      </div>
-
-      {/* Row 2: Protocol, Fees, Pipelines, GPU */}
-      <div
-        className="grid gap-4"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}
-      >
-        <ProtocolCard />
-        <FeesCard />
-        <PipelinesCard />
-        <GPUCapacityCard />
-      </div>
-
-      {/* Row 3: Live Feed & Pricing */}
-      <div
-        className="grid gap-4"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))' }}
-      >
-        <JobFeedCard />
-        <PricingCard />
       </div>
     </div>
   );

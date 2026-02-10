@@ -23,7 +23,7 @@ The complete guide for building plugins on the NAAP (Network as a Platform) ecos
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - npm or yarn
 - Basic knowledge of React and TypeScript
 

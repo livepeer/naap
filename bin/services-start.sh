@@ -1,7 +1,22 @@
 #!/bin/bash
 
-# NAAP Platform - Infrastructure Services Start Script
-# Starts Kafka and all database containers
+# ╔════════════════════════════════════════════════════════════════╗
+# ║  DEPRECATED — This script starts the old multi-database and   ║
+# ║  Kafka infrastructure that is no longer used.                  ║
+# ║                                                                ║
+# ║  NaaP now uses a single PostgreSQL container. Kafka is not     ║
+# ║  part of the current architecture.                             ║
+# ║                                                                ║
+# ║  Use instead:                                                  ║
+# ║    ./bin/setup.sh        # Full setup including DB             ║
+# ║    ./bin/start.sh        # Start the platform                  ║
+# ╚════════════════════════════════════════════════════════════════╝
+
+echo "WARNING: This script is DEPRECATED."
+echo "NaaP now uses a single PostgreSQL database. Use:"
+echo "  ./bin/setup.sh   (initial setup)"
+echo "  ./bin/start.sh   (start platform)"
+exit 1
 
 set -e
 

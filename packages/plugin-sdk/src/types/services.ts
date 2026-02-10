@@ -123,6 +123,7 @@ export interface AICompletionOptions {
   maxTokens?: number;
   temperature?: number;
   stream?: boolean;
+  stopSequences?: string | string[];
 }
 
 export interface AICompletionResult {

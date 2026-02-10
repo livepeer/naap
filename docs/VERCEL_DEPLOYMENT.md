@@ -1,142 +1,112 @@
-# NaaP Hybrid Deployment on Vercel
+# NaaP Vercel Deployment
 
-## Architecture Overview
+## Architecture
 
-NaaP uses a **hybrid deployment model**: the Next.js frontend and API gateway run on Vercel (serverless/edge), while long-running backend services run off-Vercel.
+NaaP deploys to **Vercel** as a single Next.js 15 application. There are no separate backend servers in production — all plugin API logic runs as Next.js API route handlers.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Vercel (Serverless)                    │
+┌──────────────────────────────────────────────────────────┐
+│                     Vercel                                │
 │                                                          │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │             apps/web-next (Next.js 15)            │   │
-│  │                                                    │   │
-│  │  Pages:  /, /dashboard, /plugins/:name, /teams    │   │
-│  │  API:    /api/v1/auth/*, /api/v1/teams/*          │   │
-│  │  API:    /api/v1/plugins/*, /api/v1/secrets/*     │   │
-│  │  CDN:    /cdn/plugins/:name/:version/*            │   │
-│  │                                                    │   │
-│  │  Gateway Proxies (to off-Vercel services):        │   │
-│  │    /api/v1/base/*      → base-svc                 │   │
-│  │    /api/v1/livepeer/*  → livepeer-svc             │   │
-│  │    /api/v1/pipelines/* → pipeline-gateway         │   │
-│  │    /api/v1/:plugin/*   → plugin backends          │   │
-│  └──────────────────────────────────────────────────┘   │
-└────────────────────┬────────────────────────────────────┘
-                     │ HTTPS (proxy)
-┌────────────────────▼────────────────────────────────────┐
-│              Off-Vercel (Long-Running Services)          │
-│                                                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌────────────────┐  │
-│  │  base-svc   │  │livepeer-svc │  │pipeline-gateway│  │
-│  │  :4000      │  │  :4010      │  │  :4020         │  │
-│  └─────────────┘  └─────────────┘  └────────────────┘  │
-│                                                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌────────────────┐  │
-│  │plugin-server│  │ storage-svc │  │infrastructure  │  │
-│  │  :3100      │  │  :4050      │  │  -svc :4060    │  │
-│  └─────────────┘  └─────────────┘  └────────────────┘  │
-│                                                          │
-│  ┌─────────────┐                                        │
-│  │ PostgreSQL  │  Redis, Kafka (as needed)              │
-│  │  :5432      │                                        │
-│  └─────────────┘                                        │
-└─────────────────────────────────────────────────────────┘
+│  ┌────────────────────────────────────────────────────┐  │
+│  │           apps/web-next (Next.js 15)               │  │
+│  │                                                     │  │
+│  │  Pages:  /, /plugins/:name, /teams                 │  │
+│  │  API:    /api/v1/auth/*, /api/v1/teams/*           │  │
+│  │  API:    /api/v1/{plugin-name}/* (46+ routes)      │  │
+│  │  CDN:    /cdn/plugins/:name/:version/*             │  │
+│  │  Health: /api/health                               │  │
+│  └──────────────────────┬─────────────────────────────┘  │
+└─────────────────────────┼────────────────────────────────┘
+                          │
+               ┌──────────▼──────────┐
+               │   PostgreSQL        │
+               │   (Neon / managed)  │
+               │   Single DB with    │
+               │   multi-schema      │
+               │   isolation          │
+               └─────────────────────┘
 ```
 
-## What Runs Where
-
-### On Vercel (serverless / edge)
+## What Runs on Vercel
 
 | Component | Path | Description |
 |-----------|------|-------------|
-| Shell UI | `apps/web-next` | Next.js 15 app (pages, layouts, components) |
-| Plugin frontends | `/plugins/:name` | Loaded dynamically via UMD or CDN |
-| API routes | `/api/v1/auth/*`, `/api/v1/teams/*`, etc. | Direct database access via Prisma |
-| Gateway proxies | `/api/v1/base/*`, `/api/v1/livepeer/*`, `/api/v1/pipelines/*` | Proxy to off-Vercel services |
-| Plugin CDN | `/cdn/plugins/:name/:version/*` | Serves plugin assets from Vercel Blob |
+| Shell UI | `apps/web-next` | Next.js 15 App Router (pages, layouts, components) |
+| Plugin frontends | `/plugins/:name` | UMD bundles loaded at runtime |
+| API route handlers | `/api/v1/{plugin-name}/*` | All plugin backends as serverless functions |
+| Plugin CDN | `/cdn/plugins/:name/:version/*` | Same-origin plugin asset serving |
 | Health check | `/api/health` | Database + environment checks |
 
-### Off-Vercel (long-running services)
+## Environment Variables
 
-| Service | Default Port | Description |
-|---------|-------------|-------------|
-| `base-svc` | 4000 | Auth, plugin registry, lifecycle, teams, RBAC, secrets |
-| `livepeer-svc` | 4010 | Livepeer node proxy, staking, orchestrators, protocol (Phase 4) |
-| `pipeline-gateway` | 4020 | AI pipelines, live video, BYOC (Phase 5) |
-| `plugin-server` | 3100 | Serves plugin frontend assets (dev/legacy) |
-| `storage-svc` | 4050 | Artifact storage for plugin publishing |
-| `infrastructure-svc` | 4060 | Container/DB/port provisioning |
-| Plugin backends | 4001-4012 | Individual plugin backend services |
+Set in Vercel Dashboard → Project Settings → Environment Variables:
 
-## Environment Matrix
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `NEXTAUTH_SECRET` | Yes | Session encryption key |
+| `NEXT_PUBLIC_APP_URL` | Yes | Production URL |
+| `BLOB_READ_WRITE_TOKEN` | No | Vercel Blob for plugin storage |
+| `ABLY_API_KEY` | No | Realtime features |
+| `GOOGLE_CLIENT_ID` | No | Google OAuth |
+| `GOOGLE_CLIENT_SECRET` | No | Google OAuth |
+| `GITHUB_CLIENT_ID` | No | GitHub OAuth |
+| `GITHUB_CLIENT_SECRET` | No | GitHub OAuth |
 
-| Variable | Development | Staging (Preview) | Production |
-|----------|-------------|-------------------|------------|
-| `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | `https://<branch>.vercel.app` | `https://naap.dev` |
-| `DATABASE_URL` | `postgresql://...localhost:5432/naap` | Neon preview branch | Neon production |
-| `BASE_SVC_URL` | `http://localhost:4000` | `https://staging-api.naap.dev` | `https://api.naap.dev` |
-| `LIVEPEER_SVC_URL` | `http://localhost:4010` | `https://staging-livepeer.naap.dev` | `https://livepeer.naap.dev` |
-| `PIPELINE_GATEWAY_URL` | `http://localhost:4020` | `https://staging-pipelines.naap.dev` | `https://pipelines.naap.dev` |
-| `DEPLOY_ENV` | `development` | `staging` | `production` |
-| `VERCEL_ENV` | (not set) | `preview` | `production` |
+## Build Process
+
+The `vercel.json` at the repo root configures:
+- **Build command**: `./bin/vercel-build.sh` — builds all plugin UMD bundles then the Next.js app
+- **Output directory**: `apps/web-next/.next`
+
+### vercel.json Headers
+
+Key headers configured:
+- `Permissions-Policy: camera=(self), microphone=(self), display-capture=(self)` — for plugins like Daydream Video
+- `Content-Security-Policy` — for API routes
+- `X-Content-Type-Options: nosniff`
+
+## Local Development vs Production
+
+| Aspect | Local Dev | Vercel (Production) |
+|--------|-----------|---------------------|
+| Plugin APIs | Express servers (ports 4101-4211) | Next.js API route handlers |
+| Plugin assets | Plugin server (port 3100) | Same-origin CDN route |
+| Database | Docker PostgreSQL (port 5432) | Neon managed PostgreSQL |
+| Auth | Dev defaults | OAuth providers |
+| URL resolution | `getPluginBackendUrl()` resolves to localhost | Same-origin `/api/v1/...` |
 
 ## Observability
 
-Every request through the Vercel gateway gets:
+Every request through the middleware gets:
+- `x-request-id`: Unique request identifier
+- `x-trace-id`: Distributed trace ID
+- `x-request-start`: Timestamp when request entered middleware
 
-- **`x-request-id`**: Unique request identifier (generated in middleware if not present)
-- **`x-trace-id`**: Distributed trace ID (generated in middleware if not present)
-- **`x-request-start`**: Timestamp when the request entered the middleware
-
-These headers are forwarded to all off-Vercel services and returned in responses, enabling end-to-end request tracing.
-
-## Deployment
+## Deployment Workflow
 
 ### Preview (PR-based)
 
-Every pull request automatically gets a Vercel preview deployment:
-
-1. GitHub Actions runs CI checks (lint, typecheck, test, build)
-2. Vercel CLI builds and deploys to a unique preview URL
-3. Preview URL is commented on the PR
+Every pull request gets a Vercel preview deployment automatically.
 
 ### Production
 
-Production deployments are triggered manually via GitHub Actions:
+Push to `main` triggers production deployment:
+1. Vercel builds with `./bin/vercel-build.sh`
+2. Deploys to production URL
+3. Health check at `/api/health`
 
-1. Workflow dispatch with `environment: production`
-2. Vercel CLI builds with `--prod` flag
-3. Health check at `https://naap.dev/api/health`
-4. Auto-rollback if health check fails
+## Troubleshooting
 
-### Off-Vercel Services
+### Common Build Errors
 
-Off-Vercel services are deployed separately using PM2 or container orchestration:
+1. **`Cannot find module 'tailwindcss'`** — Delete `postcss.config.js` from your plugin. PostCSS is configured in the shared `@naap/plugin-build` Vite config.
+2. **`isProductionHost is not exported`** — Use `getPluginBackendUrl()` from `@naap/plugin-sdk` instead.
+3. **`Prisma Client could not locate the Query Engine`** — Check `next.config.js` has PrismaPlugin and `outputFileTracingRoot` configured.
 
-```bash
-# Start all services
-pm2 start ecosystem.config.cjs
+### Common Runtime Errors
 
-# Or individual service
-cd services/base-svc && npm start
-```
-
-## Configuration
-
-### vercel.json
-
-The root `vercel.json` configures:
-- Build command and output directory for `apps/web-next`
-- CORS and security headers for API routes
-- Plugin page permissions (camera, microphone for UMD plugins)
-- Plugin asset rewrites
-
-### next.config.js
-
-The Next.js config handles:
-- Monorepo package transpilation (`@naap/*`)
-- Image optimization for Vercel storage
-- CORS headers for API routes
-- Plugin asset proxy rewrites
-- Standalone output for Vercel
+1. **Port number in URL** — Hardcoded `localhost:PORT`. Fix: use `getPluginBackendUrl()`.
+2. **CORS errors** — Should not happen on Vercel (same-origin). Check `vercel.json` headers.
+3. **Permissions-Policy violation** — Camera/microphone blocked. Check `vercel.json` `Permissions-Policy` header.

@@ -38,9 +38,17 @@ export default function PluginPage() {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
 
+  // Normalize names for matching: "my-dashboard" == "myDashboard" == "mydashboard"
+  const normalizeName = (name: string) => name.toLowerCase().replace(/[-_]/g, '');
+
   // Find the plugin - memoized to prevent unnecessary recalculations
+  // Uses normalized comparison because DB stores camelCase names (e.g. "myDashboard")
+  // while URL params use kebab-case (e.g. "my-dashboard") from plugin.json routes.
   const plugin = useMemo(
-    () => plugins.find(p => p.name === pluginName),
+    () => {
+      const normalized = normalizeName(pluginName);
+      return plugins.find(p => normalizeName(p.name) === normalized);
+    },
     [plugins, pluginName]
   );
 

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "dashboard-provider-mock",
+  "displayName": "Dashboard Provider (Mock)",
+  "version": "1.0.0",
+  "description": "Reference implementation of a dashboard data provider. Serves mock data via the GraphQL-over-event-bus contract. Use as a starter template — replace mock data with real API calls.",
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io"
+  },
+  "license": "MIT",
+  "keywords": ["dashboard", "provider", "mock", "reference"],
+  "category": "analytics",
+
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+
+  "frontend": {
+    "entry": "./frontend/dist/production/dashboard-provider-mock.js",
+    "devPort": 3020,
+    "routes": []
+  },
+
+  "permissions": {
+    "shell": ["notifications"]
+  }
+}

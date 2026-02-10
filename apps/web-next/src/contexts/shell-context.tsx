@@ -441,6 +441,7 @@ const GLOBAL_EVENT_PREFIXES = [
   'navigation:',   // Navigation events
   'tenant:',   // Tenant context changes
   'team:',     // Team context changes (switching teams)
+  'dashboard:',    // Dashboard data contracts (system-level, not team-scoped)
 ];
 
 /**
@@ -560,6 +561,12 @@ function createTenantAwareEventBus(getTeamId: () => string | null): IEventBus {
       const scopedEvent = getScopedEvent(event);
       debugLog('request', scopedEvent, { data, timeout, retries });
 
+      // Always log dashboard request attempts (critical for debugging provider loading)
+      if (event.startsWith('dashboard:')) {
+        const allKeys = [...requestHandlers.keys()];
+        console.log(`[EventBus] request("${event}") → scoped: "${scopedEvent}", registered handlers: [${allKeys.join(', ')}]`);
+      }
+
       const attemptRequest = async (attempt: number): Promise<TRes> => {
         const handler = requestHandlers.get(scopedEvent);
 
@@ -567,6 +574,9 @@ function createTenantAwareEventBus(getTeamId: () => string | null): IEventBus {
           // Check if there's a non-scoped handler as fallback
           const fallbackHandler = requestHandlers.get(event);
           if (!fallbackHandler) {
+            if (event.startsWith('dashboard:')) {
+              console.warn(`[EventBus] NO_HANDLER for "${scopedEvent}" — all registered keys:`, [...requestHandlers.keys()]);
+            }
             const error = new Error(`No handler registered for event: ${event}`);
             (error as any).code = 'NO_HANDLER';
             (error as any).event = event;
@@ -634,6 +644,12 @@ function createTenantAwareEventBus(getTeamId: () => string | null): IEventBus {
       const scopedEvent = getScopedEvent(event);
       debugLog('handleRequest:register', scopedEvent);
 
+      // Always log dashboard handler registration (critical for debugging provider loading)
+      if (event.startsWith('dashboard:')) {
+        console.log(`[EventBus] ✅ handleRequest REGISTERED: "${scopedEvent}" (raw: "${event}")`);
+        console.log(`[EventBus]    Total handlers: ${requestHandlers.size + 1}, keys:`, [...requestHandlers.keys(), scopedEvent]);
+      }
+
       if (requestHandlers.has(scopedEvent)) {
         console.warn(`[EventBus] Overwriting existing handler for: ${scopedEvent}`);
       }
@@ -642,6 +658,9 @@ function createTenantAwareEventBus(getTeamId: () => string | null): IEventBus {
 
       return () => {
         debugLog('handleRequest:unregister', scopedEvent);
+        if (event.startsWith('dashboard:')) {
+          console.log(`[EventBus] handleRequest UNREGISTERED: "${scopedEvent}"`);
+        }
         requestHandlers.delete(scopedEvent);
       };
     },

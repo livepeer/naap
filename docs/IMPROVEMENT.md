@@ -8,15 +8,15 @@
 
 ## Executive Summary
 
-The NaaP platform has a solid foundation with well-designed plugin architecture and comprehensive SDK. However, several critical issues block production readiness:
+The NaaP platform has achieved MVP status with a working Vercel deployment. Key milestones:
 
-1. **6 of 11 plugins have mock/incomplete backends** - cannot ship
-2. **Dual shell implementations** create maintenance burden
-3. **Significant code duplication** across plugins (~30% redundant code)
-4. **API integration patterns inconsistent** - 3+ different auth implementations
-5. **Hybrid deployment required** - not 100% Vercel-compatible
+1. ~~**6 of 11 plugins have mock/incomplete backends**~~ ✅ All required backends complete
+2. ~~**Dual shell implementations**~~ ✅ `shell-web` retired, single Next.js shell
+3. ~~**Significant code duplication**~~ ✅ Reduced by ~1,410 lines via shared packages
+4. ~~**API integration patterns inconsistent**~~ ✅ Standardized envelope format, SDK utilities
+5. ~~**Hybrid deployment required**~~ ✅ Fully deployed on Vercel with API route handlers
 
-**Overall Platform Health: 65%** - Good foundation, needs consolidation
+**Overall Platform Health: 85%** - MVP deployed and functional on Vercel
 
 ---
 
@@ -50,38 +50,32 @@ Only one shell implementation now exists:
 - Updated SDK CLI commands to remove shell-web references
 - Updated documentation to reflect new architecture
 
-### BLOCKER 3: API Integration Pattern Chaos (Priority: P1)
+### ~~BLOCKER 3: API Integration Pattern Chaos~~ ✅ RESOLVED
 
-Three different auth token implementations found:
+**Status:** RESOLVED — Auth and API patterns consolidated.
 
-```
-Location 1: plugins/daydream-video/frontend/src/lib/api.ts (lines 40-67)
-Location 2: plugins/plugin-publisher/frontend/src/lib/api.ts (lines 43-50)
-Location 3: plugins/plugin-publisher/frontend/src/lib/shell-context.ts (lines 69-71)
-```
+- Auth token retrieval consolidated in `@naap/plugin-utils`
+- API response envelope standardized: `{ success: true, data: T, meta? }` / `{ success: false, error: { code, message } }`
+- All plugin frontends updated to correctly unwrap the envelope
+- Plugin name normalization added for URL parameter matching
 
-**Impact:** Security inconsistencies, maintenance nightmare, bugs.
+### ~~BLOCKER 4: Vite Config Duplication~~ ✅ RESOLVED (Phase 1)
 
-### BLOCKER 4: Vite Config Duplication (Priority: P1)
+**Status:** RESOLVED — All 11 plugins now use `createPluginConfig()` from `@naap/plugin-build`.
 
-All 11 plugins have nearly identical `vite.config.umd.ts` files (~300 lines each).
+- Reduced ~1,430 lines of Vite config to ~120 lines total (92% reduction)
+- Single factory function handles UMD build, React externals, aliases, and manifest generation
 
-**Impact:**
-- Bug fixes need 11x application
-- 3,300 lines of duplicated code
-- Template exists but not used: `plugins/vite.config.umd.template.ts`
+### ~~BLOCKER 5: Vercel Incompatibility~~ ✅ RESOLVED
 
-### BLOCKER 5: Vercel Incompatibility (Priority: P1)
+**Status:** RESOLVED — Platform fully deployed on Vercel.
 
-**Cannot run on Vercel:**
-- 6+ backend services with long-running processes
-- WebSocket connections (heartbeats, real-time)
-- Docker orchestration (infrastructure-svc)
-- Plugin backend servers
-
-**Hybrid architecture required:**
-- Vercel: `apps/web-next` only
-- Self-hosted: All `services/*` and plugin backends
+- All plugin API logic runs as **Next.js API route handlers** (46+ routes)
+- No separate Express servers needed in production
+- Plugin UMD bundles served via same-origin CDN route
+- Database connected via Neon PostgreSQL
+- CI/CD: GitHub Actions + Vercel auto-deploy from `main`
+- Camera/microphone permissions configured in `vercel.json`
 
 ---
 
@@ -134,25 +128,24 @@ All 11 plugins have nearly identical `vite.config.umd.ts` files (~300 lines each
 
 ## Architecture Assessment
 
-### Shell App Architecture: B+
-- **Strengths:** Clean provider composition, tenant-aware event bus, feature flags
-- **Weaknesses:** Dual implementations, CSP conflicts between middleware and config
+### Shell App Architecture: A-
+- **Strengths:** Clean provider composition, tenant-aware event bus, feature flags, single implementation
+- **Weaknesses:** CSP configuration could be simplified
 
 ### Plugin SDK Architecture: A-
-- **Strengths:** Comprehensive hooks, good CLI, type-safe
-- **Weaknesses:** Documentation fragmented, UMD/ESM complexity, testing gaps
+- **Strengths:** Comprehensive hooks, good CLI, type-safe, shared build config
+- **Weaknesses:** Some documentation gaps, testing utilities could be expanded
 
-### Plugin Ecosystem: C
-- **Strengths:** Consistent structure, UMD builds working
-- **Weaknesses:** 6/11 backends incomplete, code duplication, pattern chaos
+### Plugin Ecosystem: B+
+- **Strengths:** Consistent structure, UMD builds working, all required backends complete, shared utilities
+- **Weaknesses:** Some plugins still have simplified frontends, mount.tsx pattern still duplicated
 
-### DevX: B
-- **Strengths:** CLI tools, createPlugin() helper, hot reload
-- **Weaknesses:** Fragmented docs, migration pain, no plugin dependency management
+### DevX: B+
+- **Strengths:** CLI tools, createPlugin() helper, hot reload, published docs site
+- **Weaknesses:** Published docs need ongoing updates, no plugin dependency management
 
-### Vercel Compatibility: 60%
-- **Ready:** Next.js config, Blob storage, DB pooling, API proxies
-- **Blocked:** Long-running services, WebSockets, Docker, plugin backends
+### Vercel Compatibility: 100%
+- **Deployed:** Full platform running on Vercel with API route handlers, same-origin CDN, managed DB
 
 ---
 
@@ -672,15 +665,16 @@ Finalize Vercel deployment:
 
 ## Success Metrics
 
-| Metric | Current | Target | Measurement |
-|--------|---------|--------|-------------|
-| Plugin backend completion | 45% | 100% | All 11 with real backends |
-| Code duplication | ~3,700 lines | <500 lines | Shared utilities |
-| Shell implementations | 2 | 1 | web-next only |
-| API patterns | 3+ | 1 | SDK usePluginApi() |
-| Test coverage | ~20% | >70% | Jest/Vitest reports |
-| Documentation | Fragmented | Unified | Single DEVELOPER_GUIDE |
-| Vercel deploy | Blocked | Working | Hybrid architecture |
+| Metric | Before | Current | Target | Status |
+|--------|--------|---------|--------|--------|
+| Plugin backend completion | 45% | 100% | 100% | ✅ Done |
+| Code duplication | ~3,700 lines | ~2,290 lines | <500 lines | 🔄 Improved |
+| Shell implementations | 2 | 1 | 1 | ✅ Done |
+| API patterns | 3+ | Envelope standardized | 1 | ✅ Done |
+| Test coverage | ~20% | ~35% (base-svc routes) | >70% | 🔄 In progress |
+| Documentation | Fragmented | Published docs site | Unified | 🔄 In progress |
+| Vercel deploy | Blocked | ✅ Deployed | Working | ✅ Done |
+| CI pipeline | Broken | ✅ Functional | Green | ✅ Done (ESLint/TS non-blocking) |
 
 ---
 
@@ -693,14 +687,23 @@ Finalize Vercel deployment:
 | 2 | 5-7 days | Phase 1 | Complete backends | ✅ COMPLETE |
 | 2.5 | 2-3 days | Phase 2 | Modular base-svc routes | ✅ COMPLETE |
 | 3 | 3-4 days | Phase 2 | Single shell | ✅ DONE EARLY (merged with Phase 0) |
-| 4 | 2-3 days | Phase 1 | Standard API pattern | ⏳ Ready to start |
-| 5 | 1-2 days | Phase 4 | Event bus complete | |
-| 6 | 1-2 days | Phase 3 | Unified docs | |
+| 4 | 2-3 days | Phase 1 | Standard API pattern | ✅ COMPLETE (envelope standardized) |
+| 5 | 1-2 days | Phase 4 | Event bus complete | ⏳ Ready to start |
+| 6 | 1-2 days | Phase 3 | Unified docs | 🔄 IN PROGRESS (docs site live, cleanup done) |
 | 7 | 2-3 days | Phase 1 | Test infrastructure | ⏳ Ready to start |
-| 8 | 2-3 days | All above | Production deploy | |
+| 8 | 2-3 days | All above | Production deploy | ✅ COMPLETE (Vercel deployed) |
 
 **Total: 22-32 days** (5-6 weeks with buffer)
-**Progress: Phases 0, 1, 2, 2.5, 3 complete** (13-19 days equivalent completed)
+**Progress: Phases 0-4, 8 complete; Phase 6 in progress** (~80% of plan executed)
+
+**Additional completions outside original plan:**
+- ✅ Vercel deployment working (all plugins, 46+ API routes)
+- ✅ CI pipeline functional (GitHub Actions, branch protection)
+- ✅ `develop` merged to `main` with all fixes
+- ✅ Stale docs and session artifacts cleaned up (~30 files deleted)
+- ✅ Legacy scripts deprecated (db-migrate, kafka-setup, etc.)
+- ✅ Port mappings corrected in health-check.sh
+- ✅ Published docs updated (Node.js version, git URL, API format, architecture)
 
 ---
 

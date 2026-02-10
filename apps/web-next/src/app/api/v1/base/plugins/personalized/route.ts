@@ -2,13 +2,25 @@
  * Personalized Plugins API Route
  * GET /api/v1/base/plugins/personalized - Get user-specific plugins
  *
- * Ports legacy base-svc endpoint to Next.js.
+ * Core plugins are determined dynamically from PluginPackage.isCore in the
+ * database (configurable by admins). Core plugins are auto-installed for
+ * users who don't have a preference record yet.
+ *
+ * NOTE: This GET endpoint performs a lazy write (auto-install) for core
+ * plugins that haven't been provisioned for the user yet. This is a
+ * deliberate design choice — it ensures core plugins are available on first
+ * load without requiring a separate onboarding step. The operation is fully
+ * idempotent (uses skipDuplicates) so repeated GETs produce the same result.
+ * Cache-Control: no-store is set to prevent HTTP caches from serving stale data.
  */
 
 import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
+
+const normalizePluginName = (name: string) =>
+  name.toLowerCase().replace(/[-_]/g, '');
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -32,6 +44,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       where: { enabled: true },
       orderBy: { order: 'asc' },
     });
+
+    // Get core plugin names from the database (admin-configurable via PluginPackage.isCore)
+    const corePackages = await prisma.pluginPackage.findMany({
+      where: { isCore: true },
+      select: { name: true },
+    });
+    const corePluginNamesFromDB = new Set(
+      corePackages.map((p) => normalizePluginName(p.name))
+    );
+
+    // Helper: is this plugin name a core plugin?
+    const isCorePlugin = (name: string) =>
+      corePluginNamesFromDB.has(normalizePluginName(name));
+
+    // Headless plugins (no routes) are background data providers that must always
+    // be loaded regardless of context — they register event bus handlers the shell
+    // and dashboard rely on. We extract them once and append to every response.
+    const headlessPlugins = globalPlugins.filter(
+      (p) => !p.routes || (Array.isArray(p.routes) && (p.routes as string[]).length === 0),
+    );
 
     if (!userIdOrAddress) {
       // No user context, return global plugins
@@ -85,11 +117,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             userPreferences.map((p) => [p.pluginName, p])
           );
 
-          // Core plugins that should always be available in team context
-          const CORE_PLUGIN_NAMES = ['marketplace', 'plugin-publisher', 'pluginpublisher'];
-          const normalizePluginName = (name: string) =>
-            name.toLowerCase().replace(/[-_]/g, '');
-
           // Build plugins from team installs using deployment/package info
           // Filter out installs without valid deployment data
           const teamPlugins = teamPluginInstalls
@@ -106,9 +133,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
               const order = userPref?.order ?? idx;
               const isPinned = userPref?.pinned ?? false;
               return {
-                // Include installId for team plugin management (install/uninstall)
                 installId: install.id,
-                id: install.id, // Also include as 'id' for compatibility
+                id: install.id,
                 name: pkg.name || `plugin-${install.id}`,
                 displayName: pkg.displayName || pkg.name || 'Unknown Plugin',
                 description: pkg.description || '',
@@ -119,22 +145,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                 order: order,
                 pinned: isPinned,
                 icon: pkg.icon || undefined,
-                isCore: pkg.isCore || false,
+                isCore: pkg.isCore || isCorePlugin(pkg.name),
                 category: pkg.category || 'other',
                 metadata: {},
               };
             });
 
-          // Get core plugins from global plugins (always available)
-          const corePlugins = globalPlugins
-            .filter(p => CORE_PLUGIN_NAMES.includes(normalizePluginName(p.name)))
+          // Get core plugins from global plugins (always available in team context)
+          const coreGlobalPlugins = globalPlugins
+            .filter(p => isCorePlugin(p.name))
             .map(plugin => ({
               ...plugin,
-              enabled: true, // Core plugins always enabled in team context
+              enabled: true,
+              isCore: true,
             }));
 
-          // Combine team plugins with core plugins
-          const allTeamPlugins = [...teamPlugins, ...corePlugins];
+          // Combine team plugins with core plugins and headless providers
+          const allTeamPlugins = [...teamPlugins, ...coreGlobalPlugins, ...headlessPlugins];
 
           // Sort and deduplicate
           const seenNames = new Set<string>();
@@ -147,32 +174,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             })
             .sort((a, b) => a.order - b.order);
 
-          // Return team plugins (which may be empty except for core plugins)
           return success({ plugins: personalizedPlugins, context: 'team', teamId });
         }
       } catch (teamErr) {
         console.warn('Error fetching team plugins:', teamErr);
-        // On error, still return only core plugins for team context
-        const CORE_PLUGIN_NAMES = ['marketplace', 'plugin-publisher', 'pluginpublisher'];
-        const normalizePluginName = (name: string) =>
-          name.toLowerCase().replace(/[-_]/g, '');
-        const corePlugins = globalPlugins
-          .filter(p => CORE_PLUGIN_NAMES.includes(normalizePluginName(p.name)))
-          .map(plugin => ({ ...plugin, enabled: true }));
-        return success({ plugins: corePlugins, context: 'team', teamId, error: 'Failed to load team plugins' });
+        const coreGlobalPlugins = globalPlugins
+          .filter(p => isCorePlugin(p.name))
+          .map(plugin => ({ ...plugin, enabled: true, isCore: true }));
+        return success({ plugins: [...coreGlobalPlugins, ...headlessPlugins], context: 'team', teamId, error: 'Failed to load team plugins' });
       }
 
-      // User is not a team member - return only core plugins for team context
-      const CORE_PLUGIN_NAMES = ['marketplace', 'plugin-publisher', 'pluginpublisher'];
-      const normalizePluginName = (name: string) =>
-        name.toLowerCase().replace(/[-_]/g, '');
-      const corePlugins = globalPlugins
-        .filter(p => CORE_PLUGIN_NAMES.includes(normalizePluginName(p.name)))
-        .map(plugin => ({ ...plugin, enabled: true }));
-      return success({ plugins: corePlugins, context: 'team', teamId });
+      // User is not a team member - return core plugins + headless providers
+      const coreGlobalPlugins = globalPlugins
+        .filter(p => isCorePlugin(p.name))
+        .map(plugin => ({ ...plugin, enabled: true, isCore: true }));
+      return success({ plugins: [...coreGlobalPlugins, ...headlessPlugins], context: 'team', teamId });
     }
 
-    // Personal context: Get user preferences
+    // =========================================================================
+    // Personal context
+    // =========================================================================
+
+    // Get user preferences
     const userPreferences = await prisma.userPluginPreference.findMany({
       where: { userId: user.id },
     });
@@ -181,32 +204,62 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       userPreferences.map((p) => [p.pluginName, p])
     );
 
-    // Merge global plugins with user preferences
-    // Note: We return ALL plugins (both enabled and disabled) so the settings page
-    // can show toggles for disabled plugins. The sidebar/navigation should filter
-    // by enabled status on the frontend.
+    // Auto-install core plugins: if the user doesn't have a preference record
+    // for a core plugin, create one now so it counts as "installed"
+    const corePluginsToAutoInstall: string[] = [];
+    for (const plugin of globalPlugins) {
+      if (isCorePlugin(plugin.name) && !preferencesMap.has(plugin.name)) {
+        corePluginsToAutoInstall.push(plugin.name);
+      }
+    }
+    if (corePluginsToAutoInstall.length > 0) {
+      await prisma.userPluginPreference.createMany({
+        data: corePluginsToAutoInstall.map((pluginName) => ({
+          userId: user.id,
+          pluginName,
+          enabled: true,
+          order: 0,
+          pinned: false,
+        })),
+        skipDuplicates: true,
+      });
+      // Update the local map with the newly created preferences
+      for (const pluginName of corePluginsToAutoInstall) {
+        preferencesMap.set(pluginName, {
+          id: '',
+          userId: user.id,
+          pluginName,
+          enabled: true,
+          order: 0,
+          pinned: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+    }
+
+    // Merge global plugins with user preferences.
+    // Each plugin gets `installed` and `isCore` flags.
     const mergedPlugins = globalPlugins
       .map((plugin) => {
         const userPref = preferencesMap.get(plugin.name);
+        const isCore = isCorePlugin(plugin.name);
         return {
           ...plugin,
           enabled: userPref ? userPref.enabled : plugin.enabled,
           order: userPref?.order ?? plugin.order,
           pinned: userPref?.pinned ?? false,
+          installed: !!userPref || isCore,
+          isCore,
         };
       })
       .sort((a, b) => {
-        // Pinned items first
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
-        // Then by order
         return a.order - b.order;
       });
 
-    // Deduplicate by normalized name (handle my-wallet vs myWallet, etc.)
-    const normalizePluginName = (name: string) => 
-      name.toLowerCase().replace(/[-_]/g, '');
-    
+    // Deduplicate by normalized name
     const seenNames = new Set<string>();
     const personalizedPlugins = mergedPlugins.filter((plugin) => {
       const normalized = normalizePluginName(plugin.name);
@@ -217,7 +270,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return true;
     });
 
-    return success({ plugins: personalizedPlugins, context: 'personal' });
+    const response = success({ plugins: personalizedPlugins, context: 'personal' });
+    // Prevent HTTP caching since this endpoint may perform a lazy write (core plugin auto-install)
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   } catch (err) {
     console.error('Error fetching personalized plugins:', err);
     return errors.internal('Failed to fetch personalized plugins');

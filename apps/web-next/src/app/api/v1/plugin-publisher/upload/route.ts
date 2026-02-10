@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir, readdir, readFile, rm, unlink, stat, cp } from 'fs/promises';
+import { writeFile, mkdir, readdir, readFile, rm, unlink, cp } from 'fs/promises';
 import { createReadStream, existsSync } from 'fs';
 import path from 'path';
 import { validateSession } from '@/lib/api/auth';

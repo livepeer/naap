@@ -1,7 +1,23 @@
 #!/bin/bash
 
-# NAAP Platform - Database Migration Script
-# Runs Prisma migrations for a specific service or all services
+# ╔════════════════════════════════════════════════════════════════╗
+# ║  DEPRECATED — This script references the old multi-database   ║
+# ║  architecture with separate Prisma schemas per service.       ║
+# ║                                                                ║
+# ║  NaaP now uses a SINGLE PostgreSQL database with multi-schema  ║
+# ║  isolation. All models are in packages/database/prisma/        ║
+# ║  schema.prisma.                                                ║
+# ║                                                                ║
+# ║  Use instead:                                                  ║
+# ║    cd packages/database                                        ║
+# ║    npx prisma generate                                         ║
+# ║    npx prisma db push                                          ║
+# ╚════════════════════════════════════════════════════════════════╝
+
+echo "WARNING: This script is DEPRECATED."
+echo "NaaP now uses a unified database. Run migrations from packages/database:"
+echo "  cd packages/database && npx prisma generate && npx prisma db push"
+exit 1
 
 set -e
 

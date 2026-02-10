@@ -342,7 +342,7 @@ async function main() {
   // ---------------------------------------------------------------------------
 
   // Import shared discovery utilities
-  const { discoverPlugins, toWorkflowPluginData, getBundleUrl, toCamelCase } = await import(
+  const { discoverPlugins, toWorkflowPluginData, getBundleUrl } = await import(
     '../../../packages/database/src/plugin-discovery.js'
   );
 
@@ -538,6 +538,20 @@ async function main() {
       icon: 'Video',
       version: '1.0.0',  // Matches built bundle
       frontendUrl: getPluginUrl('daydreamVideo'),
+    },
+    {
+      name: 'dashboardProviderMock',
+      displayName: 'Dashboard Provider (Mock)',
+      description: 'Reference implementation of a dashboard data provider. Serves mock data via the GraphQL-over-event-bus contract. Use as a starter template.',
+      category: 'analytics',
+      author: 'NAAP Team',
+      authorEmail: 'team@naap.io',
+      repository: 'https://github.com/livepeer/naap/tree/main/plugins/dashboard-provider-mock',
+      license: 'MIT',
+      keywords: ['dashboard', 'provider', 'mock', 'reference', 'graphql'],
+      icon: 'Box',
+      version: '1.0.0',
+      frontendUrl: getPluginUrl('dashboardProviderMock'),
     },
   ];
 

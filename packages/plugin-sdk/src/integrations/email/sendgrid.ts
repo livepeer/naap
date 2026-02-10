@@ -66,7 +66,7 @@ export class SendGridIntegration implements EmailIntegration {
       to,
       subject,
       content: [{ type: 'text/plain', value: body }],
-      ...options,
+      ...this.convertOptions(options),
     });
   }
 
@@ -80,8 +80,37 @@ export class SendGridIntegration implements EmailIntegration {
       to,
       subject,
       content: [{ type: 'text/html', value: html }],
-      ...options,
+      ...this.convertOptions(options),
     });
+  }
+
+  /**
+   * Convert EmailOptions (with EmailRecipient objects) to plain string fields
+   * for sendMail. Also extracts attachments so they aren't silently dropped.
+   */
+  private convertOptions(options?: EmailOptions): {
+    from?: string;
+    replyTo?: string;
+    cc?: string[];
+    bcc?: string[];
+    attachments?: Array<{ filename: string; content: string | Buffer; contentType?: string }>;
+  } {
+    if (!options) return {};
+    const toEmail = (r?: { email: string }) => r?.email;
+    return {
+      ...(options.from ? { from: toEmail(options.from) } : {}),
+      ...(options.replyTo ? { replyTo: toEmail(options.replyTo) } : {}),
+      ...(options.cc ? { cc: options.cc.map(r => r.email) } : {}),
+      ...(options.bcc ? { bcc: options.bcc.map(r => r.email) } : {}),
+      ...(options.attachments ? { attachments: options.attachments } : {}),
+    };
+  }
+
+  /** Extract email string from an EmailRecipient or plain string */
+  private resolveEmail(recipient: string | { email: string; name?: string } | undefined, fallback: string): string {
+    if (!recipient) return fallback;
+    if (typeof recipient === 'string') return recipient;
+    return recipient.email;
   }
 
   async sendTemplate(
@@ -91,15 +120,17 @@ export class SendGridIntegration implements EmailIntegration {
     options?: EmailOptions
   ): Promise<void> {
     const toArray = Array.isArray(to) ? to : [to];
-    
+    const fromEmail = this.resolveEmail(options?.from, this.fromEmail || 'noreply@example.com');
+    const replyToEmail = options?.replyTo ? this.resolveEmail(options.replyTo, '') : undefined;
+
     const response = await this.request('POST', '/mail/send', {
       personalizations: [{
         to: toArray.map(email => ({ email })),
         dynamic_template_data: variables,
       }],
-      from: { email: options?.from || this.fromEmail || 'noreply@example.com' },
+      from: { email: fromEmail },
       template_id: templateId,
-      reply_to: options?.replyTo ? { email: options.replyTo } : undefined,
+      reply_to: replyToEmail ? { email: replyToEmail } : undefined,
     });
 
     if (!response.ok) {
@@ -116,10 +147,13 @@ export class SendGridIntegration implements EmailIntegration {
     replyTo?: string;
     cc?: string[];
     bcc?: string[];
+    attachments?: Array<{ filename: string; content: string | Buffer; contentType?: string }>;
   }): Promise<void> {
     const toArray = Array.isArray(params.to) ? params.to : [params.to];
-    
-    const response = await this.request('POST', '/mail/send', {
+
+    // Build the SendGrid payload
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const payload: Record<string, any> = {
       personalizations: [{
         to: toArray.map(email => ({ email })),
         cc: params.cc?.map(email => ({ email })),
@@ -129,7 +163,18 @@ export class SendGridIntegration implements EmailIntegration {
       reply_to: params.replyTo ? { email: params.replyTo } : undefined,
       subject: params.subject,
       content: params.content,
-    });
+    };
+
+    // Include attachments if provided (base64-encoded for SendGrid)
+    if (params.attachments && params.attachments.length > 0) {
+      payload.attachments = params.attachments.map((a) => ({
+        filename: a.filename,
+        content: typeof a.content === 'string' ? a.content : a.content.toString('base64'),
+        type: a.contentType,
+      }));
+    }
+
+    const response = await this.request('POST', '/mail/send', payload);
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));

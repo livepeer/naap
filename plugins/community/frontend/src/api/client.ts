@@ -132,6 +132,48 @@ export interface Comment {
   author: User;
 }
 
+/**
+ * Normalize an author object returned by the API.
+ * The Next.js proxy returns the Prisma shape where displayName / avatarUrl
+ * are nested inside an `author.user` sub-object, while the Express backend
+ * and some proxy routes use `formatProfile` which flattens them.
+ * This helper handles both shapes so the frontend always gets a flat User.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeAuthor(raw: any): User {
+  if (!raw) return { id: '', userId: '', displayName: null, avatarUrl: null, reputation: 0, level: 1 };
+  // If the author already has displayName at the top level, it's already formatted
+  if (raw.displayName !== undefined && !raw.user) return raw;
+  // Prisma shape: { id, userId, reputation, level, user: { displayName, address, avatarUrl } }
+  const user = raw.user || {};
+  return {
+    id: raw.id || '',
+    userId: raw.userId || user.id || '',
+    displayName: raw.displayName ?? user.displayName ?? null,
+    avatarUrl: raw.avatarUrl ?? user.avatarUrl ?? null,
+    reputation: raw.reputation ?? 0,
+    level: raw.level ?? 1,
+  };
+}
+
+/**
+ * Normalize a comment object returned by the API, ensuring its author is flat
+ * and all expected fields exist.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeComment(raw: any): Comment {
+  return {
+    id: raw.id,
+    postId: raw.postId,
+    content: raw.content ?? '',
+    upvotes: raw.upvotes ?? 0,
+    isAccepted: raw.isAccepted ?? false,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+    author: normalizeAuthor(raw.author),
+  };
+}
+
 export interface Badge {
   id: string;
   name: string;
@@ -173,8 +215,11 @@ export async function fetchPosts(params?: {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch posts');
-  const data = await res.json();
-  return { posts: Array.isArray(data?.posts) ? data.posts : [], total: data?.total ?? 0 };
+  const json = await res.json();
+  // Unwrap envelope: API may return { success, data: { posts }, meta } or { posts }
+  const payload = json.data ?? json;
+  const meta = json.meta ?? payload;
+  return { posts: Array.isArray(payload?.posts) ? payload.posts : [], total: meta?.total ?? 0 };
 }
 
 export async function fetchPost(id: string): Promise<Post> {
@@ -182,7 +227,16 @@ export async function fetchPost(id: string): Promise<Post> {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch post');
-  return res.json();
+  const json = await res.json();
+  const raw = json.data?.post ?? json.data ?? json;
+  // Normalize embedded comments and their authors
+  if (Array.isArray(raw.comments)) {
+    raw.comments = raw.comments.map(normalizeComment);
+  }
+  if (raw.author) {
+    raw.author = normalizeAuthor(raw.author);
+  }
+  return raw;
 }
 
 export async function createPost(data: {
@@ -201,7 +255,8 @@ export async function createPost(data: {
     body: JSON.stringify({ ...data, userId: user.userId, displayName: user.displayName }),
   });
   if (!res.ok) throw new Error('Failed to create post');
-  return res.json();
+  const json = await res.json();
+  return json.data?.post ?? json.data ?? json;
 }
 
 export async function updatePost(id: string, data: {
@@ -218,7 +273,8 @@ export async function updatePost(id: string, data: {
     body: JSON.stringify({ ...data, userId: user.userId }),
   });
   if (!res.ok) throw new Error('Failed to update post');
-  return res.json();
+  const json = await res.json();
+  return json.data?.post ?? json.data ?? json;
 }
 
 export async function deletePost(id: string): Promise<void> {
@@ -246,7 +302,9 @@ export async function votePost(id: string): Promise<{ upvotes: number; voted: bo
     const err = await res.json();
     throw new Error(err.error || 'Failed to vote');
   }
-  return res.json();
+  const json = await res.json();
+  const payload = json.data ?? json;
+  return { upvotes: payload.upvotes, voted: payload.voted };
 }
 
 export async function removeVote(id: string): Promise<{ upvotes: number; voted: boolean }> {
@@ -259,7 +317,9 @@ export async function removeVote(id: string): Promise<{ upvotes: number; voted: 
     body: JSON.stringify({ userId: user.userId }),
   });
   if (!res.ok) throw new Error('Failed to remove vote');
-  return res.json();
+  const json = await res.json();
+  const payload = json.data ?? json;
+  return { upvotes: payload.upvotes, voted: payload.voted };
 }
 
 export async function checkVoted(postId: string): Promise<boolean> {
@@ -270,8 +330,9 @@ export async function checkVoted(postId: string): Promise<boolean> {
     headers: getAuthHeaders(),
   });
   if (!res.ok) return false;
-  const data = await res.json();
-  return data.voted;
+  const json = await res.json();
+  const payload = json.data ?? json;
+  return payload.voted;
 }
 
 export async function fetchComments(postId: string): Promise<Comment[]> {
@@ -279,7 +340,10 @@ export async function fetchComments(postId: string): Promise<Comment[]> {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch comments');
-  return res.json();
+  const json = await res.json();
+  const payload = json.data ?? json;
+  const raw = Array.isArray(payload) ? payload : (Array.isArray(payload?.comments) ? payload.comments : []);
+  return raw.map(normalizeComment);
 }
 
 export async function createComment(postId: string, content: string): Promise<Comment> {
@@ -292,7 +356,10 @@ export async function createComment(postId: string, content: string): Promise<Co
     body: JSON.stringify({ userId: user.userId, displayName: user.displayName, content }),
   });
   if (!res.ok) throw new Error('Failed to create comment');
-  return res.json();
+  const json = await res.json();
+  // Unwrap envelope: API may return { success, data: { comment } } or raw comment
+  const raw = json.data?.comment ?? json.data ?? json;
+  return normalizeComment(raw);
 }
 
 export async function voteComment(id: string): Promise<{ upvotes: number; voted: boolean }> {
@@ -308,7 +375,9 @@ export async function voteComment(id: string): Promise<{ upvotes: number; voted:
     const err = await res.json();
     throw new Error(err.error || 'Failed to vote');
   }
-  return res.json();
+  const json = await res.json();
+  const payload = json.data ?? json;
+  return { upvotes: payload.upvotes, voted: payload.voted };
 }
 
 export async function acceptAnswer(commentId: string): Promise<Comment> {
@@ -321,7 +390,9 @@ export async function acceptAnswer(commentId: string): Promise<Comment> {
     body: JSON.stringify({ userId: user.userId }),
   });
   if (!res.ok) throw new Error('Failed to accept answer');
-  return res.json();
+  const json = await res.json();
+  const raw = json.data?.comment ?? json.data ?? json;
+  return normalizeComment(raw);
 }
 
 export async function fetchLeaderboard(limit = 10): Promise<LeaderboardEntry[]> {
@@ -329,8 +400,10 @@ export async function fetchLeaderboard(limit = 10): Promise<LeaderboardEntry[]> 
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch leaderboard');
-  const data = await res.json();
-  return Array.isArray(data) ? data : (Array.isArray(data?.entries) ? data.entries : []);
+  const json = await res.json();
+  // Unwrap envelope: API may return { success, data: [...] } or [...]
+  const payload = json.data ?? json;
+  return Array.isArray(payload) ? payload : (Array.isArray(payload?.entries) ? payload.entries : []);
 }
 
 export async function fetchTags(limit = 20): Promise<Tag[]> {
@@ -338,8 +411,10 @@ export async function fetchTags(limit = 20): Promise<Tag[]> {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch tags');
-  const data = await res.json();
-  return Array.isArray(data) ? data : (Array.isArray(data?.tags) ? data.tags : []);
+  const json = await res.json();
+  // Unwrap envelope: API may return { success, data: [...] } or [...]
+  const payload = json.data ?? json;
+  return Array.isArray(payload) ? payload : (Array.isArray(payload?.tags) ? payload.tags : []);
 }
 
 export async function fetchUser(id: string): Promise<User> {
@@ -347,7 +422,8 @@ export async function fetchUser(id: string): Promise<User> {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch user');
-  return res.json();
+  const json = await res.json();
+  return json.data?.user ?? json.data ?? json;
 }
 
 export async function fetchStats(): Promise<{
@@ -360,7 +436,8 @@ export async function fetchStats(): Promise<{
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch stats');
-  return res.json();
+  const json = await res.json();
+  return json.data ?? json;
 }
 
 export async function searchPosts(query: string, params?: {
@@ -378,5 +455,7 @@ export async function searchPosts(query: string, params?: {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to search');
-  return res.json();
+  const json = await res.json();
+  const payload = json.data ?? json;
+  return { posts: Array.isArray(payload?.posts) ? payload.posts : [], total: payload?.total ?? 0, query };
 }

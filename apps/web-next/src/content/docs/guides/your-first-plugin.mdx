@@ -130,7 +130,8 @@ app.get('/api/v1/task-tracker/tasks', async (req, res) => {
   const tasks = await db.trackerTask.findMany({
     orderBy: { createdAt: 'desc' },
   });
-  res.json({ tasks });
+  // API envelope: { success: true, data: { tasks } }
+  res.json({ success: true, data: { tasks } });
 });
 
 // Create task
@@ -141,7 +142,7 @@ app.post('/api/v1/task-tracker/tasks', async (req, res) => {
   const task = await db.trackerTask.create({
     data: { title, description, priority, createdBy: userId },
   });
-  res.status(201).json({ task });
+  res.status(201).json({ success: true, data: { task } });
 });
 
 // Update task
@@ -151,13 +152,13 @@ app.patch('/api/v1/task-tracker/tasks/:id', async (req, res) => {
     where: { id },
     data: req.body,
   });
-  res.json({ task });
+  res.json({ success: true, data: { task } });
 });
 
 // Delete task
 app.delete('/api/v1/task-tracker/tasks/:id', async (req, res) => {
   await db.trackerTask.delete({ where: { id: req.params.id } });
-  res.json({ success: true });
+  res.json({ success: true, data: null });
 });
 
 app.listen(PORT, () => {
@@ -194,7 +195,8 @@ export default function App() {
 
   async function loadTasks() {
     const res = await api.get('/tasks');
-    setTasks(res.tasks);
+    // usePluginApi auto-unwraps the { success, data } envelope
+    setTasks(res.tasks ?? []);
   }
 
   async function addTask() {

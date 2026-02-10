@@ -170,9 +170,15 @@ export function Sidebar() {
     };
   }, [isResizing, sidebarWidth, eventBus]);
 
-  // Listen for plugin preference changes to refresh the sidebar
+  // Listen for plugin preference/install/uninstall changes to refresh the sidebar
   useEffect(() => {
     const unsubscribePlugin = eventBus.on('plugin:preferences:changed', () => {
+      refreshPlugins();
+    });
+    const unsubscribeInstalled = eventBus.on('plugin:installed', () => {
+      refreshPlugins();
+    });
+    const unsubscribeUninstalled = eventBus.on('plugin:uninstalled', () => {
       refreshPlugins();
     });
     const unsubscribeTeam = eventBus.on('team:change', () => {
@@ -180,6 +186,8 @@ export function Sidebar() {
     });
     return () => {
       unsubscribePlugin();
+      unsubscribeInstalled();
+      unsubscribeUninstalled();
       unsubscribeTeam();
     };
   }, [eventBus, refreshPlugins]);
@@ -237,6 +245,8 @@ export function Sidebar() {
     const seenPlugins = new Set<string>();
     const uniquePlugins = (plugins || []).filter(p => {
       if (!p?.enabled) return false;
+      // Skip headless plugins (no routes) — they are background providers, not nav items
+      if (!p.routes || p.routes.length === 0) return false;
       const normalized = normalizePluginName(p.name);
       if (seenPlugins.has(normalized)) return false;
       seenPlugins.add(normalized);

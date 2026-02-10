@@ -517,7 +517,9 @@ export const MarketplacePage: React.FC = () => {
 
       const response = await fetch(`${BASE_URL}/api/v1/registry/packages?${params}`);
       if (response.ok) {
-        const data = await response.json();
+        const json = await response.json();
+        // API routes wrap responses in { success, data: { packages }, meta }
+        const data = json.data ?? json;
         setPackages(data.packages || []);
       } else {
         setPackages(getMockPackages());
