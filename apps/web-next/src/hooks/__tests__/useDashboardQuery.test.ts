@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { DASHBOARD_QUERY_EVENT } from '@naap/plugin-sdk';
+import { DASHBOARD_QUERY_EVENT } from '../dashboard-constants';
 
 // ============================================================================
 // Mocks

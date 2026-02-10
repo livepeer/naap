@@ -23,7 +23,7 @@ import type {
   DashboardGPUCapacity,
   DashboardPipelinePricing,
   JobFeedEntry,
-} from '@naap/plugin-sdk';
+} from '@naap/plugin-sdk'; // type-only import — erased at compile time
 import {
   Activity,
   CheckCircle2,
