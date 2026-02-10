@@ -34,7 +34,8 @@ const LEVEL_NAMES: Record<number, string> = {
 };
 
 // Simple markdown to HTML conversion
-function renderMarkdown(content: string): string {
+function renderMarkdown(content: string | undefined | null): string {
+  if (!content) return '';
   let html = content
     // Code blocks
     .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre class="code-block"><code class="language-$1">$2</code></pre>')

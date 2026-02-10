@@ -1027,13 +1027,22 @@ export default function SettingsPage() {
                       {plugin.enabled ? <Eye size={16} /> : <EyeOff size={16} />}
                     </button>
 
-                    <button
-                      onClick={() => handleUninstallClick(plugin)}
-                      className="p-2 rounded-lg bg-muted text-muted-foreground hover:bg-destructive/20 hover:text-destructive transition-all"
-                      title="Uninstall plugin"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {plugin.isCore ? (
+                      <div
+                        className="p-2 rounded-lg bg-muted/50 text-muted-foreground/40 cursor-not-allowed"
+                        title="Core plugin — cannot be uninstalled"
+                      >
+                        <Shield size={16} />
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleUninstallClick(plugin)}
+                        className="p-2 rounded-lg bg-muted text-muted-foreground hover:bg-destructive/20 hover:text-destructive transition-all"
+                        title="Uninstall plugin"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </div>
                 </Reorder.Item>
               ))}

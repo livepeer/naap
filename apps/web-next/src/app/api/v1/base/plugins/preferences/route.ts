@@ -12,8 +12,14 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 
-// Core plugins that cannot be uninstalled
-const CORE_PLUGINS = ['marketplace', 'plugin-publisher', 'pluginPublisher', 'my-wallet', 'my-dashboard'];
+// Helper to check if a plugin is core (admin-configurable via PluginPackage.isCore)
+async function isCorePlugin(pluginName: string): Promise<boolean> {
+  const pkg = await prisma.pluginPackage.findFirst({
+    where: { name: pluginName },
+    select: { isCore: true },
+  });
+  return pkg?.isCore ?? false;
+}
 
 /**
  * GET /api/v1/base/plugins/preferences
@@ -145,8 +151,8 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       return errors.badRequest('Plugin name is required (via query param or request body)');
     }
 
-    // Core plugins cannot be uninstalled
-    if (CORE_PLUGINS.includes(pluginName)) {
+    // Core plugins cannot be uninstalled (admin-configurable)
+    if (await isCorePlugin(pluginName)) {
       return errors.badRequest('Core plugins cannot be uninstalled');
     }
 
