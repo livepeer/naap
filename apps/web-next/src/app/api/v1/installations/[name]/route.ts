@@ -10,9 +10,6 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 
-// Core plugins that cannot be uninstalled
-const CORE_PLUGINS = ['marketplace', 'plugin-publisher', 'pluginPublisher', 'my-wallet', 'my-dashboard'];
-
 /**
  * DELETE /api/v1/installations/:name - Uninstall a plugin
  */
@@ -27,8 +24,12 @@ export async function DELETE(
       return errors.badRequest('Plugin name is required');
     }
 
-    // Core plugins cannot be uninstalled
-    if (CORE_PLUGINS.includes(name)) {
+    // Check if this plugin is a core plugin (admin-configurable in PluginPackage)
+    const pkg = await prisma.pluginPackage.findFirst({
+      where: { name },
+      select: { isCore: true },
+    });
+    if (pkg?.isCore) {
       return errors.badRequest('Core plugins cannot be uninstalled');
     }
 
@@ -43,7 +44,7 @@ export async function DELETE(
       return errors.unauthorized('Invalid session');
     }
 
-    // Remove user preference for this plugin
+    // Remove user preference for this plugin (truly delete, not just disable)
     try {
       await prisma.userPluginPreference.delete({
         where: {
@@ -54,26 +55,8 @@ export async function DELETE(
         },
       });
     } catch {
-      // Preference may not exist, ignore error
+      // Preference may not exist — plugin is already uninstalled
     }
-
-    // Also set to disabled via upsert as fallback
-    await prisma.userPluginPreference.upsert({
-      where: {
-        userId_pluginName: {
-          userId: user.id,
-          pluginName: name,
-        },
-      },
-      update: {
-        enabled: false,
-      },
-      create: {
-        userId: user.id,
-        pluginName: name,
-        enabled: false,
-      },
-    });
 
     return success({
       message: `Plugin "${name}" has been uninstalled`,
