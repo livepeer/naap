@@ -86,7 +86,7 @@ githubCommand
     // Generate workflow content based on type
     const spinner = ora('Generating workflow...').start();
     
-    const workflowContent = generateWorkflow(pluginType, manifest);
+    const workflowContent = generateWorkflow(pluginType || 'full-stack', manifest);
     await fs.writeFile(workflowPath, workflowContent);
     
     spinner.succeed('Workflow created');
@@ -222,7 +222,7 @@ githubCommand
     if (options.set) {
       const token = await input({
         message: 'Enter your NAAP registry token:',
-        transformer: (value) => '*'.repeat(value.length),
+        transformer: (value: string) => '*'.repeat(value.length),
       });
 
       await fs.ensureDir(path.dirname(credentialsPath));
