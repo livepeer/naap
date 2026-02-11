@@ -230,13 +230,23 @@ export async function createStream(
  * Validate that a stream ID is safe to use in URL paths.
  * Daydream API treats stream IDs as opaque strings, so we only check
  * it's a non-empty string without path traversal characters.
+ * Also decodes percent-encoded sequences to block encoded traversal (%2e%2e, %2f).
  */
 function validateStreamId(streamId: string): void {
   if (typeof streamId !== 'string' || streamId.length === 0) {
     throw new Error('Stream ID must be a non-empty string');
   }
-  // Block path traversal sequences while allowing Daydream's opaque ID format
-  if (streamId.includes('..') || streamId.includes('/') || streamId.includes('\\')) {
+  // Decode percent-encoded sequences, then check for traversal in both forms
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(streamId);
+  } catch {
+    decoded = streamId;
+  }
+  if (
+    decoded.includes('..') || decoded.includes('/') || decoded.includes('\\') ||
+    streamId.includes('..') || streamId.includes('/') || streamId.includes('\\')
+  ) {
     throw new Error('Stream ID contains invalid path characters');
   }
 }

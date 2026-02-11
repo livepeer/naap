@@ -7,12 +7,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import * as ipaddr from 'ipaddr.js';
+
+/** IP ranges considered non-routable / internal for SSRF protection. */
+const BLOCKED_RANGES: readonly string[] = [
+  'unspecified',
+  'loopback',
+  'private',
+  'linkLocal',
+  'uniqueLocal',
+  'carrierGradeNat',
+  'reserved',
+] as const;
 
 /**
  * Validate that a URL is safe for server-side requests (SSRF protection).
- * Blocks requests to private/internal networks and non-http(s) protocols.
- * Covers: loopback (127.0.0.0/8), link-local (169.254.0.0/16, fe80::/10),
- * private (10/8, 172.16/12, 192.168/16), ULA (fc00::/7), and special names.
+ * Uses ipaddr.js for robust IP classification that covers IPv4-mapped IPv6,
+ * loopback, link-local (169.254 / fe80), private, ULA, and more.
  */
 function validateExternalUrl(url: string): { valid: boolean; error?: string } {
   let parsed: URL;
@@ -26,26 +37,30 @@ function validateExternalUrl(url: string): { valid: boolean; error?: string } {
     return { valid: false, error: `Unsupported protocol: ${parsed.protocol}` };
   }
 
-  // Normalize: strip trailing dots and lowercase
-  const hostname = parsed.hostname.replace(/\.$/, '').toLowerCase();
-  const isIpv6Literal = hostname.includes(':');
+  // Normalize hostname: strip trailing dots, lowercase, remove IPv6 brackets
+  const hostname = parsed.hostname.replace(/\.$/, '').toLowerCase().replace(/^\[|\]$/g, '');
+
+  // Check DNS-style names that resolve to internal services
   if (
     hostname === 'localhost' ||
-    hostname.startsWith('127.') ||
-    hostname === '::1' ||
-    hostname === '0.0.0.0' ||
-    hostname.startsWith('0.') ||
-    hostname.startsWith('169.254.') ||
-    hostname.startsWith('10.') ||
-    hostname.startsWith('192.168.') ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
-    (isIpv6Literal &&
-      (hostname.startsWith('fe80:') || hostname.startsWith('fc') || hostname.startsWith('fd'))) ||
+    hostname.endsWith('.localhost') ||
     hostname.endsWith('.internal') ||
-    hostname.endsWith('.local') ||
-    hostname.endsWith('.localhost')
+    hostname.endsWith('.local')
   ) {
     return { valid: false, error: 'Requests to private/internal networks are not allowed' };
+  }
+
+  // Check IP addresses using ipaddr.js (handles IPv4, IPv6, and IPv4-mapped IPv6)
+  if (ipaddr.isValid(hostname)) {
+    try {
+      const addr = ipaddr.process(hostname);
+      const range = addr.range();
+      if (BLOCKED_RANGES.includes(range)) {
+        return { valid: false, error: 'Requests to private/internal networks are not allowed' };
+      }
+    } catch {
+      return { valid: false, error: 'Invalid IP address' };
+    }
   }
 
   return { valid: true };

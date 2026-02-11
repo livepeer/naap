@@ -78,14 +78,24 @@ export class LivepeerAIClient {
 
   /**
    * Sanitize a path segment to prevent path traversal attacks.
-   * Validates the segment doesn't contain traversal sequences, then encodes.
+   * Checks both raw and percent-decoded forms, then encodes.
    */
   private sanitizePath(segment: string): string {
     if (typeof segment !== 'string' || segment.length === 0) {
       throw new Error('Path segment must be a non-empty string');
     }
-    if (segment.includes('..') || segment.includes('/') || segment.includes('\\')) {
-      throw new Error(`Invalid path segment: contains traversal characters`);
+    // Decode to catch percent-encoded traversal (%2e%2e, %2f, %5c)
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      decoded = segment;
+    }
+    if (
+      decoded.includes('..') || decoded.includes('/') || decoded.includes('\\') ||
+      segment.includes('..') || segment.includes('/') || segment.includes('\\')
+    ) {
+      throw new Error('Invalid path segment: contains traversal characters');
     }
     return encodeURIComponent(segment);
   }
