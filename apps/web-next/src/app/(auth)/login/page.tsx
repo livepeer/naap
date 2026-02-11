@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { Loader2, Trash2 } from 'lucide-react';
 
@@ -39,12 +39,23 @@ function formatOAuthError(errorCode: string): string {
 }
 
 export default function LoginPage() {
-  const { login, loginWithOAuth, isLoading } = useAuth();
+  const { login, loginWithOAuth, isLoading, isAuthenticated } = useAuth();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [cleared, setCleared] = useState(false);
+
+  // Redirect authenticated users to dashboard (handles valid token from middleware bypass)
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      const raw = searchParams.get('redirect') || '/dashboard';
+      // Prevent open redirect: only allow relative paths on the same origin
+      const safeRedirect = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/dashboard';
+      router.replace(safeRedirect);
+    }
+  }, [isLoading, isAuthenticated, router, searchParams]);
 
   // Display OAuth error from callback redirect (e.g., /login?error=invalid_state)
   useEffect(() => {
