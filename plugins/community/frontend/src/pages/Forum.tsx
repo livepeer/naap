@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Plus, Search, MessageSquare, ThumbsUp, Clock, CheckCircle, TrendingUp, HelpCircle, Megaphone, Sparkles, Trophy, Tag, Loader2 } from 'lucide-react';
 import { Card, Badge } from '@naap/ui';
@@ -52,6 +52,9 @@ export const ForumPage: React.FC = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [sortBy, setSortBy] = useState<'recent' | 'popular' | 'unanswered'>('recent');
@@ -60,11 +63,13 @@ export const ForumPage: React.FC = () => {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [tags, setTags] = useState<TagType[]>([]);
 
-  // Load posts
+  const LIMIT = 20;
+
+  // Load posts (initial or reset)
   const loadPosts = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Record<string, string | number> = { sort: sortBy, limit: 20 };
+      const params: Record<string, string | number> = { sort: sortBy, limit: LIMIT, offset: 0 };
       if (categoryFilter !== 'all') params.category = categoryFilter;
       if (searchQuery) params.search = searchQuery;
 
@@ -91,6 +96,41 @@ export const ForumPage: React.FC = () => {
     }
   }, [categoryFilter, searchQuery, sortBy]);
 
+  // Load more posts (infinite scroll)
+  const loadMore = useCallback(async () => {
+    if (loadingMore || loading || posts.length >= total) return;
+    setLoadingMore(true);
+    try {
+      const params: Record<string, string | number> = {
+        sort: sortBy,
+        limit: LIMIT,
+        offset: posts.length,
+      };
+      if (categoryFilter !== 'all') params.category = categoryFilter;
+      if (searchQuery) params.search = searchQuery;
+
+      const data = await fetchPosts(params);
+      const newPosts = Array.isArray(data?.posts) ? data.posts : [];
+      if (newPosts.length > 0) {
+        if (isUserLoggedIn()) {
+          const votedIds = new Set(votedPosts);
+          await Promise.all(
+            newPosts.map(async (post) => {
+              const voted = await checkVoted(post.id);
+              if (voted) votedIds.add(post.id);
+            })
+          );
+          setVotedPosts(votedIds);
+        }
+        setPosts((prev) => [...prev, ...newPosts]);
+      }
+    } catch (err) {
+      console.error('Failed to load more posts:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [categoryFilter, searchQuery, sortBy, posts.length, total, loadingMore, loading]);
+
   // Load sidebar data (defensive: ensure arrays)
   useEffect(() => {
     fetchLeaderboard(5)
@@ -104,6 +144,21 @@ export const ForumPage: React.FC = () => {
   useEffect(() => {
     loadPosts();
   }, [loadPosts]);
+
+  // Infinite scroll: load more when sentinel is visible
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+    const root = scrollContainerRef.current;
+    if (!sentinel || !root) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) loadMore();
+      },
+      { root, rootMargin: '200px', threshold: 0 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadMore]);
 
   const handleVote = async (postId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -156,88 +211,105 @@ export const ForumPage: React.FC = () => {
   const currentUser = getCurrentUser();
 
   return (
-    <div className="flex gap-6">
-      {/* Main Content */}
-      <div className="flex-1 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-outfit font-bold text-text-primary">Community Hub</h1>
-            <p className="text-text-secondary mt-1">Ask questions, share knowledge, help others</p>
-          </div>
-          <button
-            onClick={() => {
-              if (!isUserLoggedIn()) {
-                alert('Please log in to create a post');
-                return;
-              }
-              setShowCreateModal(true);
-            }}
-            className="flex items-center gap-2 px-6 py-3 bg-accent-emerald text-white rounded-xl font-bold shadow-lg shadow-accent-emerald/20 hover:bg-accent-emerald/90 transition-all"
-          >
-            <Plus size={18} /> New Post
-          </button>
-        </div>
-
-        {/* Search and Filters */}
-        <div className="flex items-center gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={18} />
-            <input
-              type="text"
-              placeholder="Search discussions..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-bg-secondary border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-accent-blue"
-            />
+    <div className="flex gap-6 h-full min-h-0">
+      {/* Main Content - flex column with sticky header and scrollable posts */}
+      <div className="flex-1 flex flex-col min-h-0">
+        {/* Sticky Header - filters, new post, summary stay fixed while posts scroll */}
+        <div className="flex-shrink-0 space-y-6 pb-6">
+          {/* Title + New Post */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-outfit font-bold text-text-primary">Community Hub</h1>
+              <p className="text-text-secondary mt-1">Ask questions, share knowledge, help others</p>
+            </div>
+            <button
+              onClick={() => {
+                if (!isUserLoggedIn()) {
+                  alert('Please log in to create a post');
+                  return;
+                }
+                setShowCreateModal(true);
+              }}
+              className="flex items-center gap-2 px-6 py-3 bg-accent-emerald text-white rounded-xl font-bold shadow-lg shadow-accent-emerald/20 hover:bg-accent-emerald/90 transition-all"
+            >
+              <Plus size={18} /> New Post
+            </button>
           </div>
 
-          {/* Sort */}
-          <div className="flex bg-bg-secondary border border-white/10 rounded-xl p-1">
-            {[
-              { value: 'recent', label: 'Recent', icon: <Clock size={14} /> },
-              { value: 'popular', label: 'Popular', icon: <TrendingUp size={14} /> },
-              { value: 'unanswered', label: 'Unanswered', icon: <HelpCircle size={14} /> },
-            ].map((sort) => (
+          {/* Search and Filters */}
+          <div className="flex items-center gap-4">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={18} />
+              <input
+                type="text"
+                placeholder="Search discussions..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-bg-secondary border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-accent-blue"
+              />
+            </div>
+
+            {/* Sort */}
+            <div className="flex bg-bg-secondary border border-white/10 rounded-xl p-1">
+              {[
+                { value: 'recent', label: 'Recent', icon: <Clock size={14} /> },
+                { value: 'popular', label: 'Popular', icon: <TrendingUp size={14} /> },
+                { value: 'unanswered', label: 'Unanswered', icon: <HelpCircle size={14} /> },
+              ].map((sort) => (
+                <button
+                  key={sort.value}
+                  onClick={() => setSortBy(sort.value as 'recent' | 'popular' | 'unanswered')}
+                  className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                    sortBy === sort.value
+                      ? 'bg-accent-blue text-white'
+                      : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  {sort.icon} {sort.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Category Tabs */}
+          <div className="flex flex-wrap gap-2">
+            {CATEGORIES.map((cat) => (
               <button
-                key={sort.value}
-                onClick={() => setSortBy(sort.value as 'recent' | 'popular' | 'unanswered')}
-                className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                  sortBy === sort.value
+                key={cat.value}
+                onClick={() => setCategoryFilter(cat.value)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  categoryFilter === cat.value
                     ? 'bg-accent-blue text-white'
-                    : 'text-text-secondary hover:text-text-primary'
+                    : 'bg-bg-secondary text-text-secondary hover:text-text-primary border border-white/10'
                 }`}
               >
-                {sort.icon} {sort.label}
+                {cat.label}
               </button>
             ))}
           </div>
+
+          {/* Summary Card - stays with header */}
+          <Card className="!p-4">
+            <div className="flex items-center gap-4 text-sm">
+              <span className="font-bold text-text-primary">
+                {loading ? '…' : total}
+              </span>
+              <span className="text-text-secondary">posts</span>
+              {categoryFilter !== 'all' && (
+                <span className="text-text-secondary">· filtered by {CATEGORIES.find((c) => c.value === categoryFilter)?.label}</span>
+              )}
+            </div>
+          </Card>
         </div>
 
-        {/* Category Tabs */}
-        <div className="flex flex-wrap gap-2">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat.value}
-              onClick={() => setCategoryFilter(cat.value)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                categoryFilter === cat.value
-                  ? 'bg-accent-blue text-white'
-                  : 'bg-bg-secondary text-text-secondary hover:text-text-primary border border-white/10'
-              }`}
-            >
-              {cat.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Posts List */}
+        {/* Scrollable Posts Area - only this scrolls */}
+        <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="animate-spin text-accent-blue" size={32} />
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4 pr-2">
             {posts.map((post) => (
               <Card
                 key={post.id}
@@ -347,14 +419,22 @@ export const ForumPage: React.FC = () => {
             )}
 
             {posts.length > 0 && total > posts.length && (
-              <div className="text-center py-4">
-                <span className="text-text-secondary text-sm">
-                  Showing {posts.length} of {total} posts
-                </span>
-              </div>
+              <>
+                <div ref={loadMoreRef} className="h-4" aria-hidden="true" />
+                <div className="text-center py-4">
+                  {loadingMore ? (
+                    <Loader2 className="animate-spin text-accent-blue mx-auto" size={24} />
+                  ) : (
+                    <span className="text-text-secondary text-sm">
+                      Showing {posts.length} of {total} posts — scroll for more
+                    </span>
+                  )}
+                </div>
+              </>
             )}
           </div>
         )}
+        </div>
       </div>
 
       {/* Sidebar */}
