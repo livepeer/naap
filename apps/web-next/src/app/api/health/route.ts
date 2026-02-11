@@ -19,9 +19,7 @@ export async function GET() {
     VERCEL_ENV: process.env.VERCEL_ENV || 'undefined',
   };
 
-  let dbStatus: { connected: boolean; latencyMs?: number; error?: string } = {
-    connected: false,
-  };
+  let dbStatus: { connected: boolean; latencyMs?: number; error?: string };
 
   try {
     // Dynamic import to avoid module-level init issues

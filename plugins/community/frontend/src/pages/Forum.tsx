@@ -159,7 +159,7 @@ export const ForumPage: React.FC = () => {
     const root = scrollContainerRef.current;
     if (!sentinel || !root) return;
     const observer = new IntersectionObserver(
-      (entries) => {
+      (entries, _observer) => {
         if (entries[0]?.isIntersecting) loadMore();
       },
       { root, rootMargin: '200px', threshold: 0 }

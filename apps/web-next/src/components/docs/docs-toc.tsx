@@ -19,7 +19,7 @@ export function DocsToc({ headings }: DocsTocProps) {
     if (headings.length === 0) return;
 
     const observer = new IntersectionObserver(
-      (entries) => {
+      (entries, _observer) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
             setActiveId(entry.target.id);
