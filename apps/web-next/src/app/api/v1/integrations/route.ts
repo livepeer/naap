@@ -1,59 +1,51 @@
-import {NextRequest, NextResponse } from 'next/server';
+/**
+ * Integrations API Route
+ * GET /api/v1/integrations - List available integrations from the database
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 
-// Available integrations
-const INTEGRATIONS = [
-  {
-    type: 'openai',
-    displayName: 'OpenAI',
-    category: 'ai',
-    description: 'GPT models for AI-powered features',
-    configured: false,
-  },
-  {
-    type: 'anthropic',
-    displayName: 'Anthropic',
-    category: 'ai',
-    description: 'Claude AI models',
-    configured: false,
-  },
-  {
-    type: 'aws-s3',
-    displayName: 'AWS S3',
-    category: 'storage',
-    description: 'Amazon S3 for file storage',
-    configured: false,
-  },
-  {
-    type: 'sendgrid',
-    displayName: 'SendGrid',
-    category: 'email',
-    description: 'Email delivery service',
-    configured: false,
-  },
-  {
-    type: 'stripe',
-    displayName: 'Stripe',
-    category: 'payments',
-    description: 'Payment processing',
-    configured: false,
-  },
-  {
-    type: 'twilio',
-    displayName: 'Twilio',
-    category: 'communications',
-    description: 'SMS and voice services',
-    configured: false,
-  },
+// Fallback catalogue — returned only when the IntegrationConfig table is empty
+// (e.g. fresh deployment before seed). Each entry carries `configured: false`.
+const DEFAULT_INTEGRATIONS = [
+  { type: 'openai', displayName: 'OpenAI', category: 'ai', description: 'GPT models for AI-powered features' },
+  { type: 'anthropic', displayName: 'Anthropic', category: 'ai', description: 'Claude AI models' },
+  { type: 'aws-s3', displayName: 'AWS S3', category: 'storage', description: 'Amazon S3 for file storage' },
+  { type: 'sendgrid', displayName: 'SendGrid', category: 'email', description: 'Email delivery service' },
+  { type: 'stripe', displayName: 'Stripe', category: 'payments', description: 'Payment processing' },
+  { type: 'twilio', displayName: 'Twilio', category: 'communications', description: 'SMS and voice services' },
 ];
 
-// GET /api/v1/integrations - Get available integrations
-export async function GET(request: NextRequest): Promise<NextResponse> {
+export async function GET(_request: NextRequest): Promise<NextResponse> {
   try {
-    // In production, check which integrations are actually configured
-    // by looking at the IntegrationConfig table
+    const rows = await prisma.integrationConfig.findMany({
+      orderBy: { displayName: 'asc' },
+      select: {
+        type: true,
+        displayName: true,
+        configured: true,
+        // Exclude credentials — never expose secrets to clients
+      },
+    });
+
+    if (rows.length > 0) {
+      return success({
+        integrations: rows.map((r) => ({
+          type: r.type,
+          displayName: r.displayName,
+          configured: r.configured,
+        })),
+      });
+    }
+
+    // No rows yet — return the default catalogue
     return success({
-      integrations: INTEGRATIONS,
+      integrations: DEFAULT_INTEGRATIONS.map((d) => ({
+        ...d,
+        configured: false,
+      })),
     });
   } catch (err) {
     console.error('Error fetching integrations:', err);
