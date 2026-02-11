@@ -46,9 +46,6 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
           where: { installedAt: { gte: thirtyDaysAgo } },
           select: { installedAt: true },
         },
-        _count: {
-          select: { installations: true },
-        },
       },
     });
 
@@ -58,7 +55,8 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
 
     // Aggregate real download counts from versions
     const totalDownloads = pkg.versions.reduce((sum, v) => sum + (v.downloads ?? 0), 0);
-    const totalInstalls = pkg._count.installations;
+    // Use the filtered (30-day) installations count to align with the timeline
+    const totalInstalls = pkg.installations.length;
     const versionsCount = pkg.versions.length;
 
     // Build a 30-day installation timeline from real installation data
