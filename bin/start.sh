@@ -53,7 +53,7 @@ log_debug()   { [ "${DEBUG:-}" = "1" ] && echo -e "${DIM}[DEBUG] $1${NC}"; }
 
 preflight_check() {
   local ok=true
-  command -v node  >/dev/null 2>&1 || { log_error "node not found. Install Node.js 18+ from https://nodejs.org/"; ok=false; }
+  command -v node  >/dev/null 2>&1 || { log_error "node not found. Install Node.js 20+ from https://nodejs.org/"; ok=false; }
   command -v npm   >/dev/null 2>&1 || { log_error "npm not found. It comes with Node.js — reinstall from https://nodejs.org/"; ok=false; }
   command -v curl  >/dev/null 2>&1 || { log_error "curl not found. Install via your package manager (brew install curl / apt install curl)."; ok=false; }
   if [ "$ok" = false ]; then
@@ -61,11 +61,11 @@ preflight_check() {
     exit 1
   fi
 
-  # Check Node.js version (require 18+)
+  # Check Node.js version (require 20+)
   local node_major
   node_major=$(node -v | sed 's/v\([0-9]*\).*/\1/')
-  if [ "$node_major" -lt 18 ] 2>/dev/null; then
-    log_error "Node.js v18+ required (found $(node -v)). Upgrade: nvm install 20"
+  if [ "$node_major" -lt 20 ] 2>/dev/null; then
+    log_error "Node.js v20+ required (found $(node -v)). Upgrade: nvm install 20"
     exit 1
   fi
 

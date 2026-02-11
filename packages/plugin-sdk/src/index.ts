@@ -148,5 +148,29 @@ export {
   type PluginEventMap,
 } from './types/services.js';
 
+// Dashboard Data Provider Contracts (Phase 7)
+export {
+  DASHBOARD_QUERY_EVENT,
+  DASHBOARD_JOB_FEED_EVENT,
+  DASHBOARD_JOB_FEED_EMIT_EVENT,
+  DASHBOARD_SCHEMA,
+  createDashboardProvider,
+  getDashboardSchema,
+  type MetricDelta,
+  type DashboardKPI,
+  type DashboardProtocol,
+  type DashboardFeeEntry,
+  type DashboardFeesInfo,
+  type DashboardPipelineUsage,
+  type DashboardGPUCapacity,
+  type DashboardPipelinePricing,
+  type DashboardData,
+  type DashboardQueryRequest,
+  type DashboardQueryResponse,
+  type JobFeedSubscribeResponse,
+  type JobFeedEntry,
+  type DashboardResolvers,
+} from './contracts/index.js';
+
 // SDK version
 export const SDK_VERSION = '1.0.0';

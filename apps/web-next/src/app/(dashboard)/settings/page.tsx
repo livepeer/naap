@@ -24,6 +24,7 @@ interface PluginPreference {
   icon?: string;
   installId?: string;
   isCore?: boolean;
+  installed?: boolean;
 }
 
 interface Integration {
@@ -413,14 +414,19 @@ export default function SettingsPage() {
       });
 
       // Convert plugins to preferences format
-      const prefs = uniquePlugins.map((plugin, idx) => ({
-        name: plugin.name,
-        displayName: plugin.displayName,
-        enabled: plugin.enabled,
-        order: plugin.order ?? idx,
-        pinned: false,
-        icon: plugin.icon,
-      }));
+      // Only include plugins that are explicitly installed (have a preference record)
+      // or are core plugins. Uninstalled plugins should be found in the marketplace.
+      const prefs = uniquePlugins
+        .filter(plugin => plugin.installed !== false)
+        .map((plugin, idx) => ({
+          name: plugin.name,
+          displayName: plugin.displayName,
+          enabled: plugin.enabled,
+          order: plugin.order ?? idx,
+          pinned: false,
+          icon: plugin.icon,
+          installed: plugin.installed,
+        }));
 
       // Try to load user preferences from API
       if (isAuthenticated && user?.id) {
@@ -627,6 +633,7 @@ export default function SettingsPage() {
       if (res.ok) {
         setUserPreferences(prev => prev.filter(p => p.name !== uninstallingPlugin.name));
         await refreshPlugins();
+        eventBus.emit('plugin:uninstalled', { pluginName: uninstallingPlugin.name, teamId: currentTeamId });
         notifications.success(`${uninstallingPlugin.displayName} has been uninstalled`);
       } else {
         notifications.error('Failed to uninstall plugin');
@@ -1020,13 +1027,22 @@ export default function SettingsPage() {
                       {plugin.enabled ? <Eye size={16} /> : <EyeOff size={16} />}
                     </button>
 
-                    <button
-                      onClick={() => handleUninstallClick(plugin)}
-                      className="p-2 rounded-lg bg-muted text-muted-foreground hover:bg-destructive/20 hover:text-destructive transition-all"
-                      title="Uninstall plugin"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {plugin.isCore ? (
+                      <div
+                        className="p-2 rounded-lg bg-muted/50 text-muted-foreground/40 cursor-not-allowed"
+                        title="Core plugin — cannot be uninstalled"
+                      >
+                        <Shield size={16} />
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleUninstallClick(plugin)}
+                        className="p-2 rounded-lg bg-muted text-muted-foreground hover:bg-destructive/20 hover:text-destructive transition-all"
+                        title="Uninstall plugin"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </div>
                 </Reorder.Item>
               ))}

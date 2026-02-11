@@ -79,18 +79,27 @@ interface ShellContext {
 }
 ```
 
-### 4. API Proxy
+### 4. API Routes
 
-Plugin backend requests are proxied through the shell:
+On **Vercel (production)**, plugin API logic runs as Next.js API route handlers at `/api/v1/[plugin-name]/*` — there are no separate backend servers. On **local development**, the shell proxies these requests to standalone Express backends:
 
 ```
-Browser → /api/v1/my-plugin/data
-  → Next.js API Route → Plugin Backend (Express)
+# Production (Vercel)
+Browser → /api/v1/my-plugin/data → Next.js API Route Handler → Database
+
+# Local Development
+Browser → /api/v1/my-plugin/data → Proxy → Express Backend → Database
+```
+
+All API responses use a standard envelope format:
+```typescript
+// Success: { success: true, data: T, meta?: { page, limit, total } }
+// Error:   { success: false, error: { code, message } }
 ```
 
 This ensures:
 - Consistent authentication across all plugins
-- CORS is handled at the shell level
+- No CORS issues (same-origin on Vercel)
 - Plugin backends don't need to be publicly accessible
 
 ## Request Flow
@@ -105,13 +114,16 @@ This ensures:
 
 ## Deployment Model
 
-### Plugin Assets
-Plugin frontend bundles are stored in **Vercel Blob Storage** and served through a CDN route at `/cdn/plugins/[name]/[version]/[file]`.
+### Vercel (Production)
+The entire platform is deployed to **Vercel** as a single Next.js application:
+- **Shell + API Routes**: The Next.js App Router serves the shell UI and 46+ API route handlers that replace the standalone Express backends
+- **Plugin Assets**: UMD bundles are served via the same-origin CDN route at `/cdn/plugins/[name]/[version]/[file]`
+- **Database**: Single PostgreSQL (e.g. Neon) connected via `DATABASE_URL`
 
-### Plugin Backends
-Plugin backend servers run as independent processes or serverless functions. The shell proxies API requests to the appropriate backend.
+### Local Development
+For local development, plugin backends run as standalone Express servers on individual ports (4001-4012). The shell proxies API requests to the appropriate backend.
 
 ### Multi-Tenant
-- **Physical deployment**: One deployment per plugin (shared across users)
 - **Virtual installations**: Per-user/team installations with isolated configs
+- **Data isolation**: Each plugin uses its own PostgreSQL schema within the shared database
 - **Reference counting**: Cleanup when the last user uninstalls

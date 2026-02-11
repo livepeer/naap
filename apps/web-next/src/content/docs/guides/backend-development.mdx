@@ -164,7 +164,12 @@ taskRoutes.get('/items', async (req, res) => {
     }),
   ]);
 
-  res.json({ items, total, page: parseInt(page as string) });
+  // Standard API envelope: { success, data, meta? }
+  res.json({
+    success: true,
+    data: { items },
+    meta: { page: parseInt(page as string), limit: parseInt(limit as string), total },
+  });
 });
 
 // Create item
@@ -180,7 +185,7 @@ taskRoutes.post('/items', async (req, res) => {
     },
   });
 
-  res.status(201).json({ item });
+  res.status(201).json({ success: true, data: { item } });
 });
 
 // Get single item
@@ -190,10 +195,10 @@ taskRoutes.get('/items/:id', async (req, res) => {
   });
 
   if (!item) {
-    return res.status(404).json({ error: 'Item not found' });
+    return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Item not found' } });
   }
 
-  res.json({ item });
+  res.json({ success: true, data: { item } });
 });
 
 // Update item
@@ -203,7 +208,7 @@ taskRoutes.patch('/items/:id', async (req, res) => {
     data: req.body,
   });
 
-  res.json({ item });
+  res.json({ success: true, data: { item } });
 });
 
 // Delete item
@@ -212,7 +217,7 @@ taskRoutes.delete('/items/:id', async (req, res) => {
     where: { id: req.params.id },
   });
 
-  res.json({ success: true });
+  res.json({ success: true, data: null });
 });
 ```
 

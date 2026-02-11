@@ -1,0 +1,34 @@
+# =============================================================================
+# GitHub Copilot Code Review Configuration
+# =============================================================================
+# Configures Copilot's automated code review behavior for this repository.
+# Copilot will review PRs when requested or when configured as a required
+# reviewer in branch protection rules.
+#
+# Docs: https://docs.github.com/en/copilot/using-github-copilot/code-review
+# =============================================================================
+
+# Custom review instructions for Copilot to follow
+review_instructions: |
+  ## Project Context
+  This is a Next.js monorepo (NaaP — Node-as-a-Platform) with a plugin architecture.
+  Key technologies: Next.js 15, React 19, TypeScript, Prisma, TailwindCSS.
+
+  ## Review Focus Areas
+  - **Type safety**: Flag any use of `any` that could be typed properly
+  - **API response handling**: Ensure API responses unwrap the `{ success, data }` envelope correctly
+  - **Plugin isolation**: Plugins should not directly import from the shell or other plugins
+  - **REST semantics**: GET endpoints should be side-effect free (or documented if not)
+  - **Error handling**: All async operations should have proper error handling
+  - **Security**: Check for auth validation in API routes, no secrets in code
+
+  ## Files to Skip
+  - `package-lock.json` (auto-generated)
+  - `**/dist/**` (build output)
+  - `**/.next/**` (Next.js build cache)
+  - `**/coverage/**` (test coverage reports)
+
+  ## Conventions
+  - Commit messages follow Conventional Commits (feat, fix, docs, ci, etc.)
+  - API routes use `success()` and `errors.*()` helpers from `@/lib/api/response`
+  - Plugin frontends use `@naap/plugin-sdk` for backend URL resolution

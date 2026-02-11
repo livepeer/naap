@@ -13,6 +13,7 @@ export default defineConfig({
     exclude: ['node_modules', '.next', 'dist'],
     coverage: {
       provider: 'v8',
+      reportsDirectory: './coverage',
       reporter: ['text', 'json', 'html', 'lcov'],
       exclude: [
         'node_modules/',
@@ -40,6 +41,7 @@ export default defineConfig({
       '@naap/ui': path.resolve(__dirname, '../../packages/ui/src'),
       '@naap/types': path.resolve(__dirname, '../../packages/types/src'),
       '@naap/utils': path.resolve(__dirname, '../../packages/utils/src'),
+      '@naap/plugin-sdk': path.resolve(__dirname, '../../packages/plugin-sdk/src'),
     },
   },
 });

@@ -145,41 +145,99 @@ export const CapacityPage: React.FC = () => {
         return next;
       });
 
-      // Update selected request if open
-      if (selectedRequest?.id === request.id) {
-        setSelectedRequest((prev) => {
-          if (!prev) return prev;
-          if (alreadyCommitted) {
-            return {
-              ...prev,
-              softCommits: prev.softCommits.filter((sc) => sc.userId !== user.id),
-            };
-          }
+      // Update selected request if open — use functional updater to avoid
+      // stale closure over selectedRequest
+      setSelectedRequest((prev) => {
+        if (!prev || prev.id !== request.id) return prev;
+        if (alreadyCommitted) {
           return {
             ...prev,
-            softCommits: [
-              ...prev.softCommits,
-              {
-                id: `sc-${Date.now()}`,
-                userId: user.id,
-                userName: user.name,
-                timestamp: new Date().toISOString(),
-              },
-            ],
+            softCommits: prev.softCommits.filter((sc) => sc.userId !== user.id),
           };
-        });
-      }
+        }
+        return {
+          ...prev,
+          softCommits: [
+            ...prev.softCommits,
+            {
+              id: `sc-${Date.now()}`,
+              userId: user.id,
+              userName: user.name,
+              timestamp: new Date().toISOString(),
+            },
+          ],
+        };
+      });
 
       // Call API (fire and forget with error handling)
       try {
         await apiToggleCommit(request.id, user.id, user.name);
       } catch (err) {
         console.error('[Capacity] Failed to toggle commit:', err);
-        // Revert on error - reload data
-        loadRequests();
+        // Revert the optimistic update for only the affected request
+        // instead of calling loadRequests() which can wipe the list if backend is down
+        setRequests((prev) =>
+          prev.map((r) => {
+            if (r.id !== request.id) return r;
+            if (alreadyCommitted) {
+              // Was removed optimistically — re-add the commit
+              return {
+                ...r,
+                softCommits: [
+                  ...r.softCommits,
+                  {
+                    id: `sc-${Date.now()}`,
+                    userId: user.id,
+                    userName: user.name,
+                    timestamp: new Date().toISOString(),
+                  },
+                ],
+              };
+            }
+            // Was added optimistically — remove it
+            return {
+              ...r,
+              softCommits: r.softCommits.filter((sc) => sc.userId !== user.id),
+            };
+          })
+        );
+        setCommittedIds((prev) => {
+          const next = new Set(prev);
+          if (alreadyCommitted) {
+            next.add(request.id);
+          } else {
+            next.delete(request.id);
+          }
+          return next;
+        });
+        // Also revert selected request if it was open.
+        // Use the functional updater to read current state and avoid stale closure
+        // over `selectedRequest` — the user may have switched to a different request
+        // between the optimistic update and the error callback.
+        setSelectedRequest((prev) => {
+          if (!prev || prev.id !== request.id) return prev;
+          if (alreadyCommitted) {
+            return {
+              ...prev,
+              softCommits: [
+                ...prev.softCommits,
+                {
+                  id: `sc-${Date.now()}`,
+                  userId: user.id,
+                  userName: user.name,
+                  timestamp: new Date().toISOString(),
+                },
+              ],
+            };
+          }
+          return {
+            ...prev,
+            softCommits: prev.softCommits.filter((sc) => sc.userId !== user.id),
+          };
+        });
       }
     },
-    [committedIds, selectedRequest, loadRequests]
+    [committedIds]
   );
 
   const handleAddComment = useCallback(

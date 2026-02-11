@@ -140,7 +140,7 @@ describe('Plugin Sandbox', () => {
     expect(sandboxed).toHaveProperty('logger');
   });
 
-  it('should block token access in strict mode', () => {
+  it('should block token access in strict mode', async () => {
     const mockContext = createMockContext();
     const sandboxed = createSandboxedContext(mockContext as any, {
       pluginName: 'test-plugin',
@@ -148,10 +148,11 @@ describe('Plugin Sandbox', () => {
       strictMode: true,
     });
 
-    expect(sandboxed.auth.getToken()).toBeNull();
+    const token = await sandboxed.auth.getToken();
+    expect(token).toBeFalsy(); // Returns '' or null in strict mode
   });
 
-  it('should allow token access when strict mode is off', () => {
+  it('should allow token access when strict mode is off', async () => {
     const mockContext = createMockContext();
     const sandboxed = createSandboxedContext(mockContext as any, {
       pluginName: 'test-plugin',
@@ -159,7 +160,8 @@ describe('Plugin Sandbox', () => {
       strictMode: false,
     });
 
-    expect(sandboxed.auth.getToken()).toBe('mock-token');
+    const token = await sandboxed.auth.getToken();
+    expect(token).toBe('mock-token');
   });
 
   it('should prefix logger messages with plugin name', () => {
@@ -170,7 +172,7 @@ describe('Plugin Sandbox', () => {
     });
 
     sandboxed.logger.info('test message');
-    expect(mockContext.logger.info).toHaveBeenCalledWith('[my-plugin]', 'test message');
+    expect(mockContext.logger.info).toHaveBeenCalledWith('[my-plugin] test message', undefined);
   });
 
   it('should cleanup sandbox resources', () => {
@@ -266,16 +268,15 @@ describe('Content Security Policy', () => {
 });
 
 describe('Feature Flags', () => {
-  // Import feature flag functions
-  /* eslint-disable @typescript-eslint/no-require-imports */
-  const {
-    getPluginFeatureFlags,
-    updatePluginFeatureFlags,
-    resetPluginFeatureFlags,
-  } = require('../feature-flags');
-  /* eslint-enable @typescript-eslint/no-require-imports */
+  let getPluginFeatureFlags: typeof import('../feature-flags')['getPluginFeatureFlags'];
+  let updatePluginFeatureFlags: typeof import('../feature-flags')['updatePluginFeatureFlags'];
+  let resetPluginFeatureFlags: typeof import('../feature-flags')['resetPluginFeatureFlags'];
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    const mod = await import('../feature-flags');
+    getPluginFeatureFlags = mod.getPluginFeatureFlags;
+    updatePluginFeatureFlags = mod.updatePluginFeatureFlags;
+    resetPluginFeatureFlags = mod.resetPluginFeatureFlags;
     resetPluginFeatureFlags();
   });
 
@@ -329,7 +330,8 @@ describe('Full Plugin Load Flow', () => {
     });
 
     expect(sandboxedContext).toBeDefined();
-    expect(sandboxedContext.auth.getToken()).toBeNull(); // Blocked in strict mode
+    const token = await sandboxedContext.auth.getToken();
+    expect(token).toBeFalsy(); // Blocked in strict mode (returns '' or null)
 
     // 3. Generate CSP headers
     const csp = generatePluginCSP({

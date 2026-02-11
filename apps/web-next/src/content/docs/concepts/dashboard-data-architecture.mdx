@@ -1,0 +1,113 @@
+---
+title: "Dashboard Data Architecture"
+description: "How the dashboard fetches data from provider plugins using GraphQL-over-event-bus contracts"
+order: 6
+---
+
+## Overview
+
+The Network Overview dashboard (`/dashboard`) displays real-time network metrics, protocol info, fees, pipeline usage, GPU capacity, pricing, and a live job feed. All data is provided by **plugins** — the core dashboard contains zero hardcoded data.
+
+This architecture uses a **GraphQL-over-event-bus** pattern: the dashboard sends a GraphQL query string through the event bus, and whichever plugin has registered as the handler executes the query and returns the results.
+
+---
+
+## Why This Design
+
+| Concern | Solution |
+|---|---|
+| **Decoupling** | Core dashboard imports nothing from any plugin. It only uses well-known event names from the SDK. |
+| **Flexibility** | Any plugin can become the data provider — just register a handler. |
+| **Partial data** | GraphQL returns `null` for unresolved fields. Widgets degrade gracefully. |
+| **Single request** | One GraphQL query fetches all widget data in a single event bus round-trip. |
+| **Schema evolution** | Add new fields without breaking existing queries. Deprecate old fields with `@deprecated`. |
+| **Type safety** | The SDK exports TypeScript types that mirror the GraphQL schema. |
+
+---
+
+## Architecture
+
+The system has three layers:
+
+### 1. Plugin SDK (Shared Contracts)
+
+Located in `packages/plugin-sdk/src/contracts/`, this layer defines:
+
+- **`DASHBOARD_SCHEMA`** — the GraphQL SDL string that is the contract
+- **`DASHBOARD_QUERY_EVENT`** — the well-known event name (`'dashboard:query'`)
+- **`DASHBOARD_JOB_FEED_EVENT`** — the job feed subscription event
+- **`DashboardResolvers`** — TypeScript interface for resolver functions
+- **`createDashboardProvider()`** — helper that reduces plugin boilerplate to 3 lines
+
+### 2. Core Dashboard (Consumer)
+
+Located in `apps/web-next/src/app/(dashboard)/dashboard/page.tsx`, the dashboard:
+
+- Defines a GraphQL query string describing what data it needs
+- Calls `useDashboardQuery()` which sends the query via `eventBus.request()`
+- Calls `useJobFeedStream()` for real-time job events
+- Renders widgets from the response data
+- Shows skeletons during loading, fallbacks when no provider exists
+
+### 3. Provider Plugin (Any Plugin)
+
+Any plugin that wants to provide dashboard data:
+
+- Imports `createDashboardProvider` from `@naap/plugin-sdk`
+- Implements resolver functions for the fields it supports
+- Registers on mount, cleans up on unmount
+
+---
+
+## Data Flow: Request/Response
+
+1. **Plugin mounts** — calls `createDashboardProvider(eventBus, resolvers)`, which registers a `handleRequest` handler for `'dashboard:query'`
+2. **Dashboard renders** — calls `useDashboardQuery(NETWORK_OVERVIEW_QUERY)`
+3. **Hook sends request** — `eventBus.request('dashboard:query', { query, variables })`
+4. **Event bus routes to handler** — the registered plugin receives the request
+5. **Plugin executes GraphQL** — `graphql({ schema, source: query, rootValue: resolvers })`
+6. **Result flows back** — `{ data, errors }` returned through the event bus
+7. **Dashboard renders widgets** — each widget receives its typed data via props
+
+---
+
+## Data Flow: Live Job Feed
+
+The job feed uses a two-phase pattern:
+
+1. **Discovery** — Dashboard calls `eventBus.request('dashboard:job-feed:subscribe')` to get channel info
+2. **Streaming** — Based on the response:
+   - **Ably mode**: Subscribe to the returned Ably channel (production)
+   - **Event bus fallback**: Listen for `'dashboard:job-feed:event'` events (local dev)
+
+The mock provider plugin uses the event bus fallback and emits simulated jobs every 3.5 seconds.
+
+---
+
+## SOLID Principles
+
+- **Single Responsibility**: Each file has one job — `dashboard.ts` defines contracts, `createDashboardProvider.ts` handles wiring, `useDashboardQuery.ts` handles fetching, widget components handle rendering
+- **Open/Closed**: Adding a new widget = add a field to the schema + a resolver + a rendering component. No existing code changes.
+- **Liskov Substitution**: Any plugin implementing the same schema can replace another. The mock plugin is a drop-in placeholder for a real provider.
+- **Interface Segregation**: Query contract and stream contract are separate. A plugin can implement one or both.
+- **Dependency Inversion**: Core depends on abstract contracts (schema + event names), never on concrete plugins.
+
+---
+
+## Comparison with Alternatives
+
+| Approach | Pros | Cons |
+|---|---|---|
+| **GraphQL-over-event-bus** (current) | One query, typed contract, partial results, plugin-agnostic | Requires `graphql` package in provider |
+| **Per-widget events** | Simple individual events | 6+ event names, 6+ types, no partial results, chatty |
+| **Direct REST calls** | Familiar HTTP pattern | Plugin-name-dependent URLs, multiple round-trips |
+| **Full GraphQL server** | Standard tooling (Apollo, etc.) | Heavy infrastructure, HTTP overhead, not needed for in-process communication |
+
+---
+
+## Security
+
+- Events are **team-scoped** by default — the event bus automatically prefixes business events with the current team ID
+- **Sandboxed plugins** run with restricted event bus access (plugin name prefix enforced)
+- The `graphql` execution is in-process — no network boundary to secure
+- The provider plugin's resolvers control what data is returned
