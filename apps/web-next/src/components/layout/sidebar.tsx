@@ -241,10 +241,14 @@ export function Sidebar() {
   };
 
   // Memoize plugin lists
+  // Filter by enabled AND installed: only show plugins the user has actually installed.
+  // The personalized API sets enabled=false when installed=false, but we add this
+  // defensive check so sidebar never shows plugins that are "not installed" per marketplace.
   const { mainPlugins, networkPlugins } = useMemo(() => {
     const seenPlugins = new Set<string>();
     const uniquePlugins = (plugins || []).filter(p => {
       if (!p?.enabled) return false;
+      if (p.installed === false) return false;
       // Skip headless plugins (no routes) — they are background providers, not nav items
       if (!p.routes || p.routes.length === 0) return false;
       const normalized = normalizePluginName(p.name);

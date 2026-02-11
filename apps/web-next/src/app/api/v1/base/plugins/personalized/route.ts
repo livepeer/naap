@@ -148,6 +148,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                 isCore: pkg.isCore || isCorePlugin(pkg.name),
                 category: pkg.category || 'other',
                 metadata: {},
+                installed: true, // Team plugins are installed for the team
               };
             });
 
@@ -158,6 +159,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
               ...plugin,
               enabled: true,
               isCore: true,
+              installed: true,
             }));
 
           // Combine team plugins with core plugins and headless providers
@@ -180,14 +182,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         console.warn('Error fetching team plugins:', teamErr);
         const coreGlobalPlugins = globalPlugins
           .filter(p => isCorePlugin(p.name))
-          .map(plugin => ({ ...plugin, enabled: true, isCore: true }));
+          .map(plugin => ({ ...plugin, enabled: true, isCore: true, installed: true }));
         return success({ plugins: [...coreGlobalPlugins, ...headlessPlugins], context: 'team', teamId, error: 'Failed to load team plugins' });
       }
 
       // User is not a team member - return core plugins + headless providers
       const coreGlobalPlugins = globalPlugins
         .filter(p => isCorePlugin(p.name))
-        .map(plugin => ({ ...plugin, enabled: true, isCore: true }));
+        .map(plugin => ({ ...plugin, enabled: true, isCore: true, installed: true }));
       return success({ plugins: [...coreGlobalPlugins, ...headlessPlugins], context: 'team', teamId });
     }
 
@@ -240,16 +242,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Merge global plugins with user preferences.
     // Each plugin gets `installed` and `isCore` flags.
+    // CRITICAL: When installed=false, also set enabled=false so sidebar/menu only shows
+    // plugins the user has actually installed (or core). This prevents the inconsistency
+    // where marketplace shows "not installed" but sidebar still displays the plugin.
     const mergedPlugins = globalPlugins
       .map((plugin) => {
         const userPref = preferencesMap.get(plugin.name);
         const isCore = isCorePlugin(plugin.name);
+        const installed = !!userPref || isCore;
+        const baseEnabled = userPref ? userPref.enabled : plugin.enabled;
         return {
           ...plugin,
-          enabled: userPref ? userPref.enabled : plugin.enabled,
+          enabled: installed ? baseEnabled : false,
           order: userPref?.order ?? plugin.order,
           pinned: userPref?.pinned ?? false,
-          installed: !!userPref || isCore,
+          installed,
           isCore,
         };
       })
