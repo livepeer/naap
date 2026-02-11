@@ -121,6 +121,11 @@ export function createExternalProxy(config: ExternalProxyConfig): RequestHandler
     logger = { info: console.log, error: console.error },
   } = config;
 
+  // Normalize allowedHosts at initialization to handle case/trailing dots
+  const normalizedAllowedHosts = allowedHosts.map((h) =>
+    h.trim().replace(/\.$/, '').toLowerCase()
+  );
+
   const isJson = contentType === 'application/json';
 
   // Pick the right body parser based on content type
@@ -163,8 +168,9 @@ export function createExternalProxy(config: ExternalProxyConfig): RequestHandler
 
       // SSRF protection: exact hostname match or valid subdomain match
       // Using `.${h}` prefix prevents attacks like "evil-livepeer.com" matching "livepeer.com"
-      const isAllowedHost = allowedHosts.some(
-        (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`)
+      const normalizedHostname = parsed.hostname.replace(/\.$/, '').toLowerCase();
+      const isAllowedHost = normalizedAllowedHosts.some(
+        (h) => normalizedHostname === h || normalizedHostname.endsWith(`.${h}`)
       );
       if (!isAllowedHost) {
         return res.status(400).json({

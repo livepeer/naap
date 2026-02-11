@@ -10,6 +10,8 @@
 /**
  * Validate that a URL is safe for server-side requests (SSRF protection).
  * Blocks requests to private/internal networks and non-http(s) protocols.
+ * Covers: loopback (127.0.0.0/8), link-local (169.254.0.0/16, fe80::/10),
+ * private (10/8, 172.16/12, 192.168/16), ULA (fc00::/7), and special names.
  */
 function validateExternalUrl(url: string): { valid: boolean; error?: string } {
   let parsed: URL;
@@ -23,15 +25,21 @@ function validateExternalUrl(url: string): { valid: boolean; error?: string } {
     return { valid: false, error: `Unsupported protocol: ${parsed.protocol}` };
   }
 
-  const hostname = parsed.hostname.toLowerCase();
+  // Normalize: strip trailing dots and lowercase
+  const hostname = parsed.hostname.replace(/\.$/, '').toLowerCase();
+  const isIpv6Literal = hostname.includes(':');
   if (
     hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
+    hostname.startsWith('127.') ||
     hostname === '::1' ||
     hostname === '0.0.0.0' ||
+    hostname.startsWith('0.') ||
+    hostname.startsWith('169.254.') ||
     hostname.startsWith('10.') ||
     hostname.startsWith('192.168.') ||
     /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+    (isIpv6Literal &&
+      (hostname.startsWith('fe80:') || hostname.startsWith('fc') || hostname.startsWith('fd'))) ||
     hostname.endsWith('.internal') ||
     hostname.endsWith('.local') ||
     hostname.endsWith('.localhost')
