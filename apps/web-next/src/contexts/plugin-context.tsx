@@ -49,16 +49,11 @@ export function PluginProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const hasFetchedRef = useRef(false);
+  const prevAuthRef = useRef<boolean | undefined>(undefined);
 
-  // Fetch plugins from API
+  // Fetch plugins from API. Always fetch — API returns global plugins for unauthenticated
+  // requests, so headless plugins (e.g. dashboard-provider-mock) can load before login.
   const fetchPlugins = useCallback(async () => {
-    if (!isAuthenticated) {
-      setPlugins([]);
-      setPluginStates(new Map());
-      setIsLoading(false);
-      return;
-    }
-
     setIsLoading(true);
     setError(null);
 
@@ -145,28 +140,22 @@ export function PluginProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated]);
+  }, []);
 
-  // Initial fetch - only trigger on isAuthenticated change to prevent double-fetching
+  // Fetch on mount. API returns global plugins without auth, personalized when auth.
   useEffect(() => {
-    // Prevent double-fetching in StrictMode
-    if (hasFetchedRef.current && !isAuthenticated) {
-      // Reset when user logs out
-      hasFetchedRef.current = false;
-      setPlugins([]);
-      setPluginStates(new Map());
-      setIsLoading(false);
-      return;
-    }
-    
-    if (isAuthenticated && !hasFetchedRef.current) {
+    if (!hasFetchedRef.current) {
       hasFetchedRef.current = true;
       fetchPlugins();
-    } else if (!isAuthenticated) {
-      setPlugins([]);
-      setPluginStates(new Map());
-      setIsLoading(false);
     }
+  }, [fetchPlugins]);
+
+  // Refetch when auth changes (login/logout). Avoid refetch on initial mount.
+  useEffect(() => {
+    const prev = prevAuthRef.current;
+    prevAuthRef.current = isAuthenticated;
+    if (prev === undefined) return; // initial mount, skip
+    if (prev !== isAuthenticated) fetchPlugins();
   }, [isAuthenticated, fetchPlugins]);
 
   // Helper functions
