@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { Prisma } from '@naap/database';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
 import { validateCSRF } from '@/lib/api/csrf';
@@ -17,7 +18,7 @@ import { validateCSRF } from '@/lib/api/csrf';
  * the frontend expects (CapacityRequest from @naap/types).
  *
  * Key transformations:
- *  - DateTime → ISO string
+ *  - DateTime → ISO string (dates formatted as YYYY-MM-DD in UTC)
  *  - Enum status (ACTIVE) → lowercase ('active')
  *  - SoftCommit.createdAt → timestamp
  */
@@ -52,6 +53,14 @@ function serialiseRequest(r: {
     createdAt: Date;
   }>;
 }) {
+  /** Format a Date as UTC YYYY-MM-DD to avoid timezone off-by-one issues. */
+  const toDateString = (d: Date): string => {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
   return {
     id: r.id,
     requesterName: r.requesterName,
@@ -62,9 +71,9 @@ function serialiseRequest(r: {
     cudaVersion: r.cudaVersion,
     count: r.count,
     pipeline: r.pipeline,
-    startDate: r.startDate.toISOString().split('T')[0],
-    endDate: r.endDate.toISOString().split('T')[0],
-    validUntil: r.validUntil.toISOString().split('T')[0],
+    startDate: toDateString(r.startDate),
+    endDate: toDateString(r.endDate),
+    validUntil: toDateString(r.validUntil),
     hourlyRate: r.hourlyRate,
     reason: r.reason,
     riskLevel: r.riskLevel,
@@ -98,8 +107,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const vramMin = searchParams.get('vramMin');
     const sort = searchParams.get('sort');
 
-    // Build Prisma where clause
-    const where: Record<string, unknown> = {};
+    // Build Prisma where clause with proper types
+    const where: Prisma.CapacityRequestWhereInput = {};
 
     if (pipeline) {
       where.pipeline = pipeline;
@@ -111,28 +120,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (vramMin) {
       const vramMinNum = parseInt(vramMin, 10);
-      if (!isNaN(vramMinNum)) {
+      if (Number.isFinite(vramMinNum)) {
         where.vram = { gte: vramMinNum };
       }
     }
 
     if (search) {
-      const q = search;
       where.OR = [
-        { requesterName: { contains: q, mode: 'insensitive' } },
-        { gpuModel: { contains: q, mode: 'insensitive' } },
-        { pipeline: { contains: q, mode: 'insensitive' } },
-        { reason: { contains: q, mode: 'insensitive' } },
+        { requesterName: { contains: search, mode: 'insensitive' } },
+        { gpuModel: { contains: search, mode: 'insensitive' } },
+        { pipeline: { contains: search, mode: 'insensitive' } },
+        { reason: { contains: search, mode: 'insensitive' } },
       ];
     }
 
-    // Build orderBy
-    let orderBy: Record<string, string> = { createdAt: 'desc' };
+    // Build orderBy with proper Prisma type
+    let orderBy: Prisma.CapacityRequestOrderByWithRelationInput = { createdAt: 'desc' };
     if (sort === 'newest') orderBy = { createdAt: 'desc' };
     else if (sort === 'gpuCount') orderBy = { count: 'desc' };
     else if (sort === 'hourlyRate') orderBy = { hourlyRate: 'desc' };
     else if (sort === 'riskLevel') orderBy = { riskLevel: 'desc' };
     else if (sort === 'deadline') orderBy = { validUntil: 'asc' };
+    else if (sort === 'mostCommits') {
+      // Prisma supports ordering by relation count via _count
+      orderBy = { softCommits: { _count: 'desc' } };
+    }
 
     const requests = await prisma.capacityRequest.findMany({
       where,
@@ -143,18 +155,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
     });
 
-    const serialised = requests.map(serialiseRequest);
-
-    // For 'mostCommits' sort, sort in JS after fetching (Prisma can't order by relation count easily)
-    if (sort === 'mostCommits') {
-      serialised.sort((a, b) => b.softCommits.length - a.softCommits.length);
-    }
-
-    return success(serialised);
+    return success(requests.map(serialiseRequest));
   } catch (err) {
     console.error('Error fetching capacity requests:', err);
     return errors.internal('Failed to fetch capacity requests');
   }
+}
+
+/** Parse a numeric value from the request body, accepting both string and number. */
+function parseNum(value: unknown, fallback?: number): number | undefined {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'string') {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  return fallback;
+}
+
+/** Parse a date string and validate it is a real date. */
+function parseDate(value: unknown): Date | null {
+  if (typeof value !== 'string' || !value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 /**
@@ -195,22 +217,41 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // Parse and validate numeric fields
+    const vram = parseNum(body.vram);
+    const count = parseNum(body.count);
+    const hourlyRate = parseNum(body.hourlyRate);
+    const riskLevel = parseNum(body.riskLevel, 3);
+
+    if (vram === undefined || count === undefined || hourlyRate === undefined) {
+      return errors.badRequest('vram, count, and hourlyRate must be valid numbers');
+    }
+
+    // Parse and validate date fields
+    const startDate = parseDate(body.startDate);
+    const endDate = parseDate(body.endDate);
+    const validUntil = parseDate(body.validUntil);
+
+    if (!startDate || !endDate || !validUntil) {
+      return errors.badRequest('startDate, endDate, and validUntil must be valid date strings');
+    }
+
     const created = await prisma.capacityRequest.create({
       data: {
         requesterName: body.requesterName as string,
         requesterAccount: (body.requesterAccount as string) || '0x0000...0000',
         gpuModel: body.gpuModel as string,
-        vram: typeof body.vram === 'string' ? parseInt(body.vram as string, 10) : (body.vram as number),
+        vram,
         osVersion: (body.osVersion as string) || 'Any',
         cudaVersion: (body.cudaVersion as string) || 'Any',
-        count: typeof body.count === 'string' ? parseInt(body.count as string, 10) : (body.count as number),
+        count,
         pipeline: body.pipeline as string,
-        startDate: new Date(body.startDate as string),
-        endDate: new Date(body.endDate as string),
-        validUntil: new Date(body.validUntil as string),
-        hourlyRate: typeof body.hourlyRate === 'string' ? parseFloat(body.hourlyRate as string) : (body.hourlyRate as number),
+        startDate,
+        endDate,
+        validUntil,
+        hourlyRate,
         reason: body.reason as string,
-        riskLevel: body.riskLevel ? (typeof body.riskLevel === 'string' ? parseInt(body.riskLevel as string, 10) : (body.riskLevel as number)) : 3,
+        riskLevel: riskLevel ?? 3,
         status: 'ACTIVE',
       },
       include: {
