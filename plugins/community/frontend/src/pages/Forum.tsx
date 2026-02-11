@@ -57,8 +57,6 @@ export const ForumPage: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const postsLengthRef = useRef(0);
   const votedPostsRef = useRef<Set<string>>(new Set());
-  postsLengthRef.current = posts.length;
-  votedPostsRef.current = votedPosts;
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [sortBy, setSortBy] = useState<'recent' | 'popular' | 'unanswered'>('recent');
@@ -66,6 +64,9 @@ export const ForumPage: React.FC = () => {
   const [votedPosts, setVotedPosts] = useState<Set<string>>(new Set());
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [tags, setTags] = useState<TagType[]>([]);
+
+  postsLengthRef.current = posts.length;
+  votedPostsRef.current = votedPosts;
 
   const LIMIT = 20;
 
