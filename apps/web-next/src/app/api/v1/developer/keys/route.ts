@@ -86,11 +86,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return errors.badRequest('Invalid JSON in request body');
     }
 
-    const { projectName, modelId, gatewayId } = body as {
-      projectName?: string;
-      modelId?: string;
-      gatewayId?: string;
-    };
+    const projectName = body.projectName;
+    const modelId = body.modelId;
+    const gatewayId = body.gatewayId;
 
     if (
       typeof projectName !== 'string' ||

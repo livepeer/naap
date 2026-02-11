@@ -8,37 +8,28 @@ import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 
 /**
- * Static metadata for known integration types.
+ * Single source of truth for known integration metadata.
  * The IntegrationConfig DB model stores only type, displayName, and configured.
- * category and description are enriched from this map so the response shape is
- * consistent regardless of whether DB rows exist.
+ * displayName, category, and description are enriched from this map so the
+ * response shape is consistent regardless of whether DB rows exist.
  */
-const INTEGRATION_META: Record<string, { category: string; description: string }> = {
-  openai: { category: 'ai', description: 'GPT models for AI-powered features' },
-  anthropic: { category: 'ai', description: 'Claude AI models' },
-  'aws-s3': { category: 'storage', description: 'Amazon S3 for file storage' },
-  sendgrid: { category: 'email', description: 'Email delivery service' },
-  stripe: { category: 'payments', description: 'Payment processing' },
-  twilio: { category: 'communications', description: 'SMS and voice services' },
-};
-
-// Display name overrides for entries that need special casing
-const DISPLAY_NAME_OVERRIDES: Record<string, string> = {
-  openai: 'OpenAI',
-  anthropic: 'Anthropic',
-  'aws-s3': 'AWS S3',
-  sendgrid: 'SendGrid',
-  stripe: 'Stripe',
-  twilio: 'Twilio',
+const INTEGRATION_META: Record<string, { displayName: string; category: string; description: string }> = {
+  openai: { displayName: 'OpenAI', category: 'ai', description: 'GPT models for AI-powered features' },
+  anthropic: { displayName: 'Anthropic', category: 'ai', description: 'Claude AI models' },
+  'aws-s3': { displayName: 'AWS S3', category: 'storage', description: 'Amazon S3 for file storage' },
+  sendgrid: { displayName: 'SendGrid', category: 'email', description: 'Email delivery service' },
+  stripe: { displayName: 'Stripe', category: 'payments', description: 'Payment processing' },
+  twilio: { displayName: 'Twilio', category: 'communications', description: 'SMS and voice services' },
 };
 
 // Fallback catalogue — returned only when the IntegrationConfig table is empty
 // (e.g. fresh deployment before seed). Each entry carries `configured: false`.
 const DEFAULT_INTEGRATIONS = Object.entries(INTEGRATION_META).map(([type, meta]) => ({
   type,
-  displayName: DISPLAY_NAME_OVERRIDES[type] ?? type.charAt(0).toUpperCase() + type.slice(1),
+  displayName: meta.displayName,
   configured: false,
-  ...meta,
+  category: meta.category,
+  description: meta.description,
 }));
 
 export async function GET(_request: NextRequest): Promise<NextResponse> {
