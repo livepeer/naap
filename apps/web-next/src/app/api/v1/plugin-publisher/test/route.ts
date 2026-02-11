@@ -103,6 +103,7 @@ async function testFrontendLoading(
     const response = await fetch(frontendUrl, {
       method: 'GET',
       signal: controller.signal,
+      redirect: 'error',
       headers: {
         'Accept': '*/*',
       },
@@ -170,6 +171,7 @@ async function testBackendHealth(
     const response = await fetch(healthUrl, {
       method: 'GET',
       signal: controller.signal,
+      redirect: 'error',
     });
 
     clearTimeout(timeoutId);

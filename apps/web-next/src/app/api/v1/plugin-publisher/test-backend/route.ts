@@ -95,6 +95,7 @@ async function testBackendHealth(
     const response = await fetch(healthUrl, {
       method: 'GET',
       signal: controller.signal,
+      redirect: 'error',
     });
 
     clearTimeout(timeoutId);

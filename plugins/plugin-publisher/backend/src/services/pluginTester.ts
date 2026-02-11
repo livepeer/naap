@@ -124,6 +124,7 @@ export async function testFrontendLoading(
 
     const response = await fetch(bundleUrl, {
       signal: controller.signal,
+      redirect: 'error',
     });
 
     clearTimeout(timeoutId);
@@ -280,6 +281,7 @@ export async function testBackendHealth(
 
     const response = await fetch(healthUrl, {
       signal: controller.signal,
+      redirect: 'error',
     });
 
     clearTimeout(timeoutId);

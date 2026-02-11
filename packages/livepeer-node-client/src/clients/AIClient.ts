@@ -195,7 +195,10 @@ export class LivepeerAIClient {
 
   async getLiveVideoStatus(streamId: string): Promise<{ status: string }> {
     const safeId = this.sanitizePath(streamId);
-    const res = await fetch(`${this.baseUrl}/live/video-to-video/${safeId}/status`);
+    const url = new URL(`/live/video-to-video/${safeId}/status`, this.baseUrl);
+    // Verify origin matches baseUrl (defense-in-depth; baseUrl is already validated in constructor)
+    if (url.origin !== new URL(this.baseUrl).origin) throw new Error('URL origin mismatch');
+    const res = await fetch(url.toString());
     if (!res.ok) throw new Error(`Get live status failed: ${res.status}`);
     return res.json();
   }

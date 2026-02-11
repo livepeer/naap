@@ -86,6 +86,7 @@ async function testFrontendLoading(
       method: 'GET',
       signal: controller.signal,
       headers: { Accept: '*/*' },
+      redirect: 'error',
     });
 
     clearTimeout(timeoutId);

@@ -156,7 +156,7 @@ function registerNode(node: LivepeerNode): void {
   nodes.set(node.id, node);
 }
 
-function isAllowedAiUrl(url: string | undefined): boolean {
+function isAllowedLoopbackUrl(url: string | undefined): boolean {
   if (!url) return true;
   let parsed: URL;
   try {
@@ -167,9 +167,10 @@ function isAllowedAiUrl(url: string | undefined): boolean {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return false;
   }
-  // Restrict AI gateways to loopback hosts to prevent SSRF to arbitrary hosts.
+  // Restrict to loopback hosts to prevent SSRF to arbitrary hosts.
+  const hostname = parsed.hostname.replace(/\.$/, '');
   const allowedHosts = new Set(['localhost', '127.0.0.1', '::1']);
-  return allowedHosts.has(parsed.hostname);
+  return allowedHosts.has(hostname);
 }
 
 registerNode({
@@ -484,7 +485,12 @@ router.post('/livepeer/nodes', async (req, res) => {
   if (!id || !cliUrl) {
     return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'id and cliUrl required' } });
   }
-  if (!isAllowedAiUrl(aiUrl)) {
+  if (!isAllowedLoopbackUrl(cliUrl)) {
+    return res
+      .status(400)
+      .json({ success: false, error: { code: 'BAD_REQUEST', message: 'invalid cliUrl' } });
+  }
+  if (!isAllowedLoopbackUrl(aiUrl)) {
     return res
       .status(400)
       .json({ success: false, error: { code: 'BAD_REQUEST', message: 'invalid aiUrl' } });
