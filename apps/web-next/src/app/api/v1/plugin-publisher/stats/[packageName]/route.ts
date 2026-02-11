@@ -82,8 +82,8 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
       if (!inst.installedAt) continue;
       const instDate = new Date(inst.installedAt);
       const diffMs = instDate.getTime() - thirtyDaysAgo.getTime();
-      const dayIndex = Math.min(29, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
-      if (dayIndex >= 0) {
+      const dayIndex = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+      if (dayIndex >= 0 && dayIndex <= 29) {
         timeline[dayIndex].installs += 1;
       }
     }
