@@ -22,16 +22,7 @@ const INTEGRATION_META: Record<string, { category: string; description: string }
   twilio: { category: 'communications', description: 'SMS and voice services' },
 };
 
-// Fallback catalogue — returned only when the IntegrationConfig table is empty
-// (e.g. fresh deployment before seed). Each entry carries `configured: false`.
-const DEFAULT_INTEGRATIONS = Object.entries(INTEGRATION_META).map(([type, meta]) => ({
-  type,
-  displayName: type.charAt(0).toUpperCase() + type.slice(1),
-  configured: false,
-  ...meta,
-}));
-
-// Override display names for entries that need special casing
+// Display name overrides for entries that need special casing
 const DISPLAY_NAME_OVERRIDES: Record<string, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
@@ -40,9 +31,15 @@ const DISPLAY_NAME_OVERRIDES: Record<string, string> = {
   stripe: 'Stripe',
   twilio: 'Twilio',
 };
-DEFAULT_INTEGRATIONS.forEach((i) => {
-  if (DISPLAY_NAME_OVERRIDES[i.type]) i.displayName = DISPLAY_NAME_OVERRIDES[i.type];
-});
+
+// Fallback catalogue — returned only when the IntegrationConfig table is empty
+// (e.g. fresh deployment before seed). Each entry carries `configured: false`.
+const DEFAULT_INTEGRATIONS = Object.entries(INTEGRATION_META).map(([type, meta]) => ({
+  type,
+  displayName: DISPLAY_NAME_OVERRIDES[type] ?? type.charAt(0).toUpperCase() + type.slice(1),
+  configured: false,
+  ...meta,
+}));
 
 export async function GET(_request: NextRequest): Promise<NextResponse> {
   try {
