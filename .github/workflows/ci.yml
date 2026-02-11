@@ -357,7 +357,7 @@ jobs:
           NEXTAUTH_SECRET: test-secret-at-least-32-characters-long
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: nextjs-build
           path: apps/web-next/.next
