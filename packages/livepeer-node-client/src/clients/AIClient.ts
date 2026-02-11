@@ -68,6 +68,11 @@ export class LivepeerAIClient {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new Error(`LivepeerAIClient: unsupported protocol "${parsed.protocol}"`);
     }
+    // Only allow loopback hosts for the AI gateway to avoid SSRF against arbitrary hosts.
+    const allowedHosts = new Set(['localhost', '127.0.0.1', '::1']);
+    if (!allowedHosts.has(parsed.hostname)) {
+      throw new Error(`LivepeerAIClient: disallowed hostname "${parsed.hostname}"`);
+    }
     this.baseUrl = baseUrl.replace(/\/$/, '');
   }
 
