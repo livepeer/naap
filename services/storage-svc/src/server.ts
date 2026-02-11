@@ -10,6 +10,11 @@ import path from 'path';
 import crypto from 'crypto';
 import { createStorageAdapter, type StorageConfig, type StorageAdapter } from './services/storage.js';
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 const app = express();
 const PORT = process.env.PORT || 4100;
 
@@ -341,7 +346,7 @@ app.post('/api/v1/storage/plugins/:name/:version/invalidate', async (req, res) =
     // For CloudFront: CreateInvalidation API
     // For Cloudflare: Purge Cache API
     
-    console.log(`Cache invalidation requested for: ${prefix}`);
+    console.log(`Cache invalidation requested for: ${sanitizeForLog(prefix)}`);
     
     res.json({
       success: true,

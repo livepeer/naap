@@ -49,9 +49,14 @@ app.use(express.json({ limit: '1mb' }));
 // Rate limiting middleware (Redis-backed with memory fallback)
 app.use(standardRateLimit);
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 // Request logging
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  console.log(`[${new Date().toISOString()}] ${sanitizeForLog(req.method)} ${sanitizeForLog(req.path)}`);
   next();
 });
 

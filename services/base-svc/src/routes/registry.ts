@@ -8,6 +8,11 @@
 import { Router, Request, Response } from 'express';
 import type { AuditLogInput } from '../services/lifecycle';
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 // ---------------------------------------------------------------------------
 // Dependency interface
 // ---------------------------------------------------------------------------
@@ -525,7 +530,7 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
             verification: { errors: verification.errors, warnings: verification.warnings, checks: verification.checks },
           });
         }
-        console.log(`[publish] Verification passed for ${manifest.name}@${manifest.version}:`,
+        console.log(`[publish] Verification passed for ${sanitizeForLog(manifest.name)}@${sanitizeForLog(manifest.version)}:`,
           verification.checks.map(c => `${c.name}: ${c.passed ? '✓' : '✗'}`).join(', '));
       }
 
@@ -604,7 +609,7 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
             verification: { errors: verification.errors, warnings: verification.warnings, checks: verification.checks },
           });
         }
-        console.log(`[publish/token] Verification passed for ${manifest.name}@${manifest.version}`);
+        console.log(`[publish/token] Verification passed for ${sanitizeForLog(manifest.name)}@${sanitizeForLog(manifest.version)}`);
       }
 
       const existingPkg = await db.pluginPackage.findUnique({ where: { name: manifest.name } });

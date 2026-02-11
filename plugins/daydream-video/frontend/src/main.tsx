@@ -25,6 +25,9 @@ applyTheme('dark');
 // Listen for shell:init message when in iframe
 if (isInIframe) {
   window.addEventListener('message', (event) => {
+    // Verify message origin to prevent cross-origin attacks
+    if (event.origin !== window.location.origin) return;
+
     const { type, context } = event.data || {};
 
     if (type === 'shell:init') {

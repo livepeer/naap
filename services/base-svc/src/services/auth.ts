@@ -8,6 +8,11 @@
 import * as crypto from 'crypto';
 import { PrismaClient } from '@naap/database';
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 // Simple password hashing using crypto (no external deps needed for dev)
 // In production, use bcrypt
 async function hashPassword(password: string): Promise<string> {
@@ -121,7 +126,7 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
           data: { lockedUntil },
         });
 
-        console.log(`Account locked: ${email} until ${lockedUntil.toISOString()}`);
+        console.log(`Account locked: ${sanitizeForLog(email)} until ${lockedUntil.toISOString()}`);
       }
     }
   }
@@ -637,7 +642,7 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
       });
 
       // In production, send email. For now, log to console
-      console.log(`[PASSWORD RESET] Token for ${email}: ${token}`);
+      console.log(`[PASSWORD RESET] Token for ${sanitizeForLog(email)}: ${token}`);
       console.log(`[PASSWORD RESET] Reset URL: /auth/reset-password?token=${token}`);
 
       return { success: true, message: 'If an account exists, a reset link has been sent.' };

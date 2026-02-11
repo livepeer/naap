@@ -5,6 +5,11 @@
  * API Docs: https://docs.daydream.live/quickstart
  */
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 const DAYDREAM_API = 'https://api.daydream.live';
 
 // Available models based on Daydream API documentation
@@ -264,7 +269,7 @@ export async function updateStreamParams(
     params: updateParams,
   };
 
-  console.log(`Updating stream ${streamId} with:`, JSON.stringify(body, null, 2));
+  console.log(`Updating stream ${sanitizeForLog(streamId)} with:`, JSON.stringify(body, null, 2));
 
   const response = await fetch(`${DAYDREAM_API}/v1/streams/${streamId}`, {
     method: 'PATCH',
@@ -277,12 +282,12 @@ export async function updateStreamParams(
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`Update stream error for ${streamId}:`, response.status, errorText);
+    console.error(`Update stream error for ${sanitizeForLog(streamId)}:`, response.status, sanitizeForLog(errorText));
     throw new Error(`Failed to update stream: ${response.status} ${errorText}`);
   }
 
   const result = await response.json();
-  console.log(`Stream ${streamId} updated successfully`);
+  console.log(`Stream ${sanitizeForLog(streamId)} updated successfully`);
   return result;
 }
 

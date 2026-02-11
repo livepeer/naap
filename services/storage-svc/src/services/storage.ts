@@ -90,6 +90,14 @@ function createLocalAdapter(config: StorageConfig): StorageAdapter {
   return {
     async upload(file: Buffer, filePath: string, contentType?: string): Promise<string> {
       const fullPath = path.join(basePath, filePath);
+      
+      // Validate that the resolved path stays within the storage base directory
+      const resolvedBase = path.resolve(basePath);
+      const resolvedFull = path.resolve(fullPath);
+      if (!resolvedFull.startsWith(resolvedBase + path.sep)) {
+        throw new Error('File path outside expected storage directory');
+      }
+
       const dir = path.dirname(fullPath);
       
       await fs.mkdir(dir, { recursive: true });
@@ -108,6 +116,11 @@ function createLocalAdapter(config: StorageConfig): StorageAdapter {
 
     async download(filePath: string): Promise<Buffer> {
       const fullPath = path.join(basePath, filePath);
+      // Validate that the resolved path stays within the storage base directory
+      const resolvedFull = path.resolve(fullPath);
+      if (!resolvedFull.startsWith(path.resolve(basePath) + path.sep)) {
+        throw new Error('File path outside expected storage directory');
+      }
       return fs.readFile(fullPath);
     },
 

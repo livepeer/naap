@@ -191,9 +191,18 @@ const PORT = process.env.PLUGIN_SERVER_PORT || 3100;
 const ROOT_DIR = path.resolve(__dirname, '../../..');
 const PLUGINS_DIR = path.join(ROOT_DIR, 'plugins');
 
-// CORS configuration - allow requests from shell and other origins
+// CORS configuration - validate origins against allowlist
+const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '').split(',').filter(Boolean);
+
 app.use(cors({
-  origin: true, // Allow all origins in development
+  origin: (origin, callback) => {
+    // Allow requests with no origin (server-to-server, curl, etc.)
+    if (!origin) return callback(null, true);
+    if (CORS_ALLOWED_ORIGINS.length === 0 || CORS_ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 
@@ -202,10 +211,15 @@ app.use(cors({
 // Setting it explicitly can sometimes cause issues with cross-origin iframes
 // The parent page's iframe allow attribute controls delegation
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 // Request logging in development
 if (process.env.NODE_ENV !== 'production') {
   app.use((req: Request, _res: Response, next: NextFunction) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+    console.log(`[${new Date().toISOString()}] ${sanitizeForLog(req.method)} ${sanitizeForLog(req.path)}`);
     next();
   });
 }

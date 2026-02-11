@@ -105,12 +105,23 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
 
   // ─── Base Middleware ────────────────────────────────────────────────
 
-  // CORS
-  const origins = corsOrigins || (process.env.NODE_ENV === 'production'
-    ? [process.env.ALLOWED_ORIGIN || 'https://naap.dev']
-    : '*');
+  // CORS - validate origins against allowlist
+  const configuredOrigins = corsOrigins
+    || (process.env.CORS_ALLOWED_ORIGINS || '').split(',').filter(Boolean);
+  const originsArray: string[] = Array.isArray(configuredOrigins)
+    ? configuredOrigins
+    : (typeof configuredOrigins === 'string' && configuredOrigins !== '*'
+      ? [configuredOrigins]
+      : []);
   app.use(cors({
-    origin: origins,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (server-to-server, curl, etc.)
+      if (!origin) return callback(null, true);
+      if (originsArray.length === 0 || originsArray.includes(origin)) {
+        return callback(null, true);
+      }
+      callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: CORS_ALLOWED_HEADERS,
