@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
-import { serialiseModel } from '../route';
+import { serialiseModel } from '@/lib/api/models';
 
 /** Next.js 15 App Router passes params as a Promise. */
 interface RouteParams {
