@@ -9,9 +9,9 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.490.0",
-    "@aws-sdk/lib-storage": "^3.490.0",
-    "cors": "^2.8.5",
+    "@aws-sdk/client-s3": "^3.988.0",
+    "@aws-sdk/lib-storage": "^3.988.0",
+    "cors": "^2.8.6",
     "express": "^4.18.2",
     "mime-types": "^2.1.35",
     "multer": "^1.4.5-lts.1",
