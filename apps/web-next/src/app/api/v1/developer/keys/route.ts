@@ -92,7 +92,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       gatewayId?: string;
     };
 
-    if (!projectName || !modelId || !gatewayId) {
+    if (
+      typeof projectName !== 'string' ||
+      typeof modelId !== 'string' ||
+      typeof gatewayId !== 'string' ||
+      projectName.trim() === '' ||
+      modelId.trim() === '' ||
+      gatewayId.trim() === ''
+    ) {
       return errors.badRequest('projectName, modelId, and gatewayId are required');
     }
 
