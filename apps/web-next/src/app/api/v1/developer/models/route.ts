@@ -1,12 +1,14 @@
 /**
  * Developer Models API Routes
- * GET /api/v1/developer/models - List AI models
+ * GET /api/v1/developer/models - List AI models from the database
  */
 
-import {NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
+import { Prisma } from '@naap/database';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
-import { models } from '@/lib/data/developer-models';
+import { serialiseModel } from '@/lib/api/models';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -25,21 +27,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const featured = searchParams.get('featured');
     const realtime = searchParams.get('realtime');
 
-    let filtered = [...models];
-    
+    const where: Prisma.DevApiAIModelWhereInput = {};
+
     if (type) {
-      filtered = filtered.filter(m => m.type === type);
+      where.type = type;
     }
     if (featured === 'true') {
-      filtered = filtered.filter(m => m.featured);
+      where.featured = true;
     }
     if (realtime === 'true') {
-      filtered = filtered.filter(m => m.realtime);
+      where.realtime = true;
     }
 
+    const rows = await prisma.devApiAIModel.findMany({
+      where,
+      orderBy: [{ featured: 'desc' }, { name: 'asc' }],
+      include: {
+        _count: { select: { gatewayOffers: true } },
+      },
+    });
+
+    const models = rows.map(serialiseModel);
+
     return success({
-      models: filtered,
-      total: filtered.length,
+      models,
+      total: models.length,
     });
   } catch (err) {
     console.error('Models list error:', err);
