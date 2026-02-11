@@ -55,6 +55,10 @@ export const ForumPage: React.FC = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const postsLengthRef = useRef(0);
+  const votedPostsRef = useRef<Set<string>>(new Set());
+  postsLengthRef.current = posts.length;
+  votedPostsRef.current = votedPosts;
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [sortBy, setSortBy] = useState<'recent' | 'popular' | 'unanswered'>('recent');
@@ -96,15 +100,18 @@ export const ForumPage: React.FC = () => {
     }
   }, [categoryFilter, searchQuery, sortBy]);
 
-  // Load more posts (infinite scroll)
+  // Load more posts (infinite scroll). Uses refs for posts.length/votedPosts to keep
+  // loadMore stable and avoid IntersectionObserver reconnect on every load.
   const loadMore = useCallback(async () => {
-    if (loadingMore || loading || posts.length >= total) return;
+    if (loadingMore || loading) return;
+    const offset = postsLengthRef.current;
+    if (offset >= total) return;
     setLoadingMore(true);
     try {
       const params: Record<string, string | number> = {
         sort: sortBy,
         limit: LIMIT,
-        offset: posts.length,
+        offset,
       };
       if (categoryFilter !== 'all') params.category = categoryFilter;
       if (searchQuery) params.search = searchQuery;
@@ -113,7 +120,7 @@ export const ForumPage: React.FC = () => {
       const newPosts = Array.isArray(data?.posts) ? data.posts : [];
       if (newPosts.length > 0) {
         if (isUserLoggedIn()) {
-          const votedIds = new Set(votedPosts);
+          const votedIds = new Set(votedPostsRef.current);
           await Promise.all(
             newPosts.map(async (post) => {
               const voted = await checkVoted(post.id);
@@ -129,7 +136,7 @@ export const ForumPage: React.FC = () => {
     } finally {
       setLoadingMore(false);
     }
-  }, [categoryFilter, searchQuery, sortBy, posts.length, total, loadingMore, loading]);
+  }, [categoryFilter, searchQuery, sortBy, total, loadingMore, loading]);
 
   // Load sidebar data (defensive: ensure arrays)
   useEffect(() => {
@@ -212,6 +219,7 @@ export const ForumPage: React.FC = () => {
 
   return (
     <div className="flex gap-6 h-full min-h-0">
+      {/* Layout: h-full min-h-0 requires parent height (plugin shell h-[calc(100vh-8rem)]). */}
       {/* Main Content - flex column with sticky header and scrollable posts */}
       <div className="flex-1 flex flex-col min-h-0">
         {/* Sticky Header - filters, new post, summary stay fixed while posts scroll */}
