@@ -61,10 +61,10 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
 
     // Build a 30-day installation timeline from real installation data
     // Create day buckets using UTC consistently
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
     const timeline: { date: string; downloads: number; installs: number }[] = [];
     for (let i = 0; i < 30; i++) {
-      const d = new Date(thirtyDaysAgo);
-      d.setUTCDate(d.getUTCDate() + i);
+      const d = new Date(thirtyDaysAgo.getTime() + i * MS_PER_DAY);
       const y = d.getUTCFullYear();
       const m = String(d.getUTCMonth() + 1).padStart(2, '0');
       const day = String(d.getUTCDate()).padStart(2, '0');
