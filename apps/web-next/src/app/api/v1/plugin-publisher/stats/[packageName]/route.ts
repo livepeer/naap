@@ -27,7 +27,14 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
       return errors.unauthorized('Invalid or expired session');
     }
 
+    // Calculate the 30-day window in UTC to ensure timezone consistency
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setUTCDate(thirtyDaysAgo.getUTCDate() - 29);
+    thirtyDaysAgo.setUTCHours(0, 0, 0, 0);
+
     // Look up the package and its relations
+    // Only fetch installations within the 30-day window for performance
     const pkg = await prisma.pluginPackage.findUnique({
       where: { name: packageName },
       include: {
@@ -36,6 +43,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
           select: { id: true, version: true, publishedAt: true, downloads: true },
         },
         installations: {
+          where: { installedAt: { gte: thirtyDaysAgo } },
           select: { installedAt: true },
         },
         _count: {
@@ -54,16 +62,11 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     const versionsCount = pkg.versions.length;
 
     // Build a 30-day installation timeline from real installation data
-    const now = new Date();
-    const thirtyDaysAgo = new Date(now);
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
-    thirtyDaysAgo.setHours(0, 0, 0, 0);
-
-    // Create day buckets
+    // Create day buckets using UTC consistently
     const timeline: { date: string; downloads: number; installs: number }[] = [];
     for (let i = 0; i < 30; i++) {
       const d = new Date(thirtyDaysAgo);
-      d.setDate(d.getDate() + i);
+      d.setUTCDate(d.getUTCDate() + i);
       const y = d.getUTCFullYear();
       const m = String(d.getUTCMonth() + 1).padStart(2, '0');
       const day = String(d.getUTCDate()).padStart(2, '0');
@@ -78,10 +81,11 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     for (const inst of pkg.installations) {
       if (!inst.installedAt) continue;
       const instDate = new Date(inst.installedAt);
-      if (instDate < thirtyDaysAgo) continue;
       const diffMs = instDate.getTime() - thirtyDaysAgo.getTime();
       const dayIndex = Math.min(29, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
-      timeline[dayIndex].installs += 1;
+      if (dayIndex >= 0) {
+        timeline[dayIndex].installs += 1;
+      }
     }
 
     return success({
