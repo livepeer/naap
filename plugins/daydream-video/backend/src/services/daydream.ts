@@ -99,6 +99,10 @@ export const CONTROLNETS_SDXL = [
 
 // Get controlnets for a given model
 export function getControlnetsForModel(modelId: string) {
+  // Guard against type confusion from parameter tampering (e.g., arrays from query strings)
+  if (typeof modelId !== 'string') {
+    return CONTROLNETS_SD15;
+  }
   if (modelId.includes('sdxl')) {
     return CONTROLNETS_SDXL;
   }
@@ -223,6 +227,16 @@ export async function createStream(
 }
 
 /**
+ * Validate that a stream ID is safe to use in URL paths.
+ * Prevents SSRF via path traversal in stream ID parameters.
+ */
+function validateStreamId(streamId: string): void {
+  if (typeof streamId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(streamId)) {
+    throw new Error(`Invalid stream ID: ${streamId}`);
+  }
+}
+
+/**
  * Update stream parameters
  * According to Daydream API docs, PATCH only needs the params object
  */
@@ -231,6 +245,8 @@ export async function updateStreamParams(
   streamId: string,
   params: StreamParams
 ): Promise<unknown> {
+  validateStreamId(streamId);
+
   // Build the params object - only include what's provided
   const updateParams: Record<string, unknown> = {};
 
@@ -290,6 +306,7 @@ export async function updateStreamParams(
  * Get stream status
  */
 export async function getStreamStatus(apiKey: string, streamId: string): Promise<unknown> {
+  validateStreamId(streamId);
   const response = await fetch(`${DAYDREAM_API}/v1/streams/${streamId}`, {
     method: 'GET',
     headers: {
@@ -309,6 +326,7 @@ export async function getStreamStatus(apiKey: string, streamId: string): Promise
  * Delete/end a stream
  */
 export async function deleteStream(apiKey: string, streamId: string): Promise<void> {
+  validateStreamId(streamId);
   const response = await fetch(`${DAYDREAM_API}/v1/streams/${streamId}`, {
     method: 'DELETE',
     headers: {

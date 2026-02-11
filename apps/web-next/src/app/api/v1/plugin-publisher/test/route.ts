@@ -3,10 +3,45 @@
  * POST /api/v1/plugin-publisher/test - Test plugin loading
  */
 
-import {NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+
+/**
+ * Validate that a URL is safe for server-side requests (SSRF protection).
+ * Blocks requests to private/internal networks and non-http(s) protocols.
+ */
+function validateExternalUrl(url: string): { valid: boolean; error?: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { valid: false, error: 'Invalid URL format' };
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return { valid: false, error: `Unsupported protocol: ${parsed.protocol}` };
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname === '0.0.0.0' ||
+    hostname.startsWith('10.') ||
+    hostname.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+    hostname.endsWith('.internal') ||
+    hostname.endsWith('.local') ||
+    hostname.endsWith('.localhost')
+  ) {
+    return { valid: false, error: 'Requests to private/internal networks are not allowed' };
+  }
+
+  return { valid: true };
+}
 
 interface TestResult {
   success: boolean;
@@ -33,6 +68,11 @@ async function testFrontendLoading(
   const startTime = Date.now();
 
   try {
+    const urlCheck = validateExternalUrl(frontendUrl);
+    if (!urlCheck.valid) {
+      return { success: false, errors: [urlCheck.error || 'Invalid URL'] };
+    }
+
     // Verify URL is accessible
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -91,6 +131,11 @@ async function testBackendHealth(
   const startTime = Date.now();
 
   try {
+    const urlCheck = validateExternalUrl(backendUrl);
+    if (!urlCheck.valid) {
+      return { success: false, responseTimeMs: 0, healthStatus: undefined, errors: [urlCheck.error || 'Invalid URL'] };
+    }
+
     // Determine health endpoint
     const healthUrl = backendUrl.endsWith('/healthz')
       ? backendUrl

@@ -743,8 +743,10 @@ app.get('/api/v1/plugin-publisher/stats/:packageName', async (req, res) => {
   try {
     const { packageName } = req.params;
 
+    // Sanitize path parameter to prevent SSRF via path traversal
+    const safePackageName = encodeURIComponent(packageName);
     // Fetch package info from base-svc
-    const pkgResponse = await fetch(`${BASE_SVC_URL}/api/v1/registry/packages/${packageName}`);
+    const pkgResponse = await fetch(`${BASE_SVC_URL}/api/v1/registry/packages/${safePackageName}`);
     
     if (!pkgResponse.ok) {
       return res.status(404).json({ error: 'Package not found' });

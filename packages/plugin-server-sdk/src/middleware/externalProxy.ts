@@ -161,7 +161,12 @@ export function createExternalProxy(config: ExternalProxyConfig): RequestHandler
         });
       }
 
-      if (!allowedHosts.some((h) => parsed.hostname.endsWith(h))) {
+      // SSRF protection: exact hostname match or valid subdomain match
+      // Using `.${h}` prefix prevents attacks like "evil-livepeer.com" matching "livepeer.com"
+      const isAllowedHost = allowedHosts.some(
+        (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`)
+      );
+      if (!isAllowedHost) {
         return res.status(400).json({
           success: false,
           error: {

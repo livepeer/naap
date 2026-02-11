@@ -63,7 +63,19 @@ export class LivepeerAIClient {
   private baseUrl: string;
 
   constructor(baseUrl: string = 'http://localhost:9935') {
+    // Validate baseUrl to prevent SSRF via constructor injection
+    const parsed = new URL(baseUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(`LivepeerAIClient: unsupported protocol "${parsed.protocol}"`);
+    }
     this.baseUrl = baseUrl.replace(/\/$/, '');
+  }
+
+  /**
+   * Sanitize a path segment to prevent path traversal attacks.
+   */
+  private sanitizePath(segment: string): string {
+    return encodeURIComponent(segment);
   }
 
   // --- Batch AI Pipelines ---
@@ -152,15 +164,16 @@ export class LivepeerAIClient {
   // --- Live Video-to-Video ---
 
   async startLiveVideoToVideo(stream: string, params: LiveV2VRequest): Promise<LiveV2VSession> {
-    return this.postJSON<LiveV2VSession>(`/live/video-to-video/${stream}`, params);
+    return this.postJSON<LiveV2VSession>(`/live/video-to-video/${this.sanitizePath(stream)}`, params);
   }
 
   async updateLiveVideoToVideo(stream: string, params: Record<string, unknown>): Promise<void> {
-    await this.postJSON(`/live/video-to-video/${stream}/update`, params);
+    await this.postJSON(`/live/video-to-video/${this.sanitizePath(stream)}/update`, params);
   }
 
   async getLiveVideoStatus(streamId: string): Promise<{ status: string }> {
-    const res = await fetch(`${this.baseUrl}/live/video-to-video/${streamId}/status`);
+    const safeId = this.sanitizePath(streamId);
+    const res = await fetch(`${this.baseUrl}/live/video-to-video/${safeId}/status`);
     if (!res.ok) throw new Error(`Get live status failed: ${res.status}`);
     return res.json();
   }
@@ -168,7 +181,8 @@ export class LivepeerAIClient {
   // --- BYOC ---
 
   async processRequest(capability: string, body: unknown, headers?: Record<string, string>): Promise<unknown> {
-    const res = await fetch(`${this.baseUrl}/${capability}`, {
+    const safeCapability = this.sanitizePath(capability);
+    const res = await fetch(`${this.baseUrl}/${safeCapability}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(body),
