@@ -1,13 +1,15 @@
 /**
  * Single Developer Model API Routes
- * GET /api/v1/developer/models/:id - Get model details
+ * GET /api/v1/developer/models/:id - Get model details from the database
  */
 
-import {NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
-import { getModel } from '@/lib/data/developer-models';
+import { serialiseModel } from '../route';
 
+/** Next.js 15 App Router passes params as a Promise. */
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
@@ -26,12 +28,18 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
       return errors.unauthorized('Invalid or expired session');
     }
 
-    const model = getModel(id);
+    const model = await prisma.devApiAIModel.findUnique({
+      where: { id },
+      include: {
+        _count: { select: { gatewayOffers: true } },
+      },
+    });
+
     if (!model) {
       return errors.notFound('Model');
     }
 
-    return success({ model });
+    return success({ model: serialiseModel(model) });
   } catch (err) {
     console.error('Model detail error:', err);
     return errors.internal('Failed to get model');

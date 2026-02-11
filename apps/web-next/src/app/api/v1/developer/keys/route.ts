@@ -4,13 +4,12 @@
  * POST /api/v1/developer/keys - Create new API key
  */
 
-import {NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import * as crypto from 'crypto';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken, parsePagination } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
-import { getModel, getGatewayOffer } from '@/lib/data/developer-models';
 
 function generateApiKey(): string {
   return `naap_${crypto.randomBytes(24).toString('hex')}`;
@@ -80,21 +79,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return errors.unauthorized('Invalid or expired session');
     }
 
-    const body = await request.json();
-    const { projectName, modelId, gatewayId } = body;
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return errors.badRequest('Invalid JSON in request body');
+    }
+
+    const { projectName, modelId, gatewayId } = body as {
+      projectName?: string;
+      modelId?: string;
+      gatewayId?: string;
+    };
 
     if (!projectName || !modelId || !gatewayId) {
       return errors.badRequest('projectName, modelId, and gatewayId are required');
     }
 
-    // Validate model exists
-    const model = getModel(modelId);
+    // Validate model exists in the database
+    const model = await prisma.devApiAIModel.findUnique({
+      where: { id: modelId },
+      select: { id: true },
+    });
     if (!model) {
       return errors.badRequest('Invalid modelId');
     }
 
-    // Validate gateway offers this model
-    const gateway = getGatewayOffer(modelId, gatewayId);
+    // Validate gateway offers this model in the database
+    const gateway = await prisma.devApiGatewayOffer.findFirst({
+      where: { modelId, gatewayId },
+      select: { id: true },
+    });
     if (!gateway) {
       return errors.badRequest('Gateway does not offer this model');
     }
@@ -108,7 +123,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         userId: user.id,
         projectName,
         modelId,
-        gatewayOfferId: gatewayId || undefined,
+        gatewayOfferId: gateway.id,
         keyHash,
         keyPrefix: rawKey.slice(0, 8),
         status: 'ACTIVE',

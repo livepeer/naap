@@ -1,12 +1,49 @@
 /**
  * Developer Models API Routes
- * GET /api/v1/developer/models - List AI models
+ * GET /api/v1/developer/models - List AI models from the database
  */
 
-import {NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
+import { Prisma } from '@naap/database';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
-import { models } from '@/lib/data/developer-models';
+
+/** Map a Prisma DevApiAIModel row to the shape the frontend expects. */
+function serialiseModel(m: {
+  id: string;
+  name: string;
+  tagline: string;
+  type: string;
+  featured: boolean;
+  realtime: boolean;
+  costPerMinMin: number;
+  costPerMinMax: number;
+  latencyP50: number;
+  coldStart: number;
+  fps: number;
+  useCases: string[];
+  badges: string[];
+  _count?: { gatewayOffers: number };
+}) {
+  return {
+    id: m.id,
+    name: m.name,
+    tagline: m.tagline,
+    type: m.type,
+    featured: m.featured,
+    realtime: m.realtime,
+    costPerMin: { min: m.costPerMinMin, max: m.costPerMinMax },
+    latencyP50: m.latencyP50,
+    coldStart: m.coldStart,
+    fps: m.fps,
+    gatewayCount: m._count?.gatewayOffers ?? 0,
+    useCases: m.useCases,
+    badges: m.badges,
+  };
+}
+
+export { serialiseModel };
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -25,21 +62,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const featured = searchParams.get('featured');
     const realtime = searchParams.get('realtime');
 
-    let filtered = [...models];
-    
+    const where: Prisma.DevApiAIModelWhereInput = {};
+
     if (type) {
-      filtered = filtered.filter(m => m.type === type);
+      where.type = type;
     }
     if (featured === 'true') {
-      filtered = filtered.filter(m => m.featured);
+      where.featured = true;
     }
     if (realtime === 'true') {
-      filtered = filtered.filter(m => m.realtime);
+      where.realtime = true;
     }
 
+    const rows = await prisma.devApiAIModel.findMany({
+      where,
+      orderBy: [{ featured: 'desc' }, { name: 'asc' }],
+      include: {
+        _count: { select: { gatewayOffers: true } },
+      },
+    });
+
+    const models = rows.map(serialiseModel);
+
     return success({
-      models: filtered,
-      total: filtered.length,
+      models,
+      total: models.length,
     });
   } catch (err) {
     console.error('Models list error:', err);
