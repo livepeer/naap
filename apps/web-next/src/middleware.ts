@@ -202,13 +202,6 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // Check if authenticated user is trying to access auth routes
-  if (authRoutes.some(route => pathname.startsWith(route))) {
-    if (token) {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
-  }
-
   const response = NextResponse.next();
   response.headers.set('x-request-id', requestId);
   response.headers.set('x-trace-id', traceId);
