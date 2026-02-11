@@ -12,8 +12,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const body = await request.json();
     const { email, password } = body;
 
-    if (!email || !password) {
-      return errors.badRequest('Email and password are required');
+    if (!email || typeof email !== 'string' || !password || typeof password !== 'string') {
+      return errors.badRequest('Email and password are required and must be strings');
     }
 
     const ipAddress = getClientIP(request);

@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir, readdir, readFile, rm, unlink } from 'fs/promises';
 import { createReadStream, existsSync } from 'fs';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import path from 'path';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
@@ -140,7 +140,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return errors.badRequest('No file uploaded');
     }
 
-    const uploadId = Date.now().toString(36) + Math.random().toString(36).substring(2);
+    const uploadId = randomUUID();
     const extractDir = path.join(UPLOAD_DIR, uploadId);
 
     await mkdir(UPLOAD_DIR, { recursive: true });

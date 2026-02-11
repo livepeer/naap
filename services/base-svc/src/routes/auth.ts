@@ -5,11 +5,31 @@
  * password reset, and email verification.
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@naap/database';
 import { generateCsrfToken, invalidateCsrfToken } from '../services/csrf';
 import { createAuthService } from '../services/auth';
 import type { AuditLogInput } from '../services/lifecycle';
+
+// Rate Limiting
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+function createRateLimiter(windowMs: number, maxRequests: number) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const key = req.ip || 'unknown';
+    const now = Date.now();
+    const entry = rateLimitMap.get(key);
+    if (!entry || now > entry.resetTime) {
+      rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
+      return next();
+    }
+    if (entry.count >= maxRequests) {
+      return res.status(429).json({ error: 'Too many attempts, please try again later' });
+    }
+    entry.count++;
+    return next();
+  };
+}
+const authLimiter = createRateLimiter(15 * 60 * 1000, 10);
 
 interface AuthRouteDeps {
   db: PrismaClient;
@@ -80,7 +100,7 @@ export function createAuthRoutes({ db, lifecycleService }: AuthRouteDeps) {
   });
 
   // Login with email/password
-  router.post('/auth/login', async (req: Request, res: Response) => {
+  router.post('/auth/login', authLimiter, async (req: Request, res: Response) => {
     try {
       const { email, password } = req.body;
       const ipAddress = req.ip || req.socket.remoteAddress;
@@ -297,11 +317,11 @@ export function createAuthRoutes({ db, lifecycleService }: AuthRouteDeps) {
   });
 
   // Verify email with token
-  router.post('/auth/verify-email', async (req: Request, res: Response) => {
+  router.post('/auth/verify-email', authLimiter, async (req: Request, res: Response) => {
     try {
       const { token } = req.body;
-      if (!token) {
-        return res.status(400).json({ error: 'Token is required' });
+      if (!token || typeof token !== 'string') {
+        return res.status(400).json({ error: 'Token is required and must be a string' });
       }
 
       const result = await authService.verifyEmail(token);
@@ -354,7 +374,7 @@ export function createAuthRoutes({ db, lifecycleService }: AuthRouteDeps) {
   });
 
   // Handle OAuth callback (called from frontend)
-  router.post('/auth/callback/:provider', async (req: Request, res: Response) => {
+  router.post('/auth/callback/:provider', authLimiter, async (req: Request, res: Response) => {
     try {
       const { provider } = req.params;
       const { code } = req.body;
@@ -363,8 +383,8 @@ export function createAuthRoutes({ db, lifecycleService }: AuthRouteDeps) {
         return res.status(400).json({ error: 'Invalid provider' });
       }
 
-      if (!code) {
-        return res.status(400).json({ error: 'Authorization code required' });
+      if (!code || typeof code !== 'string') {
+        return res.status(400).json({ error: 'Authorization code required and must be a string' });
       }
 
       const result = await authService.handleOAuthCallback(provider, code);

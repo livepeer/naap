@@ -23,12 +23,14 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     const state = searchParams.get('state');
     const errorParam = searchParams.get('error');
 
-    // Check for OAuth error
+    // Check for OAuth error — validate against known OAuth error codes
+    const OAUTH_ERROR_CODES = new Set(['access_denied', 'invalid_request', 'unauthorized_client', 'unsupported_response_type', 'invalid_scope', 'server_error', 'temporarily_unavailable']);
     if (errorParam) {
-      return NextResponse.redirect(new URL(`/login?error=${errorParam}`, request.url));
+      const safeError = OAUTH_ERROR_CODES.has(errorParam) ? errorParam : 'unknown_error';
+      return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(safeError)}`, request.url));
     }
 
-    if (!code) {
+    if (!code || typeof code !== 'string') {
       return NextResponse.redirect(new URL('/login?error=no_code', request.url));
     }
 
@@ -88,9 +90,9 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     const body = await request.json();
     const { code } = body;
 
-    if (!code) {
+    if (!code || typeof code !== 'string') {
       return NextResponse.json(
-        { success: false, error: { code: 'NO_CODE', message: 'Authorization code is required' } },
+        { success: false, error: { code: 'NO_CODE', message: 'Authorization code is required and must be a string' } },
         { status: 400 }
       );
     }

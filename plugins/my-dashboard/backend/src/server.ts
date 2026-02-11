@@ -38,7 +38,16 @@ if (redis) {
 
 // Middleware
 app.use(helmet({
-  contentSecurityPolicy: false, // Allow iframe embedding
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      frameSrc: ["'self'", "*"],
+      frameAncestors: ["'self'", "*"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
 }));
 app.use(cors({
   origin: function(origin, callback) {

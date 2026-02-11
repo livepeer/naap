@@ -106,7 +106,7 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
   // ─── Base Middleware ────────────────────────────────────────────────
 
   // CORS - validate origins when allowlist set; empty = allow-all (relaxed for now)
-  // TODO: Fail closed when empty for production; set CORS_ALLOWED_ORIGINS explicitly
+  // TODO(#92): Fail closed when empty; set CORS_ALLOWED_ORIGINS for production
   const configuredOrigins =
     corsOrigins || (process.env.CORS_ALLOWED_ORIGINS || '');
   const originsArray: string[] = (
@@ -138,7 +138,17 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
 
   // Security headers
   if (enableHelmet) {
-    app.use(helmet({ contentSecurityPolicy: false }));
+    app.use(helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'", "'unsafe-inline'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", "data:", "https:"],
+          connectSrc: ["'self'", "https:"],
+        },
+      },
+    }));
   }
 
   // Compression

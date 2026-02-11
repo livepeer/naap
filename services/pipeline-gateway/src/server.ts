@@ -439,12 +439,16 @@ router.get('/flags', async (_req, res) => {
 });
 
 router.put('/flags/:pipeline', async (req, res) => {
-  featureFlags[req.params.pipeline] = {
+  const pipeline = req.params.pipeline;
+  if (['__proto__', 'constructor', 'prototype'].includes(pipeline)) {
+    return res.status(400).json({ success: false, error: { code: 'INVALID_KEY', message: 'Invalid pipeline name' } });
+  }
+  featureFlags[pipeline] = {
     enabled: req.body.enabled ?? true,
     maxRequestsPerMinute: req.body.maxRequestsPerMinute,
     allowedUsers: req.body.allowedUsers,
   };
-  res.json({ success: true, data: featureFlags[req.params.pipeline] });
+  res.json({ success: true, data: featureFlags[pipeline] });
 });
 
 // ─── Usage Stats Route ───────────────────────────────────────────────────────

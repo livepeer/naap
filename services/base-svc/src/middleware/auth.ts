@@ -187,28 +187,28 @@ export function optionalToken() {
 export function verifyGitHubWebhook() {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const signature = req.headers['x-hub-signature-256'] as string;
+      const signature = req.headers['x-hub-signature-256'];
       
-      if (!signature) {
-        return res.status(401).json({ error: 'Missing signature header' });
+      if (!signature || typeof signature !== 'string') {
+        return res.status(401).json({ error: 'Missing or invalid signature header' });
       }
       
       // Get raw body for signature verification
       const rawBody = JSON.stringify(req.body);
       
       // Try to find the webhook secret for this repository
-      const delivery = req.headers['x-github-delivery'] as string;
-      const event = req.headers['x-github-event'] as string;
+      const delivery = req.headers['x-github-delivery'];
+      const event = req.headers['x-github-event'];
       
-      if (!delivery || !event) {
-        return res.status(400).json({ error: 'Missing GitHub headers' });
+      if (!delivery || typeof delivery !== 'string' || !event || typeof event !== 'string') {
+        return res.status(400).json({ error: 'Missing or invalid GitHub headers' });
       }
       
-      // Extract repository from payload
+      // Extract and validate repository from payload
       const repoFullName = req.body.repository?.full_name;
       
-      if (!repoFullName) {
-        return res.status(400).json({ error: 'Missing repository in payload' });
+      if (!repoFullName || typeof repoFullName !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(repoFullName)) {
+        return res.status(400).json({ error: 'Missing or invalid repository in payload' });
       }
       
       // Find package by GitHub repo

@@ -54,6 +54,11 @@ export async function verifyUrlAccessible(
   const startTime = Date.now();
 
   try {
+    // Require HTTPS to prevent insecure downloads
+    if (!url.startsWith('https://')) {
+      return { accessible: false, error: 'URL must use HTTPS' };
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
