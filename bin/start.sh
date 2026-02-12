@@ -407,6 +407,7 @@ PLUGIN_SCHEMAS=(
   "plugin_community"
   "plugin_capacity"
   "plugin_developer_api"
+  "plugin_service_gateway"
 )
 
 get_all_plugins() {

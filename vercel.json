@@ -25,6 +25,9 @@
       "maxDuration": 60,
       "memory": 1024
     },
+    "app/api/v1/gw/**": {
+      "maxDuration": 60
+    },
     "app/api/v1/[plugin]/**": {
       "maxDuration": 30
     }
