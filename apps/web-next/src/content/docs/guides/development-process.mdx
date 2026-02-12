@@ -93,7 +93,7 @@ git checkout -b feat/my-team/my-feature upstream/main
 
 ### 2. Make your changes
 
-- Start developing: `./bin/start.sh --fast` (or `./bin/start.sh my-plugin`)
+- Start developing: `./bin/start.sh` (or `./bin/start.sh my-plugin`)
 - Make focused, incremental changes
 - Write tests for new functionality
 - Follow [Conventional Commits](#commit-conventions) for all commit messages
@@ -179,14 +179,14 @@ git clone https://github.com/<you>/NaaP.git
 cd NaaP
 git remote add upstream https://github.com/livepeer/naap.git
 
-# 2. First-time setup (run once after clone)
-./bin/setup.sh --start
+# 2. First-time setup + start (setup is automatic)
+./bin/start.sh
 
-# 3. Daily development (after first setup):
-./bin/start.sh --fast                # smart start (~6s): auto-detects your changes
+# 3. Daily development:
+./bin/start.sh                       # smart start (~6s): auto-detects your changes
 ./bin/start.sh <your-plugin-name>    # shell + your plugin (~6s)
 ./bin/start.sh dev <your-plugin-name>  # with frontend HMR
-./bin/start.sh stop                  # parallel stop (~2s)
+./bin/stop.sh                        # parallel stop (~2s)
 
 # 4. Login at http://localhost:3000
 #    Email: admin@livepeer.org  Password: livepeer
@@ -256,14 +256,14 @@ git rebase upstream/main
 git checkout -b feat/my-team/cool-feature
 
 # Start developing (~6s)
-./bin/start.sh --fast              # auto-detects your changed plugins
+./bin/start.sh                     # auto-detects your changed plugins
 # or explicitly:
 ./bin/start.sh my-plugin           # shell + your plugin backend
 
 # Make changes...
 
 # Quick restart after changes (~8s total)
-./bin/start.sh stop && ./bin/start.sh --fast
+./bin/stop.sh && ./bin/start.sh
 
 # Commit using conventional commits
 git commit -m "feat(plugin/my-plugin): add cool feature"
@@ -465,10 +465,9 @@ npm run typecheck
 ### Everyday commands (plugin teams)
 
 ```bash
-./bin/start.sh --fast            # Smart start (~6s): auto-detects changed plugins
+./bin/start.sh                   # Smart start (~6s): auto-detects changed plugins
 ./bin/start.sh my-plugin         # Shell + one plugin backend (~6s)
-./bin/start.sh my-plugin --fast  # Same, skip DB sync + verify (~6s)
-./bin/start.sh stop              # Parallel stop (~2s)
+./bin/stop.sh                    # Parallel stop (~2s)
 ./bin/start.sh status            # What is running?
 ./bin/start.sh logs my-plugin    # Tail plugin logs
 ```
@@ -476,18 +475,18 @@ npm run typecheck
 ### First-time & full commands
 
 ```bash
-./bin/setup.sh --start           # First-time setup + start (run once)
-./bin/start.sh start --all       # Start all 12 plugins (~10s warm)
+./bin/start.sh                   # First-time setup + start (setup is automatic)
+./bin/start.sh --all             # Start all 12 plugins (~10s warm)
 ./bin/start.sh dev my-plugin     # Dev mode with frontend HMR
 ./bin/start.sh validate          # Full health-check (49 checks)
-./bin/start.sh start --all --timing  # Start with timing breakdown
+./bin/start.sh --all --timing    # Start with timing breakdown
 ./bin/start.sh help              # Show all options
 ```
 
 ### Core contributor commands
 
 ```bash
-./bin/start.sh start --all       # Full platform
+./bin/start.sh --all             # Full platform
 ./bin/start.sh validate          # Verify all checks pass
 npm test                         # Run test suite
 npm run typecheck                # TypeScript check

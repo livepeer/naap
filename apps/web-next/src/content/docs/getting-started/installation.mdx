@@ -76,22 +76,22 @@ docker info        # Should connect (Docker daemon running)
 ## Clone & Setup
 
 ```bash
-git clone https://github.com/livepeer/naap.git && cd naap && ./bin/setup.sh --start
+git clone https://github.com/livepeer/naap.git && cd naap && ./bin/start.sh
 ```
 
 This single command handles everything. Open **http://localhost:3000** when it completes.
 
-You only run `setup.sh` once. After that, use `start.sh`:
+Setup runs automatically on first start. After that, use `start.sh`:
 
 ```bash
-./bin/start.sh --fast           # daily driver (~6s): auto-detects your changed plugins
+./bin/start.sh                  # daily driver (~6s): auto-detects your changed plugins
 ./bin/start.sh community        # start shell + one specific plugin (~6s)
-./bin/start.sh stop             # parallel stop (~2s)
+./bin/stop.sh                   # parallel stop (~2s)
 ```
 
 ## What Setup Does
 
-The `setup.sh` script automates the entire first-time experience:
+The first run of `start.sh` automates the entire first-time setup:
 
 | Step | What It Does |
 |------|--------------|
@@ -168,7 +168,7 @@ lsof -i :5432
 
 # Stop it, then retry setup
 kill <PID>
-./bin/setup.sh
+./bin/start.sh
 ```
 
 ### Node Version Too Old

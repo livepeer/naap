@@ -57,14 +57,14 @@ cd NaaP
 # Add upstream remote
 git remote add upstream https://github.com/livepeer/naap.git
 
-# First-time setup (installs deps, starts DB, builds plugins, starts platform)
-./bin/setup.sh --start
+# First-time setup + start (setup is automatic)
+./bin/start.sh
 
-# Daily development (after first setup):
-./bin/start.sh --fast            # smart start (~6s): auto-detects changed plugins
+# Daily development:
+./bin/start.sh                   # smart start (~6s): auto-detects changed plugins
 ./bin/start.sh community         # shell + one plugin (~6s)
-./bin/start.sh start --all       # all plugins (~10s warm)
-./bin/start.sh stop              # parallel stop (~2s)
+./bin/start.sh --all             # all plugins (~10s warm)
+./bin/stop.sh                    # parallel stop (~2s)
 
 # Login at http://localhost:3000
 # Email: admin@livepeer.org  Password: livepeer

@@ -148,7 +148,7 @@ Your day-to-day development workflow:
 2. **Start developing (~6 seconds):**
    ```bash
    # Recommended: auto-detects your changed plugins
-   ./bin/start.sh --fast
+   ./bin/start.sh
 
    # Or explicitly start your plugin
    ./bin/start.sh <your-plugin-name>
@@ -159,7 +159,7 @@ Your day-to-day development workflow:
 
 4. **Quick restart** after changes:
    ```bash
-   ./bin/start.sh stop && ./bin/start.sh --fast   # ~8s total
+   ./bin/stop.sh && ./bin/start.sh                # ~8s total
    ```
 
 5. **Commit using conventional commits:**

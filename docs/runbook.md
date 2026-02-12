@@ -10,25 +10,24 @@
 ### First-Time Setup
 
 ```bash
-./bin/setup.sh          # Full setup from fresh clone
-./bin/setup.sh --start  # Setup + start immediately
+./bin/start.sh          # Setup runs automatically on first start
 ```
 
 ### Starting the Platform
 
 ```bash
-./bin/start.sh start --all               # Everything
+./bin/start.sh --all                     # Everything
 ./bin/start.sh                           # Shell + core only
 ./bin/start.sh dev daydream-video        # Dev mode for one plugin
-./bin/start.sh start gateway-manager     # Start specific plugin
+./bin/start.sh gateway-manager           # Start specific plugin
 ```
 
 ### Stopping the Platform
 
 ```bash
-./bin/start.sh stop              # Graceful stop all
-./bin/start.sh stop --infra      # Stop all + Docker containers
-./bin/start.sh stop my-dashboard # Stop one plugin
+./bin/stop.sh                    # Graceful stop all
+./bin/stop.sh --infra            # Stop all + Docker containers
+./bin/stop.sh my-dashboard       # Stop one plugin
 ```
 
 ### Health Checks
@@ -65,9 +64,9 @@
 ### Full Reset
 
 ```bash
-./bin/start.sh stop --infra      # Stop everything including Docker
+./bin/stop.sh --infra            # Stop everything including Docker
 docker volume rm naap-db-data    # Delete database data
-./bin/setup.sh --start           # Re-run full setup
+./bin/start.sh                   # Re-run full setup (automatic)
 ```
 
 ## Port Reference

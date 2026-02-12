@@ -5,34 +5,33 @@ All platform management goes through a single script: **`./bin/start.sh`**.
 ## TL;DR
 
 ```bash
-# First time (after git clone)
-./bin/setup.sh --start          # installs deps, starts DB, builds plugins, starts platform
+# First time (after git clone) — setup is automatic
+./bin/start.sh                  # installs deps, starts DB, builds plugins, starts platform
 
 # Daily development (6 seconds)
-./bin/start.sh --fast           # smart: auto-detects your changed plugins
+./bin/start.sh                  # smart start: auto-detects your changed plugins
 ./bin/start.sh community        # shell + one plugin
-./bin/start.sh stop             # parallel stop (~2s)
+./bin/stop.sh                   # parallel stop (~2s)
 ```
 
 ---
 
-## Setup (first time only)
+## Setup (automatic)
 
 ```bash
-./bin/setup.sh           # install deps, start DB, build plugins
-./bin/setup.sh --start   # same, then start the platform immediately
+./bin/start.sh           # setup runs automatically on first start
 ```
 
-You only run this once after cloning. After that, use `start.sh` for everything.
+Setup runs automatically on first start. After that, `start.sh` handles everything.
 
 ---
 
 ## Starting the Platform
 
-### Recommended: `--fast` (daily driver)
+### Recommended: smart start (default)
 
 ```bash
-./bin/start.sh --fast
+./bin/start.sh
 ```
 
 This is the command you will use 90% of the time. It:
@@ -49,7 +48,7 @@ This is the command you will use 90% of the time. It:
 ```bash
 ./bin/start.sh community                  # shell + community backend
 ./bin/start.sh gateway-manager community  # shell + 2 backends
-./bin/start.sh community --fast           # same, skip DB sync + verify
+./bin/start.sh community                  # same, with smart start
 ```
 
 Just type the plugin name(s) as arguments. No flags needed.
@@ -59,8 +58,7 @@ Just type the plugin name(s) as arguments. No flags needed.
 ### Start everything
 
 ```bash
-./bin/start.sh start --all           # all 12 plugins + shell + core
-./bin/start.sh start --all --fast    # same, skip checks (fastest)
+./bin/start.sh --all                 # all 12 plugins + shell + core
 ```
 
 **Typical time: ~10s warm, ~25s cold (first build).**
@@ -69,7 +67,7 @@ Just type the plugin name(s) as arguments. No flags needed.
 
 ```bash
 ./bin/start.sh                    # shell + core services
-./bin/start.sh start --no-plugins # explicit form
+./bin/start.sh --no-plugins       # explicit form
 ```
 
 All plugin UIs still load (via CDN bundles), but no backend APIs are running.
@@ -89,11 +87,11 @@ Starts the plugin with Vite HMR (hot module replacement) for instant feedback du
 ## Stopping
 
 ```bash
-./bin/start.sh stop                     # stop everything (~2s)
-./bin/start.sh stop community           # stop one plugin backend
-./bin/start.sh stop --plugins           # stop all plugin backends
-./bin/start.sh stop --shell             # stop shell only
-./bin/start.sh stop --infra             # also stop Docker containers
+./bin/stop.sh                           # stop everything (~2s)
+./bin/stop.sh community                 # stop one plugin backend
+./bin/stop.sh --plugins                 # stop all plugin backends
+./bin/stop.sh --shell                   # stop shell only
+./bin/stop.sh --infra                   # also stop Docker containers
 ```
 
 All stops are parallel -- 15 services stop in ~2 seconds.
@@ -102,7 +100,7 @@ All stops are parallel -- 15 services stop in ~2 seconds.
 
 ## Before Pushing
 
-Pre-push validation runs automatically (installed by `./bin/setup.sh`):
+Pre-push validation runs automatically (installed by `./bin/start.sh`):
 
 - Builds `@naap/plugin-build` (required for plugin vite configs)
 - Runs plugin-sdk tests
@@ -134,7 +132,7 @@ git push --no-verify      # Skip hook when needed
 
 | Flag | Effect |
 |------|--------|
-| `--fast` | Skip DB sync + verification, auto-detect changed plugins |
+| *(default)* | Smart start: skip DB sync + verification, auto-detect changed plugins |
 | `--timing` | Show per-phase timing breakdown after startup |
 | `--all` | Start all plugin backends |
 | `--no-plugins` | Start shell + core only, no backends |
@@ -145,7 +143,7 @@ git push --no-verify      # Skip hook when needed
 | `--deep-check` | Run deep API health checks on backends |
 | `--sequential` | Force sequential backend startup (debug) |
 
-Flags can be combined: `./bin/start.sh start --all --fast --timing`
+Flags can be combined: `./bin/start.sh --all --timing`
 
 ---
 
@@ -155,8 +153,8 @@ Measured on a typical dev machine (Apple Silicon, plugins already built):
 
 | Scenario | Start | Stop |
 |----------|-------|------|
-| `--fast` (no changes) | **6s** | **2s** |
-| `--fast` (1 plugin changed) | **8s** | **2s** |
+| Smart start (no changes) | **6s** | **2s** |
+| Smart start (1 plugin changed) | **8s** | **2s** |
 | Single plugin (`community`) | **6s** | **2s** |
 | Two plugins (`gw na`) | **8s** | **2s** |
 | Shell only (`--no-plugins`) | **5s** | **2s** |
@@ -174,12 +172,12 @@ Cold build = first time after clone (all 12 plugin UMD bundles must be compiled)
 ```bash
 # Morning: pull latest, start working on your plugin
 git pull
-./bin/start.sh --fast           # detects your changes, starts what you need
+./bin/start.sh                  # detects your changes, starts what you need
 
 # Make code changes... plugin rebuilds automatically on next start
 
 # End of day
-./bin/start.sh stop
+./bin/stop.sh
 ```
 
 ### Working on a specific plugin
@@ -193,14 +191,14 @@ git pull
 ### Testing everything together
 
 ```bash
-./bin/start.sh start --all --timing   # start all, see timing breakdown
+./bin/start.sh --all --timing         # start all, see timing breakdown
 ./bin/start.sh validate               # run full health checks
 ```
 
 ### Quick iteration cycle
 
 ```bash
-./bin/start.sh stop && ./bin/start.sh --fast   # full restart in ~8s
+./bin/stop.sh && ./bin/start.sh                # full restart in ~8s
 ```
 
 ---
@@ -238,7 +236,7 @@ git pull
 ### Port already in use
 
 ```bash
-./bin/start.sh stop             # cleans up all platform processes
+./bin/stop.sh                   # cleans up all platform processes
 # or manually:
 lsof -ti:3000 | xargs kill
 ```
@@ -251,7 +249,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/cdn/plugins/communi
 # Should return 200
 
 # If 404, rebuild:
-./bin/start.sh start --all      # rebuilds any missing plugins
+./bin/start.sh --all            # rebuilds any missing plugins
 ```
 
 ### Services not starting
@@ -276,7 +274,7 @@ npx prisma studio               # open GUI
 
 | Script | Purpose |
 |--------|---------|
-| `setup.sh` | First-time setup (deps, DB, build) |
+| `setup.sh` | Setup (deps, DB, build) — called automatically by start.sh |
 | `build-plugins.sh` | Build all plugin UMD bundles |
 | `health-monitor.sh` | Background service health daemon (started automatically) |
 | `smoke.sh` | Run smoke tests against running services |

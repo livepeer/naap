@@ -20,7 +20,7 @@ with schema-level isolation.
 # Clone and run (~30s)
 git clone https://github.com/livepeer/NaaP.git
 cd NaaP
-./bin/setup.sh --start
+./bin/start.sh
 ```
 
 This installs dependencies, starts a PostgreSQL database via Docker, runs
@@ -31,16 +31,16 @@ Open **http://localhost:3000** when setup completes.
 ## Daily Development (after first setup)
 
 ```bash
-./bin/start.sh --fast               # Smart start: auto-detects your changed plugins (~6s)
+./bin/start.sh                      # Smart start: auto-detects your changed plugins (~6s)
 ./bin/start.sh community            # Shell + one plugin backend (~6s)
-./bin/start.sh gw community --fast  # Shell + specific plugins, skip checks (~6s)
-./bin/start.sh start --all          # Everything, all 12 plugins (~10s warm, ~25s cold)
-./bin/start.sh stop                 # Graceful stop (~2s)
+./bin/start.sh gw community         # Shell + specific plugins (~6s)
+./bin/start.sh --all                # Everything, all 12 plugins (~10s warm, ~25s cold)
+./bin/stop.sh                       # Graceful stop (~2s)
 ```
 
-The `--fast` flag is the recommended daily driver. It skips redundant DB
-syncs and verification, and auto-detects which plugins you have changed
-since the last build -- starting only those plus the marketplace.
+Smart start is the default. It skips redundant DB syncs and verification,
+and auto-detects which plugins you have changed since the last build --
+starting only those plus the marketplace.
 
 ## Project Structure
 
@@ -88,19 +88,19 @@ npx naap-plugin create my-plugin
 
 | Command | Description | Time |
 |---|---|---|
-| `./bin/start.sh --fast` | Smart start (auto-detects changed plugins) | ~6s |
+| `./bin/start.sh` | Smart start (auto-detects changed plugins) | ~6s |
 | `./bin/start.sh <plugin>` | Shell + one plugin backend | ~6s |
-| `./bin/start.sh stop` | Graceful parallel stop | ~2s |
+| `./bin/stop.sh` | Graceful parallel stop | ~2s |
 | `./bin/start.sh status` | Show status dashboard | instant |
 
 **Full reference:**
 
 | Command | Description |
 |---|---|
-| `./bin/setup.sh --start` | First-time setup + start |
-| `./bin/start.sh start --all` | Start all services and plugins |
-| `./bin/start.sh start --no-plugins` | Shell + core only (no backends) |
-| `./bin/start.sh start --all --fast` | All services, fastest possible |
+| `./bin/start.sh` | First-time setup + start (setup is automatic) |
+| `./bin/start.sh --all` | Start all services and plugins |
+| `./bin/start.sh --no-plugins` | Shell + core only (no backends) |
+| `./bin/start.sh --all` | All services, fastest possible |
 | `./bin/start.sh dev <plugin>` | Dev mode with HMR for a single plugin |
 | `./bin/start.sh validate` | Health-check all services |
 | `./bin/start.sh logs <svc>` | Tail logs for a service |

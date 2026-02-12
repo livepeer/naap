@@ -15,14 +15,14 @@
 # Clone and start (~30s after npm install)
 git clone https://github.com/livepeer/naap.git
 cd naap
-./bin/setup.sh --start
+./bin/start.sh
 ```
 
 Open **http://localhost:3000** when setup completes.
 
 ## What Setup Does
 
-The `setup.sh` script automates the entire first-time experience:
+The `start.sh` script automatically runs setup on first use:
 
 | Step | What It Does |
 |------|--------------|
@@ -33,7 +33,7 @@ The `setup.sh` script automates the entire first-time experience:
 | 5. Build Plugins | Builds all 12 plugin UMD bundles (with source hashing for future skip) |
 | 6. Verification | Checks critical files and workspace links |
 
-You only run `setup.sh` once. After that, use `start.sh` for everything.
+Setup runs automatically on first start. After that, `start.sh` handles everything.
 
 ## Architecture Overview
 
@@ -47,12 +47,12 @@ There is **no Kafka**. Inter-service communication uses the in-app event bus.
 
 ## Daily Development
 
-After first-time setup, use `start.sh` for all development. The `--fast`
-flag is the recommended daily driver:
+After first-time setup, use `start.sh` for all development. Smart start
+is the default:
 
 ```bash
 # Smart start (~6s) -- auto-detects which plugins you changed
-./bin/start.sh --fast
+./bin/start.sh
 
 # Start a specific plugin + shell (~6s)
 ./bin/start.sh community
@@ -61,13 +61,13 @@ flag is the recommended daily driver:
 ./bin/start.sh gateway-manager community
 
 # Everything (~10s warm, ~25s cold)
-./bin/start.sh start --all
+./bin/start.sh --all
 
 # Stop everything (~2s)
-./bin/start.sh stop
+./bin/stop.sh
 ```
 
-### How `--fast` works
+### How smart start works
 
 1. Skips `prisma db push` (trusts existing DB state)
 2. Skips plugin CDN accessibility verification
@@ -80,7 +80,7 @@ If nothing has changed, it starts shell-only in ~6 seconds.
 ### Add `--timing` to see where time goes
 
 ```bash
-./bin/start.sh start --all --timing
+./bin/start.sh --all --timing
 # Output:
 #   Infrastructure    1s
 #   Plugin builds     0s   (all cached)
@@ -100,7 +100,7 @@ If nothing has changed, it starts shell-only in ~6 seconds.
 ./bin/start.sh dev my-plugin
 
 # Quick restart cycle
-./bin/start.sh stop && ./bin/start.sh my-plugin --fast
+./bin/stop.sh && ./bin/start.sh my-plugin
 ```
 
 ### Database Changes
@@ -166,7 +166,7 @@ See [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md) for production deployment det
 ### Port Already in Use
 
 ```bash
-./bin/start.sh stop        # cleans up all platform processes
+./bin/stop.sh              # cleans up all platform processes
 # or manually:
 lsof -ti:3000 | xargs kill -9
 ```

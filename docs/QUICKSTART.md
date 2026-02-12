@@ -67,27 +67,27 @@ Open **http://localhost:3000** -- your plugin appears in the sidebar.
 
 ```bash
 # Smart start: auto-detects your changes (~6s)
-./bin/start.sh --fast
+./bin/start.sh
 
 # Stop when done (~2s)
-./bin/start.sh stop
+./bin/stop.sh
 
 # Quick restart
-./bin/start.sh stop && ./bin/start.sh --fast
+./bin/stop.sh && ./bin/start.sh
 ```
 
-The `--fast` flag is the daily driver. It detects which plugins you changed,
+Smart start is the default. It detects which plugins you changed,
 rebuilds only those, and starts shell + marketplace + your changed plugins.
 
 ## Quick Commands Reference
 
 | Command | Description | Time |
 |---------|-------------|------|
-| `./bin/start.sh --fast` | Smart start (daily driver) | ~6s |
+| `./bin/start.sh` | Smart start (default) | ~6s |
 | `./bin/start.sh my-plugin` | Shell + one plugin | ~6s |
 | `./bin/start.sh dev my-plugin` | Shell + plugin with HMR | ~6s |
-| `./bin/start.sh stop` | Stop everything | ~2s |
-| `./bin/start.sh start --all` | Start all plugins | ~10s |
+| `./bin/stop.sh` | Stop everything | ~2s |
+| `./bin/start.sh --all` | Start all plugins | ~10s |
 | `./bin/start.sh status` | What is running? | instant |
 | `./bin/start.sh validate` | Full health check | ~5s |
 | `naap-plugin create <name>` | Scaffold a new plugin | instant |

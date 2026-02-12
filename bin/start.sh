@@ -1,19 +1,20 @@
 #!/bin/bash
 
-# NAAP Platform Manager - Unified CLI v2
-# Usage: ./bin/start.sh <command> [options]
+# NAAP Platform Manager — Development Tooling
+# =============================================
+# This script is for LOCAL DEVELOPMENT only. Not for production deployment.
 #
-# Commands:
-#   start [options]        Start services (default if no command given)
-#   stop [options]         Stop services gracefully
-#   restart [options]      Restart services
-#   status                 Show status of all services
-#   watch [interval]       Live status dashboard (default: 5s)
-#   validate               Health-check all running services
-#   list                   List available plugins
-#   logs <service>         Tail logs for a service
-#   dev <plugin>           Start single plugin in full dev mode
-#   help                   Show this help
+# Usage:
+#   ./bin/start.sh                 Smart start (auto-detects your changed plugins)
+#   ./bin/start.sh --all           Start everything
+#   ./bin/start.sh <plugin> ...    Start shell + core + named plugins
+#   ./bin/start.sh dev <plugin>    Full dev mode (frontend HMR + backend)
+#   ./bin/start.sh status          Show running services
+#   ./bin/start.sh help            Show all options
+#
+# Stop:
+#   ./bin/stop.sh                  Stop all services
+#   ./bin/stop.sh --infra          Also stop Docker containers
 
 # Explicit error handling instead of set -e (more robust for complex scripts)
 set +e
@@ -98,14 +99,29 @@ preflight_check() {
     exit 1
   fi
 
-  # Auto-detect first run: no node_modules means setup hasn't been run
+  # Auto-detect first run: no node_modules means fresh clone.
+  # All setup steps run inline — no separate setup.sh needed.
   if [ ! -d "$ROOT_DIR/node_modules" ]; then
     echo ""
     log_warn "node_modules not found — this looks like a fresh clone."
     log_info "Running first-time setup automatically..."
     echo ""
-    bash "$SCRIPT_DIR/setup.sh" --start
-    exit $?
+    log_section "First-Time Setup"
+
+    # Step 1: Install dependencies
+    log_info "Installing dependencies (npm install)... This may take 1-2 minutes."
+    cd "$ROOT_DIR" || { log_error "Cannot cd to project root"; exit 1; }
+    npm install 2>&1 | tail -5
+    log_success "Dependencies installed"
+
+    # Step 2: Install git hooks (pre-push validation)
+    if [ -f "$SCRIPT_DIR/install-git-hooks.sh" ]; then
+      bash "$SCRIPT_DIR/install-git-hooks.sh" 2>/dev/null && \
+        log_success "Git hooks installed" || log_warn "Could not install git hooks"
+    fi
+
+    log_success "First-time setup complete. Continuing to start..."
+    echo ""
   fi
 
   # Check Docker if we'll need databases
@@ -872,7 +888,7 @@ start_shell() {
   log_error "Shell failed to start on port $SHELL_PORT."
   echo -e "  ${DIM}Common fixes:${NC}"
   echo -e "  ${DIM}  - Port in use? Run: lsof -i :$SHELL_PORT${NC}"
-  echo -e "  ${DIM}  - Missing .env.local? Run: ./bin/setup.sh${NC}"
+  echo -e "  ${DIM}  - Missing .env.local? Delete node_modules and re-run ./bin/start.sh${NC}"
   echo -e "  ${DIM}  - Check full log: logs/shell-web.log${NC}"
   show_failure_context "$LOG_DIR/shell-web.log"
   return 1
@@ -1597,7 +1613,7 @@ _summary_shell() {
   echo "  Shell:          http://localhost:$SHELL_PORT"
   echo "  Base Service:   http://localhost:$BASE_SVC_PORT/healthz"
   echo "  Plugin Server:  http://localhost:$PLUGIN_SERVER_PORT/plugins"; echo ""
-  echo "  Commands:  status | validate | stop | stop <plugin> | logs <svc>"
+  echo "  Stop: ./bin/stop.sh    Status: ./bin/start.sh status"
   echo "================================================"
 }
 _summary_be() {
@@ -1617,7 +1633,7 @@ _summary_be() {
     echo "  Plugin Backends:"
     for p in $started_plugins; do local bp=$(get_plugin_backend_port "$p"); [ -n "$bp" ] && printf "    %-22s http://localhost:%s/healthz\n" "$(get_plugin_display_name "$p"):" "$bp"; done
   fi
-  echo ""; echo "  Commands:  status | validate | stop | stop <plugin> | restart <plugin>"
+  echo ""; echo "  Stop: ./bin/stop.sh    Status: ./bin/start.sh status"
   echo "================================================"
 }
 _summary_full() {
@@ -1627,7 +1643,7 @@ _summary_full() {
   echo "  Base Service:   http://localhost:$BASE_SVC_PORT/healthz"
   echo "  Plugin Server:  http://localhost:$PLUGIN_SERVER_PORT/plugins"; echo "  Plugin Backends:"
   for p in $(get_all_plugins); do local bp=$(get_plugin_backend_port "$p"); [ -n "$bp" ] && printf "    %-22s http://localhost:%s\n" "$(get_plugin_display_name "$p"):" "$bp"; done
-  echo ""; echo "  Commands:  status | validate | stop | stop <plugin> | restart <plugin> | logs <svc>"
+  echo ""; echo "  Stop: ./bin/stop.sh    Status: ./bin/start.sh status"
   echo "================================================"
 }
 _summary_svc() {
@@ -1636,7 +1652,7 @@ _summary_svc() {
   echo "  Base Service:   http://localhost:$BASE_SVC_PORT/healthz"
   echo "  Plugin Server:  http://localhost:$PLUGIN_SERVER_PORT/plugins"; echo "  Plugin Backends:"
   for p in $(get_all_plugins); do local bp=$(get_plugin_backend_port "$p"); [ -n "$bp" ] && printf "    %-22s http://localhost:%s/healthz\n" "$(get_plugin_display_name "$p"):" "$bp"; done
-  echo ""; echo "  No frontend. Run: ./bin/start.sh start --shell"
+  echo ""; echo "  Stop: ./bin/stop.sh    Status: ./bin/start.sh status"
   echo "================================================"
 }
 
@@ -1673,78 +1689,50 @@ cmd_logs() {
 ###############################################################################
 
 show_help() {
-  echo ""; echo -e "${BOLD}NAAP Platform Manager v2${NC}"; echo ""
-  echo "Usage: ./bin/start.sh <command> [options]"; echo ""
+  echo ""
+  echo -e "${BOLD}NAAP Platform Manager${NC} ${DIM}(Development Tooling)${NC}"
+  echo ""
+  echo "Usage: ./bin/start.sh [command] [options]"
+  echo ""
   echo -e "${BOLD}Commands:${NC}"
-  echo "  start [options]          Start services (default if no command)"
-  echo "  stop [options]           Stop services gracefully"
-  echo "  restart [options]        Restart specific plugins or all"
+  echo "  (default)                Smart start: shell + core + auto-detected plugins"
+  echo "  --all                    Start everything (all plugin backends)"
+  echo "  <plugin> [plugin...]     Start shell + core + named plugin backends"
+  echo "  dev <plugin>             Full dev mode (frontend HMR + backend)"
   echo "  status                   Show status of all services"
-  echo "  watch [seconds]          Live status dashboard (auto-refresh)"
   echo "  validate                 Health-check all running services"
   echo "  list                     List available plugins"
-  echo "  dev <plugin>             Start plugin in full dev mode (frontend HMR + backend)"
   echo "  logs [service]           Tail logs for a service"
-  echo "  help                     Show this help"; echo ""
-  echo -e "${BOLD}Start Options:${NC}"
-  echo "  --all                    Start everything (parallel by default)"
-  echo "  --shell                  Start shell + core (default)"
-  echo "  --shell-with-backends    Start shell + core + all plugin backends"
-  echo "  --services               Start backend services only"
-  echo "  --no-plugins             Start shell + core, skip all plugin backends"
-  echo "  --only=p1,p2,...         Start only named plugin backends"
-  echo "  --fast                   Smart start: skip checks + auto-detect changed plugins"
-  echo "  --sequential             Force sequential backend startup"
-  echo "  --clean                  Delete .next cache before starting shell"
-  echo "  --skip-verify            Skip plugin accessibility verification"
-  echo "  --skip-db-sync           Skip prisma generate/push (trust existing state)"
-  echo "  --deep-check             Run deep API health checks on backends"
+  echo "  restart [plugin...]      Restart services or specific plugins"
+  echo "  watch [seconds]          Live status dashboard"
+  echo "  help                     Show this help"
+  echo ""
+  echo -e "${BOLD}Options:${NC}"
+  echo "  --clean                  Fresh start: clean .next cache + force DB re-sync"
+  echo "  --no-plugins             Start shell + core only, skip plugin backends"
+  echo "  --skip-db                Skip database sync (trust existing state)"
   echo "  --timing                 Show per-phase timing breakdown"
-  echo "  <plugin_names...>        Start specific plugins + core + shell"; echo ""
-  echo -e "${BOLD}Stop Options:${NC}"
-  echo "  (no options)             Stop all gracefully (ordered: shell->plugins->core)"
-  echo "  --shell                  Stop shell only"
-  echo "  --services               Stop core services only"
-  echo "  --plugins                Stop all plugin backends"
-  echo "  --infra                  Also stop Docker containers"
-  echo "  <plugin_names...>        Stop specific plugins"; echo ""
-  echo -e "${BOLD}Restart Options:${NC}"
-  echo "  (no options)             Restart everything"
-  echo "  --services               Restart core services only"
-  echo "  <plugin_names...>        Restart specific plugins"; echo ""
-  echo -e "${BOLD}Architecture:${NC}  Next.js (web-next) only - legacy shell-web has been retired"; echo ""
-  echo -e "${BOLD}Environment:${NC}"
-  echo "  DEBUG=1                  Verbose output"
-  echo "  GRACEFUL_TIMEOUT=N       Force-kill timeout (default: 5s)"
-  echo "  PARALLEL_START=0         Disable parallel backend startup"; echo ""
-  echo -e "${BOLD}First-Time Setup:${NC}"
-  echo "  ./bin/setup.sh                             # Full setup from fresh clone"
-  echo "  ./bin/setup.sh --start                     # Setup + start immediately"
+  echo "  --verbose                Verbose output + deep API health checks"
   echo ""
-  echo -e "${BOLD}Quick Start (most common dev workflow):${NC}"
-  echo "  ./bin/start.sh --fast                     # Smart: auto-detect your changed plugins"
-  echo "  ./bin/start.sh community                  # Shell + community backend only"
+  echo -e "${BOLD}Stop (use ./bin/stop.sh):${NC}"
+  echo "  ./bin/stop.sh            Stop all NAAP services"
+  echo "  ./bin/stop.sh <plugin>   Stop a specific plugin"
+  echo "  ./bin/stop.sh --infra    Also stop Docker containers"
+  echo ""
+  echo -e "${BOLD}Environment Variables:${NC}"
+  echo "  GRACEFUL_TIMEOUT=N       Force-kill timeout in seconds (default: 5)"
+  echo "  PARALLEL_START=0         Force sequential backend startup"
+  echo ""
+  echo -e "${BOLD}Quick Start:${NC}"
+  echo "  ./bin/start.sh                            # Smart start (auto-detects changes)"
+  echo "  ./bin/start.sh community                  # Shell + community backend"
   echo "  ./bin/start.sh community gateway-manager  # Shell + 2 plugins"
-  echo "  ./bin/start.sh community --fast           # Shell + community, skip checks"
+  echo "  ./bin/start.sh --all                      # Everything"
+  echo "  ./bin/start.sh dev daydream-video          # Full dev mode (HMR)"
   echo ""
-  echo -e "${BOLD}Examples:${NC}"
-  echo "  ./bin/start.sh                            # Start shell + core"
-  echo "  ./bin/start.sh start --all                # Start everything"
-  echo "  ./bin/start.sh start --no-plugins         # Shell + core, no backends"
-  echo "  ./bin/start.sh start --only=community     # Only community backend"
-  echo "  ./bin/start.sh start --all --fast         # All services, fastest start"
-  echo "  ./bin/start.sh start --timing             # Start with timing breakdown"
-  echo "  ./bin/start.sh dev daydream-video          # Full dev mode (HMR + backend)"
-  echo "  ./bin/start.sh stop                       # Graceful stop all"
-  echo "  ./bin/start.sh stop gateway-manager       # Stop one plugin"
-  echo "  ./bin/start.sh restart community          # Restart a plugin"
-  echo "  ./bin/start.sh restart --services         # Restart core services"
-  echo "  ./bin/start.sh status                     # What is running?"
-  echo "  ./bin/start.sh watch 3                    # Live dashboard (3s refresh)"
-  echo "  ./bin/start.sh validate                   # Health-check all"
-  echo "  ./bin/start.sh logs base-svc              # Tail logs"
+  echo -e "${BOLD}First time?${NC} Just run ${CYAN}./bin/start.sh${NC} — setup is automatic on fresh clones."
   echo ""
-  echo -e "${DIM}Tip: Just run './bin/start.sh --fast' — it auto-detects your changed plugins and starts them.${NC}"
+  echo -e "${DIM}Note: This is development tooling. For production deployment, see docs/deployment.${NC}"
   echo ""
 }
 
@@ -1754,21 +1742,24 @@ show_help() {
 
 mkdir -p "$LOG_DIR"; touch "$PID_FILE"; rmdir "${PID_FILE}.lock" 2>/dev/null || true
 
-# Parse global flags
+# Parse global flags (simplified — old flags still accepted for backward compat)
 ALL_ARGS=()
 for arg in "$@"; do
   case "$arg" in
-    --legacy)       log_warn "--legacy flag is deprecated. Using Next.js shell (web-next)." ;;
-    --next)         : ;; # No-op, Next.js is the only mode now
-    --sequential)   PARALLEL_START=0 ;;
-    --parallel)     PARALLEL_START=1 ;;
-    --clean)        CLEAN_NEXT=1 ;;
+    # Primary flags
+    --clean)        CLEAN_NEXT=1; SKIP_DB_SYNC=0 ;;
+    --no-plugins)   NO_PLUGINS=1 ;;
+    --skip-db)      SKIP_DB_SYNC=1 ;;
+    --timing)       SHOW_TIMING=1 ;;
+    --verbose)      DEBUG=1; DEEP_CHECK=1 ;;
+    # Backward compat (silently accepted, not shown in help)
+    --fast)         : ;;  # Smart start is now the default behavior
     --skip-verify)  SKIP_VERIFY=1 ;;
     --skip-db-sync) SKIP_DB_SYNC=1 ;;
-    --no-plugins)   NO_PLUGINS=1 ;;
     --deep-check)   DEEP_CHECK=1 ;;
-    --fast)         SKIP_VERIFY=1; SKIP_DB_SYNC=1 ;;
-    --timing)       SHOW_TIMING=1 ;;
+    --sequential)   PARALLEL_START=0 ;;
+    --parallel)     : ;;  # Already the default
+    --legacy|--next) : ;; # Dead flags, silently ignored
     --only=*)       ONLY_PLUGINS="${arg#--only=}" ;;
     *)              ALL_ARGS+=("$arg") ;;
   esac
@@ -1788,26 +1779,22 @@ esac
 case "$COMMAND" in
   start|"")
     case "${COMMAND_ARGS[0]:-}" in
-      --all)                                 cmd_start_all ;;
+      --all)        cmd_start_all ;;
+      --no-plugins) cmd_start_shell ;;
+      --list)       cmd_list ;;
+      # Backward compat (hidden from help)
       --shell)                               cmd_start_shell ;;
       --shell-with-backends|--with-backends) cmd_start_shell_with_backends ;;
       --services)                            cmd_start_services ;;
       --plugins)                             cmd_start_shell_with_backends ;;
-      --no-plugins)                          cmd_start_shell ;;
-      --list)                                cmd_list ;;
       "")
-        # If --only=... was supplied, auto-route to shell+backends so the
-        # selected plugin backends are actually started.
+        # Smart default: auto-detect which plugins the dev is working on
+        # (source code changed since last build) and start those backends.
         if [ -n "$ONLY_PLUGINS" ]; then
           cmd_start_shell_with_backends
-        elif [ "$SKIP_VERIFY" = "1" ] && [ "$NO_PLUGINS" != "1" ]; then
-          # Smart --fast mode: auto-detect which plugins the dev is working
-          # on (source code changed since last build) and start those backends
-          # plus marketplace (always useful). This gives plugin devs the
-          # fastest possible start with zero config.
+        elif [ "$NO_PLUGINS" != "1" ]; then
           _CHANGED=$(_detect_changed_plugins)
           if [ -n "$_CHANGED" ]; then
-            # Deduplicate: start marketplace + any changed plugins
             ONLY_PLUGINS="marketplace"
             for _cp in $_CHANGED; do
               [ "$_cp" = "marketplace" ] && continue
@@ -1822,9 +1809,10 @@ case "$COMMAND" in
         else
           cmd_start_shell
         fi ;;
-      *)                                     cmd_start_plugins "${COMMAND_ARGS[@]}" ;;
+      *)  cmd_start_plugins "${COMMAND_ARGS[@]}" ;;
     esac ;;
   stop)
+    # Backward compat: ./bin/start.sh stop still works (prefer ./bin/stop.sh)
     case "${COMMAND_ARGS[0]:-}" in
       "")         stop_all ;;
       --shell)    stop_shell ;;
@@ -1842,7 +1830,10 @@ case "$COMMAND" in
       *)          for p in "${COMMAND_ARGS[@]}"; do [ -d "$ROOT_DIR/plugins/$p" ] && restart_plugin "$p" || log_error "Not found: $p"; done ;;
     esac ;;
   setup)
-    exec bash "$SCRIPT_DIR/setup.sh" "${COMMAND_ARGS[@]}" ;;
+    # Backward compat: redirect to self (setup is now inline)
+    log_warn "The 'setup' command is deprecated. Setup is automatic on first run."
+    log_info "Just run: ./bin/start.sh"
+    ;;
   dev)
     [ -z "${COMMAND_ARGS[0]:-}" ] && { log_error "Usage: ./bin/start.sh dev <plugin_name>"; cmd_list; exit 1; }
     cmd_dev_plugin "${COMMAND_ARGS[0]}" ;;
@@ -1853,7 +1844,7 @@ case "$COMMAND" in
   logs)          cmd_logs "${COMMAND_ARGS[0]:-}" ;;
   -h|--help|help) show_help ;;
   *)
-    # Smart plugin-name shortcut: ./bin/start.sh community  →  start --only=community
+    # Smart plugin-name shortcut: ./bin/start.sh community → start community backend
     # Also handles multiple: ./bin/start.sh community gateway-manager
     if [ -d "$ROOT_DIR/plugins/$COMMAND" ]; then
       ONLY_PLUGINS="$COMMAND"

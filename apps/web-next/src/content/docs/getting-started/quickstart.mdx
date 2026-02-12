@@ -9,7 +9,7 @@ order: 1
 From a fresh clone to a fully running platform:
 
 ```bash
-git clone https://github.com/livepeer/naap.git && cd naap && ./bin/setup.sh --start
+git clone https://github.com/livepeer/naap.git && cd naap && ./bin/start.sh
 ```
 
 This handles everything automatically:
@@ -24,13 +24,13 @@ This handles everything automatically:
 
 Open **http://localhost:3000** when setup completes.
 
-You only run `setup.sh` once. After that, use `start.sh` for everything.
+Setup runs automatically on first start.
 
 ## Daily Development (after first setup)
 
 ```bash
 # Recommended daily driver (~6s)
-./bin/start.sh --fast               # auto-detects your changed plugins
+./bin/start.sh                      # auto-detects your changed plugins
 
 # Start a specific plugin (~6s)
 ./bin/start.sh community            # shell + community backend
@@ -39,15 +39,15 @@ You only run `setup.sh` once. After that, use `start.sh` for everything.
 ./bin/start.sh gateway-manager community
 
 # Everything (~10s warm)
-./bin/start.sh start --all
+./bin/start.sh --all
 
 # Stop (~2s)
-./bin/start.sh stop
+./bin/stop.sh
 ```
 
-### How `--fast` works
+### How smart start works
 
-The `--fast` flag is designed for the typical developer who works on one
+Smart start is designed for the typical developer who works on one
 plugin at a time:
 
 - Skips redundant DB sync and plugin verification
@@ -69,7 +69,7 @@ This runs a full health check across all services, CDN bundles, and database sch
 ## Stop & Restart
 
 ```bash
-./bin/start.sh stop                 # parallel stop (~2s)
+./bin/stop.sh                       # parallel stop (~2s)
 ./bin/start.sh restart              # stop + start
 ./bin/start.sh watch                # live dashboard (auto-refreshes)
 ```
@@ -77,7 +77,7 @@ This runs a full health check across all services, CDN bundles, and database sch
 ## Add `--timing` to see where time goes
 
 ```bash
-./bin/start.sh start --all --timing
+./bin/start.sh --all --timing
 #   Infrastructure    1s
 #   Plugin builds     0s  (all cached)
 #   Core services     3s
