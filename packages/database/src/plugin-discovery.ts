@@ -12,12 +12,20 @@ import * as path from 'path';
 
 // ─── String Utilities ────────────────────────────────────────────────────────
 
-/** Convert kebab-case to camelCase: "my-wallet" -> "myWallet" */
+/**
+ * Convert kebab-case to camelCase.
+ * @param s - Input string in kebab-case (e.g. "my-wallet")
+ * @returns CamelCase string (e.g. "myWallet")
+ */
 export function toCamelCase(s: string): string {
   return s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
 }
 
-/** Convert camelCase to PascalCase: "myWallet" -> "MyWallet" */
+/**
+ * Convert camelCase to PascalCase.
+ * @param s - Input string in camelCase (e.g. "myWallet")
+ * @returns PascalCase string (e.g. "MyWallet")
+ */
 export function toPascalCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -29,6 +37,7 @@ export function toPascalCase(s: string): string {
  * @param cdnBase - CDN base path (e.g. "/cdn/plugins")
  * @param dirName - Plugin directory name in kebab-case (e.g. "my-wallet")
  * @param version - Semver version string (e.g. "1.0.0")
+ * @returns Full URL path to the plugin JS bundle
  */
 export function getBundleUrl(cdnBase: string, dirName: string, version: string): string {
   return `${cdnBase}/${dirName}/${version}/${dirName}.js`;
@@ -36,6 +45,10 @@ export function getBundleUrl(cdnBase: string, dirName: string, version: string):
 
 /**
  * Build the CDN stylesheet URL for a plugin.
+ * @param cdnBase - CDN base path
+ * @param dirName - Plugin directory name in kebab-case
+ * @param version - Semver version string
+ * @returns Full URL path to the plugin CSS stylesheet
  */
 export function getStylesUrl(cdnBase: string, dirName: string, version: string): string {
   return `${cdnBase}/${dirName}/${version}/${dirName}.css`;
@@ -81,9 +94,9 @@ export interface DiscoveredPlugin {
 
 /**
  * Scan the `plugins/` directory and read each `plugin.json` manifest.
- * Returns an array of discovered plugins sorted by navigation order.
  *
  * @param rootDir - Monorepo root directory (must contain a `plugins/` folder)
+ * @returns Array of discovered plugins sorted by navigation order; empty if plugins dir not found
  */
 export function discoverPlugins(rootDir: string): DiscoveredPlugin[] {
   const pluginsDir = path.join(rootDir, 'plugins');
@@ -132,9 +145,10 @@ export function discoverPlugins(rootDir: string): DiscoveredPlugin[] {
  * Build the WorkflowPlugin upsert data for a discovered plugin.
  * This is the shape expected by `prisma.workflowPlugin.upsert()`.
  *
- * @param plugin    - Discovered plugin metadata
- * @param cdnBase   - CDN base path (e.g. "/cdn/plugins")
- * @param rootDir   - Monorepo root directory (for resolving build manifests)
+ * @param plugin - Discovered plugin metadata
+ * @param cdnBase - CDN base path (e.g. "/cdn/plugins")
+ * @param rootDir - Monorepo root directory (for resolving build manifests)
+ * @returns Prisma upsert-compatible object for WorkflowPlugin
  */
 export function toWorkflowPluginData(
   plugin: DiscoveredPlugin,
@@ -167,8 +181,11 @@ export function toWorkflowPluginData(
     }
     // If no manifest found at all (plugin not yet built), leave stylesUrl undefined.
     // This is safer than assuming CSS exists, which causes MIME-type errors on 404.
-  } catch {
+  } catch (err) {
     // On error, leave stylesUrl undefined to avoid broken stylesheet references.
+    if (process.env.DEBUG) {
+      console.debug(`[plugin-discovery] Failed to resolve manifest for ${plugin.dirName}:`, err);
+    }
   }
 
   return {
@@ -195,7 +212,9 @@ export function toWorkflowPluginData(
  * Only plugins that have at least a `description` in their plugin.json
  * will produce meaningful marketplace entries.
  *
- * Shape matches `prisma.pluginPackage.upsert()`.
+ * @param plugin - Discovered plugin metadata
+ * @param cdnBase - CDN base path
+ * @returns Prisma upsert-compatible object for PluginPackage
  */
 export function toPluginPackageData(
   plugin: DiscoveredPlugin,
@@ -219,6 +238,11 @@ export function toPluginPackageData(
 
 /**
  * Build the PluginVersion data for the initial version of a marketplace entry.
+ *
+ * @param plugin - Discovered plugin metadata
+ * @param packageId - UUID of the PluginPackage record
+ * @param cdnBase - CDN base path
+ * @returns Prisma create-compatible object for PluginVersion
  */
 export function toPluginVersionData(
   plugin: DiscoveredPlugin,

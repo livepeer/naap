@@ -28,13 +28,21 @@ import * as path from 'path';
 
 const prisma = new PrismaClient();
 
-// Password hashing (same as auth service)
+/**
+ * Hash a password using PBKDF2 with random salt.
+ * @param password - Plaintext password to hash
+ * @returns Salt:hash string suitable for storage
+ */
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
   return `${salt}:${hash}`;
 }
 
+/**
+ * Main seed entry point. Creates feature flags, roles, users, plugins,
+ * marketplace data, and test tenant installations.
+ */
 async function main() {
   console.log('🌱 Seeding web-next database (comprehensive)...\n');
 
