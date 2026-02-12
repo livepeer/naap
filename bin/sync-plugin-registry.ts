@@ -125,6 +125,29 @@ async function main(): Promise<void> {
     // ------------------------------------------------------------------
     console.log('[sync-plugin-registry] Syncing marketplace PluginPackage records...');
 
+    // Unlist stale PluginPackage records for plugins no longer in the repo.
+    // This ensures the marketplace only shows plugins that are actively
+    // deployed, not leftover records from previous branches/deploys.
+    const publishedPackages = await prisma.pluginPackage.findMany({
+      where: { publishStatus: 'published' },
+      select: { name: true },
+    });
+
+    let unlisted = 0;
+    for (const pkg of publishedPackages) {
+      if (!discoveredNames.has(pkg.name)) {
+        await prisma.pluginPackage.update({
+          where: { name: pkg.name },
+          data: { publishStatus: 'unlisted' },
+        });
+        unlisted++;
+        console.log(`  [UNLISTED] ${pkg.name} (no longer in repo)`);
+      }
+    }
+    if (unlisted > 0) {
+      console.log(`[sync-plugin-registry] Unlisted ${unlisted} stale PluginPackage records`);
+    }
+
     let pkgCreated = 0;
     let pkgUpdated = 0;
 
@@ -211,7 +234,7 @@ async function main(): Promise<void> {
     }
 
     console.log(
-      `[sync-plugin-registry] PluginPackages: ${pkgCreated} created, ${pkgUpdated} updated`,
+      `[sync-plugin-registry] PluginPackages: ${pkgCreated} created, ${pkgUpdated} updated, ${unlisted} unlisted`,
     );
     console.log('[sync-plugin-registry] Done.');
   } finally {

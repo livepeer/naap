@@ -139,13 +139,13 @@ export async function autoRegisterPlugins(): Promise<void> {
   const prisma = new PrismaClient();
 
   try {
-    // Quick check: if plugin count matches, skip (fast path for restarts)
+    // Quick check: if plugin count matches exactly, skip (fast path for restarts)
     const dbCount = await prisma.workflowPlugin.count({ where: { enabled: true } });
     const discoveredWithRoutes = discovered.filter((p) => p.routes.length > 0);
 
-    // Only skip if counts match AND all discovered plugins exist.
-    // This avoids a full sync on every restart when nothing changed.
-    if (dbCount >= discoveredWithRoutes.length) {
+    // Only skip if counts match exactly AND all discovered plugins exist.
+    // If dbCount > discovered, stale plugins need cleanup — don't skip.
+    if (dbCount === discoveredWithRoutes.length) {
       const names = discoveredWithRoutes.map((p) => p.name);
       const existing = await prisma.workflowPlugin.findMany({
         where: { name: { in: names } },
@@ -158,6 +158,8 @@ export async function autoRegisterPlugins(): Promise<void> {
         return;
       }
       console.log(`[naap] Found ${missing.length} unregistered plugins: ${missing.join(', ')}`);
+    } else if (dbCount > discoveredWithRoutes.length) {
+      console.log(`[naap] DB has ${dbCount} enabled plugins but only ${discoveredWithRoutes.length} discovered — will clean up stale records`);
     }
 
     console.log(`[naap] Auto-registering ${discovered.length} discovered plugins...`);
@@ -296,6 +298,37 @@ export async function autoRegisterPlugins(): Promise<void> {
             pluginName: plugin.dirName,
           },
         });
+      }
+    }
+
+    // Disable stale WorkflowPlugins no longer in the repo
+    const discoveredNames = new Set(discovered.map((p) => p.name));
+    const enabledPlugins = await prisma.workflowPlugin.findMany({
+      where: { enabled: true },
+      select: { name: true },
+    });
+    for (const db of enabledPlugins) {
+      if (!discoveredNames.has(db.name)) {
+        await prisma.workflowPlugin.update({
+          where: { name: db.name },
+          data: { enabled: false },
+        });
+        console.log(`[naap]   Disabled stale plugin: ${db.name}`);
+      }
+    }
+
+    // Unlist stale PluginPackage records so marketplace doesn't show removed plugins
+    const publishedPackages = await prisma.pluginPackage.findMany({
+      where: { publishStatus: 'published' },
+      select: { name: true },
+    });
+    for (const pkg of publishedPackages) {
+      if (!discoveredNames.has(pkg.name)) {
+        await prisma.pluginPackage.update({
+          where: { name: pkg.name },
+          data: { publishStatus: 'unlisted' },
+        });
+        console.log(`[naap]   Unlisted stale package: ${pkg.name}`);
       }
     }
 
