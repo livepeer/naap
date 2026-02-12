@@ -197,6 +197,31 @@ The `--fast` flag is the recommended daily driver. It skips redundant DB
 syncs and verification, rebuilds only changed plugins, and starts only
 what you need. See [bin/README.md](bin/README.md) for the full CLI reference.
 
+## Pre-Push Automation
+
+`./bin/setup.sh` installs a git pre-push hook that runs fast validation
+before every push:
+
+- Builds `@naap/plugin-build` (required for plugin vite configs)
+- Runs plugin-sdk tests
+
+```bash
+npm run ci-check          # Run manually (~15-30s)
+npm run ci-check:full     # Full vercel-build (~2 min)
+git push --no-verify      # Skip when necessary
+```
+
+## Manual Steps & Further Automation
+
+| Step | Automatable? | Current | To Reduce Human Involvement |
+|------|--------------|---------|-----------------------------|
+| Run `ci-check` before push | ✅ Done | Pre-push hook installed by setup | — |
+| Run full build before PR | Partial | `ci-check:full` exists | Add optional CI job that fails if vercel-build would fail on main |
+| Update tests when refactoring | Partial | CI fails and surfaces it | Add pre-commit lint that suggests running tests when codegen/sdk changes |
+| Keep plugin-build exports as dist/ | Documentation | README warns | Add CI check: fail if plugin-build exports `.ts` in package.json |
+| Request PR review | Manual | CODEOWNERS + Copilot | Already automated where possible |
+| Merge after CI passes | Partial | Merge queue / auto-merge | Enable merge queue if not already |
+
 ## Getting Help
 
 - **GitHub Discussions** -- ask architecture questions, propose ideas, or

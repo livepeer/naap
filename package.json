@@ -17,6 +17,8 @@
     "validate": "./bin/start.sh validate",
     "build": "nx run-many --target=build --all",
     "build:plugins": "./bin/build-plugins.sh",
+    "ci-check": "./bin/pre-push-validate.sh",
+    "ci-check:full": "./bin/pre-push-validate.sh --full",
     "test": "nx run-many --target=test --all",
     "lint": "nx run-many --target=lint --all",
     "smoke": "./bin/smoke.sh",

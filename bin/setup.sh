@@ -70,7 +70,7 @@ echo ""
 # STEP 1: Dependency Checks
 ###############################################################################
 
-log_section "Step 1/6: Checking Dependencies"
+log_section "Step 1/7: Checking Dependencies"
 
 check_dep() {
   local cmd=$1 name=$2 install_hint=$3
@@ -135,7 +135,7 @@ log_success "Node.js version check passed ($(node -v))"
 # STEP 2: Environment File
 ###############################################################################
 
-log_section "Step 2/6: Environment Configuration"
+log_section "Step 2/7: Environment Configuration"
 
 ENV_FILE="$ROOT_DIR/apps/web-next/.env.local"
 if [ -f "$ENV_FILE" ]; then
@@ -237,7 +237,7 @@ fi
 # STEP 3: Install Dependencies
 ###############################################################################
 
-log_section "Step 3/6: Installing Dependencies"
+log_section "Step 3/7: Installing Dependencies"
 
 cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; exit 1; }
 if [ -d "node_modules" ] && [ -f "package-lock.json" ]; then
@@ -259,7 +259,7 @@ fi
 # STEP 4: Database Setup
 ###############################################################################
 
-log_section "Step 4/6: Database Setup"
+log_section "Step 4/7: Database Setup"
 
 if [ "$SKIP_DOCKER" = "1" ]; then
   log_warn "Skipping Docker/database setup (--skip-docker)"
@@ -354,7 +354,7 @@ fi
 # STEP 5: Build Plugins
 ###############################################################################
 
-log_section "Step 5/6: Building Plugins"
+log_section "Step 5/7: Building Plugins"
 
 if [ "$SKIP_BUILD" = "1" ]; then
   log_warn "Skipping plugin builds (--skip-build)"
@@ -416,7 +416,7 @@ fi
 # STEP 6: Verification
 ###############################################################################
 
-log_section "Step 6/6: Verification"
+log_section "Step 6/7: Verification"
 
 # Check critical files exist
 CHECKS_PASSED=true
@@ -433,6 +433,16 @@ if [ -d "$ROOT_DIR/node_modules/@naap" ]; then
   log_success "Workspace packages linked"
 else
   log_warn "Workspace packages may not be linked. Run 'npm install' again."
+fi
+
+###############################################################################
+# Step 7/7: Install git hooks (pre-push validation)
+###############################################################################
+log_section "Step 7/7: Git Hooks"
+if [ -d "$ROOT_DIR/.git" ]; then
+  "$SCRIPT_DIR/install-git-hooks.sh" && log_success "Pre-push hook installed" || log_warn "Could not install pre-push hook"
+else
+  log_info "Not a git repo, skipping hook install"
 fi
 
 ###############################################################################

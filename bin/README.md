@@ -100,6 +100,21 @@ All stops are parallel -- 15 services stop in ~2 seconds.
 
 ---
 
+## Before Pushing
+
+Pre-push validation runs automatically (installed by `./bin/setup.sh`):
+
+- Builds `@naap/plugin-build` (required for plugin vite configs)
+- Runs plugin-sdk tests
+
+```bash
+npm run ci-check          # Run manually (~15-30s)
+npm run ci-check:full     # Full vercel-build (~2 min)
+git push --no-verify      # Skip hook when needed
+```
+
+---
+
 ## Other Commands
 
 | Command | Description |
