@@ -93,18 +93,10 @@ npm run build
 cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
 
 # Step 5: Sync plugin registry in database
-# Only sync if plugin.json files changed (or always for production).
-if [ "${SCHEMA_CHANGED:-}" = "forced" ]; then
-  PLUGINS_CHANGED="forced"
-else
-  PLUGINS_CHANGED=$(git diff --name-only "$DIFF_BASE" HEAD -- plugins/*/plugin.json 2>/dev/null | head -1 || true)
-fi
-
-if [ -n "$PLUGINS_CHANGED" ] || [ "${VERCEL_ENV}" = "production" ]; then
-  echo "[5/5] Syncing plugin registry..."
-  npx tsx bin/sync-plugin-registry.ts
-else
-  echo "[5/5] Skipping plugin registry sync (no plugin.json changes)"
-fi
+# Always run — it's idempotent (upserts) and fast (~2-3s).
+# This ensures stale plugins are cleaned up when plugins are removed,
+# and new plugins are registered even if only the sync script changed.
+echo "[5/5] Syncing plugin registry..."
+npx tsx bin/sync-plugin-registry.ts
 
 echo "=== Vercel Build Pipeline Complete ==="
