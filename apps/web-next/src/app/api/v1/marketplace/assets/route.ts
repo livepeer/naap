@@ -34,7 +34,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     // Determine sort order
-    let orderBy: Record<string, string> = { name: 'asc' };
+    let orderBy: Record<string, string>;
     switch (sort) {
       case 'downloads':
         orderBy = { downloads: 'desc' };

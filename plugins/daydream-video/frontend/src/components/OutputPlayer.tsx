@@ -40,16 +40,7 @@ export const OutputPlayer: React.FC<OutputPlayerProps> = ({ playbackId, isStream
     );
   }
 
-  if (isStreaming && !playbackId) {
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900">
-        <Loader2 className="w-16 h-16 text-purple-500 animate-spin mb-4" />
-        <p className="text-white text-lg">Connecting to stream...</p>
-        <p className="text-gray-400 text-sm">This may take a few seconds</p>
-      </div>
-    );
-  }
-
+  // playbackId is guaranteed truthy here (returned early above when null)
   const isSubscribeUrl = playbackId.startsWith('http');
   const iframeSrc = `https://lvpr.tv/?v=${playbackId}&lowLatency=force`;
 

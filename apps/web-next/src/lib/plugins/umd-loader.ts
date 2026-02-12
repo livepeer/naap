@@ -637,15 +637,13 @@ export function mountUMDPlugin(
     cleanup = plugin.module.mount(container, context);
   } catch (err) {
     console.error(`UMD Plugin ${plugin.name} mount error:`, err);
-    // Safely set error message in container
-    if (container) {
-      container.innerHTML = `
-        <div class="plugin-error p-4 bg-red-50 border border-red-200 rounded-lg">
-          <h3 class="text-red-800 font-semibold">Plugin Error</h3>
-          <p class="text-red-600 text-sm mt-1">${err instanceof Error ? err.message : 'Failed to mount plugin'}</p>
-        </div>
-      `;
-    }
+    // container is guaranteed non-null (early return above)
+    container.innerHTML = `
+      <div class="plugin-error p-4 bg-red-50 border border-red-200 rounded-lg">
+        <h3 class="text-red-800 font-semibold">Plugin Error</h3>
+        <p class="text-red-600 text-sm mt-1">${err instanceof Error ? err.message : 'Failed to mount plugin'}</p>
+      </div>
+    `;
     // Re-throw so PluginLoader can handle it properly
     throw err;
   }

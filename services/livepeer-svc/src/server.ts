@@ -156,6 +156,23 @@ function registerNode(node: LivepeerNode): void {
   nodes.set(node.id, node);
 }
 
+function isAllowedLoopbackUrl(url: string | undefined): boolean {
+  if (!url) return true;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return false;
+  }
+  // Restrict to loopback hosts to prevent SSRF to arbitrary hosts.
+  const hostname = parsed.hostname.replace(/\.$/, '');
+  const allowedHosts = new Set(['localhost', '127.0.0.1', '::1']);
+  return allowedHosts.has(hostname);
+}
+
 registerNode({
   id: 'default',
   name: 'default-node',
@@ -467,6 +484,16 @@ router.post('/livepeer/nodes', async (req, res) => {
   const { id, name, cliUrl, aiUrl, mediaUrl, role } = req.body || {};
   if (!id || !cliUrl) {
     return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'id and cliUrl required' } });
+  }
+  if (!isAllowedLoopbackUrl(cliUrl)) {
+    return res
+      .status(400)
+      .json({ success: false, error: { code: 'BAD_REQUEST', message: 'invalid cliUrl' } });
+  }
+  if (!isAllowedLoopbackUrl(aiUrl)) {
+    return res
+      .status(400)
+      .json({ success: false, error: { code: 'BAD_REQUEST', message: 'invalid aiUrl' } });
   }
   registerNode({ id, name, cliUrl, aiUrl, mediaUrl, role });
   res.json({ success: true, data: nodes.get(id) });

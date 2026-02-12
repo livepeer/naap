@@ -61,9 +61,60 @@ export interface LiveV2VSession {
 
 export class LivepeerAIClient {
   private baseUrl: string;
+  private readonly validatedOrigin: string;
 
   constructor(baseUrl: string = 'http://localhost:9935') {
+    // Validate baseUrl to prevent SSRF via constructor injection
+    const parsed = new URL(baseUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(`LivepeerAIClient: unsupported protocol "${parsed.protocol}"`);
+    }
+    // Only allow loopback hosts for the AI gateway to avoid SSRF against arbitrary hosts.
+    // Normalize trailing dot (e.g. "localhost." -> "localhost") to prevent bypass.
+    const hostname = parsed.hostname.replace(/\.$/, '');
+    const allowedHosts = new Set(['localhost', '127.0.0.1', '::1']);
+    if (!allowedHosts.has(hostname)) {
+      throw new Error(`LivepeerAIClient: disallowed hostname "${parsed.hostname}"`);
+    }
     this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.validatedOrigin = parsed.origin;
+  }
+
+  /**
+   * Build a validated URL from a path relative to baseUrl.
+   * Uses the URL constructor + origin check so static analysis (CodeQL)
+   * recognizes the SSRF-safe pattern at every fetch call site.
+   */
+  private buildUrl(path: string): string {
+    const url = new URL(path, this.baseUrl);
+    if (url.origin !== this.validatedOrigin) {
+      throw new Error('URL origin mismatch — possible path traversal');
+    }
+    return url.toString();
+  }
+
+  /**
+   * Sanitize a path segment to prevent path traversal attacks.
+   * Checks both raw and percent-decoded forms, then encodes.
+   */
+  private sanitizePath(segment: string): string {
+    if (typeof segment !== 'string' || segment.length === 0) {
+      throw new Error('Path segment must be a non-empty string');
+    }
+    // Decode to catch percent-encoded traversal (%2e%2e, %2f, %5c)
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      decoded = segment;
+    }
+    if (
+      decoded.includes('..') || decoded.includes('/') || decoded.includes('\\') ||
+      segment.includes('..') || segment.includes('/') || segment.includes('\\')
+    ) {
+      throw new Error('Invalid path segment: contains traversal characters');
+    }
+    return encodeURIComponent(segment);
   }
 
   // --- Batch AI Pipelines ---
@@ -97,7 +148,7 @@ export class LivepeerAIClient {
   }
 
   async textToSpeech(params: { text: string; model_id?: string }): Promise<ArrayBuffer> {
-    const res = await fetch(`${this.baseUrl}/text-to-speech`, {
+    const res = await fetch(this.buildUrl('/text-to-speech'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
@@ -113,7 +164,7 @@ export class LivepeerAIClient {
   }
 
   async *llmStream(params: LLMRequest): AsyncIterable<LLMChunk> {
-    const res = await fetch(`${this.baseUrl}/llm`, {
+    const res = await fetch(this.buildUrl('/llm'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...params, stream: true }),
@@ -152,15 +203,16 @@ export class LivepeerAIClient {
   // --- Live Video-to-Video ---
 
   async startLiveVideoToVideo(stream: string, params: LiveV2VRequest): Promise<LiveV2VSession> {
-    return this.postJSON<LiveV2VSession>(`/live/video-to-video/${stream}`, params);
+    return this.postJSON<LiveV2VSession>(`/live/video-to-video/${this.sanitizePath(stream)}`, params);
   }
 
   async updateLiveVideoToVideo(stream: string, params: Record<string, unknown>): Promise<void> {
-    await this.postJSON(`/live/video-to-video/${stream}/update`, params);
+    await this.postJSON(`/live/video-to-video/${this.sanitizePath(stream)}/update`, params);
   }
 
   async getLiveVideoStatus(streamId: string): Promise<{ status: string }> {
-    const res = await fetch(`${this.baseUrl}/live/video-to-video/${streamId}/status`);
+    const safeId = this.sanitizePath(streamId);
+    const res = await fetch(this.buildUrl(`/live/video-to-video/${safeId}/status`));
     if (!res.ok) throw new Error(`Get live status failed: ${res.status}`);
     return res.json();
   }
@@ -168,7 +220,8 @@ export class LivepeerAIClient {
   // --- BYOC ---
 
   async processRequest(capability: string, body: unknown, headers?: Record<string, string>): Promise<unknown> {
-    const res = await fetch(`${this.baseUrl}/${capability}`, {
+    const safeCapability = this.sanitizePath(capability);
+    const res = await fetch(this.buildUrl(`/${safeCapability}`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(body),
@@ -178,7 +231,7 @@ export class LivepeerAIClient {
   }
 
   async getNetworkCapabilities(): Promise<Capability[]> {
-    const res = await fetch(`${this.baseUrl}/getNetworkCapabilities`);
+    const res = await fetch(this.buildUrl('/getNetworkCapabilities'));
     if (!res.ok) throw new Error(`Get capabilities failed: ${res.status}`);
     const data = await res.json();
     return data.capabilities || [];
@@ -187,7 +240,7 @@ export class LivepeerAIClient {
   // --- Helpers ---
 
   private async postJSON<T>(path: string, body: unknown): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await fetch(this.buildUrl(path), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -205,7 +258,7 @@ export class LivepeerAIClient {
     for (const [key, value] of Object.entries(params)) {
       formData.append(key, String(value));
     }
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await fetch(this.buildUrl(path), {
       method: 'POST',
       body: formData,
     });

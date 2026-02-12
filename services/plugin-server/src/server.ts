@@ -22,6 +22,19 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
+/**
+ * Sanitize a path component to prevent path traversal attacks.
+ * Removes path separators and parent directory references.
+ */
+function sanitizePathComponent(component: string): string {
+  // Remove any path traversal sequences and separators
+  const sanitized = component.replace(/\.\./g, '').replace(/[\/\\]/g, '');
+  if (!sanitized || sanitized !== component) {
+    throw new Error(`Invalid path component: ${component}`);
+  }
+  return sanitized;
+}
+
 // ============================================
 // Authentication Configuration
 // ============================================
@@ -99,8 +112,11 @@ async function verifyToken(token: string): Promise<{ valid: boolean; userId?: st
  */
 async function checkPluginAccess(userId: string, pluginName: string): Promise<boolean> {
   try {
+    // Sanitize path parameters to prevent SSRF via path traversal
+    const safeName = encodeURIComponent(pluginName);
+    const safeUserId = encodeURIComponent(userId);
     const response = await fetch(
-      `${BASE_SVC_URL}/api/v1/base/plugins/${pluginName}/access?userId=${userId}`,
+      `${BASE_SVC_URL}/api/v1/base/plugins/${safeName}/access?userId=${safeUserId}`,
       { method: 'GET' }
     );
 
@@ -191,9 +207,21 @@ const PORT = process.env.PLUGIN_SERVER_PORT || 3100;
 const ROOT_DIR = path.resolve(__dirname, '../../..');
 const PLUGINS_DIR = path.join(ROOT_DIR, 'plugins');
 
-// CORS configuration - allow requests from shell and other origins
+// CORS - allowlist when set; empty = allow-all (relaxed for now)
+// TODO(#92): Fail closed when empty; set CORS_ALLOWED_ORIGINS for production
+const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: true, // Allow all origins in development
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (CORS_ALLOWED_ORIGINS.length === 0 || CORS_ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 
@@ -202,13 +230,38 @@ app.use(cors({
 // Setting it explicitly can sometimes cause issues with cross-origin iframes
 // The parent page's iframe allow attribute controls delegation
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 // Request logging in development
 if (process.env.NODE_ENV !== 'production') {
   app.use((req: Request, _res: Response, next: NextFunction) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+    console.log(`[${new Date().toISOString()}] ${sanitizeForLog(req.method)} ${sanitizeForLog(req.path)}`);
     next();
   });
 }
+
+// Rate limiting to prevent abuse
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+function createRateLimiter(windowMs: number, maxRequests: number) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const key = req.ip || 'unknown';
+    const now = Date.now();
+    const entry = rateLimitMap.get(key);
+    if (!entry || now > entry.resetTime) {
+      rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
+      return next();
+    }
+    if (entry.count >= maxRequests) {
+      return res.status(429).json({ error: 'Too many requests, please try again later' });
+    }
+    entry.count++;
+    return next();
+  };
+}
+app.use(createRateLimiter(15 * 60 * 1000, 200));
 
 // Health check endpoint
 app.get('/healthz', (_req: Request, res: Response) => {
@@ -271,7 +324,13 @@ app.use('/plugins/:pluginName', authMiddleware(PLUGINS_DIR));
 
 // Special handler for index.html - rewrites asset paths to work from nested path
 app.get('/plugins/:pluginName/index.html', (req: AuthenticatedRequest, res: Response) => {
-  const pluginName = req.params.pluginName;
+  const pluginName = sanitizePathComponent(req.params.pluginName);
+
+  // Sanitize pluginName to prevent reflected XSS via path parameters
+  if (!/^[a-zA-Z0-9_-]+$/.test(pluginName)) {
+    return res.status(400).json({ error: 'Invalid plugin name' });
+  }
+
   const pluginDistPath = path.join(PLUGINS_DIR, pluginName, 'frontend', 'dist');
   const indexPath = path.join(pluginDistPath, 'index.html');
 
@@ -305,7 +364,7 @@ app.get('/plugins/:pluginName/index.html', (req: AuthenticatedRequest, res: Resp
 // Serve plugin assets
 // Route: /plugins/:pluginName/* -> plugins/:pluginName/frontend/dist/*
 app.use('/plugins/:pluginName', (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  const pluginName = req.params.pluginName;
+  const pluginName = sanitizePathComponent(req.params.pluginName);
   const pluginDistPath = path.join(PLUGINS_DIR, pluginName, 'frontend', 'dist');
 
   // Check if plugin exists

@@ -100,11 +100,11 @@ app.use('/api/v1/auth/reset-password', authRateLimiter);
 
 // Health check endpoint (mounted at root, not /api/v1)
 app.get('/healthz', async (_req, res) => {
-  let dbStatus = 'unknown';
+  let dbStatus: string;
   try {
     await db.$queryRaw`SELECT 1`;
     dbStatus = 'healthy';
-  } catch (error) {
+  } catch {
     dbStatus = 'unhealthy';
   }
 

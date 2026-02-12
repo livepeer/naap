@@ -5,6 +5,11 @@
  * API Docs: https://docs.daydream.live/quickstart
  */
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 const DAYDREAM_API = 'https://api.daydream.live';
 
 // Available models based on Daydream API documentation
@@ -99,6 +104,10 @@ export const CONTROLNETS_SDXL = [
 
 // Get controlnets for a given model
 export function getControlnetsForModel(modelId: string) {
+  // Guard against type confusion from parameter tampering (e.g., arrays from query strings)
+  if (typeof modelId !== 'string') {
+    return CONTROLNETS_SD15;
+  }
   if (modelId.includes('sdxl')) {
     return CONTROLNETS_SDXL;
   }
@@ -223,6 +232,31 @@ export async function createStream(
 }
 
 /**
+ * Validate that a stream ID is safe to use in URL paths.
+ * Daydream API treats stream IDs as opaque strings, so we only check
+ * it's a non-empty string without path traversal characters.
+ * Also decodes percent-encoded sequences to block encoded traversal (%2e%2e, %2f).
+ */
+function validateStreamId(streamId: string): void {
+  if (typeof streamId !== 'string' || streamId.length === 0) {
+    throw new Error('Stream ID must be a non-empty string');
+  }
+  // Decode percent-encoded sequences, then check for traversal in both forms
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(streamId);
+  } catch {
+    decoded = streamId;
+  }
+  if (
+    decoded.includes('..') || decoded.includes('/') || decoded.includes('\\') ||
+    streamId.includes('..') || streamId.includes('/') || streamId.includes('\\')
+  ) {
+    throw new Error('Stream ID contains invalid path characters');
+  }
+}
+
+/**
  * Update stream parameters
  * According to Daydream API docs, PATCH only needs the params object
  */
@@ -231,6 +265,8 @@ export async function updateStreamParams(
   streamId: string,
   params: StreamParams
 ): Promise<unknown> {
+  validateStreamId(streamId);
+
   // Build the params object - only include what's provided
   const updateParams: Record<string, unknown> = {};
 
@@ -264,7 +300,7 @@ export async function updateStreamParams(
     params: updateParams,
   };
 
-  console.log(`Updating stream ${streamId} with:`, JSON.stringify(body, null, 2));
+  console.log(`Updating stream ${sanitizeForLog(streamId)} with:`, JSON.stringify(body, null, 2));
 
   const response = await fetch(`${DAYDREAM_API}/v1/streams/${streamId}`, {
     method: 'PATCH',
@@ -277,12 +313,12 @@ export async function updateStreamParams(
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`Update stream error for ${streamId}:`, response.status, errorText);
+    console.error(`Update stream error for ${sanitizeForLog(streamId)}:`, response.status, sanitizeForLog(errorText));
     throw new Error(`Failed to update stream: ${response.status} ${errorText}`);
   }
 
   const result = await response.json();
-  console.log(`Stream ${streamId} updated successfully`);
+  console.log(`Stream ${sanitizeForLog(streamId)} updated successfully`);
   return result;
 }
 
@@ -290,6 +326,7 @@ export async function updateStreamParams(
  * Get stream status
  */
 export async function getStreamStatus(apiKey: string, streamId: string): Promise<unknown> {
+  validateStreamId(streamId);
   const response = await fetch(`${DAYDREAM_API}/v1/streams/${streamId}`, {
     method: 'GET',
     headers: {
@@ -309,6 +346,7 @@ export async function getStreamStatus(apiKey: string, streamId: string): Promise
  * Delete/end a stream
  */
 export async function deleteStream(apiKey: string, streamId: string): Promise<void> {
+  validateStreamId(streamId);
   const response = await fetch(`${DAYDREAM_API}/v1/streams/${streamId}`, {
     method: 'DELETE',
     headers: {

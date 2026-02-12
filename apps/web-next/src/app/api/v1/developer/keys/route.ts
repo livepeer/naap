@@ -16,7 +16,9 @@ function generateApiKey(): string {
 }
 
 function hashApiKey(key: string): string {
-  return crypto.createHash('sha256').update(key).digest('hex').slice(0, 16);
+  // Use scrypt (a proper KDF) instead of bare SHA-256
+  const salt = 'naap-api-key-v1';
+  return crypto.scryptSync(key, salt, 32).toString('hex');
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {

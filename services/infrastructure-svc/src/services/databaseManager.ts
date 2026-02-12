@@ -3,6 +3,8 @@
  * Provisions and manages PostgreSQL databases for plugins
  */
 
+import crypto from 'crypto';
+import path from 'path';
 import { Client } from 'pg';
 
 export interface DatabaseConfig {
@@ -70,8 +72,9 @@ export class DatabaseManager {
     }
 
     const dbName = this.sanitizeName(config.name);
-    const dbUser = config.user || `${dbName}_user`;
+    const dbUser = this.validateIdentifier(config.user || `${dbName}_user`);
     const dbPassword = config.password || this.generatePassword();
+    const escapedPassword = dbPassword.replace(/'/g, "''");
 
     // Check if database exists
     const existsResult = await this.adminClient.query(
@@ -92,7 +95,7 @@ export class DatabaseManager {
     // Create user if doesn't exist
     try {
       await this.adminClient.query(
-        `CREATE USER ${dbUser} WITH PASSWORD '${dbPassword}'`
+        `CREATE USER ${dbUser} WITH PASSWORD '${escapedPassword}'`
       );
     } catch (error) {
       // User might already exist
@@ -128,6 +131,13 @@ export class DatabaseManager {
     migrationsPath: string,
     connectionString: string
   ): Promise<void> {
+    // Validate path to prevent path traversal attacks
+    const resolvedPath = path.resolve(migrationsPath);
+    const allowedBase = path.resolve(process.cwd());
+    if (!resolvedPath.startsWith(allowedBase + path.sep) && resolvedPath !== allowedBase) {
+      throw new Error('Invalid migrations path: must be within the project directory');
+    }
+
     // Use Prisma CLI to run migrations
     const { execa } = await import('execa');
     
@@ -136,7 +146,7 @@ export class DatabaseManager {
         ...process.env,
         DATABASE_URL: connectionString,
       },
-      cwd: migrationsPath,
+      cwd: resolvedPath,
     });
   }
 
@@ -176,10 +186,10 @@ export class DatabaseManager {
     `, [dbName]);
 
     // Drop database
-    await this.adminClient.query(`DROP DATABASE IF EXISTS ${dbName}`);
+    await this.adminClient.query(`DROP DATABASE IF EXISTS ${this.validateIdentifier(dbName)}`);
 
     // Drop user
-    const userName = `${dbName}_user`;
+    const userName = this.validateIdentifier(`${dbName}_user`);
     await this.adminClient.query(`DROP USER IF EXISTS ${userName}`);
   }
 
@@ -253,15 +263,23 @@ export class DatabaseManager {
     return `postgresql://${user}:${password}@${this.adminHost}:${this.adminPort}/${dbName}`;
   }
 
+  private validateIdentifier(identifier: string): string {
+    if (!/^[a-zA-Z0-9_]+$/.test(identifier)) {
+      throw new Error(`Invalid SQL identifier: "${identifier}" contains disallowed characters`);
+    }
+    return identifier;
+  }
+
   private sanitizeName(name: string): string {
-    return `naap_plugin_${name.replace(/-/g, '_').toLowerCase()}`;
+    const sanitized = `naap_plugin_${name.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()}`;
+    return this.validateIdentifier(sanitized);
   }
 
   private generatePassword(): string {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let password = '';
     for (let i = 0; i < 24; i++) {
-      password += chars[Math.floor(Math.random() * chars.length)];
+      password += chars[crypto.randomInt(chars.length)];
     }
     return password;
   }

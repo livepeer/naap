@@ -245,7 +245,7 @@ describe('Metrics', () => {
 
   describe('Counter', () => {
     it('should increment and track values', () => {
-      const counter = new Counter('test_counter', 'Test counter');
+      const counter = new Counter({ name: 'test_counter', help: 'Test counter' });
       counter.inc();
       counter.inc({ label: 'value' });
       counter.inc({ label: 'value' }, 5);
@@ -257,7 +257,7 @@ describe('Metrics', () => {
 
   describe('Gauge', () => {
     it('should set and track current values', () => {
-      const gauge = new Gauge('test_gauge', 'Test gauge');
+      const gauge = new Gauge({ name: 'test_gauge', help: 'Test gauge' });
       gauge.set({}, 42);
       gauge.inc();
       gauge.dec();
@@ -268,7 +268,7 @@ describe('Metrics', () => {
 
   describe('Histogram', () => {
     it('should observe values in buckets', () => {
-      const histogram = new Histogram('test_histogram', 'Test histogram');
+      const histogram = new Histogram({ name: 'test_histogram', help: 'Test histogram' });
       histogram.observe({}, 0.5);
       histogram.observe({}, 1.5);
       histogram.observe({}, 5);
