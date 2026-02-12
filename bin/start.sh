@@ -405,10 +405,6 @@ UNIFIED_DB_URL="postgresql://postgres:postgres@localhost:5432/naap"
 PLUGIN_SCHEMAS=(
   "public"
   "plugin_community"
-  "plugin_wallet"
-  "plugin_dashboard"
-  "plugin_daydream"
-  "plugin_gateway"
   "plugin_capacity"
   "plugin_developer_api"
 )
@@ -1341,14 +1337,8 @@ BEOF
       case "$pname" in
         capacity-planner) schema="plugin_capacity" ;;
         community)        schema="plugin_community" ;;
-        daydream-video)   schema="plugin_daydream" ;;
         developer-api)    schema="plugin_developer_api" ;;
-        gateway-manager)  schema="plugin_gateway" ;;
         marketplace)      schema="plugin_marketplace" ;;
-        my-dashboard)     schema="plugin_dashboard" ;;
-        my-wallet)        schema="plugin_wallet" ;;
-        network-analytics) schema="plugin_network_analytics" ;;
-        orchestrator-manager) schema="plugin_orchestrator" ;;
         plugin-publisher) schema="plugin_publisher" ;;
         *) schema="public" ;;
       esac

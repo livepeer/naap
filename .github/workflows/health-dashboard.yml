@@ -1,7 +1,7 @@
 # =============================================================================
 # Health Dashboard — Daily plugin health check
 # =============================================================================
-# Runs every day at 06:00 UTC against the develop branch.
+# Runs every day at 06:00 UTC against the main branch.
 # Tests and builds every plugin; creates GitHub issues for failures.
 # =============================================================================
 
@@ -31,24 +31,18 @@ jobs:
       fail-fast: false
       matrix:
         plugin:
-          - gateway-manager
-          - orchestrator-manager
           - capacity-planner
-          - network-analytics
           - community
           - marketplace
-          - my-dashboard
-          - my-wallet
-          - daydream-video
           - developer-api
           - plugin-publisher
     outputs:
       result: ${{ steps.health.outputs.result }}
     steps:
-      - name: Checkout develop
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
-          ref: develop
+          ref: main
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -99,7 +93,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: develop
+          ref: main
 
       - name: Generate summary report
         id: report
@@ -109,7 +103,7 @@ jobs:
           echo "## Plugin Health Dashboard" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Run date:** $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** develop" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** main" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Plugin | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
@@ -120,7 +114,7 @@ jobs:
           # Check the overall matrix result
           MATRIX_RESULT="${{ needs.plugin-health.result }}"
 
-          for plugin in gateway-manager orchestrator-manager capacity-planner network-analytics community marketplace my-dashboard my-wallet daydream-video developer-api plugin-publisher; do
+          for plugin in capacity-planner community marketplace developer-api plugin-publisher; do
             if [[ "${MATRIX_RESULT}" == "success" ]]; then
               echo "| ${plugin} | :white_check_mark: Pass |" >> $GITHUB_STEP_SUMMARY
             else
@@ -152,7 +146,7 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           for plugin in ${FAILED}; do
-            TITLE="[Health] Plugin ${plugin} failing on develop"
+            TITLE="[Health] Plugin ${plugin} failing on main"
 
             # Check if an open issue already exists to avoid duplicates
             EXISTING=$(gh issue list --label "P0/critical" --label "plugin/${plugin}" --state open --json number --jq 'length')
@@ -167,11 +161,11 @@ jobs:
               --body "## Plugin Health Check Failure
 
           **Plugin:** \`${plugin}\`
-          **Branch:** develop
+          **Branch:** main
           **Date:** $(date -u '+%Y-%m-%d %H:%M UTC')
           **Workflow run:** ${RUN_URL}
 
-          The daily health check detected that plugin \`${plugin}\` is failing to build or test on the develop branch.
+          The daily health check detected that plugin \`${plugin}\` is failing to build or test on the main branch.
 
           ### Action Required
           - [ ] Review the [workflow run logs](${RUN_URL}) for details

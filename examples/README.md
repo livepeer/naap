@@ -4,6 +4,32 @@ This directory contains example plugins to help developers get started building 
 
 ## Available Examples
 
+### Reference Plugins (moved from `plugins/`)
+
+The following full-featured plugins have been moved here from the `plugins/`
+directory. They serve as **reference implementations** that demonstrate
+full-stack plugin development but are **not deployed by default**. They are
+excluded from builds, the marketplace seed, and CI matrices.
+
+| Directory | Description |
+|-----------|-------------|
+| `gateway-manager/` | AI gateway infrastructure monitoring |
+| `orchestrator-manager/` | Livepeer orchestrator management |
+| `network-analytics/` | Network analytics & leaderboard |
+| `my-wallet/` | MetaMask wallet / LPT staking |
+| `daydream-video/` | Real-time AI video (StreamDiffusion) |
+| `my-dashboard/` | Embedded Metabase dashboards |
+
+To use one of these plugins in a local dev environment, copy it back into
+`plugins/` and restart:
+
+```bash
+cp -r examples/gateway-manager plugins/gateway-manager
+bin/start.sh
+```
+
+---
+
 ### 1. Hello World (Frontend Only)
 
 A minimal plugin demonstrating shell service integration without a backend.

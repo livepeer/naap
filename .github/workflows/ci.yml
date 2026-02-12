@@ -3,15 +3,18 @@
 # =============================================================================
 # Runs lint, typecheck, tests, and builds filtered by what actually changed.
 # Skips irrelevant jobs for faster PR feedback.
+#
+# Branch model: feature-branch-off-main (trunk-based).
+# All PRs target main. Vercel PR previews serve as staging.
 # =============================================================================
 
 name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -79,11 +82,11 @@ jobs:
       - name: Detect changed plugins
         id: changed-plugins
         run: |
-          ALL_PLUGINS='["gateway-manager","orchestrator-manager","capacity-planner","network-analytics","community","marketplace","my-dashboard","my-wallet","daydream-video","developer-api","plugin-publisher"]'
+          ALL_PLUGINS='["capacity-planner","community","marketplace","developer-api","plugin-publisher"]'
           if [[ "${{ steps.filter.outputs.plugins }}" == "true" ]]; then
             # Build a JSON array of plugins that actually changed
             CHANGED="[]"
-            for plugin in gateway-manager orchestrator-manager capacity-planner network-analytics community marketplace my-dashboard my-wallet daydream-video developer-api plugin-publisher; do
+            for plugin in capacity-planner community marketplace developer-api plugin-publisher; do
               if git diff --name-only ${{ github.event.pull_request.base.sha || 'HEAD~1' }} HEAD -- "plugins/${plugin}/" | grep -q .; then
                 CHANGED=$(echo "$CHANGED" | jq -c ". + [\"${plugin}\"]")
               fi
@@ -203,15 +206,9 @@ jobs:
       fail-fast: false
       matrix:
         plugin:
-          - gateway-manager
-          - orchestrator-manager
           - capacity-planner
-          - network-analytics
           - community
           - marketplace
-          - my-dashboard
-          - my-wallet
-          - daydream-video
           - developer-api
           - plugin-publisher
     steps:
@@ -261,15 +258,9 @@ jobs:
       fail-fast: false
       matrix:
         plugin:
-          - gateway-manager
-          - orchestrator-manager
           - capacity-planner
-          - network-analytics
           - community
           - marketplace
-          - my-dashboard
-          - my-wallet
-          - daydream-video
           - developer-api
           - plugin-publisher
     steps:

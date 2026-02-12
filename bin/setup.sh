@@ -162,17 +162,11 @@ STORAGE_SVC_URL=http://localhost:4300
 INFRASTRUCTURE_SVC_URL=http://localhost:4400
 
 # Plugin backends (local) — ports match plugins/*/plugin.json → backend.devPort
-GATEWAY_MANAGER_URL=http://localhost:4001
-ORCHESTRATOR_MANAGER_URL=http://localhost:4002
 CAPACITY_PLANNER_URL=http://localhost:4003
-NETWORK_ANALYTICS_URL=http://localhost:4004
 MARKETPLACE_URL=http://localhost:4005
 COMMUNITY_URL=http://localhost:4006
 DEVELOPER_API_URL=http://localhost:4007
-WALLET_URL=http://localhost:4008
-DASHBOARD_URL=http://localhost:4009
 PLUGIN_PUBLISHER_URL=http://localhost:4010
-DAYDREAM_VIDEO_URL=http://localhost:4111
 
 # Caching (optional, uses in-memory fallback if not set)
 # REDIS_URL=redis://localhost:6379
@@ -202,14 +196,8 @@ PLUGIN_ENVS_CREATED=0
 declare -A PLUGIN_SCHEMA_MAP=(
   [capacity-planner]="plugin_capacity"
   [community]="plugin_community"
-  [daydream-video]="plugin_daydream"
   [developer-api]="plugin_developer_api"
-  [gateway-manager]="plugin_gateway"
   [marketplace]="plugin_marketplace"
-  [my-dashboard]="plugin_dashboard"
-  [my-wallet]="plugin_wallet"
-  [network-analytics]="plugin_network_analytics"
-  [orchestrator-manager]="plugin_orchestrator"
   [plugin-publisher]="plugin_publisher"
 )
 for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
