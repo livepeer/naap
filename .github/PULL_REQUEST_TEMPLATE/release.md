@@ -7,9 +7,9 @@
 
 <!-- High-level summary of features, fixes, and changes in this release -->
 
-- 
-- 
-- 
+-
+-
+-
 
 ### Breaking Changes
 
@@ -17,12 +17,12 @@
 
 - None
 
-### Pre-merge Checklist
+### Pre-tag Checklist
 
-- [ ] All CI checks passing on `develop`
-- [ ] Staging deployment verified and smoke-tested
+- [ ] All CI checks passing on `main`
+- [ ] Production deployment healthy (check `/api/health`)
 - [ ] No P0/critical issues open against included plugins
-- [ ] Database migrations reviewed (if applicable)
+- [ ] Database migrations applied (if applicable)
 - [ ] SDK compatibility matrix passing for all 11 plugins
 - [ ] Release notes drafted
 - [ ] Breaking changes documented and communicated
@@ -32,11 +32,10 @@
 If issues are detected post-deploy:
 1. Trigger the **Deploy** workflow with `rollback` action
 2. Investigate the failure from the production logs
-3. Fix on `develop`, re-test, and re-promote
+3. Open a fix PR against `main`, merge, and re-deploy
 
-### Post-merge Actions
+### Post-tag Actions
 
-- [ ] Tag the release: `git tag <version> && git push origin <version>`
 - [ ] Verify production health check passes
 - [ ] Monitor error rates for 30 minutes post-deploy
-- [ ] Update changelog / release notes
+- [ ] Confirm release notes published on GitHub Releases

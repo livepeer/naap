@@ -5,12 +5,10 @@
 | Version | Supported |
 |---|---|
 | Latest release on `main` | Yes |
-| `develop` (staging) | Best-effort |
 | Older releases | No |
 
 Only the current production release (the latest code on the `main` branch)
-receives security fixes. The `develop` branch receives fixes as part of
-normal development flow.
+receives security fixes. All development uses feature branches off `main`.
 
 ## Reporting a Vulnerability
 

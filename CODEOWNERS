@@ -13,7 +13,7 @@
 # 1. Create a GitHub team in the org (e.g., @livepeer/my-plugin-team)
 # 2. Add a line below: /plugins/<your-plugin>/  @livepeer/<your-team>
 # 3. Add a labeler entry in .github/labeler.yml for auto-labeling
-# 4. Open a PR with both changes, targeting develop
+# 4. Open a PR with both changes, targeting main
 # 5. Core team approves once. You're autonomous from then on.
 #
 # TIERED REVIEW MODEL:
