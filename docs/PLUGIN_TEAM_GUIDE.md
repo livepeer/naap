@@ -155,7 +155,7 @@ Your day-to-day development workflow:
    ```
 
 3. **Make changes** in `plugins/<your-plugin-name>/`.
-   Your plugin is auto-rebuilt on next `--fast` start.
+   Your plugin is auto-rebuilt on next start.
 
 4. **Quick restart** after changes:
    ```bash

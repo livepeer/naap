@@ -64,8 +64,8 @@ Starts core services and all plugin backends without the Next.js shell.
 ./bin/start.sh restart
 ```
 
-Shutdown order: Shell -> Plugin backends -> Core services -> Health monitor.
-Each service gets 10 seconds for graceful shutdown before force-kill.
+All services receive SIGTERM simultaneously for parallel shutdown.
+Services get 5 seconds (configurable via GRACEFUL_TIMEOUT) for graceful shutdown before force-kill.
 
 ## Monitoring
 

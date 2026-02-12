@@ -89,8 +89,6 @@ Starts the plugin with Vite HMR (hot module replacement) for instant feedback du
 ```bash
 ./bin/stop.sh                           # stop everything (~2s)
 ./bin/stop.sh community                 # stop one plugin backend
-./bin/stop.sh --plugins                 # stop all plugin backends
-./bin/stop.sh --shell                   # stop shell only
 ./bin/stop.sh --infra                   # also stop Docker containers
 ```
 

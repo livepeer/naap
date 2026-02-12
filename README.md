@@ -100,7 +100,6 @@ npx naap-plugin create my-plugin
 | `./bin/start.sh` | First-time setup + start (setup is automatic) |
 | `./bin/start.sh --all` | Start all services and plugins |
 | `./bin/start.sh --no-plugins` | Shell + core only (no backends) |
-| `./bin/start.sh --all` | All services, fastest possible |
 | `./bin/start.sh dev <plugin>` | Dev mode with HMR for a single plugin |
 | `./bin/start.sh validate` | Health-check all services |
 | `./bin/start.sh logs <svc>` | Tail logs for a service |

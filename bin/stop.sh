@@ -27,7 +27,7 @@ PLUGIN_SERVER_PORT=3100
 
 # Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
+BLUE='\033[0;34m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
 
 log_info()    { echo -e "${BLUE}[INFO]${NC}  $1"; }
 log_success() { echo -e "${GREEN}[OK]${NC}    $1"; }
@@ -128,7 +128,7 @@ stop_all() {
   done
 
   # Clear PID file
-  > "$PID_FILE" 2>/dev/null || true
+  : > "$PID_FILE" 2>/dev/null || true
 
   echo ""
   if [ $killed -gt 0 ]; then
