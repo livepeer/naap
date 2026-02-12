@@ -13,19 +13,8 @@ import { ConnectorWizardPage } from './pages/ConnectorWizardPage';
 import { ConnectorDetailPage } from './pages/ConnectorDetailPage';
 import { ApiKeysPage } from './pages/ApiKeysPage';
 import { PlansPage } from './pages/PlansPage';
+import { DashboardPage } from './pages/DashboardPage';
 import './globals.css';
-
-/**
- * Dashboard placeholder — implemented in Phase 7.
- */
-const DashboardPlaceholder: React.FC = () => (
-  <div className="flex items-center justify-center h-full min-h-[400px]">
-    <div className="text-center">
-      <h1 className="text-2xl font-semibold text-gray-200 mb-2">Dashboard</h1>
-      <p className="text-gray-400">Usage monitoring dashboard — coming in Phase 7.</p>
-    </div>
-  </div>
-);
 
 const GatewayApp: React.FC = () => (
   <div className="h-full w-full min-h-[600px]">
@@ -37,7 +26,7 @@ const GatewayApp: React.FC = () => (
         <Route path="/connectors/:id/edit" element={<ConnectorWizardPage />} />
         <Route path="/keys" element={<ApiKeysPage />} />
         <Route path="/plans" element={<PlansPage />} />
-        <Route path="/dashboard" element={<DashboardPlaceholder />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </MemoryRouter>
