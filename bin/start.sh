@@ -489,7 +489,7 @@ ensure_databases() {
 
   if [ -z "$running" ]; then
     log_info "Starting unified database via docker-compose..."
-    cd "$ROOT_DIR"
+    cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; return 1; }
     docker-compose up -d database 2>&1 | grep -v "^$" | while read -r line; do log_debug "$line"; done
     log_info "Waiting for database..."
     for i in $(seq 1 30); do
@@ -535,7 +535,7 @@ sync_unified_database() {
   if [ "$SKIP_DB_SYNC" = "1" ]; then
     log_info "Skipping Prisma sync (--skip-db-sync)"
   else
-    cd "$ROOT_DIR/packages/database"
+    cd "$ROOT_DIR/packages/database" || { log_error "Failed to cd to packages/database"; return 1; }
 
     # Check if schema has changed since last sync using a hash marker file.
     # This avoids running prisma generate + db push on every start when nothing changed.
@@ -597,7 +597,7 @@ sync_unified_database() {
   # Step 4: Run seed if data is missing or incomplete.
   if [ "$need_seed" = "true" ]; then
     log_info "Running database seed (upsert — safe to re-run)..."
-    cd "$ROOT_DIR/apps/web-next"
+    cd "$ROOT_DIR/apps/web-next" || { log_error "Failed to cd to apps/web-next"; return 1; }
     DATABASE_URL="$UNIFIED_DB_URL" npx tsx prisma/seed.ts > "$LOG_DIR/seed.log" 2>&1 && \
       log_success "Database seeded (users, roles, plugins, marketplace)" || \
       log_warn "Seed had issues (check logs/seed.log)"
@@ -714,7 +714,7 @@ ensure_prisma_client_fresh() {
   fi
 
   if [ "$needs_regen" = true ]; then
-    cd "$ROOT_DIR/packages/database"
+    cd "$ROOT_DIR/packages/database" || { log_error "Failed to cd to packages/database"; return 1; }
     npx prisma generate > /dev/null 2>&1 && \
       log_success "Prisma client regenerated (matches current schema)" || \
       log_error "Prisma client regeneration failed! Plugin backends may 500."
@@ -938,7 +938,7 @@ start_plugin_backend() {
   [ ! -d "$ROOT_DIR/plugins/$name/backend" ] && { log_warn "Backend dir not found: $name"; return 1; }
   kill_port "$port"
   log_info "Starting $display_name backend on port $port..."
-  cd "$ROOT_DIR/plugins/$name/backend"
+  cd "$ROOT_DIR/plugins/$name/backend" || { log_error "Failed to cd to plugins/$name/backend"; return 1; }
 
   # All plugins share the unified database via their .env files.
   # Pass DATABASE_URL explicitly to ensure consistency.
@@ -976,7 +976,7 @@ start_plugin_frontend_dev() {
   [ ! -d "$ROOT_DIR/plugins/$name/frontend" ] && { log_warn "Frontend dir not found: $name"; return 1; }
   kill_port "$fport"
   log_info "Starting $display_name frontend dev on port $fport..."
-  cd "$ROOT_DIR/plugins/$name/frontend"
+  cd "$ROOT_DIR/plugins/$name/frontend" || { log_error "Failed to cd to plugins/$name/frontend"; return 1; }
   npx vite --port "$fport" --strictPort > "$LOG_DIR/${name}-web.log" 2>&1 &
   local pid=$!
   wait_for_port "$fport" "$display_name frontend" 30 && {

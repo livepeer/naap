@@ -239,7 +239,7 @@ fi
 
 log_section "Step 3/6: Installing Dependencies"
 
-cd "$ROOT_DIR"
+cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; exit 1; }
 if [ -d "node_modules" ] && [ -f "package-lock.json" ]; then
   # Check if node_modules seems complete (root + at least one workspace)
   if [ -d "node_modules/.package-lock.json" ] || [ -d "node_modules/@naap" ]; then
@@ -313,7 +313,7 @@ else
   FRONTEND_DIR="$ROOT_DIR/apps/web-next"
   log_info "Generating unified Prisma client and pushing schema..."
   if [ -f "$ROOT_DIR/packages/database/prisma/schema.prisma" ]; then
-    cd "$ROOT_DIR/packages/database"
+    cd "$ROOT_DIR/packages/database" || { log_error "Failed to cd to packages/database"; exit 1; }
 
     # Generate Prisma client (picks up any new columns/models)
     npx prisma generate >/dev/null 2>&1 && \
@@ -325,19 +325,19 @@ else
       npx prisma db push --skip-generate --accept-data-loss >/dev/null 2>&1 && \
       log_success "All database schemas synced (public + plugin schemas)" || \
       log_warn "Schema push had warnings (may be fine for first run)"
-    cd "$ROOT_DIR"
+    cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; exit 1; }
   fi
 
   # Seed database (unless skipped)
   if [ "$SKIP_SEED" = "0" ]; then
     log_info "Seeding database..."
     if [ -f "$FRONTEND_DIR/prisma/seed.ts" ]; then
-      cd "$FRONTEND_DIR"
+      cd "$FRONTEND_DIR" || { log_error "Failed to cd to $FRONTEND_DIR"; exit 1; }
       DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap?schema=public" \
         npx tsx prisma/seed.ts >/dev/null 2>&1 && \
         log_success "Database seeded (users, roles, plugins, marketplace)" || \
         log_warn "Database seeding had issues (may need tsx: npm install -g tsx)"
-      cd "$ROOT_DIR"
+      cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; exit 1; }
     fi
     # Seed plugin databases if seed scripts exist
     if [ -f "$SCRIPT_DIR/db-seed.sh" ]; then
@@ -359,7 +359,7 @@ log_section "Step 5/6: Building Plugins"
 if [ "$SKIP_BUILD" = "1" ]; then
   log_warn "Skipping plugin builds (--skip-build)"
 else
-  cd "$ROOT_DIR"
+  cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; exit 1; }
   if [ -n "$ONLY_PLUGINS" ]; then
     # Build only specified plugins
     log_info "Building selected plugins: $ONLY_PLUGINS"
@@ -398,7 +398,7 @@ else
       for p in "${TO_BUILD[@]}"; do
         [ -d "$ROOT_DIR/plugins/$p/frontend" ] || continue
         log_info "  Building $p..."
-        cd "$ROOT_DIR/plugins/$p/frontend"
+        cd "$ROOT_DIR/plugins/$p/frontend" || { log_warn "Plugin $p frontend not found"; continue; }
         if npm run build >/dev/null 2>&1; then
           log_success "  Built $p"
         else
@@ -406,7 +406,7 @@ else
           log_warn "  Build failed for $p (non-critical, can build later)"
         fi
       done
-      cd "$ROOT_DIR"
+      cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; exit 1; }
       [ $FAILED -gt 0 ] && log_warn "$FAILED plugin(s) failed to build." || log_success "All plugins built"
     fi
   fi

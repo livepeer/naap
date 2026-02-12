@@ -47,7 +47,7 @@ restart_plugin_server() {
   lsof -ti:${PLUGIN_SERVER_PORT} 2>/dev/null | xargs kill -9 2>/dev/null || true
   sleep 1
 
-  cd "$ROOT_DIR/services/plugin-server"
+  cd "$ROOT_DIR/services/plugin-server" || { hm_log "FAILED to cd to services/plugin-server"; return 1; }
   npm run dev >> "$LOG_DIR/plugin-server.log" 2>&1 &
   local pid=$!
   sleep 5
@@ -71,7 +71,7 @@ restart_plugin_backend() {
   sleep 1
 
   local svc_name="${name}-svc"
-  cd "$ROOT_DIR/plugins/$name/backend"
+  cd "$ROOT_DIR/plugins/$name/backend" || { hm_log "FAILED to cd to plugins/$name/backend"; return 1; }
   PORT="$port" npm run dev >> "$LOG_DIR/${name}-svc.log" 2>&1 &
   local pid=$!
   sleep 5

@@ -46,7 +46,7 @@ else
     echo "  Changed plugins: $CHANGED_PLUGINS"
     for plugin in $CHANGED_PLUGINS; do
       [ -d "plugins/$plugin/frontend" ] && \
-        ./bin/build-plugins.sh --plugin "$plugin" || true
+        ./bin/build-plugins.sh --plugin "$plugin" || echo "WARN: Build failed for $plugin (continuing)"
     done
   else
     echo "  No plugin changes detected"

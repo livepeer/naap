@@ -187,7 +187,7 @@ build_plugin() {
 
   log_info "Building $plugin_name..."
 
-  cd "$plugin_dir"
+  cd "$plugin_dir" || { log_error "Failed to cd to $plugin_dir"; return 1; }
 
   # Install dependencies if needed
   if [ ! -d "node_modules" ]; then
