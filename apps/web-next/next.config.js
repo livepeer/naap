@@ -1,5 +1,65 @@
 const path = require('path');
+const fs = require('fs');
 const { PrismaPlugin } = require('@prisma/nextjs-monorepo-workaround-plugin');
+
+// ─── Plugin Auto-Discovery ─────────────────────────────────────────────────
+// Scan plugins/*/plugin.json at config-load time and generate URL rewrites.
+// This eliminates hardcoded route maps in middleware.ts — new plugins are
+// picked up automatically when the dev server starts or the app is built.
+// ────────────────────────────────────────────────────────────────────────────
+
+function toCamelCase(s) {
+  return s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+}
+
+/**
+ * Discover plugin routes from plugins/\*\/plugin.json and generate
+ * Next.js beforeFiles rewrites: /gateway → /plugins/serviceGateway, etc.
+ */
+function discoverPluginRewrites() {
+  const pluginsDir = path.resolve(__dirname, '../../plugins');
+  if (!fs.existsSync(pluginsDir)) return [];
+
+  const rewrites = [];
+  for (const dir of fs.readdirSync(pluginsDir)) {
+    if (dir.startsWith('__') || dir.startsWith('.')) continue;
+    const manifestPath = path.join(pluginsDir, dir, 'plugin.json');
+    if (!fs.existsSync(manifestPath)) continue;
+
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      const routes = manifest.frontend?.routes || [];
+      const camelName = toCamelCase(dir);
+
+      for (const route of routes) {
+        if (route.endsWith('/*')) {
+          // /gateway/* → /plugins/serviceGateway (wildcard sub-paths)
+          const prefix = route.slice(0, -2);
+          rewrites.push({
+            source: `${prefix}/:path*`,
+            destination: `/plugins/${camelName}`,
+          });
+        } else {
+          // /gateway → /plugins/serviceGateway (exact match)
+          rewrites.push({ source: route, destination: `/plugins/${camelName}` });
+        }
+      }
+    } catch (e) {
+      console.warn(`[next.config] Failed to read ${manifestPath}:`, e.message);
+    }
+  }
+
+  if (rewrites.length > 0) {
+    console.log(
+      `[next.config] Auto-discovered ${rewrites.length} plugin rewrites from ${
+        new Set(rewrites.map((r) => r.destination)).size
+      } plugins`,
+    );
+  }
+  return rewrites;
+}
+
+const pluginRewrites = discoverPluginRewrites();
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -110,20 +170,26 @@ const nextConfig = {
     ];
   },
 
-  // Rewrites for proxying
+  // Rewrites: plugin routes (auto-discovered) + dev proxy
   async rewrites() {
-    const rewrites = [];
+    const devRewrites = [];
 
     // In development, proxy API calls to legacy backend
     if (process.env.NODE_ENV === 'development' && process.env.LEGACY_API_PROXY === 'true') {
       const baseSvcUrl = process.env.BASE_SVC_URL || 'http://localhost:4000';
-      rewrites.push({
+      devRewrites.push({
         source: '/api/legacy/:path*',
         destination: `${baseSvcUrl}/api/:path*`,
       });
     }
 
-    return rewrites;
+    return {
+      // beforeFiles: rewrites checked AFTER middleware but BEFORE filesystem.
+      // Plugin routes (e.g. /gateway) don't have matching page files, so
+      // these rewrites transparently map them to /plugins/{camelCaseName}.
+      beforeFiles: pluginRewrites,
+      afterFiles: devRewrites,
+    };
   },
 
   // Skip type checking during build — CI runs typecheck separately (ci.yml lint-typecheck job).

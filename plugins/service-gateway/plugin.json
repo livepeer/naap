@@ -4,6 +4,7 @@
   "displayName": "Service Gateway",
   "version": "1.0.0",
   "description": "Zero-code serverless API gateway — expose any REST API (AI/LLM, ClickHouse, Daydream, etc.) as a managed, team-scoped API with auth, rate limiting, and usage tracking",
+  "isCore": true,
   "author": {
     "name": "NAAP Team",
     "email": "team@naap.io",

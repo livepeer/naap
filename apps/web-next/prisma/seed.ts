@@ -158,17 +158,44 @@ async function main() {
   console.log(`   ✅ Created ${systemRoles.length} system roles`);
 
   // ============================================
-  // 3. Plugin Admin Roles
+  // Plugin Discovery (used by sections 3, 7, and 8)
   // ============================================
-  console.log('🔌 Creating plugin admin roles...');
+  // Import shared discovery utilities early so all plugin-related sections
+  // can use the auto-discovered data instead of hardcoded lists.
+  const { discoverPlugins, toWorkflowPluginData, toPluginPackageData, toPluginVersionData, getBundleUrl } = await import(
+    '../../../packages/database/src/plugin-discovery.js'
+  );
 
-  const pluginAdminRoles = [
-    { pluginName: 'capacity-planner', roleName: 'capacity-planner:admin', displayName: 'Capacity Planner Administrator' },
-    { pluginName: 'marketplace', roleName: 'marketplace:admin', displayName: 'Marketplace Administrator' },
-    { pluginName: 'community', roleName: 'community:admin', displayName: 'Community Hub Administrator' },
-    { pluginName: 'developer-api', roleName: 'developer-api:admin', displayName: 'Developer API Administrator' },
-    { pluginName: 'plugin-publisher', roleName: 'plugin-publisher:admin', displayName: 'Plugin Publisher Administrator' },
-  ];
+  const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || '/cdn/plugins';
+  const MONOREPO_ROOT = path.resolve(__dirname, '../../..');
+  const discovered = discoverPlugins(MONOREPO_ROOT);
+  console.log(`   📦 Discovered ${discovered.length} plugins from plugin.json files`);
+
+  // Build a lookup from camelCase name -> discovered plugin
+  const discoveredByName = new Map(discovered.map((p: any) => [p.name, p]));
+
+  /** Get the CDN bundle URL for a plugin by its camelCase name */
+  const getPluginUrl = (camelName: string) => {
+    const p = discoveredByName.get(camelName);
+    if (p) return getBundleUrl(PLUGIN_CDN_URL, p.dirName, p.version);
+    const kebab = camelName.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '');
+    return getBundleUrl(PLUGIN_CDN_URL, kebab, '1.0.0');
+  };
+
+  // ============================================
+  // 3. Plugin Admin Roles (auto-discovered)
+  // ============================================
+  console.log('🔌 Creating plugin admin roles (auto-discovered)...');
+
+  // Dynamically generate admin roles from discovered plugins (no hardcoding).
+  // Every plugin with frontend routes gets a {dirName}:admin role.
+  const pluginAdminRoles = discovered
+    .filter((p: any) => p.routes && p.routes.length > 0) // skip headless plugins
+    .map((p: any) => ({
+      pluginName: p.dirName,
+      roleName: `${p.dirName}:admin`,
+      displayName: `${p.displayName} Administrator`,
+    }));
 
   for (const pluginRole of pluginAdminRoles) {
     await prisma.role.upsert({
@@ -202,6 +229,7 @@ async function main() {
     { email: 'community@livepeer.org', displayName: 'Community Admin', roles: ['community:admin'] },
     { email: 'developer@livepeer.org', displayName: 'Developer Admin', roles: ['developer-api:admin'] },
     { email: 'publisher@livepeer.org', displayName: 'Publisher Admin', roles: ['plugin-publisher:admin'] },
+    { email: 'gateway@livepeer.org', displayName: 'Gateway Admin', roles: ['service-gateway:admin'] },
     { email: 'viewer@livepeer.org', displayName: 'Viewer User', roles: ['system:viewer'] },
   ];
 
@@ -324,39 +352,8 @@ async function main() {
   // ============================================
   console.log('🔌 Creating workflow plugins...');
 
-  // ---------------------------------------------------------------------------
-  // Dynamic plugin discovery — delegates to shared utility
-  // (packages/database/src/plugin-discovery.ts)
-  // This is the single source of truth for plugin discovery logic.
-  // ---------------------------------------------------------------------------
-
-  // Import shared discovery utilities
-  const { discoverPlugins, toWorkflowPluginData, getBundleUrl } = await import(
-    '../../../packages/database/src/plugin-discovery.js'
-  );
-
-  const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || '/cdn/plugins';
-
-  // Resolve monorepo root (seed.ts is at apps/web-next/prisma/seed.ts)
-  const MONOREPO_ROOT = path.resolve(__dirname, '../../..');
-  const discovered = discoverPlugins(MONOREPO_ROOT);
-
-  console.log(`   📦 Discovered ${discovered.length} plugins from plugin.json files`);
-
   // Build WorkflowPlugin records using shared utility (pass rootDir for manifest resolution)
   const defaultPlugins = discovered.map((p: any) => toWorkflowPluginData(p, PLUGIN_CDN_URL, MONOREPO_ROOT));
-
-  // Build a lookup from camelCase name -> discovered plugin for use by marketplace section
-  const discoveredByName = new Map(discovered.map((p: any) => [p.name, p]));
-
-  /** Get the CDN bundle URL for a plugin by its camelCase name */
-  const getPluginUrl = (camelName: string) => {
-    const p = discoveredByName.get(camelName);
-    if (p) return getBundleUrl(PLUGIN_CDN_URL, p.dirName, p.version);
-    // Fallback: derive kebab-case from camelCase
-    const kebab = camelName.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '');
-    return getBundleUrl(PLUGIN_CDN_URL, kebab, '1.0.0');
-  };
 
   for (const plugin of defaultPlugins) {
     await prisma.workflowPlugin.upsert({
@@ -370,97 +367,25 @@ async function main() {
   // ============================================
   // 8. Marketplace Plugin Packages
   // ============================================
-  console.log('🏪 Creating marketplace plugin packages...');
+  console.log('🏪 Creating marketplace plugin packages (auto-discovered)...');
 
-  const marketplacePlugins = [
-    {
-      name: 'marketplace',
-      displayName: 'Plugin Marketplace',
-      description: 'Discover, install, and manage plugins to extend your NAAP experience.',
-      category: 'platform',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/marketplace',
-      license: 'MIT',
-      keywords: ['marketplace', 'plugins', 'extensions', 'install'],
-      icon: 'ShoppingBag',
-      version: '1.0.0',
-      frontendUrl: getPluginUrl('marketplace'),
-      isCore: true,
-    },
-    {
-      name: 'capacityPlanner',
-      displayName: 'Capacity Planner',
-      description: 'Plan and manage capacity across your Livepeer infrastructure.',
-      category: 'monitoring',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/capacity-planner',
-      license: 'MIT',
-      keywords: ['capacity', 'planning', 'resources', 'forecasting'],
-      icon: 'Zap',
-      version: '1.0.0',
-      frontendUrl: getPluginUrl('capacityPlanner'),
-    },
-    {
-      name: 'community',
-      displayName: 'Community Hub',
-      description: 'Community forum and discussion platform for Livepeer operators.',
-      category: 'social',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/community',
-      license: 'MIT',
-      keywords: ['community', 'forum', 'discussion', 'social'],
-      icon: 'Users',
-      version: '1.0.0',  // Matches built bundle
-      frontendUrl: getPluginUrl('community'),
-      isCore: true,
-    },
-    {
-      name: 'developerApi',
-      displayName: 'Developer API Manager',
-      description: 'Manage API keys, access AI models, and configure gateway connections.',
-      category: 'developer',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/developer-api',
-      license: 'MIT',
-      keywords: ['api', 'developer', 'keys', 'integration', 'ai'],
-      icon: 'Code',
-      version: '1.0.0',
-      frontendUrl: getPluginUrl('developerApi'),
-    },
-    {
-      name: 'pluginPublisher',
-      displayName: 'Plugin Publisher',
-      description: 'Publish, validate, and manage your plugins in the NAAP marketplace.',
-      category: 'developer',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/plugin-publisher',
-      license: 'MIT',
-      keywords: ['publisher', 'marketplace', 'upload', 'validate', 'deploy'],
-      icon: 'Upload',
-      version: '1.0.0',
-      frontendUrl: getPluginUrl('pluginPublisher'),
-      isCore: true,
-    },
-    {
-      name: 'dashboardProviderMock',
-      displayName: 'Dashboard Provider (Mock)',
-      description: 'Reference implementation of a dashboard data provider. Serves mock data via the GraphQL-over-event-bus contract. Use as a starter template.',
-      category: 'analytics',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/livepeer/naap/tree/main/plugins/dashboard-provider-mock',
-      license: 'MIT',
-      keywords: ['dashboard', 'provider', 'mock', 'reference', 'graphql'],
-      icon: 'Box',
-      version: '1.0.0',
-      frontendUrl: getPluginUrl('dashboardProviderMock'),
-    },
-  ];
+  // Dynamically generate marketplace entries from discovered plugins.
+  // No hardcoded plugin list — all metadata comes from plugin.json files.
+  const marketplacePlugins = discovered.map((p: any) => ({
+    name: p.name,
+    displayName: p.displayName,
+    description: p.description || `${p.displayName} plugin for NAAP`,
+    category: p.category || 'other',
+    author: typeof p.author === 'string' ? p.author : p.author?.name || 'NAAP Team',
+    authorEmail: typeof p.author === 'object' ? p.author?.email || 'team@naap.io' : 'team@naap.io',
+    repository: p.repository || `https://github.com/livepeer/naap/tree/main/plugins/${p.dirName}`,
+    license: p.license || 'MIT',
+    keywords: p.keywords || [],
+    icon: p.icon,
+    version: p.version,
+    frontendUrl: getPluginUrl(p.name),
+    isCore: p.isCore ?? false,
+  }));
 
   const deploymentIds: { packageId: string; deploymentId: string }[] = [];
 
@@ -608,8 +533,10 @@ async function main() {
   // ============================================
   console.log('⭐ Creating user plugin preferences for core plugins...');
 
-  // Core plugins that should be visible to all users
-  const corePluginNames = ['marketplace', 'pluginPublisher'];
+  // Core plugins that should be visible to all users (auto-discovered from plugin.json isCore)
+  const corePluginNames = discovered
+    .filter((p: any) => p.isCore === true)
+    .map((p: any) => p.name);
   
   const allUsersForPrefs = await prisma.user.findMany({ select: { id: true } });
   let prefCount = 0;
@@ -702,6 +629,7 @@ async function main() {
   console.log('      community@livepeer.org   - community:admin');
   console.log('      developer@livepeer.org   - developer-api:admin');
   console.log('      publisher@livepeer.org   - plugin-publisher:admin');
+  console.log('      gateway@livepeer.org    - service-gateway:admin');
   console.log('');
   console.log('   👤 Viewer:');
   console.log('      Email:    viewer@livepeer.org');

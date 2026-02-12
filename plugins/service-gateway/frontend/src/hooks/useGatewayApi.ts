@@ -2,17 +2,30 @@
  * Service Gateway — API Hooks
  *
  * Wraps useApiClient from plugin-sdk for gateway admin API calls.
- * All calls are team-scoped via x-team-id header.
+ *
+ * The gateway API routes live in the Next.js shell (same origin), NOT
+ * in a separate backend service. We use `window.location.origin` as the
+ * base URL so requests target the shell (port 3000) rather than the
+ * default base-svc (port 4000).
+ *
+ * Calls are team-scoped (via x-team-id header) when a team is selected,
+ * and user-scoped (personal context) when no team is active.
  */
 
-import { useCallback, useState } from 'react';
-import { useApiClient } from '@naap/plugin-sdk';
-import { useTeam } from '@naap/plugin-sdk';
+import { useCallback, useMemo, useState } from 'react';
+import { useApiClient, useTeam } from '@naap/plugin-sdk';
 
 const GW_API_BASE = '/api/v1/gw/admin';
 
 export function useGatewayApi() {
-  const apiClient = useApiClient({ baseUrl: '' });
+  // Use the shell's origin — gateway routes are Next.js API routes, not
+  // a standalone backend, so we must NOT fall through to getServiceOrigin('base')
+  // which resolves to http://localhost:4000 in dev.
+  const shellOrigin = useMemo(
+    () => (typeof window !== 'undefined' ? window.location.origin : ''),
+    []
+  );
+  const apiClient = useApiClient({ baseUrl: shellOrigin });
   const teamContext = useTeam();
   const teamId = teamContext?.currentTeam?.id;
 
@@ -22,12 +35,15 @@ export function useGatewayApi() {
     return h;
   }, [teamId]);
 
+  // The SDK's apiClient.get() returns ApiResponse<T> = { data, status, headers }.
+  // We unwrap the envelope so callers get the JSON body directly.
+
   const get = useCallback(
     async <T = unknown>(path: string): Promise<T> => {
       const res = await apiClient.get(`${GW_API_BASE}${path}`, {
         headers: headers(),
       });
-      return res as T;
+      return (res as { data: T }).data;
     },
     [apiClient, headers]
   );
@@ -37,7 +53,7 @@ export function useGatewayApi() {
       const res = await apiClient.post(`${GW_API_BASE}${path}`, body, {
         headers: headers(),
       });
-      return res as T;
+      return (res as { data: T }).data;
     },
     [apiClient, headers]
   );
@@ -47,7 +63,7 @@ export function useGatewayApi() {
       const res = await apiClient.put(`${GW_API_BASE}${path}`, body, {
         headers: headers(),
       });
-      return res as T;
+      return (res as { data: T }).data;
     },
     [apiClient, headers]
   );
@@ -57,12 +73,15 @@ export function useGatewayApi() {
       const res = await apiClient.delete(`${GW_API_BASE}${path}`, {
         headers: headers(),
       });
-      return res as T;
+      return (res as { data: T }).data;
     },
     [apiClient, headers]
   );
 
-  return { get, post, put, del, teamId };
+  return useMemo(
+    () => ({ get, post, put, del, teamId }),
+    [get, post, put, del, teamId]
+  );
 }
 
 /**

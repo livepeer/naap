@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ShoppingBag, Search, Download, Check, Star, Users, Package, ExternalLink, X, Loader2, Sparkles, Settings, Cloud, Server, MessageSquare, Send } from 'lucide-react';
 import { Card, Badge } from '@naap/ui';
-import { usePluginConfig, useTenantContext, useAuthService, useTeam, useEvents, getServiceOrigin } from '@naap/plugin-sdk';
+import { usePluginConfig, useTenantContext, useAuthService, useTeam, useEvents } from '@naap/plugin-sdk';
 
 // ============================================
 // Tenant Personalization Config
@@ -91,11 +91,10 @@ const categoryColors: Record<string, 'blue' | 'emerald' | 'amber' | 'rose'> = {
   other: 'blue',
 };
 
-// Get API base URL: '' in production (same-origin), 'http://localhost:4000' in dev.
-// getServiceOrigin already checks shell context, env vars, and hostname.
-const getApiBaseUrl = (): string => getServiceOrigin('base');
-
-const BASE_URL = getApiBaseUrl();
+// All marketplace API routes (registry, installations, reviews) are shell-routed.
+// Use the shell's origin so requests go to port 3000 (dev) / same-origin (prod),
+// avoiding CORS issues that occur when hitting base-svc directly with credentials.
+const BASE_URL = typeof window !== 'undefined' ? window.location.origin : '';
 
 // ============================================
 // StarRating Component
@@ -193,8 +192,11 @@ function PluginDetailModal({
   const loadReviews = useCallback(async (): Promise<RatingAggregate | null> => {
     try {
       setLoadingReviews(true);
+      const _token = typeof localStorage !== 'undefined' ? localStorage.getItem('naap_auth_token') : null;
+      const _hdrs: Record<string, string> = {};
+      if (_token) _hdrs['Authorization'] = `Bearer ${_token}`;
       const res = await fetch(`${BASE_URL}/api/v1/registry/packages/${encodedName}/reviews`, {
-        credentials: 'include',
+        headers: _hdrs,
       });
       const data = await res.json();
       if (data.success) {
@@ -219,10 +221,12 @@ function PluginDetailModal({
     setSubmittingReview(true);
     setReviewError(null);
     try {
+      const _rToken = typeof localStorage !== 'undefined' ? localStorage.getItem('naap_auth_token') : null;
+      const _rHdrs: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (_rToken) _rHdrs['Authorization'] = `Bearer ${_rToken}`;
       const res = await fetch(`${BASE_URL}/api/v1/registry/packages/${encodedName}/reviews`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        headers: _rHdrs,
         body: JSON.stringify({ rating: myRating, comment: myComment || null }),
       });
       const data = await res.json();
@@ -540,20 +544,26 @@ export const MarketplacePage: React.FC = () => {
         ? `${BASE_URL}/api/v1/base/plugins/personalized?teamId=${encodeURIComponent(activeTeamId)}`
         : `${BASE_URL}/api/v1/installations`;
 
-      const response = await fetch(url, { credentials: 'include' });
+      const token = typeof localStorage !== 'undefined' ? localStorage.getItem('naap_auth_token') : null;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const response = await fetch(url, { headers });
       if (response.ok) {
-        const data = await response.json();
+        const json = await response.json();
+        // Unwrap standard API envelope: { success, data: { ... } }
+        const payload = json.data ?? json;
 
         const map = new Map<string, PluginInstallation>();
         if (activeTeamId) {
           // Team-scoped response format
-          const plugins = data.data?.plugins || data.plugins || [];
+          const plugins = payload.plugins || [];
           plugins.forEach((p: { name: string; installId?: string; id?: string }) => {
             map.set(p.name, { id: p.installId || p.id || '', packageId: '', status: 'active' });
           });
         } else {
           // Personal installations format
-          (data.installations || []).forEach((inst: PluginInstallation & { package: { name: string } }) => {
+          (payload.installations || []).forEach((inst: PluginInstallation & { package: { name: string } }) => {
             map.set(inst.package.name, inst);
           });
         }
@@ -592,20 +602,23 @@ export const MarketplacePage: React.FC = () => {
       setInstalling(pkg.name);
       setError(null);
 
+      const token = typeof localStorage !== 'undefined' ? localStorage.getItem('naap_auth_token') : null;
+      const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) authHeaders['Authorization'] = `Bearer ${token}`;
+
       let response: Response;
       if (teamId) {
         // Team install
         response = await fetch(`${BASE_URL}/api/v1/teams/${teamId}/plugins`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
+          headers: authHeaders,
           body: JSON.stringify({ packageId: pkg.id, packageName: pkg.name }),
         });
       } else {
         // Personal install
         response = await fetch(`${BASE_URL}/api/v1/installations`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders,
           body: JSON.stringify({ packageName: pkg.name }),
         });
       }
@@ -616,8 +629,9 @@ export const MarketplacePage: React.FC = () => {
         // Notify the shell so sidebar refreshes
         eventBus.emit('plugin:installed', { pluginName: pkg.name, teamId });
       } else {
-        const data = await response.json();
-        setError(data.error || 'Installation failed');
+        const json = await response.json();
+        const errPayload = json.data ?? json;
+        setError(errPayload.error || errPayload.message || 'Installation failed');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Installation failed');
@@ -631,17 +645,24 @@ export const MarketplacePage: React.FC = () => {
       setInstalling(pkg.name);
       setError(null);
 
+      const token = typeof localStorage !== 'undefined' ? localStorage.getItem('naap_auth_token') : null;
+      const delHeaders: Record<string, string> = {};
+      if (token) delHeaders['Authorization'] = `Bearer ${token}`;
+
       let response: Response;
       if (teamId) {
         // Team uninstall - use the installation ID
         const installId = installations.get(pkg.name)?.id;
         response = await fetch(`${BASE_URL}/api/v1/teams/${teamId}/plugins/${installId || pkg.name}`, {
           method: 'DELETE',
-          credentials: 'include',
+          headers: delHeaders,
         });
       } else {
         // Personal uninstall
-        response = await fetch(`${BASE_URL}/api/v1/installations/${pkg.name}`, { method: 'DELETE' });
+        response = await fetch(`${BASE_URL}/api/v1/installations/${pkg.name}`, {
+          method: 'DELETE',
+          headers: delHeaders,
+        });
       }
 
       if (response.ok) {

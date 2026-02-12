@@ -9,7 +9,7 @@
  * This replaces the previous fragmented config hooks with a unified API.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useShell } from './useShell.js';
 import { useTeam } from './useTeam.js';
 import { useTenant, useTenantContext } from './useTenant.js';
@@ -197,7 +197,15 @@ export function usePluginConfig<T extends Record<string, unknown>>(
   const team = useTeam();
   const tenant = useTenant();
   const tenantContext = useTenantContext();
-  const api = useApiClient({ pluginName });
+  // Plugin config is a platform-level API served by the shell / base-svc,
+  // NOT by each plugin's own backend.  Omit pluginName so the client
+  // resolves to getServiceOrigin('base') (port 4000 in dev, same-origin in prod).
+  const api = useApiClient({});
+
+  // Stabilize `defaults` with a ref so that callers passing `{}` every render
+  // don't cause the loadConfig callback (and its useEffect) to re-fire.
+  const defaultsRef = useRef<T>(defaults);
+  defaultsRef.current = defaults;
 
   // Determine effective scope
   const effectiveScope: 'personal' | 'team' | 'tenant' = useMemo(() => {
@@ -225,10 +233,22 @@ export function usePluginConfig<T extends Record<string, unknown>>(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
+  // Track whether we've already attempted a load for the current scope/plugin
+  // to prevent infinite retry loops when the API consistently fails.
+  const loadAttemptedRef = useRef<string>('');
+
   // Load configuration
   const loadConfig = useCallback(async () => {
+    // Build a key representing the current load context.
+    // Only re-fetch when scope/team/plugin actually changes.
+    const loadKey = `${effectiveScope}:${pluginName}:${team?.currentTeam?.id ?? ''}`;
+    if (loadAttemptedRef.current === loadKey) return;
+    loadAttemptedRef.current = loadKey;
+
     setLoading(true);
     setError(null);
+
+    const defs = defaultsRef.current;
 
     try {
       if (effectiveScope === 'team' && team?.currentTeam) {
@@ -240,7 +260,7 @@ export function usePluginConfig<T extends Record<string, unknown>>(
           personalConfig: Partial<T>;
         }>(`/api/v1/teams/${teamId}/plugins/${pluginName}/config`);
 
-        const shared = { ...defaults, ...response.data.sharedConfig };
+        const shared = { ...defs, ...response.data.sharedConfig };
         const personal = response.data.personalConfig || {};
 
         setSharedConfig(shared);
@@ -255,29 +275,30 @@ export function usePluginConfig<T extends Record<string, unknown>>(
         const installation = tenantContext.currentInstallation ?? 
           (tenant ? await tenant.getInstallationByPlugin(pluginName) : null);
         if (installation?.config?.settings) {
-          setConfig({ ...defaults, ...installation.config.settings } as T);
+          setConfig({ ...defs, ...installation.config.settings } as T);
         } else {
-          setConfig(defaults);
+          setConfig(defs);
         }
       } else {
         // Load personal configuration
         const response = await api.get<{ config: Partial<T> }>(
           `/api/v1/plugins/${pluginName}/config`
         );
-        setConfig({ ...defaults, ...response.data.config });
+        setConfig({ ...defs, ...response.data.config });
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to load config');
-      // If 404, just use defaults (no config saved yet)
+      // If 404 or network error, just use defaults (no config saved yet / service unavailable)
       if ((err as any)?.status !== 404) {
         setError(error);
         console.warn(`Failed to load config for ${pluginName}:`, error);
       }
-      setConfig(defaults);
+      setConfig(defs);
     } finally {
       setLoading(false);
     }
-  }, [effectiveScope, team, shell, api, pluginName, defaults, tenant, tenantContext.currentInstallation]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveScope, team?.currentTeam?.id, api, pluginName, tenant, tenantContext.currentInstallation]);
 
   // Load on mount and when dependencies change
   useEffect(() => {

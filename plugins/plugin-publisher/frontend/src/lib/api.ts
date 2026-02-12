@@ -5,17 +5,17 @@
  */
 
 import {
-  getServiceOrigin,
   getCsrfToken,
   generateCorrelationId,
 } from '@naap/plugin-sdk';
 import { HEADER_CSRF_TOKEN, HEADER_CORRELATION, HEADER_PLUGIN_NAME } from '@naap/types';
 
-// Base-svc origin: '' in production (same-origin), 'http://localhost:4000' in dev
-const BASE_SVC_URL = getServiceOrigin('base');
-
-// Publisher-svc origin: '' in production (same-origin), 'http://localhost:4012' in dev
-const PUBLISHER_API_URL = getServiceOrigin('plugin-publisher');
+// Both the base-svc registry routes AND the plugin-publisher routes are
+// shell-routed (apps/web-next/src/app/api/v1/...).  Use the shell's origin
+// so requests go to port 3000 (dev) / same-origin (prod).
+const SHELL_ORIGIN = typeof window !== 'undefined' ? window.location.origin : '';
+const BASE_SVC_URL = SHELL_ORIGIN;
+const PUBLISHER_API_URL = SHELL_ORIGIN;
 
 // Auth token storage key (must match shell's STORAGE_KEYS.AUTH_TOKEN)
 const AUTH_TOKEN_KEY = 'naap_auth_token';

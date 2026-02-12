@@ -4,6 +4,7 @@
  * Used for:
  * - Validating required environment variables
  * - Logging deployment stage and feature flags
+ * - Auto-registering plugins discovered from plugins/\*\/plugin.json
  *
  * See: https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
  */
@@ -47,6 +48,20 @@ export async function register() {
     // Log warnings for recommended vars
     for (const warning of warnings) {
       console.warn(`[naap] Warning: ${warning}`);
+    }
+
+    // ─── Plugin Auto-Registration ─────────────────────────────────────────
+    // Discover plugins from plugins/*/plugin.json and ensure all necessary
+    // DB records exist (WorkflowPlugin, PluginPackage, Roles, etc.).
+    // This eliminates the need to re-run the seed when adding new plugins.
+    // Non-fatal: logs a warning and continues if the DB isn't ready.
+    // ──────────────────────────────────────────────────────────────────────
+    try {
+      const { autoRegisterPlugins } = await import('@/lib/plugins/auto-register');
+      await autoRegisterPlugins();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[naap] Plugin auto-registration skipped: ${msg}`);
     }
   }
 }

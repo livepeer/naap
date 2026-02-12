@@ -44,11 +44,13 @@ export const ConnectorListPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
 
+  const { get: apiGet } = api;
   const loadConnectors = useCallback(() => {
     const params = new URLSearchParams();
     if (statusFilter) params.set('status', statusFilter);
-    return execute(() => api.get(`/connectors?${params.toString()}`));
-  }, [execute, api, statusFilter]);
+    return execute(() => apiGet(`/connectors?${params.toString()}`));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [execute, apiGet, statusFilter]);
 
   useEffect(() => {
     loadConnectors();

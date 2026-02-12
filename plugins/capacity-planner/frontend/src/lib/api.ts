@@ -4,17 +4,18 @@
  * Uses @naap/plugin-sdk for backend URL resolution.
  */
 
-import { getPluginBackendUrl, getCsrfToken, generateCorrelationId } from '@naap/plugin-sdk';
+import { getCsrfToken, generateCorrelationId } from '@naap/plugin-sdk';
 import { HEADER_CSRF_TOKEN, HEADER_CORRELATION } from '@naap/types';
 import type { CapacityRequest, RequestComment, SummaryData } from '../types';
 
 export type { SummaryData };
 
-// Get Capacity Planner API URL using SDK's unified resolution
+// Capacity-planner API routes live in the Next.js shell
+// (apps/web-next/src/app/api/v1/capacity-planner), NOT a standalone backend.
+// Use the shell's own origin so requests go to port 3000 (dev) / same-origin (prod).
 const getCapacityApiBaseUrl = (): string => {
-  return getPluginBackendUrl('capacity-planner', {
-    apiPath: '/api/v1/capacity-planner',
-  });
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return `${origin}/api/v1/capacity-planner`;
 };
 
 // Auth token storage key (must match shell's STORAGE_KEYS.AUTH_TOKEN)

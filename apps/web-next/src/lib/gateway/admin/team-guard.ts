@@ -1,28 +1,41 @@
 /**
- * Service Gateway — Team Guard
+ * Service Gateway — Admin Context Guard
  *
- * Reusable auth + team extraction for admin API routes.
- * - Extracts and validates JWT auth
- * - Resolves teamId from x-team-id header
- * - Provides team-scoped resource loading helpers
+ * Reusable auth + scope extraction for admin API routes.
  *
- * Returns 404 (not 403) for other teams' resources to prevent enumeration.
+ * Uses the shell's own `validateSession()` to verify tokens directly
+ * against the database — no HTTP round-trip to base-svc. This ensures:
+ *   - Correct API path (no /api/auth/me vs /api/v1/auth/me mismatch)
+ *   - Correct response shape (typed AuthUser, not ad-hoc JSON parsing)
+ *   - Lower latency (DB query vs HTTP call)
+ *
+ * Supports two modes:
+ *   - Team scope:     x-team-id header present → data scoped to team.
+ *   - Personal scope: no x-team-id header     → data scoped to personal:{userId}.
+ *
+ * Returns 404 (not 403) for other scopes' resources to prevent enumeration.
  */
 
 import { prisma } from '@/lib/db';
-import { getAuthToken } from '@/lib/api/response';
-import { errors } from '@/lib/api/response';
-
-const BASE_SVC_URL = process.env.BASE_SVC_URL || process.env.NEXT_PUBLIC_BASE_SVC_URL || 'http://localhost:4000';
+import { validateSession } from '@/lib/api/auth';
+import { getAuthToken, errors } from '@/lib/api/response';
 
 export interface AdminContext {
   userId: string;
+  /** teamId when in team scope, or `personal:{userId}` in personal scope */
   teamId: string;
   token: string;
+  /** Whether the user is in personal scope (no team selected) */
+  isPersonal: boolean;
 }
 
 /**
  * Extract and validate admin context from request.
+ *
+ * Supports two modes:
+ * - **Team scope**: `x-team-id` header is present → data scoped to the team.
+ * - **Personal scope**: no `x-team-id` header → data scoped to `personal:{userId}`.
+ *
  * Returns AdminContext or a NextResponse error.
  */
 export async function getAdminContext(
@@ -33,31 +46,22 @@ export async function getAdminContext(
     return errors.unauthorized('Authentication required');
   }
 
-  // Validate JWT via base-svc
-  try {
-    const meResponse = await fetch(`${BASE_SVC_URL}/api/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!meResponse.ok) {
-      return errors.unauthorized('Invalid or expired token');
-    }
-
-    const me = await meResponse.json();
-    const userId = me.data?.id || me.id;
-    if (!userId) {
-      return errors.unauthorized('Invalid token payload');
-    }
-
-    const teamId = request.headers.get('x-team-id');
-    if (!teamId) {
-      return errors.badRequest('x-team-id header is required');
-    }
-
-    return { userId, teamId, token };
-  } catch {
-    return errors.internal('Auth service unavailable');
+  // Validate session directly against the database (no HTTP round-trip).
+  // validateSession returns a typed AuthUser or null.
+  const user = await validateSession(token);
+  if (!user) {
+    return errors.unauthorized('Invalid or expired token');
   }
+
+  const headerTeamId = request.headers.get('x-team-id');
+
+  if (headerTeamId) {
+    // Team scope
+    return { userId: user.id, teamId: headerTeamId, token, isPersonal: false };
+  }
+
+  // Personal scope — deterministic identifier scoped to this user
+  return { userId: user.id, teamId: `personal:${user.id}`, token, isPersonal: true };
 }
 
 /**
@@ -68,8 +72,8 @@ export function isErrorResponse(result: AdminContext | Response): result is Resp
 }
 
 /**
- * Load a connector by ID, verifying it belongs to the caller's team.
- * Returns 404 for other teams' connectors (prevents enumeration).
+ * Load a connector by ID, verifying it belongs to the caller's scope.
+ * Returns 404 for other scopes' connectors (prevents enumeration).
  */
 export async function loadConnector(connectorId: string, teamId: string) {
   const connector = await prisma.serviceConnector.findFirst({

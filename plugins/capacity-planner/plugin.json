@@ -35,15 +35,8 @@
   },
   
   "backend": {
-    "entry": "./backend/dist/server.js",
-    "devPort": 4003,
-    "port": 4103,
-    "healthCheck": "/healthz",
-    "apiPrefix": "/api/v1/capacity-planner",
-    "resources": {
-      "memory": "256Mi",
-      "cpu": "0.25"
-    }
+    "type": "shell-routed",
+    "apiPrefix": "/api/v1/capacity-planner"
   },
   
   "integrations": {

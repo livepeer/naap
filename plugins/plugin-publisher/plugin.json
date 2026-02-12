@@ -4,6 +4,7 @@
   "displayName": "Plugin Publisher",
   "version": "1.0.0",
   "description": "Publish, validate, and manage your plugins in the NAAP marketplace. Create API tokens, upload plugins from local folders or GitHub, and track download stats.",
+  "isCore": true,
   "author": {
     "name": "NAAP Team",
     "email": "team@naap.io",
@@ -36,16 +37,8 @@
   },
   
   "backend": {
-    "entry": "./backend/dist/server.js",
-    "devEntry": "./backend/src/server.ts",
-    "devPort": 4010,
-    "port": 4110,
-    "healthCheck": "/healthz",
-    "apiPrefix": "/api/v1/plugin-publisher",
-    "resources": {
-      "memory": "256Mi",
-      "cpu": "0.25"
-    }
+    "type": "shell-routed",
+    "apiPrefix": "/api/v1/plugin-publisher"
   },
   
   "integrations": {

@@ -7,15 +7,17 @@
  */
 
 import {
-  getPluginBackendUrl,
   getCsrfToken,
   generateCorrelationId,
 } from '@naap/plugin-sdk';
 
-// Get Community API URL using SDK's unified resolution
-const API_BASE = getPluginBackendUrl('community', {
-  apiPath: '/api/v1/community',
-});
+// Community API routes live in the Next.js shell (apps/web-next/src/app/api/v1/community),
+// NOT in a separate backend service.  Use the shell's own origin so requests
+// go to port 3000 (dev) / same-origin (prod) instead of the non-running port 4006.
+const API_BASE =
+  typeof window !== 'undefined'
+    ? `${window.location.origin}/api/v1/community`
+    : '/api/v1/community';
 
 // Module-level user state, set by React components via setCurrentUser()
 let _currentUser: { userId: string; displayName: string } | null = null;

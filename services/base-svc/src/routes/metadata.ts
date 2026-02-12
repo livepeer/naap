@@ -22,6 +22,8 @@ interface MetadataRouteDeps {
       upsert: (args: any) => Promise<any>;
     };
   };
+  /** Extracts user ID from request (Bearer token or x-user-id header). */
+  getUserIdFromRequest: (req: Request) => Promise<string | null>;
   /** Singleton service for publish analytics. */
   publishMetrics: {
     getSummary: (period: string) => Promise<unknown>;
@@ -52,7 +54,7 @@ interface MetadataRouteDeps {
 // ---------------------------------------------------------------------------
 
 export function createMetadataRoutes(deps: MetadataRouteDeps) {
-  const { db, publishMetrics, artifactHealth, manifestValidator, versionManager } = deps;
+  const { db, getUserIdFromRequest, publishMetrics, artifactHealth, manifestValidator, versionManager } = deps;
   const router = Router();
 
   // ==========================================================================
@@ -62,7 +64,7 @@ export function createMetadataRoutes(deps: MetadataRouteDeps) {
   /** GET /plugins/:pluginName/config - returns user's personal config for a plugin */
   router.get('/plugins/:pluginName/config', async (req: Request, res: Response) => {
     try {
-      const userId = req.headers['x-user-id'] as string || (req as any).user?.id;
+      const userId = await getUserIdFromRequest(req);
       if (!userId) {
         return res.status(401).json({ error: 'Authentication required' });
       }
@@ -89,7 +91,7 @@ export function createMetadataRoutes(deps: MetadataRouteDeps) {
   /** PUT /plugins/:pluginName/config - saves user's personal config for a plugin */
   router.put('/plugins/:pluginName/config', async (req: Request, res: Response) => {
     try {
-      const userId = req.headers['x-user-id'] as string || (req as any).user?.id;
+      const userId = await getUserIdFromRequest(req);
       if (!userId) {
         return res.status(401).json({ error: 'Authentication required' });
       }

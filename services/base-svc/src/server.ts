@@ -266,7 +266,11 @@ import { versionManager } from './services/versionManager';
 import { createMetadataRoutes } from './routes/metadata';
 
 const metadataRoutes = createMetadataRoutes({
-  db, publishMetrics, artifactHealth, manifestValidator, versionManager,
+  db,
+  // Lazy wrapper: getUserIdFromRequest is bound after _initAuthRoutes().
+  // Express routes execute at request-time, so the outer variable is resolved by then.
+  getUserIdFromRequest: (req) => getUserIdFromRequest(req),
+  publishMetrics, artifactHealth, manifestValidator, versionManager,
 });
 app.use('/api/v1', metadataRoutes);
 

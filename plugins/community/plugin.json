@@ -4,6 +4,7 @@
   "displayName": "Community Hub",
   "version": "1.2.0",
   "description": "Builder community hub with Q&A, discussions, voting, reputation system, and knowledge sharing.",
+  "isCore": true,
   "author": {
     "name": "NAAP Team",
     "email": "team@naap.io",
@@ -35,15 +36,8 @@
   },
   
   "backend": {
-    "entry": "./backend/dist/server.js",
-    "devPort": 4006,
-    "port": 4106,
-    "healthCheck": "/healthz",
-    "apiPrefix": "/api/v1/community",
-    "resources": {
-      "memory": "256Mi",
-      "cpu": "0.25"
-    }
+    "type": "shell-routed",
+    "apiPrefix": "/api/v1/community"
   },
   
   "integrations": {
