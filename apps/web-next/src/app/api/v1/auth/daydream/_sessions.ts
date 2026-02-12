@@ -27,12 +27,25 @@ export interface DaydreamLoginSession {
  * Keys are either a loginSessionId or `state:{stateNonce}` for reverse lookup.
  */
 class LoginSessionStore {
-  private store = new Map<string, DaydreamLoginSession>();
-  private cleanupInterval: ReturnType<typeof setInterval>;
+  private store: Map<string, DaydreamLoginSession>;
 
   constructor() {
+    const globalStore = globalThis as typeof globalThis & {
+      __naapDaydreamLoginSessionStore?: Map<string, DaydreamLoginSession>;
+      __naapDaydreamLoginSessionCleanup?: ReturnType<typeof setInterval>;
+    };
+    if (!globalStore.__naapDaydreamLoginSessionStore) {
+      globalStore.__naapDaydreamLoginSessionStore = new Map<string, DaydreamLoginSession>();
+    }
+    this.store = globalStore.__naapDaydreamLoginSessionStore;
+
     // Clean up expired sessions every 60 seconds
-    this.cleanupInterval = setInterval(() => this.cleanup(), 60_000);
+    if (!globalStore.__naapDaydreamLoginSessionCleanup) {
+      globalStore.__naapDaydreamLoginSessionCleanup = setInterval(
+        () => this.cleanup(),
+        60_000
+      );
+    }
   }
 
   get(key: string): DaydreamLoginSession | undefined {
