@@ -76,26 +76,22 @@ docker info        # Should connect (Docker daemon running)
 ## Clone & Setup
 
 ```bash
-# Clone the repository
-git clone https://github.com/livepeer/naap.git
-cd naap
-
-# Run the automated setup (installs deps, starts DB, builds plugins)
-./bin/setup.sh
-
-# Start the platform
-./bin/start.sh
+git clone https://github.com/livepeer/naap.git && cd naap && ./bin/setup.sh --start
 ```
 
-Or do it all in one line:
+This single command handles everything. Open **http://localhost:3000** when it completes.
+
+You only run `setup.sh` once. After that, use `start.sh`:
 
 ```bash
-git clone https://github.com/livepeer/naap.git && cd naap && ./bin/setup.sh --start
+./bin/start.sh --fast           # daily driver (~6s): auto-detects your changed plugins
+./bin/start.sh community        # start shell + one specific plugin (~6s)
+./bin/start.sh stop             # parallel stop (~2s)
 ```
 
 ## What Setup Does
 
-The `setup.sh` script automates these steps:
+The `setup.sh` script automates the entire first-time experience:
 
 | Step | What It Does |
 |------|--------------|
@@ -103,7 +99,7 @@ The `setup.sh` script automates these steps:
 | 2. Environment Config | Creates `.env.local` and all plugin `.env` files with dev defaults |
 | 3. Install Packages | Runs `npm install` for the monorepo + all workspaces |
 | 4. Database Setup | Starts PostgreSQL via Docker, creates schemas, seeds data |
-| 5. Build Plugins | Builds all 11 plugin UMD bundles for CDN serving |
+| 5. Build Plugins | Builds all 12 plugin UMD bundles (with source hashing for caching) |
 | 6. Verification | Checks critical files and workspace links |
 
 ## Environment Variables

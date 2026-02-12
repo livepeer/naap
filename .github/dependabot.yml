@@ -1,28 +1,42 @@
 version: 2
 updates:
+  # ── npm packages ──────────────────────────────────────────────────────
+  # Group ALL non-major bumps into a single PR to reduce noise.
+  # Major bumps are ignored — upgrade those intentionally via a manual PR.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
     groups:
-      minor-and-patch:
+      # Bundle every minor + patch into one PR
+      all-minor-and-patch:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # Skip major version bumps — these often have breaking changes and
+      # should be upgraded intentionally, not via automated PRs.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     labels:
       - "type/dependencies"
     commit-message:
       prefix: "chore(deps)"
-    open-pull-requests-limit: 10
+    # Only 3 open PRs at a time to keep the queue manageable
+    open-pull-requests-limit: 3
 
+  # ── GitHub Actions ────────────────────────────────────────────────────
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
+    groups:
+      # Bundle all action bumps into one PR
+      all-actions:
+        patterns: ["*"]
     labels:
       - "type/dependencies"
       - "scope/infra"
     commit-message:
       prefix: "chore(ci)"
+    open-pull-requests-limit: 2

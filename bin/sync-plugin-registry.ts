@@ -41,6 +41,12 @@ const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || '/cdn/plugins';
 // Main
 // ---------------------------------------------------------------------------
 
+/**
+ * Synchronize plugin registry with the database.
+ * Discovers plugins from plugin.json manifests, upserts WorkflowPlugin and
+ * PluginPackage records, and soft-disables plugins no longer in the repo.
+ * Production-only: cleanup of stale records. Preview: register/update only.
+ */
 async function main(): Promise<void> {
   // Resolve DATABASE_URL — mirror the logic from packages/database/src/index.ts
   const dbUrl =
@@ -77,7 +83,7 @@ async function main(): Promise<void> {
     let updated = 0;
 
     for (const p of discovered) {
-      const data = toWorkflowPluginData(p, PLUGIN_CDN_URL);
+      const data = toWorkflowPluginData(p, PLUGIN_CDN_URL, MONOREPO_ROOT);
 
       const existing = await prisma.workflowPlugin.findUnique({
         where: { name: p.name },

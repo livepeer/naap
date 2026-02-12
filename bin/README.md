@@ -1,412 +1,291 @@
-# NAAP Platform Startup Scripts
+# NAAP Platform CLI
 
-This directory contains executable scripts for managing the NAAP Platform development environment.
+All platform management goes through a single script: **`./bin/start.sh`**.
 
-## Quick Start
-
-```bash
-# Start shell app only (default)
-./bin/start.sh
-
-# Start everything
-./bin/start.sh --all
-
-# Stop all services
-./bin/stop.sh
-```
-
-## Available Scripts
-
-### `start.sh` - Start Platform Services
-
-Starts the NAAP Platform services (shell, base service, and plugins).
-
-#### Usage
+## TL;DR
 
 ```bash
-# Start shell app + base service only (default)
-./bin/start.sh
-# or
-./bin/start.sh --shell
+# First time (after git clone)
+./bin/setup.sh --start          # installs deps, starts DB, builds plugins, starts platform
 
-# Start all services (shell + all plugins)
-./bin/start.sh --all
-
-# Start only plugin frontends + backends
-./bin/start.sh --plugins
-
-# Start only backend services
-./bin/start.sh --services
-
-# Start only frontends
-./bin/start.sh --frontends
-
-# Start specific plugins
-./bin/start.sh gateway-manager my-wallet
-
-# List all available plugins
-./bin/start.sh --list
-
-# Show help
-./bin/start.sh --help
+# Daily development (6 seconds)
+./bin/start.sh --fast           # smart: auto-detects your changed plugins
+./bin/start.sh community        # shell + one plugin
+./bin/start.sh stop             # parallel stop (~2s)
 ```
 
-#### What It Does
+---
 
-1. Reads plugin configurations from `plugins/*/plugin.json`
-2. Starts backend services on their configured ports
-3. Starts frontend applications on their configured ports
-4. Tracks process IDs in `.pids` file for cleanup
-5. Displays a summary of running services with URLs
+## Setup (first time only)
 
-#### Port Assignments
+```bash
+./bin/setup.sh           # install deps, start DB, build plugins
+./bin/setup.sh --start   # same, then start the platform immediately
+```
+
+You only run this once after cloning. After that, use `start.sh` for everything.
+
+---
+
+## Starting the Platform
+
+### Recommended: `--fast` (daily driver)
+
+```bash
+./bin/start.sh --fast
+```
+
+This is the command you will use 90% of the time. It:
+- Skips redundant DB sync and plugin verification
+- Auto-detects which plugins you changed since last build
+- Rebuilds only the changed plugin(s)
+- Starts shell + marketplace + your changed plugin backends
+- If nothing changed, starts shell only
+
+**Typical time: 6-8 seconds.**
+
+### Start specific plugins by name
+
+```bash
+./bin/start.sh community                  # shell + community backend
+./bin/start.sh gateway-manager community  # shell + 2 backends
+./bin/start.sh community --fast           # same, skip DB sync + verify
+```
+
+Just type the plugin name(s) as arguments. No flags needed.
+
+**Typical time: 6-8 seconds.**
+
+### Start everything
+
+```bash
+./bin/start.sh start --all           # all 12 plugins + shell + core
+./bin/start.sh start --all --fast    # same, skip checks (fastest)
+```
+
+**Typical time: ~10s warm, ~25s cold (first build).**
+
+### Shell only (no plugin backends)
+
+```bash
+./bin/start.sh                    # shell + core services
+./bin/start.sh start --no-plugins # explicit form
+```
+
+All plugin UIs still load (via CDN bundles), but no backend APIs are running.
+
+**Typical time: 5-6 seconds.**
+
+### Dev mode (HMR for a single plugin)
+
+```bash
+./bin/start.sh dev daydream-video
+```
+
+Starts the plugin with Vite HMR (hot module replacement) for instant feedback during frontend development.
+
+---
+
+## Stopping
+
+```bash
+./bin/start.sh stop                     # stop everything (~2s)
+./bin/start.sh stop community           # stop one plugin backend
+./bin/start.sh stop --plugins           # stop all plugin backends
+./bin/start.sh stop --shell             # stop shell only
+./bin/start.sh stop --infra             # also stop Docker containers
+```
+
+All stops are parallel -- 15 services stop in ~2 seconds.
+
+---
+
+## Before Pushing
+
+Pre-push validation runs automatically (installed by `./bin/setup.sh`):
+
+- Builds `@naap/plugin-build` (required for plugin vite configs)
+- Runs plugin-sdk tests
+
+```bash
+npm run ci-check          # Run manually (~15-30s)
+npm run ci-check:full     # Full vercel-build (~2 min)
+git push --no-verify      # Skip hook when needed
+```
+
+---
+
+## Other Commands
+
+| Command | Description |
+|---------|-------------|
+| `./bin/start.sh status` | Show what is running (ports, PIDs, uptime) |
+| `./bin/start.sh watch` | Live dashboard (auto-refreshes every 5s) |
+| `./bin/start.sh validate` | Full health check of all services + DB + CDN |
+| `./bin/start.sh restart community` | Restart a specific plugin |
+| `./bin/start.sh restart --services` | Restart core services |
+| `./bin/start.sh logs base-svc` | Tail logs for a service |
+| `./bin/start.sh list` | List all available plugins |
+| `./bin/start.sh help` | Show all options |
+
+---
+
+## Flags Reference
+
+| Flag | Effect |
+|------|--------|
+| `--fast` | Skip DB sync + verification, auto-detect changed plugins |
+| `--timing` | Show per-phase timing breakdown after startup |
+| `--all` | Start all plugin backends |
+| `--no-plugins` | Start shell + core only, no backends |
+| `--only=p1,p2` | Start only named plugin backends |
+| `--clean` | Delete `.next` cache before starting shell |
+| `--skip-verify` | Skip plugin CDN accessibility checks |
+| `--skip-db-sync` | Skip `prisma generate` / `prisma db push` |
+| `--deep-check` | Run deep API health checks on backends |
+| `--sequential` | Force sequential backend startup (debug) |
+
+Flags can be combined: `./bin/start.sh start --all --fast --timing`
+
+---
+
+## Performance Benchmarks
+
+Measured on a typical dev machine (Apple Silicon, plugins already built):
+
+| Scenario | Start | Stop |
+|----------|-------|------|
+| `--fast` (no changes) | **6s** | **2s** |
+| `--fast` (1 plugin changed) | **8s** | **2s** |
+| Single plugin (`community`) | **6s** | **2s** |
+| Two plugins (`gw na`) | **8s** | **2s** |
+| Shell only (`--no-plugins`) | **5s** | **2s** |
+| All plugins (`--all`, warm) | **10s** | **2.5s** |
+| All plugins (`--all`, cold build) | **25-27s** | **2.5s** |
+
+Cold build = first time after clone (all 12 plugin UMD bundles must be compiled).
+
+---
+
+## Typical Developer Workflows
+
+### Plugin developer (most common)
+
+```bash
+# Morning: pull latest, start working on your plugin
+git pull
+./bin/start.sh --fast           # detects your changes, starts what you need
+
+# Make code changes... plugin rebuilds automatically on next start
+
+# End of day
+./bin/start.sh stop
+```
+
+### Working on a specific plugin
+
+```bash
+./bin/start.sh community        # shell + community backend
+# or with HMR:
+./bin/start.sh dev community    # shell + community with hot reload
+```
+
+### Testing everything together
+
+```bash
+./bin/start.sh start --all --timing   # start all, see timing breakdown
+./bin/start.sh validate               # run full health checks
+```
+
+### Quick iteration cycle
+
+```bash
+./bin/start.sh stop && ./bin/start.sh --fast   # full restart in ~8s
+```
+
+---
+
+## Port Assignments
 
 **Core Services:**
-- Shell Frontend: `3000`
-- Base Service: `4000`
 
-**Plugins (read from plugin.json):**
-
-| Plugin | Frontend Port | Backend Port |
-|--------|---------------|--------------|
-| Gateway Manager | 3001 | 4001 |
-| Orchestrator Manager | 3002 | 4002 |
-| Capacity Planner | 3003 | 4003 |
-| Network Analytics | 3004 | 4004 |
-| Marketplace | 3005 | 4005 |
-| Community | 3006 | 4006 |
-| Developer API | 3007 | 4007 |
-| My Wallet | 3008 | 4008 |
-| My Dashboard | 3009 | 4009 |
-| Plugin Publisher | 3010 | 4010 |
-
----
-
-### `stop.sh` - Stop All Services
-
-Stops all running NAAP Platform services gracefully.
-
-```bash
-./bin/stop.sh
-```
-
-#### What It Does
-
-1. Reads process IDs from `.pids` file
-2. Sends termination signal to each process
-3. Cleans up orphaned processes on platform ports (3000-3010, 4000-4010)
-4. Removes the `.pids` file
-
----
-
-### `build-plugins.sh` - Build All Plugins
-
-Builds all plugin frontends and backends for production.
-
-```bash
-# Build all plugins
-./bin/build-plugins.sh
-
-# Build only frontends
-./bin/build-plugins.sh --frontend-only
-
-# Build only backends
-./bin/build-plugins.sh --backend-only
-
-# Build specific plugins
-./bin/build-plugins.sh gateway-manager my-wallet
-```
-
-#### What It Does
-
-1. Iterates through all plugins in `plugins/` directory
-2. Installs dependencies if needed
-3. Builds frontend (generates UMD bundle for CDN deployment)
-4. Builds backend (compiles TypeScript)
-5. Generates Prisma client if database schema exists
-
----
-
-### `smoke.sh` - Run Smoke Tests
-
-Verifies that all platform services are healthy and responding correctly.
-
-```bash
-./bin/smoke.sh
-```
-
-#### What It Tests
-
-1. **Core Services:**
-   - Base service health endpoint
-   - Shell frontend
-
-2. **Plugin Services:**
-   - Backend health endpoints for each plugin
-   - Frontend UMD bundle availability
-
-3. **API Endpoints:**
-   - Authentication API
-   - Plugin registry API
-   - Marketplace packages API
-
----
-
-### `services-start.sh` - Start Infrastructure
-
-Starts Docker containers for databases and Kafka.
-
-```bash
-./bin/services-start.sh
-```
-
-#### What It Starts
-
-- PostgreSQL database containers
-- Zookeeper and Kafka
-
----
-
-### `db-*.sh` - Database Scripts
-
-Database management utilities:
-
-```bash
-# Setup databases
-./bin/db-setup.sh
-
-# Run migrations
-./bin/db-migrate.sh
-
-# Seed databases
-./bin/db-seed.sh
-
-# Reset databases
-./bin/db-reset.sh
-```
-
----
-
-## Development Workflow
-
-### First Time Setup
-
-```bash
-# 1. Install dependencies
-npm install
-
-# 2. Start infrastructure (databases, Kafka)
-./bin/services-start.sh
-
-# 3. Setup and seed databases
-./bin/db-setup.sh
-./bin/db-seed.sh
-
-# 4. Start the platform
-./bin/start.sh --all
-
-# 5. Verify everything is running
-./bin/smoke.sh
-
-# 6. Access the shell at http://localhost:3000
-```
-
-### Daily Development
-
-```bash
-# Start just what you need
-./bin/start.sh                    # Shell only
-./bin/start.sh gateway-manager    # Shell + specific plugin
-
-# Work on your feature...
-
-# Run tests
-./bin/smoke.sh
-
-# Stop when done
-./bin/stop.sh
-```
-
-### Plugin Development
-
-When developing a plugin, you can use the Plugin CLI:
-
-```bash
-# Navigate to plugin directory
-cd plugins/my-plugin
-
-# Start dev servers
-npx naap-plugin dev
-
-# Build for production
-npx naap-plugin build
-
-# Package for deployment
-npx naap-plugin package
-```
-
-Or use the bin scripts:
-
-```bash
-# Start shell + your plugin
-./bin/start.sh my-plugin
-
-# Build your plugin
-./bin/build-plugins.sh my-plugin
-```
-
----
-
-## Using npm Scripts
-
-The root `package.json` includes convenience scripts:
-
-```bash
-# Start all services
-npm start
-
-# Start shell only
-npm run dev
-
-# Build all plugins
-npm run build:plugins
-
-# Run smoke tests
-npm run smoke
-```
+| Service | Port |
+|---------|------|
+| Shell (Next.js) | 3000 |
+| Plugin Server | 3100 |
+| Base Service | 4000 |
+
+**Plugin Backends (from plugin.json):**
+
+| Plugin | Port |
+|--------|------|
+| Gateway Manager | 4001 |
+| Orchestrator Manager | 4002 |
+| Capacity Planner | 4003 |
+| Network Analytics | 4004 |
+| Marketplace | 4005 |
+| Community Hub | 4006 |
+| Developer API | 4007 |
+| My Wallet | 4008 |
+| My Dashboard | 4009 |
+| Plugin Publisher | 4010 |
+| Daydream AI Video | 4111 |
 
 ---
 
 ## Troubleshooting
 
-### Port Already in Use
+### Port already in use
 
 ```bash
-# Stop all services (cleans up orphaned processes)
-./bin/stop.sh
-
-# Or manually check/kill a port
+./bin/start.sh stop             # cleans up all platform processes
+# or manually:
 lsof -ti:3000 | xargs kill
 ```
 
-### Services Not Starting
-
-1. **Check dependencies:**
-   ```bash
-   npm install
-   ```
-
-2. **Check logs:**
-   ```bash
-   cat logs/shell-web.log
-   cat logs/gateway-manager-svc.log
-   ```
-
-3. **Run service directly:**
-   ```bash
-   cd apps/shell-web && npm run dev
-   cd plugins/gateway-manager/frontend && npm run dev
-   ```
-
-### Plugin Not Loading
-
-1. **Check if built:**
-   ```bash
-   ls plugins/my-plugin/frontend/dist/production/my-plugin.js
-   ```
-
-2. **Build if missing:**
-   ```bash
-   ./bin/build-plugins.sh my-plugin
-   ```
-
-3. **Check plugin registry:**
-   ```bash
-   curl http://localhost:4000/api/v1/plugins
-   ```
-
-### Database Issues
+### Plugin not loading in the shell
 
 ```bash
-# Reset and reseed database
-./bin/db-reset.sh
-./bin/db-seed.sh
+# Check if the CDN bundle exists
+curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/cdn/plugins/community/1.0.0/community.js
+# Should return 200
+
+# If 404, rebuild:
+./bin/start.sh start --all      # rebuilds any missing plugins
+```
+
+### Services not starting
+
+```bash
+./bin/start.sh status           # see what is running
+./bin/start.sh logs base-svc    # check logs
+./bin/start.sh validate         # full diagnostics
+```
+
+### Database issues
+
+```bash
+cd packages/database
+npx prisma db push              # push schema to DB
+npx prisma studio               # open GUI
 ```
 
 ---
 
-## File Structure
+## Other Scripts
 
-```
-bin/
-├── README.md           # This file
-├── start.sh            # Start platform services
-├── stop.sh             # Stop all services
-├── build-plugins.sh    # Build all plugins
-├── smoke.sh            # Smoke test script
-├── services-start.sh   # Start infrastructure
-├── db-setup.sh         # Setup databases
-├── db-migrate.sh       # Run migrations
-├── db-seed.sh          # Seed databases
-├── db-reset.sh         # Reset databases
-└── kafka-setup.sh      # Setup Kafka topics
-```
-
----
-
-## Adding a New Plugin
-
-When adding a new plugin:
-
-1. **Create plugin structure:**
-   ```bash
-   npx naap-plugin create my-new-plugin
-   ```
-
-2. **Register in database:**
-   - Add to `services/base-svc/prisma/seed.ts`
-
-3. **Scripts automatically discover:**
-   - `start.sh` reads port from `plugin.json`
-   - `build-plugins.sh` includes new plugin
-   - `smoke.sh` tests new plugin
-
----
-
-## CI/CD Integration
-
-```yaml
-# Example GitHub Actions workflow
-jobs:
-  test:
-    steps:
-      - name: Install dependencies
-        run: npm install
-      
-      - name: Start infrastructure
-        run: docker-compose up -d
-      
-      - name: Start platform
-        run: ./bin/start.sh --all
-      
-      - name: Wait for services
-        run: sleep 15
-      
-      - name: Run smoke tests
-        run: ./bin/smoke.sh
-      
-      - name: Stop platform
-        if: always()
-        run: ./bin/stop.sh
-```
+| Script | Purpose |
+|--------|---------|
+| `setup.sh` | First-time setup (deps, DB, build) |
+| `build-plugins.sh` | Build all plugin UMD bundles |
+| `health-monitor.sh` | Background service health daemon (started automatically) |
+| `smoke.sh` | Run smoke tests against running services |
 
 ---
 
 ## Requirements
 
-- **Bash** 3.2+ (macOS default)
 - **Node.js** 20+
-- **npm** (comes with Node.js)
-- **Docker** (for databases and Kafka)
-- **curl** (for smoke tests)
-- **lsof** (for port cleanup)
+- **npm** 10+
+- **Docker** (for PostgreSQL)
+- **Bash** 3.2+ (macOS default)

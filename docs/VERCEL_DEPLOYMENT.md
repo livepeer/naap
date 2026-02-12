@@ -86,16 +86,32 @@ Every request through the middleware gets:
 
 ## Deployment Workflow
 
-### Preview (PR-based)
+NaaP uses a **feature-branch-off-main** (trunk-based) model. There is no
+separate staging branch -- Vercel PR previews serve as staging.
 
-Every pull request gets a Vercel preview deployment automatically.
+### Preview (PR-based staging)
+
+Every pull request targeting `main` gets a Vercel preview deployment
+automatically. This serves as the staging environment:
+
+- Each PR gets a unique preview URL (e.g., `naap-<hash>.vercel.app`)
+- Preview builds use the same `./bin/vercel-build.sh` as production
+- Teams can test their changes in an isolated environment before merge
+- No shared staging branch means no merge conflicts between teams
 
 ### Production
 
-Push to `main` triggers production deployment:
+Merge to `main` triggers production deployment:
 1. Vercel builds with `./bin/vercel-build.sh`
-2. Deploys to production URL
-3. Health check at `/api/health`
+2. Deploys to production URL (`naap.dev`)
+3. Automated health check at `/api/health`
+4. Automatic rollback if health check fails
+
+### Rollback
+
+If production issues are detected post-deploy:
+1. Trigger the **Deploy** workflow with `rollback` action, or
+2. Vercel auto-rolls back if the health check fails during deployment
 
 ## Troubleshooting
 

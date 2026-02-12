@@ -70,17 +70,21 @@ shell how to load and display your plugin:
 
 ## Step 2: Develop Locally
 
-Start the platform with your plugin in dev mode:
+Start the platform with your plugin:
 
 ```bash
+# Fastest: shell + your plugin backend (~6s)
+./bin/start.sh <your-plugin-name>
+
+# With frontend HMR (hot module replacement):
 ./bin/start.sh dev <your-plugin-name>
 ```
 
 This starts:
 - The Next.js shell on `http://localhost:3000`
 - Core services (base-svc, plugin-server)
-- Your plugin frontend with hot reload
 - Your plugin backend (if it exists)
+- Your plugin frontend (loaded via CDN bundle, or HMR in dev mode)
 
 Your plugin is accessible at `http://localhost:3000/<your-route>`.
 
@@ -128,36 +132,53 @@ plugin/<your-plugin-name>:
 
 ### 3.3 Open a PR
 
-Open a single PR with both changes above, targeting the `develop` branch.
+Open a single PR with both changes above, targeting the `main` branch.
 A core maintainer will review it once. After merge, your team is autonomous.
 
 ## Step 4: Daily Workflow
 
 Your day-to-day development workflow:
 
-1. **Branch from `develop`:**
+1. **Branch from `main`:**
    ```bash
-   git checkout develop && git pull
+   git checkout main && git pull
    git checkout -b feat/<your-team>/<description>
    ```
 
-2. **Make changes** in `plugins/<your-plugin-name>/`.
+2. **Start developing (~6 seconds):**
+   ```bash
+   # Recommended: auto-detects your changed plugins
+   ./bin/start.sh --fast
 
-3. **Commit using conventional commits:**
+   # Or explicitly start your plugin
+   ./bin/start.sh <your-plugin-name>
+   ```
+
+3. **Make changes** in `plugins/<your-plugin-name>/`.
+   Your plugin is auto-rebuilt on next `--fast` start.
+
+4. **Quick restart** after changes:
+   ```bash
+   ./bin/start.sh stop && ./bin/start.sh --fast   # ~8s total
+   ```
+
+5. **Commit using conventional commits:**
    ```bash
    git commit -m "feat(plugin/<your-plugin-name>): add network stats view"
    ```
 
-4. **Open a PR against `develop`:**
+6. **Open a PR against `main`:**
    - The labeler bot auto-labels it (e.g., `plugin/<your-plugin-name>`).
    - CODEOWNERS auto-assigns your team as reviewers.
+   - Copilot and CodeRabbit provide automated code review.
    - CI runs your plugin's tests.
+   - A Vercel preview URL is generated for testing.
 
-5. **Your team reviews and approves.**
+7. **Your team reviews and approves.**
 
-6. **Merge queue merges automatically** once approved and CI passes.
+8. **Merge queue merges automatically** once approved and CI passes.
 
-7. **Staging deploys automatically** after merge.
+9. **Production deploys automatically** after merge to `main`.
 
 ## Step 5: Your Team's Responsibilities
 
@@ -237,7 +258,7 @@ mindful of bundle size since the UMD bundle is loaded at runtime.
 
 Add it to your plugin's Prisma schema in `backend/prisma/schema.prisma`.
 Your schema is isolated to its own PostgreSQL schema namespace. Run
-`./bin/db-migrate.sh` to apply migrations.
+`cd packages/database && npx prisma db push` to apply changes.
 
 **What if I need to change a shared package?**
 

@@ -39,64 +39,59 @@ cd my-plugin
 npm install
 ```
 
-## Step 2: Start Development (30 seconds)
+## Step 2: Start Development (6 seconds)
+
+If you are developing inside the NAAP monorepo (recommended):
 
 ```bash
-# Start the plugin dev server with auto-registration
+# Start shell + your plugin backend (~6s)
+./bin/start.sh my-plugin
+
+# Or with frontend hot reload (HMR):
+./bin/start.sh dev my-plugin
+```
+
+If developing a standalone plugin:
+
+```bash
 naap-plugin dev
 ```
 
-This command:
-- Starts your plugin's frontend (hot reload enabled)
-- Starts your plugin's backend (if applicable)
-- Opens your browser with the plugin loaded
-- Auto-registers via URL parameter (no manual setup)
+Both approaches start the shell, core services, and your plugin.
 
 ## Step 3: See It Running
 
-Your browser opens to: `http://localhost:3000/#/my-plugin?dev-plugin=...`
+Open **http://localhost:3000** -- your plugin appears in the sidebar.
 
-You should see your plugin rendered in the NAAP shell!
-
-## Development Tips
-
-### Single-Command Dev (Shell + Plugin)
-
-If you're developing inside the NAAP monorepo:
+## Daily Workflow
 
 ```bash
-# Start everything in one command
-naap-plugin dev --with-shell
+# Smart start: auto-detects your changes (~6s)
+./bin/start.sh --fast
+
+# Stop when done (~2s)
+./bin/start.sh stop
+
+# Quick restart
+./bin/start.sh stop && ./bin/start.sh --fast
 ```
 
-### Frontend-Only Development
-
-```bash
-naap-plugin dev --frontend-only
-```
-
-### Different Shell URL
-
-```bash
-naap-plugin dev --shell http://staging.naap.io
-```
-
-### Skip Browser Launch
-
-```bash
-naap-plugin dev --no-open
-```
+The `--fast` flag is the daily driver. It detects which plugins you changed,
+rebuilds only those, and starts shell + marketplace + your changed plugins.
 
 ## Quick Commands Reference
 
-| Command | Description |
-|---------|-------------|
-| `naap-plugin create <name>` | Create a new plugin |
-| `naap-plugin dev` | Start dev servers |
-| `naap-plugin dev --with-shell` | Start shell + plugin |
-| `naap-plugin build` | Build for production |
-| `naap-plugin publish` | Publish to marketplace |
-| `naap-plugin doctor` | Diagnose common issues |
+| Command | Description | Time |
+|---------|-------------|------|
+| `./bin/start.sh --fast` | Smart start (daily driver) | ~6s |
+| `./bin/start.sh my-plugin` | Shell + one plugin | ~6s |
+| `./bin/start.sh dev my-plugin` | Shell + plugin with HMR | ~6s |
+| `./bin/start.sh stop` | Stop everything | ~2s |
+| `./bin/start.sh start --all` | Start all plugins | ~10s |
+| `./bin/start.sh status` | What is running? | instant |
+| `./bin/start.sh validate` | Full health check | ~5s |
+| `naap-plugin create <name>` | Scaffold a new plugin | instant |
+| `naap-plugin dev` | Standalone plugin dev server | ~5s |
 
 ## File Structure
 
@@ -198,11 +193,8 @@ naap-plugin dev --port 3011
 ### Shell not running?
 
 ```bash
-# Start shell first (from NAAP root)
-./bin/start.sh --shell
-
-# Then start your plugin
-naap-plugin dev
+# Start shell + your plugin in one command (from NAAP root)
+./bin/start.sh my-plugin
 ```
 
 ## Next Steps

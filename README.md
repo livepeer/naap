@@ -17,16 +17,30 @@ with schema-level isolation.
 ## Quick Start
 
 ```bash
-# Clone and run (< 3 minutes)
+# Clone and run (~30s)
 git clone https://github.com/livepeer/NaaP.git
 cd NaaP
 ./bin/setup.sh --start
 ```
 
 This installs dependencies, starts a PostgreSQL database via Docker, runs
-migrations, builds all 11 plugin UMD bundles, and starts the platform.
+migrations, builds all plugin UMD bundles, and starts the platform.
 
 Open **http://localhost:3000** when setup completes.
+
+## Daily Development (after first setup)
+
+```bash
+./bin/start.sh --fast               # Smart start: auto-detects your changed plugins (~6s)
+./bin/start.sh community            # Shell + one plugin backend (~6s)
+./bin/start.sh gw community --fast  # Shell + specific plugins, skip checks (~6s)
+./bin/start.sh start --all          # Everything, all 12 plugins (~10s warm, ~25s cold)
+./bin/start.sh stop                 # Graceful stop (~2s)
+```
+
+The `--fast` flag is the recommended daily driver. It skips redundant DB
+syncs and verification, and auto-detects which plugins you have changed
+since the last build -- starting only those plus the marketplace.
 
 ## Project Structure
 
@@ -45,7 +59,7 @@ NaaP/
 │   ├── ui/                   # Shared UI components
 │   ├── cache/                # Redis caching + rate limiting
 │   └── theme/                # Design tokens, Tailwind config
-├── plugins/                  # 11 plugins (frontend + optional backend)
+├── plugins/                  # 12 plugins (frontend + optional backend)
 ├── docker/                   # Docker configs, init-schemas.sql
 ├── bin/                      # Platform management scripts
 └── docs/                     # Documentation
@@ -61,23 +75,36 @@ onboarding process.
 # Scaffold a new plugin
 npx naap-plugin create my-plugin
 
-# Develop with hot reload
+# Start shell + your plugin (~6s)
+./bin/start.sh my-plugin
+
+# Or develop with hot reload
 ./bin/start.sh dev my-plugin
 ```
 
 ## Commands
 
+**Everyday commands:**
+
+| Command | Description | Time |
+|---|---|---|
+| `./bin/start.sh --fast` | Smart start (auto-detects changed plugins) | ~6s |
+| `./bin/start.sh <plugin>` | Shell + one plugin backend | ~6s |
+| `./bin/start.sh stop` | Graceful parallel stop | ~2s |
+| `./bin/start.sh status` | Show status dashboard | instant |
+
+**Full reference:**
+
 | Command | Description |
 |---|---|
-| `./bin/setup.sh` | First-time setup (deps, DB, build) |
-| `./bin/setup.sh --start` | Setup + start everything |
+| `./bin/setup.sh --start` | First-time setup + start |
 | `./bin/start.sh start --all` | Start all services and plugins |
-| `./bin/start.sh` | Start shell + core services only |
-| `./bin/start.sh dev <plugin>` | Dev mode for a single plugin |
-| `./bin/start.sh stop` | Graceful stop all services |
-| `./bin/start.sh status` | Show status dashboard |
+| `./bin/start.sh start --no-plugins` | Shell + core only (no backends) |
+| `./bin/start.sh start --all --fast` | All services, fastest possible |
+| `./bin/start.sh dev <plugin>` | Dev mode with HMR for a single plugin |
 | `./bin/start.sh validate` | Health-check all services |
 | `./bin/start.sh logs <svc>` | Tail logs for a service |
+| `./bin/start.sh help` | Show all options |
 
 ## Technology Stack
 

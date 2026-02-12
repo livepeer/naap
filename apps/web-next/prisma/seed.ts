@@ -28,13 +28,21 @@ import * as path from 'path';
 
 const prisma = new PrismaClient();
 
-// Password hashing (same as auth service)
+/**
+ * Hash a password using PBKDF2 with random salt.
+ * @param password - Plaintext password to hash
+ * @returns Salt:hash string suitable for storage
+ */
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
   return `${salt}:${hash}`;
 }
 
+/**
+ * Main seed entry point. Creates feature flags, roles, users, plugins,
+ * marketplace data, and test tenant installations.
+ */
 async function main() {
   console.log('🌱 Seeding web-next database (comprehensive)...\n');
 
@@ -354,8 +362,8 @@ async function main() {
 
   console.log(`   📦 Discovered ${discovered.length} plugins from plugin.json files`);
 
-  // Build WorkflowPlugin records using shared utility
-  const defaultPlugins = discovered.map((p: any) => toWorkflowPluginData(p, PLUGIN_CDN_URL));
+  // Build WorkflowPlugin records using shared utility (pass rootDir for manifest resolution)
+  const defaultPlugins = discovered.map((p: any) => toWorkflowPluginData(p, PLUGIN_CDN_URL, MONOREPO_ROOT));
 
   // Build a lookup from camelCase name -> discovered plugin for use by marketplace section
   const discoveredByName = new Map(discovered.map((p: any) => [p.name, p]));
@@ -412,6 +420,7 @@ async function main() {
       icon: 'Radio',
       version: '1.0.0',
       frontendUrl: getPluginUrl('gatewayManager'),
+      isCore: true,
     },
     {
       name: 'orchestratorManager',
@@ -454,6 +463,7 @@ async function main() {
       icon: 'BarChart3',
       version: '1.0.0',
       frontendUrl: getPluginUrl('networkAnalytics'),
+      isCore: true,
     },
     {
       name: 'community',
@@ -468,6 +478,7 @@ async function main() {
       icon: 'Users',
       version: '1.0.0',  // Matches built bundle
       frontendUrl: getPluginUrl('community'),
+      isCore: true,
     },
     {
       name: 'developerApi',
@@ -524,6 +535,7 @@ async function main() {
       icon: 'Upload',
       version: '1.0.0',
       frontendUrl: getPluginUrl('pluginPublisher'),
+      isCore: true,
     },
     {
       name: 'daydreamVideo',

@@ -12,28 +12,17 @@
 ## Quick Setup
 
 ```bash
-# Clone repository
+# Clone and start (~30s after npm install)
 git clone https://github.com/livepeer/naap.git
 cd naap
-
-# Run the automated setup (installs deps, starts DB, builds plugins)
-./bin/setup.sh
-
-# Start the platform
-./bin/start.sh
-```
-
-Or all in one line:
-
-```bash
-git clone https://github.com/livepeer/naap.git && cd naap && ./bin/setup.sh --start
+./bin/setup.sh --start
 ```
 
 Open **http://localhost:3000** when setup completes.
 
 ## What Setup Does
 
-The `setup.sh` script automates:
+The `setup.sh` script automates the entire first-time experience:
 
 | Step | What It Does |
 |------|--------------|
@@ -41,8 +30,10 @@ The `setup.sh` script automates:
 | 2. Environment Config | Creates `.env.local` and all plugin `.env` files |
 | 3. Install Packages | Runs `npm install` for the monorepo + all workspaces |
 | 4. Database Setup | Starts single PostgreSQL via Docker, creates schemas, seeds data |
-| 5. Build Plugins | Builds all 11 plugin UMD bundles for CDN serving |
+| 5. Build Plugins | Builds all 12 plugin UMD bundles (with source hashing for future skip) |
 | 6. Verification | Checks critical files and workspace links |
+
+You only run `setup.sh` once. After that, use `start.sh` for everything.
 
 ## Architecture Overview
 
@@ -54,19 +45,62 @@ NaaP uses a **single PostgreSQL database** with **multi-schema isolation**:
 
 There is **no Kafka**. Inter-service communication uses the in-app event bus.
 
-## Development Workflow
+## Daily Development
 
-### Starting the Platform
+After first-time setup, use `start.sh` for all development. The `--fast`
+flag is the recommended daily driver:
 
 ```bash
-# Shell + core only (fastest startup)
-./bin/start.sh
+# Smart start (~6s) -- auto-detects which plugins you changed
+./bin/start.sh --fast
 
-# Everything including all plugin backends
+# Start a specific plugin + shell (~6s)
+./bin/start.sh community
+
+# Start multiple plugins (~8s)
+./bin/start.sh gateway-manager community
+
+# Everything (~10s warm, ~25s cold)
 ./bin/start.sh start --all
 
-# Develop a specific plugin with hot reload
-./bin/start.sh dev my-dashboard
+# Stop everything (~2s)
+./bin/start.sh stop
+```
+
+### How `--fast` works
+
+1. Skips `prisma db push` (trusts existing DB state)
+2. Skips plugin CDN accessibility verification
+3. Compares source hashes of all plugins against last build
+4. Rebuilds only changed plugins (typically 0-1)
+5. Starts shell + marketplace + changed plugin backends
+
+If nothing has changed, it starts shell-only in ~6 seconds.
+
+### Add `--timing` to see where time goes
+
+```bash
+./bin/start.sh start --all --timing
+# Output:
+#   Infrastructure    1s
+#   Plugin builds     0s   (all cached)
+#   Core services     3s
+#   Shell + backends  2s
+#   Verification      1s
+#   TOTAL             7s
+```
+
+### Working on a Plugin
+
+```bash
+# Option A: start shell + your plugin backend
+./bin/start.sh my-plugin
+
+# Option B: dev mode with HMR (frontend hot reload)
+./bin/start.sh dev my-plugin
+
+# Quick restart cycle
+./bin/start.sh stop && ./bin/start.sh my-plugin --fast
 ```
 
 ### Database Changes
@@ -88,13 +122,6 @@ npx prisma studio      # Open Prisma Studio (GUI)
 cd packages/database
 npx prisma db push --force-reset
 ```
-
-### Working on a Plugin
-
-1. Start the platform: `./bin/start.sh`
-2. Start the plugin in dev mode: `./bin/start.sh dev my-plugin`
-3. Make changes — hot reload is automatic
-4. Test with `./bin/start.sh validate`
 
 ## Environment Variables
 
@@ -139,14 +166,16 @@ See [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md) for production deployment det
 ### Port Already in Use
 
 ```bash
+./bin/start.sh stop        # cleans up all platform processes
+# or manually:
 lsof -ti:3000 | xargs kill -9
 ```
 
 ### Database Connection Failed
 
 ```bash
-docker-compose ps          # Check container is running
-docker-compose logs database  # Check DB logs
+docker ps                  # Check naap-db container is running
+docker logs naap-db        # Check DB logs
 ```
 
 ### Prisma Client Not Found
@@ -159,8 +188,9 @@ npx prisma generate
 ### Service Not Starting
 
 ```bash
-npm install                # Reinstall dependencies
-./bin/start.sh validate    # Check platform health
+./bin/start.sh status      # See what is running
+./bin/start.sh logs base-svc  # Check logs
+./bin/start.sh validate    # Full health check (49 checks)
 ```
 
 ## IDE Setup

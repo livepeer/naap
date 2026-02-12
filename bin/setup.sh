@@ -28,13 +28,18 @@ SKIP_DOCKER=0
 SKIP_SEED=0
 SKIP_BUILD=0
 AUTO_START=0
+ONLY_PLUGINS=""    # comma-separated list of plugins to build (empty=all)
+NO_PLUGINS=0       # 1=skip all plugin backends when starting with --start
+START_EXTRA_ARGS=()
 
 for arg in "$@"; do
   case "$arg" in
-    --skip-docker) SKIP_DOCKER=1 ;;
-    --skip-seed)   SKIP_SEED=1 ;;
-    --skip-build)  SKIP_BUILD=1 ;;
-    --start)       AUTO_START=1 ;;
+    --skip-docker)  SKIP_DOCKER=1 ;;
+    --skip-seed)    SKIP_SEED=1 ;;
+    --skip-build)   SKIP_BUILD=1 ;;
+    --start)        AUTO_START=1 ;;
+    --no-plugins)   NO_PLUGINS=1 ;;
+    --only=*)       ONLY_PLUGINS="${arg#--only=}" ;;
     --help|-h)
       echo "NAAP Platform - First-Run Setup"
       echo ""
@@ -45,6 +50,8 @@ for arg in "$@"; do
       echo "  --skip-seed      Skip database seeding"
       echo "  --skip-build     Skip plugin builds"
       echo "  --start          Start all services after setup"
+      echo "  --no-plugins     Skip plugin backends when used with --start"
+      echo "  --only=p1,p2     Only build named plugin(s), pass to start.sh"
       echo "  --help           Show this help"
       exit 0
       ;;
@@ -63,7 +70,7 @@ echo ""
 # STEP 1: Dependency Checks
 ###############################################################################
 
-log_section "Step 1/6: Checking Dependencies"
+log_section "Step 1/7: Checking Dependencies"
 
 check_dep() {
   local cmd=$1 name=$2 install_hint=$3
@@ -128,7 +135,7 @@ log_success "Node.js version check passed ($(node -v))"
 # STEP 2: Environment File
 ###############################################################################
 
-log_section "Step 2/6: Environment Configuration"
+log_section "Step 2/7: Environment Configuration"
 
 ENV_FILE="$ROOT_DIR/apps/web-next/.env.local"
 if [ -f "$ENV_FILE" ]; then
@@ -230,9 +237,9 @@ fi
 # STEP 3: Install Dependencies
 ###############################################################################
 
-log_section "Step 3/6: Installing Dependencies"
+log_section "Step 3/7: Installing Dependencies"
 
-cd "$ROOT_DIR"
+cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; exit 1; }
 if [ -d "node_modules" ] && [ -f "package-lock.json" ]; then
   # Check if node_modules seems complete (root + at least one workspace)
   if [ -d "node_modules/.package-lock.json" ] || [ -d "node_modules/@naap" ]; then
@@ -252,7 +259,7 @@ fi
 # STEP 4: Database Setup
 ###############################################################################
 
-log_section "Step 4/6: Database Setup"
+log_section "Step 4/7: Database Setup"
 
 if [ "$SKIP_DOCKER" = "1" ]; then
   log_warn "Skipping Docker/database setup (--skip-docker)"
@@ -306,7 +313,7 @@ else
   FRONTEND_DIR="$ROOT_DIR/apps/web-next"
   log_info "Generating unified Prisma client and pushing schema..."
   if [ -f "$ROOT_DIR/packages/database/prisma/schema.prisma" ]; then
-    cd "$ROOT_DIR/packages/database"
+    cd "$ROOT_DIR/packages/database" || { log_error "Failed to cd to packages/database"; exit 1; }
 
     # Generate Prisma client (picks up any new columns/models)
     npx prisma generate >/dev/null 2>&1 && \
@@ -318,19 +325,19 @@ else
       npx prisma db push --skip-generate --accept-data-loss >/dev/null 2>&1 && \
       log_success "All database schemas synced (public + plugin schemas)" || \
       log_warn "Schema push had warnings (may be fine for first run)"
-    cd "$ROOT_DIR"
+    cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; exit 1; }
   fi
 
   # Seed database (unless skipped)
   if [ "$SKIP_SEED" = "0" ]; then
     log_info "Seeding database..."
     if [ -f "$FRONTEND_DIR/prisma/seed.ts" ]; then
-      cd "$FRONTEND_DIR"
+      cd "$FRONTEND_DIR" || { log_error "Failed to cd to $FRONTEND_DIR"; exit 1; }
       DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap?schema=public" \
         npx tsx prisma/seed.ts >/dev/null 2>&1 && \
         log_success "Database seeded (users, roles, plugins, marketplace)" || \
         log_warn "Database seeding had issues (may need tsx: npm install -g tsx)"
-      cd "$ROOT_DIR"
+      cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; exit 1; }
     fi
     # Seed plugin databases if seed scripts exist
     if [ -f "$SCRIPT_DIR/db-seed.sh" ]; then
@@ -347,42 +354,60 @@ fi
 # STEP 5: Build Plugins
 ###############################################################################
 
-log_section "Step 5/6: Building Plugins"
+log_section "Step 5/7: Building Plugins"
 
 if [ "$SKIP_BUILD" = "1" ]; then
   log_warn "Skipping plugin builds (--skip-build)"
 else
-  TO_BUILD=()
-  for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
-    [ -f "$pj" ] || continue
-    pdir=$(dirname "$pj")
-    pname=$(basename "$pdir")
-    if [ -d "$pdir/frontend" ] && [ ! -d "$pdir/frontend/dist/production" ]; then
-      TO_BUILD+=("$pname")
-    fi
-  done
-
-  if [ ${#TO_BUILD[@]} -eq 0 ]; then
-    log_success "All plugins already built"
-  else
-    log_info "Building ${#TO_BUILD[@]} plugins: ${TO_BUILD[*]}"
+  cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; exit 1; }
+  if [ -n "$ONLY_PLUGINS" ]; then
+    # Build only specified plugins
+    log_info "Building selected plugins: $ONLY_PLUGINS"
     FAILED=0
-    for p in "${TO_BUILD[@]}"; do
-      [ -d "$ROOT_DIR/plugins/$p/frontend" ] || continue
-      log_info "  Building $p..."
-      cd "$ROOT_DIR/plugins/$p/frontend"
-      if npm run build >/dev/null 2>&1; then
-        log_success "  Built $p"
-      else
-        ((FAILED++)) || true
-        log_warn "  Build failed for $p (non-critical, can build later)"
+    IFS=',' read -ra SELECTED <<< "$ONLY_PLUGINS"
+    for p in "${SELECTED[@]}"; do
+      if [ -f "$SCRIPT_DIR/build-plugins.sh" ]; then
+        bash "$SCRIPT_DIR/build-plugins.sh" --plugin "$p" && \
+          log_success "Built $p" || { ((FAILED++)) || true; log_warn "Build failed for $p"; }
       fi
     done
-    cd "$ROOT_DIR"
-    if [ $FAILED -gt 0 ]; then
-      log_warn "$FAILED plugin(s) failed to build. Run 'npm run build:plugins' to retry."
+    [ $FAILED -gt 0 ] && log_warn "$FAILED plugin(s) failed to build." || log_success "Selected plugins built"
+  elif [ -f "$SCRIPT_DIR/build-plugins.sh" ]; then
+    # Build all plugins in parallel using the dedicated build script.
+    # This is significantly faster than the old sequential loop.
+    log_info "Building all plugins in parallel..."
+    bash "$SCRIPT_DIR/build-plugins.sh" --parallel && \
+      log_success "All plugins built successfully" || \
+      log_warn "Some plugin builds failed. Run './bin/build-plugins.sh --parallel' to retry."
+  else
+    # Fallback: sequential builds if build-plugins.sh is missing
+    TO_BUILD=()
+    for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
+      [ -f "$pj" ] || continue
+      pdir=$(dirname "$pj")
+      pname=$(basename "$pdir")
+      if [ -d "$pdir/frontend" ] && [ ! -d "$pdir/frontend/dist/production" ]; then
+        TO_BUILD+=("$pname")
+      fi
+    done
+    if [ ${#TO_BUILD[@]} -eq 0 ]; then
+      log_success "All plugins already built"
     else
-      log_success "All plugins built successfully"
+      log_info "Building ${#TO_BUILD[@]} plugins: ${TO_BUILD[*]}"
+      FAILED=0
+      for p in "${TO_BUILD[@]}"; do
+        [ -d "$ROOT_DIR/plugins/$p/frontend" ] || continue
+        log_info "  Building $p..."
+        cd "$ROOT_DIR/plugins/$p/frontend" || { log_warn "Plugin $p frontend not found"; continue; }
+        if npm run build >/dev/null 2>&1; then
+          log_success "  Built $p"
+        else
+          ((FAILED++)) || true
+          log_warn "  Build failed for $p (non-critical, can build later)"
+        fi
+      done
+      cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; exit 1; }
+      [ $FAILED -gt 0 ] && log_warn "$FAILED plugin(s) failed to build." || log_success "All plugins built"
     fi
   fi
 fi
@@ -391,7 +416,7 @@ fi
 # STEP 6: Verification
 ###############################################################################
 
-log_section "Step 6/6: Verification"
+log_section "Step 6/7: Verification"
 
 # Check critical files exist
 CHECKS_PASSED=true
@@ -408,6 +433,16 @@ if [ -d "$ROOT_DIR/node_modules/@naap" ]; then
   log_success "Workspace packages linked"
 else
   log_warn "Workspace packages may not be linked. Run 'npm install' again."
+fi
+
+###############################################################################
+# Step 7/7: Install git hooks (pre-push validation)
+###############################################################################
+log_section "Step 7/7: Git Hooks"
+if [ -d "$ROOT_DIR/.git" ]; then
+  "$SCRIPT_DIR/install-git-hooks.sh" && log_success "Pre-push hook installed" || log_warn "Could not install pre-push hook"
+else
+  log_info "Not a git repo, skipping hook install"
 fi
 
 ###############################################################################
@@ -434,7 +469,11 @@ echo ""
 
 if [ "$AUTO_START" = "1" ]; then
   log_info "Starting NAAP Platform..."
-  exec "$SCRIPT_DIR/start.sh" start --all
+  # Pass through plugin selection flags to start.sh
+  START_EXTRA_ARGS=()
+  [ "$NO_PLUGINS" = "1" ] && START_EXTRA_ARGS+=("--no-plugins")
+  [ -n "$ONLY_PLUGINS" ] && START_EXTRA_ARGS+=("--only=$ONLY_PLUGINS")
+  exec "$SCRIPT_DIR/start.sh" start --all "${START_EXTRA_ARGS[@]}"
 else
   echo -e "${BOLD}Next steps:${NC}"
   echo ""
