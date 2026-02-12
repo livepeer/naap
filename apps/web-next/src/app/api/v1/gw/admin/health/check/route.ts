@@ -3,7 +3,7 @@
  * POST /api/v1/gw/admin/health/check
  *
  * Runs a health check against all published connectors.
- * Can be triggered manually or by Vercel Cron (*/5 * * * *).
+ * Can be triggered manually or by Vercel Cron (every 5 minutes).
  *
  * For cron: uses CRON_SECRET for auth instead of JWT.
  */
