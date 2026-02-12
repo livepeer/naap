@@ -3,10 +3,91 @@
  * POST /api/v1/plugin-publisher/test - Test plugin loading
  */
 
-import {NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import * as ipaddr from 'ipaddr.js';
+import { lookup } from 'node:dns/promises';
+
+/** IP ranges considered non-routable / internal for SSRF protection. */
+const BLOCKED_RANGES: readonly string[] = [
+  'unspecified',
+  'loopback',
+  'private',
+  'linkLocal',
+  'uniqueLocal',
+  'carrierGradeNat',
+  'reserved',
+] as const;
+
+/**
+ * Check whether a single IP address falls within a blocked range.
+ */
+function isBlockedIp(address: string): boolean {
+  try {
+    const addr = ipaddr.process(address);
+    return BLOCKED_RANGES.includes(addr.range());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate that a URL is safe for server-side requests (SSRF protection).
+ * Uses ipaddr.js for robust IP classification that covers IPv4-mapped IPv6,
+ * loopback, link-local (169.254 / fe80), private, ULA, and more.
+ *
+ * When the hostname is a domain name (not a literal IP), performs DNS
+ * resolution and checks every returned address against BLOCKED_RANGES
+ * to prevent DNS-rebinding attacks.
+ */
+async function validateExternalUrl(url: string): Promise<{ valid: boolean; error?: string }> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { valid: false, error: 'Invalid URL format' };
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return { valid: false, error: `Unsupported protocol: ${parsed.protocol}` };
+  }
+
+  // Normalize hostname: strip trailing dots, lowercase, remove IPv6 brackets
+  const hostname = parsed.hostname.replace(/\.$/, '').toLowerCase().replace(/^\[|\]$/g, '');
+
+  // Check DNS-style names that resolve to internal services
+  if (
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.internal') ||
+    hostname.endsWith('.local')
+  ) {
+    return { valid: false, error: 'Requests to private/internal networks are not allowed' };
+  }
+
+  // Check IP addresses using ipaddr.js (handles IPv4, IPv6, and IPv4-mapped IPv6)
+  if (ipaddr.isValid(hostname)) {
+    if (isBlockedIp(hostname)) {
+      return { valid: false, error: 'Requests to private/internal networks are not allowed' };
+    }
+  } else {
+    // Hostname is a domain name — resolve DNS and check all returned IPs
+    try {
+      const records = await lookup(hostname, { all: true });
+      for (const { address } of records) {
+        if (isBlockedIp(address)) {
+          return { valid: false, error: 'Requests to private/internal networks are not allowed' };
+        }
+      }
+    } catch {
+      return { valid: false, error: 'DNS resolution failed' };
+    }
+  }
+
+  return { valid: true };
+}
 
 interface TestResult {
   success: boolean;
@@ -33,6 +114,11 @@ async function testFrontendLoading(
   const startTime = Date.now();
 
   try {
+    const urlCheck = await validateExternalUrl(frontendUrl);
+    if (!urlCheck.valid) {
+      return { success: false, errors: [urlCheck.error || 'Invalid URL'] };
+    }
+
     // Verify URL is accessible
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -40,6 +126,7 @@ async function testFrontendLoading(
     const response = await fetch(frontendUrl, {
       method: 'GET',
       signal: controller.signal,
+      redirect: 'error',
       headers: {
         'Accept': '*/*',
       },
@@ -91,6 +178,11 @@ async function testBackendHealth(
   const startTime = Date.now();
 
   try {
+    const urlCheck = await validateExternalUrl(backendUrl);
+    if (!urlCheck.valid) {
+      return { success: false, responseTimeMs: 0, healthStatus: undefined, errors: [urlCheck.error || 'Invalid URL'] };
+    }
+
     // Determine health endpoint
     const healthUrl = backendUrl.endsWith('/healthz')
       ? backendUrl
@@ -102,6 +194,7 @@ async function testBackendHealth(
     const response = await fetch(healthUrl, {
       method: 'GET',
       signal: controller.signal,
+      redirect: 'error',
     });
 
     clearTimeout(timeoutId);

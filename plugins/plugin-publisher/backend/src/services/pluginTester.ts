@@ -7,6 +7,136 @@
  * - Performance benchmarking
  */
 
+import * as ipaddr from 'ipaddr.js';
+import { lookup } from 'node:dns/promises';
+
+/** IP ranges considered non-routable / internal for SSRF protection. */
+const BLOCKED_RANGES: readonly string[] = [
+  'unspecified',
+  'loopback',
+  'private',
+  'linkLocal',
+  'uniqueLocal',
+  'carrierGradeNat',
+  'reserved',
+] as const;
+
+/**
+ * Check whether a single IP address falls within a blocked range.
+ */
+function isBlockedIp(address: string): boolean {
+  try {
+    const addr = ipaddr.process(address);
+    return BLOCKED_RANGES.includes(addr.range());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate that a URL is safe for server-side requests (SSRF protection).
+ *
+ * Uses ipaddr.js for robust IP classification that covers IPv4-mapped IPv6,
+ * loopback, link-local (169.254 / fe80), private, ULA, and more.
+ *
+ * When the hostname is a domain name (not a literal IP), performs DNS
+ * resolution and checks every returned address against BLOCKED_RANGES
+ * to prevent DNS-rebinding attacks.
+ */
+async function validateExternalUrl(url: string): Promise<{ valid: boolean; error?: string }> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { valid: false, error: 'Invalid URL format' };
+  }
+
+  if (parsed.protocol !== 'https:') {
+    return { valid: false, error: `Unsupported protocol: ${parsed.protocol}` };
+  }
+
+  // Normalize hostname: strip trailing dots, lowercase, remove IPv6 brackets
+  const hostname = parsed.hostname.replace(/\.$/, '').toLowerCase().replace(/^\[|\]$/g, '');
+
+  // Check DNS-style names that resolve to internal services
+  if (
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.internal') ||
+    hostname.endsWith('.local')
+  ) {
+    return { valid: false, error: 'Requests to private/internal networks are not allowed' };
+  }
+
+  // Check IP addresses using ipaddr.js (handles IPv4, IPv6, and IPv4-mapped IPv6)
+  if (ipaddr.isValid(hostname)) {
+    if (isBlockedIp(hostname)) {
+      return { valid: false, error: 'Requests to private/internal networks are not allowed' };
+    }
+  } else {
+    // Hostname is a domain name — resolve DNS and check all returned IPs
+    try {
+      const records = await lookup(hostname, { all: true });
+      for (const { address } of records) {
+        if (isBlockedIp(address)) {
+          return { valid: false, error: 'Requests to private/internal networks are not allowed' };
+        }
+      }
+    } catch {
+      return { valid: false, error: 'DNS resolution failed' };
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Perform a fetch with redirect safety.
+ * Uses `redirect: 'manual'` so we can validate each redirect Location
+ * through validateExternalUrl before following it.
+ */
+async function safeFetch(
+  url: string,
+  init: RequestInit,
+  maxRedirects: number = 5,
+): Promise<Response> {
+  let current = url;
+  for (let i = 0; i <= maxRedirects; i++) {
+    // Validate each request target before making any outbound call.
+    const check = await validateExternalUrl(current);
+    if (!check.valid) {
+      throw new Error(check.error || 'Request target is not allowed');
+    }
+
+    const currentUrl = new URL(current);
+    if (currentUrl.protocol !== 'https:') {
+      throw new Error('Only HTTPS URLs are allowed');
+    }
+
+    const res = await fetch(currentUrl.toString(), { ...init, redirect: 'manual' });
+
+    // Not a redirect — return as-is
+    if (res.status < 300 || res.status >= 400) {
+      return res;
+    }
+
+    // 3xx redirect — validate the Location header before following
+    const location = res.headers.get('location');
+    if (!location) {
+      throw new Error('Redirect with no Location header');
+    }
+
+    const target = new URL(location, current).toString();
+    const targetUrl = new URL(target);
+    if (targetUrl.protocol !== 'https:') {
+      throw new Error('Redirect target must use HTTPS');
+    }
+
+    current = target;
+  }
+  throw new Error(`Too many redirects (>${maxRedirects})`);
+}
+
 export interface FrontendTestResult {
   success: boolean;
   loadTime: number;
@@ -46,11 +176,24 @@ export async function testFrontendLoading(
   const startTime = Date.now();
 
   try {
+    const urlCheck = await validateExternalUrl(bundleUrl);
+    if (!urlCheck.valid) {
+      return {
+        success: false,
+        loadTime: 0,
+        size: 0,
+        bundleValid: false,
+        globalName: null,
+        errors: [urlCheck.error || 'Invalid URL'],
+        warnings: [],
+      };
+    }
+
     // Fetch the UMD bundle with timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    const response = await fetch(bundleUrl, {
+    const response = await safeFetch(bundleUrl, {
       signal: controller.signal,
     });
 
@@ -185,6 +328,17 @@ export async function testBackendHealth(
   const errors: string[] = [];
   const startTime = Date.now();
 
+  const urlCheck = await validateExternalUrl(backendUrl);
+  if (!urlCheck.valid) {
+    return {
+      success: false,
+      healthy: false,
+      responseTime: 0,
+      status: 'error',
+      errors: [urlCheck.error || 'Invalid URL'],
+    };
+  }
+
   // Normalize URL to health endpoint
   let healthUrl = backendUrl;
   if (!healthUrl.endsWith('/healthz') && !healthUrl.includes('/health')) {
@@ -195,7 +349,7 @@ export async function testBackendHealth(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    const response = await fetch(healthUrl, {
+    const response = await safeFetch(healthUrl, {
       signal: controller.signal,
     });
 

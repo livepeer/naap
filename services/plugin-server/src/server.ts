@@ -99,8 +99,11 @@ async function verifyToken(token: string): Promise<{ valid: boolean; userId?: st
  */
 async function checkPluginAccess(userId: string, pluginName: string): Promise<boolean> {
   try {
+    // Sanitize path parameters to prevent SSRF via path traversal
+    const safeName = encodeURIComponent(pluginName);
+    const safeUserId = encodeURIComponent(userId);
     const response = await fetch(
-      `${BASE_SVC_URL}/api/v1/base/plugins/${pluginName}/access?userId=${userId}`,
+      `${BASE_SVC_URL}/api/v1/base/plugins/${safeName}/access?userId=${safeUserId}`,
       { method: 'GET' }
     );
 

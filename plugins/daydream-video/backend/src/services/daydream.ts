@@ -99,6 +99,10 @@ export const CONTROLNETS_SDXL = [
 
 // Get controlnets for a given model
 export function getControlnetsForModel(modelId: string) {
+  // Guard against type confusion from parameter tampering (e.g., arrays from query strings)
+  if (typeof modelId !== 'string') {
+    return CONTROLNETS_SD15;
+  }
   if (modelId.includes('sdxl')) {
     return CONTROLNETS_SDXL;
   }
@@ -223,6 +227,31 @@ export async function createStream(
 }
 
 /**
+ * Validate that a stream ID is safe to use in URL paths.
+ * Daydream API treats stream IDs as opaque strings, so we only check
+ * it's a non-empty string without path traversal characters.
+ * Also decodes percent-encoded sequences to block encoded traversal (%2e%2e, %2f).
+ */
+function validateStreamId(streamId: string): void {
+  if (typeof streamId !== 'string' || streamId.length === 0) {
+    throw new Error('Stream ID must be a non-empty string');
+  }
+  // Decode percent-encoded sequences, then check for traversal in both forms
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(streamId);
+  } catch {
+    decoded = streamId;
+  }
+  if (
+    decoded.includes('..') || decoded.includes('/') || decoded.includes('\\') ||
+    streamId.includes('..') || streamId.includes('/') || streamId.includes('\\')
+  ) {
+    throw new Error('Stream ID contains invalid path characters');
+  }
+}
+
+/**
  * Update stream parameters
  * According to Daydream API docs, PATCH only needs the params object
  */
@@ -231,6 +260,8 @@ export async function updateStreamParams(
   streamId: string,
   params: StreamParams
 ): Promise<unknown> {
+  validateStreamId(streamId);
+
   // Build the params object - only include what's provided
   const updateParams: Record<string, unknown> = {};
 
@@ -290,6 +321,7 @@ export async function updateStreamParams(
  * Get stream status
  */
 export async function getStreamStatus(apiKey: string, streamId: string): Promise<unknown> {
+  validateStreamId(streamId);
   const response = await fetch(`${DAYDREAM_API}/v1/streams/${streamId}`, {
     method: 'GET',
     headers: {
@@ -309,6 +341,7 @@ export async function getStreamStatus(apiKey: string, streamId: string): Promise
  * Delete/end a stream
  */
 export async function deleteStream(apiKey: string, streamId: string): Promise<void> {
+  validateStreamId(streamId);
   const response = await fetch(`${DAYDREAM_API}/v1/streams/${streamId}`, {
     method: 'DELETE',
     headers: {

@@ -15,10 +15,19 @@ export class LivepeerCliClient {
   private baseUrl: string;
 
   constructor(baseUrl: string = 'http://localhost:7935') {
+    // Validate baseUrl to prevent SSRF via constructor injection
+    const parsed = new URL(baseUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(`LivepeerCliClient: unsupported protocol "${parsed.protocol}"`);
+    }
     this.baseUrl = baseUrl.replace(/\/$/, '');
   }
 
   private async request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+    // Validate that path starts with / and doesn't contain protocol indicators
+    if (!path.startsWith('/') || path.includes('://')) {
+      throw new Error(`Invalid API path: ${path}`);
+    }
     const url = `${this.baseUrl}${path}`;
     const opts: RequestInit = {
       method,
