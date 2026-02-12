@@ -438,6 +438,7 @@ async function main() {
       icon: 'Code',
       version: '1.0.0',
       frontendUrl: getPluginUrl('developerApi'),
+      isCore: true,
     },
     {
       name: 'pluginPublisher',
