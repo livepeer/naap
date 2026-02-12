@@ -20,6 +20,12 @@
 
 set -e
 
+# Sanity check: must run from monorepo root
+if [ ! -f "package.json" ] || [ ! -d "apps/web-next" ]; then
+  echo "ERROR: vercel-build.sh must run from monorepo root (contains package.json and apps/web-next)"
+  exit 1
+fi
+
 # Ensure DATABASE_URL is set (Vercel Storage uses POSTGRES_* prefixes)
 export DATABASE_URL="${DATABASE_URL:-$POSTGRES_PRISMA_URL}"
 
