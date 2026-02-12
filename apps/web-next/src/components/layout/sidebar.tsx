@@ -245,6 +245,11 @@ export function Sidebar() {
     const seenPlugins = new Set<string>();
     const uniquePlugins = (plugins || []).filter(p => {
       if (!p?.enabled) return false;
+      // Skip plugins the user hasn't installed (and aren't core).
+      // The API returns all globally-enabled plugins with `installed: false`
+      // for ones the user hasn't explicitly added — these should not appear
+      // in the sidebar. The settings page already filters by `installed`.
+      if (p.installed === false && !p.isCore) return false;
       // Skip headless plugins (no routes) — they are background providers, not nav items
       if (!p.routes || p.routes.length === 0) return false;
       const normalized = normalizePluginName(p.name);
