@@ -616,7 +616,9 @@ validate_plugin_envs() {
   local ok=true
   for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
     [ -f "$pj" ] || continue
-    local pdir=$(dirname "$pj") pname=$(basename "$(dirname "$pj")")
+    local pdir pname
+    pdir=$(dirname "$pj")
+    pname=$(basename "$(dirname "$pj")")
     local envfile="$pdir/backend/.env"
     [ -f "$envfile" ] || continue
 
@@ -1059,8 +1061,9 @@ stop_all() {
     local all_pids=() all_names=()
     while IFS= read -r line; do
       [ -z "$line" ] && continue
-      local pid=$(echo "$line" | cut -d' ' -f1)
-      local name=$(echo "$line" | cut -d' ' -f2-)
+      local pid name
+      pid=$(echo "$line" | cut -d' ' -f1)
+      name=$(echo "$line" | cut -d' ' -f2-)
       kill -0 "$pid" 2>/dev/null || continue
       all_pids+=("$pid")
       all_names+=("$name")
@@ -1326,7 +1329,9 @@ BEOF
   # Plugin backend .env files
   for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
     [ -f "$pj" ] || continue
-    local pdir=$(dirname "$pj") pname=$(basename "$(dirname "$pj")")
+    local pdir pname
+    pdir=$(dirname "$pj")
+    pname=$(basename "$(dirname "$pj")")
     local envfile="$pdir/backend/.env"
     [ -d "$pdir/backend" ] || continue
     if [ ! -f "$envfile" ]; then
@@ -1473,7 +1478,8 @@ start_all_be() {
 start_fe() { log_section "Frontend"; start_shell || { log_error "Shell failed."; exit 1; }; }
 
 cmd_start_all() {
-  log_info "Starting ${BOLD}all${NC} NAAP services..."; local t=$(date +%s)
+  log_info "Starting ${BOLD}all${NC} NAAP services..."
+  local t; t=$(date +%s)
   acquire_lock
   preflight_check
   _tstart; setup_infra_full; _tend "Infrastructure"
@@ -1494,7 +1500,8 @@ cmd_start_all() {
 }
 
 cmd_start_shell() {
-  log_info "Starting shell + core..."; local t=$(date +%s)
+  log_info "Starting shell + core..."
+  local t; t=$(date +%s)
   acquire_lock
   preflight_check
   _tstart; setup_infra; _tend "Infrastructure"
@@ -1507,7 +1514,8 @@ cmd_start_shell() {
 }
 
 cmd_start_shell_with_backends() {
-  log_info "Starting shell + backends..."; local t=$(date +%s)
+  log_info "Starting shell + backends..."
+  local t; t=$(date +%s)
   acquire_lock
   preflight_check
   _tstart; setup_infra_full; _tend "Infrastructure"

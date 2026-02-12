@@ -45,8 +45,9 @@ else
   if [ -n "$CHANGED_PLUGINS" ]; then
     echo "  Changed plugins: $CHANGED_PLUGINS"
     for plugin in $CHANGED_PLUGINS; do
-      [ -d "plugins/$plugin/frontend" ] && \
+      if [ -d "plugins/$plugin/frontend" ]; then
         ./bin/build-plugins.sh --plugin "$plugin" || echo "WARN: Build failed for $plugin (continuing)"
+      fi
     done
   else
     echo "  No plugin changes detected"
@@ -69,7 +70,18 @@ fi
 # npm install via packages/database postinstall hook.
 # Only push schema if it changed (or always for production).
 DIFF_BASE="${VERCEL_GIT_PREVIOUS_SHA:-HEAD~1}"
-SCHEMA_CHANGED=$(git diff --name-only "$DIFF_BASE" HEAD -- packages/database/prisma/ 2>/dev/null | head -1 || true)
+# Validate DIFF_BASE; fall back to HEAD~1, then force updates if both fail
+if ! git rev-parse --verify "$DIFF_BASE" >/dev/null 2>&1; then
+  echo "WARN: DIFF_BASE ($DIFF_BASE) is invalid, falling back to HEAD~1"
+  DIFF_BASE="HEAD~1"
+  if ! git rev-parse --verify "$DIFF_BASE" >/dev/null 2>&1; then
+    echo "WARN: HEAD~1 also invalid (first commit?), forcing schema/registry updates"
+    SCHEMA_CHANGED="forced"
+  fi
+fi
+if [ -z "${SCHEMA_CHANGED:-}" ]; then
+  SCHEMA_CHANGED=$(git diff --name-only "$DIFF_BASE" HEAD -- packages/database/prisma/ 2>/dev/null | head -1 || true)
+fi
 
 if [ -n "$SCHEMA_CHANGED" ] || [ "${VERCEL_ENV}" = "production" ]; then
   echo "[3/5] Prisma db push (schema changed or production)..."
@@ -88,7 +100,11 @@ cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
 
 # Step 5: Sync plugin registry in database
 # Only sync if plugin.json files changed (or always for production).
-PLUGINS_CHANGED=$(git diff --name-only "$DIFF_BASE" HEAD -- plugins/*/plugin.json 2>/dev/null | head -1 || true)
+if [ "${SCHEMA_CHANGED:-}" = "forced" ]; then
+  PLUGINS_CHANGED="forced"
+else
+  PLUGINS_CHANGED=$(git diff --name-only "$DIFF_BASE" HEAD -- plugins/*/plugin.json 2>/dev/null | head -1 || true)
+fi
 
 if [ -n "$PLUGINS_CHANGED" ] || [ "${VERCEL_ENV}" = "production" ]; then
   echo "[5/5] Syncing plugin registry..."
