@@ -79,9 +79,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           .on('error', reject);
       });
     } catch {
-      // Fallback: use child_process unzip
-      const { execSync } = await import('child_process');
-      execSync(`unzip -o "${zipPath}" -d "${extractDir}"`, { stdio: 'pipe' });
+      // Fallback: use child_process unzip with execFileSync to prevent shell injection
+      const { execFileSync } = await import('child_process');
+      execFileSync('unzip', ['-o', zipPath, '-d', extractDir], { stdio: 'pipe' });
     }
 
     // Clean up zip

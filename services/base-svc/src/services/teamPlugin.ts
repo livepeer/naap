@@ -11,6 +11,11 @@ import { getTeamService, TeamRole } from './team';
 import { createDeploymentService } from './deployment';
 import { validateManifest } from './manifestValidator';
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 /**
  * Deep merge two objects (for config merging)
  * Personal config overrides shared config
@@ -179,7 +184,7 @@ export function createTeamPluginService(prisma: PrismaClient) {
         }
         // Log warnings but don't block installation
         if (validation.warnings.length > 0) {
-          console.warn(`Plugin "${packageName}" has manifest warnings:`, validation.warnings);
+          console.warn(`Plugin "${sanitizeForLog(packageName)}" has manifest warnings:`, validation.warnings);
         }
       }
 

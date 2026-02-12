@@ -105,12 +105,31 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
 
   // ─── Base Middleware ────────────────────────────────────────────────
 
-  // CORS
-  const origins = corsOrigins || (process.env.NODE_ENV === 'production'
-    ? [process.env.ALLOWED_ORIGIN || 'https://naap.dev']
-    : '*');
+  // CORS - validate origins when allowlist set; empty = allow-all (relaxed for now)
+  // TODO: Fail closed when empty for production; set CORS_ALLOWED_ORIGINS explicitly
+  const configuredOrigins =
+    corsOrigins || (process.env.CORS_ALLOWED_ORIGINS || '');
+  const originsArray: string[] = (
+    Array.isArray(configuredOrigins)
+      ? configuredOrigins
+      : typeof configuredOrigins === 'string'
+        ? configuredOrigins.split(',')
+        : []
+  )
+    .map((o) => String(o).trim())
+    .filter(Boolean);
+  const allowAllOrigins =
+    originsArray.length === 0 ||
+    (typeof configuredOrigins === 'string' && configuredOrigins.trim() === '*');
   app.use(cors({
-    origin: origins,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (server-to-server, curl, etc.)
+      if (!origin) return callback(null, true);
+      if (allowAllOrigins || originsArray.includes(origin)) {
+        return callback(null, true);
+      }
+      callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: CORS_ALLOWED_HEADERS,

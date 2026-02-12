@@ -48,8 +48,21 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   crossOriginEmbedderPolicy: false,
 }));
+// CORS - allowlist when set; empty = allow-all (relaxed for now)
+// TODO: Fail closed when empty; set CORS_ALLOWED_ORIGINS for production
+const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: true, // Allow all origins for plugin assets
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (CORS_ALLOWED_ORIGINS.length === 0 || CORS_ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 app.use(express.json());
@@ -445,6 +458,14 @@ async function uploadToCDN(
     throw new Error('BLOB_READ_WRITE_TOKEN not configured');
   }
 
+  // Validate plugin name and version to prevent path traversal in blob paths
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(pluginName)) {
+    throw new Error('Invalid plugin name');
+  }
+  if (!/^[\d]+\.[\d]+\.[\d]+/.test(version)) {
+    throw new Error('Invalid version format');
+  }
+
   const results: Record<string, { url: string; size: number }> = {};
   let bundleHash = '';
 
@@ -626,6 +647,17 @@ app.post('/api/v1/plugin-publisher/publish-cdn', upload.single('plugin'), async 
         error: 'No UMD bundle found',
         hint: 'Build your plugin with npm run build:production to generate UMD bundle',
       });
+    }
+
+    // Validate file paths are within the expected extract directory
+    const resolvedExtractDir = path.resolve(extractDir);
+    if (!path.resolve(bundlePath).startsWith(resolvedExtractDir + path.sep)) {
+      await fs.rm(extractDir, { recursive: true });
+      return res.status(400).json({ error: 'Bundle file path outside expected directory' });
+    }
+    if (stylesPath && !path.resolve(stylesPath).startsWith(resolvedExtractDir + path.sep)) {
+      await fs.rm(extractDir, { recursive: true });
+      return res.status(400).json({ error: 'Styles file path outside expected directory' });
     }
 
     // Read and validate bundle
