@@ -35,21 +35,9 @@ scope/backend:
 # ---------------------------------------------------------------------------
 # Per-plugin labels (one label per plugin directory)
 # ---------------------------------------------------------------------------
-plugin/gateway-manager:
-  - changed-files:
-      - any-glob-to-any-file: 'plugins/gateway-manager/**'
-
-plugin/orchestrator-manager:
-  - changed-files:
-      - any-glob-to-any-file: 'plugins/orchestrator-manager/**'
-
 plugin/capacity-planner:
   - changed-files:
       - any-glob-to-any-file: 'plugins/capacity-planner/**'
-
-plugin/network-analytics:
-  - changed-files:
-      - any-glob-to-any-file: 'plugins/network-analytics/**'
 
 plugin/community:
   - changed-files:
@@ -58,18 +46,6 @@ plugin/community:
 plugin/marketplace:
   - changed-files:
       - any-glob-to-any-file: 'plugins/marketplace/**'
-
-plugin/my-dashboard:
-  - changed-files:
-      - any-glob-to-any-file: 'plugins/my-dashboard/**'
-
-plugin/my-wallet:
-  - changed-files:
-      - any-glob-to-any-file: 'plugins/my-wallet/**'
-
-plugin/daydream-video:
-  - changed-files:
-      - any-glob-to-any-file: 'plugins/daydream-video/**'
 
 plugin/developer-api:
   - changed-files:

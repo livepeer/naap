@@ -12,11 +12,11 @@
  *
  * Creates:
  * - System roles (4)
- * - Plugin admin roles (10)
- * - Test users with roles (12+)
+ * - Plugin admin roles (5)
+ * - Test users with roles (7+)
  * - Feature flags (4)
  * - Workflow plugins (auto-discovered from plugins/{name}/plugin.json)
- * - Marketplace packages (10+)
+ * - Marketplace packages (6+)
  * - Plugin deployments
  * - Tenant installations
  * - Test team
@@ -171,17 +171,11 @@ async function main() {
   console.log('🔌 Creating plugin admin roles...');
 
   const pluginAdminRoles = [
-    { pluginName: 'gateway-manager', roleName: 'gateway-manager:admin', displayName: 'Gateway Manager Administrator' },
-    { pluginName: 'orchestrator-manager', roleName: 'orchestrator-manager:admin', displayName: 'Orchestrator Manager Administrator' },
     { pluginName: 'capacity-planner', roleName: 'capacity-planner:admin', displayName: 'Capacity Planner Administrator' },
-    { pluginName: 'network-analytics', roleName: 'network-analytics:admin', displayName: 'Network Analytics Administrator' },
     { pluginName: 'marketplace', roleName: 'marketplace:admin', displayName: 'Marketplace Administrator' },
     { pluginName: 'community', roleName: 'community:admin', displayName: 'Community Hub Administrator' },
     { pluginName: 'developer-api', roleName: 'developer-api:admin', displayName: 'Developer API Administrator' },
-    { pluginName: 'my-wallet', roleName: 'my-wallet:admin', displayName: 'Wallet Administrator' },
-    { pluginName: 'my-dashboard', roleName: 'my-dashboard:admin', displayName: 'Dashboard Administrator' },
     { pluginName: 'plugin-publisher', roleName: 'plugin-publisher:admin', displayName: 'Plugin Publisher Administrator' },
-    { pluginName: 'daydream-video', roleName: 'daydream-video:admin', displayName: 'Daydream Video Administrator' },
   ];
 
   for (const pluginRole of pluginAdminRoles) {
@@ -211,15 +205,10 @@ async function main() {
 
   const testUsers = [
     { email: 'admin@livepeer.org', displayName: 'System Admin', roles: ['system:admin'] },
-    { email: 'gateway@livepeer.org', displayName: 'Gateway Admin', roles: ['gateway-manager:admin'] },
-    { email: 'orchestrator@livepeer.org', displayName: 'Orchestrator Admin', roles: ['orchestrator-manager:admin'] },
     { email: 'capacity@livepeer.org', displayName: 'Capacity Admin', roles: ['capacity-planner:admin'] },
-    { email: 'analytics@livepeer.org', displayName: 'Analytics Admin', roles: ['network-analytics:admin'] },
     { email: 'marketplace@livepeer.org', displayName: 'Marketplace Admin', roles: ['marketplace:admin'] },
     { email: 'community@livepeer.org', displayName: 'Community Admin', roles: ['community:admin'] },
     { email: 'developer@livepeer.org', displayName: 'Developer Admin', roles: ['developer-api:admin'] },
-    { email: 'wallet@livepeer.org', displayName: 'Wallet Admin', roles: ['my-wallet:admin'] },
-    { email: 'dashboard@livepeer.org', displayName: 'Dashboard Admin', roles: ['my-dashboard:admin'] },
     { email: 'publisher@livepeer.org', displayName: 'Publisher Admin', roles: ['plugin-publisher:admin'] },
     { email: 'viewer@livepeer.org', displayName: 'Viewer User', roles: ['system:viewer'] },
   ];
@@ -408,35 +397,6 @@ async function main() {
       isCore: true,
     },
     {
-      name: 'gatewayManager',
-      displayName: 'Gateway Manager',
-      description: 'Manage and monitor your AI gateway infrastructure with real-time metrics.',
-      category: 'monitoring',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/gateway-manager',
-      license: 'MIT',
-      keywords: ['gateway', 'monitoring', 'infrastructure', 'metrics', 'ai'],
-      icon: 'Radio',
-      version: '1.0.0',
-      frontendUrl: getPluginUrl('gatewayManager'),
-      isCore: true,
-    },
-    {
-      name: 'orchestratorManager',
-      displayName: 'Orchestrator Manager',
-      description: 'Manage and monitor orchestrators on the Livepeer network.',
-      category: 'monitoring',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/orchestrator-manager',
-      license: 'MIT',
-      keywords: ['orchestrator', 'monitoring', 'infrastructure', 'livepeer'],
-      icon: 'Cpu',
-      version: '1.0.0',
-      frontendUrl: getPluginUrl('orchestratorManager'),
-    },
-    {
       name: 'capacityPlanner',
       displayName: 'Capacity Planner',
       description: 'Plan and manage capacity across your Livepeer infrastructure.',
@@ -449,21 +409,6 @@ async function main() {
       icon: 'Zap',
       version: '1.0.0',
       frontendUrl: getPluginUrl('capacityPlanner'),
-    },
-    {
-      name: 'networkAnalytics',
-      displayName: 'Network Analytics',
-      description: 'Comprehensive analytics dashboard for the Livepeer network.',
-      category: 'analytics',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/network-analytics',
-      license: 'MIT',
-      keywords: ['analytics', 'charts', 'metrics', 'leaderboard', 'network'],
-      icon: 'BarChart3',
-      version: '1.0.0',
-      frontendUrl: getPluginUrl('networkAnalytics'),
-      isCore: true,
     },
     {
       name: 'community',
@@ -495,34 +440,6 @@ async function main() {
       frontendUrl: getPluginUrl('developerApi'),
     },
     {
-      name: 'myWallet',
-      displayName: 'My Wallet',
-      description: 'MetaMask wallet integration for staking LPT and managing transactions.',
-      category: 'finance',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/my-wallet',
-      license: 'MIT',
-      keywords: ['wallet', 'metamask', 'web3', 'staking', 'ethereum', 'livepeer'],
-      icon: 'Wallet',
-      version: '1.0.0',
-      frontendUrl: getPluginUrl('myWallet'),
-    },
-    {
-      name: 'myDashboard',
-      displayName: 'My Dashboard',
-      description: 'Embed Metabase dashboards with interactive analytics.',
-      category: 'analytics',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/my-dashboard',
-      license: 'MIT',
-      keywords: ['dashboard', 'metabase', 'analytics', 'embed', 'visualization'],
-      icon: 'LayoutDashboard',
-      version: '1.0.0',
-      frontendUrl: getPluginUrl('myDashboard'),
-    },
-    {
       name: 'pluginPublisher',
       displayName: 'Plugin Publisher',
       description: 'Publish, validate, and manage your plugins in the NAAP marketplace.',
@@ -536,20 +453,6 @@ async function main() {
       version: '1.0.0',
       frontendUrl: getPluginUrl('pluginPublisher'),
       isCore: true,
-    },
-    {
-      name: 'daydreamVideo',
-      displayName: 'Daydream AI Video',
-      description: 'Real-time AI video transformation using StreamDiffusion.',
-      category: 'media',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/daydream-video',
-      license: 'MIT',
-      keywords: ['ai', 'video', 'streaming', 'diffusion', 'realtime'],
-      icon: 'Video',
-      version: '1.0.0',  // Matches built bundle
-      frontendUrl: getPluginUrl('daydreamVideo'),
     },
     {
       name: 'dashboardProviderMock',
@@ -746,12 +649,7 @@ async function main() {
   // ============================================
   console.log('📊 Creating historical stats...');
 
-  const stats = [
-    { service: 'gateway-manager', metric: 'active_gateways', value: 48 },
-    { service: 'orchestrator-manager', metric: 'active_orchestrators', value: 156 },
-    { service: 'network-analytics', metric: 'total_jobs', value: 1245 },
-    { service: 'network-analytics', metric: 'success_rate', value: 99.4 },
-  ];
+  const stats: { service: string; metric: string; value: number }[] = [];
 
   for (const stat of stats) {
     await prisma.historicalStat.create({
@@ -807,15 +705,10 @@ async function main() {
   console.log('      Role:     system:admin');
   console.log('');
   console.log('   👤 Plugin Admins (same password):');
-  console.log('      gateway@livepeer.org     - gateway-manager:admin');
-  console.log('      orchestrator@livepeer.org - orchestrator-manager:admin');
   console.log('      capacity@livepeer.org    - capacity-planner:admin');
-  console.log('      analytics@livepeer.org   - network-analytics:admin');
   console.log('      marketplace@livepeer.org - marketplace:admin');
   console.log('      community@livepeer.org   - community:admin');
   console.log('      developer@livepeer.org   - developer-api:admin');
-  console.log('      wallet@livepeer.org      - my-wallet:admin');
-  console.log('      dashboard@livepeer.org   - my-dashboard:admin');
   console.log('      publisher@livepeer.org   - plugin-publisher:admin');
   console.log('');
   console.log('   👤 Viewer:');
