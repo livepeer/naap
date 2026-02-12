@@ -32,6 +32,12 @@ export DATABASE_URL="${DATABASE_URL:-$POSTGRES_PRISMA_URL}"
 echo "=== Vercel Build Pipeline ==="
 echo "Environment: ${VERCEL_ENV:-unknown}"
 
+# Build plugin-build (and plugin-utils) so plugin vite configs resolve to dist/.js
+# Plugin vite.config.ts imports @naap/plugin-build/vite; Node ESM cannot load .ts directly.
+echo "[0/5] Building plugin-build package..."
+npx tsc -p packages/plugin-build/tsconfig.json || { echo "ERROR: plugin-build build failed"; exit 1; }
+(cd packages/plugin-utils && npm run build --if-present) || true
+
 # Step 1: Build plugin UMD bundles
 # Production: always build all plugins to ensure complete bundles.
 # Preview: only build plugins that changed in this commit for faster builds.
