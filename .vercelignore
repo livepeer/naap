@@ -37,9 +37,11 @@ plugins/*/backend/
 **/*.spec.ts
 **/__tests__/
 
-# Documentation (not needed for build)
-docs/
-*.md
+# Top-level documentation files (not needed for build).
+# IMPORTANT: Use anchored patterns (leading /) to avoid excluding
+# apps/web-next/src/content/docs/ which contains MDX page content.
+/docs/
+/*.md
 !README.md
 
 # Example plugins (not deployed)
