@@ -3,7 +3,7 @@ import { success, errors } from '@/lib/api/response';
 
 /** Sanitize a value for safe log output (prevents log injection) */
 function sanitizeForLog(value: unknown): string {
-  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f\u2028\u2029]/g, '');
 }
 
 // PUT /api/v1/tenant/installations/:id/config - Update installation config
@@ -21,7 +21,8 @@ export async function PUT(
     }
 
     // In production, update the installation config in database
-    console.log(`Updating config for installation ${sanitizeForLog(id)}:`, settings);
+    const safeSettings = sanitizeForLog(JSON.stringify(settings));
+    console.log(`Updating config for installation ${sanitizeForLog(id)}:`, safeSettings);
 
     return success({
       message: 'Configuration saved successfully',

@@ -10,7 +10,7 @@ import { PrismaClient } from '@naap/database';
 
 /** Sanitize a value for safe log output (prevents log injection) */
 function sanitizeForLog(value: unknown): string {
-  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f\u2028\u2029]/g, '');
 }
 
 // Simple password hashing using crypto (no external deps needed for dev)
@@ -641,9 +641,14 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
         },
       });
 
-      // In production, send email. For now, log to console
-      console.log(`[PASSWORD RESET] Token for ${sanitizeForLog(email)}: ${token}`);
-      console.log(`[PASSWORD RESET] Reset URL: /auth/reset-password?token=${token}`);
+      // In production, send email. For now, log to console (never log token in production)
+      const safeEmail = sanitizeForLog(email);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[PASSWORD RESET] Token for ${safeEmail}: ${token}`);
+        console.log(`[PASSWORD RESET] Reset URL: /auth/reset-password?token=${token}`);
+      } else {
+        console.log(`[PASSWORD RESET] Token generated for ${safeEmail}`);
+      }
 
       return { success: true, message: 'If an account exists, a reset link has been sent.' };
     },

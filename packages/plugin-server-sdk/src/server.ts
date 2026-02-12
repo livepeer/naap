@@ -105,19 +105,25 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
 
   // ─── Base Middleware ────────────────────────────────────────────────
 
-  // CORS - validate origins against allowlist
-  const configuredOrigins = corsOrigins
-    || (process.env.CORS_ALLOWED_ORIGINS || '').split(',').filter(Boolean);
-  const originsArray: string[] = Array.isArray(configuredOrigins)
-    ? configuredOrigins
-    : (typeof configuredOrigins === 'string' && configuredOrigins !== '*'
-      ? [configuredOrigins]
-      : []);
+  // CORS - validate origins against allowlist; empty list = deny all (fail closed)
+  const configuredOrigins =
+    corsOrigins || (process.env.CORS_ALLOWED_ORIGINS || '');
+  const originsArray: string[] = (
+    Array.isArray(configuredOrigins)
+      ? configuredOrigins
+      : typeof configuredOrigins === 'string'
+        ? configuredOrigins.split(',')
+        : []
+  )
+    .map((o) => String(o).trim())
+    .filter(Boolean);
+  const allowAllOrigins =
+    typeof configuredOrigins === 'string' && configuredOrigins.trim() === '*';
   app.use(cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (server-to-server, curl, etc.)
       if (!origin) return callback(null, true);
-      if (originsArray.length === 0 || originsArray.includes(origin)) {
+      if (allowAllOrigins || originsArray.includes(origin)) {
         return callback(null, true);
       }
       callback(new Error('Not allowed by CORS'));

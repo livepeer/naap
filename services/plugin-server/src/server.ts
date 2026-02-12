@@ -191,14 +191,22 @@ const PORT = process.env.PLUGIN_SERVER_PORT || 3100;
 const ROOT_DIR = path.resolve(__dirname, '../../..');
 const PLUGINS_DIR = path.join(ROOT_DIR, 'plugins');
 
-// CORS configuration - validate origins against allowlist
-const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '').split(',').filter(Boolean);
+// CORS configuration - validate origins against allowlist; empty = fail closed (except in dev)
+const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+const HAS_CORS_ALLOWLIST = CORS_ALLOWED_ORIGINS.length > 0;
+const ALLOW_EMPTY_IN_DEV = process.env.NODE_ENV !== 'production';
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (server-to-server, curl, etc.)
     if (!origin) return callback(null, true);
-    if (CORS_ALLOWED_ORIGINS.length === 0 || CORS_ALLOWED_ORIGINS.includes(origin)) {
+    if (!HAS_CORS_ALLOWLIST) {
+      if (ALLOW_EMPTY_IN_DEV) return callback(null, true);
+      return callback(new Error('CORS allowlist not configured'));
+    }
+    if (CORS_ALLOWED_ORIGINS.includes(origin)) {
       return callback(null, true);
     }
     callback(new Error('Not allowed by CORS'));

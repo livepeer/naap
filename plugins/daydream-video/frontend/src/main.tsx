@@ -22,11 +22,20 @@ function applyTheme(mode: 'light' | 'dark') {
 // Default to dark theme
 applyTheme('dark');
 
+// Allowed origins for shell messages (same-origin + configured parent origins)
+const ALLOWED_MESSAGE_ORIGINS: string[] = [
+  window.location.origin,
+  ...(import.meta.env.VITE_ALLOWED_MESSAGE_ORIGINS || '')
+    .split(',')
+    .map((s: string) => s.trim())
+    .filter(Boolean),
+];
+
 // Listen for shell:init message when in iframe
 if (isInIframe) {
   window.addEventListener('message', (event) => {
     // Verify message origin to prevent cross-origin attacks
-    if (event.origin !== window.location.origin) return;
+    if (!ALLOWED_MESSAGE_ORIGINS.includes(event.origin)) return;
 
     const { type, context } = event.data || {};
 
@@ -43,8 +52,8 @@ if (isInIframe) {
         theme: { mode: themeMode },
       };
 
-      // Notify shell that we're ready
-      window.parent.postMessage({ type: 'plugin:ready' }, '*');
+      // Notify shell that we're ready (use validated origin, not wildcard)
+      window.parent.postMessage({ type: 'plugin:ready' }, event.origin);
     }
 
     if (type === 'shell:theme') {

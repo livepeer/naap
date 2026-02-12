@@ -594,7 +594,13 @@ async function executeOpenAICall(method: string, args: unknown[], apiKey: string
 }
 
 async function executeS3Call(method: string, args: unknown[], _apiKey: string): Promise<unknown> {
-  console.log(`S3 call: ${sanitizeForLog(method)}`, args);
+  let safeArgs = '[unserializable args]';
+  try {
+    safeArgs = sanitizeForLog(JSON.stringify(args));
+  } catch {
+    // keep fallback
+  }
+  console.log(`S3 call: ${sanitizeForLog(method)} ${safeArgs}`);
   return { warning: 'S3 integration requires AWS SDK implementation', method, args };
 }
 
