@@ -8,6 +8,7 @@
  */
 
 import * as ipaddr from 'ipaddr.js';
+import { lookup } from 'node:dns/promises';
 
 /** IP ranges considered non-routable / internal for SSRF protection. */
 const BLOCKED_RANGES: readonly string[] = [
@@ -21,11 +22,28 @@ const BLOCKED_RANGES: readonly string[] = [
 ] as const;
 
 /**
+ * Check whether a single IP address falls within a blocked range.
+ */
+function isBlockedIp(address: string): boolean {
+  try {
+    const addr = ipaddr.process(address);
+    return BLOCKED_RANGES.includes(addr.range());
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Validate that a URL is safe for server-side requests (SSRF protection).
+ *
  * Uses ipaddr.js for robust IP classification that covers IPv4-mapped IPv6,
  * loopback, link-local (169.254 / fe80), private, ULA, and more.
+ *
+ * When the hostname is a domain name (not a literal IP), performs DNS
+ * resolution and checks every returned address against BLOCKED_RANGES
+ * to prevent DNS-rebinding attacks.
  */
-function validateExternalUrl(url: string): { valid: boolean; error?: string } {
+async function validateExternalUrl(url: string): Promise<{ valid: boolean; error?: string }> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -52,18 +70,59 @@ function validateExternalUrl(url: string): { valid: boolean; error?: string } {
 
   // Check IP addresses using ipaddr.js (handles IPv4, IPv6, and IPv4-mapped IPv6)
   if (ipaddr.isValid(hostname)) {
+    if (isBlockedIp(hostname)) {
+      return { valid: false, error: 'Requests to private/internal networks are not allowed' };
+    }
+  } else {
+    // Hostname is a domain name — resolve DNS and check all returned IPs
     try {
-      const addr = ipaddr.process(hostname);
-      const range = addr.range();
-      if (BLOCKED_RANGES.includes(range)) {
-        return { valid: false, error: 'Requests to private/internal networks are not allowed' };
+      const records = await lookup(hostname, { all: true });
+      for (const { address } of records) {
+        if (isBlockedIp(address)) {
+          return { valid: false, error: 'Requests to private/internal networks are not allowed' };
+        }
       }
     } catch {
-      return { valid: false, error: 'Invalid IP address' };
+      return { valid: false, error: 'DNS resolution failed' };
     }
   }
 
   return { valid: true };
+}
+
+/**
+ * Perform a fetch with redirect safety.
+ * Uses `redirect: 'manual'` so we can validate each redirect Location
+ * through validateExternalUrl before following it.
+ */
+async function safeFetch(
+  url: string,
+  init: RequestInit,
+  maxRedirects: number = 5,
+): Promise<Response> {
+  let current = url;
+  for (let i = 0; i <= maxRedirects; i++) {
+    const res = await fetch(current, { ...init, redirect: 'manual' });
+
+    // Not a redirect — return as-is
+    if (res.status < 300 || res.status >= 400) {
+      return res;
+    }
+
+    // 3xx redirect — validate the Location header before following
+    const location = res.headers.get('location');
+    if (!location) {
+      throw new Error('Redirect with no Location header');
+    }
+
+    const target = new URL(location, current).toString();
+    const check = await validateExternalUrl(target);
+    if (!check.valid) {
+      throw new Error(check.error || 'Redirect target is not allowed');
+    }
+    current = target;
+  }
+  throw new Error(`Too many redirects (>${maxRedirects})`);
 }
 
 export interface FrontendTestResult {
@@ -105,7 +164,7 @@ export async function testFrontendLoading(
   const startTime = Date.now();
 
   try {
-    const urlCheck = validateExternalUrl(bundleUrl);
+    const urlCheck = await validateExternalUrl(bundleUrl);
     if (!urlCheck.valid) {
       return {
         success: false,
@@ -122,9 +181,8 @@ export async function testFrontendLoading(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    const response = await fetch(bundleUrl, {
+    const response = await safeFetch(bundleUrl, {
       signal: controller.signal,
-      redirect: 'error',
     });
 
     clearTimeout(timeoutId);
@@ -258,7 +316,7 @@ export async function testBackendHealth(
   const errors: string[] = [];
   const startTime = Date.now();
 
-  const urlCheck = validateExternalUrl(backendUrl);
+  const urlCheck = await validateExternalUrl(backendUrl);
   if (!urlCheck.valid) {
     return {
       success: false,
@@ -279,9 +337,8 @@ export async function testBackendHealth(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    const response = await fetch(healthUrl, {
+    const response = await safeFetch(healthUrl, {
       signal: controller.signal,
-      redirect: 'error',
     });
 
     clearTimeout(timeoutId);
