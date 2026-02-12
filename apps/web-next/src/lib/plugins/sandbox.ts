@@ -266,20 +266,15 @@ export const PluginSecurity = {
   },
 
   /**
-   * Sanitizes HTML content (basic)
+   * Sanitizes HTML content (basic). Removes script tags and event handlers,
+   * keeps safe structure (p, div, span, etc.).
    */
   sanitizeHtml(html: string): string {
-    // Iteratively strip all HTML tags to handle nested/malformed tags that
-    // single-pass regex approaches miss (e.g. <<script>script>).
-    const tagPattern = /<\/?[^>]+(>|$)/g;
-    let result = html;
-    let previous = '';
-    while (result !== previous) {
-      previous = result;
-      result = result.replace(tagPattern, '');
-    }
-    // Also neutralise any leftover event-handler-style attributes
-    result = result.replace(/on\w+\s*=/gi, 'data-blocked-event=');
+    // 1. Remove script tags and their content
+    let result = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+    // 2. Strip event handler attributes (onclick, onerror, etc.) from remaining tags
+    result = result.replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, '');
+    result = result.replace(/\s+on\w+\s*=\s*[^\s>]+/gi, '');
     return result;
   },
 
