@@ -21,6 +21,8 @@ function sanitizeForLog(value: unknown): string {
  * Personal config overrides shared config
  * Note: Defined locally to avoid ESM re-export issues with @naap/types
  */
+const UNSAFE_KEYS = ['__proto__', 'constructor', 'prototype'];
+
 function deepMerge<T extends Record<string, unknown>>(
   base: T,
   override: Partial<T>
@@ -28,6 +30,7 @@ function deepMerge<T extends Record<string, unknown>>(
   const result = { ...base } as T;
 
   for (const key in override) {
+    if (UNSAFE_KEYS.includes(key)) continue;
     if (Object.prototype.hasOwnProperty.call(override, key)) {
       const baseValue = base[key];
       const overrideValue = override[key];

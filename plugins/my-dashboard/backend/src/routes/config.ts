@@ -2,10 +2,30 @@
  * Configuration Routes (Admin only)
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { getConfig, saveConfig, verifyConfig } from '../services/metabase.js';
 
 const router = Router();
+
+// Rate limiting to prevent abuse
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+function createRateLimiter(windowMs: number, maxRequests: number) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const key = req.ip || 'unknown';
+    const now = Date.now();
+    const entry = rateLimitMap.get(key);
+    if (!entry || now > entry.resetTime) {
+      rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
+      return next();
+    }
+    if (entry.count >= maxRequests) {
+      return res.status(429).json({ error: 'Too many requests, please try again later' });
+    }
+    entry.count++;
+    return next();
+  };
+}
+router.use(createRateLimiter(15 * 60 * 1000, 100));
 
 // GET /config - Get plugin configuration
 router.get('/config', async (req: Request, res: Response) => {

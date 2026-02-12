@@ -269,10 +269,18 @@ export const PluginSecurity = {
    * Sanitizes HTML content (basic)
    */
   sanitizeHtml(html: string): string {
-    // Remove script tags and event handlers
-    return html
-      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-      .replace(/on\w+\s*=/gi, 'data-blocked-event=');
+    // Iteratively strip all HTML tags to handle nested/malformed tags that
+    // single-pass regex approaches miss (e.g. <<script>script>).
+    const tagPattern = /<\/?[^>]+(>|$)/g;
+    let result = html;
+    let previous = '';
+    while (result !== previous) {
+      previous = result;
+      result = result.replace(tagPattern, '');
+    }
+    // Also neutralise any leftover event-handler-style attributes
+    result = result.replace(/on\w+\s*=/gi, 'data-blocked-event=');
+    return result;
   },
 
   /**

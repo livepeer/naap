@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir, readdir, readFile, rm, unlink, cp } from 'fs/promises';
 import { createReadStream, existsSync } from 'fs';
+import crypto from 'crypto';
 import path from 'path';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return errors.badRequest('File size exceeds 50 MB limit');
     }
 
-    const uploadId = Date.now().toString(36) + Math.random().toString(36).substring(2);
+    const uploadId = crypto.randomUUID();
     const extractDir = path.join(UPLOAD_DIR, uploadId);
 
     // Ensure directories exist

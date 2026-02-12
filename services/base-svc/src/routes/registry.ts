@@ -5,13 +5,36 @@
  * reviews and ratings, publisher management, and package status changes.
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import type { AuditLogInput } from '../services/lifecycle';
 
 /** Sanitize a value for safe log output (prevents log injection) */
 function sanitizeForLog(value: unknown): string {
   return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
 }
+
+// ---------------------------------------------------------------------------
+// Rate Limiting
+// ---------------------------------------------------------------------------
+
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+function createRateLimiter(windowMs: number, maxRequests: number) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const key = req.ip || 'unknown';
+    const now = Date.now();
+    const entry = rateLimitMap.get(key);
+    if (!entry || now > entry.resetTime) {
+      rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
+      return next();
+    }
+    if (entry.count >= maxRequests) {
+      return res.status(429).json({ error: 'Too many requests, please try again later' });
+    }
+    entry.count++;
+    return next();
+  };
+}
+const apiLimiter = createRateLimiter(15 * 60 * 1000, 100);
 
 // ---------------------------------------------------------------------------
 // Dependency interface
@@ -515,24 +538,26 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
   // ==========================================================================
 
   /** POST /registry/publish - user-authenticated publish (JWT) */
-  router.post('/registry/publish', async (req: Request, res: Response) => {
+  router.post('/registry/publish', apiLimiter, async (req: Request, res: Response) => {
     try {
-      const { manifest, frontendUrl, backendImage, releaseNotes, skipVerification } = req.body;
+      const { manifest, frontendUrl, backendImage, releaseNotes } = req.body;
       if (!manifest?.name || !manifest?.version) {
         return res.status(400).json({ error: 'manifest with name and version required' });
       }
 
-      if (!skipVerification) {
-        const verification = await verifyPublish({ manifest, frontendUrl, backendImage, timeout: 5000 });
-        if (!verification.valid) {
-          return res.status(400).json({
-            error: 'Pre-publish verification failed',
-            verification: { errors: verification.errors, warnings: verification.warnings, checks: verification.checks },
-          });
-        }
-        console.log(`[publish] Verification passed for ${sanitizeForLog(manifest.name)}@${sanitizeForLog(manifest.version)}:`,
-          verification.checks.map(c => `${c.name}: ${c.passed ? '✓' : '✗'}`).join(', '));
+      // Always run pre-publish verification — never allow user-controlled bypass
+      const verification = await verifyPublish({ manifest, frontendUrl, backendImage, timeout: 5000 });
+      if (!verification.valid) {
+        return res.status(400).json({
+          error: 'Pre-publish verification failed',
+          verification: { errors: verification.errors, warnings: verification.warnings, checks: verification.checks },
+        });
+
       }
+      const safeName = String(manifest.name).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+      const safeVersion = String(manifest.version).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+      console.log(`[publish] Verification passed for ${safeName}@${safeVersion}:`,
+        verification.checks.map(c => `${c.name}: ${c.passed ? '✓' : '✗'}`).join(', '));
 
       const userId = await getUserIdFromRequest(req);
       if (!userId) return res.status(401).json({ error: 'Authentication required' });
@@ -594,23 +619,25 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
   });
 
   /** POST /registry/publish/token - API token authenticated publish */
-  router.post('/registry/publish/token', requireToken('publish'), async (req: any, res: Response) => {
+  router.post('/registry/publish/token', apiLimiter, requireToken('publish'), async (req: any, res: Response) => {
     try {
-      const { manifest, frontendUrl, backendImage, releaseNotes, skipVerification } = req.body;
+      const { manifest, frontendUrl, backendImage, releaseNotes } = req.body;
       if (!manifest?.name || !manifest?.version) {
         return res.status(400).json({ error: 'manifest with name and version required' });
       }
 
-      if (!skipVerification) {
-        const verification = await verifyPublish({ manifest, frontendUrl, backendImage, timeout: 5000 });
-        if (!verification.valid) {
-          return res.status(400).json({
-            error: 'Pre-publish verification failed',
-            verification: { errors: verification.errors, warnings: verification.warnings, checks: verification.checks },
-          });
-        }
-        console.log(`[publish/token] Verification passed for ${sanitizeForLog(manifest.name)}@${sanitizeForLog(manifest.version)}`);
+      // Always run pre-publish verification — never allow user-controlled bypass
+      const verification = await verifyPublish({ manifest, frontendUrl, backendImage, timeout: 5000 });
+      if (!verification.valid) {
+        return res.status(400).json({
+          error: 'Pre-publish verification failed',
+          verification: { errors: verification.errors, warnings: verification.warnings, checks: verification.checks },
+        });
+
       }
+      const safeName = String(manifest.name).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+      const safeVersion = String(manifest.version).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+      console.log(`[publish/token] Verification passed for ${safeName}@${safeVersion}`);
 
       const existingPkg = await db.pluginPackage.findUnique({ where: { name: manifest.name } });
       if (existingPkg && existingPkg.publisherId && existingPkg.publisherId !== req.publisher!.id) {

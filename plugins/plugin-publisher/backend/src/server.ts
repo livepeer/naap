@@ -16,6 +16,32 @@ import {
   testBackendHealth,
 } from './services/pluginTester.js';
 
+/**
+ * Sanitize a path component to prevent path traversal attacks.
+ * Removes path separators and parent directory references.
+ */
+function sanitizePathComponent(component: string): string {
+  // Remove any path traversal sequences and separators
+  const sanitized = component.replace(/\.\./g, '').replace(/[\/\\]/g, '');
+  if (!sanitized || sanitized !== component) {
+    throw new Error(`Invalid path component: ${component}`);
+  }
+  return sanitized;
+}
+
+/**
+ * Validate that a file path is within the expected base directory.
+ * Prevents path traversal attacks on multer-generated file paths.
+ */
+function validateFilePath(filePath: string, baseDir: string): string {
+  const resolved = path.resolve(filePath);
+  const resolvedBase = path.resolve(baseDir);
+  if (!resolved.startsWith(resolvedBase + path.sep) && resolved !== resolvedBase) {
+    throw new Error(`Invalid file path: ${filePath}`);
+  }
+  return resolved;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Port Configuration - Reads from plugin.json (single source of truth)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,7 +75,7 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 // CORS - allowlist when set; empty = allow-all (relaxed for now)
-// TODO: Fail closed when empty; set CORS_ALLOWED_ORIGINS for production
+// TODO(#92): Fail closed when empty; set CORS_ALLOWED_ORIGINS for production
 const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
@@ -225,15 +251,17 @@ app.post('/api/v1/plugin-publisher/upload', upload.single('plugin'), async (req,
     // Extract zip
     await fs.mkdir(extractDir, { recursive: true });
     
+    const safeUploadPath = validateFilePath(req.file!.path, UPLOAD_DIR);
+
     await new Promise((resolve, reject) => {
-      createReadStream(req.file!.path)
+      createReadStream(safeUploadPath)
         .pipe(unzipper.Extract({ path: extractDir }))
         .on('close', resolve)
         .on('error', reject);
     });
 
     // Clean up original zip
-    await fs.unlink(req.file.path);
+    await fs.unlink(safeUploadPath);
 
     // Find and read plugin.json
     let manifest: Record<string, unknown> | null = null;
@@ -565,15 +593,17 @@ app.post('/api/v1/plugin-publisher/publish-cdn', upload.single('plugin'), async 
     // Extract zip
     await fs.mkdir(extractDir, { recursive: true });
 
+    const safeUploadPath = validateFilePath(req.file!.path, UPLOAD_DIR);
+
     await new Promise((resolve, reject) => {
-      createReadStream(req.file!.path)
+      createReadStream(safeUploadPath)
         .pipe(unzipper.Extract({ path: extractDir }))
         .on('close', resolve)
         .on('error', reject);
     });
 
     // Clean up original zip
-    await fs.unlink(req.file.path);
+    await fs.unlink(safeUploadPath);
 
     // Read plugin.json manifest
     let manifest: Record<string, unknown> | null = null;
