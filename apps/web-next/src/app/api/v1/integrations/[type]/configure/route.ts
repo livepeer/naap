@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server';
-import { success, errors } from '@/lib/api/response';
+import { prisma } from '@/lib/db';
+import { validateSession } from '@/lib/api/auth';
+import { success, errors, getAuthToken } from '@/lib/api/response';
 
 // POST /api/v1/integrations/:type/configure - Configure an integration
 export async function POST(
@@ -19,12 +21,9 @@ export async function POST(
       return errors.badRequest('Credentials are required');
     }
 
-    // In production, store encrypted credentials in IntegrationConfig table
-    // For now, just validate and return success
-    console.log(`Configuring integration: ${type}`, Object.keys(credentials));
-
     // Validate required fields based on integration type
     const requiredFields: Record<string, string[]> = {
+      daydream: ['apiKey'],
       openai: ['apiKey'],
       anthropic: ['apiKey'],
       'aws-s3': ['accessKeyId', 'secretAccessKey', 'region'],
@@ -39,6 +38,37 @@ export async function POST(
     if (missing.length > 0) {
       return errors.badRequest(`Missing required fields: ${missing.join(', ')}`);
     }
+
+    // Daydream: persist API key in DaydreamSettings (per-user)
+    if (type === 'daydream') {
+      const token = getAuthToken(request);
+      if (!token) {
+        return errors.unauthorized('Authentication required to link Daydream');
+      }
+      const user = await validateSession(token);
+      if (!user) {
+        return errors.unauthorized('Invalid or expired session');
+      }
+
+      await prisma.daydreamSettings.upsert({
+        where: { userId: user.id },
+        update: { apiKey: credentials.apiKey },
+        create: {
+          userId: user.id,
+          apiKey: credentials.apiKey,
+        },
+      });
+
+      console.log(`Daydream integration linked for user ${user.id}`);
+      return success({
+        message: 'Daydream account linked successfully',
+        configured: true,
+      });
+    }
+
+    // Other integrations: validate and return success
+    // In production, store encrypted credentials in IntegrationConfig table
+    console.log(`Configuring integration: ${type}`, Object.keys(credentials));
 
     return success({
       message: `${type} integration configured successfully`,

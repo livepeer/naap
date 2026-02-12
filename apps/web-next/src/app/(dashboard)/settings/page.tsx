@@ -100,6 +100,8 @@ export default function SettingsPage() {
   const [configureIntegration, setConfigureIntegration] = useState<Integration | null>(null);
   const [integrationCredentials, setIntegrationCredentials] = useState<Record<string, string>>({});
   const [savingIntegration, setSavingIntegration] = useState(false);
+  const [daydreamLinking, setDaydreamLinking] = useState(false);
+  const [daydreamUnlinking, setDaydreamUnlinking] = useState(false);
 
   // Tenant plugin config state
   const [tenantInstallations, setTenantInstallations] = useState<TenantInstallation[]>([]);
@@ -311,8 +313,97 @@ export default function SettingsPage() {
     }
   };
 
+  const handleLinkDaydream = async () => {
+    setDaydreamLinking(true);
+    try {
+      const res = await fetch('/api/v1/auth/daydream/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        notifications.error('Failed to start Daydream linking');
+        return;
+      }
+      const data = await res.json();
+      const authUrl = data.data?.auth_url || data.auth_url;
+      const loginSessionId = data.data?.login_session_id || data.login_session_id;
+
+      if (!authUrl) {
+        notifications.error('Missing auth URL from server');
+        return;
+      }
+
+      // Open Daydream auth in a new tab
+      window.open(authUrl, '_blank', 'noopener,noreferrer');
+
+      // Poll for completion
+      const pollInterval = 2000;
+      const pollTimeout = 180000;
+      const started = Date.now();
+      const poll = async () => {
+        while (Date.now() - started < pollTimeout) {
+          await new Promise(r => setTimeout(r, pollInterval));
+          try {
+            const pollRes = await fetch(`/api/v1/auth/daydream/result?login_session_id=${encodeURIComponent(loginSessionId)}`);
+            if (!pollRes.ok) break;
+            const pollData = await pollRes.json();
+            const status = pollData.data?.status || pollData.status;
+            if (status === 'complete') {
+              notifications.success('Daydream account linked successfully!');
+              await loadIntegrations();
+              return;
+            }
+            if (status === 'expired' || status === 'denied') {
+              notifications.error(`Daydream linking ${status}`);
+              return;
+            }
+            // status === 'pending' -> keep polling
+          } catch {
+            break;
+          }
+        }
+        notifications.error('Daydream linking timed out. Please try again.');
+      };
+      await poll();
+    } catch (error) {
+      console.error('Failed to link Daydream:', error);
+      notifications.error('Failed to link Daydream account');
+    } finally {
+      setDaydreamLinking(false);
+    }
+  };
+
+  const handleUnlinkDaydream = async () => {
+    setDaydreamUnlinking(true);
+    try {
+      const csrfToken = await getCsrfToken();
+      const res = await fetch('/api/v1/daydream/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
+        body: JSON.stringify({ apiKey: null }),
+      });
+      if (res.ok) {
+        notifications.success('Daydream account unlinked');
+        await loadIntegrations();
+      } else {
+        notifications.error('Failed to unlink Daydream');
+      }
+    } catch (error) {
+      console.error('Failed to unlink Daydream:', error);
+      notifications.error('Failed to unlink Daydream');
+    } finally {
+      setDaydreamUnlinking(false);
+    }
+  };
+
   const getIntegrationIcon = (type: string) => {
     switch (type) {
+      case 'daydream':
+        return <Cloud size={20} />;
       case 'openai':
       case 'anthropic':
         return <Brain size={20} />;
@@ -336,6 +427,10 @@ export default function SettingsPage() {
 
   const getIntegrationFields = (type: string): Array<{ key: string; label: string; secret?: boolean }> => {
     switch (type) {
+      case 'daydream':
+        return [
+          { key: 'apiKey', label: 'Daydream API Key', secret: true },
+        ];
       case 'openai':
         return [
           { key: 'apiKey', label: 'API Key', secret: true },
@@ -842,6 +937,17 @@ export default function SettingsPage() {
                 <p className="text-sm text-muted-foreground font-mono">
                   {user?.email || user?.address || 'Not set'}
                 </p>
+                <div className="mt-2">
+                  <span
+                    className={`px-2 py-0.5 text-xs rounded-full ${
+                      user?.daydreamLinked
+                        ? 'bg-primary/20 text-primary'
+                        : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    {user?.daydreamLinked ? 'Daydream linked' : 'Daydream not linked'}
+                  </span>
+                </div>
                 {profileBio && (
                   <p className="text-sm text-muted-foreground mt-2">{profileBio}</p>
                 )}
@@ -1240,21 +1346,58 @@ export default function SettingsPage() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {integration.configured && (
-                      <div className="flex items-center gap-1 text-primary text-xs">
-                        <Check size={14} />
-                        <span>Configured</span>
-                      </div>
+                    {integration.type === 'daydream' ? (
+                      /* Daydream uses OAuth link/unlink instead of credential form */
+                      integration.configured ? (
+                        <>
+                          <div className="flex items-center gap-1 text-primary text-xs">
+                            <Check size={14} />
+                            <span>Linked</span>
+                          </div>
+                          <button
+                            onClick={handleUnlinkDaydream}
+                            disabled={daydreamUnlinking}
+                            className="px-3 py-1.5 text-xs bg-muted text-muted-foreground rounded-lg hover:bg-destructive/20 hover:text-destructive transition-all disabled:opacity-50"
+                          >
+                            {daydreamUnlinking ? 'Unlinking...' : 'Unlink'}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={handleLinkDaydream}
+                          disabled={daydreamLinking || !isAuthenticated}
+                          className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-all disabled:opacity-50"
+                        >
+                          {daydreamLinking ? (
+                            <span className="flex items-center gap-1.5">
+                              <Loader2 size={12} className="animate-spin" />
+                              Linking...
+                            </span>
+                          ) : (
+                            'Link Account'
+                          )}
+                        </button>
+                      )
+                    ) : (
+                      /* Other integrations use the credential configuration modal */
+                      <>
+                        {integration.configured && (
+                          <div className="flex items-center gap-1 text-primary text-xs">
+                            <Check size={14} />
+                            <span>Configured</span>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => {
+                            setConfigureIntegration(integration);
+                            setIntegrationCredentials({});
+                          }}
+                          className="p-2 rounded-lg bg-muted hover:bg-muted/80 text-muted-foreground transition-all"
+                        >
+                          <SettingsIcon size={16} />
+                        </button>
+                      </>
                     )}
-                    <button
-                      onClick={() => {
-                        setConfigureIntegration(integration);
-                        setIntegrationCredentials({});
-                      }}
-                      className="p-2 rounded-lg bg-muted hover:bg-muted/80 text-muted-foreground transition-all"
-                    >
-                      <SettingsIcon size={16} />
-                    </button>
                   </div>
                 </div>
               </div>

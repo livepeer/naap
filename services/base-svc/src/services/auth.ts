@@ -167,12 +167,18 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
       }
     }
 
+    const daydreamSettings = await prisma.daydreamSettings.findUnique({
+      where: { userId },
+      select: { apiKey: true },
+    });
+
     return {
       id: user.id,
       email: user.email,
       displayName: user.displayName,
       avatarUrl: user.avatarUrl,
       address: user.address,
+      daydreamLinked: Boolean(daydreamSettings?.apiKey),
       roles,
       permissions,
     };

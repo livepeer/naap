@@ -12,6 +12,7 @@ export interface AuthUser {
   displayName: string | null;
   avatarUrl: string | null;
   address: string | null;
+  daydreamLinked: boolean;
   roles: string[];
   permissions: Array<{ resource: string; action: string }> | string[];
   // Compatibility aliases used by shell context / plugin SDK
@@ -23,7 +24,7 @@ export interface AuthUser {
  * Minimal user identity for frontend contexts (auth-context).
  * Roles and permissions are optional since not all UI components need them.
  */
-export type User = Pick<AuthUser, 'id' | 'email' | 'displayName' | 'avatarUrl' | 'address'> & {
+export type User = Pick<AuthUser, 'id' | 'email' | 'displayName' | 'avatarUrl' | 'address' | 'daydreamLinked'> & {
   roles?: string[];
   permissions?: string[];
 };
