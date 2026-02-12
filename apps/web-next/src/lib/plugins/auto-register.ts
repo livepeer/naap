@@ -301,34 +301,39 @@ export async function autoRegisterPlugins(): Promise<void> {
       }
     }
 
-    // Disable stale WorkflowPlugins no longer in the repo
+    // Cleanup stale plugins — only in production or local dev.
+    // Preview deployments share a DB, so one branch cleaning up another's
+    // plugins would break the other branch's preview.
     const discoveredNames = new Set(discovered.map((p) => p.name));
-    const enabledPlugins = await prisma.workflowPlugin.findMany({
-      where: { enabled: true },
-      select: { name: true },
-    });
-    for (const db of enabledPlugins) {
-      if (!discoveredNames.has(db.name)) {
-        await prisma.workflowPlugin.update({
-          where: { name: db.name },
-          data: { enabled: false },
-        });
-        console.log(`[naap]   Disabled stale plugin: ${db.name}`);
-      }
-    }
+    const isPreview = process.env.VERCEL_ENV === 'preview';
 
-    // Unlist stale PluginPackage records so marketplace doesn't show removed plugins
-    const publishedPackages = await prisma.pluginPackage.findMany({
-      where: { publishStatus: 'published' },
-      select: { name: true },
-    });
-    for (const pkg of publishedPackages) {
-      if (!discoveredNames.has(pkg.name)) {
-        await prisma.pluginPackage.update({
-          where: { name: pkg.name },
-          data: { publishStatus: 'unlisted' },
-        });
-        console.log(`[naap]   Unlisted stale package: ${pkg.name}`);
+    if (!isPreview) {
+      const enabledPlugins = await prisma.workflowPlugin.findMany({
+        where: { enabled: true },
+        select: { name: true },
+      });
+      for (const db of enabledPlugins) {
+        if (!discoveredNames.has(db.name)) {
+          await prisma.workflowPlugin.update({
+            where: { name: db.name },
+            data: { enabled: false },
+          });
+          console.log(`[naap]   Disabled stale plugin: ${db.name}`);
+        }
+      }
+
+      const publishedPackages = await prisma.pluginPackage.findMany({
+        where: { publishStatus: 'published' },
+        select: { name: true },
+      });
+      for (const pkg of publishedPackages) {
+        if (!discoveredNames.has(pkg.name)) {
+          await prisma.pluginPackage.update({
+            where: { name: pkg.name },
+            data: { publishStatus: 'unlisted' },
+          });
+          console.log(`[naap]   Unlisted stale package: ${pkg.name}`);
+        }
       }
     }
 
