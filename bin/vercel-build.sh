@@ -73,18 +73,18 @@ SCHEMA_CHANGED=$(git diff --name-only "$DIFF_BASE" HEAD -- packages/database/pri
 
 if [ -n "$SCHEMA_CHANGED" ] || [ "${VERCEL_ENV}" = "production" ]; then
   echo "[3/5] Prisma db push (schema changed or production)..."
-  cd packages/database
+  cd packages/database || { echo "ERROR: Failed to cd to packages/database"; exit 1; }
   npx prisma db push --skip-generate --accept-data-loss 2>&1 || echo "WARN: prisma db push had issues (non-fatal)"
-  cd ../..
+  cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
 else
   echo "[3/5] Skipping Prisma db push (schema unchanged in this commit)"
 fi
 
 # Step 4: Build Next.js app
 echo "[4/5] Building Next.js app..."
-cd apps/web-next
+cd apps/web-next || { echo "ERROR: Failed to cd to apps/web-next"; exit 1; }
 npm run build
-cd ../..
+cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
 
 # Step 5: Sync plugin registry in database
 # Only sync if plugin.json files changed (or always for production).

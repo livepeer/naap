@@ -776,7 +776,9 @@ _detect_changed_plugins() {
   local changed=()
   for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
     [ -f "$pj" ] || continue
-    local pdir=$(dirname "$pj") pname=$(basename "$(dirname "$pj")")
+    local pdir pname
+    pdir=$(dirname "$pj")
+    pname=$(basename "$(dirname "$pj")")
     [ -d "$pdir/frontend" ] || continue
     if _plugin_needs_build "$pdir"; then
       changed+=("$pname")
@@ -790,7 +792,9 @@ ensure_plugins_built() {
   local to_build=() up_to_date=0
   for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
     [ -f "$pj" ] || continue
-    local pdir=$(dirname "$pj") pname=$(basename "$(dirname "$pj")")
+    local pdir pname
+    pdir=$(dirname "$pj")
+    pname=$(basename "$(dirname "$pj")")
     [ -d "$pdir/frontend" ] || continue
     if _plugin_needs_build "$pdir"; then
       to_build+=("$pname")
@@ -804,7 +808,8 @@ ensure_plugins_built() {
     log_warn "Plugins need building: ${to_build[*]} ($up_to_date already up to date)"
     for p in "${to_build[@]}"; do
       [ -d "$ROOT_DIR/plugins/$p/frontend" ] || continue
-      log_info "Building $p..."; cd "$ROOT_DIR/plugins/$p/frontend"
+      log_info "Building $p..."
+      cd "$ROOT_DIR/plugins/$p/frontend" || { log_error "Failed to cd to plugins/$p/frontend"; continue; }
       if npm run build > "$LOG_DIR/${p}-build.log" 2>&1; then
         log_success "Built $p"
         # Save build hash
