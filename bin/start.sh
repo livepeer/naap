@@ -126,9 +126,9 @@ _STARTUP_PIDS=()  # Track PIDs launched during current session for cleanup
 cleanup_on_signal() {
   echo ""
   log_warn "Interrupted! Cleaning up background processes..."
-  # Kill any background jobs started by this shell session
+  # Kill any background jobs and their process groups started by this shell session
   for pid in "${_STARTUP_PIDS[@]}"; do
-    kill -TERM "$pid" 2>/dev/null || true
+    kill_tree "$pid" TERM
   done
   jobs -p 2>/dev/null | xargs kill -TERM 2>/dev/null || true
   # Release lockfile
@@ -216,6 +216,14 @@ is_running() {
 # GRACEFUL PROCESS MANAGEMENT
 ###############################################################################
 
+# Kill an entire process group (setsid-spawned) with fallback to single PID.
+# When a process is spawned via setsid, its PID == PGID, so kill -- -$pid
+# sends the signal to all children and grandchildren in the group.
+kill_tree() {
+  local pid=$1 sig=${2:-TERM}
+  kill -"$sig" -- -"$pid" 2>/dev/null || kill -"$sig" "$pid" 2>/dev/null || true
+}
+
 graceful_kill() {
   local pid=$1 name=$2 timeout=${3:-$GRACEFUL_TIMEOUT}
 
@@ -224,8 +232,8 @@ graceful_kill() {
     return 0
   fi
 
-  log_debug "Sending SIGTERM to $name (PID $pid)..."
-  kill -TERM "$pid" 2>/dev/null || true
+  log_debug "Sending SIGTERM to $name (PID $pid) and its process group..."
+  kill_tree "$pid" TERM
 
   local elapsed=0
   while [ $elapsed -lt $timeout ]; do
@@ -238,7 +246,7 @@ graceful_kill() {
   done
 
   log_warn "$name did not stop within ${timeout}s - force killing"
-  kill -9 "$pid" 2>/dev/null || true
+  kill_tree "$pid" 9
   sleep 1
 
   if ! kill -0 "$pid" 2>/dev/null; then
@@ -278,11 +286,21 @@ show_failure_context() {
 ###############################################################################
 
 wait_for_health() {
-  local url=$1 svc=$2 max=${3:-$MAX_HEALTH_RETRIES} intv=${4:-$HEALTH_CHECK_INTERVAL}
+  local url=$1 svc=$2 max=${3:-$MAX_HEALTH_RETRIES} intv=${4:-$HEALTH_CHECK_INTERVAL} mon_pid=${5:-}
   local delay="$intv"
   for i in $(seq 1 "$max"); do
     curl -sf --max-time 2 "$url" > /dev/null 2>&1 && return 0
-    log_debug "Waiting for $svc... ($i/$max, next check in ${delay}s)"
+    # If we're monitoring a pid and it died, fail immediately (don't wait full timeout)
+    if [ -n "$mon_pid" ] && ! kill -0 "$mon_pid" 2>/dev/null; then
+      log_debug "Process $mon_pid died while waiting for $svc"
+      return 1
+    fi
+    # Progress every 5 attempts so user knows we're waiting (not hanging)
+    if [ $((i % 5)) -eq 1 ] || [ "$i" -eq "$max" ]; then
+      log_info "Waiting for $svc... ($i/$max)"
+    else
+      log_debug "Waiting for $svc... ($i/$max, next check in ${delay}s)"
+    fi
     sleep "$delay"
     # Exponential backoff: 1s, 1s, 2s, 2s, 3s, 3s, ... capped at 5s
     delay=$(( (i / 2) + 1 ))
@@ -847,14 +865,15 @@ start_shell() {
   # Polling interval of 1000ms is efficient enough for dev and prevents the
   # Watchpack "too many open files" error that causes all pages to 404.
   _start_shell_attempt() {
-    WATCHPACK_POLLING=1000 npm run dev > "$LOG_DIR/shell-web.log" 2>&1 &
+    setsid env WATCHPACK_POLLING=1000 npm run dev > "$LOG_DIR/shell-web.log" 2>&1 &
     local pid=$!
+    register_pid $pid "shell-web"
     wait_for_port $SHELL_PORT "next.js shell" 60 && {
-      register_pid $pid "shell-web"
       log_success "Shell (Next.js): http://localhost:$SHELL_PORT"
       return 0
     } || {
-      kill $pid 2>/dev/null || true
+      kill_tree $pid TERM
+      unregister_pid "shell-web"
       return 1
     }
   }
@@ -882,11 +901,10 @@ start_base_service() {
   is_running "base-svc" && { log_success "Base service already running (PID $(get_pid base-svc))"; return 0; }
   kill_port $BASE_SVC_PORT
   log_info "Starting base-svc on port $BASE_SVC_PORT..."; cd "$ROOT_DIR/services/base-svc"
-  DATABASE_URL="$UNIFIED_DB_URL" \
-  PORT=$BASE_SVC_PORT npm run dev > "$LOG_DIR/base-svc.log" 2>&1 &
+  setsid env DATABASE_URL="$UNIFIED_DB_URL" PORT=$BASE_SVC_PORT npm run dev > "$LOG_DIR/base-svc.log" 2>&1 &
   local pid=$!
-  wait_for_health "http://localhost:$BASE_SVC_PORT/healthz" "base-svc" 30 && {
-    register_pid $pid "base-svc"
+  register_pid $pid "base-svc"
+  wait_for_health "http://localhost:$BASE_SVC_PORT/healthz" "base-svc" 30 1 "$pid" && {
     log_success "Base Service: http://localhost:$BASE_SVC_PORT/healthz"
   } || {
     log_error "Base-svc failed to start on port $BASE_SVC_PORT."
@@ -895,7 +913,9 @@ start_base_service() {
     echo -e "  ${DIM}  - Database not running? Run: docker ps | grep naap${NC}"
     echo -e "  ${DIM}  - Check full log: logs/base-svc.log${NC}"
     show_failure_context "$LOG_DIR/base-svc.log"
-    kill $pid 2>/dev/null || true; return 1
+    kill_tree $pid TERM
+    unregister_pid "base-svc"
+    return 1
   }
 }
 
@@ -904,10 +924,10 @@ start_plugin_server() {
   kill_port $PLUGIN_SERVER_PORT
   log_info "Starting plugin-server on port $PLUGIN_SERVER_PORT..."; cd "$ROOT_DIR/services/plugin-server"
   [ ! -d "node_modules" ] && (npm install --silent 2>/dev/null || npm install)
-  npm run dev > "$LOG_DIR/plugin-server.log" 2>&1 &
+  setsid npm run dev > "$LOG_DIR/plugin-server.log" 2>&1 &
   local pid=$!
-  wait_for_health "http://localhost:$PLUGIN_SERVER_PORT/healthz" "plugin-server" 30 && {
-    register_pid $pid "plugin-server"
+  register_pid $pid "plugin-server"
+  wait_for_health "http://localhost:$PLUGIN_SERVER_PORT/healthz" "plugin-server" 30 1 "$pid" && {
     log_success "Plugin Server: http://localhost:$PLUGIN_SERVER_PORT/plugins"
   } || {
     log_error "Plugin-server failed to start on port $PLUGIN_SERVER_PORT."
@@ -916,7 +936,9 @@ start_plugin_server() {
     echo -e "  ${DIM}  - Missing node_modules? Run: cd services/plugin-server && npm install${NC}"
     echo -e "  ${DIM}  - Check full log: logs/plugin-server.log${NC}"
     show_failure_context "$LOG_DIR/plugin-server.log"
-    kill $pid 2>/dev/null || true; return 1
+    kill_tree $pid TERM
+    unregister_pid "plugin-server"
+    return 1
   }
 }
 
@@ -949,10 +971,10 @@ start_plugin_backend() {
 
   # All plugins share the unified database via their .env files.
   # Pass DATABASE_URL explicitly to ensure consistency.
-  DATABASE_URL="$UNIFIED_DB_URL" PORT="$port" npm run dev > "$LOG_DIR/${name}-svc.log" 2>&1 &
+  setsid env DATABASE_URL="$UNIFIED_DB_URL" PORT="$port" npm run dev > "$LOG_DIR/${name}-svc.log" 2>&1 &
   local pid=$!
-  wait_for_health "http://localhost:$port${health_path}" "$display_name" 20 && {
-    register_pid $pid "$svc_name"
+  register_pid $pid "$svc_name"
+  wait_for_health "http://localhost:$port${health_path}" "$display_name" 20 1 "$pid" && {
     log_success "$display_name Backend: http://localhost:$port${health_path}"
 
     # Deep health check: verify actual API queries work (catches schema mismatches).
@@ -970,7 +992,9 @@ start_plugin_backend() {
     echo -e "  ${DIM}  - Schema mismatch? Run: cd packages/database && npx prisma generate && npx prisma db push${NC}"
     echo -e "  ${DIM}  - Check full log: logs/${name}-svc.log${NC}"
     show_failure_context "$LOG_DIR/${name}-svc.log"
-    kill $pid 2>/dev/null || true; return 1
+    kill_tree $pid TERM
+    unregister_pid "$svc_name"
+    return 1
   }
 }
 
@@ -984,15 +1008,17 @@ start_plugin_frontend_dev() {
   kill_port "$fport"
   log_info "Starting $display_name frontend dev on port $fport..."
   cd "$ROOT_DIR/plugins/$name/frontend" || { log_error "Failed to cd to plugins/$name/frontend"; return 1; }
-  npx vite --port "$fport" --strictPort > "$LOG_DIR/${name}-web.log" 2>&1 &
+  setsid npx vite --port "$fport" --strictPort > "$LOG_DIR/${name}-web.log" 2>&1 &
   local pid=$!
+  register_pid $pid "$web_name"
   wait_for_port "$fport" "$display_name frontend" 30 && {
-    register_pid $pid "$web_name"
     log_success "$display_name Frontend: http://localhost:$fport"
   } || {
     log_error "$display_name frontend failed to start."
     show_failure_context "$LOG_DIR/${name}-web.log"
-    kill $pid 2>/dev/null || true; return 1
+    kill_tree $pid TERM
+    unregister_pid "$web_name"
+    return 1
   }
 }
 
@@ -1073,9 +1099,9 @@ stop_all() {
     if [ $count -gt 0 ]; then
       log_info "Stopping $count service(s) in parallel..."
 
-      # Phase 1: Send SIGTERM to ALL at once
+      # Phase 1: Send SIGTERM to ALL process groups at once
       for pid in "${all_pids[@]}"; do
-        kill -TERM "$pid" 2>/dev/null || true
+        kill_tree "$pid" TERM
       done
 
       # Phase 2: Poll until all are dead (max GRACEFUL_TIMEOUT seconds)
@@ -1095,11 +1121,11 @@ stop_all() {
         done
       done
 
-      # Phase 3: Force-kill any survivors
+      # Phase 3: Force-kill any survivors and their process groups
       for i in "${!all_pids[@]}"; do
         [ -z "${all_pids[$i]}" ] && continue
         log_warn "Force-killing ${all_names[$i]} (PID ${all_pids[$i]})"
-        kill -9 "${all_pids[$i]}" 2>/dev/null || true
+        kill_tree "${all_pids[$i]}" 9
       done
     fi
   else log_info "No tracked services in PID file"; fi
