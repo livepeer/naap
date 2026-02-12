@@ -278,11 +278,21 @@ show_failure_context() {
 ###############################################################################
 
 wait_for_health() {
-  local url=$1 svc=$2 max=${3:-$MAX_HEALTH_RETRIES} intv=${4:-$HEALTH_CHECK_INTERVAL}
+  local url=$1 svc=$2 max=${3:-$MAX_HEALTH_RETRIES} intv=${4:-$HEALTH_CHECK_INTERVAL} mon_pid=${5:-}
   local delay="$intv"
   for i in $(seq 1 "$max"); do
     curl -sf --max-time 2 "$url" > /dev/null 2>&1 && return 0
-    log_debug "Waiting for $svc... ($i/$max, next check in ${delay}s)"
+    # If we're monitoring a pid and it died, fail immediately (don't wait full timeout)
+    if [ -n "$mon_pid" ] && ! kill -0 "$mon_pid" 2>/dev/null; then
+      log_debug "Process $mon_pid died while waiting for $svc"
+      return 1
+    fi
+    # Progress every 5 attempts so user knows we're waiting (not hanging)
+    if [ $((i % 5)) -eq 1 ] || [ "$i" -eq "$max" ]; then
+      log_info "Waiting for $svc... ($i/$max)"
+    else
+      log_debug "Waiting for $svc... ($i/$max, next check in ${delay}s)"
+    fi
     sleep "$delay"
     # Exponential backoff: 1s, 1s, 2s, 2s, 3s, 3s, ... capped at 5s
     delay=$(( (i / 2) + 1 ))
@@ -849,6 +859,7 @@ start_shell() {
   _start_shell_attempt() {
     WATCHPACK_POLLING=1000 npm run dev > "$LOG_DIR/shell-web.log" 2>&1 &
     local pid=$!
+    disown 2>/dev/null || true
     wait_for_port $SHELL_PORT "next.js shell" 60 && {
       register_pid $pid "shell-web"
       log_success "Shell (Next.js): http://localhost:$SHELL_PORT"
@@ -885,7 +896,8 @@ start_base_service() {
   DATABASE_URL="$UNIFIED_DB_URL" \
   PORT=$BASE_SVC_PORT npm run dev > "$LOG_DIR/base-svc.log" 2>&1 &
   local pid=$!
-  wait_for_health "http://localhost:$BASE_SVC_PORT/healthz" "base-svc" 30 && {
+  disown 2>/dev/null || true
+  wait_for_health "http://localhost:$BASE_SVC_PORT/healthz" "base-svc" 30 1 "$pid" && {
     register_pid $pid "base-svc"
     log_success "Base Service: http://localhost:$BASE_SVC_PORT/healthz"
   } || {
@@ -906,7 +918,8 @@ start_plugin_server() {
   [ ! -d "node_modules" ] && (npm install --silent 2>/dev/null || npm install)
   npm run dev > "$LOG_DIR/plugin-server.log" 2>&1 &
   local pid=$!
-  wait_for_health "http://localhost:$PLUGIN_SERVER_PORT/healthz" "plugin-server" 30 && {
+  disown 2>/dev/null || true
+  wait_for_health "http://localhost:$PLUGIN_SERVER_PORT/healthz" "plugin-server" 30 1 "$pid" && {
     register_pid $pid "plugin-server"
     log_success "Plugin Server: http://localhost:$PLUGIN_SERVER_PORT/plugins"
   } || {
@@ -951,7 +964,8 @@ start_plugin_backend() {
   # Pass DATABASE_URL explicitly to ensure consistency.
   DATABASE_URL="$UNIFIED_DB_URL" PORT="$port" npm run dev > "$LOG_DIR/${name}-svc.log" 2>&1 &
   local pid=$!
-  wait_for_health "http://localhost:$port${health_path}" "$display_name" 20 && {
+  disown 2>/dev/null || true
+  wait_for_health "http://localhost:$port${health_path}" "$display_name" 20 1 "$pid" && {
     register_pid $pid "$svc_name"
     log_success "$display_name Backend: http://localhost:$port${health_path}"
 
@@ -986,6 +1000,7 @@ start_plugin_frontend_dev() {
   cd "$ROOT_DIR/plugins/$name/frontend" || { log_error "Failed to cd to plugins/$name/frontend"; return 1; }
   npx vite --port "$fport" --strictPort > "$LOG_DIR/${name}-web.log" 2>&1 &
   local pid=$!
+  disown 2>/dev/null || true
   wait_for_port "$fport" "$display_name frontend" 30 && {
     register_pid $pid "$web_name"
     log_success "$display_name Frontend: http://localhost:$fport"
