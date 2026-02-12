@@ -1,0 +1,63 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "github-releases",
+  "name": "GitHub Releases",
+  "description": "Query GitHub Releases API for artifact version tracking. Used by the Deployment Manager to check for new versions of AI Runner and Scope.",
+  "icon": "📦",
+  "category": "ai",
+  "connector": {
+    "slug": "github-releases",
+    "displayName": "GitHub Releases",
+    "description": "Read-only access to GitHub Releases API for artifact version checking.",
+    "category": "ai",
+    "upstreamBaseUrl": "https://api.github.com",
+    "allowedHosts": ["api.github.com"],
+    "defaultTimeout": 10000,
+    "healthCheckPath": "/",
+    "authType": "header",
+    "authConfig": {
+      "headers": {
+        "Authorization": "Bearer {{secrets.github-token}}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"
+      }
+    },
+    "secretRefs": ["github-token"],
+    "streamingEnabled": false,
+    "responseWrapper": false,
+    "tags": ["github", "releases", "version", "artifacts"]
+  },
+  "endpoints": [
+    {
+      "name": "list-releases",
+      "description": "List releases for a repository",
+      "method": "GET",
+      "path": "/repos/:owner/:repo/releases",
+      "upstreamPath": "/repos/:owner/:repo/releases",
+      "rateLimit": 30,
+      "timeout": 10000,
+      "cacheTtl": 300
+    },
+    {
+      "name": "get-latest-release",
+      "description": "Get the latest release for a repository",
+      "method": "GET",
+      "path": "/repos/:owner/:repo/releases/latest",
+      "upstreamPath": "/repos/:owner/:repo/releases/latest",
+      "rateLimit": 60,
+      "timeout": 10000,
+      "cacheTtl": 300
+    },
+    {
+      "name": "get-release-by-tag",
+      "description": "Get a release by tag name",
+      "method": "GET",
+      "path": "/repos/:owner/:repo/releases/tags/:tag",
+      "upstreamPath": "/repos/:owner/:repo/releases/tags/:tag",
+      "rateLimit": 60,
+      "timeout": 10000,
+      "cacheTtl": 300
+    }
+  ],
+  "envKey": "GITHUB_TOKEN"
+}

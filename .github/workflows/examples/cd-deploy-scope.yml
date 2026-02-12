@@ -1,0 +1,75 @@
+# Deploy Daydream Scope to a GPU machine via SSH Bridge
+name: "CD: Deploy Scope (SSH Bridge)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Scope version tag (e.g., v0.1.5)"
+        required: true
+        type: string
+      target_host:
+        description: "Target GPU machine hostname or IP"
+        required: true
+        type: string
+
+env:
+  DOCKER_IMAGE: "daydreamlive/scope"
+  CONTAINER_NAME: "naap-scope"
+  HEALTH_PORT: 8188
+
+jobs:
+  deploy:
+    name: Deploy Scope ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    environment:
+      name: gpu-${{ inputs.target_host }}
+      url: http://${{ inputs.target_host }}:8188
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH Bridge
+        uses: ./.github/actions/ssh-bridge-deploy
+        with:
+          bridge-url: ${{ secrets.NAAP_BRIDGE_URL }}
+          bridge-key: ${{ secrets.NAAP_BRIDGE_KEY }}
+          ssh-host: ${{ inputs.target_host }}
+          ssh-port: "22"
+          ssh-user: "deploy"
+          ssh-private-key: ${{ secrets.GPU_SSH_PRIVATE_KEY }}
+          deployment-script: |
+            #!/bin/bash
+            set -euo pipefail
+
+            echo "=== GPU Preflight ==="
+            nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader
+
+            echo "=== Pulling ${{ env.DOCKER_IMAGE }}:${{ inputs.version }} ==="
+            docker pull ${{ env.DOCKER_IMAGE }}:${{ inputs.version }}
+
+            echo "=== Stopping old container ==="
+            docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true
+            docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true
+
+            echo "=== Starting Scope ==="
+            docker run -d --name ${{ env.CONTAINER_NAME }} \
+              --gpus all --restart unless-stopped \
+              -p ${{ env.HEALTH_PORT }}:${{ env.HEALTH_PORT }} \
+              ${{ env.DOCKER_IMAGE }}:${{ inputs.version }}
+
+            echo "=== Health check ==="
+            for i in $(seq 1 30); do
+              if curl -sf http://localhost:${{ env.HEALTH_PORT }}/health; then
+                echo "Healthy after $((i * 10))s"
+                exit 0
+              fi
+              sleep 10
+            done
+            echo "Health check failed"
+            docker logs ${{ env.CONTAINER_NAME }} --tail 50
+            exit 1
+          timeout: "600000"
+          poll-interval: "15000"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
