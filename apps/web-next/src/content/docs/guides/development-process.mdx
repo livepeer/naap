@@ -35,26 +35,26 @@ livepeer/naap                     ← upstream (public)
 
 ## Branch Strategy
 
-NaaP uses a two-branch model with staging and production environments:
+NaaP uses a **feature-branch-off-main** (trunk-based) model. All PRs target `main` directly. Vercel PR previews serve as staging for every PR.
 
 ```
-  feature branches          develop (staging)          main (production)
-  ─────────────────         ──────────────────         ─────────────────
+  feature branches                     main (production)
+  ─────────────────                    ─────────────────
 
-  feat/video/webrtc ──PR──►│                  │        │                │
-                            │  auto-deploy     │        │                │
-  fix/social/auth ────PR──►│  to staging      │─weekly─►  auto-deploy  │
-                            │                  │promote │  to production│
-  feat/infra/cache ───PR──►│                  │        │                │
+  feat/video/webrtc ─── PR ──────────►│                │
+                        (preview URL)  │  auto-deploy   │
+  fix/social/auth ───── PR ──────────►│  to production  │
+                        (preview URL)  │  on merge       │
+  feat/infra/cache ──── PR ──────────►│                │
+                        (preview URL)  │                │
 ```
 
 | Branch | Purpose | Deploys To | Who Merges |
 |--------|---------|------------|------------|
-| `develop` | Integration & staging. All PRs target here. | Staging (auto) | Plugin teams + core |
-| `main` | Production. Updated weekly. | Production (auto) | Core maintainers only |
-| `feat/<team>/<desc>` | New features | — | Author opens PR |
-| `fix/<team>/<desc>` | Bug fixes | — | Author opens PR |
-| `chore/<desc>` | Docs, CI, tooling | — | Author opens PR |
+| `main` | Production. Single source of truth. | Production (auto) | Plugin teams + core (via merge queue) |
+| `feat/<team>/<desc>` | New features | PR preview (auto) | Author opens PR |
+| `fix/<team>/<desc>` | Bug fixes | PR preview (auto) | Author opens PR |
+| `chore/<desc>` | Docs, CI, tooling | PR preview (auto) | Author opens PR |
 
 ### Branch naming conventions
 
@@ -86,23 +86,23 @@ git clone https://github.com/<you>/NaaP.git
 cd NaaP
 git remote add upstream https://github.com/livepeer/naap.git
 
-# Always branch from latest develop
+# Always branch from latest main
 git fetch upstream
-git checkout -b feat/my-team/my-feature upstream/develop
+git checkout -b feat/my-team/my-feature upstream/main
 ```
 
 ### 2. Make your changes
 
-- Run the platform locally: `./bin/start.sh start --all`
+- Start developing: `./bin/start.sh --fast` (or `./bin/start.sh my-plugin`)
 - Make focused, incremental changes
 - Write tests for new functionality
 - Follow [Conventional Commits](#commit-conventions) for all commit messages
 
-### 3. Open a PR against `develop`
+### 3. Open a PR against `main`
 
 ```bash
 git push origin feat/my-team/my-feature
-# Then open a PR on GitHub: base = develop, compare = your branch
+# Then open a PR on GitHub: base = main, compare = your branch
 ```
 
 ### 4. Automated checks run
@@ -114,9 +114,12 @@ Once your PR is open, the following happens automatically:
 | **Labeler** | Auto-labels PR based on changed file paths | Bot |
 | **CODEOWNERS** | Assigns reviewers — your team for plugin code, core team for shared code | Bot |
 | **CI** | Runs path-filtered tests — only affected packages are tested | Bot |
+| **Copilot** | AI code review with project-specific context | Bot |
+| **CodeRabbit** | AI code review with request-changes workflow | Bot |
 | **Commit lint** | Validates commit messages follow Conventional Commits | Bot |
 | **PR size** | Warns if PR exceeds 400 changed lines | Bot |
-| **Conflict check** | Alerts if PR conflicts with other open PRs | Bot |
+| **Conflict check** | Alerts if PR conflicts with base branch | Bot |
+| **Vercel preview** | Deploys a preview URL for testing | Bot |
 
 ### 5. Review and iterate
 
@@ -126,16 +129,15 @@ Once your PR is open, the following happens automatically:
 
 ### 6. Merge
 
-Once approved and CI passes, the PR enters the **merge queue** and merges automatically. Changes are **auto-deployed to staging**.
+Once approved and CI passes, the PR enters the **merge queue** and merges automatically. Changes are **auto-deployed to production** with health checks.
 
-### 7. Production release (weekly)
+### 7. Release tagging (on-demand)
 
-A core maintainer triggers the **"Promote to Production"** workflow every week:
+A core maintainer can trigger the **"Tag Release"** workflow to create a versioned release:
 
-1. A release PR is created from `develop` → `main`
-2. Changelog is auto-generated from commit messages
-3. Core team reviews and approves
-4. Merged to `main` and auto-deployed to production
+1. Run the "Tag Release" workflow from GitHub Actions
+2. Specify a version (e.g., `v1.2.0`)
+3. A Git tag and GitHub Release are created with auto-generated notes
 
 ---
 
@@ -158,7 +160,7 @@ You decide code style, review standards, and internal conventions within your di
 - Add dependencies to your plugin's `package.json`
 - Create your own database tables in your plugin's schema
 - Choose your own state management, UI patterns, and testing strategy
-- Release to staging by merging to `develop`
+- Deploy to production by merging to `main`
 
 ### Plugin team boundaries
 
@@ -177,16 +179,16 @@ git clone https://github.com/<you>/NaaP.git
 cd NaaP
 git remote add upstream https://github.com/livepeer/naap.git
 
-# 2. First-time setup (installs deps, starts DB, seeds data, builds plugins)
+# 2. First-time setup (run once after clone)
 ./bin/setup.sh --start
 
-# 3. For daily development, start your plugin in dev mode (HMR + backend)
-./bin/start.sh dev <your-plugin-name>
+# 3. Daily development (after first setup):
+./bin/start.sh --fast                # smart start (~6s): auto-detects your changes
+./bin/start.sh <your-plugin-name>    # shell + your plugin (~6s)
+./bin/start.sh dev <your-plugin-name>  # with frontend HMR
+./bin/start.sh stop                  # parallel stop (~2s)
 
-# 4. Or start everything
-./bin/start.sh start --all
-
-# 5. Login at http://localhost:3000
+# 4. Login at http://localhost:3000
 #    Email: admin@livepeer.org  Password: livepeer
 ```
 
@@ -248,20 +250,25 @@ The `plugin.json` manifest tells the shell everything it needs to know:
 ```bash
 # Start your day — sync with upstream
 git fetch upstream
-git rebase upstream/develop
+git rebase upstream/main
 
 # Work on a feature
 git checkout -b feat/my-team/cool-feature
 
-# Start dev server for your plugin (HMR + backend + shell)
-./bin/start.sh dev my-plugin
+# Start developing (~6s)
+./bin/start.sh --fast              # auto-detects your changed plugins
+# or explicitly:
+./bin/start.sh my-plugin           # shell + your plugin backend
 
-# Make changes... frontend auto-reloads via HMR
+# Make changes...
+
+# Quick restart after changes (~8s total)
+./bin/start.sh stop && ./bin/start.sh --fast
 
 # Commit using conventional commits
 git commit -m "feat(plugin/my-plugin): add cool feature"
 
-# Push and open PR against develop
+# Push and open PR against main
 git push origin feat/my-team/cool-feature
 ```
 
@@ -283,7 +290,7 @@ Core contributors maintain the platform that all plugin teams build on. Your wor
 - **Review cross-cutting PRs promptly.** Plugin teams are blocked until you review changes that touch shared code. Aim for < 24h review SLA
 - **Keep the SDK stable.** Breaking changes require an RFC, migration guide, and version bump
 - **Maintain CI health.** Fix flaky tests immediately — they erode trust
-- **Run the weekly production promotion.** Trigger the promote workflow, review the release PR
+- **Tag releases as needed.** Use the "Tag Release" workflow to create versioned releases
 - **Document changes.** SDK changes need updated docs before merge
 
 ### Core team boundaries
@@ -292,7 +299,7 @@ Core contributors maintain the platform that all plugin teams build on. Your wor
 - **Do NOT make breaking SDK changes without an RFC.** Plugin teams depend on stable APIs
 - **Do NOT bypass CI.** Even urgent fixes must pass automated checks
 - **Do NOT block plugin teams unnecessarily.** If a cross-cutting change is low-risk, review and approve quickly
-- **Do NOT force-push to `develop` or `main`.** These are protected branches
+- **Do NOT force-push to `main`.** It is a protected branch
 
 ### Handling cross-cutting changes
 
@@ -309,7 +316,7 @@ When a plugin team needs a change in shared code:
 
 ## Deployment-Safe Development
 
-NaaP deploys to **Vercel** (staging + production). Plugins are built as UMD bundles and served from the same origin. Understanding the deployment model prevents the most common breakages.
+NaaP deploys to **Vercel** (production). Plugins are built as UMD bundles and served from the same origin. Understanding the deployment model prevents the most common breakages.
 
 ### How It Works on Vercel
 
@@ -396,22 +403,19 @@ Use [Conventional Commits](https://www.conventionalcommits.org/). This is enforc
 
 ## Hotfix Process
 
-For critical production issues that cannot wait for the weekly release:
+Since all PRs target `main`, the hotfix process is the same as normal development:
 
 ```bash
-# 1. Branch from main (not develop)
+# 1. Branch from main
 git checkout -b fix/hotfix-description upstream/main
 
 # 2. Make the minimal fix
-# 3. Open a PR directly against main (mark as emergency)
+# 3. Open a PR against main
 # 4. Core maintainer reviews and approves
-# 5. After merge, cherry-pick back to develop:
-git checkout develop
-git cherry-pick <commit-hash>
-# Open a follow-up PR to develop
+# 5. Merge — production deploys automatically
 ```
 
-Hotfixes skip the staging cycle and deploy directly to production. Use sparingly.
+Hotfixes go through the same PR and CI process as any other change. The merge queue ensures `main` stays green.
 
 ---
 
@@ -458,23 +462,33 @@ npm run typecheck
 
 ## Quick Reference
 
-### Plugin team commands
+### Everyday commands (plugin teams)
 
 ```bash
-./bin/setup.sh --start           # First-time setup + start
-./bin/start.sh dev my-plugin     # Dev mode for one plugin
-./bin/start.sh start --all       # Start everything
-./bin/start.sh status            # Check what's running
-./bin/start.sh stop              # Stop everything
+./bin/start.sh --fast            # Smart start (~6s): auto-detects changed plugins
+./bin/start.sh my-plugin         # Shell + one plugin backend (~6s)
+./bin/start.sh my-plugin --fast  # Same, skip DB sync + verify (~6s)
+./bin/start.sh stop              # Parallel stop (~2s)
+./bin/start.sh status            # What is running?
 ./bin/start.sh logs my-plugin    # Tail plugin logs
-./bin/start.sh validate          # Health-check all services
+```
+
+### First-time & full commands
+
+```bash
+./bin/setup.sh --start           # First-time setup + start (run once)
+./bin/start.sh start --all       # Start all 12 plugins (~10s warm)
+./bin/start.sh dev my-plugin     # Dev mode with frontend HMR
+./bin/start.sh validate          # Full health-check (49 checks)
+./bin/start.sh start --all --timing  # Start with timing breakdown
+./bin/start.sh help              # Show all options
 ```
 
 ### Core contributor commands
 
 ```bash
 ./bin/start.sh start --all       # Full platform
-./bin/start.sh validate          # Verify all 49 checks pass
+./bin/start.sh validate          # Verify all checks pass
 npm test                         # Run test suite
 npm run typecheck                # TypeScript check
 npm run lint                     # Lint all packages
@@ -499,8 +513,8 @@ All 12 test users share the same password: **livepeer**
 | | Plugin Teams | Core Contributors |
 |---|---|---|
 | **Own** | `plugins/<name>/` | Shell, packages, services, infra |
-| **PR target** | `develop` | `develop` |
+| **PR target** | `main` | `main` |
 | **Reviewers** | Your own team (auto-assigned) | Core team (auto-assigned) |
-| **Can merge** | Plugin-only PRs | Cross-cutting PRs, releases |
-| **Release** | Auto-deploy to staging on merge | Weekly promote to production |
+| **Can merge** | Plugin-only PRs | Cross-cutting PRs, tag releases |
+| **Deployment** | Auto-deploy to production on merge | Auto-deploy + rollback |
 | **Independence** | Full autonomy within your directory | Steward the platform for all teams |

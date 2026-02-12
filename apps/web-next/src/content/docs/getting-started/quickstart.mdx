@@ -1,41 +1,62 @@
 ---
 title: "Quick Start"
-description: "Go from zero to a running NaaP platform in under 3 minutes."
+description: "Go from zero to a running NaaP platform in under 30 seconds."
 order: 1
 ---
 
-## One-Line Setup
+## First-Time Setup
 
-From a fresh clone to a fully running platform with a single command:
+From a fresh clone to a fully running platform:
 
 ```bash
 git clone https://github.com/livepeer/naap.git && cd naap && ./bin/setup.sh --start
 ```
 
-This command handles everything automatically:
+This handles everything automatically:
 
-1. Checks and installs dependencies (`npm install`)
+1. Installs dependencies (`npm install`)
 2. Starts a PostgreSQL database via Docker
-3. Creates all database schemas (public + 7 plugin schemas)
+3. Creates all database schemas (public + plugin schemas)
 4. Auto-generates all `.env` files with development defaults
 5. Seeds the database with initial data
-6. Builds all 11 plugin UMD bundles
-7. Starts the full platform (shell + core services)
+6. Builds all 12 plugin UMD bundles
+7. Starts the full platform
 
 Open **http://localhost:3000** when setup completes.
 
-## Already Set Up?
+You only run `setup.sh` once. After that, use `start.sh` for everything.
+
+## Daily Development (after first setup)
 
 ```bash
-# Shell + core only (fastest startup, ~20s)
-./bin/start.sh
+# Recommended daily driver (~6s)
+./bin/start.sh --fast               # auto-detects your changed plugins
 
-# Everything including all plugin backends
+# Start a specific plugin (~6s)
+./bin/start.sh community            # shell + community backend
+
+# Start multiple plugins (~8s)
+./bin/start.sh gateway-manager community
+
+# Everything (~10s warm)
 ./bin/start.sh start --all
 
-# Develop a specific plugin with hot reload
-./bin/start.sh dev my-dashboard
+# Stop (~2s)
+./bin/start.sh stop
 ```
+
+### How `--fast` works
+
+The `--fast` flag is designed for the typical developer who works on one
+plugin at a time:
+
+- Skips redundant DB sync and plugin verification
+- Compares source hashes to detect which plugins you changed
+- Rebuilds only the changed plugin(s)
+- Starts shell + marketplace + your changed plugin backends
+- If nothing changed, starts shell only
+
+**Result: 6-8 second startup, every time.**
 
 ## Verify Everything Works
 
@@ -43,38 +64,26 @@ Open **http://localhost:3000** when setup completes.
 ./bin/start.sh validate
 ```
 
-You should see:
-
-```
-=== Core Services ===
-  [PASS] Base Service
-  [PASS] Plugin Server
-  [PASS] Shell
-
-=== Plugin Assets (CDN) ===
-  [PASS] Capacity Planner CDN bundle
-  [PASS] Community Hub CDN bundle
-  ... (all 11 plugins)
-
-=== Unified Database Schemas ===
-  [PASS] Schema public (67 tables)
-  [PASS] Schema plugin_community (exists)
-  ... (all 7 plugin schemas)
-
-Results: 38 passed, 0 failed
-```
+This runs a full health check across all services, CDN bundles, and database schemas.
 
 ## Stop & Restart
 
 ```bash
-# Graceful shutdown of all services
-./bin/start.sh stop
+./bin/start.sh stop                 # parallel stop (~2s)
+./bin/start.sh restart              # stop + start
+./bin/start.sh watch                # live dashboard (auto-refreshes)
+```
 
-# Restart (stop + start)
-./bin/start.sh restart
+## Add `--timing` to see where time goes
 
-# Live status dashboard (auto-refreshes)
-./bin/start.sh watch
+```bash
+./bin/start.sh start --all --timing
+#   Infrastructure    1s
+#   Plugin builds     0s  (all cached)
+#   Core services     3s
+#   Shell + backends  2s
+#   Verification      1s
+#   TOTAL             7s
 ```
 
 ## Development URLs
@@ -85,7 +94,7 @@ Results: 38 passed, 0 failed
 | Base Service | http://localhost:4000/healthz | Core API |
 | Plugin Server | http://localhost:3100/plugins | Plugin asset server |
 
-Plugin backends run on ports 4001-4012. Run `./bin/start.sh status` for the full list.
+Plugin backends run on ports 4001-4111. Run `./bin/start.sh status` for the full list.
 
 ## What's Next?
 

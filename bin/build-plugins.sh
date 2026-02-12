@@ -32,9 +32,66 @@ OUTPUT_DIR="$ROOT_DIR/dist/plugins"
 # node_modules. NODE_PATH makes them discoverable from any subdirectory.
 export NODE_PATH="$ROOT_DIR/node_modules${NODE_PATH:+:$NODE_PATH}"
 
+###############################################################################
+# SOURCE-HASH BUILD CACHING
+# Computes a hash of all source files that affect a plugin build.
+# If the hash matches the cached value in dist/production/.build-hash,
+# the build is skipped. This saves ~5-10s per unchanged plugin locally
+# and 30-90s on Vercel when the build cache is warm.
+###############################################################################
+
+# Compute hash of source files that affect the build output
+plugin_src_hash() {
+  local pdir="$1"
+  local files_to_hash=()
+  [ -d "$pdir/frontend/src" ] && files_to_hash+=("$pdir/frontend/src")
+  [ -f "$pdir/frontend/package.json" ] && files_to_hash+=("$pdir/frontend/package.json")
+  [ -f "$pdir/frontend/vite.config.ts" ] && files_to_hash+=("$pdir/frontend/vite.config.ts")
+  [ -f "$pdir/frontend/tsconfig.json" ] && files_to_hash+=("$pdir/frontend/tsconfig.json")
+
+  if [ ${#files_to_hash[@]} -eq 0 ]; then
+    echo "empty"
+    return
+  fi
+
+  # Use md5sum on Linux, md5 on macOS
+  if command -v md5sum >/dev/null 2>&1; then
+    find "${files_to_hash[@]}" -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1
+  elif command -v md5 >/dev/null 2>&1; then
+    find "${files_to_hash[@]}" -type f 2>/dev/null | sort | xargs md5 -r 2>/dev/null | md5 -q
+  else
+    echo "no-hash"
+  fi
+}
+
+# Check if a plugin needs rebuilding
+plugin_needs_build() {
+  local pdir="$1"
+  local hash_file="$pdir/frontend/dist/production/.build-hash"
+
+  # No dist at all -> needs build
+  [ ! -d "$pdir/frontend/dist/production" ] && return 0
+  # No hash file -> needs build (legacy build without hash)
+  [ ! -f "$hash_file" ] && return 0
+  # Hash mismatch -> source changed, needs rebuild
+  local current_hash cached_hash
+  current_hash=$(plugin_src_hash "$pdir")
+  cached_hash=$(cat "$hash_file" 2>/dev/null)
+  [ "$current_hash" != "$cached_hash" ]
+}
+
+# Save build hash after successful build
+save_build_hash() {
+  local pdir="$1"
+  local hash_file="$pdir/frontend/dist/production/.build-hash"
+  mkdir -p "$(dirname "$hash_file")"
+  plugin_src_hash "$pdir" > "$hash_file"
+}
+
 # Parse arguments
 PARALLEL=false
 CLEAN=false
+FORCE=false
 SPECIFIC_PLUGIN=""
 
 while [[ $# -gt 0 ]]; do
@@ -47,6 +104,10 @@ while [[ $# -gt 0 ]]; do
       CLEAN=true
       shift
       ;;
+    --force|-f)
+      FORCE=true
+      shift
+      ;;
     --plugin)
       SPECIFIC_PLUGIN="$2"
       shift 2
@@ -57,6 +118,7 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --parallel, -p    Build plugins in parallel"
       echo "  --clean, -c       Clean output directory before building"
+      echo "  --force, -f       Force rebuild even if source unchanged"
       echo "  --plugin NAME     Build only specific plugin"
       echo "  --help, -h        Show this help"
       exit 0
@@ -90,6 +152,12 @@ fi
 
 log_info "Auto-discovered ${#PLUGINS[@]} plugins: ${PLUGINS[*]}"
 
+# Build plugin-build so plugin vite.config.ts can resolve @naap/plugin-build/vite (Node ESM cannot load .ts)
+if [ ! -f "$ROOT_DIR/packages/plugin-build/dist/vite.js" ]; then
+  log_info "Building @naap/plugin-build (required for plugin builds)..."
+  (cd "$ROOT_DIR" && npx tsc -p packages/plugin-build/tsconfig.json) || { log_error "plugin-build build failed"; exit 1; }
+fi
+
 # Clean output directory if requested
 if [ "$CLEAN" = true ]; then
   log_info "Cleaning output directory..."
@@ -103,6 +171,7 @@ mkdir -p "$OUTPUT_DIR"
 build_plugin() {
   local plugin_name=$1
   local plugin_dir="$PLUGINS_DIR/$plugin_name/frontend"
+  local plugin_root="$PLUGINS_DIR/$plugin_name"
   local output_subdir="$OUTPUT_DIR/$plugin_name/1.0.0"
 
   # Check if vite config exists
@@ -111,9 +180,20 @@ build_plugin() {
     return 0
   fi
 
+  # Source-hash cache check: skip build if source hasn't changed
+  if [ "$FORCE" != "true" ] && [ "$CLEAN" != "true" ] && ! plugin_needs_build "$plugin_root"; then
+    log_success "$plugin_name unchanged (cached)"
+    # Still ensure output dir has the bundle
+    if [ -d "$plugin_dir/dist/production" ]; then
+      mkdir -p "$output_subdir"
+      cp -r "$plugin_dir/dist/production/"* "$output_subdir/" 2>/dev/null || true
+    fi
+    return 0
+  fi
+
   log_info "Building $plugin_name..."
 
-  cd "$plugin_dir"
+  cd "$plugin_dir" || { log_error "Failed to cd to $plugin_dir"; return 1; }
 
   # Install dependencies if needed
   if [ ! -d "node_modules" ]; then
@@ -134,6 +214,9 @@ build_plugin() {
     log_error "Build failed for $plugin_name - no dist/production directory"
     return 1
   fi
+
+  # Save build hash for future cache checks
+  save_build_hash "$plugin_root"
 
   # Copy to output directory
   mkdir -p "$output_subdir"

@@ -28,7 +28,7 @@ PID_FILE="$ROOT_DIR/.pids"
 LOG_DIR="$ROOT_DIR/logs"
 LOCK_FILE="$ROOT_DIR/.naap.lock"
 
-GRACEFUL_TIMEOUT="${GRACEFUL_TIMEOUT:-10}"
+GRACEFUL_TIMEOUT="${GRACEFUL_TIMEOUT:-5}"
 MAX_HEALTH_RETRIES=30
 HEALTH_CHECK_INTERVAL=1
 SHELL_PORT=3000
@@ -36,6 +36,13 @@ BASE_SVC_PORT=4000
 PLUGIN_SERVER_PORT=3100
 ARCHITECTURE_MODE=""
 PARALLEL_START="${PARALLEL_START:-1}"  # 1=parallel (default), 0=sequential
+CLEAN_NEXT="${CLEAN_NEXT:-0}"         # 1=delete .next cache before shell start
+SKIP_VERIFY="${SKIP_VERIFY:-0}"       # 1=skip verify_all_plugins at end
+SKIP_DB_SYNC="${SKIP_DB_SYNC:-0}"     # 1=skip prisma generate/push (trust existing state)
+NO_PLUGINS="${NO_PLUGINS:-0}"         # 1=skip all plugin backends
+ONLY_PLUGINS=""                       # comma-separated list of plugins to start (empty=all)
+DEEP_CHECK="${DEEP_CHECK:-0}"         # 1=run deep health checks on backends
+SHOW_TIMING="${SHOW_TIMING:-0}"       # 1=print per-phase timing at end
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
@@ -46,6 +53,28 @@ log_warn()    { echo -e "${YELLOW}[WARN]${NC}  $1"; }
 log_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 log_section() { echo -e "\n${CYAN}=== $1 ===${NC}"; }
 log_debug()   { [ "${DEBUG:-}" = "1" ] && echo -e "${DIM}[DEBUG] $1${NC}"; }
+
+###############################################################################
+# TIMING INSTRUMENTATION
+###############################################################################
+
+_T_PHASE=0; _T_NAMES=(); _T_DURS=()
+_tstart() { _T_PHASE=$SECONDS; }
+_tend()   { _T_NAMES+=("$1"); _T_DURS+=("$((SECONDS - _T_PHASE))"); }
+
+_print_timing() {
+  [ "$SHOW_TIMING" != "1" ] && return 0
+  [ ${#_T_NAMES[@]} -eq 0 ] && return 0
+  echo ""
+  log_section "Timing Breakdown"
+  local total=0
+  for i in "${!_T_NAMES[@]}"; do
+    printf "  %-30s %3ds\n" "${_T_NAMES[$i]}" "${_T_DURS[$i]}"
+    total=$((total + _T_DURS[$i]))
+  done
+  printf "  %s\n" "──────────────────────────────────────"
+  printf "  %-30s %3ds\n" "TOTAL" "$total"
+}
 
 ###############################################################################
 # PRE-FLIGHT CHECKS
@@ -460,7 +489,7 @@ ensure_databases() {
 
   if [ -z "$running" ]; then
     log_info "Starting unified database via docker-compose..."
-    cd "$ROOT_DIR"
+    cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; return 1; }
     docker-compose up -d database 2>&1 | grep -v "^$" | while read -r line; do log_debug "$line"; done
     log_info "Waiting for database..."
     for i in $(seq 1 30); do
@@ -490,8 +519,11 @@ ensure_databases() {
 sync_unified_database() {
   log_info "Syncing unified database (schema + data)..."
 
-  # Ensure plugin schemas exist in the database
   local c="$UNIFIED_DB_CONTAINER"
+  local schema_file="$ROOT_DIR/packages/database/prisma/schema.prisma"
+  local sync_marker="$ROOT_DIR/.prisma-synced"
+
+  # Ensure plugin schemas exist in the database
   if docker ps -q -f name="$c" 2>/dev/null | grep -q .; then
     log_debug "Creating plugin schemas if missing..."
     if [ -f "$ROOT_DIR/docker/init-schemas.sql" ]; then
@@ -499,59 +531,73 @@ sync_unified_database() {
     fi
   fi
 
-  cd "$ROOT_DIR/packages/database"
+  # Fast-path: if --skip-db-sync is set, trust existing state
+  if [ "$SKIP_DB_SYNC" = "1" ]; then
+    log_info "Skipping Prisma sync (--skip-db-sync)"
+  else
+    cd "$ROOT_DIR/packages/database" || { log_error "Failed to cd to packages/database"; return 1; }
 
-  # Step 1: Regenerate Prisma client from the source-of-truth schema.
-  # This ensures the client always matches packages/database/prisma/schema.prisma
-  # even after git pull brings new columns.
-  npx prisma generate > /dev/null 2>&1 || {
-    log_error "Prisma generate failed for packages/database"
-    return 1
-  }
-  log_debug "Prisma client generated"
+    # Check if schema has changed since last sync using a hash marker file.
+    # This avoids running prisma generate + db push on every start when nothing changed.
+    local schema_hash=""
+    if [ -f "$schema_file" ]; then
+      # Use md5 on macOS, md5sum on Linux
+      if command -v md5sum >/dev/null 2>&1; then
+        schema_hash=$(md5sum "$schema_file" | cut -d' ' -f1)
+      elif command -v md5 >/dev/null 2>&1; then
+        schema_hash=$(md5 -q "$schema_file")
+      fi
+    fi
 
-  # Step 2: Push schema to database (creates tables + adds new columns).
-  # This is non-destructive — existing data is preserved, only missing
-  # columns/tables are added.  --accept-data-loss allows dropping columns
-  # that were removed from the schema (safe for dev).
-  DATABASE_URL="$UNIFIED_DB_URL" npx prisma db push --skip-generate --accept-data-loss > /dev/null 2>&1 && \
-    log_success "Schema pushed to database" || \
-    log_warn "Schema push had issues (may be fine on first run)"
+    local cached_hash=""
+    [ -f "$sync_marker" ] && cached_hash=$(cat "$sync_marker" 2>/dev/null)
 
-  # Step 3: Check data integrity.
-  # We verify two things:
-  #   a) Users exist (empty → fresh DB, need full seed)
-  #   b) Plugins have bundleUrl set (null → schema was updated but seed
-  #      was run with old schema; need re-seed to populate CDN URLs)
-  local need_seed=false
+    if [ -n "$schema_hash" ] && [ "$schema_hash" = "$cached_hash" ] && \
+       [ -f "$ROOT_DIR/node_modules/.prisma/client/index.js" ]; then
+      log_success "Prisma client up to date (schema unchanged since last sync)"
+    else
+      # Step 1: Regenerate Prisma client from the source-of-truth schema.
+      npx prisma generate > /dev/null 2>&1 || {
+        log_error "Prisma generate failed for packages/database"
+        return 1
+      }
+      log_debug "Prisma client generated"
 
-  local user_count
-  user_count=$(docker exec "$c" psql -U "$UNIFIED_DB_USER" -d "$UNIFIED_DB_NAME" -t -c \
-    "SELECT count(*) FROM \"User\"" 2>/dev/null | tr -d ' ')
-  if [ "$user_count" = "0" ] 2>/dev/null; then
-    log_info "Empty database detected (no users)"
-    need_seed=true
+      # Step 2: Push schema to database (creates tables + adds new columns).
+      DATABASE_URL="$UNIFIED_DB_URL" npx prisma db push --skip-generate --accept-data-loss > /dev/null 2>&1 && \
+        log_success "Schema pushed to database" || \
+        log_warn "Schema push had issues (may be fine on first run)"
+
+      # Save hash so next start can skip if unchanged
+      [ -n "$schema_hash" ] && echo "$schema_hash" > "$sync_marker"
+    fi
   fi
 
-  # Check if any plugin is missing its bundleUrl (CDN URL).
-  # This catches the case where DB has plugins from an older seed that
-  # stored CDN fields in metadata JSON instead of direct columns.
-  if [ "$need_seed" = "false" ]; then
-    local null_bundle_count
-    null_bundle_count=$(docker exec "$c" psql -U "$UNIFIED_DB_USER" -d "$UNIFIED_DB_NAME" -t -c \
-      "SELECT count(*) FROM \"WorkflowPlugin\" WHERE \"bundleUrl\" IS NULL" 2>/dev/null | tr -d ' ')
-    if [ -n "$null_bundle_count" ] && [ "$null_bundle_count" -gt 0 ] 2>/dev/null; then
+  # Step 3: Check data integrity (always runs — fast single query).
+  # Verify: a) Users exist, b) Plugins have bundleUrl set.
+  # Combined into a single docker exec psql call to reduce overhead.
+  local need_seed=false
+  local seed_check
+  seed_check=$(docker exec "$c" psql -U "$UNIFIED_DB_USER" -d "$UNIFIED_DB_NAME" -t -c \
+    "SELECT (SELECT count(*) FROM \"User\") AS users, (SELECT count(*) FROM \"WorkflowPlugin\" WHERE \"bundleUrl\" IS NULL) AS null_bundles" 2>/dev/null | tr -d ' ')
+
+  if [ -n "$seed_check" ]; then
+    local user_count null_bundle_count
+    user_count=$(echo "$seed_check" | cut -d'|' -f1 | tr -d ' ')
+    null_bundle_count=$(echo "$seed_check" | cut -d'|' -f2 | tr -d ' ')
+    if [ "$user_count" = "0" ] 2>/dev/null; then
+      log_info "Empty database detected (no users)"
+      need_seed=true
+    elif [ -n "$null_bundle_count" ] && [ "$null_bundle_count" -gt 0 ] 2>/dev/null; then
       log_info "Found $null_bundle_count plugin(s) missing CDN bundle URL"
       need_seed=true
     fi
   fi
 
   # Step 4: Run seed if data is missing or incomplete.
-  # The seed uses upsert so it's safe to re-run — existing records are
-  # updated with current values, new records are created.
   if [ "$need_seed" = "true" ]; then
     log_info "Running database seed (upsert — safe to re-run)..."
-    cd "$ROOT_DIR/apps/web-next"
+    cd "$ROOT_DIR/apps/web-next" || { log_error "Failed to cd to apps/web-next"; return 1; }
     DATABASE_URL="$UNIFIED_DB_URL" npx tsx prisma/seed.ts > "$LOG_DIR/seed.log" 2>&1 && \
       log_success "Database seeded (users, roles, plugins, marketplace)" || \
       log_warn "Seed had issues (check logs/seed.log)"
@@ -570,7 +616,9 @@ validate_plugin_envs() {
   local ok=true
   for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
     [ -f "$pj" ] || continue
-    local pdir=$(dirname "$pj") pname=$(basename "$(dirname "$pj")")
+    local pdir pname
+    pdir=$(dirname "$pj")
+    pname=$(basename "$(dirname "$pj")")
     local envfile="$pdir/backend/.env"
     [ -f "$envfile" ] || continue
 
@@ -668,7 +716,7 @@ ensure_prisma_client_fresh() {
   fi
 
   if [ "$needs_regen" = true ]; then
-    cd "$ROOT_DIR/packages/database"
+    cd "$ROOT_DIR/packages/database" || { log_error "Failed to cd to packages/database"; return 1; }
     npx prisma generate > /dev/null 2>&1 && \
       log_success "Prisma client regenerated (matches current schema)" || \
       log_error "Prisma client regeneration failed! Plugin backends may 500."
@@ -677,25 +725,107 @@ ensure_prisma_client_fresh() {
   fi
 }
 
-ensure_plugins_built() {
-  log_info "Checking plugin builds..."
-  local to_build=()
+# Source-hash utility (shared with build-plugins.sh logic)
+_plugin_src_hash() {
+  local pdir="$1"
+  local files_to_hash=()
+  [ -d "$pdir/frontend/src" ] && files_to_hash+=("$pdir/frontend/src")
+  [ -f "$pdir/frontend/package.json" ] && files_to_hash+=("$pdir/frontend/package.json")
+  [ -f "$pdir/frontend/vite.config.ts" ] && files_to_hash+=("$pdir/frontend/vite.config.ts")
+  [ ${#files_to_hash[@]} -eq 0 ] && { echo "empty"; return; }
+  if command -v md5sum >/dev/null 2>&1; then
+    find "${files_to_hash[@]}" -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1
+  elif command -v md5 >/dev/null 2>&1; then
+    find "${files_to_hash[@]}" -type f 2>/dev/null | sort | xargs md5 -r 2>/dev/null | md5 -q
+  else echo "no-hash"; fi
+}
+
+_plugin_needs_build() {
+  local pdir="$1"
+  local hash_file="$pdir/frontend/dist/production/.build-hash"
+  [ ! -d "$pdir/frontend/dist/production" ] && return 0
+  [ ! -f "$hash_file" ] && return 0
+  local current_hash cached_hash
+  current_hash=$(_plugin_src_hash "$pdir")
+  cached_hash=$(cat "$hash_file" 2>/dev/null)
+  [ "$current_hash" != "$cached_hash" ]
+}
+
+# Copy a plugin's built bundle to the CDN-serving location.
+# The CDN route reads from dist/plugins/<name>/1.0.0/, but builds output
+# to plugins/<name>/frontend/dist/production/. This bridges the two.
+_ensure_cdn_copy() {
+  local pname=$1
+  local src_dir="$ROOT_DIR/plugins/$pname/frontend/dist/production"
+  local cdn_dir="$ROOT_DIR/dist/plugins/$pname/1.0.0"
+  [ ! -d "$src_dir" ] && return 0
+  # Skip if CDN dir is already in sync (same build hash)
+  if [ -f "$cdn_dir/.build-hash" ] && [ -f "$src_dir/.build-hash" ]; then
+    local s_hash c_hash
+    s_hash=$(cat "$src_dir/.build-hash" 2>/dev/null)
+    c_hash=$(cat "$cdn_dir/.build-hash" 2>/dev/null)
+    [ "$s_hash" = "$c_hash" ] && return 0
+  fi
+  mkdir -p "$cdn_dir"
+  cp -r "$src_dir/"* "$cdn_dir/" 2>/dev/null || true
+  log_debug "Synced CDN: $pname"
+}
+
+# Detect plugins whose source code has changed since last build.
+# Returns space-separated list of plugin names. Used by --fast to
+# auto-detect which plugins the developer is actively working on.
+_detect_changed_plugins() {
+  local changed=()
   for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
     [ -f "$pj" ] || continue
-    local pdir=$(dirname "$pj") pname=$(basename "$(dirname "$pj")")
-    [ -d "$pdir/frontend" ] && [ ! -d "$pdir/frontend/dist/production" ] && to_build+=("$pname")
+    local pdir pname
+    pdir=$(dirname "$pj")
+    pname=$(basename "$(dirname "$pj")")
+    [ -d "$pdir/frontend" ] || continue
+    if _plugin_needs_build "$pdir"; then
+      changed+=("$pname")
+    fi
+  done
+  echo "${changed[*]}"
+}
+
+ensure_plugins_built() {
+  log_info "Checking plugin builds..."
+  local to_build=() up_to_date=0
+  for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
+    [ -f "$pj" ] || continue
+    local pdir pname
+    pdir=$(dirname "$pj")
+    pname=$(basename "$(dirname "$pj")")
+    [ -d "$pdir/frontend" ] || continue
+    if _plugin_needs_build "$pdir"; then
+      to_build+=("$pname")
+    else
+      ((up_to_date++)) || true
+      # Ensure already-built plugins are CDN-visible
+      _ensure_cdn_copy "$pname"
+    fi
   done
   if [ ${#to_build[@]} -gt 0 ]; then
-    log_warn "Plugins need building: ${to_build[*]}"
+    log_warn "Plugins need building: ${to_build[*]} ($up_to_date already up to date)"
     for p in "${to_build[@]}"; do
       [ -d "$ROOT_DIR/plugins/$p/frontend" ] || continue
-      log_info "Building $p..."; cd "$ROOT_DIR/plugins/$p/frontend"
-      npm run build > "$LOG_DIR/${p}-build.log" 2>&1 && log_success "Built $p" || {
+      log_info "Building $p..."
+      cd "$ROOT_DIR/plugins/$p/frontend" || { log_error "Failed to cd to plugins/$p/frontend"; continue; }
+      if npm run build > "$LOG_DIR/${p}-build.log" 2>&1; then
+        log_success "Built $p"
+        # Save build hash
+        local hash_file="$ROOT_DIR/plugins/$p/frontend/dist/production/.build-hash"
+        mkdir -p "$(dirname "$hash_file")"
+        _plugin_src_hash "$ROOT_DIR/plugins/$p" > "$hash_file"
+        # Copy to CDN location
+        _ensure_cdn_copy "$p"
+      else
         log_error "Failed to build $p"
         show_failure_context "$LOG_DIR/${p}-build.log" 10
-      }
+      fi
     done
-  else log_success "All plugins are built"; fi
+  else log_success "All plugins are built ($up_to_date up to date)"; fi
 }
 
 start_shell() {
@@ -704,27 +834,48 @@ start_shell() {
   local fdir=$(get_frontend_dir)
   log_info "Starting Next.js shell on port $SHELL_PORT..."; cd "$fdir"
 
-  # Clean stale .next cache to prevent compilation issues on fresh starts
-  [ -d ".next" ] && { log_debug "Cleaning .next cache..."; rm -rf .next; }
+  # Only clean .next cache when explicitly requested (--clean flag) or CLEAN_NEXT=1.
+  # Preserving the cache across restarts saves 30-60s of recompilation time.
+  if [ "$CLEAN_NEXT" = "1" ]; then
+    [ -d ".next" ] && { log_info "Cleaning .next cache (--clean)..."; rm -rf .next; }
+  else
+    log_debug "Preserving .next cache (use --clean to force rebuild)"
+  fi
 
   # WATCHPACK_POLLING avoids native FS watcher exhaustion (EMFILE) in large
   # monorepos when many Node.js backend processes are already running.
   # Polling interval of 1000ms is efficient enough for dev and prevents the
   # Watchpack "too many open files" error that causes all pages to 404.
-  WATCHPACK_POLLING=1000 npm run dev > "$LOG_DIR/shell-web.log" 2>&1 &
-  local pid=$!
-  wait_for_port $SHELL_PORT "next.js shell" 60 && {
-    register_pid $pid "shell-web"
-    log_success "Shell (Next.js): http://localhost:$SHELL_PORT"
-  } || {
-    log_error "Shell failed to start on port $SHELL_PORT."
-    echo -e "  ${DIM}Common fixes:${NC}"
-    echo -e "  ${DIM}  - Port in use? Run: lsof -i :$SHELL_PORT${NC}"
-    echo -e "  ${DIM}  - Missing .env.local? Run: ./bin/setup.sh${NC}"
-    echo -e "  ${DIM}  - Check full log: logs/shell-web.log${NC}"
-    show_failure_context "$LOG_DIR/shell-web.log"
-    kill $pid 2>/dev/null || true; return 1
+  _start_shell_attempt() {
+    WATCHPACK_POLLING=1000 npm run dev > "$LOG_DIR/shell-web.log" 2>&1 &
+    local pid=$!
+    wait_for_port $SHELL_PORT "next.js shell" 60 && {
+      register_pid $pid "shell-web"
+      log_success "Shell (Next.js): http://localhost:$SHELL_PORT"
+      return 0
+    } || {
+      kill $pid 2>/dev/null || true
+      return 1
+    }
   }
+
+  _start_shell_attempt && return 0
+
+  # First attempt failed. If we didn't clean .next, retry with a clean cache.
+  if [ "$CLEAN_NEXT" != "1" ] && [ -d ".next" ]; then
+    log_warn "Shell failed to start. Retrying with clean .next cache..."
+    rm -rf .next
+    kill_port $SHELL_PORT
+    _start_shell_attempt && return 0
+  fi
+
+  log_error "Shell failed to start on port $SHELL_PORT."
+  echo -e "  ${DIM}Common fixes:${NC}"
+  echo -e "  ${DIM}  - Port in use? Run: lsof -i :$SHELL_PORT${NC}"
+  echo -e "  ${DIM}  - Missing .env.local? Run: ./bin/setup.sh${NC}"
+  echo -e "  ${DIM}  - Check full log: logs/shell-web.log${NC}"
+  show_failure_context "$LOG_DIR/shell-web.log"
+  return 1
 }
 
 start_base_service() {
@@ -794,7 +945,7 @@ start_plugin_backend() {
   [ ! -d "$ROOT_DIR/plugins/$name/backend" ] && { log_warn "Backend dir not found: $name"; return 1; }
   kill_port "$port"
   log_info "Starting $display_name backend on port $port..."
-  cd "$ROOT_DIR/plugins/$name/backend"
+  cd "$ROOT_DIR/plugins/$name/backend" || { log_error "Failed to cd to plugins/$name/backend"; return 1; }
 
   # All plugins share the unified database via their .env files.
   # Pass DATABASE_URL explicitly to ensure consistency.
@@ -805,9 +956,11 @@ start_plugin_backend() {
     log_success "$display_name Backend: http://localhost:$port${health_path}"
 
     # Deep health check: verify actual API queries work (catches schema mismatches).
-    # This runs asynchronously — won't block startup, but will warn if queries fail.
-    deep_health_check_plugin "$name" "$port" "$display_name" || \
-      log_warn "$display_name is running but may have issues (see warnings above)"
+    # Only runs when --deep-check or DEBUG=1 is set to avoid slowing down every start.
+    if [ "$DEEP_CHECK" = "1" ] || [ "${DEBUG:-}" = "1" ]; then
+      deep_health_check_plugin "$name" "$port" "$display_name" || \
+        log_warn "$display_name is running but may have issues (see warnings above)"
+    fi
   } || {
     log_error "$display_name backend failed to start on port $port."
     echo -e "  ${DIM}Common fixes:${NC}"
@@ -830,7 +983,7 @@ start_plugin_frontend_dev() {
   [ ! -d "$ROOT_DIR/plugins/$name/frontend" ] && { log_warn "Frontend dir not found: $name"; return 1; }
   kill_port "$fport"
   log_info "Starting $display_name frontend dev on port $fport..."
-  cd "$ROOT_DIR/plugins/$name/frontend"
+  cd "$ROOT_DIR/plugins/$name/frontend" || { log_error "Failed to cd to plugins/$name/frontend"; return 1; }
   npx vite --port "$fport" --strictPort > "$LOG_DIR/${name}-web.log" 2>&1 &
   local pid=$!
   wait_for_port "$fport" "$display_name frontend" 30 && {
@@ -844,17 +997,36 @@ start_plugin_frontend_dev() {
 }
 
 verify_plugin_accessible() {
-  for i in $(seq 1 10); do
-    curl -sf --max-time 5 "http://localhost:$SHELL_PORT/cdn/plugins/$1/1.0.0/$1.js" > /dev/null 2>&1 && return 0; sleep 2
+  for i in $(seq 1 5); do
+    curl -sf --max-time 3 "http://localhost:$SHELL_PORT/cdn/plugins/$1/1.0.0/$1.js" > /dev/null 2>&1 && return 0; sleep 1
   done; return 1
 }
 
 verify_all_plugins() {
+  if [ "$SKIP_VERIFY" = "1" ]; then
+    log_info "Skipping plugin verification (--skip-verify)"
+    return 0
+  fi
   log_info "Verifying plugin accessibility..."
   local failed=0 verified=0
+
+  # Run verifications in parallel for speed
+  local vpids=() vnames=()
   for plugin in $(get_all_plugins); do
-    verify_plugin_accessible "$plugin" && ((verified++)) || { ((failed++)); log_warn "Plugin $plugin NOT accessible"; }
+    (verify_plugin_accessible "$plugin") &
+    vpids+=($!)
+    vnames+=("$plugin")
   done
+
+  for i in "${!vpids[@]}"; do
+    if wait "${vpids[$i]}"; then
+      ((verified++)) || true
+    else
+      ((failed++)) || true
+      log_warn "Plugin ${vnames[$i]} NOT accessible"
+    fi
+  done
+
   [ $failed -gt 0 ] && log_warn "$failed plugin(s) not accessible" || log_success "All $verified plugins accessible"
 }
 
@@ -885,21 +1057,51 @@ stop_plugin() {
 stop_all() {
   log_section "Stopping All Services"
   if [ -f "$PID_FILE" ] && [ -s "$PID_FILE" ]; then
-    # Categorize for ordered shutdown: shell -> plugins -> core -> monitor
-    local shell_e=() plugin_e=() core_e=() monitor_e=()
+    # Collect all live PIDs
+    local all_pids=() all_names=()
     while IFS= read -r line; do
       [ -z "$line" ] && continue
-      local name=$(echo "$line" | cut -d' ' -f2-)
-      case "$name" in
-        shell-web) shell_e+=("$line") ;; health-monitor) monitor_e+=("$line") ;;
-        base-svc|plugin-server) core_e+=("$line") ;; *) plugin_e+=("$line") ;;
-      esac
+      local pid name
+      pid=$(echo "$line" | cut -d' ' -f1)
+      name=$(echo "$line" | cut -d' ' -f2-)
+      kill -0 "$pid" 2>/dev/null || continue
+      all_pids+=("$pid")
+      all_names+=("$name")
     done < "$PID_FILE"
-    log_info "Shutdown order: shell (${#shell_e[@]}) -> plugins (${#plugin_e[@]}) -> core (${#core_e[@]}) -> monitor (${#monitor_e[@]})"
-    for e in "${shell_e[@]}"; do graceful_kill "$(echo "$e" | cut -d' ' -f1)" "$(echo "$e" | cut -d' ' -f2-)"; done
-    for e in "${plugin_e[@]}"; do graceful_kill "$(echo "$e" | cut -d' ' -f1)" "$(echo "$e" | cut -d' ' -f2-)"; done
-    for e in "${core_e[@]}"; do graceful_kill "$(echo "$e" | cut -d' ' -f1)" "$(echo "$e" | cut -d' ' -f2-)"; done
-    for e in "${monitor_e[@]}"; do graceful_kill "$(echo "$e" | cut -d' ' -f1)" "$(echo "$e" | cut -d' ' -f2-)"; done
+
+    local count=${#all_pids[@]}
+    if [ $count -gt 0 ]; then
+      log_info "Stopping $count service(s) in parallel..."
+
+      # Phase 1: Send SIGTERM to ALL at once
+      for pid in "${all_pids[@]}"; do
+        kill -TERM "$pid" 2>/dev/null || true
+      done
+
+      # Phase 2: Poll until all are dead (max GRACEFUL_TIMEOUT seconds)
+      local wait_s=0 alive=$count
+      while [ $wait_s -lt $GRACEFUL_TIMEOUT ] && [ $alive -gt 0 ]; do
+        sleep 1
+        ((wait_s++))
+        alive=0
+        for i in "${!all_pids[@]}"; do
+          [ -z "${all_pids[$i]}" ] && continue
+          if ! kill -0 "${all_pids[$i]}" 2>/dev/null; then
+            log_success "Stopped ${all_names[$i]} ${DIM}(PID ${all_pids[$i]}, ${wait_s}s)${NC}"
+            all_pids[$i]=""
+          else
+            ((alive++))
+          fi
+        done
+      done
+
+      # Phase 3: Force-kill any survivors
+      for i in "${!all_pids[@]}"; do
+        [ -z "${all_pids[$i]}" ] && continue
+        log_warn "Force-killing ${all_names[$i]} (PID ${all_pids[$i]})"
+        kill -9 "${all_pids[$i]}" 2>/dev/null || true
+      done
+    fi
   else log_info "No tracked services in PID file"; fi
 
   # Clean orphaned processes using discovered ports (not hardcoded ranges)
@@ -1127,7 +1329,9 @@ BEOF
   # Plugin backend .env files
   for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
     [ -f "$pj" ] || continue
-    local pdir=$(dirname "$pj") pname=$(basename "$(dirname "$pj")")
+    local pdir pname
+    pdir=$(dirname "$pj")
+    pname=$(basename "$(dirname "$pj")")
     local envfile="$pdir/backend/.env"
     [ -d "$pdir/backend" ] || continue
     if [ ! -f "$envfile" ]; then
@@ -1180,13 +1384,42 @@ WEOF
 ###############################################################################
 
 setup_infra()      { log_section "Infrastructure"; ensure_env_files; ensure_databases || { log_error "Database setup failed."; exit 1; }; }
-setup_infra_full() { setup_infra; sync_unified_database; ensure_prisma_client_fresh; validate_plugin_envs; check_plugin_db_connectivity; }
-start_core()       { log_section "Core Services"; start_base_service || { log_error "Base service failed."; exit 1; }; start_plugin_server || { log_error "Plugin server failed."; exit 1; }; start_health_monitor; }
+# Note: ensure_prisma_client_fresh is NOT called here — sync_unified_database
+# already handles prisma generate (with hash-based caching). Calling it twice
+# was adding 3-5s of redundant work on every start.
+setup_infra_full() { setup_infra; sync_unified_database; validate_plugin_envs; check_plugin_db_connectivity; }
+start_core() {
+  log_section "Core Services"
+  # Start base-svc and plugin-server in parallel (they are independent)
+  start_base_service &
+  local _base_pid=$!
+  start_plugin_server &
+  local _ps_pid=$!
+  local _core_fail=0
+  wait $_base_pid || { log_error "Base service failed."; _core_fail=1; }
+  wait $_ps_pid   || { log_error "Plugin server failed."; _core_fail=1; }
+  [ $_core_fail -gt 0 ] && exit 1
+  start_health_monitor
+}
+
+# Get the list of plugins to start, respecting --no-plugins and --only=x,y
+get_plugins_to_start() {
+  if [ "$NO_PLUGINS" = "1" ]; then
+    echo ""
+    return
+  fi
+  if [ -n "$ONLY_PLUGINS" ]; then
+    # Convert comma-separated list to space-separated
+    echo "$ONLY_PLUGINS" | tr ',' ' '
+    return
+  fi
+  get_all_plugins
+}
 
 # Sequential backend startup
 start_all_be_sequential() {
   local f=0
-  for p in $(get_all_plugins); do
+  for p in $(get_plugins_to_start); do
     start_plugin_backend "$p" || ((f++)) || true
   done
   [ $f -gt 0 ] && log_warn "$f backend(s) failed"
@@ -1196,7 +1429,7 @@ start_all_be_sequential() {
 # Parallel backend startup (faster, default)
 start_all_be_parallel() {
   local pids=() names=() logfiles=()
-  for p in $(get_all_plugins); do
+  for p in $(get_plugins_to_start); do
     local port=$(get_plugin_backend_port "$p")
     [ -z "$port" ] && continue
     is_running "${p}-svc" && { log_success "$(get_plugin_display_name "$p") backend already running"; continue; }
@@ -1207,7 +1440,7 @@ start_all_be_parallel() {
   done
 
   if [ ${#pids[@]} -eq 0 ]; then
-    log_success "All plugin backends already running"
+    log_success "All plugin backends already running (or none selected)"
     return 0
   fi
 
@@ -1225,7 +1458,16 @@ start_all_be_parallel() {
 
 # Smart backend startup: parallel by default, sequential with --sequential
 start_all_be() {
-  log_section "Plugin Backends"
+  if [ "$NO_PLUGINS" = "1" ]; then
+    log_section "Plugin Backends"
+    log_info "Skipping all plugin backends (--no-plugins)"
+    return 0
+  fi
+  if [ -n "$ONLY_PLUGINS" ]; then
+    log_section "Plugin Backends (selected: $ONLY_PLUGINS)"
+  else
+    log_section "Plugin Backends"
+  fi
   if [ "$PARALLEL_START" = "1" ]; then
     start_all_be_parallel
   else
@@ -1236,30 +1478,64 @@ start_all_be() {
 start_fe() { log_section "Frontend"; start_shell || { log_error "Shell failed."; exit 1; }; }
 
 cmd_start_all() {
-  log_info "Starting ${BOLD}all${NC} NAAP services..."; local t=$(date +%s)
+  log_info "Starting ${BOLD}all${NC} NAAP services..."
+  local t
+  t=$(date +%s)
   acquire_lock
   preflight_check
-  setup_infra_full; ensure_plugins_built; start_core; start_all_be || true; start_fe; verify_all_plugins || true
+  _tstart; setup_infra_full; _tend "Infrastructure"
+  _tstart; ensure_plugins_built; _tend "Plugin builds"
+  _tstart; start_core; _tend "Core services"
+
+  # Start shell and backends in parallel — they are independent.
+  _tstart
+  start_fe &
+  local shell_pid=$!
+  start_all_be || true
+  wait $shell_pid || { log_error "Shell failed."; release_lock; exit 1; }
+  _tend "Shell + backends (parallel)"
+
+  _tstart; verify_all_plugins || true; _tend "Plugin verification"
   release_lock
-  log_success "All services started in $(( $(date +%s) - t ))s!"; _summary_full
+  log_success "All services started in $(( $(date +%s) - t ))s!"; _summary_full; _print_timing
 }
 
 cmd_start_shell() {
-  log_info "Starting shell + core..."; local t=$(date +%s)
+  log_info "Starting shell + core..."
+  local t
+  t=$(date +%s)
   acquire_lock
   preflight_check
-  setup_infra; ensure_plugins_built; start_core; start_fe; verify_all_plugins || true
+  _tstart; setup_infra; _tend "Infrastructure"
+  _tstart; ensure_plugins_built; _tend "Plugin builds"
+  _tstart; start_core; _tend "Core services"
+  _tstart; start_fe; _tend "Frontend (Next.js)"
+  _tstart; verify_all_plugins || true; _tend "Plugin verification"
   release_lock
-  log_success "Started in $(( $(date +%s) - t ))s"; _summary_shell
+  log_success "Started in $(( $(date +%s) - t ))s"; _summary_shell; _print_timing
 }
 
 cmd_start_shell_with_backends() {
-  log_info "Starting shell + backends..."; local t=$(date +%s)
+  log_info "Starting shell + backends..."
+  local t
+  t=$(date +%s)
   acquire_lock
   preflight_check
-  setup_infra_full; ensure_plugins_built; start_core; start_all_be || true; start_fe; verify_all_plugins || true
+  _tstart; setup_infra_full; _tend "Infrastructure"
+  _tstart; ensure_plugins_built; _tend "Plugin builds"
+  _tstart; start_core; _tend "Core services"
+
+  # Start shell and backends in parallel
+  _tstart
+  start_fe &
+  local shell_pid=$!
+  start_all_be || true
+  wait $shell_pid || { log_error "Shell failed."; release_lock; exit 1; }
+  _tend "Shell + backends (parallel)"
+
+  _tstart; verify_all_plugins || true; _tend "Plugin verification"
   release_lock
-  log_success "Started in $(( $(date +%s) - t ))s"; _summary_be
+  log_success "Started in $(( $(date +%s) - t ))s"; _summary_be; _print_timing
 }
 
 cmd_start_services() {
@@ -1288,7 +1564,8 @@ cmd_dev_plugin() {
   local name=$1
   [ ! -d "$ROOT_DIR/plugins/$name" ] && { log_error "Plugin not found: $name"; cmd_list; exit 1; }
   log_info "Starting ${BOLD}$(get_plugin_display_name "$name")${NC} in full dev mode..."
-  local t=$(date +%s)
+  local t
+  t=$(date +%s)
   acquire_lock
   preflight_check
   setup_infra; start_core
@@ -1324,12 +1601,22 @@ _summary_shell() {
   echo "================================================"
 }
 _summary_be() {
+  local started_plugins
+  started_plugins=$(get_plugins_to_start)
   echo ""; echo "================================================"
-  echo -e "${GREEN}${BOLD}NAAP Platform - Shell + Backends${NC}"; echo "================================================"
+  if [ -n "$ONLY_PLUGINS" ]; then
+    echo -e "${GREEN}${BOLD}NAAP Platform - Shell + Selected Backends${NC}"
+  else
+    echo -e "${GREEN}${BOLD}NAAP Platform - Shell + Backends${NC}"
+  fi
+  echo "================================================"
   echo "  Shell:          http://localhost:$SHELL_PORT"
   echo "  Base Service:   http://localhost:$BASE_SVC_PORT/healthz"
-  echo "  Plugin Server:  http://localhost:$PLUGIN_SERVER_PORT/plugins"; echo "  Plugin Backends:"
-  for p in $(get_all_plugins); do local bp=$(get_plugin_backend_port "$p"); [ -n "$bp" ] && printf "    %-22s http://localhost:%s/healthz\n" "$(get_plugin_display_name "$p"):" "$bp"; done
+  echo "  Plugin Server:  http://localhost:$PLUGIN_SERVER_PORT/plugins"
+  if [ -n "$started_plugins" ]; then
+    echo "  Plugin Backends:"
+    for p in $started_plugins; do local bp=$(get_plugin_backend_port "$p"); [ -n "$bp" ] && printf "    %-22s http://localhost:%s/healthz\n" "$(get_plugin_display_name "$p"):" "$bp"; done
+  fi
   echo ""; echo "  Commands:  status | validate | stop | stop <plugin> | restart <plugin>"
   echo "================================================"
 }
@@ -1404,7 +1691,15 @@ show_help() {
   echo "  --shell                  Start shell + core (default)"
   echo "  --shell-with-backends    Start shell + core + all plugin backends"
   echo "  --services               Start backend services only"
+  echo "  --no-plugins             Start shell + core, skip all plugin backends"
+  echo "  --only=p1,p2,...         Start only named plugin backends"
+  echo "  --fast                   Smart start: skip checks + auto-detect changed plugins"
   echo "  --sequential             Force sequential backend startup"
+  echo "  --clean                  Delete .next cache before starting shell"
+  echo "  --skip-verify            Skip plugin accessibility verification"
+  echo "  --skip-db-sync           Skip prisma generate/push (trust existing state)"
+  echo "  --deep-check             Run deep API health checks on backends"
+  echo "  --timing                 Show per-phase timing breakdown"
   echo "  <plugin_names...>        Start specific plugins + core + shell"; echo ""
   echo -e "${BOLD}Stop Options:${NC}"
   echo "  (no options)             Stop all gracefully (ordered: shell->plugins->core)"
@@ -1420,17 +1715,26 @@ show_help() {
   echo -e "${BOLD}Architecture:${NC}  Next.js (web-next) only - legacy shell-web has been retired"; echo ""
   echo -e "${BOLD}Environment:${NC}"
   echo "  DEBUG=1                  Verbose output"
-  echo "  GRACEFUL_TIMEOUT=N       Force-kill timeout (default: 10s)"
+  echo "  GRACEFUL_TIMEOUT=N       Force-kill timeout (default: 5s)"
   echo "  PARALLEL_START=0         Disable parallel backend startup"; echo ""
   echo -e "${BOLD}First-Time Setup:${NC}"
   echo "  ./bin/setup.sh                             # Full setup from fresh clone"
   echo "  ./bin/setup.sh --start                     # Setup + start immediately"
   echo ""
+  echo -e "${BOLD}Quick Start (most common dev workflow):${NC}"
+  echo "  ./bin/start.sh --fast                     # Smart: auto-detect your changed plugins"
+  echo "  ./bin/start.sh community                  # Shell + community backend only"
+  echo "  ./bin/start.sh community gateway-manager  # Shell + 2 plugins"
+  echo "  ./bin/start.sh community --fast           # Shell + community, skip checks"
+  echo ""
   echo -e "${BOLD}Examples:${NC}"
   echo "  ./bin/start.sh                            # Start shell + core"
   echo "  ./bin/start.sh start --all                # Start everything"
-  echo "  ./bin/start.sh start gateway-manager      # Start one plugin"
-  echo "  ./bin/start.sh dev daydream-video          # Full dev mode for a plugin"
+  echo "  ./bin/start.sh start --no-plugins         # Shell + core, no backends"
+  echo "  ./bin/start.sh start --only=community     # Only community backend"
+  echo "  ./bin/start.sh start --all --fast         # All services, fastest start"
+  echo "  ./bin/start.sh start --timing             # Start with timing breakdown"
+  echo "  ./bin/start.sh dev daydream-video          # Full dev mode (HMR + backend)"
   echo "  ./bin/start.sh stop                       # Graceful stop all"
   echo "  ./bin/start.sh stop gateway-manager       # Stop one plugin"
   echo "  ./bin/start.sh restart community          # Restart a plugin"
@@ -1440,7 +1744,7 @@ show_help() {
   echo "  ./bin/start.sh validate                   # Health-check all"
   echo "  ./bin/start.sh logs base-svc              # Tail logs"
   echo ""
-  echo -e "${DIM}Tip: If this is a fresh clone, run './bin/setup.sh' first.${NC}"
+  echo -e "${DIM}Tip: Just run './bin/start.sh --fast' — it auto-detects your changed plugins and starts them.${NC}"
   echo ""
 }
 
@@ -1454,11 +1758,19 @@ mkdir -p "$LOG_DIR"; touch "$PID_FILE"; rmdir "${PID_FILE}.lock" 2>/dev/null || 
 ALL_ARGS=()
 for arg in "$@"; do
   case "$arg" in
-    --legacy)     log_warn "--legacy flag is deprecated. Using Next.js shell (web-next)." ;;
-    --next)       : ;; # No-op, Next.js is the only mode now
-    --sequential) PARALLEL_START=0 ;;
-    --parallel)   PARALLEL_START=1 ;;
-    *)            ALL_ARGS+=("$arg") ;;
+    --legacy)       log_warn "--legacy flag is deprecated. Using Next.js shell (web-next)." ;;
+    --next)         : ;; # No-op, Next.js is the only mode now
+    --sequential)   PARALLEL_START=0 ;;
+    --parallel)     PARALLEL_START=1 ;;
+    --clean)        CLEAN_NEXT=1 ;;
+    --skip-verify)  SKIP_VERIFY=1 ;;
+    --skip-db-sync) SKIP_DB_SYNC=1 ;;
+    --no-plugins)   NO_PLUGINS=1 ;;
+    --deep-check)   DEEP_CHECK=1 ;;
+    --fast)         SKIP_VERIFY=1; SKIP_DB_SYNC=1 ;;
+    --timing)       SHOW_TIMING=1 ;;
+    --only=*)       ONLY_PLUGINS="${arg#--only=}" ;;
+    *)              ALL_ARGS+=("$arg") ;;
   esac
 done
 
@@ -1469,7 +1781,7 @@ COMMAND_ARGS=("${ALL_ARGS[@]:1}")
 
 # Backward compat: bare flags become "start <flag>"
 case "$COMMAND" in
-  --all|--shell|--shell-with-backends|--with-backends|--services|--plugins|--list)
+  --all|--shell|--shell-with-backends|--with-backends|--services|--plugins|--list|--no-plugins)
     COMMAND_ARGS=("$COMMAND" "${COMMAND_ARGS[@]}"); COMMAND="start" ;;
 esac
 
@@ -1477,11 +1789,39 @@ case "$COMMAND" in
   start|"")
     case "${COMMAND_ARGS[0]:-}" in
       --all)                                 cmd_start_all ;;
-      --shell|"")                            cmd_start_shell ;;
+      --shell)                               cmd_start_shell ;;
       --shell-with-backends|--with-backends) cmd_start_shell_with_backends ;;
       --services)                            cmd_start_services ;;
       --plugins)                             cmd_start_shell_with_backends ;;
+      --no-plugins)                          cmd_start_shell ;;
       --list)                                cmd_list ;;
+      "")
+        # If --only=... was supplied, auto-route to shell+backends so the
+        # selected plugin backends are actually started.
+        if [ -n "$ONLY_PLUGINS" ]; then
+          cmd_start_shell_with_backends
+        elif [ "$SKIP_VERIFY" = "1" ] && [ "$NO_PLUGINS" != "1" ]; then
+          # Smart --fast mode: auto-detect which plugins the dev is working
+          # on (source code changed since last build) and start those backends
+          # plus marketplace (always useful). This gives plugin devs the
+          # fastest possible start with zero config.
+          _CHANGED=$(_detect_changed_plugins)
+          if [ -n "$_CHANGED" ]; then
+            # Deduplicate: start marketplace + any changed plugins
+            ONLY_PLUGINS="marketplace"
+            for _cp in $_CHANGED; do
+              [ "$_cp" = "marketplace" ] && continue
+              ONLY_PLUGINS="$ONLY_PLUGINS,$_cp"
+            done
+            log_info "Smart mode: detected changed plugin(s): ${YELLOW}$_CHANGED${NC}"
+            log_info "Starting marketplace + changed backends..."
+            cmd_start_shell_with_backends
+          else
+            cmd_start_shell
+          fi
+        else
+          cmd_start_shell
+        fi ;;
       *)                                     cmd_start_plugins "${COMMAND_ARGS[@]}" ;;
     esac ;;
   stop)
@@ -1512,5 +1852,21 @@ case "$COMMAND" in
   list)          cmd_list ;;
   logs)          cmd_logs "${COMMAND_ARGS[0]:-}" ;;
   -h|--help|help) show_help ;;
-  *)             log_error "Unknown command: $COMMAND"; show_help; exit 1 ;;
+  *)
+    # Smart plugin-name shortcut: ./bin/start.sh community  →  start --only=community
+    # Also handles multiple: ./bin/start.sh community gateway-manager
+    if [ -d "$ROOT_DIR/plugins/$COMMAND" ]; then
+      ONLY_PLUGINS="$COMMAND"
+      for extra in "${COMMAND_ARGS[@]}"; do
+        if [ -d "$ROOT_DIR/plugins/$extra" ]; then
+          ONLY_PLUGINS="$ONLY_PLUGINS,$extra"
+        else
+          log_warn "Unknown plugin: $extra (skipped)"
+        fi
+      done
+      cmd_start_shell_with_backends
+    else
+      log_error "Unknown command: $COMMAND"
+      show_help; exit 1
+    fi ;;
 esac

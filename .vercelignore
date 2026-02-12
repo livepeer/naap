@@ -1,0 +1,49 @@
+# ============================================================
+# .vercelignore — Exclude files not needed for Vercel builds
+# This reduces upload size and speeds up deployments.
+# ============================================================
+
+# Dev-only scripts (never invoked by Vercel)
+bin/setup.sh
+bin/stop.sh
+bin/services-start.sh
+bin/local-dev.sh
+bin/kafka-setup.sh
+bin/health-check.sh
+bin/health-monitor.sh
+bin/start.sh
+bin/db-reset.sh
+bin/db-migrate.sh
+bin/db-seed.sh
+bin/db-setup.sh
+bin/setup-db-simple.sh
+bin/smoke.sh
+
+# Docker (not used in Vercel serverless builds)
+docker/
+
+# Local dev artifacts
+logs/
+.pids
+.naap.lock
+.prisma-synced
+*.log
+
+# Plugin backends (Vercel only builds frontends + Next.js)
+plugins/*/backend/
+
+# Test files
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/__tests__/
+
+# Top-level documentation files (not needed for build).
+# IMPORTANT: Use anchored patterns (leading /) to avoid excluding
+# apps/web-next/src/content/docs/ which contains MDX page content.
+/docs/
+/*.md
+!README.md
+
+# Example plugins (not deployed)
+examples/

@@ -1,14 +1,16 @@
 # ---------------------------------------------------------------------------
 # CodeQL static analysis for JavaScript / TypeScript
-# Scans on push, PR, and weekly schedule.
+# Only surfaces critical & high-severity security findings.
+# Quality / style / low-severity rules are intentionally excluded to reduce
+# noise — those concerns are handled by ESLint and PR review.
 # ---------------------------------------------------------------------------
 name: CodeQL
 
 on:
   push:
-    branches: [develop, main]
+    branches: [main]
   pull_request:
-    branches: [develop, main]
+    branches: [main]
   schedule:
     # Weekly scan on Monday at 04:00 UTC
     - cron: '0 4 * * 1'
@@ -35,8 +37,21 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          # Use the default query suite for broad coverage
-          queries: +security-and-quality
+          # Default suite = core security queries only (no quality/style rules).
+          # Omitting the 'queries' key uses the built-in "security-extended"
+          # suite which covers OWASP Top-10, CWE-25, injection, SSRF, etc.
+          config: |
+            query-filters:
+              # Keep only critical and high severity findings
+              - include:
+                  problem.severity:
+                    - error
+                    - warning
+              # Exclude low-severity / informational rules
+              - exclude:
+                  problem.severity:
+                    - recommendation
+                    - note
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3

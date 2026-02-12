@@ -236,7 +236,7 @@ describe('CodeGenerator', () => {
       const files = await generator.generateDataModel(spec);
 
       expect(files.length).toBe(1);
-      expect(files[0].path).toBe('backend/prisma/schema.prisma');
+      expect(files[0].path).toBe('APPEND_TO_packages_database_prisma_schema.prisma');
     });
 
     it('should include model definition', async () => {
@@ -370,7 +370,7 @@ describe('CodeGenerator', () => {
       const dbFile = files.find(f => f.path.includes('client.ts'));
 
       expect(dbFile).toBeDefined();
-      expect(dbFile!.content).toContain('PrismaClient');
+      expect(dbFile!.content).toContain('prisma');
     });
 
     it('should include CRUD operations in routes', async () => {

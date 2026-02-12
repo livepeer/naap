@@ -68,6 +68,10 @@ apps/web-next/public/cdn/
 .pids
 .pids.tmp
 .naap.lock
+.prisma-synced
+
+# Plugin build cache hashes
+**/dist/production/.build-hash
 
 # Build info
 tsconfig.tsbuildinfo
