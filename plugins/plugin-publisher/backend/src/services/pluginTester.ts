@@ -51,7 +51,7 @@ async function validateExternalUrl(url: string): Promise<{ valid: boolean; error
     return { valid: false, error: 'Invalid URL format' };
   }
 
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+  if (parsed.protocol !== 'https:') {
     return { valid: false, error: `Unsupported protocol: ${parsed.protocol}` };
   }
 
@@ -102,7 +102,18 @@ async function safeFetch(
 ): Promise<Response> {
   let current = url;
   for (let i = 0; i <= maxRedirects; i++) {
-    const res = await fetch(current, { ...init, redirect: 'manual' });
+    // Validate each request target before making any outbound call.
+    const check = await validateExternalUrl(current);
+    if (!check.valid) {
+      throw new Error(check.error || 'Request target is not allowed');
+    }
+
+    const currentUrl = new URL(current);
+    if (currentUrl.protocol !== 'https:') {
+      throw new Error('Only HTTPS URLs are allowed');
+    }
+
+    const res = await fetch(currentUrl.toString(), { ...init, redirect: 'manual' });
 
     // Not a redirect — return as-is
     if (res.status < 300 || res.status >= 400) {
@@ -116,10 +127,11 @@ async function safeFetch(
     }
 
     const target = new URL(location, current).toString();
-    const check = await validateExternalUrl(target);
-    if (!check.valid) {
-      throw new Error(check.error || 'Redirect target is not allowed');
+    const targetUrl = new URL(target);
+    if (targetUrl.protocol !== 'https:') {
+      throw new Error('Redirect target must use HTTPS');
     }
+
     current = target;
   }
   throw new Error(`Too many redirects (>${maxRedirects})`);
