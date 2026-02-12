@@ -77,7 +77,7 @@ async function main(): Promise<void> {
     let updated = 0;
 
     for (const p of discovered) {
-      const data = toWorkflowPluginData(p, PLUGIN_CDN_URL);
+      const data = toWorkflowPluginData(p, PLUGIN_CDN_URL, MONOREPO_ROOT);
 
       const existing = await prisma.workflowPlugin.findUnique({
         where: { name: p.name },

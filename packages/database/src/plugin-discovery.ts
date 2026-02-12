@@ -131,31 +131,44 @@ export function discoverPlugins(rootDir: string): DiscoveredPlugin[] {
 /**
  * Build the WorkflowPlugin upsert data for a discovered plugin.
  * This is the shape expected by `prisma.workflowPlugin.upsert()`.
+ *
+ * @param plugin    - Discovered plugin metadata
+ * @param cdnBase   - CDN base path (e.g. "/cdn/plugins")
+ * @param rootDir   - Monorepo root directory (for resolving build manifests)
  */
 export function toWorkflowPluginData(
   plugin: DiscoveredPlugin,
   cdnBase: string = '/cdn/plugins',
+  rootDir?: string,
 ) {
   // Only set stylesUrl if the plugin's build output actually contains a CSS file.
   // Headless plugins (like dashboard-provider-mock) produce no CSS, and a 404
   // stylesheet URL causes MIME-type errors in the browser.
   let stylesUrl: string | undefined;
+  const root = rootDir || process.cwd();
   try {
-    const manifestPath = path.join(
-      'dist', 'plugins', plugin.dirName, plugin.version, 'manifest.json',
+    // Check CDN dist manifest first, then fall back to source build output
+    const cdnManifest = path.join(
+      root, 'dist', 'plugins', plugin.dirName, plugin.version, 'manifest.json',
     );
-    if (fs.existsSync(manifestPath)) {
+    const srcManifest = path.join(
+      root, 'plugins', plugin.dirName, 'frontend', 'dist', 'production', 'manifest.json',
+    );
+    const manifestPath = fs.existsSync(cdnManifest) ? cdnManifest
+      : fs.existsSync(srcManifest) ? srcManifest
+      : null;
+
+    if (manifestPath) {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
       if (manifest.stylesFile) {
         stylesUrl = getStylesUrl(cdnBase, plugin.dirName, plugin.version);
       }
-    } else {
-      // Fallback: assume CSS exists (safe — non-blocking load handles 404 gracefully)
-      stylesUrl = getStylesUrl(cdnBase, plugin.dirName, plugin.version);
+      // No stylesFile in manifest → stylesUrl stays undefined (correct for headless plugins)
     }
+    // If no manifest found at all (plugin not yet built), leave stylesUrl undefined.
+    // This is safer than assuming CSS exists, which causes MIME-type errors on 404.
   } catch {
-    // On any error, default to setting the URL (non-blocking load is safe)
-    stylesUrl = getStylesUrl(cdnBase, plugin.dirName, plugin.version);
+    // On error, leave stylesUrl undefined to avoid broken stylesheet references.
   }
 
   return {
@@ -164,7 +177,8 @@ export function toWorkflowPluginData(
     version: plugin.version,
     remoteUrl: getBundleUrl(cdnBase, plugin.dirName, plugin.version),
     bundleUrl: getBundleUrl(cdnBase, plugin.dirName, plugin.version),
-    stylesUrl,
+    // Use null (not undefined) so Prisma upsert clears stale values
+    stylesUrl: stylesUrl ?? null,
     globalName: plugin.globalName,
     deploymentType: 'cdn',
     routes: plugin.routes,

@@ -86,8 +86,10 @@ restart_plugin_backend() {
 }
 
 # Graceful shutdown handler
+_SLEEP_PID=""
 cleanup() {
   hm_log "Health monitor shutting down"
+  [ -n "$_SLEEP_PID" ] && kill "$_SLEEP_PID" 2>/dev/null || true
   exit 0
 }
 trap cleanup INT TERM
@@ -105,8 +107,8 @@ while true; do
   if [ "$MONITOR_ALL_BACKENDS" = "1" ]; then
     for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
       [ -f "$pj" ] || continue
-      local pname=$(basename "$(dirname "$pj")")
-      local port=$(get_plugin_backend_port "$pname")
+      pname=$(basename "$(dirname "$pj")")
+      port=$(get_plugin_backend_port "$pname")
       [ -z "$port" ] && continue
       if ! curl -sf --max-time 3 "http://localhost:$port/healthz" > /dev/null 2>&1; then
         hm_log "Plugin $pname health check FAILED (port $port)"
@@ -115,5 +117,10 @@ while true; do
     done
   fi
 
-  sleep "$MONITOR_INTERVAL"
+  # Use sleep-in-background + wait so SIGTERM is delivered immediately
+  # (bash doesn't process traps while waiting for a foreground command)
+  sleep "$MONITOR_INTERVAL" &
+  _SLEEP_PID=$!
+  wait "$_SLEEP_PID" 2>/dev/null || true
+  _SLEEP_PID=""
 done

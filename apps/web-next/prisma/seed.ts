@@ -354,8 +354,8 @@ async function main() {
 
   console.log(`   📦 Discovered ${discovered.length} plugins from plugin.json files`);
 
-  // Build WorkflowPlugin records using shared utility
-  const defaultPlugins = discovered.map((p: any) => toWorkflowPluginData(p, PLUGIN_CDN_URL));
+  // Build WorkflowPlugin records using shared utility (pass rootDir for manifest resolution)
+  const defaultPlugins = discovered.map((p: any) => toWorkflowPluginData(p, PLUGIN_CDN_URL, MONOREPO_ROOT));
 
   // Build a lookup from camelCase name -> discovered plugin for use by marketplace section
   const discoveredByName = new Map(discovered.map((p: any) => [p.name, p]));
@@ -412,6 +412,7 @@ async function main() {
       icon: 'Radio',
       version: '1.0.0',
       frontendUrl: getPluginUrl('gatewayManager'),
+      isCore: true,
     },
     {
       name: 'orchestratorManager',
@@ -454,6 +455,7 @@ async function main() {
       icon: 'BarChart3',
       version: '1.0.0',
       frontendUrl: getPluginUrl('networkAnalytics'),
+      isCore: true,
     },
     {
       name: 'community',
@@ -468,6 +470,7 @@ async function main() {
       icon: 'Users',
       version: '1.0.0',  // Matches built bundle
       frontendUrl: getPluginUrl('community'),
+      isCore: true,
     },
     {
       name: 'developerApi',
@@ -524,6 +527,7 @@ async function main() {
       icon: 'Upload',
       version: '1.0.0',
       frontendUrl: getPluginUrl('pluginPublisher'),
+      isCore: true,
     },
     {
       name: 'daydreamVideo',

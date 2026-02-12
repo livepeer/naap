@@ -28,13 +28,18 @@ SKIP_DOCKER=0
 SKIP_SEED=0
 SKIP_BUILD=0
 AUTO_START=0
+ONLY_PLUGINS=""    # comma-separated list of plugins to build (empty=all)
+NO_PLUGINS=0       # 1=skip all plugin backends when starting with --start
+START_EXTRA_ARGS=()
 
 for arg in "$@"; do
   case "$arg" in
-    --skip-docker) SKIP_DOCKER=1 ;;
-    --skip-seed)   SKIP_SEED=1 ;;
-    --skip-build)  SKIP_BUILD=1 ;;
-    --start)       AUTO_START=1 ;;
+    --skip-docker)  SKIP_DOCKER=1 ;;
+    --skip-seed)    SKIP_SEED=1 ;;
+    --skip-build)   SKIP_BUILD=1 ;;
+    --start)        AUTO_START=1 ;;
+    --no-plugins)   NO_PLUGINS=1 ;;
+    --only=*)       ONLY_PLUGINS="${arg#--only=}" ;;
     --help|-h)
       echo "NAAP Platform - First-Run Setup"
       echo ""
@@ -45,6 +50,8 @@ for arg in "$@"; do
       echo "  --skip-seed      Skip database seeding"
       echo "  --skip-build     Skip plugin builds"
       echo "  --start          Start all services after setup"
+      echo "  --no-plugins     Skip plugin backends when used with --start"
+      echo "  --only=p1,p2     Only build named plugin(s), pass to start.sh"
       echo "  --help           Show this help"
       exit 0
       ;;
@@ -352,37 +359,55 @@ log_section "Step 5/6: Building Plugins"
 if [ "$SKIP_BUILD" = "1" ]; then
   log_warn "Skipping plugin builds (--skip-build)"
 else
-  TO_BUILD=()
-  for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
-    [ -f "$pj" ] || continue
-    pdir=$(dirname "$pj")
-    pname=$(basename "$pdir")
-    if [ -d "$pdir/frontend" ] && [ ! -d "$pdir/frontend/dist/production" ]; then
-      TO_BUILD+=("$pname")
-    fi
-  done
-
-  if [ ${#TO_BUILD[@]} -eq 0 ]; then
-    log_success "All plugins already built"
-  else
-    log_info "Building ${#TO_BUILD[@]} plugins: ${TO_BUILD[*]}"
+  cd "$ROOT_DIR"
+  if [ -n "$ONLY_PLUGINS" ]; then
+    # Build only specified plugins
+    log_info "Building selected plugins: $ONLY_PLUGINS"
     FAILED=0
-    for p in "${TO_BUILD[@]}"; do
-      [ -d "$ROOT_DIR/plugins/$p/frontend" ] || continue
-      log_info "  Building $p..."
-      cd "$ROOT_DIR/plugins/$p/frontend"
-      if npm run build >/dev/null 2>&1; then
-        log_success "  Built $p"
-      else
-        ((FAILED++)) || true
-        log_warn "  Build failed for $p (non-critical, can build later)"
+    IFS=',' read -ra SELECTED <<< "$ONLY_PLUGINS"
+    for p in "${SELECTED[@]}"; do
+      if [ -f "$SCRIPT_DIR/build-plugins.sh" ]; then
+        bash "$SCRIPT_DIR/build-plugins.sh" --plugin "$p" && \
+          log_success "Built $p" || { ((FAILED++)) || true; log_warn "Build failed for $p"; }
       fi
     done
-    cd "$ROOT_DIR"
-    if [ $FAILED -gt 0 ]; then
-      log_warn "$FAILED plugin(s) failed to build. Run 'npm run build:plugins' to retry."
+    [ $FAILED -gt 0 ] && log_warn "$FAILED plugin(s) failed to build." || log_success "Selected plugins built"
+  elif [ -f "$SCRIPT_DIR/build-plugins.sh" ]; then
+    # Build all plugins in parallel using the dedicated build script.
+    # This is significantly faster than the old sequential loop.
+    log_info "Building all plugins in parallel..."
+    bash "$SCRIPT_DIR/build-plugins.sh" --parallel && \
+      log_success "All plugins built successfully" || \
+      log_warn "Some plugin builds failed. Run './bin/build-plugins.sh --parallel' to retry."
+  else
+    # Fallback: sequential builds if build-plugins.sh is missing
+    TO_BUILD=()
+    for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
+      [ -f "$pj" ] || continue
+      pdir=$(dirname "$pj")
+      pname=$(basename "$pdir")
+      if [ -d "$pdir/frontend" ] && [ ! -d "$pdir/frontend/dist/production" ]; then
+        TO_BUILD+=("$pname")
+      fi
+    done
+    if [ ${#TO_BUILD[@]} -eq 0 ]; then
+      log_success "All plugins already built"
     else
-      log_success "All plugins built successfully"
+      log_info "Building ${#TO_BUILD[@]} plugins: ${TO_BUILD[*]}"
+      FAILED=0
+      for p in "${TO_BUILD[@]}"; do
+        [ -d "$ROOT_DIR/plugins/$p/frontend" ] || continue
+        log_info "  Building $p..."
+        cd "$ROOT_DIR/plugins/$p/frontend"
+        if npm run build >/dev/null 2>&1; then
+          log_success "  Built $p"
+        else
+          ((FAILED++)) || true
+          log_warn "  Build failed for $p (non-critical, can build later)"
+        fi
+      done
+      cd "$ROOT_DIR"
+      [ $FAILED -gt 0 ] && log_warn "$FAILED plugin(s) failed to build." || log_success "All plugins built"
     fi
   fi
 fi
@@ -434,7 +459,11 @@ echo ""
 
 if [ "$AUTO_START" = "1" ]; then
   log_info "Starting NAAP Platform..."
-  exec "$SCRIPT_DIR/start.sh" start --all
+  # Pass through plugin selection flags to start.sh
+  START_EXTRA_ARGS=()
+  [ "$NO_PLUGINS" = "1" ] && START_EXTRA_ARGS+=("--no-plugins")
+  [ -n "$ONLY_PLUGINS" ] && START_EXTRA_ARGS+=("--only=$ONLY_PLUGINS")
+  exec "$SCRIPT_DIR/start.sh" start --all "${START_EXTRA_ARGS[@]}"
 else
   echo -e "${BOLD}Next steps:${NC}"
   echo ""
