@@ -859,13 +859,14 @@ start_shell() {
   _start_shell_attempt() {
     WATCHPACK_POLLING=1000 npm run dev > "$LOG_DIR/shell-web.log" 2>&1 &
     local pid=$!
-    disown 2>/dev/null || true
+    register_pid $pid "shell-web"
     wait_for_port $SHELL_PORT "next.js shell" 60 && {
-      register_pid $pid "shell-web"
+      disown 2>/dev/null || true
       log_success "Shell (Next.js): http://localhost:$SHELL_PORT"
       return 0
     } || {
       kill $pid 2>/dev/null || true
+      unregister_pid "shell-web"
       return 1
     }
   }
@@ -896,9 +897,9 @@ start_base_service() {
   DATABASE_URL="$UNIFIED_DB_URL" \
   PORT=$BASE_SVC_PORT npm run dev > "$LOG_DIR/base-svc.log" 2>&1 &
   local pid=$!
-  disown 2>/dev/null || true
+  register_pid $pid "base-svc"
   wait_for_health "http://localhost:$BASE_SVC_PORT/healthz" "base-svc" 30 1 "$pid" && {
-    register_pid $pid "base-svc"
+    disown 2>/dev/null || true
     log_success "Base Service: http://localhost:$BASE_SVC_PORT/healthz"
   } || {
     log_error "Base-svc failed to start on port $BASE_SVC_PORT."
@@ -907,7 +908,9 @@ start_base_service() {
     echo -e "  ${DIM}  - Database not running? Run: docker ps | grep naap${NC}"
     echo -e "  ${DIM}  - Check full log: logs/base-svc.log${NC}"
     show_failure_context "$LOG_DIR/base-svc.log"
-    kill $pid 2>/dev/null || true; return 1
+    kill $pid 2>/dev/null || true
+    unregister_pid "base-svc"
+    return 1
   }
 }
 
@@ -918,9 +921,9 @@ start_plugin_server() {
   [ ! -d "node_modules" ] && (npm install --silent 2>/dev/null || npm install)
   npm run dev > "$LOG_DIR/plugin-server.log" 2>&1 &
   local pid=$!
-  disown 2>/dev/null || true
+  register_pid $pid "plugin-server"
   wait_for_health "http://localhost:$PLUGIN_SERVER_PORT/healthz" "plugin-server" 30 1 "$pid" && {
-    register_pid $pid "plugin-server"
+    disown 2>/dev/null || true
     log_success "Plugin Server: http://localhost:$PLUGIN_SERVER_PORT/plugins"
   } || {
     log_error "Plugin-server failed to start on port $PLUGIN_SERVER_PORT."
@@ -929,7 +932,9 @@ start_plugin_server() {
     echo -e "  ${DIM}  - Missing node_modules? Run: cd services/plugin-server && npm install${NC}"
     echo -e "  ${DIM}  - Check full log: logs/plugin-server.log${NC}"
     show_failure_context "$LOG_DIR/plugin-server.log"
-    kill $pid 2>/dev/null || true; return 1
+    kill $pid 2>/dev/null || true
+    unregister_pid "plugin-server"
+    return 1
   }
 }
 
@@ -964,9 +969,9 @@ start_plugin_backend() {
   # Pass DATABASE_URL explicitly to ensure consistency.
   DATABASE_URL="$UNIFIED_DB_URL" PORT="$port" npm run dev > "$LOG_DIR/${name}-svc.log" 2>&1 &
   local pid=$!
-  disown 2>/dev/null || true
+  register_pid $pid "$svc_name"
   wait_for_health "http://localhost:$port${health_path}" "$display_name" 20 1 "$pid" && {
-    register_pid $pid "$svc_name"
+    disown 2>/dev/null || true
     log_success "$display_name Backend: http://localhost:$port${health_path}"
 
     # Deep health check: verify actual API queries work (catches schema mismatches).
@@ -984,7 +989,9 @@ start_plugin_backend() {
     echo -e "  ${DIM}  - Schema mismatch? Run: cd packages/database && npx prisma generate && npx prisma db push${NC}"
     echo -e "  ${DIM}  - Check full log: logs/${name}-svc.log${NC}"
     show_failure_context "$LOG_DIR/${name}-svc.log"
-    kill $pid 2>/dev/null || true; return 1
+    kill $pid 2>/dev/null || true
+    unregister_pid "$svc_name"
+    return 1
   }
 }
 
@@ -1000,14 +1007,16 @@ start_plugin_frontend_dev() {
   cd "$ROOT_DIR/plugins/$name/frontend" || { log_error "Failed to cd to plugins/$name/frontend"; return 1; }
   npx vite --port "$fport" --strictPort > "$LOG_DIR/${name}-web.log" 2>&1 &
   local pid=$!
-  disown 2>/dev/null || true
+  register_pid $pid "$web_name"
   wait_for_port "$fport" "$display_name frontend" 30 && {
-    register_pid $pid "$web_name"
+    disown 2>/dev/null || true
     log_success "$display_name Frontend: http://localhost:$fport"
   } || {
     log_error "$display_name frontend failed to start."
     show_failure_context "$LOG_DIR/${name}-web.log"
-    kill $pid 2>/dev/null || true; return 1
+    kill $pid 2>/dev/null || true
+    unregister_pid "$web_name"
+    return 1
   }
 }
 
