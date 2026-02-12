@@ -1,0 +1,28 @@
+{
+  "name": "Copilot code review (all branches)",
+  "target": "branch",
+  "source_type": "Repository",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "exclude": [],
+      "include": ["~ALL"]
+    }
+  },
+  "rules": [
+    {
+      "type": "copilot_code_review",
+      "parameters": {
+        "review_draft_pull_requests": true,
+        "review_on_push": true
+      }
+    }
+  ],
+  "bypass_actors": [
+    {
+      "actor_id": 1,
+      "actor_type": "OrganizationAdmin",
+      "bypass_mode": "always"
+    }
+  ]
+}

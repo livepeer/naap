@@ -2,10 +2,15 @@
 # GitHub Copilot Code Review Configuration
 # =============================================================================
 # Configures Copilot's automated code review behavior for this repository.
-# Copilot will review PRs when requested or when configured as a required
-# reviewer in branch protection rules.
 #
-# Docs: https://docs.github.com/en/copilot/using-github-copilot/code-review
+# To make Copilot review MANDATORY for all branches:
+#   1. Go to Settings > Rules > Rulesets
+#   2. Click "New ruleset" > "Import a ruleset"
+#   3. Select: .github/rulesets/copilot-mandatory-review.json
+#   4. Review and Create
+#
+# This enables automatic Copilot reviews on every PR and every new push.
+# Docs: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/request-a-code-review/configure-automatic-review
 # =============================================================================
 
 # Custom review instructions for Copilot to follow
