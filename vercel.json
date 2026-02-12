@@ -101,5 +101,7 @@
     }
   ],
   "redirects": [],
-  "crons": []
+  "crons": [
+    { "path": "/api/v1/gw/admin/health/check", "schedule": "*/5 * * * *" }
+  ]
 }
