@@ -48,22 +48,17 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   crossOriginEmbedderPolicy: false,
 }));
-// CORS - fail closed when allowlist is empty (except in dev)
+// CORS - allowlist when set; empty = allow-all (relaxed for now)
+// TODO: Fail closed when empty; set CORS_ALLOWED_ORIGINS for production
 const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean);
-const HAS_CORS_ALLOWLIST = CORS_ALLOWED_ORIGINS.length > 0;
-const ALLOW_EMPTY_IN_DEV = process.env.NODE_ENV !== 'production';
 
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (!HAS_CORS_ALLOWLIST) {
-      if (ALLOW_EMPTY_IN_DEV) return callback(null, true);
-      return callback(new Error('CORS allowlist not configured'));
-    }
-    if (CORS_ALLOWED_ORIGINS.includes(origin)) {
+    if (CORS_ALLOWED_ORIGINS.length === 0 || CORS_ALLOWED_ORIGINS.includes(origin)) {
       return callback(null, true);
     }
     callback(new Error('Not allowed by CORS'));

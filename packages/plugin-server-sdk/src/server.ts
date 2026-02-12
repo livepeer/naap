@@ -105,7 +105,8 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
 
   // ─── Base Middleware ────────────────────────────────────────────────
 
-  // CORS - validate origins against allowlist; empty list = deny all (fail closed)
+  // CORS - validate origins when allowlist set; empty = allow-all (relaxed for now)
+  // TODO: Fail closed when empty for production; set CORS_ALLOWED_ORIGINS explicitly
   const configuredOrigins =
     corsOrigins || (process.env.CORS_ALLOWED_ORIGINS || '');
   const originsArray: string[] = (
@@ -118,7 +119,8 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
     .map((o) => String(o).trim())
     .filter(Boolean);
   const allowAllOrigins =
-    typeof configuredOrigins === 'string' && configuredOrigins.trim() === '*';
+    originsArray.length === 0 ||
+    (typeof configuredOrigins === 'string' && configuredOrigins.trim() === '*');
   app.use(cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (server-to-server, curl, etc.)
