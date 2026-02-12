@@ -1479,7 +1479,8 @@ start_fe() { log_section "Frontend"; start_shell || { log_error "Shell failed.";
 
 cmd_start_all() {
   log_info "Starting ${BOLD}all${NC} NAAP services..."
-  local t; t=$(date +%s)
+  local t
+  t=$(date +%s)
   acquire_lock
   preflight_check
   _tstart; setup_infra_full; _tend "Infrastructure"
@@ -1501,7 +1502,8 @@ cmd_start_all() {
 
 cmd_start_shell() {
   log_info "Starting shell + core..."
-  local t; t=$(date +%s)
+  local t
+  t=$(date +%s)
   acquire_lock
   preflight_check
   _tstart; setup_infra; _tend "Infrastructure"
@@ -1515,7 +1517,8 @@ cmd_start_shell() {
 
 cmd_start_shell_with_backends() {
   log_info "Starting shell + backends..."
-  local t; t=$(date +%s)
+  local t
+  t=$(date +%s)
   acquire_lock
   preflight_check
   _tstart; setup_infra_full; _tend "Infrastructure"
@@ -1561,7 +1564,8 @@ cmd_dev_plugin() {
   local name=$1
   [ ! -d "$ROOT_DIR/plugins/$name" ] && { log_error "Plugin not found: $name"; cmd_list; exit 1; }
   log_info "Starting ${BOLD}$(get_plugin_display_name "$name")${NC} in full dev mode..."
-  local t=$(date +%s)
+  local t
+  t=$(date +%s)
   acquire_lock
   preflight_check
   setup_infra; start_core

@@ -37,6 +37,7 @@ jobs:
       plugins: ${{ steps.filter.outputs.plugins }}
       plugins_list: ${{ steps.changed-plugins.outputs.plugins_list }}
       docs_only: ${{ steps.check-docs.outputs.docs_only }}
+      build_relevant: ${{ steps.filter.outputs.build_relevant }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -58,6 +59,15 @@ jobs:
               - 'services/**'
             plugins:
               - 'plugins/**'
+            build_relevant:
+              - 'apps/web-next/**'
+              - 'packages/**'
+              - 'plugins/**'
+              - 'bin/**'
+              - 'services/**'
+              - 'next.config.*'
+              - 'package.json'
+              - 'package-lock.json'
             docs_only:
               - 'docs/**'
               - '*.md'
@@ -356,12 +366,14 @@ jobs:
   # ===========================================================================
   # Build — Vercel build simulation (same as production)
   # Catches missing deps (e.g. unzipper), CVE blocks, plugin bundle issues
+  # Skips when only docs/config changed. Uses content-based caches to avoid
+  # stale builds (exact keys only, no restore-keys fallback).
   # ===========================================================================
   build:
     name: Build
     runs-on: ubuntu-latest
     needs: paths-filter
-    if: needs.paths-filter.outputs.docs_only != 'true'
+    if: needs.paths-filter.outputs.docs_only != 'true' && needs.paths-filter.outputs.build_relevant == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -375,11 +387,41 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Restore plugin build cache
+        id: plugin-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: dist/plugins
+          key: ci-plugin-v1-${{ hashFiles('package-lock.json', 'plugins/**', 'packages/plugin-build/**', 'packages/plugin-utils/**') }}
+
+      - name: Restore Next.js cache
+        id: next-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: apps/web-next/.next/cache
+          key: ci-next-v1-${{ hashFiles('package-lock.json', 'apps/web-next/**', 'next.config*', 'packages/database/**') }}
+
       - name: Vercel build (plugin bundles + Next.js)
+        id: vercel-build
         run: ./bin/vercel-build.sh
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
           NEXTAUTH_SECRET: test-secret-at-least-32-characters-long
+          SKIP_PLUGIN_BUILD: ${{ steps.plugin-cache.outputs.cache-hit == 'true' }}
+
+      - name: Save plugin build cache
+        if: steps.vercel-build.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: dist/plugins
+          key: ci-plugin-v1-${{ hashFiles('package-lock.json', 'plugins/**', 'packages/plugin-build/**', 'packages/plugin-utils/**') }}
+
+      - name: Save Next.js cache
+        if: steps.vercel-build.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: apps/web-next/.next/cache
+          key: ci-next-v1-${{ hashFiles('package-lock.json', 'apps/web-next/**', 'next.config*', 'packages/database/**') }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -421,6 +463,7 @@ jobs:
             echo "::error::Lint/TypeCheck failed"
             exit 1
           fi
+          # Build can be skipped when only docs/config changed (build_relevant=false)
           if [[ "${{ needs.build.result }}" == "failure" ]]; then
             echo "::error::Build failed"
             exit 1
