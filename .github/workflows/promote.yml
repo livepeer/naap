@@ -1,11 +1,14 @@
 # =============================================================================
-# Release Promotion — Create PR from develop → main
+# Tag Release — Create a tagged release from main
 # =============================================================================
-# Manually triggered to promote staging (develop) to production (main).
-# Creates a release PR with the specified version tag.
+# Manually triggered to tag a release version from the current main branch.
+# Creates a GitHub Release with auto-generated release notes.
+#
+# Branch model: feature-branch-off-main (trunk-based).
+# All changes land on main via PRs. This workflow tags a release when ready.
 # =============================================================================
 
-name: Promote Release
+name: Tag Release
 
 on:
   workflow_dispatch:
@@ -14,20 +17,24 @@ on:
         description: 'Release version (e.g. v1.2.0)'
         required: true
         type: string
+      prerelease:
+        description: 'Mark as pre-release?'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
-  promote:
-    name: Create Release PR
+  tag-release:
+    name: Create Release Tag
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout develop
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
-          ref: develop
+          ref: main
           fetch-depth: 0
 
       - name: Validate version format
@@ -39,43 +46,41 @@ jobs:
           fi
           echo "Version ${VERSION} is valid"
 
-      - name: Read PR template
-        id: template
+      - name: Check tag does not exist
         run: |
-          if [ -f ".github/PULL_REQUEST_TEMPLATE/release.md" ]; then
-            BODY=$(cat .github/PULL_REQUEST_TEMPLATE/release.md)
-          else
-            BODY="## Release ${{ github.event.inputs.version }}
-
-          ### Changes
-          _Auto-generated release PR from develop → main._
-
-          ### Checklist
-          - [ ] All CI checks passing on develop
-          - [ ] Staging smoke tests verified
-          - [ ] Release notes reviewed
-          - [ ] Breaking changes documented"
+          VERSION="${{ github.event.inputs.version }}"
+          if git rev-parse "refs/tags/${VERSION}" >/dev/null 2>&1; then
+            echo "::error::Tag ${VERSION} already exists"
+            exit 1
           fi
 
-          # Write to file for gh pr create --body-file
-          echo "$BODY" > /tmp/pr-body.md
+      - name: Create and push tag
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          git tag -a "${VERSION}" -m "Release ${VERSION}"
+          git push origin "${VERSION}"
+          echo "Tagged ${VERSION} at $(git rev-parse HEAD)"
 
-      - name: Create release PR
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr create \
-            --base main \
-            --head develop \
-            --title "Release ${{ github.event.inputs.version }}" \
-            --body-file /tmp/pr-body.md \
-            --label "release/production" \
-            || echo "::warning::PR may already exist for develop → main"
+          VERSION="${{ github.event.inputs.version }}"
+          PRERELEASE_FLAG=""
+          if [[ "${{ github.event.inputs.prerelease }}" == "true" ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          gh release create "${VERSION}" \
+            --title "Release ${VERSION}" \
+            --generate-notes \
+            ${PRERELEASE_FLAG}
 
       - name: Summary
         run: |
-          echo "## Release Promotion" >> $GITHUB_STEP_SUMMARY
+          echo "## Release Tagged" >> $GITHUB_STEP_SUMMARY
           echo "- **Version:** ${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Source:** develop" >> $GITHUB_STEP_SUMMARY
-          echo "- **Target:** main" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** main" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`$(git rev-parse HEAD)\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Pre-release:** ${{ github.event.inputs.prerelease }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
