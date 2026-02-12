@@ -30,6 +30,8 @@ const PLUGIN_DIR_MAP: Record<string, string> = {
   'myDashboard': 'my-dashboard',
   'pluginPublisher': 'plugin-publisher',
   'daydreamVideo': 'daydream-video',
+  'serviceGateway': 'service-gateway',
+  'dashboardProviderMock': 'dashboard-provider-mock',
 };
 
 // MIME types for plugin assets
