@@ -61,6 +61,7 @@ export interface LiveV2VSession {
 
 export class LivepeerAIClient {
   private baseUrl: string;
+  private readonly validatedOrigin: string;
 
   constructor(baseUrl: string = 'http://localhost:9935') {
     // Validate baseUrl to prevent SSRF via constructor injection
@@ -76,6 +77,20 @@ export class LivepeerAIClient {
       throw new Error(`LivepeerAIClient: disallowed hostname "${parsed.hostname}"`);
     }
     this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.validatedOrigin = parsed.origin;
+  }
+
+  /**
+   * Build a validated URL from a path relative to baseUrl.
+   * Uses the URL constructor + origin check so static analysis (CodeQL)
+   * recognizes the SSRF-safe pattern at every fetch call site.
+   */
+  private buildUrl(path: string): string {
+    const url = new URL(path, this.baseUrl);
+    if (url.origin !== this.validatedOrigin) {
+      throw new Error('URL origin mismatch — possible path traversal');
+    }
+    return url.toString();
   }
 
   /**
@@ -133,7 +148,7 @@ export class LivepeerAIClient {
   }
 
   async textToSpeech(params: { text: string; model_id?: string }): Promise<ArrayBuffer> {
-    const res = await fetch(`${this.baseUrl}/text-to-speech`, {
+    const res = await fetch(this.buildUrl('/text-to-speech'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
@@ -149,7 +164,7 @@ export class LivepeerAIClient {
   }
 
   async *llmStream(params: LLMRequest): AsyncIterable<LLMChunk> {
-    const res = await fetch(`${this.baseUrl}/llm`, {
+    const res = await fetch(this.buildUrl('/llm'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...params, stream: true }),
@@ -197,10 +212,7 @@ export class LivepeerAIClient {
 
   async getLiveVideoStatus(streamId: string): Promise<{ status: string }> {
     const safeId = this.sanitizePath(streamId);
-    const url = new URL(`/live/video-to-video/${safeId}/status`, this.baseUrl);
-    // Verify origin matches baseUrl (defense-in-depth; baseUrl is already validated in constructor)
-    if (url.origin !== new URL(this.baseUrl).origin) throw new Error('URL origin mismatch');
-    const res = await fetch(url.toString());
+    const res = await fetch(this.buildUrl(`/live/video-to-video/${safeId}/status`));
     if (!res.ok) throw new Error(`Get live status failed: ${res.status}`);
     return res.json();
   }
@@ -209,7 +221,7 @@ export class LivepeerAIClient {
 
   async processRequest(capability: string, body: unknown, headers?: Record<string, string>): Promise<unknown> {
     const safeCapability = this.sanitizePath(capability);
-    const res = await fetch(`${this.baseUrl}/${safeCapability}`, {
+    const res = await fetch(this.buildUrl(`/${safeCapability}`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(body),
@@ -219,7 +231,7 @@ export class LivepeerAIClient {
   }
 
   async getNetworkCapabilities(): Promise<Capability[]> {
-    const res = await fetch(`${this.baseUrl}/getNetworkCapabilities`);
+    const res = await fetch(this.buildUrl('/getNetworkCapabilities'));
     if (!res.ok) throw new Error(`Get capabilities failed: ${res.status}`);
     const data = await res.json();
     return data.capabilities || [];
@@ -228,7 +240,7 @@ export class LivepeerAIClient {
   // --- Helpers ---
 
   private async postJSON<T>(path: string, body: unknown): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await fetch(this.buildUrl(path), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -246,7 +258,7 @@ export class LivepeerAIClient {
     for (const [key, value] of Object.entries(params)) {
       formData.append(key, String(value));
     }
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await fetch(this.buildUrl(path), {
       method: 'POST',
       body: formData,
     });
