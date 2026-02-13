@@ -13,7 +13,6 @@ reviews:
     enabled: true
     drafts: false
     base_branches:
-      - develop
       - main
 
   # Post a high-level summary at the top of each review

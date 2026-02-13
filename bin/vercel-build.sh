@@ -10,10 +10,8 @@
 #   5. Sync plugin records in the database
 #
 # Optimizations:
-#   - Source-hash caching skips unchanged plugins
-#   - Skips prisma db push if schema unchanged
-#   - Skips sync-plugin-registry if no plugin.json changed
-#   - Source-hash caching via build-plugins.sh avoids redundant builds
+#   - Source-hash caching skips unchanged plugins (build-plugins.sh)
+#   - prisma db push and sync-plugin-registry always run (idempotent, ~5s + ~2s)
 #
 # Usage: ./bin/vercel-build.sh
 #
@@ -61,30 +59,13 @@ fi
 # Step 3: Push schema to database
 # NOTE: prisma generate is NOT needed here — it already ran during
 # npm install via packages/database postinstall hook.
-# Only push schema if it changed (or always for production).
-# DIFF_BASE used for schema/registry change detection (validated below)
-DIFF_BASE="${VERCEL_GIT_PREVIOUS_SHA:-HEAD~1}"
-# Validate DIFF_BASE; fall back to HEAD~1, then force updates if both fail
-if ! git rev-parse --verify "$DIFF_BASE" >/dev/null 2>&1; then
-  echo "WARN: DIFF_BASE ($DIFF_BASE) is invalid, falling back to HEAD~1"
-  DIFF_BASE="HEAD~1"
-  if ! git rev-parse --verify "$DIFF_BASE" >/dev/null 2>&1; then
-    echo "WARN: HEAD~1 also invalid (first commit?), forcing schema/registry updates"
-    SCHEMA_CHANGED="forced"
-  fi
-fi
-if [ -z "${SCHEMA_CHANGED:-}" ]; then
-  SCHEMA_CHANGED=$(git diff --name-only "$DIFF_BASE" HEAD -- packages/database/prisma/ 2>/dev/null | head -1 || true)
-fi
-
-if [ -n "$SCHEMA_CHANGED" ] || [ "${VERCEL_ENV}" = "production" ]; then
-  echo "[3/5] Prisma db push (schema changed or production)..."
-  cd packages/database || { echo "ERROR: Failed to cd to packages/database"; exit 1; }
-  npx prisma db push --skip-generate --accept-data-loss 2>&1 || echo "WARN: prisma db push had issues (non-fatal)"
-  cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
-else
-  echo "[3/5] Skipping Prisma db push (schema unchanged in this commit)"
-fi
+# Always push — it's idempotent (no-ops when schema matches) and takes ~5s.
+# The previous diff-based skip was unreliable for feature branches where
+# schema changes were many commits back (DIFF_BASE only checks recent commits).
+echo "[3/5] Prisma db push..."
+cd packages/database || { echo "ERROR: Failed to cd to packages/database"; exit 1; }
+npx prisma db push --skip-generate --accept-data-loss 2>&1 || echo "WARN: prisma db push had issues (non-fatal)"
+cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
 
 # Step 4: Build Next.js app
 echo "[4/5] Building Next.js app..."
@@ -93,18 +74,10 @@ npm run build
 cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
 
 # Step 5: Sync plugin registry in database
-# Only sync if plugin.json files changed (or always for production).
-if [ "${SCHEMA_CHANGED:-}" = "forced" ]; then
-  PLUGINS_CHANGED="forced"
-else
-  PLUGINS_CHANGED=$(git diff --name-only "$DIFF_BASE" HEAD -- plugins/*/plugin.json 2>/dev/null | head -1 || true)
-fi
-
-if [ -n "$PLUGINS_CHANGED" ] || [ "${VERCEL_ENV}" = "production" ]; then
-  echo "[5/5] Syncing plugin registry..."
-  npx tsx bin/sync-plugin-registry.ts
-else
-  echo "[5/5] Skipping plugin registry sync (no plugin.json changes)"
-fi
+# Always run — it's idempotent (upserts) and fast (~2-3s).
+# This ensures stale plugins are cleaned up when plugins are removed,
+# and new plugins are registered even if only the sync script changed.
+echo "[5/5] Syncing plugin registry..."
+npx tsx bin/sync-plugin-registry.ts
 
 echo "=== Vercel Build Pipeline Complete ==="

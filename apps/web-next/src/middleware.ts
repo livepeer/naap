@@ -4,19 +4,11 @@ import type { NextRequest } from 'next/server';
 // Plugin route mapping: path prefix → plugin name
 // These routes are defined in the database seed and used by plugins
 const PLUGIN_ROUTE_MAP: Record<string, string> = {
-  '/wallet': 'myWallet',
-  '/gateways': 'gatewayManager',
-  '/orchestrators': 'orchestratorManager',
   '/capacity': 'capacityPlanner',
-  '/analytics': 'networkAnalytics',
-  '/leaderboard': 'networkAnalytics',
   '/forum': 'community',
   '/developers': 'developerApi',
   '/publish': 'pluginPublisher',
-  '/daydream': 'daydreamVideo',
-  '/my-dashboard': 'myDashboard',
   // Note: /marketplace and /dashboard have their own page.tsx files
-  // /dashboard is the shell overview page, /my-dashboard is the Metabase plugin
 };
 
 // CSP configuration for plugin pages

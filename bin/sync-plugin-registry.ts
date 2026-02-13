@@ -103,23 +103,51 @@ async function main(): Promise<void> {
       }
     }
 
-    // Soft-disable stale plugins that are no longer in the repo
+    // Cleanup stale plugins — PRODUCTION ONLY.
+    // Preview branches share a single database, so branch A disabling branch B's
+    // plugins causes them to disappear on branch B's preview. Only production
+    // (merged to main) should clean up stale records.
     const discoveredNames = new Set(discovered.map((p) => p.name));
-    const dbPlugins = await prisma.workflowPlugin.findMany({
-      where: { enabled: true },
-      select: { name: true },
-    });
-
+    const isProduction = process.env.VERCEL_ENV === 'production';
     let disabled = 0;
-    for (const db of dbPlugins) {
-      if (!discoveredNames.has(db.name)) {
-        await prisma.workflowPlugin.update({
-          where: { name: db.name },
-          data: { enabled: false },
-        });
-        disabled++;
-        console.log(`  [DISABLED] ${db.name} (no longer in repo)`);
+    let unlisted = 0;
+
+    if (isProduction) {
+      // Soft-disable stale WorkflowPlugin records
+      const dbPlugins = await prisma.workflowPlugin.findMany({
+        where: { enabled: true },
+        select: { name: true },
+      });
+
+      for (const db of dbPlugins) {
+        if (!discoveredNames.has(db.name)) {
+          await prisma.workflowPlugin.update({
+            where: { name: db.name },
+            data: { enabled: false },
+          });
+          disabled++;
+          console.log(`  [DISABLED] ${db.name} (no longer in repo)`);
+        }
       }
+
+      // Unlist stale PluginPackage records
+      const publishedPackages = await prisma.pluginPackage.findMany({
+        where: { publishStatus: 'published' },
+        select: { name: true },
+      });
+
+      for (const pkg of publishedPackages) {
+        if (!discoveredNames.has(pkg.name)) {
+          await prisma.pluginPackage.update({
+            where: { name: pkg.name },
+            data: { publishStatus: 'unlisted' },
+          });
+          unlisted++;
+          console.log(`  [UNLISTED] ${pkg.name} (no longer in repo)`);
+        }
+      }
+    } else {
+      console.log('[sync-plugin-registry] Skipping stale plugin cleanup (preview env — shared DB)');
     }
 
     console.log(
@@ -217,7 +245,7 @@ async function main(): Promise<void> {
     }
 
     console.log(
-      `[sync-plugin-registry] PluginPackages: ${pkgCreated} created, ${pkgUpdated} updated`,
+      `[sync-plugin-registry] PluginPackages: ${pkgCreated} created, ${pkgUpdated} updated${isProduction ? `, ${unlisted} unlisted` : ''}`,
     );
     console.log('[sync-plugin-registry] Done.');
   } finally {
