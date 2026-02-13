@@ -33,7 +33,7 @@ docker ps | grep naap-db
 # If not running:
 docker start naap-db
 # Or re-create:
-./bin/setup.sh
+./bin/start.sh
 ```
 
 2. **Port 4000 already in use**:
@@ -57,8 +57,8 @@ kill <PID>
 ```bash
 # Check if it exists
 ls apps/web-next/.env.local
-# If missing, re-run setup
-./bin/setup.sh
+# If missing, re-run start (setup is automatic)
+./bin/start.sh
 ```
 
 2. **Port 3000 in use**:
@@ -111,7 +111,7 @@ docker start naap-db
 
 # Or recreate from scratch
 docker rm -f naap-db
-./bin/setup.sh
+./bin/start.sh
 ```
 
 ### Schema Missing Tables
@@ -182,7 +182,7 @@ npx tsc --noEmit
 ### Kill All NaaP Processes
 
 ```bash
-./bin/start.sh stop
+./bin/stop.sh
 # If that doesn't work:
 pkill -f "next dev" 2>/dev/null
 pkill -f "tsx watch" 2>/dev/null
@@ -197,8 +197,7 @@ The `.env` files are gitignored for security. They're auto-created by:
 ```bash
 # Auto-creates all missing .env files
 ./bin/start.sh       # Creates on every startup
-# OR
-./bin/setup.sh       # Creates during initial setup
+# Setup runs automatically on first start
 ```
 
 ### Wrong Database URL in .env

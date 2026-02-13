@@ -22,6 +22,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.989.0",
     "@naap/config": "*",
     "@naap/database": "*",
     "@naap/plugin-sdk": "*",
@@ -33,6 +34,7 @@
     "ably": "^2.17.1",
     "framer-motion": "^12.0.0",
     "ipaddr.js": "^2.3.0",
+    "isomorphic-dompurify": "^2.36.0",
     "lucide-react": "^0.563.0",
     "mime-types": "^3.0.2",
     "next": "15.5.12",

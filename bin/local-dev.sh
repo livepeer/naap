@@ -5,11 +5,11 @@
 # ║  NaaP now uses npm as its package manager.                     ║
 # ║                                                                ║
 # ║  Use instead:                                                  ║
-# ║    ./bin/setup.sh        # Full automated setup                ║
-# ║    ./bin/start.sh        # Start the platform                  ║
+# ║    ./bin/start.sh        # Start the platform (setup is auto)  ║
+# ║    ./bin/stop.sh         # Stop the platform                   ║
 # ╚════════════════════════════════════════════════════════════════╝
 
-echo "WARNING: This script is DEPRECATED. Use ./bin/setup.sh instead."
+echo "WARNING: This script is DEPRECATED. Use ./bin/start.sh instead."
 exit 1
 
 set -e

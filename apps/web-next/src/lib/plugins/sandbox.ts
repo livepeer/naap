@@ -5,6 +5,7 @@
  * Limits what plugins can access to prevent security issues.
  */
 
+import DOMPurify from 'isomorphic-dompurify';
 import type { ShellContext } from '@naap/plugin-sdk';
 
 /**
@@ -266,21 +267,15 @@ export const PluginSecurity = {
   },
 
   /**
-   * Sanitizes HTML content (basic)
+   * Sanitizes HTML content using DOMPurify (allowlist-based, XSS-resistant).
+   * Removes script tags, event handlers, and unsafe attributes.
    */
   sanitizeHtml(html: string): string {
-    // Iteratively strip all HTML tags to handle nested/malformed tags that
-    // single-pass regex approaches miss (e.g. <<script>script>).
-    const tagPattern = /<\/?[^>]+(>|$)/g;
-    let result = html;
-    let previous = '';
-    while (result !== previous) {
-      previous = result;
-      result = result.replace(tagPattern, '');
-    }
-    // Also neutralise any leftover event-handler-style attributes
-    result = result.replace(/on\w+\s*=/gi, 'data-blocked-event=');
-    return result;
+    return DOMPurify.sanitize(html, {
+      USE_PROFILES: { html: true },
+      ALLOWED_TAGS: ['p', 'div', 'span', 'br', 'ul', 'ol', 'li', 'strong', 'em', 'a'],
+      ALLOWED_ATTR: ['href', 'title', 'target', 'rel'],
+    });
   },
 
   /**

@@ -193,7 +193,7 @@ const widgets = await db.yourPluginWidget.findMany();
 ### Start database
 
 ```bash
-./bin/start.sh start --infra
+./bin/start.sh --infra
 # or:
 docker-compose up -d database
 ```
