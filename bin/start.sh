@@ -111,7 +111,14 @@ preflight_check() {
     # Step 1: Install dependencies
     log_info "Installing dependencies (npm install)... This may take 1-2 minutes."
     cd "$ROOT_DIR" || { log_error "Cannot cd to project root"; exit 1; }
-    npm install 2>&1 | tail -5
+    npm_out=$(npm install 2>&1)
+    npm_exit=$?
+    if [ "$npm_exit" -ne 0 ]; then
+      echo "$npm_out" | tail -30
+      log_error "npm install failed (exit $npm_exit). Fix the errors above and retry."
+      exit 1
+    fi
+    echo "$npm_out" | tail -5
     log_success "Dependencies installed"
 
     # Step 2: Install git hooks (pre-push validation)
@@ -872,6 +879,7 @@ start_shell() {
   # Preserving the cache across restarts saves 30-60s of recompilation time.
   if [ "$CLEAN_NEXT" = "1" ]; then
     [ -d ".next" ] && { log_info "Cleaning .next cache (--clean)..."; rm -rf .next; }
+    [ -f "$ROOT_DIR/.prisma-synced" ] && rm -f "$ROOT_DIR/.prisma-synced"
   else
     log_debug "Preserving .next cache (use --clean to force rebuild)"
   fi
@@ -1803,6 +1811,11 @@ case "$COMMAND" in
 esac
 
 case "$COMMAND" in
+  --infra)
+    preflight_check
+    setup_infra_full
+    log_success "Infrastructure ready (Docker + DB sync). Run ./bin/start.sh to start the platform."
+    ;;
   start|"")
     case "${COMMAND_ARGS[0]:-}" in
       --all)        cmd_start_all ;;
