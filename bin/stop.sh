@@ -118,13 +118,14 @@ stop_all() {
     all_ports="$all_ports $port"
   done
   for port in $all_ports; do
-    local op
-    op=$(lsof -ti:"$port" 2>/dev/null || true)
-    if [ -n "$op" ]; then
+    local pids
+    pids=$(lsof -ti:"$port" 2>/dev/null || true)
+    for op in $pids; do
+      [ -z "$op" ] && continue
       log_info "Killing orphan on port $port (PID $op)"
-      kill -TERM $op 2>/dev/null || true
+      kill -TERM "$op" 2>/dev/null || true
       ((killed++))
-    fi
+    done
   done
 
   # Clear PID file
@@ -176,12 +177,13 @@ stop_plugin() {
     fp=$(grep -B2 -A5 '"frontend"' "$pj" | grep -o '"devPort"[[:space:]]*:[[:space:]]*[0-9]*' | head -1 | grep -o '[0-9]*')
     for port in $bp $fp; do
       [ -z "$port" ] && continue
-      local op
-      op=$(lsof -ti:"$port" 2>/dev/null || true)
-      if [ -n "$op" ]; then
-        kill -TERM $op 2>/dev/null || true
+      local pids
+      pids=$(lsof -ti:"$port" 2>/dev/null || true)
+      for op in $pids; do
+        [ -z "$op" ] && continue
+        kill -TERM "$op" 2>/dev/null || true
         stopped=true
-      fi
+      done
     done
   fi
 

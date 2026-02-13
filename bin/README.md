@@ -272,7 +272,7 @@ npx prisma studio               # open GUI
 
 | Script | Purpose |
 |--------|---------|
-| `setup.sh` | Setup (deps, DB, build) — called automatically by start.sh |
+| `setup.sh` | **Deprecated** — redirects to start.sh; use `./bin/start.sh` (setup is automatic on first run) |
 | `build-plugins.sh` | Build all plugin UMD bundles |
 | `health-monitor.sh` | Background service health daemon (started automatically) |
 | `smoke.sh` | Run smoke tests against running services |
