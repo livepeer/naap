@@ -73,6 +73,14 @@ cd apps/web-next || { echo "ERROR: Failed to cd to apps/web-next"; exit 1; }
 npm run build
 cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
 
+# Step 5: (Optional) One-time cleanup for PR 87 moved plugins
+# Set RUN_PLUGIN_CLEANUP=1 in Vercel env to run once, then remove.
+# Cleans UserPluginPreference, TenantPluginInstall, TeamPluginInstall for moved plugins.
+if [ "${RUN_PLUGIN_CLEANUP}" = "1" ] && [ "${VERCEL_ENV}" = "production" ] && [ -n "$DATABASE_URL" ]; then
+  echo "[5a/5] Running plugin cleanup (PR 87)..."
+  npx tsx bin/cleanup-moved-plugins.ts --force 2>&1 || echo "WARN: cleanup had issues (non-fatal)"
+fi
+
 # Step 5: Sync plugin registry in database
 # Always run — it's idempotent (upserts) and fast (~2-3s).
 # This ensures stale plugins are cleaned up when plugins are removed,

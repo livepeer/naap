@@ -21,6 +21,7 @@
     "db:seed": "./bin/db-seed.sh",
     "db:reset": "./bin/db-reset.sh",
     "db:migrate": "./bin/db-migrate.sh",
+    "db:cleanup-moved-plugins": "npx tsx bin/cleanup-moved-plugins.ts",
     "infra:start": "./bin/start.sh --infra",
     "plugin:list": "./bin/start.sh list",
     "logs": "./bin/start.sh logs"
