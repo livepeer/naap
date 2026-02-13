@@ -617,8 +617,15 @@ async function main() {
   // ============================================
   console.log('⭐ Creating user plugin preferences for core plugins...');
 
-  // Core plugins that should be visible to all users
-  const corePluginNames = ['marketplace', 'pluginPublisher'];
+  // Core plugins that should be visible to all users (PR 87: 6 remaining in plugins/)
+  const corePluginNames = [
+    'marketplace',
+    'pluginPublisher',
+    'developerApi',
+    'community',
+    'capacityPlanner',
+    'dashboardProviderMock',
+  ];
   
   const allUsersForPrefs = await prisma.user.findMany({ select: { id: true } });
   let prefCount = 0;
