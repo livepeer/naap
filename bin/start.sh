@@ -442,13 +442,18 @@ UNIFIED_DB_NAME="naap"
 UNIFIED_DB_URL="postgresql://postgres:postgres@localhost:5432/naap"
 
 # PostgreSQL schemas expected in the unified database.
-# If you add a new plugin schema, add it here AND in docker/init-schemas.sql
-# AND in packages/database/prisma/schema.prisma (schemas array).
+# Must match packages/database/prisma/schema.prisma (schemas array) and docker/init-schemas.sql.
+# Core plugins (plugins/): community, capacity, developer-api.
+# Example plugins (examples/): wallet, dashboard, daydream, gateway — kept for backward compat.
 PLUGIN_SCHEMAS=(
   "public"
   "plugin_community"
   "plugin_capacity"
   "plugin_developer_api"
+  "plugin_wallet"
+  "plugin_dashboard"
+  "plugin_daydream"
+  "plugin_gateway"
 )
 
 get_all_plugins() {
