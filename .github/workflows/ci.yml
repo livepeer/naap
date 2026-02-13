@@ -40,7 +40,7 @@ jobs:
       build_relevant: ${{ steps.filter.outputs.build_relevant }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run paths filter
         id: filter
@@ -113,10 +113,10 @@ jobs:
     if: needs.paths-filter.outputs.docs_only != 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -137,10 +137,10 @@ jobs:
     if: needs.paths-filter.outputs.docs_only != 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -166,10 +166,10 @@ jobs:
     if: needs.paths-filter.outputs.shell == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -181,7 +181,7 @@ jobs:
         run: cd apps/web-next && npm run test:coverage
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: apps/web-next/coverage/lcov.info
           flags: shell
@@ -198,10 +198,10 @@ jobs:
     if: needs.paths-filter.outputs.packages == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -217,7 +217,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload SDK coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         if: always()
         with:
           files: packages/plugin-sdk/coverage/lcov.info
@@ -250,10 +250,10 @@ jobs:
           - plugin-publisher
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -308,7 +308,7 @@ jobs:
           - plugin-publisher
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -327,7 +327,7 @@ jobs:
 
       - name: Setup Node.js
         if: steps.check.outputs.changed == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -356,7 +356,7 @@ jobs:
 
       - name: Upload plugin coverage
         if: steps.check.outputs.changed == 'true' && always()
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: plugins/${{ matrix.plugin }}/frontend/coverage/lcov.info
           flags: plugin-${{ matrix.plugin }}
@@ -376,10 +376,10 @@ jobs:
     if: needs.paths-filter.outputs.docs_only != 'true' && needs.paths-filter.outputs.build_relevant == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -389,14 +389,14 @@ jobs:
 
       - name: Restore plugin build cache
         id: plugin-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: dist/plugins
           key: ci-plugin-v1-${{ hashFiles('package-lock.json', 'plugins/**', 'packages/plugin-build/**', 'packages/plugin-utils/**') }}
 
       - name: Restore Next.js cache
         id: next-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: apps/web-next/.next/cache
           key: ci-next-v1-${{ hashFiles('package-lock.json', 'apps/web-next/**', 'next.config*', 'packages/database/**') }}
@@ -411,20 +411,20 @@ jobs:
 
       - name: Save plugin build cache
         if: steps.vercel-build.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: dist/plugins
           key: ci-plugin-v1-${{ hashFiles('package-lock.json', 'plugins/**', 'packages/plugin-build/**', 'packages/plugin-utils/**') }}
 
       - name: Save Next.js cache
         if: steps.vercel-build.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: apps/web-next/.next/cache
           key: ci-next-v1-${{ hashFiles('package-lock.json', 'apps/web-next/**', 'next.config*', 'packages/database/**') }}
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: nextjs-build
           path: apps/web-next/.next
@@ -440,7 +440,7 @@ jobs:
     if: always() && !cancelled()
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Verify required files
         run: |
