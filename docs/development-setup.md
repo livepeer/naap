@@ -163,6 +163,26 @@ See [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md) for production deployment det
 
 ## Troubleshooting
 
+### Dev Stops Working or Pages 500 After Merge/Branch Switch
+
+If you merged branches (especially with package.json or package-lock.json conflicts),
+the `.next` cache can become corrupted, causing `MODULE_NOT_FOUND` or 500 errors:
+
+```bash
+# Full clean restart (clears .next, re-syncs DB)
+./bin/stop.sh
+./bin/start.sh --clean
+```
+
+If that doesn’t help, do a full dependency refresh:
+
+```bash
+./bin/stop.sh
+rm -rf node_modules apps/*/node_modules packages/*/node_modules plugins/*/*/node_modules services/*/node_modules
+npm install
+./bin/start.sh --clean
+```
+
 ### Port Already in Use
 
 ```bash

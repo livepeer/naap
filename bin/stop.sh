@@ -35,6 +35,17 @@ log_warn()    { echo -e "${YELLOW}[WARN]${NC}  $1"; }
 log_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 
 ###############################################################################
+# PROCESS GROUP KILL
+###############################################################################
+# start.sh spawns processes via setsid, so PID == PGID. Killing the process
+# group ensures all child processes (npm, node, tsx) are terminated.
+# Fallback to single-PID kill if process group kill fails (e.g. not a leader).
+kill_tree() {
+  local pid=$1 sig=${2:-TERM}
+  kill -"$sig" -- -"$pid" 2>/dev/null || kill -"$sig" "$pid" 2>/dev/null || true
+}
+
+###############################################################################
 # PORT DISCOVERY
 ###############################################################################
 
@@ -78,9 +89,9 @@ stop_all() {
     if [ $count -gt 0 ]; then
       log_info "Sending SIGTERM to $count tracked service(s)..."
 
-      # Send SIGTERM to all at once (parallel shutdown)
+      # Send SIGTERM to all at once (parallel shutdown, process-group aware)
       for pid in "${all_pids[@]}"; do
-        kill -TERM "$pid" 2>/dev/null || true
+        kill_tree "$pid" TERM
       done
 
       # Wait for graceful shutdown
@@ -101,11 +112,11 @@ stop_all() {
         done
       done
 
-      # Force-kill any survivors
+      # Force-kill any survivors (process-group aware)
       for i in "${!all_pids[@]}"; do
         [ -z "${all_pids[$i]}" ] && continue
         log_warn "Force-killing ${all_names[$i]} (PID ${all_pids[$i]})"
-        kill -9 "${all_pids[$i]}" 2>/dev/null || true
+        kill_tree "${all_pids[$i]}" 9
         ((killed++))
       done
     fi
@@ -156,7 +167,7 @@ stop_plugin() {
       local pid
       pid=$(grep " ${svc_name}$" "$PID_FILE" 2>/dev/null | tail -1 | cut -d' ' -f1)
       if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        kill -TERM "$pid" 2>/dev/null || true
+        kill_tree "$pid" TERM
         log_success "Stopped ${svc_name} (PID $pid)"
         stopped=true
       fi

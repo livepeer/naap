@@ -65,7 +65,8 @@ Starts core services and all plugin backends without the Next.js shell.
 ```
 
 All services receive SIGTERM simultaneously for parallel shutdown.
-Services get 5 seconds (configurable via GRACEFUL_TIMEOUT) for graceful shutdown before force-kill.
+Services get 5 seconds for graceful shutdown before force-kill.
+Set `GRACEFUL_TIMEOUT=<seconds>` environment variable to customize (e.g., `GRACEFUL_TIMEOUT=15 ./bin/stop.sh`).
 
 ## Monitoring
 

@@ -37,7 +37,7 @@ for arg in "$@"; do
   case "$arg" in
     --start)
       echo -e "\033[0;34m[INFO]\033[0m  Redirecting to ./bin/start.sh..."
-      exec "$SCRIPT_DIR/start.sh"
+      exec "$SCRIPT_DIR/start.sh" "$@"
       ;;
   esac
 done
