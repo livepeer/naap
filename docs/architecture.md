@@ -62,7 +62,7 @@ naap/
 │   └── utils/                   # Shared utilities
 │
 ├── bin/                         # Platform scripts
-│   ├── setup.sh                 # Setup (called automatically by start.sh)
+│   ├── setup.sh                 # Deprecated — redirects to start.sh
 │   ├── start.sh                 # Start/validate platform
 │   ├── stop.sh                  # Stop platform
 │   └── vercel-build.sh          # Vercel build script

@@ -111,14 +111,15 @@ preflight_check() {
     # Step 1: Install dependencies
     log_info "Installing dependencies (npm install)... This may take 1-2 minutes."
     cd "$ROOT_DIR" || { log_error "Cannot cd to project root"; exit 1; }
-    npm_out=$(npm install 2>&1)
-    npm_exit=$?
+    npm_log="$LOG_DIR/npm-install.log"
+    npm install 2>&1 | tee "$npm_log"
+    npm_exit=${PIPESTATUS[0]}
     if [ "$npm_exit" -ne 0 ]; then
-      echo "$npm_out" | tail -30
+      tail -30 "$npm_log"
       log_error "npm install failed (exit $npm_exit). Fix the errors above and retry."
       exit 1
     fi
-    echo "$npm_out" | tail -5
+    tail -5 "$npm_log"
     log_success "Dependencies installed"
 
     # Step 2: Install git hooks (pre-push validation)
@@ -1556,7 +1557,12 @@ cmd_start_shell() {
   t=$(date +%s)
   acquire_lock
   preflight_check
-  _tstart; setup_infra; _tend "Infrastructure"
+  # When --clean is set, run full infra+DB sync (not just setup_infra)
+  if [ "$CLEAN_NEXT" = "1" ]; then
+    _tstart; setup_infra_full; _tend "Infrastructure"
+  else
+    _tstart; setup_infra; _tend "Infrastructure"
+  fi
   _tstart; ensure_plugins_built; _tend "Plugin builds"
   _tstart; start_core; _tend "Core services"
   _tstart; start_fe; _tend "Frontend (Next.js)"

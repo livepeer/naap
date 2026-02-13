@@ -48,7 +48,6 @@ This is the command you will use 90% of the time. It:
 ```bash
 ./bin/start.sh community                  # shell + community backend
 ./bin/start.sh gateway-manager community  # shell + 2 backends
-./bin/start.sh community                  # same, with smart start
 ```
 
 Just type the plugin name(s) as arguments. No flags needed.

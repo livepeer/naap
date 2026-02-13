@@ -64,7 +64,7 @@ A unified CLI for the entire platform:
 
 ```bash
 ./bin/start.sh --all           # Start everything
-./bin/stop.sh --all            # Graceful shutdown
+./bin/stop.sh                  # Graceful shutdown
 ./bin/start.sh status          # Health dashboard
 ./bin/start.sh dev <plugin>    # Single-plugin dev mode
 ./bin/start.sh restart <plugin> # Restart one plugin

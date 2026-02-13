@@ -275,6 +275,7 @@ export const PluginSecurity = {
       USE_PROFILES: { html: true },
       ALLOWED_TAGS: ['p', 'div', 'span', 'br', 'ul', 'ol', 'li', 'strong', 'em', 'a'],
       ALLOWED_ATTR: ['href', 'title', 'target', 'rel'],
+      ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
     });
   },
 
