@@ -1,6 +1,10 @@
 # Vercel Build Optimization Guide
 
-Current Vercel build time: **~1m 36s**. This guide outlines concrete steps to reduce it.
+Current Vercel build time: **~1m 36s** (target). Main builds exceeded 2m after switching to `npm ci` — see "What Went Wrong" below.
+
+## What Went Wrong (Feb 2026)
+
+Switching `installCommand` from `npm install` to `npm ci` **slowed builds**. `npm ci` deletes `node_modules` before installing, which bypasses Vercel's automatic `node_modules` cache. Every build became a full reinstall instead of an incremental update. **Use `npm install`** to restore cache benefits.
 
 ## Build Pipeline Breakdown
 
@@ -46,9 +50,9 @@ npx nx connect
 
 `vercel-build.sh` already skips `prisma db push` for preview builds when the schema is unchanged. Ensure `VERCEL_GIT_PREVIOUS_SHA` is set for preview deploys so the diff check works.
 
-### 5. Optimize `installCommand` ✓ Applied
+### 5. `installCommand` — Use `npm install`, not `npm ci`
 
-`vercel.json` now uses `npm ci --include=dev` for deterministic, faster installs.
+**npm ci slows Vercel builds.** It removes `node_modules` before installing, bypassing Vercel's automatic cache. Use `npm install --include=dev` so Vercel can cache dependencies between deploys.
 
 ### 6. Narrow the Upload Surface
 
@@ -62,7 +66,7 @@ npx nx connect
 | Action | Expected savings | Status |
 |--------|------------------|--------|
 | Enable Nx Cloud | 30–60s on cache hits | Manual: `npx nx connect` |
-| Use `npm ci` in install | 5–15s | ✓ Applied |
+| Use `npm install` (not npm ci) | Restore cache | ✓ npm ci breaks Vercel cache |
 | Merge PR 87 (fewer plugins) | 20–40s | Pending |
 | Ensure Vercel Build Cache is on | 10–30s on cache hits | Check project settings |
 

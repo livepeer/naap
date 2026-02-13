@@ -8,6 +8,11 @@
 import { Router, Request, Response } from 'express';
 import type { AuditLogInput } from '../services/lifecycle';
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 // ---------------------------------------------------------------------------
 // Dependency interface
 // ---------------------------------------------------------------------------
@@ -283,7 +288,7 @@ export function createTokensWebhooksRoutes(deps: TokensWebhooksRouteDeps) {
         const ref = req.body.ref;
         if (ref.startsWith('refs/tags/')) {
           const tag = ref.replace('refs/tags/', '');
-          console.log(`Tag push detected: ${tag}`);
+          console.log(`Tag push detected: ${sanitizeForLog(tag)}`);
         }
       }
 

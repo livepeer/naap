@@ -2,11 +2,31 @@
  * Embed Routes - Generate signed embed URLs
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../db/client.js';
 import { generateEmbedUrl, verifyConfig } from '../services/metabase.js';
 
 const router = Router();
+
+// Rate limiting to prevent abuse
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+function createRateLimiter(windowMs: number, maxRequests: number) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const key = req.ip || 'unknown';
+    const now = Date.now();
+    const entry = rateLimitMap.get(key);
+    if (!entry || now > entry.resetTime) {
+      rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
+      return next();
+    }
+    if (entry.count >= maxRequests) {
+      return res.status(429).json({ error: 'Too many requests, please try again later' });
+    }
+    entry.count++;
+    return next();
+  };
+}
+router.use(createRateLimiter(15 * 60 * 1000, 200));
 
 // GET /embed/:id - Get signed embed URL for a dashboard
 router.get('/embed/:id', async (req: Request, res: Response) => {
@@ -36,10 +56,13 @@ router.get('/embed/:id', async (req: Request, res: Response) => {
     const userId = (req as any).user?.id;
 
     // Parse any filter params from query string
+    const UNSAFE_KEYS = ['__proto__', 'constructor', 'prototype'];
     const params: Record<string, string> = {};
     for (const [key, value] of Object.entries(req.query)) {
       if (key.startsWith('param_') && typeof value === 'string') {
-        params[key.replace('param_', '')] = value;
+        const paramKey = key.replace('param_', '');
+        if (UNSAFE_KEYS.includes(paramKey)) continue;
+        params[paramKey] = value;
       }
     }
 

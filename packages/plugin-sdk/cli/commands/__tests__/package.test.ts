@@ -98,8 +98,7 @@ describe('Package Command', () => {
   let testDir: string;
 
   beforeEach(async () => {
-    testDir = path.join(os.tmpdir(), `package-test-${Date.now()}`);
-    await fs.ensureDir(testDir);
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'package-test-'));
   });
 
   afterEach(async () => {

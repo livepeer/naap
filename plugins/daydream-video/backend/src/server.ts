@@ -10,6 +10,11 @@ import { readFileSync } from 'node:fs';
 import type { Request } from 'express';
 import { createPluginServer, createExternalProxy } from '@naap/plugin-server-sdk';
 import { prisma } from './db/client.js';
+
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
 import {
   createStream as daydreamCreateStream,
   updateStreamParams as daydreamUpdateParams,
@@ -416,7 +421,7 @@ router.post(`${API_PREFIX}/sessions/:sessionId/end`, async (req, res) => {
     const session = await endSession(sessionId);
     res.json({ success: true, data: session });
   } catch (error) {
-    console.error('Error ending session:', error);
+    console.error('Error ending session:', sanitizeForLog(error));
     res.status(500).json({ success: false, error: { message: 'Failed to end session' } });
   }
 });

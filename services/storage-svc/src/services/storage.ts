@@ -83,13 +83,27 @@ import fs from 'fs/promises';
 import path from 'path';
 import { lookup } from 'mime-types';
 
+/**
+ * Safely resolve a file path within a base directory to prevent path traversal attacks.
+ * Ensures the resolved path stays within the base directory.
+ */
+function safeResolvePath(base: string, userPath: string): string {
+  const resolvedBase = path.resolve(base);
+  const resolvedPath = path.resolve(base, userPath);
+  if (!resolvedPath.startsWith(resolvedBase + path.sep) && resolvedPath !== resolvedBase) {
+    throw new Error(`Invalid path component: ${userPath}`);
+  }
+  return resolvedPath;
+}
+
 function createLocalAdapter(config: StorageConfig): StorageAdapter {
   const basePath = config.basePath || './storage';
   const baseUrl = config.baseUrl || 'http://localhost:4100/files';
 
   return {
     async upload(file: Buffer, filePath: string, contentType?: string): Promise<string> {
-      const fullPath = path.join(basePath, filePath);
+      const fullPath = safeResolvePath(basePath, filePath);
+
       const dir = path.dirname(fullPath);
       
       await fs.mkdir(dir, { recursive: true });
@@ -107,12 +121,12 @@ function createLocalAdapter(config: StorageConfig): StorageAdapter {
     },
 
     async download(filePath: string): Promise<Buffer> {
-      const fullPath = path.join(basePath, filePath);
+      const fullPath = safeResolvePath(basePath, filePath);
       return fs.readFile(fullPath);
     },
 
     async delete(filePath: string): Promise<void> {
-      const fullPath = path.join(basePath, filePath);
+      const fullPath = safeResolvePath(basePath, filePath);
       await fs.unlink(fullPath).catch(() => {});
       await fs.unlink(`${fullPath}.meta.json`).catch(() => {});
     },
@@ -122,7 +136,7 @@ function createLocalAdapter(config: StorageConfig): StorageAdapter {
     },
 
     async exists(filePath: string): Promise<boolean> {
-      const fullPath = path.join(basePath, filePath);
+      const fullPath = safeResolvePath(basePath, filePath);
       try {
         await fs.access(fullPath);
         return true;
@@ -132,7 +146,7 @@ function createLocalAdapter(config: StorageConfig): StorageAdapter {
     },
 
     async list(prefix: string): Promise<string[]> {
-      const fullPath = path.join(basePath, prefix);
+      const fullPath = safeResolvePath(basePath, prefix);
       try {
         const entries = await fs.readdir(fullPath, { recursive: true });
         return entries
@@ -144,14 +158,14 @@ function createLocalAdapter(config: StorageConfig): StorageAdapter {
     },
 
     async getMetadata(filePath: string): Promise<FileMetadata | null> {
-      const metaPath = path.join(basePath, `${filePath}.meta.json`);
+      const metaPath = safeResolvePath(basePath, `${filePath}.meta.json`);
       try {
         const data = await fs.readFile(metaPath, 'utf-8');
         return JSON.parse(data);
       } catch {
         // Try to get basic metadata from file stats
         try {
-          const stats = await fs.stat(path.join(basePath, filePath));
+          const stats = await fs.stat(safeResolvePath(basePath, filePath));
           return {
             size: stats.size,
             contentType: lookup(filePath) || 'application/octet-stream',

@@ -46,6 +46,13 @@ export const publishCommand = new Command('publish')
       process.exit(1);
     }
 
+    // Validate manifest path is within the current working directory
+    const resolvedManifestPath = path.resolve(manifestPath);
+    if (!resolvedManifestPath.startsWith(path.resolve(cwd) + path.sep)) {
+      console.error(chalk.red('Error: manifest path outside working directory'));
+      process.exit(1);
+    }
+
     const manifest: PluginManifest = await fs.readJson(manifestPath);
     console.log(chalk.bold.blue(`\n🚀 Publishing ${manifest.displayName} v${manifest.version}\n`));
 
@@ -63,10 +70,11 @@ export const publishCommand = new Command('publish')
     // Check environment first (GitHub Actions, CI)
     token = process.env.NAAP_REGISTRY_TOKEN;
     
-    // Then check local credentials
+    // Then check local credentials (validate path is within cwd)
     if (!token) {
       const credentialsPath = path.join(cwd, '.naap', 'credentials.json');
-      if (await fs.pathExists(credentialsPath)) {
+      const resolvedCredPath = path.resolve(credentialsPath);
+      if (resolvedCredPath.startsWith(path.resolve(cwd) + path.sep) && await fs.pathExists(credentialsPath)) {
         const credentials = await fs.readJson(credentialsPath);
         token = credentials.token;
       }

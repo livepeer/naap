@@ -209,9 +209,15 @@ export default defineConfig(({ mode }) => {
 
 function updatePackageJson(frontendDir: string): void {
   const pkgPath = join(frontendDir, 'package.json');
-  if (!existsSync(pkgPath)) return;
 
-  const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+  let pkgContent: string;
+  try {
+    pkgContent = readFileSync(pkgPath, 'utf-8');
+  } catch {
+    return; // File doesn't exist
+  }
+
+  const pkg = JSON.parse(pkgContent);
 
   // Add build:production script if not present
   if (!pkg.scripts['build:production']) {
@@ -239,9 +245,12 @@ function migratePlugin(pluginName: string): void {
   // Update package.json
   updatePackageJson(frontendDir);
 
-  // Create vite.config.umd.ts
+  // Create vite.config.umd.ts (only if it doesn't already exist)
   const viteConfigPath = join(frontendDir, 'vite.config.umd.ts');
-  if (!existsSync(viteConfigPath)) {
+  try {
+    readFileSync(viteConfigPath, 'utf-8');
+    console.log(`  - vite.config.umd.ts already exists`);
+  } catch {
     const viteConfig = generateViteUMDConfig(
       pluginName,
       config.displayName,
@@ -251,8 +260,6 @@ function migratePlugin(pluginName: string): void {
     );
     writeFileSync(viteConfigPath, viteConfig);
     console.log(`  ✓ Created vite.config.umd.ts`);
-  } else {
-    console.log(`  - vite.config.umd.ts already exists`);
   }
 }
 

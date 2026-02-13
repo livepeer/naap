@@ -106,7 +106,7 @@ export function createArtifactHealthService(config: Partial<HealthCheckConfig> =
         try {
           // Parse image reference
           const [imageName, tag = 'latest'] = versionInfo.backendImage.split(':');
-          const registry = imageName.startsWith('ghcr.io') ? 'ghcr' : 'dockerhub';
+          const registry = (imageName === 'ghcr.io' || imageName.startsWith('ghcr.io/')) ? 'ghcr' : 'dockerhub';
           const client = registry === 'ghcr' ? ghcrClient : dockerHubClient;
           
           const cleanImageName = imageName.replace(/^ghcr\.io\//, '');

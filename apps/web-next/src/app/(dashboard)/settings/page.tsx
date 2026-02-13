@@ -15,6 +15,20 @@ import {
 } from 'lucide-react';
 import * as Icons from 'lucide-react';
 
+/** Only allow http/https URLs for image sources to prevent XSS via javascript: URIs */
+function getSafeImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      return url;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 interface PluginPreference {
   name: string;
   displayName: string;
@@ -714,8 +728,8 @@ export default function SettingsPage() {
             {/* Avatar */}
             <div className="flex items-start gap-6">
               <div className="relative group">
-                {profileAvatarPreview ? (
-                  <img src={profileAvatarPreview} alt="" className="w-20 h-20 rounded-2xl object-cover" />
+                {getSafeImageUrl(profileAvatarPreview) ? (
+                  <img src={getSafeImageUrl(profileAvatarPreview)!} alt="" className="w-20 h-20 rounded-2xl object-cover" />
                 ) : (
                   <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">
                     {(profileName || user?.email || 'U')[0].toUpperCase()}
@@ -814,8 +828,8 @@ export default function SettingsPage() {
           /* ── View mode ───────────────────────────────────────────── */
           <div className="space-y-6">
             <div className="flex items-center gap-6">
-              {profileAvatarPreview ? (
-                <img src={profileAvatarPreview} alt="" className="w-20 h-20 rounded-2xl object-cover" />
+              {getSafeImageUrl(profileAvatarPreview) ? (
+                <img src={getSafeImageUrl(profileAvatarPreview)!} alt="" className="w-20 h-20 rounded-2xl object-cover" />
               ) : (
                 <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">
                   {(profileName || user?.email || 'U')[0].toUpperCase()}

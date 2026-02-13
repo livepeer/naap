@@ -9,6 +9,11 @@
 import { Router, Request, Response } from 'express';
 import type { AuditLogInput } from '../services/lifecycle';
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 // ---------------------------------------------------------------------------
 // Dependency interface
 // ---------------------------------------------------------------------------
@@ -589,7 +594,13 @@ async function executeOpenAICall(method: string, args: unknown[], apiKey: string
 }
 
 async function executeS3Call(method: string, args: unknown[], _apiKey: string): Promise<unknown> {
-  console.log(`S3 call: ${method}`, args);
+  let safeArgs = '[unserializable args]';
+  try {
+    safeArgs = sanitizeForLog(JSON.stringify(args));
+  } catch {
+    // keep fallback
+  }
+  console.log(`S3 call: ${sanitizeForLog(method)} ${safeArgs}`);
   return { warning: 'S3 integration requires AWS SDK implementation', method, args };
 }
 

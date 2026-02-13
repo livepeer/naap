@@ -15,6 +15,8 @@ interface RouteParams {
   params: Promise<{ teamId: string; installId: string }>;
 }
 
+const UNSAFE_KEYS = ['__proto__', 'constructor', 'prototype'];
+
 /**
  * Deep merge two objects, with override taking precedence
  */
@@ -22,6 +24,7 @@ function deepMerge(base: Record<string, unknown>, override: Record<string, unkno
   const result: Record<string, unknown> = { ...base };
 
   for (const key of Object.keys(override)) {
+    if (UNSAFE_KEYS.includes(key)) continue;
     if (
       override[key] !== null &&
       typeof override[key] === 'object' &&
