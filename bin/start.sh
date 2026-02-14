@@ -240,6 +240,17 @@ is_running() {
 # GRACEFUL PROCESS MANAGEMENT
 ###############################################################################
 
+# Run a command in the background. Use setsid on Linux (creates new session for
+# clean process groups). On macOS, setsid is not installed by default — fall
+# back to plain backgrounding; kill_tree still works via single-PID fallback.
+_run_bg() {
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@" &
+  else
+    "$@" &
+  fi
+}
+
 # Kill an entire process group (setsid-spawned) with fallback to single PID.
 # When a process is spawned via setsid, its PID == PGID, so kill -- -$pid
 # sends the signal to all children and grandchildren in the group.
@@ -892,7 +903,7 @@ start_shell() {
   # Polling interval of 1000ms is efficient enough for dev and prevents the
   # Watchpack "too many open files" error that causes all pages to 404.
   _start_shell_attempt() {
-    setsid env WATCHPACK_POLLING=1000 npm run dev > "$LOG_DIR/shell-web.log" 2>&1 &
+    _run_bg env WATCHPACK_POLLING=1000 npm run dev > "$LOG_DIR/shell-web.log" 2>&1
     local pid=$!
     register_pid $pid "shell-web"
     wait_for_port $SHELL_PORT "next.js shell" 60 && {
@@ -928,7 +939,7 @@ start_base_service() {
   is_running "base-svc" && { log_success "Base service already running (PID $(get_pid base-svc))"; return 0; }
   kill_port $BASE_SVC_PORT
   log_info "Starting base-svc on port $BASE_SVC_PORT..."; cd "$ROOT_DIR/services/base-svc"
-  setsid env DATABASE_URL="$UNIFIED_DB_URL" PORT=$BASE_SVC_PORT npm run dev > "$LOG_DIR/base-svc.log" 2>&1 &
+  _run_bg env DATABASE_URL="$UNIFIED_DB_URL" PORT=$BASE_SVC_PORT npm run dev > "$LOG_DIR/base-svc.log" 2>&1
   local pid=$!
   register_pid $pid "base-svc"
   wait_for_health "http://localhost:$BASE_SVC_PORT/healthz" "base-svc" 30 1 "$pid" && {
@@ -951,7 +962,7 @@ start_plugin_server() {
   kill_port $PLUGIN_SERVER_PORT
   log_info "Starting plugin-server on port $PLUGIN_SERVER_PORT..."; cd "$ROOT_DIR/services/plugin-server"
   [ ! -d "node_modules" ] && (npm install --silent 2>/dev/null || npm install)
-  setsid npm run dev > "$LOG_DIR/plugin-server.log" 2>&1 &
+  _run_bg npm run dev > "$LOG_DIR/plugin-server.log" 2>&1
   local pid=$!
   register_pid $pid "plugin-server"
   wait_for_health "http://localhost:$PLUGIN_SERVER_PORT/healthz" "plugin-server" 30 1 "$pid" && {
@@ -998,7 +1009,7 @@ start_plugin_backend() {
 
   # All plugins share the unified database via their .env files.
   # Pass DATABASE_URL explicitly to ensure consistency.
-  setsid env DATABASE_URL="$UNIFIED_DB_URL" PORT="$port" npm run dev > "$LOG_DIR/${name}-svc.log" 2>&1 &
+  _run_bg env DATABASE_URL="$UNIFIED_DB_URL" PORT="$port" npm run dev > "$LOG_DIR/${name}-svc.log" 2>&1
   local pid=$!
   register_pid $pid "$svc_name"
   wait_for_health "http://localhost:$port${health_path}" "$display_name" 20 1 "$pid" && {
@@ -1035,7 +1046,7 @@ start_plugin_frontend_dev() {
   kill_port "$fport"
   log_info "Starting $display_name frontend dev on port $fport..."
   cd "$ROOT_DIR/plugins/$name/frontend" || { log_error "Failed to cd to plugins/$name/frontend"; return 1; }
-  setsid npx vite --port "$fport" --strictPort > "$LOG_DIR/${name}-web.log" 2>&1 &
+  _run_bg npx vite --port "$fport" --strictPort > "$LOG_DIR/${name}-web.log" 2>&1
   local pid=$!
   register_pid $pid "$web_name"
   wait_for_port "$fport" "$display_name frontend" 30 && {
