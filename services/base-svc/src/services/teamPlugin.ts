@@ -11,11 +11,18 @@ import { getTeamService, TeamRole } from './team';
 import { createDeploymentService } from './deployment';
 import { validateManifest } from './manifestValidator';
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 /**
  * Deep merge two objects (for config merging)
  * Personal config overrides shared config
  * Note: Defined locally to avoid ESM re-export issues with @naap/types
  */
+const UNSAFE_KEYS = ['__proto__', 'constructor', 'prototype'];
+
 function deepMerge<T extends Record<string, unknown>>(
   base: T,
   override: Partial<T>
@@ -23,6 +30,7 @@ function deepMerge<T extends Record<string, unknown>>(
   const result = { ...base } as T;
 
   for (const key in override) {
+    if (UNSAFE_KEYS.includes(key)) continue;
     if (Object.prototype.hasOwnProperty.call(override, key)) {
       const baseValue = base[key];
       const overrideValue = override[key];
@@ -179,7 +187,7 @@ export function createTeamPluginService(prisma: PrismaClient) {
         }
         // Log warnings but don't block installation
         if (validation.warnings.length > 0) {
-          console.warn(`Plugin "${packageName}" has manifest warnings:`, validation.warnings);
+          console.warn(`Plugin "${sanitizeForLog(packageName)}" has manifest warnings:`, validation.warnings);
         }
       }
 

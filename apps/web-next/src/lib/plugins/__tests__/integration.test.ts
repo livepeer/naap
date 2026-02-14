@@ -366,8 +366,9 @@ describe('Deployment Type Detection', () => {
     ];
     
     cdnUrls.forEach((url) => {
-      const isCDN = url.includes('blob.vercel-storage.com') || 
-                    url.includes('cdn.naap.io');
+      const parsed = new URL(url);
+      const isCDN = parsed.hostname === 'blob.vercel-storage.com' || 
+                    parsed.hostname === 'cdn.naap.io';
       expect(isCDN).toBe(true);
     });
   });

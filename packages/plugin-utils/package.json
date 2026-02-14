@@ -25,8 +25,8 @@
     "test": "vitest"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "typescript": "~5.8.2"
+    "@types/node": "^20.19.33",
+    "typescript": "~5.9.3"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"

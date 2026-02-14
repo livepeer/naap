@@ -409,7 +409,7 @@ cd services/base-svc
 npm run dev
 
 # Or from project root
-./bin/start.sh start --services
+./bin/start.sh --services
 ```
 
 ### Health Check

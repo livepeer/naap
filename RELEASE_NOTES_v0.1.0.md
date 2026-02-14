@@ -18,7 +18,7 @@ Think of it as an extensible control plane for the decentralized AI compute econ
 - **11 production-ready plugins** covering wallet management, network monitoring, AI video, developer APIs, community forums, and more
 - **Full plugin SDK** with React hooks, backend utilities, CLI scaffolding, and UMD build tooling
 - **Unified database architecture** — single PostgreSQL instance with schema-level isolation per plugin
-- **One-command setup** — `./bin/setup.sh --start` gets you from clone to running platform in under 3 minutes
+- **One-command setup** — `./bin/start.sh` gets you from clone to running platform in under 3 minutes
 - **Comprehensive documentation site** with guides, API reference, examples, and AI-assisted development prompts
 - **Plugin marketplace** for discovering, installing, and publishing plugins
 
@@ -63,8 +63,8 @@ Serves built UMD plugin bundles via CDN routes at `/cdn/plugins/<name>/<version>
 A unified CLI for the entire platform:
 
 ```bash
-./bin/start.sh start --all     # Start everything
-./bin/start.sh stop --all      # Graceful shutdown
+./bin/start.sh --all           # Start everything
+./bin/stop.sh                  # Graceful shutdown
 ./bin/start.sh status          # Health dashboard
 ./bin/start.sh dev <plugin>    # Single-plugin dev mode
 ./bin/start.sh restart <plugin> # Restart one plugin
@@ -140,7 +140,7 @@ Any team can build a plugin that plugs into NAAP with its own:
 ```bash
 # 1. Clone and set up the platform
 git clone https://github.com/livepeer/naap.git && cd naap
-./bin/setup.sh --start
+./bin/start.sh
 
 # 2. Scaffold a new plugin
 npx naap-plugin create my-plugin --template full-stack
@@ -215,7 +215,7 @@ Every plugin is defined by a single `plugin.json` file — the source of truth f
 ### Quick Reference
 
 ```bash
-./bin/start.sh start --all        # Start everything
+./bin/start.sh --all              # Start everything
 ./bin/start.sh dev <plugin>       # Dev mode for one plugin
 ./bin/start.sh status             # Health dashboard
 ./bin/start.sh validate           # Deep health checks
@@ -274,4 +274,4 @@ Built by the Livepeer community. NAAP is open source under the MIT license.
 
 **Repository:** https://github.com/livepeer/naap
 **Documentation:** http://localhost:3000/docs (after setup)
-**Quick Start:** `git clone https://github.com/livepeer/naap.git && cd naap && ./bin/setup.sh --start`
+**Quick Start:** `git clone https://github.com/livepeer/naap.git && cd naap && ./bin/start.sh`

@@ -9,6 +9,11 @@
 import type { IPipelineAdapter, PipelineDescriptor } from '@naap/livepeer-pipeline';
 import type { PipelineContext, PipelineResult } from './BatchAIAdapter.js';
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 export interface BYOCCapability {
   name: string;
   endpoint: string;
@@ -81,7 +86,7 @@ export class BYOCAdapter implements IPipelineAdapter {
       registeredAt: Date.now(),
       healthy: true,
     });
-    console.log(`[byoc] Registered capability '${name}' from ${config.registeredBy} → ${config.endpoint}`);
+    console.log(`[byoc] Registered capability '${sanitizeForLog(name)}' from ${sanitizeForLog(config.registeredBy)} → ${sanitizeForLog(config.endpoint)}`);
   }
 
   /** Unregister a capability */
@@ -89,7 +94,7 @@ export class BYOCAdapter implements IPipelineAdapter {
     const cap = this.capabilities.get(name);
     if (!cap || cap.registeredBy !== registeredBy) return false;
     this.capabilities.delete(name);
-    console.log(`[byoc] Unregistered capability '${name}'`);
+    console.log(`[byoc] Unregistered capability '${sanitizeForLog(name)}'`);
     return true;
   }
 

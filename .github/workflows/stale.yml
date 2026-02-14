@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Stale check
-        uses: actions/stale@v9
+        uses: actions/stale@v10
         with:
           # --- PR settings ---
           days-before-pr-stale: 7

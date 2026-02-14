@@ -326,11 +326,16 @@ export const CDNUtils = {
    * Checks if URL is a CDN URL
    */
   isCDNUrl(url: string): boolean {
-    return url.includes('/plugins/') && (
-      url.includes('.vercel-storage.com') ||
-      url.includes('.vercel.app') ||
-      url.includes('cdn.naap.io')
-    );
+    try {
+      const parsed = new URL(url);
+      const isAllowedHost =
+        parsed.hostname.endsWith('.vercel-storage.com') ||
+        parsed.hostname.endsWith('.vercel.app') ||
+        parsed.hostname === 'cdn.naap.io';
+      return parsed.pathname.includes('/plugins/') && isAllowedHost;
+    } catch {
+      return false;
+    }
   },
 };
 

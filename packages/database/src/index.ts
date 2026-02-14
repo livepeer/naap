@@ -101,17 +101,26 @@ if (process.env.NODE_ENV !== 'production') {
 // Export the client class for type usage
 export { GeneratedPrismaClient as PrismaClient };
 
-// Helper to disconnect gracefully
+/**
+ * Disconnect the Prisma client from the database.
+ * Call during graceful shutdown.
+ */
 export async function disconnect(): Promise<void> {
   await prisma.$disconnect();
 }
 
-// Helper to connect explicitly
+/**
+ * Connect the Prisma client to the database explicitly.
+ * Usually not needed — Prisma connects lazily on first query.
+ */
 export async function connect(): Promise<void> {
   await prisma.$connect();
 }
 
-// Warm up connection pool (call during app startup)
+/**
+ * Warm up the connection pool (call during app startup).
+ * Executes a lightweight query to establish connections.
+ */
 export async function warmupConnections(): Promise<void> {
   await prisma.$queryRaw`SELECT 1`;
 }
@@ -123,7 +132,11 @@ export interface SchemaAccessResult {
   error?: string;
 }
 
-// Comprehensive health check that verifies all schemas
+/**
+ * Comprehensive health check that verifies database connectivity and optionally all schemas.
+ * @param options - Optional config; checkAllSchemas verifies plugin schemas exist
+ * @returns Health status, latency, and optional schema access results
+ */
 export async function healthCheck(options?: { checkAllSchemas?: boolean }): Promise<{
   status: 'healthy' | 'degraded' | 'unhealthy';
   latencyMs: number;
@@ -190,7 +203,12 @@ export async function healthCheck(options?: { checkAllSchemas?: boolean }): Prom
   return result;
 }
 
-// Transaction helper with configurable options
+/**
+ * Execute a function within a database transaction.
+ * @param fn - Async function receiving the transaction client
+ * @param options - Optional maxWait, timeout, isolationLevel
+ * @returns The value returned by fn
+ */
 export async function withTransaction<T>(
   fn: (tx: TransactionClient) => Promise<T>,
   options?: {
@@ -206,7 +224,12 @@ export async function withTransaction<T>(
   });
 }
 
-// Retry helper for transient failures
+/**
+ * Retry an async operation on transient Prisma errors (connection, transaction).
+ * @param fn - Async function to execute
+ * @param options - Optional maxRetries, retryDelay, retryOn predicate
+ * @returns The value returned by fn after successful execution
+ */
 export async function withRetry<T>(
   fn: () => Promise<T>,
   options?: {

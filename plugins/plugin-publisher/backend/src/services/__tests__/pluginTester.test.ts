@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { lookup } from 'node:dns/promises';
 import {
   testFrontendLoading,
   testBackendHealth,
@@ -13,13 +14,20 @@ import {
   type BackendTestResult,
 } from '../pluginTester.js';
 
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(),
+}));
+
 // Mock fetch
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
+const mockLookup = vi.mocked(lookup);
 
 describe('testFrontendLoading', () => {
   beforeEach(() => {
     mockFetch.mockReset();
+    mockLookup.mockReset();
+    mockLookup.mockImplementation(async () => [{ address: '93.184.216.34', family: 4 }] as any);
   });
 
   it('should pass for valid UMD bundle', async () => {
@@ -36,10 +44,11 @@ describe('testFrontendLoading', () => {
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       text: () => Promise.resolve(validContent),
     });
 
-    const result = await testFrontendLoading('http://localhost:3000/cdn/plugins/my-widget/1.0.0/my-widget.js');
+    const result = await testFrontendLoading('https://plugins.example.com/cdn/plugins/my-widget/1.0.0/my-widget.js');
 
     expect(result.success).toBe(true);
     expect(result.bundleValid).toBe(true);
@@ -50,10 +59,11 @@ describe('testFrontendLoading', () => {
   it('should fail for empty content', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       text: () => Promise.resolve(''),
     });
 
-    const result = await testFrontendLoading('http://localhost:3000/cdn/plugins/my-widget/1.0.0/my-widget.js');
+    const result = await testFrontendLoading('https://plugins.example.com/cdn/plugins/my-widget/1.0.0/my-widget.js');
 
     expect(result.success).toBe(false);
     expect(result.errors.some(e => e.includes('empty'))).toBe(true);
@@ -66,7 +76,7 @@ describe('testFrontendLoading', () => {
       statusText: 'Not Found',
     });
 
-    const result = await testFrontendLoading('http://localhost:3000/cdn/plugins/my-widget/1.0.0/my-widget.js');
+    const result = await testFrontendLoading('https://plugins.example.com/cdn/plugins/my-widget/1.0.0/my-widget.js');
 
     expect(result.success).toBe(false);
     expect(result.errors.some(e => e.includes('404'))).toBe(true);
@@ -81,10 +91,11 @@ describe('testFrontendLoading', () => {
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       text: () => Promise.resolve(regularJs),
     });
 
-    const result = await testFrontendLoading('http://localhost:3000/cdn/plugins/my-widget/1.0.0/my-widget.js');
+    const result = await testFrontendLoading('https://plugins.example.com/cdn/plugins/my-widget/1.0.0/my-widget.js');
 
     expect(result.success).toBe(false);
     expect(result.errors.some(e => e.includes('UMD'))).toBe(true);
@@ -93,7 +104,7 @@ describe('testFrontendLoading', () => {
   it('should handle network errors', async () => {
     mockFetch.mockRejectedValueOnce(new Error('Network error'));
 
-    const result = await testFrontendLoading('http://localhost:3000/cdn/plugins/my-widget/1.0.0/my-widget.js');
+    const result = await testFrontendLoading('https://plugins.example.com/cdn/plugins/my-widget/1.0.0/my-widget.js');
 
     expect(result.success).toBe(false);
     expect(result.errors).toContain('Network error');
@@ -110,7 +121,7 @@ describe('testFrontendLoading', () => {
       })
     );
 
-    const result = await testFrontendLoading('http://localhost:3000/cdn/plugins/my-widget/1.0.0/my-widget.js', 100);
+    const result = await testFrontendLoading('https://plugins.example.com/cdn/plugins/my-widget/1.0.0/my-widget.js', 100);
 
     // AbortError should be caught
     expect(result.success).toBe(false);
@@ -127,10 +138,11 @@ describe('testFrontendLoading', () => {
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       text: () => Promise.resolve(largeContent),
     });
 
-    const result = await testFrontendLoading('http://localhost:3000/cdn/plugins/my-widget/1.0.0/my-widget.js');
+    const result = await testFrontendLoading('https://plugins.example.com/cdn/plugins/my-widget/1.0.0/my-widget.js');
 
     expect(result.warnings.some(w => w.includes('React'))).toBe(true);
   });
@@ -146,10 +158,11 @@ describe('testFrontendLoading', () => {
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       text: () => Promise.resolve(bundleWithMount),
     });
 
-    const result = await testFrontendLoading('http://localhost:3000/cdn/plugins/my-widget/1.0.0/my-widget.js');
+    const result = await testFrontendLoading('https://plugins.example.com/cdn/plugins/my-widget/1.0.0/my-widget.js');
 
     expect(result.success).toBe(true);
     expect(result.bundleValid).toBe(true);
@@ -159,15 +172,18 @@ describe('testFrontendLoading', () => {
 describe('testBackendHealth', () => {
   beforeEach(() => {
     mockFetch.mockReset();
+    mockLookup.mockReset();
+    mockLookup.mockImplementation(async () => [{ address: '93.184.216.34', family: 4 }] as any);
   });
 
   it('should pass for healthy backend', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       json: () => Promise.resolve({ status: 'ok', version: '1.0.0' }),
     });
 
-    const result = await testBackendHealth('http://localhost:4001');
+    const result = await testBackendHealth('https://api.example.com');
 
     expect(result.success).toBe(true);
     expect(result.healthy).toBe(true);
@@ -178,10 +194,11 @@ describe('testBackendHealth', () => {
   it('should detect unhealthy backend', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       json: () => Promise.resolve({ status: 'unhealthy', error: 'DB connection failed' }),
     });
 
-    const result = await testBackendHealth('http://localhost:4001');
+    const result = await testBackendHealth('https://api.example.com');
 
     expect(result.success).toBe(true);
     expect(result.healthy).toBe(false);
@@ -195,7 +212,7 @@ describe('testBackendHealth', () => {
       statusText: 'Internal Server Error',
     });
 
-    const result = await testBackendHealth('http://localhost:4001');
+    const result = await testBackendHealth('https://api.example.com');
 
     expect(result.success).toBe(false);
     expect(result.healthy).toBe(false);
@@ -206,7 +223,7 @@ describe('testBackendHealth', () => {
     const error = new Error('connect ECONNREFUSED 127.0.0.1:4001');
     mockFetch.mockRejectedValueOnce(error);
 
-    const result = await testBackendHealth('http://localhost:4001');
+    const result = await testBackendHealth('https://api.example.com');
 
     expect(result.success).toBe(false);
     expect(result.healthy).toBe(false);
@@ -216,10 +233,11 @@ describe('testBackendHealth', () => {
   it('should accept healthy status string', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       json: () => Promise.resolve({ status: 'healthy' }),
     });
 
-    const result = await testBackendHealth('http://localhost:4001');
+    const result = await testBackendHealth('https://api.example.com');
 
     expect(result.healthy).toBe(true);
   });
@@ -227,10 +245,11 @@ describe('testBackendHealth', () => {
   it('should handle non-JSON response gracefully', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       json: () => Promise.reject(new Error('Invalid JSON')),
     });
 
-    const result = await testBackendHealth('http://localhost:4001');
+    const result = await testBackendHealth('https://api.example.com');
 
     // Should still pass if HTTP 200
     expect(result.success).toBe(true);
@@ -241,12 +260,15 @@ describe('testBackendHealth', () => {
 describe('testPlugin', () => {
   beforeEach(() => {
     mockFetch.mockReset();
+    mockLookup.mockReset();
+    mockLookup.mockImplementation(async () => [{ address: '93.184.216.34', family: 4 }] as any);
   });
 
   it('should test both frontend and backend', async () => {
     // Mock frontend response (UMD bundle)
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       text: () => Promise.resolve(`
         typeof exports === 'object';
         global["NaapPluginTestPlugin"] = {};
@@ -258,12 +280,13 @@ describe('testPlugin', () => {
     // Mock backend response
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       json: () => Promise.resolve({ status: 'ok' }),
     });
 
     const result = await testPlugin({
-      frontendUrl: 'http://localhost:3000/cdn/plugins/test-plugin/1.0.0/test-plugin.js',
-      backendUrl: 'http://localhost:4001',
+      frontendUrl: 'https://plugins.example.com/cdn/plugins/test-plugin/1.0.0/test-plugin.js',
+      backendUrl: 'https://api.example.com',
     });
 
     expect(result.success).toBe(true);
@@ -284,8 +307,8 @@ describe('testPlugin', () => {
     mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
 
     const result = await testPlugin({
-      frontendUrl: 'http://localhost:3000/cdn/plugins/test-plugin/1.0.0/test-plugin.js',
-      backendUrl: 'http://localhost:4001',
+      frontendUrl: 'https://plugins.example.com/cdn/plugins/test-plugin/1.0.0/test-plugin.js',
+      backendUrl: 'https://api.example.com',
     });
 
     expect(result.success).toBe(false);
@@ -297,6 +320,7 @@ describe('testPlugin', () => {
   it('should pass with frontend only', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       text: () => Promise.resolve(`
         typeof exports === 'object';
         NaapPlugin;
@@ -305,7 +329,7 @@ describe('testPlugin', () => {
     });
 
     const result = await testPlugin({
-      frontendUrl: 'http://localhost:3000/cdn/plugins/test-plugin/1.0.0/test-plugin.js',
+      frontendUrl: 'https://plugins.example.com/cdn/plugins/test-plugin/1.0.0/test-plugin.js',
     });
 
     expect(result.success).toBe(true);
@@ -316,11 +340,12 @@ describe('testPlugin', () => {
   it('should pass with backend only', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       json: () => Promise.resolve({ status: 'ok' }),
     });
 
     const result = await testPlugin({
-      backendUrl: 'http://localhost:4001',
+      backendUrl: 'https://api.example.com',
     });
 
     expect(result.success).toBe(true);

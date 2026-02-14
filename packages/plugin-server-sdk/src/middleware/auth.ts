@@ -15,6 +15,11 @@
  * Priority: SHELL_URL > AUTH_SERVICE_URL > BASE_SVC_URL > http://localhost:3000
  */
 
+/** Sanitize a value for safe log output (prevents log injection) */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
+}
+
 import type { Request, Response, NextFunction } from 'express';
 
 export interface AuthenticatedRequest extends Request {
@@ -196,7 +201,7 @@ export function createAuthMiddleware(config: AuthMiddlewareConfig) {
     // 3. Validate opaque token against auth service
     try {
       const validationUrl = `${authServiceUrl}/api/v1/auth/me`;
-      console.log(`[auth] Validating token (${token.slice(0, 8)}...${token.slice(-4)}) against ${validationUrl}`);
+      console.log(`[auth] Validating token (${sanitizeForLog(token.slice(0, 8))}...${sanitizeForLog(token.slice(-4))}) against ${validationUrl}`);
 
       const response = await fetch(validationUrl, {
         headers: { 'Authorization': `Bearer ${token}` },

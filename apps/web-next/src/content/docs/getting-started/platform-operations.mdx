@@ -30,7 +30,7 @@ Plugins are served as static UMD bundles -- no plugin backends needed for basic 
 ### Everything
 
 ```bash
-./bin/start.sh start --all
+./bin/start.sh --all
 ```
 
 Starts all of the above plus all 11 plugin backends.
@@ -46,7 +46,7 @@ Starts shell + core + one plugin with hot-reload frontend and live backend.
 ### Services Only (No Frontend)
 
 ```bash
-./bin/start.sh start --services
+./bin/start.sh --services
 ```
 
 Starts core services and all plugin backends without the Next.js shell.
@@ -55,17 +55,18 @@ Starts core services and all plugin backends without the Next.js shell.
 
 ```bash
 # Graceful shutdown of everything
-./bin/start.sh stop
+./bin/stop.sh
 
 # Stop a specific plugin
-./bin/start.sh stop my-dashboard
+./bin/stop.sh my-dashboard
 
 # Restart (stop + start)
 ./bin/start.sh restart
 ```
 
-Shutdown order: Shell -> Plugin backends -> Core services -> Health monitor.
-Each service gets 10 seconds for graceful shutdown before force-kill.
+All services receive SIGTERM simultaneously for parallel shutdown.
+Services get 5 seconds for graceful shutdown before force-kill.
+Set `GRACEFUL_TIMEOUT=<seconds>` environment variable to customize (e.g., `GRACEFUL_TIMEOUT=15 ./bin/stop.sh`).
 
 ## Monitoring
 
@@ -168,10 +169,10 @@ and served via CDN at `http://localhost:3000/cdn/plugins/<name>/1.0.0/<name>.js`
 ### Fresh Start (Clean Slate)
 
 ```bash
-./bin/start.sh stop
+./bin/stop.sh
 docker rm -f naap-db            # Remove database container
 docker volume rm naap-db-data   # Remove database data
-./bin/setup.sh --start          # Full re-setup + start
+./bin/start.sh                  # Full re-setup + start (setup is automatic)
 ```
 
 ### Update After Git Pull
@@ -190,5 +191,5 @@ npm run build:plugins
 lsof -i :3000
 
 # Force-kill all NaaP processes
-./bin/start.sh stop
+./bin/stop.sh
 ```

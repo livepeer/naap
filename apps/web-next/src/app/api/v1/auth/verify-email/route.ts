@@ -12,8 +12,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const body = await request.json();
     const { token } = body;
 
-    if (!token) {
-      return errors.badRequest('Verification token is required');
+    if (!token || typeof token !== 'string') {
+      return errors.badRequest('Verification token is required and must be a string');
     }
 
     const result = await verifyEmail(token);

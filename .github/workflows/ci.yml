@@ -40,9 +40,10 @@ jobs:
       plugins: ${{ steps.filter.outputs.plugins }}
       plugins_list: ${{ steps.changed-plugins.outputs.plugins_list }}
       docs_only: ${{ steps.check-docs.outputs.docs_only }}
+      build_relevant: ${{ steps.filter.outputs.build_relevant }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run paths filter
         id: filter
@@ -61,6 +62,15 @@ jobs:
               - 'services/**'
             plugins:
               - 'plugins/**'
+            build_relevant:
+              - 'apps/web-next/**'
+              - 'packages/**'
+              - 'plugins/**'
+              - 'bin/**'
+              - 'services/**'
+              - 'next.config.*'
+              - 'package.json'
+              - 'package-lock.json'
             docs_only:
               - 'docs/**'
               - '*.md'
@@ -97,6 +107,30 @@ jobs:
           fi
 
   # ===========================================================================
+  # Dependency Audit — Fail on critical CVEs (e.g. next-mdx-remote CVE-2026-0969)
+  # ===========================================================================
+  audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    needs: paths-filter
+    if: needs.paths-filter.outputs.docs_only != 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit dependencies (fail on critical CVEs)
+        run: npm audit --audit-level=critical
+
+  # ===========================================================================
   # Lint & Type Check — Always runs (unless docs-only)
   # ===========================================================================
   lint-typecheck:
@@ -106,10 +140,10 @@ jobs:
     if: needs.paths-filter.outputs.docs_only != 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -135,10 +169,10 @@ jobs:
     if: needs.paths-filter.outputs.shell == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -150,7 +184,7 @@ jobs:
         run: cd apps/web-next && npm run test:coverage
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: apps/web-next/coverage/lcov.info
           flags: shell
@@ -167,10 +201,10 @@ jobs:
     if: needs.paths-filter.outputs.packages == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -186,7 +220,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload SDK coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         if: always()
         with:
           files: packages/plugin-sdk/coverage/lcov.info
@@ -213,10 +247,10 @@ jobs:
           - plugin-publisher
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -265,7 +299,7 @@ jobs:
           - plugin-publisher
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -284,7 +318,7 @@ jobs:
 
       - name: Setup Node.js
         if: steps.check.outputs.changed == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -313,7 +347,7 @@ jobs:
 
       - name: Upload plugin coverage
         if: steps.check.outputs.changed == 'true' && always()
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: plugins/${{ matrix.plugin }}/frontend/coverage/lcov.info
           flags: plugin-${{ matrix.plugin }}
@@ -321,19 +355,22 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # ===========================================================================
-  # Build — Always runs (unless docs-only)
+  # Build — Vercel build simulation (same as production)
+  # Catches missing deps (e.g. unzipper), CVE blocks, plugin bundle issues
+  # Skips when only docs/config changed. Uses content-based caches to avoid
+  # stale builds (exact keys only, no restore-keys fallback).
   # ===========================================================================
   build:
     name: Build
     runs-on: ubuntu-latest
     needs: paths-filter
-    if: needs.paths-filter.outputs.docs_only != 'true'
+    if: needs.paths-filter.outputs.docs_only != 'true' && needs.paths-filter.outputs.build_relevant == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -341,14 +378,44 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build web-next
-        run: cd apps/web-next && npm run build
+      - name: Restore plugin build cache
+        id: plugin-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: dist/plugins
+          key: ci-plugin-v1-${{ hashFiles('package-lock.json', 'plugins/**', 'packages/plugin-build/**', 'packages/plugin-utils/**') }}
+
+      - name: Restore Next.js cache
+        id: next-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: apps/web-next/.next/cache
+          key: ci-next-v1-${{ hashFiles('package-lock.json', 'apps/web-next/**', 'next.config*', 'packages/database/**') }}
+
+      - name: Vercel build (plugin bundles + Next.js)
+        id: vercel-build
+        run: ./bin/vercel-build.sh
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
           NEXTAUTH_SECRET: test-secret-at-least-32-characters-long
+          SKIP_PLUGIN_BUILD: ${{ steps.plugin-cache.outputs.cache-hit == 'true' }}
+
+      - name: Save plugin build cache
+        if: steps.vercel-build.outcome == 'success'
+        uses: actions/cache/save@v5
+        with:
+          path: dist/plugins
+          key: ci-plugin-v1-${{ hashFiles('package-lock.json', 'plugins/**', 'packages/plugin-build/**', 'packages/plugin-utils/**') }}
+
+      - name: Save Next.js cache
+        if: steps.vercel-build.outcome == 'success'
+        uses: actions/cache/save@v5
+        with:
+          path: apps/web-next/.next/cache
+          key: ci-next-v1-${{ hashFiles('package-lock.json', 'apps/web-next/**', 'next.config*', 'packages/database/**') }}
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: nextjs-build
           path: apps/web-next/.next
@@ -360,11 +427,11 @@ jobs:
   quality-gates:
     name: Quality Gates
     runs-on: ubuntu-latest
-    needs: [lint-typecheck, build]
+    needs: [audit, lint-typecheck, build]
     if: always() && !cancelled()
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Verify required files
         run: |
@@ -375,13 +442,19 @@ jobs:
 
       - name: Check upstream job results
         run: |
+          echo "audit: ${{ needs.audit.result }}"
           echo "lint-typecheck: ${{ needs.lint-typecheck.result }}"
           echo "build: ${{ needs.build.result }}"
 
+          if [[ "${{ needs.audit.result }}" == "failure" ]]; then
+            echo "::error::Audit failed (critical vulnerabilities)"
+            exit 1
+          fi
           if [[ "${{ needs.lint-typecheck.result }}" == "failure" ]]; then
             echo "::error::Lint/TypeCheck failed"
             exit 1
           fi
+          # Build can be skipped when only docs/config changed (build_relevant=false)
           if [[ "${{ needs.build.result }}" == "failure" ]]; then
             echo "::error::Build failed"
             exit 1

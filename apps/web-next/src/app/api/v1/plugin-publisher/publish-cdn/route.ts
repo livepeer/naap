@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir, readdir, readFile, rm, unlink } from 'fs/promises';
 import { createReadStream, existsSync } from 'fs';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import path from 'path';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
@@ -35,6 +35,14 @@ async function uploadToCDN(
 ): Promise<CDNUploadResult> {
   if (!BLOB_READ_WRITE_TOKEN) {
     throw new Error('BLOB_READ_WRITE_TOKEN not configured');
+  }
+
+  // Validate plugin name and version to prevent path traversal in blob paths
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(pluginName)) {
+    throw new Error('Invalid plugin name');
+  }
+  if (!/^[\d]+\.[\d]+\.[\d]+/.test(version)) {
+    throw new Error('Invalid version format');
   }
 
   const results: Record<string, { url: string; size: number }> = {};
@@ -132,7 +140,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return errors.badRequest('No file uploaded');
     }
 
-    const uploadId = Date.now().toString(36) + Math.random().toString(36).substring(2);
+    const uploadId = randomUUID();
     const extractDir = path.join(UPLOAD_DIR, uploadId);
 
     await mkdir(UPLOAD_DIR, { recursive: true });
@@ -152,8 +160,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           .on('error', reject);
       });
     } catch {
-      const { execSync } = await import('child_process');
-      execSync(`unzip -o "${zipPath}" -d "${extractDir}"`, { stdio: 'pipe' });
+      // Use execFileSync with argument array to prevent shell injection
+      const { execFileSync } = await import('child_process');
+      execFileSync('unzip', ['-o', zipPath, '-d', extractDir], { stdio: 'pipe' });
     }
 
     await unlink(zipPath);
@@ -220,6 +229,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return errors.badRequest(
         'No UMD bundle found. Build your plugin with npm run build:production.',
       );
+    }
+
+    // Validate file paths are within the expected extract directory
+    const resolvedExtractDir = path.resolve(extractDir);
+    const resolvedBundlePath = path.resolve(bundlePath);
+    if (!resolvedBundlePath.startsWith(resolvedExtractDir + path.sep)) {
+      await rm(extractDir, { recursive: true });
+      return errors.badRequest('Bundle file path outside expected directory');
+    }
+    if (stylesPath) {
+      const resolvedStylesPath = path.resolve(stylesPath);
+      if (!resolvedStylesPath.startsWith(resolvedExtractDir + path.sep)) {
+        await rm(extractDir, { recursive: true });
+        return errors.badRequest('Styles file path outside expected directory');
+      }
     }
 
     // Validate bundle

@@ -12,14 +12,14 @@ this guide will help you get started.
 git clone https://github.com/<your-username>/NaaP.git
 cd NaaP
 
-# 3. First-time setup (installs deps, starts DB, builds plugins, starts platform)
-./bin/setup.sh --start
+# 3. First-time setup + start (setup is automatic)
+./bin/start.sh
 
 # 4. Create a branch from main
 git checkout -b feat/my-team/my-feature
 
 # 5. Start developing (~6s)
-./bin/start.sh --fast            # auto-detects your changed plugins
+./bin/start.sh                   # auto-detects your changed plugins
 # or start a specific plugin:
 ./bin/start.sh community         # shell + community backend
 
@@ -183,19 +183,44 @@ development:
 
 ## Development Startup
 
-After first-time `./bin/setup.sh`, use `start.sh` for all daily development:
+Setup runs automatically on first start. Use `start.sh` for all daily development:
 
 ```bash
-./bin/start.sh --fast                     # Smart start (~6s): auto-detects changed plugins
+./bin/start.sh                            # Smart start (~6s): auto-detects changed plugins
 ./bin/start.sh community                  # Shell + one plugin (~6s)
 ./bin/start.sh gateway-manager community  # Shell + two plugins (~8s)
-./bin/start.sh start --all               # Everything (~10s warm, ~25s cold)
-./bin/start.sh stop                       # Parallel stop (~2s)
+./bin/start.sh --all                      # Everything (~10s warm, ~25s cold)
+./bin/stop.sh                             # Parallel stop (~2s)
 ```
 
-The `--fast` flag is the recommended daily driver. It skips redundant DB
-syncs and verification, rebuilds only changed plugins, and starts only
-what you need. See [bin/README.md](bin/README.md) for the full CLI reference.
+Smart start is the default. It skips redundant DB syncs and verification,
+rebuilds only changed plugins, and starts only what you need. See
+[bin/README.md](bin/README.md) for the full CLI reference.
+
+## Pre-Push Automation
+
+`./bin/start.sh` installs a git pre-push hook that runs fast validation
+before every push:
+
+- Builds `@naap/plugin-build` (required for plugin vite configs)
+- Runs plugin-sdk tests
+
+```bash
+npm run ci-check          # Run manually (~15-30s)
+npm run ci-check:full     # Full vercel-build (~2 min)
+git push --no-verify      # Skip when necessary
+```
+
+## Manual Steps & Further Automation
+
+| Step | Automatable? | Current | To Reduce Human Involvement |
+|------|--------------|---------|-----------------------------|
+| Run `ci-check` before push | ✅ Done | Pre-push hook installed by setup | — |
+| Run full build before PR | Partial | `ci-check:full` exists | Add optional CI job that fails if vercel-build would fail on main |
+| Update tests when refactoring | Partial | CI fails and surfaces it | Add pre-commit lint that suggests running tests when codegen/sdk changes |
+| Keep plugin-build exports as dist/ | Documentation | README warns | Add CI check: fail if plugin-build exports `.ts` in package.json |
+| Request PR review | Manual | CODEOWNERS + Copilot | Already automated where possible |
+| Merge after CI passes | Partial | Merge queue / auto-merge | Enable merge queue if not already |
 
 ## Getting Help
 

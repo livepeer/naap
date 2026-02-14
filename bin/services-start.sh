@@ -8,14 +8,14 @@
 # ║  part of the current architecture.                             ║
 # ║                                                                ║
 # ║  Use instead:                                                  ║
-# ║    ./bin/setup.sh        # Full setup including DB             ║
-# ║    ./bin/start.sh        # Start the platform                  ║
+# ║    ./bin/start.sh        # Start the platform (setup is auto)  ║
+# ║    ./bin/stop.sh         # Stop the platform                   ║
 # ╚════════════════════════════════════════════════════════════════╝
 
 echo "WARNING: This script is DEPRECATED."
 echo "NaaP now uses a single PostgreSQL database. Use:"
-echo "  ./bin/setup.sh   (initial setup)"
-echo "  ./bin/start.sh   (start platform)"
+echo "  ./bin/start.sh   (start platform — setup is automatic)"
+echo "  ./bin/stop.sh    (stop platform)"
 exit 1
 
 set -e

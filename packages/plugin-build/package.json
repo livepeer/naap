@@ -3,16 +3,16 @@
   "version": "0.1.0",
   "description": "Shared build configuration for NAAP plugins",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.js",
   "exports": {
     ".": {
-      "import": "./src/index.ts",
-      "types": "./src/index.ts"
+      "import": "./dist/index.js",
+      "types": "./dist/index.js"
     },
     "./vite": {
-      "import": "./src/vite.ts",
-      "types": "./src/vite.ts"
+      "import": "./dist/vite.js",
+      "types": "./dist/vite.js"
     }
   },
   "scripts": {
@@ -21,14 +21,14 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.0",
-    "autoprefixer": "^10.4.20",
+    "autoprefixer": "^10.4.24",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "vite": "^6.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "typescript": "~5.8.2"
+    "@types/node": "^20.19.33",
+    "typescript": "~5.9.3"
   },
   "keywords": [
     "naap",

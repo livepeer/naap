@@ -302,9 +302,7 @@ export const packageCommand = new Command('package')
       } else if (options.format === 'oci') {
         console.log(chalk.yellow('OCI format packaging requires Docker and registry access'));
         archiveName = `${manifest.name}-${manifest.version}.oci`;
-        archivePath = packageDir;
-        archiveSize = 0;
-        // TODO: Implement OCI artifact creation
+        // TODO: Implement OCI artifact creation (archivePath and archiveSize unused until then)
       } else {
         console.error(chalk.red(`Unknown format: ${options.format}`));
         console.log(chalk.yellow('Supported formats: zip, tar, oci'));

@@ -152,6 +152,12 @@ fi
 
 log_info "Auto-discovered ${#PLUGINS[@]} plugins: ${PLUGINS[*]}"
 
+# Build plugin-build so plugin vite.config.ts can resolve @naap/plugin-build/vite (Node ESM cannot load .ts)
+if [ ! -f "$ROOT_DIR/packages/plugin-build/dist/vite.js" ]; then
+  log_info "Building @naap/plugin-build (required for plugin builds)..."
+  (cd "$ROOT_DIR" && npx tsc -p packages/plugin-build/tsconfig.json) || { log_error "plugin-build build failed"; exit 1; }
+fi
+
 # Clean output directory if requested
 if [ "$CLEAN" = true ]; then
   log_info "Cleaning output directory..."

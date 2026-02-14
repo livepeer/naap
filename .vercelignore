@@ -11,6 +11,7 @@ bin/local-dev.sh
 bin/kafka-setup.sh
 bin/health-check.sh
 bin/health-monitor.sh
+bin/start.sh
 bin/db-reset.sh
 bin/db-migrate.sh
 bin/db-seed.sh

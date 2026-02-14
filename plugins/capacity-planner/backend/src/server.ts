@@ -448,12 +448,17 @@ app.get('/api/v1/capacity-planner/summary', async (_req, res) => {
     }
 
     const totalGPUs = requests.reduce((sum, r) => sum + r.count, 0);
+    const UNSAFE_KEYS = ['__proto__', 'constructor', 'prototype'];
     const gpuCounts: Record<string, number> = {};
     const pipelineCounts: Record<string, number> = {};
 
     requests.forEach((r) => {
-      gpuCounts[r.gpuModel] = (gpuCounts[r.gpuModel] || 0) + r.count;
-      pipelineCounts[r.pipeline] = (pipelineCounts[r.pipeline] || 0) + 1;
+      if (!UNSAFE_KEYS.includes(r.gpuModel)) {
+        gpuCounts[r.gpuModel] = (gpuCounts[r.gpuModel] || 0) + r.count;
+      }
+      if (!UNSAFE_KEYS.includes(r.pipeline)) {
+        pipelineCounts[r.pipeline] = (pipelineCounts[r.pipeline] || 0) + 1;
+      }
     });
 
     const topGPU = Object.entries(gpuCounts).sort((a, b) => b[1] - a[1])[0];

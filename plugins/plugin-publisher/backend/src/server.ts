@@ -16,6 +16,32 @@ import {
   testBackendHealth,
 } from './services/pluginTester.js';
 
+/**
+ * Sanitize a path component to prevent path traversal attacks.
+ * Removes path separators and parent directory references.
+ */
+function sanitizePathComponent(component: string): string {
+  // Remove any path traversal sequences and separators
+  const sanitized = component.replace(/\.\./g, '').replace(/[\/\\]/g, '');
+  if (!sanitized || sanitized !== component) {
+    throw new Error(`Invalid path component: ${component}`);
+  }
+  return sanitized;
+}
+
+/**
+ * Validate that a file path is within the expected base directory.
+ * Prevents path traversal attacks on multer-generated file paths.
+ */
+function validateFilePath(filePath: string, baseDir: string): string {
+  const resolved = path.resolve(filePath);
+  const resolvedBase = path.resolve(baseDir);
+  if (!resolved.startsWith(resolvedBase + path.sep) && resolved !== resolvedBase) {
+    throw new Error(`Invalid file path: ${filePath}`);
+  }
+  return resolved;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Port Configuration - Reads from plugin.json (single source of truth)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -48,8 +74,21 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   crossOriginEmbedderPolicy: false,
 }));
+// CORS - allowlist when set; empty = allow-all (relaxed for now)
+// TODO(#92): Fail closed when empty; set CORS_ALLOWED_ORIGINS for production
+const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: true, // Allow all origins for plugin assets
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (CORS_ALLOWED_ORIGINS.length === 0 || CORS_ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 app.use(express.json());
@@ -212,15 +251,17 @@ app.post('/api/v1/plugin-publisher/upload', upload.single('plugin'), async (req,
     // Extract zip
     await fs.mkdir(extractDir, { recursive: true });
     
+    const safeUploadPath = validateFilePath(req.file!.path, UPLOAD_DIR);
+
     await new Promise((resolve, reject) => {
-      createReadStream(req.file!.path)
+      createReadStream(safeUploadPath)
         .pipe(unzipper.Extract({ path: extractDir }))
         .on('close', resolve)
         .on('error', reject);
     });
 
     // Clean up original zip
-    await fs.unlink(req.file.path);
+    await fs.unlink(safeUploadPath);
 
     // Find and read plugin.json
     let manifest: Record<string, unknown> | null = null;
@@ -445,6 +486,14 @@ async function uploadToCDN(
     throw new Error('BLOB_READ_WRITE_TOKEN not configured');
   }
 
+  // Validate plugin name and version to prevent path traversal in blob paths
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(pluginName)) {
+    throw new Error('Invalid plugin name');
+  }
+  if (!/^[\d]+\.[\d]+\.[\d]+/.test(version)) {
+    throw new Error('Invalid version format');
+  }
+
   const results: Record<string, { url: string; size: number }> = {};
   let bundleHash = '';
 
@@ -544,15 +593,17 @@ app.post('/api/v1/plugin-publisher/publish-cdn', upload.single('plugin'), async 
     // Extract zip
     await fs.mkdir(extractDir, { recursive: true });
 
+    const safeUploadPath = validateFilePath(req.file!.path, UPLOAD_DIR);
+
     await new Promise((resolve, reject) => {
-      createReadStream(req.file!.path)
+      createReadStream(safeUploadPath)
         .pipe(unzipper.Extract({ path: extractDir }))
         .on('close', resolve)
         .on('error', reject);
     });
 
     // Clean up original zip
-    await fs.unlink(req.file.path);
+    await fs.unlink(safeUploadPath);
 
     // Read plugin.json manifest
     let manifest: Record<string, unknown> | null = null;
@@ -626,6 +677,17 @@ app.post('/api/v1/plugin-publisher/publish-cdn', upload.single('plugin'), async 
         error: 'No UMD bundle found',
         hint: 'Build your plugin with npm run build:production to generate UMD bundle',
       });
+    }
+
+    // Validate file paths are within the expected extract directory
+    const resolvedExtractDir = path.resolve(extractDir);
+    if (!path.resolve(bundlePath).startsWith(resolvedExtractDir + path.sep)) {
+      await fs.rm(extractDir, { recursive: true });
+      return res.status(400).json({ error: 'Bundle file path outside expected directory' });
+    }
+    if (stylesPath && !path.resolve(stylesPath).startsWith(resolvedExtractDir + path.sep)) {
+      await fs.rm(extractDir, { recursive: true });
+      return res.status(400).json({ error: 'Styles file path outside expected directory' });
     }
 
     // Read and validate bundle
@@ -743,8 +805,10 @@ app.get('/api/v1/plugin-publisher/stats/:packageName', async (req, res) => {
   try {
     const { packageName } = req.params;
 
+    // Sanitize path parameter to prevent SSRF via path traversal
+    const safePackageName = encodeURIComponent(packageName);
     // Fetch package info from base-svc
-    const pkgResponse = await fetch(`${BASE_SVC_URL}/api/v1/registry/packages/${packageName}`);
+    const pkgResponse = await fetch(`${BASE_SVC_URL}/api/v1/registry/packages/${safePackageName}`);
     
     if (!pkgResponse.ok) {
       return res.status(404).json({ error: 'Package not found' });

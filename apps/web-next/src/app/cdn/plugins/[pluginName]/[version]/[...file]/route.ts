@@ -104,10 +104,7 @@ export async function GET(
       }
     }
 
-    // Check if file exists
-    await stat(distPath);
-
-    // Read the file
+    // Read the file directly (avoid TOCTOU race condition)
     const content = await readFile(distPath);
 
     // Get MIME type
