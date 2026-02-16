@@ -65,10 +65,11 @@ export function useJobFeedStream(
   const maxItemsRef = useRef(maxItems);
   maxItemsRef.current = maxItems;
 
-  // Add a new job to the rolling buffer
+  // Add a new job to the rolling buffer (deduplicates by id)
   const addJob = useCallback((entry: JobFeedEntry) => {
     if (!mountedRef.current) return;
-    const updated = [entry, ...jobsRef.current].slice(0, maxItemsRef.current);
+    const withoutDupe = jobsRef.current.filter((j) => j.id !== entry.id);
+    const updated = [entry, ...withoutDupe].slice(0, maxItemsRef.current);
     jobsRef.current = updated;
     setJobs(updated);
   }, []);

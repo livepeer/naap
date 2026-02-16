@@ -35,7 +35,7 @@ export interface ShellContext {
   pluginBasePath?: string;
   config?: {
     apiBaseUrl?: string;
-    publisherApiUrl?: string;
+    publisherEndpointUrl?: string;
   };
 }
 

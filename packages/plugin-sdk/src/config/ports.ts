@@ -172,6 +172,17 @@ function isProductionHost(): boolean {
 }
 
 /**
+ * Resolve shell context backend override from a single, explicit key format:
+ * `${camelCase(pluginName)}EndpointUrl` (e.g. `myWalletEndpointUrl`).
+ */
+function getShellConfigEndpointUrl(config: Record<string, unknown>, pluginName: string): string | undefined {
+  const camelCaseName = pluginName.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+  const configKey = `${camelCaseName}EndpointUrl`;
+  const value = config[configKey];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/**
  * Get the *origin* (scheme + host + port) of a plugin service.
  *
  * This is the correct function when the caller supplies a **full path**
@@ -209,10 +220,8 @@ export function getServiceOrigin(pluginName: string = 'base', overridePort?: num
       | { config?: Record<string, unknown> }
       | undefined;
     if (shellContext?.config) {
-      const camelCaseName = pluginName.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
-      const configKey = `${camelCaseName}ApiUrl`;
-      const configUrl = shellContext.config[configKey];
-      if (configUrl && typeof configUrl === 'string') {
+      const configUrl = getShellConfigEndpointUrl(shellContext.config, pluginName);
+      if (configUrl) {
         // Strip any trailing path — we only want the origin
         try {
           const u = new URL(configUrl);
@@ -256,7 +265,7 @@ export interface PluginBackendUrlOptions {
  * Get the backend URL for a specific plugin.
  *
  * Resolution order:
- * 1. window.__SHELL_CONTEXT__.config[pluginName + 'ApiUrl']
+ * 1. window.__SHELL_CONTEXT__.config[camelCase(pluginName) + 'EndpointUrl']
  * 2. Environment variable: VITE_{PLUGIN_NAME}_API_URL
  * 3. Development convention: http://localhost:{port}
  *
@@ -274,11 +283,8 @@ export function getPluginBackendUrl(pluginName: string, options?: PluginBackendU
       | { config?: Record<string, unknown> }
       | undefined;
     if (shellContext?.config) {
-      // Try pluginNameApiUrl format (e.g., 'myWalletApiUrl')
-      const camelCaseName = pluginName.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
-      const configKey = `${camelCaseName}ApiUrl`;
-      const configUrl = shellContext.config[configKey];
-      if (configUrl && typeof configUrl === 'string') {
+      const configUrl = getShellConfigEndpointUrl(shellContext.config, pluginName);
+      if (configUrl) {
         return `${configUrl}${apiPath}`;
       }
     }

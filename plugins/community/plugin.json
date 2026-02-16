@@ -4,6 +4,7 @@
   "displayName": "Community Hub",
   "version": "1.2.0",
   "description": "Builder community hub with Q&A, discussions, voting, reputation system, and knowledge sharing.",
+  "isCore": true,
   "author": {
     "name": "NAAP Team",
     "email": "team@naap.io",

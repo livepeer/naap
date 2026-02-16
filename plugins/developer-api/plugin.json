@@ -4,6 +4,7 @@
   "displayName": "Developer API Manager",
   "version": "1.0.0",
   "description": "Explore AI models, manage API keys, and track usage for developers integrating with the network.",
+  "isCore": true,
   "author": {
     "name": "NAAP Team",
     "email": "team@naap.io",

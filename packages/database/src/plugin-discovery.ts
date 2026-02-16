@@ -90,6 +90,8 @@ export interface DiscoveredPlugin {
   license?: string;
   /** Source repository URL */
   repository?: string;
+  /** Whether this plugin is core (cannot be uninstalled) */
+  isCore?: boolean;
 }
 
 /**
@@ -136,6 +138,7 @@ export function discoverPlugins(rootDir: string): DiscoveredPlugin[] {
         keywords: manifest.keywords,
         license: manifest.license,
         repository: manifest.repository,
+        isCore: manifest.isCore === true ? true : undefined,
       };
     })
     .sort((a, b) => a.order - b.order);
@@ -231,7 +234,7 @@ export function toPluginPackageData(
     license: plugin.license || 'MIT',
     keywords: plugin.keywords || [],
     icon: plugin.icon,
-    isCore: false,
+    isCore: plugin.isCore ?? false,
     publishStatus: 'published',
   };
 }
