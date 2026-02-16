@@ -69,16 +69,30 @@ jobs:
           cd ../plugin-build && npm run build --if-present
           echo "::endgroup::"
 
+      - name: Resolve plugin directory
+        run: |
+          plugin_dir=""
+          if [[ -f "plugins/${{ matrix.plugin }}/frontend/package.json" ]]; then
+            plugin_dir="plugins/${{ matrix.plugin }}"
+          elif [[ -f "examples/${{ matrix.plugin }}/frontend/package.json" ]]; then
+            plugin_dir="examples/${{ matrix.plugin }}"
+          else
+            echo "::error::No frontend package.json found for '${{ matrix.plugin }}' under plugins/ or examples/"
+            exit 1
+          fi
+          echo "Resolved plugin directory: $plugin_dir"
+          echo "PLUGIN_DIR=$plugin_dir" >> "$GITHUB_ENV"
+
       - name: Run plugin tests
         run: |
-          cd plugins/${{ matrix.plugin }}/frontend
+          cd "$PLUGIN_DIR/frontend"
           echo "::group::Testing ${{ matrix.plugin }}"
           npm test --if-present
           echo "::endgroup::"
 
       - name: Build plugin UMD bundle
         run: |
-          cd plugins/${{ matrix.plugin }}/frontend
+          cd "$PLUGIN_DIR/frontend"
           echo "::group::Building ${{ matrix.plugin }}"
           npm run build:umd --if-present
           echo "::endgroup::"
