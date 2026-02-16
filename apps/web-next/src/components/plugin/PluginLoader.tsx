@@ -160,6 +160,8 @@ export function PluginLoader({
 
       // Create base shell context for plugin
       // NOTE: Must include all services from ShellContext interface for hooks to work
+      // config: When plugins are embedded in the shell, use same-origin for API calls.
+      // getServiceOrigin() checks shellContext.config[pluginName + 'ApiUrl'] first.
       const baseContext = {
         auth: currentShell.auth,
         notifications: currentShell.notifications,
@@ -177,6 +179,13 @@ export function PluginLoader({
         // Include tenant and team context for multi-tenancy support
         tenant: currentShell.tenant,
         team: currentShell.team,
+        config: {
+          // Same-origin so embedded plugins use shell's API routes (avoids Failed to fetch when standalone backend isn't running)
+          developerApiUrl:
+            typeof window !== 'undefined' ? window.location.origin : '',
+          baseApiUrl:
+            typeof window !== 'undefined' ? window.location.origin : '',
+        },
       };
 
       // Trusted plugins need auth token access (no strict sandboxing).

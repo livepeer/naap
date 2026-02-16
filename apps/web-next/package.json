@@ -22,6 +22,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.989.0",
     "@naap/config": "*",
     "@naap/database": "*",
     "@naap/plugin-sdk": "*",
@@ -47,8 +48,7 @@
     "shiki": "^3.22.0",
     "unzipper": "^0.12.3",
     "zod": "^3.23.8",
-    "zustand": "^5.0.0",
-    "@aws-sdk/client-s3": "^3.989.0"
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
