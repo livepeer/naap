@@ -79,7 +79,7 @@ export interface PluginApiClient {
  * Hook for plugin-to-backend API communication.
  *
  * Automatically resolves the backend URL using:
- * 1. Shell context config (e.g., `myWalletApiUrl`)
+ * 1. Shell context config (e.g., `myWalletEndpointUrl`)
  * 2. Environment variables (e.g., `VITE_MY_WALLET_API_URL`)
  * 3. Development defaults (e.g., `http://localhost:4008`)
  *

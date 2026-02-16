@@ -246,7 +246,7 @@ export const getServiceOrigin = configGetServiceOrigin;
  * Get the backend URL for a specific plugin.
  *
  * Resolution order:
- * 1. window.__SHELL_CONTEXT__.config[pluginName + 'ApiUrl']
+ * 1. window.__SHELL_CONTEXT__.config[camelCase(pluginName) + 'EndpointUrl']
  * 2. Environment variable: VITE_{PLUGIN_NAME}_API_URL or {PLUGIN_NAME}_BACKEND_URL
  * 3. Development convention: http://localhost:{port}
  *
