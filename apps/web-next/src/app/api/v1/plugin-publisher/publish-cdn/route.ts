@@ -26,6 +26,38 @@ interface CDNUploadResult {
   bundleHash: string;
   bundleSize: number;
   deployedAt: Date;
+  /** Blob paths uploaded — used by compensation if DB update fails */
+  uploadedPaths: string[];
+}
+
+/**
+ * Delete a previously-uploaded blob from Vercel storage.
+ * Used as compensation when the DB update fails after a successful CDN upload.
+ */
+async function deleteBlobPath(blobPath: string): Promise<void> {
+  if (!BLOB_READ_WRITE_TOKEN) return;
+  try {
+    await fetch(`https://blob.vercel-storage.com/${blobPath}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${BLOB_READ_WRITE_TOKEN}` },
+    });
+  } catch (err) {
+    console.error(`CDN compensation: failed to delete blob ${blobPath}`, err);
+  }
+}
+
+/**
+ * Compensate for a partial CDN upload by deleting all uploaded blobs.
+ * Called when the DB update fails after a successful CDN upload, so orphaned
+ * assets do not accumulate in Vercel Blob storage.
+ */
+export async function compensateCDNUpload(
+  pluginName: string,
+  version: string,
+  uploadedPaths: string[],
+): Promise<void> {
+  console.warn('CDN compensation triggered', { pluginName, version, count: uploadedPaths.length });
+  await Promise.allSettled(uploadedPaths.map(p => deleteBlobPath(p)));
 }
 
 async function uploadToCDN(
@@ -46,6 +78,7 @@ async function uploadToCDN(
   }
 
   const results: Record<string, { url: string; size: number }> = {};
+  const uploadedPaths: string[] = [];
   let bundleHash = '';
 
   for (const asset of assets) {
@@ -68,6 +101,7 @@ async function uploadToCDN(
 
     const result = await response.json();
     results[asset.type] = { url: result.url, size: asset.content.length };
+    uploadedPaths.push(blobPath);
 
     if (asset.type === 'bundle') {
       bundleHash = createHash('sha256').update(asset.content).digest('hex').substring(0, 8);
@@ -84,6 +118,7 @@ async function uploadToCDN(
     bundleHash,
     bundleSize: results.bundle.size,
     deployedAt: new Date(),
+    uploadedPaths,
   };
 }
 
@@ -310,10 +345,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Upload to CDN
     const cdnResult = await uploadToCDN(pluginName, version, assets);
 
-    // Clean up
+    // Clean up extract directory
     await rm(extractDir, { recursive: true });
 
-    // Optionally update database deployment record
+    // Update database deployment record — treat failure as a publish failure
+    // because a CDN upload without a DB record creates an orphaned deployment.
+    let dbUpdated = false;
     try {
       const pkg = await prisma.pluginPackage.findUnique({
         where: { name: pluginName },
@@ -331,9 +368,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             deploymentType: 'cdn',
           },
         });
+        dbUpdated = true;
+      } else {
+        // Package/version doesn't exist in DB yet — this is acceptable for
+        // first-time CDN-only uploads; the registry publish step will create it.
+        dbUpdated = true;
       }
     } catch (dbErr) {
-      console.warn('Failed to update CDN deployment in database:', dbErr);
+      // CDN upload succeeded but DB update failed — run compensation to delete
+      // the uploaded blobs so no orphaned assets remain in Vercel Blob storage.
+      console.error('CDN publish DB consistency error — running compensation', {
+        pluginName,
+        version,
+        bundleUrl: cdnResult.bundleUrl,
+        error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+      });
+      await compensateCDNUpload(pluginName, version, cdnResult.uploadedPaths);
     }
 
     return success({
@@ -346,6 +396,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       bundleSize: cdnResult.bundleSize,
       deploymentType: 'cdn',
       manifest: productionManifest,
+      dbSynced: dbUpdated,
     });
   } catch (err) {
     console.error('CDN publish error:', err);

@@ -599,12 +599,19 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
         },
       });
 
-      const existingVersion = await db.pluginVersion.findFirst({ where: { packageId: pkg.id, version: manifest.version } });
-      if (existingVersion) return res.status(409).json({ error: 'Version already exists', hint: 'Increment the version number and try again' });
-
-      const version = await db.pluginVersion.create({
-        data: { packageId: pkg.id, version: manifest.version, manifest, frontendUrl, backendImage, releaseNotes },
-      });
+      // Atomic version creation — catch unique constraint violation to close
+      // the race window between check and insert.
+      let version;
+      try {
+        version = await db.pluginVersion.create({
+          data: { packageId: pkg.id, version: manifest.version, manifest, frontendUrl, backendImage, releaseNotes },
+        });
+      } catch (createErr: any) {
+        if (createErr?.code === 'P2002') {
+          return res.status(409).json({ error: 'Version already exists', hint: 'Increment the version number and try again' });
+        }
+        throw createErr;
+      }
 
       await lifecycleService.audit({
         action: 'plugin.publish', resource: 'plugin', resourceId: manifest.name, userId,
@@ -662,12 +669,18 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
         },
       });
 
-      const existingVersion = await db.pluginVersion.findFirst({ where: { packageId: pkg.id, version: manifest.version } });
-      if (existingVersion) return res.status(409).json({ error: 'Version already exists', hint: 'Increment the version number and try again' });
-
-      const version = await db.pluginVersion.create({
-        data: { packageId: pkg.id, version: manifest.version, manifest, frontendUrl, backendImage, releaseNotes },
-      });
+      // Atomic version creation — catch unique constraint to close race window.
+      let version;
+      try {
+        version = await db.pluginVersion.create({
+          data: { packageId: pkg.id, version: manifest.version, manifest, frontendUrl, backendImage, releaseNotes },
+        });
+      } catch (createErr: any) {
+        if (createErr?.code === 'P2002') {
+          return res.status(409).json({ error: 'Version already exists', hint: 'Increment the version number and try again' });
+        }
+        throw createErr;
+      }
 
       await lifecycleService.audit({
         action: 'plugin.publish', resource: 'plugin', resourceId: manifest.name,
