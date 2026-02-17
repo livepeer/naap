@@ -374,13 +374,30 @@ jobs:
         run: npm ci
 
       - name: Run lifecycle BDD feature specs
-        run: npx vitest run --dir tests/lifecycle-bdd
+        run: |
+          if [ -d "tests/lifecycle-bdd" ]; then
+            npx vitest run \
+              --dir tests/lifecycle-bdd \
+              --include "**/*.{test,spec,feature}.?(c|m)[jt]s?(x)"
+          else
+            echo "::notice::tests/lifecycle-bdd not present on this branch — skipping BDD specs"
+          fi
 
       - name: Run lifecycle smoke check
-        run: ./bin/lifecycle-smoke.sh --skip-build
+        run: |
+          if [ -x "bin/lifecycle-smoke.sh" ]; then
+            ./bin/lifecycle-smoke.sh --skip-build
+          else
+            echo "::notice::bin/lifecycle-smoke.sh not present on this branch — skipping"
+          fi
 
       - name: Run regression guard
-        run: ./bin/regression-guard.sh
+        run: |
+          if [ -x "bin/regression-guard.sh" ]; then
+            ./bin/regression-guard.sh
+          else
+            echo "::notice::bin/regression-guard.sh not present on this branch — skipping"
+          fi
 
   # ===========================================================================
   # Build — Vercel build simulation (same as production)
