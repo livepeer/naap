@@ -5,7 +5,6 @@
  * Supports formats:
  * - tar: Traditional tar.gz archive
  * - zip: Standardized ZIP format for Plugin Publisher
- * - oci: OCI artifact (requires Docker)
  */
 
 import { Command } from 'commander';
@@ -85,7 +84,7 @@ async function copyDirectoryWithStats(
 export const packageCommand = new Command('package')
   .description('Create distributable plugin package')
   .option('-o, --output <dir>', 'Output directory', 'dist')
-  .option('--format <format>', 'Package format (tar, zip, oci)', 'zip')
+  .option('--format <format>', 'Package format (tar, zip)', 'zip')
   .option('--no-validate', 'Skip manifest validation')
   .option('--skip-bundle-validation', 'Skip UMD bundle validation')
   .action(async (options: {
@@ -299,13 +298,9 @@ export const packageCommand = new Command('package')
         
         // Cleanup package dir
         await fs.remove(packageDir);
-      } else if (options.format === 'oci') {
-        console.log(chalk.yellow('OCI format packaging requires Docker and registry access'));
-        archiveName = `${manifest.name}-${manifest.version}.oci`;
-        // TODO: Implement OCI artifact creation (archivePath and archiveSize unused until then)
       } else {
         console.error(chalk.red(`Unknown format: ${options.format}`));
-        console.log(chalk.yellow('Supported formats: zip, tar, oci'));
+        console.log(chalk.yellow('Supported formats: zip, tar'));
         process.exit(1);
       }
 
