@@ -78,6 +78,15 @@ export const createCommand = new Command('create')
         when: !name,
       },
       {
+        type: 'input',
+        name: 'displayName',
+        message: 'Display name (human-readable):',
+        default: (ans: CreateAnswers) => {
+          const n = ans.name || name || 'my-plugin';
+          return n.split('-').map((s: string) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
+        },
+      },
+      {
         type: 'list',
         name: 'template',
         message: 'Select template:',
@@ -301,15 +310,24 @@ export default createPluginConfig({
 });
 `);
 
-  // mount.tsx (required entry point for UMD plugins)
+  // mount.tsx (single authoritative entry point for UMD shell integration)
   await fs.writeFile(path.join(frontendDir, 'src', 'mount.tsx'), `import React from 'react';
-import { createRoot } from 'react-dom/client';
+import { createRoot, Root } from 'react-dom/client';
+import type { ShellContext } from '@naap/plugin-sdk/types';
 import App from './App';
 
-export function mount(container: HTMLElement, context: Record<string, unknown>) {
-  const root = createRoot(container);
-  root.render(<App {...context} />);
-  return () => root.unmount();
+let root: Root | null = null;
+
+export function mount(container: HTMLElement, context: ShellContext) {
+  root = createRoot(container);
+  root.render(<App shellContext={context} />);
+
+  return () => {
+    if (root) {
+      root.unmount();
+      root = null;
+    }
+  };
 }
 
 export default { mount };
@@ -391,9 +409,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 @tailwind utilities;
 `);
 
-  // src/App.tsx - Main component with mount/unmount
+  // src/App.tsx - Main component (mount is handled exclusively by mount.tsx)
   await fs.writeFile(path.join(frontendDir, 'src', 'App.tsx'), `import React from 'react';
-import { createRoot, Root } from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ShellProvider } from '@naap/plugin-sdk/hooks';
 import type { ShellContext } from '@naap/plugin-sdk/types';
@@ -426,24 +443,6 @@ const App: React.FC<AppProps> = ({ shellContext, basename = '/${name}' }) => {
   return content;
 };
 
-// Store root for cleanup
-let root: Root | null = null;
-
-// Mount function for shell integration
-export function mount(container: HTMLElement, context: ShellContext) {
-  root = createRoot(container);
-  root.render(<App shellContext={context} />);
-  
-  // Return unmount function
-  return () => {
-    if (root) {
-      root.unmount();
-      root = null;
-    }
-  };
-}
-
-// Export for standalone development
 export default App;
 `);
 
@@ -565,6 +564,10 @@ async function createBackend(targetDir: string, name: string, integrations: stri
     exclude: ['node_modules', 'dist'],
   }, { spaces: 2 });
 
+  // Derive a deterministic port from the plugin name to avoid conflicts
+  const portHash = Array.from(name).reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  const backendPort = 4000 + (portHash % 1000);
+
   // src/server.ts
   await fs.writeFile(path.join(backendDir, 'src', 'server.ts'), `import express from 'express';
 import cors from 'cors';
@@ -574,7 +577,7 @@ import { router } from './routes/index.js';
 config();
 
 const app = express();
-const PORT = process.env.PORT || 4010;
+const PORT = process.env.PORT || ${backendPort};
 
 app.use(cors());
 app.use(express.json());
@@ -630,22 +633,35 @@ export async function disconnectDatabase() {
 }
 `);
 
-  // prisma/schema.prisma
-  await fs.writeFile(path.join(backendDir, 'prisma', 'schema.prisma'), `generator client {
-  provider = "prisma-client-js"
+  const schemaName = `plugin_${name.replace(/-/g, '_')}`;
+
+  // prisma/schema.prisma — extends the unified database schema
+  await fs.writeFile(path.join(backendDir, 'prisma', 'schema.prisma'), `// Plugin schema extension for ${name}
+// Models here are merged into the unified schema at packages/database/prisma/schema.prisma
+// via the multi-schema approach: @@schema("${schemaName}")
+//
+// During development, use the centralized DB managed by packages/database.
+// Do NOT define your own datasource block — the platform provides it.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  schemas  = ["public", "${schemaName}"]
 }
 
-// Add your models here
-model Example {
+// Add your models here — always annotate with @@schema("${schemaName}")
+model ${name.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('')}Example {
   id        String   @id @default(cuid())
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("${schemaName}")
 }
 `);
 
@@ -667,7 +683,7 @@ main()
 
   // .env.example
   await fs.writeFile(path.join(backendDir, '.env.example'), `DATABASE_URL="postgresql://postgres:postgres@localhost:5432/${name.replace(/-/g, '_')}_db"
-PORT=4010
+PORT=${backendPort}
 `);
 
   // Dockerfile
@@ -680,7 +696,7 @@ RUN npm ci --only=production
 
 COPY dist ./dist
 
-EXPOSE 4010
+EXPOSE ${backendPort}
 
 CMD ["node", "dist/server.js"]
 `);
