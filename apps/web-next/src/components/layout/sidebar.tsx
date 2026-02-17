@@ -427,11 +427,6 @@ export function Sidebar() {
                 isOpen={isSidebarOpen}
               />
               <NavLink
-                item={{ name: 'Marketplace', href: '/marketplace', icon: ShoppingBag }}
-                isActive={isActive('/marketplace')}
-                isOpen={isSidebarOpen}
-              />
-              <NavLink
                 item={{ name: 'Docs', href: '/docs', icon: BookOpen }}
                 isActive={isActive('/docs')}
                 isOpen={isSidebarOpen}

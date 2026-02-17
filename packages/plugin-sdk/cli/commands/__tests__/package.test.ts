@@ -383,9 +383,10 @@ describe('Package Command', () => {
 
   // Test 12: Invalid format error
   it('should reject unknown package formats', async () => {
-    const validFormats = ['tar', 'zip', 'oci'];
+    const validFormats = ['tar', 'zip'];
     const invalidFormat = 'rar';
     
     expect(validFormats.includes(invalidFormat)).toBe(false);
+    expect(validFormats.includes('oci')).toBe(false);
   });
 });

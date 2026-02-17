@@ -79,6 +79,15 @@ export interface PluginLoaderProps {
 }
 
 /**
+ * Build shell config key for plugin backend endpoints.
+ * Format: `${camelCase(pluginName)}EndpointUrl` (e.g. `myWalletEndpointUrl`).
+ */
+function getShellEndpointUrlKey(pluginName: string): string {
+  const camelCaseName = pluginName.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+  return `${camelCaseName}EndpointUrl`;
+}
+
+/**
  * PluginLoader Component
  */
 export function PluginLoader({
@@ -157,9 +166,13 @@ export function PluginLoader({
 
       // Get shell from ref (current value, not stale closure)
       const currentShell = shellRef.current;
+      const sameOriginEndpointUrl = typeof window !== 'undefined' ? window.location.origin : '';
+      const pluginEndpointUrlKey = getShellEndpointUrlKey(plugin.name);
 
       // Create base shell context for plugin
       // NOTE: Must include all services from ShellContext interface for hooks to work
+      // config: When plugins are embedded in the shell, use same-origin for API calls.
+      // getServiceOrigin() checks shellContext.config using plugin-derived EndpointUrl keys first.
       const baseContext = {
         auth: currentShell.auth,
         notifications: currentShell.notifications,
@@ -177,6 +190,11 @@ export function PluginLoader({
         // Include tenant and team context for multi-tenancy support
         tenant: currentShell.tenant,
         team: currentShell.team,
+        config: {
+          // Same-origin so embedded plugins use shell's API routes (avoids Failed to fetch when standalone backend isn't running)
+          [pluginEndpointUrlKey]: sameOriginEndpointUrl,
+          baseEndpointUrl: sameOriginEndpointUrl,
+        },
       };
 
       // Trusted plugins need auth token access (no strict sandboxing).

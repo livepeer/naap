@@ -571,6 +571,7 @@ ensure_databases() {
 #   2. Pushes the schema to the DB (adds new columns/tables non-destructively)
 #   3. Checks data integrity (users exist, plugins have CDN URLs)
 #   4. Re-seeds if data is missing or incomplete
+#   5. Syncs plugin registry (upserts discovered plugins, disables stale ones)
 sync_unified_database() {
   log_info "Syncing unified database (schema + data)..."
 
@@ -659,6 +660,16 @@ sync_unified_database() {
   else
     log_success "Database data verified (users + plugin CDN URLs present)"
   fi
+
+  # Step 5: Sync plugin registry (always runs — fast idempotent operation).
+  # Discovers plugins from plugins/*/plugin.json, upserts WorkflowPlugin +
+  # PluginPackage records, and soft-disables any DB plugins that no longer
+  # have a plugin.json in the repo (stale records from moved/removed plugins).
+  log_info "Syncing plugin registry with discovered plugins..."
+  cd "$ROOT_DIR" || { log_error "Failed to cd to root"; return 1; }
+  DATABASE_URL="$UNIFIED_DB_URL" npx tsx bin/sync-plugin-registry.ts > "$LOG_DIR/sync-plugins.log" 2>&1 && \
+    log_success "Plugin registry synced (see logs/sync-plugins.log for details)" || \
+    log_warn "Plugin registry sync had issues (check logs/sync-plugins.log)"
 }
 
 ###############################################################################

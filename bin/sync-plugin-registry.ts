@@ -13,6 +13,7 @@
  *   - Soft-disables plugins that were removed from the repo
  *
  * Execution contexts:
+ *   - Local dev: called by bin/start.sh during database sync (every start)
  *   - Vercel build: called by bin/vercel-build.sh step [4/4]
  *   - Manual: `npx tsx bin/sync-plugin-registry.ts`
  *
@@ -45,7 +46,7 @@ const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || '/cdn/plugins';
  * Synchronize plugin registry with the database.
  * Discovers plugins from plugin.json manifests, upserts WorkflowPlugin and
  * PluginPackage records, and soft-disables plugins no longer in the repo.
- * Production-only: cleanup of stale records. Preview: register/update only.
+ * Cleanup runs in production and local dev; skipped on Vercel preview (shared DB).
  */
 async function main(): Promise<void> {
   // Resolve DATABASE_URL — mirror the logic from packages/database/src/index.ts
@@ -103,16 +104,15 @@ async function main(): Promise<void> {
       }
     }
 
-    // Cleanup stale plugins — PRODUCTION ONLY.
-    // Preview branches share a single database, so branch A disabling branch B's
-    // plugins causes them to disappear on branch B's preview. Only production
-    // (merged to main) should clean up stale records.
+    // Cleanup stale plugins — runs in production and local dev.
+    // Skipped ONLY on Vercel preview branches, where multiple branches share a
+    // single database and branch A disabling branch B's plugins would break previews.
     const discoveredNames = new Set(discovered.map((p) => p.name));
-    const isProduction = process.env.VERCEL_ENV === 'production';
+    const isVercelPreview = process.env.VERCEL_ENV === 'preview';
     let disabled = 0;
     let unlisted = 0;
 
-    if (isProduction) {
+    if (!isVercelPreview) {
       // Soft-disable stale WorkflowPlugin records
       const dbPlugins = await prisma.workflowPlugin.findMany({
         where: { enabled: true },
@@ -147,7 +147,7 @@ async function main(): Promise<void> {
         }
       }
     } else {
-      console.log('[sync-plugin-registry] Skipping stale plugin cleanup (preview env — shared DB)');
+      console.log('[sync-plugin-registry] Skipping stale plugin cleanup (Vercel preview — shared DB)');
     }
 
     console.log(
@@ -182,6 +182,7 @@ async function main(): Promise<void> {
           license: pkgData.license,
           keywords: pkgData.keywords,
           icon: pkgData.icon,
+          isCore: pkgData.isCore,
           publishStatus: 'published',
         },
         create: pkgData,
@@ -245,7 +246,7 @@ async function main(): Promise<void> {
     }
 
     console.log(
-      `[sync-plugin-registry] PluginPackages: ${pkgCreated} created, ${pkgUpdated} updated${isProduction ? `, ${unlisted} unlisted` : ''}`,
+      `[sync-plugin-registry] PluginPackages: ${pkgCreated} created, ${pkgUpdated} updated${!isVercelPreview ? `, ${unlisted} unlisted` : ''}`,
     );
     console.log('[sync-plugin-registry] Done.');
   } finally {
