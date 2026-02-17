@@ -217,7 +217,6 @@ jobs:
 
       - name: Run SDK tests
         run: cd packages/plugin-sdk && npm run test:coverage
-        continue-on-error: true
 
       - name: Upload SDK coverage
         uses: codecov/codecov-action@v5
@@ -270,7 +269,6 @@ jobs:
           echo "::group::Running tests for ${{ matrix.plugin }}"
           npm test --if-present || echo "No tests configured for ${{ matrix.plugin }}"
           echo "::endgroup::"
-        continue-on-error: true
 
       - name: Build plugin UMD bundle
         run: |
@@ -278,7 +276,6 @@ jobs:
           echo "::group::Building UMD for ${{ matrix.plugin }}"
           npm run build:umd --if-present || echo "No UMD build configured for ${{ matrix.plugin }}"
           echo "::endgroup::"
-        continue-on-error: true
 
   # ===========================================================================
   # Plugin Tests — Only test plugins that actually changed
@@ -336,14 +333,12 @@ jobs:
         run: |
           cd plugins/${{ matrix.plugin }}/frontend
           npm test --if-present || echo "No tests configured for ${{ matrix.plugin }}"
-        continue-on-error: true
 
       - name: Build plugin frontend
         if: steps.check.outputs.changed == 'true'
         run: |
           cd plugins/${{ matrix.plugin }}/frontend
           npm run build:umd --if-present || echo "No UMD build for ${{ matrix.plugin }}"
-        continue-on-error: true
 
       - name: Upload plugin coverage
         if: steps.check.outputs.changed == 'true' && always()
@@ -353,6 +348,39 @@ jobs:
           flags: plugin-${{ matrix.plugin }}
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ===========================================================================
+  # Lifecycle BDD Tests — Plugin lifecycle feature specs
+  # ===========================================================================
+  lifecycle-tests:
+    name: Lifecycle BDD Tests
+    runs-on: ubuntu-latest
+    needs: paths-filter
+    if: >-
+      needs.paths-filter.outputs.sdk == 'true' ||
+      needs.paths-filter.outputs.plugins == 'true' ||
+      needs.paths-filter.outputs.backend == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lifecycle BDD feature specs
+        run: npx vitest run --dir tests/lifecycle-bdd
+
+      - name: Run lifecycle smoke check
+        run: ./bin/lifecycle-smoke.sh --skip-build
+
+      - name: Run regression guard
+        run: ./bin/regression-guard.sh
 
   # ===========================================================================
   # Build — Vercel build simulation (same as production)
@@ -427,7 +455,7 @@ jobs:
   quality-gates:
     name: Quality Gates
     runs-on: ubuntu-latest
-    needs: [audit, lint-typecheck, build]
+    needs: [audit, lint-typecheck, build, sdk-tests, sdk-compat-matrix, plugin-tests, shell-tests, lifecycle-tests]
     if: always() && !cancelled()
     steps:
       - name: Checkout
@@ -442,21 +470,53 @@ jobs:
 
       - name: Check upstream job results
         run: |
+          echo "=== Upstream Job Results ==="
           echo "audit: ${{ needs.audit.result }}"
           echo "lint-typecheck: ${{ needs.lint-typecheck.result }}"
           echo "build: ${{ needs.build.result }}"
+          echo "sdk-tests: ${{ needs.sdk-tests.result }}"
+          echo "sdk-compat-matrix: ${{ needs.sdk-compat-matrix.result }}"
+          echo "plugin-tests: ${{ needs.plugin-tests.result }}"
+          echo "shell-tests: ${{ needs.shell-tests.result }}"
+          echo "lifecycle-tests: ${{ needs.lifecycle-tests.result }}"
+
+          FAILED=0
 
           if [[ "${{ needs.audit.result }}" == "failure" ]]; then
             echo "::error::Audit failed (critical vulnerabilities)"
-            exit 1
+            FAILED=1
           fi
           if [[ "${{ needs.lint-typecheck.result }}" == "failure" ]]; then
             echo "::error::Lint/TypeCheck failed"
-            exit 1
+            FAILED=1
           fi
-          # Build can be skipped when only docs/config changed (build_relevant=false)
           if [[ "${{ needs.build.result }}" == "failure" ]]; then
             echo "::error::Build failed"
+            FAILED=1
+          fi
+          if [[ "${{ needs.sdk-tests.result }}" == "failure" ]]; then
+            echo "::error::SDK tests failed — coverage or test failures block merge"
+            FAILED=1
+          fi
+          if [[ "${{ needs.sdk-compat-matrix.result }}" == "failure" ]]; then
+            echo "::error::SDK compatibility matrix failed — plugin regression detected"
+            FAILED=1
+          fi
+          if [[ "${{ needs.plugin-tests.result }}" == "failure" ]]; then
+            echo "::error::Plugin tests failed — test or build failures block merge"
+            FAILED=1
+          fi
+          if [[ "${{ needs.shell-tests.result }}" == "failure" ]]; then
+            echo "::error::Shell tests failed"
+            FAILED=1
+          fi
+          if [[ "${{ needs.lifecycle-tests.result }}" == "failure" ]]; then
+            echo "::error::Lifecycle BDD tests failed"
+            FAILED=1
+          fi
+
+          if [[ "$FAILED" -eq 1 ]]; then
+            echo "::error::One or more quality gates FAILED"
             exit 1
           fi
 
