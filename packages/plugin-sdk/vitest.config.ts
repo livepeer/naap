@@ -4,7 +4,12 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    include: ['src/**/*.test.{ts,tsx}', 'src/**/*.spec.{ts,tsx}'],
+    include: [
+      'src/**/*.test.{ts,tsx}',
+      'src/**/*.spec.{ts,tsx}',
+      'cli/**/*.test.{ts,tsx}',
+      'cli/**/*.spec.{ts,tsx}',
+    ],
     exclude: ['node_modules', 'dist'],
     setupFiles: ['./src/testing/setupTests.ts'],
     coverage: {
@@ -14,16 +19,17 @@ export default defineConfig({
         'node_modules/',
         'src/**/*.test.{ts,tsx}',
         'src/**/*.spec.{ts,tsx}',
+        'cli/**/*.test.{ts,tsx}',
+        'cli/**/*.spec.{ts,tsx}',
         'src/**/*.d.ts',
-        'src/cli/**',
         'src/testing/**',
       ],
       thresholds: {
         global: {
-          lines: 60,
-          functions: 60,
-          branches: 50,
-          statements: 60,
+          lines: 70,
+          functions: 70,
+          branches: 60,
+          statements: 70,
         },
       },
     },
