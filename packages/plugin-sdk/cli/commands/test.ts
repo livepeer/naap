@@ -110,10 +110,56 @@ export const testCommand = new Command('test')
       if (options.integration) {
         console.log(chalk.cyan('\nIntegration Tests\n'));
         console.log(chalk.yellow('Integration tests require the shell to be running.'));
-        console.log(chalk.gray('Run: naap-plugin dev --shell http://localhost:3000'));
-        
-        // TODO: Implement integration test runner
-        console.log(chalk.gray('Integration test runner not yet implemented'));
+
+        const shellUrl = process.env.NAAP_SHELL_URL || 'http://localhost:3000';
+        console.log(chalk.gray(`Shell URL: ${shellUrl}`));
+
+        // Verify shell is reachable before running
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const healthRes = await fetch(`${shellUrl}/api/health`, {
+            signal: controller.signal,
+          }).catch(() => null);
+          clearTimeout(timeoutId);
+
+          if (!healthRes || !healthRes.ok) {
+            console.log(chalk.red('Shell is not reachable. Start it first:'));
+            console.log(chalk.gray('  naap-plugin dev --shell ' + shellUrl));
+            exitCode = 1;
+          } else {
+            console.log(chalk.green('Shell reachable'));
+
+            // Run integration test suite via Vitest with integration filter
+            const integrationDir = path.join(cwd, 'tests', 'integration');
+            const frontendIntDir = path.join(cwd, 'frontend', 'tests', 'integration');
+            const testDir = (await fs.pathExists(integrationDir))
+              ? integrationDir
+              : (await fs.pathExists(frontendIntDir))
+                ? frontendIntDir
+                : null;
+
+            if (testDir) {
+              try {
+                await execa('npx', ['vitest', 'run', '--dir', testDir], {
+                  cwd,
+                  stdio: 'inherit',
+                  env: { ...process.env, NAAP_SHELL_URL: shellUrl },
+                });
+                console.log(chalk.green('✓ Integration tests passed'));
+              } catch {
+                console.log(chalk.red('✗ Integration tests failed'));
+                exitCode = 1;
+              }
+            } else {
+              console.log(chalk.yellow('No integration test directory found.'));
+              console.log(chalk.gray('  Expected: tests/integration/ or frontend/tests/integration/'));
+            }
+          }
+        } catch (err) {
+          console.log(chalk.red('Failed to check shell health:'), err);
+          exitCode = 1;
+        }
       }
 
       console.log('');

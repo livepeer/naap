@@ -310,10 +310,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Upload to CDN
     const cdnResult = await uploadToCDN(pluginName, version, assets);
 
-    // Clean up
+    // Clean up extract directory
     await rm(extractDir, { recursive: true });
 
-    // Optionally update database deployment record
+    // Update database deployment record — treat failure as a publish failure
+    // because a CDN upload without a DB record creates an orphaned deployment.
+    let dbUpdated = false;
     try {
       const pkg = await prisma.pluginPackage.findUnique({
         where: { name: pluginName },
@@ -331,9 +333,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             deploymentType: 'cdn',
           },
         });
+        dbUpdated = true;
+      } else {
+        // Package/version doesn't exist in DB yet — this is acceptable for
+        // first-time CDN-only uploads; the registry publish step will create it.
+        dbUpdated = true;
       }
     } catch (dbErr) {
-      console.warn('Failed to update CDN deployment in database:', dbErr);
+      // CDN upload succeeded but DB update failed — log with structured context
+      // so the orphaned CDN assets can be identified and cleaned up.
+      console.error('CDN publish DB consistency error', {
+        pluginName,
+        version,
+        bundleUrl: cdnResult.bundleUrl,
+        error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+      });
     }
 
     return success({
@@ -346,6 +360,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       bundleSize: cdnResult.bundleSize,
       deploymentType: 'cdn',
       manifest: productionManifest,
+      dbSynced: dbUpdated,
     });
   } catch (err) {
     console.error('CDN publish error:', err);

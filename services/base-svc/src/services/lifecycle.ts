@@ -307,6 +307,17 @@ export function createLifecycleService(prisma: PrismaClient) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error';
         const duration = Date.now() - startTime;
 
+        // Rollback: disable any partially-created WorkflowPlugin and roles
+        try {
+          await prisma.workflowPlugin.updateMany({
+            where: { name: pkg.name },
+            data: { enabled: false },
+          });
+          await this.unregisterPluginRoles(pkg.name);
+        } catch (rollbackErr) {
+          console.error('Install rollback cleanup failed:', rollbackErr);
+        }
+
         // Update status to failed
         await prisma.pluginInstallation.update({
           where: { packageId },
@@ -363,17 +374,35 @@ export function createLifecycleService(prisma: PrismaClient) {
           initiatedBy,
         });
 
-        // Here would be cleanup logic:
-        // - Stop and remove Docker container
-        // - Drop database if needed
-        // - Unregister from CDN plugin system
+        // Execute preUninstall hook if defined (with 60-second timeout)
+        const manifest = installation.version.manifest as {
+          hooks?: PluginHooks;
+        };
 
-        // Delete installation record
-        await prisma.pluginInstallation.delete({
-          where: { packageId },
-        });
+        if (manifest?.hooks?.preUninstall) {
+          const { executeLifecycleHook } = await import('./hookExecutor.js');
+          const hookResult = await executeLifecycleHook(
+            manifest.hooks,
+            'preUninstall',
+            {
+              pluginName,
+              version,
+              action: 'uninstall',
+              environment: {
+                PLUGIN_ID: packageId,
+                VERSION_ID: installation.versionId,
+              },
+            },
+            { timeout: 60000 }, // 60-second timeout for preUninstall
+          );
 
-        // Disable the WorkflowPlugin
+          if (hookResult && !hookResult.success) {
+            console.warn(`preUninstall hook failed for ${pluginName}: ${hookResult.error}`);
+            // Log but continue with uninstall — hook failure should not block cleanup
+          }
+        }
+
+        // Cleanup: Disable the WorkflowPlugin first (makes plugin inaccessible)
         await prisma.workflowPlugin.updateMany({
           where: { name: pluginName },
           data: { enabled: false },
@@ -381,6 +410,11 @@ export function createLifecycleService(prisma: PrismaClient) {
 
         // Unregister plugin-contributed roles
         await this.unregisterPluginRoles(pluginName);
+
+        // Delete installation record last (acts as the commit point)
+        await prisma.pluginInstallation.delete({
+          where: { packageId },
+        });
 
         const duration = Date.now() - startTime;
 
