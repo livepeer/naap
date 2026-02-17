@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
+import { validateManifest, validatePluginName, createDefaultManifest } from '../../packages/plugin-sdk/src/utils/validation.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,6 +39,28 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (tmpDir) await fs.remove(tmpDir);
+});
+
+// ---------------------------------------------------------------------------
+// Feature: CLI Discoverability (real CLI invocation)
+// ---------------------------------------------------------------------------
+describe('Feature: CLI Discoverability', () => {
+  it('Given the SDK CLI, When --help is invoked, Then it lists create and package commands', async () => {
+    const { execa } = await import('execa');
+    const cliPath = path.resolve(__dirname, '../../packages/plugin-sdk/cli/index.ts');
+    const result = await execa('npx', ['tsx', cliPath, '--help'], { reject: false });
+    expect(result.stdout).toContain('create');
+    expect(result.stdout).toContain('package');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('Given the create command, When --help is invoked, Then it describes plugin scaffolding', async () => {
+    const { execa } = await import('execa');
+    const cliPath = path.resolve(__dirname, '../../packages/plugin-sdk/cli/index.ts');
+    const result = await execa('npx', ['tsx', cliPath, 'create', '--help'], { reject: false });
+    expect(result.stdout).toContain('Create a new NAAP plugin');
+    expect(result.exitCode).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -100,24 +123,32 @@ describe('Feature: Plugin Packaging', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Feature: Plugin Validation
+// Feature: Plugin Validation (exercises real SDK functions)
 // ---------------------------------------------------------------------------
 describe('Feature: Plugin Validation', () => {
-  it('Given a valid manifest, When validated, Then no errors are returned', () => {
-    const errors: string[] = [];
-    if (!FIXTURE_MANIFEST.name) errors.push('missing name');
-    if (!FIXTURE_MANIFEST.version) errors.push('missing version');
-    if (!FIXTURE_MANIFEST.frontend) errors.push('no frontend or backend');
-
-    expect(errors).toHaveLength(0);
+  it('Given a valid manifest, When validateManifest is called, Then no errors are returned', () => {
+    const manifest = createDefaultManifest('bdd-test-plugin', 'full-stack');
+    const result = validateManifest(manifest);
+    expect(result.errors).toHaveLength(0);
   });
 
-  it('Given a manifest without name, When validated, Then an error for missing name is returned', () => {
-    const badManifest = { ...FIXTURE_MANIFEST, name: '' };
-    const errors: string[] = [];
-    if (!badManifest.name) errors.push('MISSING_NAME');
+  it('Given a manifest without name, When validateManifest is called, Then a name error is returned', () => {
+    const badManifest = createDefaultManifest('test', 'full-stack');
+    badManifest.name = '';
+    const result = validateManifest(badManifest);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.path === 'name')).toBe(true);
+  });
 
-    expect(errors).toContain('MISSING_NAME');
+  it('Given a valid plugin name, When validatePluginName is called, Then it returns true', () => {
+    expect(validatePluginName('bdd-test-plugin')).toBe(true);
+    expect(validatePluginName('my-plugin-2')).toBe(true);
+  });
+
+  it('Given an invalid plugin name, When validatePluginName is called, Then it returns false', () => {
+    expect(validatePluginName('')).toBe(false);
+    expect(validatePluginName('UPPERCASE')).toBe(false);
+    expect(validatePluginName('has spaces')).toBe(false);
   });
 
   it('Given a UMD bundle, When content is validated, Then mount function presence is checked', () => {
