@@ -44,7 +44,8 @@ cd backend && npm install && cd ..
 naap-plugin dev
 
 # Edit files:
-# - frontend/src/App.tsx (must export mount())
+# - frontend/src/App.tsx (uses createPlugin() — the canonical mount pattern)
+# - frontend/src/mount.tsx (UMD entry, delegates to App.tsx — rarely needs editing)
 # - frontend/src/pages/*.tsx
 # - backend/src/server.ts
 # - backend/src/routes/*.ts

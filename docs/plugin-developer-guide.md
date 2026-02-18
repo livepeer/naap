@@ -63,7 +63,9 @@ my-awesome-plugin/
 ├── .naap/                   # Local dev config
 ├── frontend/                # React micro-frontend
 │   ├── src/
-│   │   ├── App.tsx         # Main component with mount()
+│   │   ├── App.tsx         # Plugin definition via createPlugin()
+│   │   ├── mount.tsx       # UMD entry point (delegates to App.tsx)
+│   │   ├── main.tsx        # Standalone dev entry point
 │   │   ├── pages/
 │   │   └── components/
 │   ├── vite.config.ts

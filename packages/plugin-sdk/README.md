@@ -43,6 +43,36 @@ See the comprehensive **[Developer Guide](./DEVELOPER_GUIDE.md)** for:
 
 ## Basic Usage
 
+The canonical way to create a NAAP plugin is with `createPlugin()`:
+
+```typescript
+// App.tsx
+import React from 'react';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { createPlugin } from '@naap/plugin-sdk';
+import Dashboard from './pages/Dashboard';
+
+const MyPluginApp: React.FC = () => (
+  <MemoryRouter>
+    <Routes>
+      <Route path="/*" element={<Dashboard />} />
+    </Routes>
+  </MemoryRouter>
+);
+
+const plugin = createPlugin({
+  name: 'my-plugin',
+  version: '1.0.0',
+  routes: ['/my-plugin', '/my-plugin/*'],
+  App: MyPluginApp,
+});
+
+export const mount = plugin.mount;
+export default plugin;
+```
+
+Inside your components, use SDK hooks for shell integration:
+
 ```typescript
 import {
   useAuth,
@@ -52,7 +82,7 @@ import {
   usePluginConfig,
 } from '@naap/plugin-sdk';
 
-function MyPlugin() {
+function Dashboard() {
   const { user, isAuthenticated } = useAuth();
   const notify = useNotify();
   const api = usePluginApi();
