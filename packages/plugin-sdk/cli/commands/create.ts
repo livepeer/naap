@@ -609,7 +609,28 @@ router.get('/', async (req, res) => {
   });
 });
 
-// Add your routes here
+// Add your routes here — see routes/README.md for the pattern
+`);
+
+  // routes/README.md — route discoverability guide
+  await fs.writeFile(path.join(backendDir, 'src', 'routes', 'README.md'), `# Adding Routes
+
+## Quick steps
+
+1. Create a new file, e.g. \`users.ts\`:
+   \`\`\`ts
+   import { Router } from 'express';
+   export const usersRouter = Router();
+   usersRouter.get('/', (_req, res) => res.json({ users: [] }));
+   \`\`\`
+
+2. Register it in \`index.ts\`:
+   \`\`\`ts
+   import { usersRouter } from './users.js';
+   router.use('/users', usersRouter);
+   \`\`\`
+
+Or run: \`naap-plugin add endpoint users --crud\`
 `);
 
   // src/db/client.ts
@@ -811,6 +832,27 @@ router.delete('/:id', (req, res) => {
 `);
 
   await fs.writeFile(path.join(backendDir, '.env.example'), `PORT=${backendPort}
+`);
+
+  // routes/README.md — route discoverability guide
+  await fs.writeFile(path.join(backendDir, 'src', 'routes', 'README.md'), `# Adding Routes
+
+## Quick steps
+
+1. Create a new file, e.g. \`users.ts\`:
+   \`\`\`ts
+   import { Router } from 'express';
+   export const usersRouter = Router();
+   usersRouter.get('/', (_req, res) => res.json({ users: [] }));
+   \`\`\`
+
+2. Register it in \`index.ts\`:
+   \`\`\`ts
+   import { usersRouter } from './users.js';
+   router.use('/users', usersRouter);
+   \`\`\`
+
+Or run: \`naap-plugin add endpoint users --crud\`
 `);
 }
 

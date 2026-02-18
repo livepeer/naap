@@ -289,8 +289,10 @@ export const devCommand = new Command('dev')
       console.log(chalk.dim('  Tip: Changes will hot-reload automatically'));
       console.log(chalk.dim('  Tip: Use --no-open to skip browser launch'));
       if (!options.withShell) {
-        console.log(chalk.dim('  Tip: Use --with-shell to start shell + plugin in one command'));
+        console.log(chalk.dim('  Tip: Use --with-shell to start shell + plugin in one command (monorepo)'));
       }
+      console.log(chalk.dim('  Tip: Add routes with: naap-plugin add endpoint <name> --crud'));
+      console.log(chalk.dim('  Tip: Add models with: naap-plugin add model <Name> [fields...]'));
       console.log(chalk.dim('━'.repeat(50)) + '\n');
 
       // Handle shutdown
