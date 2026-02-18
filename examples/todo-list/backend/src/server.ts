@@ -97,7 +97,7 @@ app.post('/api/v1/todos', authenticate, (req, res) => {
 // Update todo
 app.patch('/api/v1/todos/:id', authenticate, (req, res) => {
   const userId = (req as any).user?.id;
-  const { id } = req.params;
+  const id = typeof req.params.id === 'string' ? req.params.id : (req.params.id?.[0] ?? '');
   const { title, completed } = req.body;
 
   const todo = todos.get(id);
@@ -117,14 +117,14 @@ app.patch('/api/v1/todos/:id', authenticate, (req, res) => {
   if (title !== undefined) todo.title = title;
   if (completed !== undefined) todo.completed = completed;
 
-  todos.set(id, todo);
+  todos.set(id as string, todo);
   res.json({ todo });
 });
 
 // Delete todo
 app.delete('/api/v1/todos/:id', authenticate, (req, res) => {
   const userId = (req as any).user?.id;
-  const { id } = req.params;
+  const id = typeof req.params.id === 'string' ? req.params.id : (req.params.id?.[0] ?? '');
 
   const todo = todos.get(id);
 
@@ -140,7 +140,7 @@ app.delete('/api/v1/todos/:id', authenticate, (req, res) => {
     return res.status(403).json({ error: 'Not authorized' });
   }
 
-  todos.delete(id);
+  todos.delete(id as string);
   res.status(204).send();
 });
 
