@@ -17,20 +17,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFile, stat, readdir } from 'fs/promises';
 import path from 'path';
 
-// Map of plugin names to directory names (camelCase -> kebab-case)
-const PLUGIN_DIR_MAP: Record<string, string> = {
-  'gatewayManager': 'gateway-manager',
-  'orchestratorManager': 'orchestrator-manager',
-  'capacityPlanner': 'capacity-planner',
-  'networkAnalytics': 'network-analytics',
-  'marketplace': 'marketplace',
-  'community': 'community',
-  'developerApi': 'developer-api',
-  'myWallet': 'my-wallet',
-  'myDashboard': 'my-dashboard',
-  'pluginPublisher': 'plugin-publisher',
-  'daydreamVideo': 'daydream-video',
-};
+/**
+ * Converts a camelCase plugin name to kebab-case directory name.
+ * All plugin directories use kebab-case; DB names are camelCase.
+ *
+ * Examples:
+ *   gatewayManager  -> gateway-manager
+ *   marketplace     -> marketplace
+ *   myWallet        -> my-wallet
+ */
+function toKebabCase(name: string): string {
+  return name.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+}
 
 // MIME types for plugin assets
 const MIME_TYPES: Record<string, string> = {
@@ -76,8 +74,9 @@ export async function GET(
     );
   }
 
-  // Resolve plugin directory (support both camelCase and kebab-case)
-  const pluginDir = PLUGIN_DIR_MAP[pluginName] || pluginName;
+  // Resolve plugin directory: deterministic camelCase → kebab-case conversion
+  // No hardcoded map needed — all plugin directories follow this convention
+  const pluginDir = toKebabCase(pluginName);
 
   // Build the file path
   // In development: ../../../dist/plugins/[pluginDir]/[version]/[file]
