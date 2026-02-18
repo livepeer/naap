@@ -121,27 +121,22 @@ export interface UMDPluginModule {
 /**
  * Creates a UMD-compatible plugin mount function.
  *
- * This is designed for plugins that will be loaded via script tag
- * and exposed as a global variable.
+ * @deprecated Use `createPlugin()` from `@naap/plugin-sdk` instead.
+ * All 15 production plugins use `createPlugin()`, which handles
+ * React rendering, ShellProvider wrapping, and cleanup automatically.
  *
- * IMPORTANT: React and ReactDOM must be passed explicitly since they
- * are not bundled with the UMD build to avoid version conflicts.
- *
- * @param React - React library (passed from host)
- * @param ReactDOM - ReactDOM library (passed from host)
- * @param options - Plugin mount options
- * @returns Plugin module with mount/unmount functions
- *
- * @example
+ * Migration:
  * ```tsx
- * // In your plugin's UMD entry point
+ * // Before (deprecated):
  * import { createUMDPluginMount } from '@naap/plugin-sdk/umd';
- * import App from './App';
- *
- * // The shell will call this with React instances
  * export function createPlugin(React, ReactDOM) {
  *   return createUMDPluginMount(React, ReactDOM, { App });
  * }
+ *
+ * // After (recommended):
+ * import { createPlugin } from '@naap/plugin-sdk';
+ * const plugin = createPlugin({ name: 'my-plugin', version: '1.0.0', App: MyApp });
+ * export default plugin;
  * ```
  */
 export function createUMDPluginMount(
@@ -238,21 +233,8 @@ export function createUMDPluginMount(
 /**
  * Creates a complete UMD plugin with metadata.
  *
- * @param React - React library
- * @param ReactDOM - ReactDOM library
- * @param options - Plugin options including metadata
- * @returns Complete plugin module
- *
- * @example
- * ```tsx
- * export function createPlugin(React, ReactDOM) {
- *   return createUMDPlugin(React, ReactDOM, {
- *     name: 'my-plugin',
- *     version: '1.0.0',
- *     App: MyPluginApp,
- *   });
- * }
- * ```
+ * @deprecated Use `createPlugin()` from `@naap/plugin-sdk` instead.
+ * See `createUMDPluginMount` deprecation notice for migration guide.
  */
 export function createUMDPlugin(
   React: typeof import('react'),

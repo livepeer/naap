@@ -9,25 +9,42 @@
  */
 
 import React from 'react';
+import ReactDOM from 'react-dom/client';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import { createPlugin } from '@naap/plugin-sdk';
+import type { ShellContext, PluginModule } from '@naap/plugin-sdk';
+import { ShellProvider } from '@naap/plugin-sdk';
 import { TodoList } from './pages/TodoList';
 import './globals.css';
 
-const TodoListApp: React.FC = () => (
-  <MemoryRouter>
-    <Routes>
-      <Route path="/*" element={<TodoList />} />
-    </Routes>
-  </MemoryRouter>
-);
+// Store shell context for mount function
+let shellContext: ShellContext | null = null;
 
-const plugin = createPlugin({
-  name: 'todo-list',
+// Manifest for shell to load this plugin
+export const manifest: PluginModule & { name: string; version: string; routes: string[] } = {
+  name: 'todoList',
   version: '1.0.0',
   routes: ['/todos', '/todos/*'],
-  App: TodoListApp,
-});
+  mount(container: HTMLElement, context: ShellContext) {
+    shellContext = context;
+    const root = ReactDOM.createRoot(container);
+    root.render(
+      <React.StrictMode>
+        {/* Wrap with ShellProvider to enable SDK hooks */}
+        <ShellProvider value={context}>
+          <MemoryRouter>
+            <Routes>
+              <Route path="/*" element={<TodoList />} />
+            </Routes>
+          </MemoryRouter>
+        </ShellProvider>
+      </React.StrictMode>
+    );
+    return () => {
+      root.unmount();
+      shellContext = null;
+    };
+  },
+};
 
-export const mount = plugin.mount;
-export default plugin;
+export const mount = manifest.mount;
+export default manifest;
