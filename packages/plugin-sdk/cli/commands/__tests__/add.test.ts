@@ -70,12 +70,19 @@ describe('Add Command — Model Helpers', () => {
     expect(result).toBe(schema);
   });
 
-  it('ensureSchemaInDatasource returns unchanged if no schemas array found', () => {
-    const schema = 'generator client { }';
-    const result = ensureSchemaInDatasource(schema, 'plugin_x');
-    expect(result).toBe(schema);
+    it('ensureSchemaInDatasource returns unchanged if no schemas array found', () => {
+      const schema = 'generator client { }';
+      const result = ensureSchemaInDatasource(schema, 'plugin_x');
+      expect(result).toBe(schema);
+    });
+
+    it('ensureSchemaInDatasource adds plugin_a when plugin_abc exists (no substring false-positive)', () => {
+      const schema = 'schemas = ["plugin_abc"]';
+      const result = ensureSchemaInDatasource(schema, 'plugin_a');
+      expect(result).toContain('"plugin_a"');
+      expect(result).toContain('"plugin_abc"');
+    });
   });
-});
 
 describe('Add Command — Endpoint Helpers', () => {
   it('registrationExists detects existing router import', () => {

@@ -36,6 +36,26 @@ const INTEGRATIONS = [
   { value: 'twilio', name: 'Twilio (Messaging)' },
 ];
 
+const ROUTES_README_CONTENT = `# Adding Routes
+
+## Quick steps
+
+1. Create a new file, e.g. \`users.ts\`:
+   \`\`\`ts
+   import { Router } from 'express';
+   export const usersRouter = Router();
+   usersRouter.get('/', (_req, res) => res.json({ users: [] }));
+   \`\`\`
+
+2. Register it in \`index.ts\`:
+   \`\`\`ts
+   import { usersRouter } from './users.js';
+   router.use('/users', usersRouter);
+   \`\`\`
+
+Or run: \`naap-plugin add endpoint users --crud\`
+`;
+
 export const createCommand = new Command('create')
   .description('Create a new NAAP plugin')
   .argument('[name]', 'Plugin name (kebab-case)')
@@ -613,25 +633,7 @@ router.get('/', async (req, res) => {
 `);
 
   // routes/README.md — route discoverability guide
-  await fs.writeFile(path.join(backendDir, 'src', 'routes', 'README.md'), `# Adding Routes
-
-## Quick steps
-
-1. Create a new file, e.g. \`users.ts\`:
-   \`\`\`ts
-   import { Router } from 'express';
-   export const usersRouter = Router();
-   usersRouter.get('/', (_req, res) => res.json({ users: [] }));
-   \`\`\`
-
-2. Register it in \`index.ts\`:
-   \`\`\`ts
-   import { usersRouter } from './users.js';
-   router.use('/users', usersRouter);
-   \`\`\`
-
-Or run: \`naap-plugin add endpoint users --crud\`
-`);
+  await fs.writeFile(path.join(backendDir, 'src', 'routes', 'README.md'), ROUTES_README_CONTENT);
 
   // src/db/client.ts
   await fs.ensureDir(path.join(backendDir, 'src', 'db'));
@@ -835,25 +837,7 @@ router.delete('/:id', (req, res) => {
 `);
 
   // routes/README.md — route discoverability guide
-  await fs.writeFile(path.join(backendDir, 'src', 'routes', 'README.md'), `# Adding Routes
-
-## Quick steps
-
-1. Create a new file, e.g. \`users.ts\`:
-   \`\`\`ts
-   import { Router } from 'express';
-   export const usersRouter = Router();
-   usersRouter.get('/', (_req, res) => res.json({ users: [] }));
-   \`\`\`
-
-2. Register it in \`index.ts\`:
-   \`\`\`ts
-   import { usersRouter } from './users.js';
-   router.use('/users', usersRouter);
-   \`\`\`
-
-Or run: \`naap-plugin add endpoint users --crud\`
-`);
+  await fs.writeFile(path.join(backendDir, 'src', 'routes', 'README.md'), ROUTES_README_CONTENT);
 }
 
 async function createDocs(targetDir: string, name: string, description: string): Promise<void> {

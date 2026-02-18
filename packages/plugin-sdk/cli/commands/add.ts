@@ -70,6 +70,8 @@ export function buildModelBlock(modelName: string, schemaName: string, fields: s
     const parts = field.split(':');
     const fname = parts[0];
     const ftype = parts.length > 1 ? parts[1] : 'String';
+    // Normalizes first char (e.g., "string" -> "String", "int" -> "Int").
+    // Does NOT validate; caller must use valid Prisma types (String, Int, Boolean, DateTime, etc.).
     const prismaType = ftype.charAt(0).toUpperCase() + ftype.slice(1);
     lines.push(`  ${fname.padEnd(9)} ${prismaType}`);
   }
@@ -91,8 +93,18 @@ export function ensureSchemaInDatasource(schemaContent: string, schemaName: stri
   const match = dsRegex.exec(schemaContent);
   if (!match) return schemaContent;
   const existing = match[1];
-  if (existing.includes(`"${schemaName}"`)) return schemaContent;
-  const newSchemas = existing.trimEnd() + `, "${schemaName}"`;
+  // Parse into individual entries to avoid substring false-positives (e.g. "plugin_a" vs "plugin_abc")
+  const existingSchemas = existing
+    .split(',')
+    .map(entry => entry.trim())
+    .filter(entry => entry.length > 0)
+    .map(entry => {
+      const m = /^"(.*)"$/.exec(entry);
+      return m ? m[1] : entry;
+    });
+  if (existingSchemas.includes(schemaName)) return schemaContent;
+  const trimmed = existing.trim();
+  const newSchemas = trimmed.length === 0 ? `"${schemaName}"` : existing.trimEnd() + `, "${schemaName}"`;
   return schemaContent.replace(dsRegex, `schemas = [${newSchemas}]`);
 }
 
