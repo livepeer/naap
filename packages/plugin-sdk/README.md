@@ -107,6 +107,26 @@ function Dashboard() {
 }
 ```
 
+## For Plugin Developers
+
+You only need two packages:
+
+- **`@naap/plugin-sdk`** — Runtime SDK (hooks, `createPlugin`, types, utilities, HTTP headers)
+- **`@naap/plugin-build`** — Build tooling (Vite config via `createPluginConfig`, UMD bundling)
+
+Other `@naap/*` packages (`@naap/types`, `@naap/ui`, `@naap/theme`, etc.) are optional — their core plugin-facing types and constants are re-exported from `@naap/plugin-sdk`.
+
+```json
+{
+  "dependencies": {
+    "@naap/plugin-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@naap/plugin-build": "workspace:*"
+  }
+}
+```
+
 ## CLI Commands
 
 | Command | Description |
