@@ -525,25 +525,35 @@ export async function loadUMDPlugin(options: UMDLoadOptions): Promise<LoadedUMDP
         pluginModule = rawModule as UMDPluginModule;
       }
 
-      // Validate module structure
-      if (!pluginModule || typeof pluginModule.mount !== 'function') {
-        // Enhanced error with diagnostic info
-        const moduleType = typeof pluginModule;
-        const moduleKeys = pluginModule && typeof pluginModule === 'object'
-          ? Object.keys(pluginModule)
-          : [];
-        console.error(`[UMD Loader] Module validation failed:`, {
-          moduleType,
-          moduleKeys,
-          hasMount: pluginModule && 'mount' in pluginModule,
-          mountType: pluginModule?.mount ? typeof pluginModule.mount : 'undefined',
-        });
+      // Validate module structure with actionable error messages
+      if (!pluginModule || typeof pluginModule !== 'object') {
+        const got = pluginModule === null ? 'null' : typeof pluginModule;
+        console.error(
+          `[NAAP Plugin Error] Plugin "${name}" failed during load:\n` +
+          `  ✗ Plugin module is ${got}, expected an object with a mount() function.\n` +
+          `  → Did the script fail to execute? Check browser console for errors from: ${bundleUrl}\n` +
+          `\n  Quick fix — use createPlugin() in your App.tsx:\n` +
+          `    import { createPlugin } from '@naap/plugin-sdk';\n` +
+          `    const plugin = createPlugin({ name: '${name}', version: '1.0.0', App: MyApp });\n` +
+          `    export default plugin;`
+        );
+        throw new Error(`Plugin "${name}" module is ${got}. Expected an object with mount(). Check console for details.`);
+      }
 
-        // Check if there was a script execution error
-        console.error(`[UMD Loader] This usually means the plugin script threw an error during execution.`);
-        console.error(`[UMD Loader] Check browser console for JavaScript errors from: ${bundleUrl}`);
-
-        throw new Error(`Invalid UMD plugin module - missing mount function. Module has ${moduleKeys.length} keys: [${moduleKeys.join(', ')}]. Check browser console for script errors.`);
+      if (typeof pluginModule.mount !== 'function') {
+        const moduleKeys = Object.keys(pluginModule);
+        const mountType = 'mount' in pluginModule ? typeof pluginModule.mount : 'missing';
+        console.error(
+          `[NAAP Plugin Error] Plugin "${name}" failed during load:\n` +
+          `  ✗ mount() is ${mountType === 'missing' ? 'missing' : `not a function (got: ${mountType})`}.\n` +
+          `  → Module exports: [${moduleKeys.join(', ')}]\n` +
+          `  → Did you forget to export { mount } from your mount.tsx?\n` +
+          `\n  Quick fix — use createPlugin() in your App.tsx:\n` +
+          `    import { createPlugin } from '@naap/plugin-sdk';\n` +
+          `    const plugin = createPlugin({ name: '${name}', version: '1.0.0', App: MyApp });\n` +
+          `    export default plugin;`
+        );
+        throw new Error(`Plugin "${name}" is missing mount(). Module has [${moduleKeys.join(', ')}]. Check console for fix instructions.`);
       }
 
       onProgress?.(1);
@@ -627,7 +637,11 @@ export function mountUMDPlugin(
   context: unknown
 ): () => void {
   if (!container) {
-    console.error(`UMD Plugin ${plugin.name} mount error: container is null`);
+    console.error(
+      `[NAAP Plugin Error] Plugin "${plugin.name}" failed during mount:\n` +
+      `  ✗ Container element is null.\n` +
+      `  → The shell must provide a valid DOM element for the plugin to render into.`
+    );
     return () => {};
   }
 
@@ -636,15 +650,20 @@ export function mountUMDPlugin(
   try {
     cleanup = plugin.module.mount(container, context);
   } catch (err) {
-    console.error(`UMD Plugin ${plugin.name} mount error:`, err);
-    // container is guaranteed non-null (early return above)
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[NAAP Plugin Error] Plugin "${plugin.name}" threw during mount():\n` +
+      `  ✗ ${errMsg}\n` +
+      `  → This usually means the plugin's React component tree failed to render.\n` +
+      `  → Common causes: missing dependencies, undefined props, or import errors.`
+    );
     container.innerHTML = `
       <div class="plugin-error p-4 bg-red-50 border border-red-200 rounded-lg">
-        <h3 class="text-red-800 font-semibold">Plugin Error</h3>
-        <p class="text-red-600 text-sm mt-1">${err instanceof Error ? err.message : 'Failed to mount plugin'}</p>
+        <h3 class="text-red-800 font-semibold">Plugin Error: ${plugin.name}</h3>
+        <p class="text-red-600 text-sm mt-1">${errMsg}</p>
+        <p class="text-red-400 text-xs mt-2">Check browser console for details.</p>
       </div>
     `;
-    // Re-throw so PluginLoader can handle it properly
     throw err;
   }
 

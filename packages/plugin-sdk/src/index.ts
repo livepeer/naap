@@ -125,6 +125,14 @@ export {
   type PluginManifestExport,
 } from './utils/mount.js';
 
+// Runtime Contract Validation
+export {
+  validatePluginModule,
+  validateShellContext,
+  formatPluginError,
+  type ValidationResult,
+} from './utils/contract-validation.js';
+
 // API Hooks (Phase 4)
 export {
   usePluginApi,
