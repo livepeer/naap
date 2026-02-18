@@ -21,6 +21,7 @@ import { statusCommand } from './commands/status.js';
 import { logsCommand } from './commands/logs.js';
 import { generateCommand } from './commands/generate.js';
 import { iterateCommand } from './commands/iterate.js';
+import { addCommand } from './commands/add.js';
 
 const program = new Command();
 
@@ -50,5 +51,8 @@ program.addCommand(logsCommand);
 // Phase 3 AI-Assisted Development Commands
 program.addCommand(generateCommand);
 program.addCommand(iterateCommand);
+
+// Incremental scaffolding commands
+program.addCommand(addCommand);
 
 program.parse();

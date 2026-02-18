@@ -13,6 +13,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
 import { validateManifest, validatePluginName, createDefaultManifest } from '../../packages/plugin-sdk/src/utils/validation.js';
+import { buildModelBlock, modelExistsInSchema, ensureSchemaInDatasource, registrationExists } from '../../packages/plugin-sdk/cli/commands/add.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -239,5 +240,81 @@ describe('Feature: Install / Uninstall Lifecycle', () => {
     // preUninstall failure is logged but does not block uninstall
     const shouldContinue = true;
     expect(shouldContinue).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Feature: Default Create Template (V2 — frontend-first)
+// ---------------------------------------------------------------------------
+describe('Feature: Default Create Template', () => {
+  it('Given no --template flag, When create runs, Then default falls back to frontend-only', async () => {
+    const createSrc = await fs.readFile(
+      path.resolve(__dirname, '../../packages/plugin-sdk/cli/commands/create.ts'),
+      'utf-8'
+    );
+    expect(createSrc).toContain("|| 'frontend-only') as PluginTemplate");
+  });
+
+  it('Given TEMPLATES list, When templates are ordered, Then frontend-only comes before full-stack', async () => {
+    const createSrc = await fs.readFile(
+      path.resolve(__dirname, '../../packages/plugin-sdk/cli/commands/create.ts'),
+      'utf-8'
+    );
+    const foIdx = createSrc.indexOf("value: 'frontend-only'");
+    const fsIdx = createSrc.indexOf("value: 'full-stack'");
+    expect(foIdx).toBeLessThan(fsIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Feature: Simple Full-Stack Backend (V2 — --simple flag)
+// ---------------------------------------------------------------------------
+describe('Feature: Simple Full-Stack Backend', () => {
+  it('Given --simple flag, When backend is scaffolded, Then no Prisma dependency is included', async () => {
+    const createSrc = await fs.readFile(
+      path.resolve(__dirname, '../../packages/plugin-sdk/cli/commands/create.ts'),
+      'utf-8'
+    );
+    const simpleSection = createSrc.slice(
+      createSrc.indexOf('async function createBackendSimple'),
+      createSrc.indexOf('async function createDocs')
+    );
+    expect(simpleSection).not.toContain('@naap/database');
+    expect(simpleSection).not.toContain("prisma: '^5.0.0'");
+    expect(simpleSection).toContain('In-memory store');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Feature: Add Command (V2 — naap-plugin add)
+// ---------------------------------------------------------------------------
+describe('Feature: Add Command', () => {
+  it('Given naap-plugin --help, When invoked, Then it includes the add command', async () => {
+    const { execa } = await import('execa');
+    const cliPath = path.resolve(__dirname, '../../packages/plugin-sdk/cli/index.ts');
+    const result = await execa('npx', ['tsx', cliPath, '--help'], { reject: false });
+    expect(result.stdout).toContain('add');
+  });
+
+  it('Given add model, When model does not exist, Then it is inserted with @@schema', () => {
+    const block = buildModelBlock('Todo', 'plugin_my_plugin', ['title:String']);
+    expect(block).toContain('model Todo {');
+    expect(block).toContain('@@schema("plugin_my_plugin")');
+  });
+
+  it('Given add model, When model already exists, Then idempotency guard detects it', () => {
+    const schema = 'model Todo {\n  id String @id\n}';
+    expect(modelExistsInSchema(schema, 'Todo')).toBe(true);
+  });
+
+  it('Given add endpoint, When route is already registered, Then registration is skipped', () => {
+    const aggregator = "import { usersRouter } from './users.js';\nrouter.use('/users', usersRouter);";
+    expect(registrationExists(aggregator, 'usersRouter')).toBe(true);
+  });
+
+  it('Given add model, When schema needs new schema name, Then datasource is updated', () => {
+    const schema = 'schemas = ["public"]';
+    const updated = ensureSchemaInDatasource(schema, 'plugin_todo');
+    expect(updated).toContain('"plugin_todo"');
   });
 });

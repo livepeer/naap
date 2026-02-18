@@ -22,7 +22,8 @@ naap-plugin create <name> [options]
 
 | Option | Description | Default |
 |---|---|---|
-| `--template <type>` | Template type: `full-stack`, `frontend-only`, `backend-only` | Interactive |
+| `--template <type>` | Template type: `frontend-only`, `full-stack`, `backend-only` | `frontend-only` |
+| `--simple` | Full-stack without Prisma/Docker (in-memory backend) | `false` |
 | `--category <cat>` | Plugin category | Interactive |
 | `--description <desc>` | Plugin description | Interactive |
 | `--no-git` | Skip git initialization | `false` |
@@ -30,14 +31,17 @@ naap-plugin create <name> [options]
 **Examples:**
 
 ```bash
-# Interactive creation
+# Interactive creation (defaults to frontend-only)
 naap-plugin create my-plugin
 
-# Non-interactive
-naap-plugin create my-plugin \
-  --template full-stack \
-  --category monitoring \
-  --description "My monitoring plugin"
+# Frontend-only plugin (recommended start)
+naap-plugin create my-widget --template frontend-only
+
+# Full-stack with database
+naap-plugin create my-plugin --template full-stack
+
+# Full-stack without database (in-memory backend, no Docker/Prisma needed)
+naap-plugin create my-plugin --template full-stack --simple
 ```
 
 ### naap-plugin dev
@@ -116,6 +120,55 @@ naap-plugin publish [options]
 | `--version <ver>` | Override version | From `plugin.json` |
 | `--tag <tag>` | Release tag (e.g., `beta`) | `latest` |
 | `--changelog <msg>` | Changelog message | None |
+
+### naap-plugin add
+
+Incrementally add models or endpoints to an existing plugin.
+
+#### naap-plugin add model
+
+```bash
+naap-plugin add model <ModelName> [fields...] [options]
+```
+
+| Option | Description | Default |
+|---|---|---|
+| `--force` | Overwrite if model already exists | `false` |
+
+Inserts a Prisma model into the unified schema at `packages/database/prisma/schema.prisma` with correct `@@schema()` annotation. Idempotent: skips if the model already exists.
+
+**Examples:**
+
+```bash
+# Add a model with fields
+naap-plugin add model Todo title:String done:Boolean
+
+# Add a model with default String type
+naap-plugin add model Note content
+```
+
+#### naap-plugin add endpoint
+
+```bash
+naap-plugin add endpoint <name> [options]
+```
+
+| Option | Description | Default |
+|---|---|---|
+| `--crud` | Generate full CRUD skeleton (GET, POST, PUT, DELETE) | `false` |
+| `--force` | Overwrite existing route file | `false` |
+
+Creates a route file and registers it in the route aggregator. Idempotent: skips if the route already exists.
+
+**Examples:**
+
+```bash
+# Add a basic endpoint
+naap-plugin add endpoint users
+
+# Add a CRUD endpoint
+naap-plugin add endpoint products --crud
+```
 
 ### naap-plugin doctor
 

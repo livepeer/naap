@@ -216,13 +216,129 @@ describe('Create Command — Scaffolding Correctness', () => {
   // ---------------------------------------------------------------
   describe('displayName prompt', () => {
     it('prompt questions include displayName', async () => {
-      // Read the create.ts source and verify the prompt array contains displayName
       const createSrc = await fs.readFile(
         path.join(__dirname, '..', 'create.ts'),
         'utf-8'
       );
       expect(createSrc).toContain("name: 'displayName'");
       expect(createSrc).toContain("message: 'Display name (human-readable):'");
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // Default template behavior (P0: frontend-first)
+  // ---------------------------------------------------------------
+  describe('default template behavior', () => {
+    it('TEMPLATES list places frontend-only first', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      const fullStackIdx = createSrc.indexOf("value: 'full-stack'");
+      const frontendOnlyIdx = createSrc.indexOf("value: 'frontend-only'");
+      expect(frontendOnlyIdx).toBeLessThan(fullStackIdx);
+    });
+
+    it('fallback template defaults to frontend-only when no option or answer', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      expect(createSrc).toContain("|| 'frontend-only') as PluginTemplate");
+    });
+
+    it('explicit --template full-stack overrides default', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      expect(createSrc).toContain("options?.template || answers.template || 'frontend-only'");
+    });
+
+    it('next-steps messaging hints at full-stack upgrade path for frontend-only', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      expect(createSrc).toContain("if (template === 'frontend-only')");
+      expect(createSrc).toContain('--template full-stack');
+      expect(createSrc).toContain('naap-plugin add endpoint');
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // Simple full-stack backend mode (P0: --simple flag)
+  // ---------------------------------------------------------------
+  describe('simple full-stack backend mode', () => {
+    it('CLI accepts --simple option', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      expect(createSrc).toContain("'--simple'");
+      expect(createSrc).toContain('Full-stack without Prisma/Docker');
+    });
+
+    it('simple backend scaffold has no Prisma or @naap/database dependency', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      const simpleBackendFn = createSrc.slice(
+        createSrc.indexOf('async function createBackendSimple'),
+        createSrc.indexOf('async function createDocs')
+      );
+      expect(simpleBackendFn).not.toContain('@naap/database');
+      expect(simpleBackendFn).not.toContain('prisma');
+      expect(simpleBackendFn).toContain('In-memory store');
+    });
+
+    it('simple backend scaffold uses deterministic port', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      const simpleBackendFn = createSrc.slice(
+        createSrc.indexOf('async function createBackendSimple'),
+        createSrc.indexOf('async function createDocs')
+      );
+      expect(simpleBackendFn).toContain('portHash');
+      expect(simpleBackendFn).toContain('4000 + (portHash % 1000)');
+    });
+
+    it('simple backend scaffold includes CRUD routes', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      const simpleBackendFn = createSrc.slice(
+        createSrc.indexOf('async function createBackendSimple'),
+        createSrc.indexOf('async function createDocs')
+      );
+      expect(simpleBackendFn).toContain("router.get('/'");
+      expect(simpleBackendFn).toContain("router.post('/'");
+      expect(simpleBackendFn).toContain("router.delete('/:id'");
+    });
+
+    it('simple mode branches from full-stack creation path', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      expect(createSrc).toContain('options?.simple');
+      expect(createSrc).toContain('createBackendSimple(targetDir, pluginName)');
+    });
+
+    it('simple backend package.json omits prisma devDependency', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      const simpleBackendFn = createSrc.slice(
+        createSrc.indexOf('async function createBackendSimple'),
+        createSrc.indexOf('async function createDocs')
+      );
+      expect(simpleBackendFn).not.toContain("prisma: '^5.0.0'");
     });
   });
 });

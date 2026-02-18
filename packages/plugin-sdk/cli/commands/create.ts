@@ -13,8 +13,8 @@ import { validatePluginName, createDefaultManifest } from '../../src/utils/valid
 import type { PluginTemplate, PluginCategory } from '../../src/types/manifest.js';
 
 const TEMPLATES: { value: PluginTemplate; name: string; description: string }[] = [
+  { value: 'frontend-only', name: 'Frontend Only', description: 'UI plugin without backend (recommended start)' },
   { value: 'full-stack', name: 'Full Stack', description: 'Frontend + Backend + Database' },
-  { value: 'frontend-only', name: 'Frontend Only', description: 'UI plugin without backend' },
   { value: 'backend-only', name: 'Backend Only', description: 'API service without UI' },
 ];
 
@@ -36,16 +36,38 @@ const INTEGRATIONS = [
   { value: 'twilio', name: 'Twilio (Messaging)' },
 ];
 
+const ROUTES_README_CONTENT = `# Adding Routes
+
+## Quick steps
+
+1. Create a new file, e.g. \`users.ts\`:
+   \`\`\`ts
+   import { Router } from 'express';
+   export const usersRouter = Router();
+   usersRouter.get('/', (_req, res) => res.json({ users: [] }));
+   \`\`\`
+
+2. Register it in \`index.ts\`:
+   \`\`\`ts
+   import { usersRouter } from './users.js';
+   router.use('/users', usersRouter);
+   \`\`\`
+
+Or run: \`naap-plugin add endpoint users --crud\`
+`;
+
 export const createCommand = new Command('create')
   .description('Create a new NAAP plugin')
   .argument('[name]', 'Plugin name (kebab-case)')
   .option('-t, --template <template>', 'Template to use (full-stack, frontend-only, backend-only)')
   .option('-d, --directory <dir>', 'Target directory')
+  .option('--simple', 'Full-stack without Prisma/Docker (in-memory backend)')
   .option('--skip-install', 'Skip npm install')
   .option('--skip-git', 'Skip git initialization')
   .action(async (name?: string, options?: {
     template?: string;
     directory?: string;
+    simple?: boolean;
     skipInstall?: boolean;
     skipGit?: boolean;
   }) => {
@@ -124,7 +146,7 @@ export const createCommand = new Command('create')
     ]);
 
     const pluginName = name || answers.name || 'my-plugin';
-    const template = (options?.template || answers.template || 'full-stack') as PluginTemplate;
+    const template = (options?.template || answers.template || 'frontend-only') as PluginTemplate;
     const targetDir = options?.directory || path.join(process.cwd(), pluginName);
 
     // Check if directory exists
@@ -183,7 +205,11 @@ export const createCommand = new Command('create')
 
       // Create backend if applicable
       if (template === 'full-stack' || template === 'backend-only') {
-        await createBackend(targetDir, pluginName, answers.integrations || []);
+        if (options?.simple) {
+          await createBackendSimple(targetDir, pluginName);
+        } else {
+          await createBackend(targetDir, pluginName, answers.integrations || []);
+        }
       }
 
       // Create docs
@@ -247,6 +273,13 @@ dist/
       console.log(chalk.cyan(`  cd ${pluginName}`));
       console.log(chalk.cyan('  naap-plugin dev'));
       console.log('');
+      if (template === 'frontend-only') {
+        console.log(chalk.gray('  Need a backend later? Re-scaffold with:'));
+        console.log(chalk.gray(`    naap-plugin create ${pluginName} --template full-stack`));
+        console.log(chalk.gray('  Or add endpoints incrementally:'));
+        console.log(chalk.gray('    naap-plugin add endpoint <name>'));
+        console.log('');
+      }
 
     } catch (error) {
       spinner.fail('Failed to create plugin');
@@ -596,8 +629,11 @@ router.get('/', async (req, res) => {
   });
 });
 
-// Add your routes here
+// Add your routes here — see routes/README.md for the pattern
 `);
+
+  // routes/README.md — route discoverability guide
+  await fs.writeFile(path.join(backendDir, 'src', 'routes', 'README.md'), ROUTES_README_CONTENT);
 
   // src/db/client.ts
   await fs.ensureDir(path.join(backendDir, 'src', 'db'));
@@ -687,6 +723,121 @@ EXPOSE ${backendPort}
 
 CMD ["node", "dist/server.js"]
 `);
+}
+
+async function createBackendSimple(targetDir: string, name: string): Promise<void> {
+  const backendDir = path.join(targetDir, 'backend');
+  await fs.ensureDir(path.join(backendDir, 'src', 'routes'));
+  await fs.ensureDir(path.join(backendDir, 'tests'));
+
+  const portHash = Array.from(name).reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  const backendPort = 4000 + (portHash % 1000);
+
+  await fs.writeJson(path.join(backendDir, 'package.json'), {
+    name: `@naap-plugins/${name}-backend`,
+    version: '0.1.0',
+    type: 'module',
+    scripts: {
+      dev: 'tsx watch src/server.ts',
+      build: 'tsc',
+      start: 'node dist/server.js',
+      test: 'vitest',
+    },
+    dependencies: {
+      express: '^4.18.0',
+      cors: '^2.8.5',
+      '@naap/plugin-sdk': '^0.1.0',
+      dotenv: '^16.3.0',
+    },
+    devDependencies: {
+      '@types/express': '^4.17.0',
+      '@types/cors': '^2.8.0',
+      '@types/node': '^22.0.0',
+      typescript: '~5.8.2',
+      tsx: '^4.7.0',
+      vitest: '^1.0.0',
+    },
+  }, { spaces: 2 });
+
+  await fs.writeJson(path.join(backendDir, 'tsconfig.json'), {
+    compilerOptions: {
+      target: 'ES2022',
+      module: 'ESNext',
+      moduleResolution: 'bundler',
+      outDir: './dist',
+      rootDir: './src',
+      strict: true,
+      esModuleInterop: true,
+      skipLibCheck: true,
+      declaration: true,
+    },
+    include: ['src/**/*'],
+    exclude: ['node_modules', 'dist'],
+  }, { spaces: 2 });
+
+  await fs.writeFile(path.join(backendDir, 'src', 'server.ts'), `import express from 'express';
+import cors from 'cors';
+import { config } from 'dotenv';
+import { router } from './routes/index.js';
+
+config();
+
+const app = express();
+const PORT = process.env.PORT || ${backendPort};
+
+app.use(cors());
+app.use(express.json());
+
+app.get('/healthz', (_req, res) => {
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
+
+app.use('/api/v1/${name}', router);
+
+app.listen(PORT, () => {
+  console.log(\`🚀 ${name} backend running on port \${PORT}\`);
+});
+`);
+
+  await fs.writeFile(path.join(backendDir, 'src', 'routes', 'index.ts'), `import { Router } from 'express';
+
+export const router = Router();
+
+// In-memory store — swap for a real database when ready
+const items: { id: string; name: string; createdAt: string }[] = [];
+let nextId = 1;
+
+router.get('/', (_req, res) => {
+  res.json({ items });
+});
+
+router.post('/', (req, res) => {
+  const { name } = req.body;
+  if (!name || typeof name !== 'string') {
+    res.status(400).json({ error: 'name is required' });
+    return;
+  }
+  const item = { id: String(nextId++), name, createdAt: new Date().toISOString() };
+  items.push(item);
+  res.status(201).json(item);
+});
+
+router.delete('/:id', (req, res) => {
+  const idx = items.findIndex(i => i.id === req.params.id);
+  if (idx === -1) {
+    res.status(404).json({ error: 'not found' });
+    return;
+  }
+  items.splice(idx, 1);
+  res.status(204).send();
+});
+`);
+
+  await fs.writeFile(path.join(backendDir, '.env.example'), `PORT=${backendPort}
+`);
+
+  // routes/README.md — route discoverability guide
+  await fs.writeFile(path.join(backendDir, 'src', 'routes', 'README.md'), ROUTES_README_CONTENT);
 }
 
 async function createDocs(targetDir: string, name: string, description: string): Promise<void> {
