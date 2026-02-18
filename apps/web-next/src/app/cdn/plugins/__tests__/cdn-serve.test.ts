@@ -33,6 +33,14 @@ function isPathTraversal(fileName: string): boolean {
   return fileName.includes('..') || fileName.includes('//');
 }
 
+function isValidPluginName(pluginName: string): boolean {
+  return /^[a-zA-Z0-9-_]+$/.test(pluginName) && pluginName !== '.' && pluginName !== '..';
+}
+
+function isValidVersion(version: string): boolean {
+  return /^[0-9A-Za-z.-]+$/.test(version) && version !== '.' && version !== '..';
+}
+
 function computeCacheControl(isProd: boolean, hasContentHash: boolean): string {
   if (!isProd) return 'no-store, no-cache, must-revalidate, max-age=0';
   if (hasContentHash) return 'public, max-age=86400, immutable';
@@ -78,6 +86,36 @@ describe('CDN Serve Route — Security', () => {
 
   it('allows clean paths', () => {
     expect(isPathTraversal('plugin.abc123.js')).toBe(false);
+  });
+});
+
+describe('CDN Serve Route — pluginName and version validation', () => {
+  it('accepts valid plugin names (camelCase, kebab-case, alphanumeric)', () => {
+    expect(isValidPluginName('gatewayManager')).toBe(true);
+    expect(isValidPluginName('gateway-manager')).toBe(true);
+    expect(isValidPluginName('marketplace')).toBe(true);
+    expect(isValidPluginName('plugin123')).toBe(true);
+  });
+
+  it('rejects plugin names with path traversal', () => {
+    expect(isValidPluginName('.')).toBe(false);
+    expect(isValidPluginName('..')).toBe(false);
+  });
+
+  it('rejects plugin names with invalid characters', () => {
+    expect(isValidPluginName('plugin/name')).toBe(false);
+    expect(isValidPluginName('plugin\\name')).toBe(false);
+  });
+
+  it('accepts valid versions (semver-like)', () => {
+    expect(isValidVersion('1.0.0')).toBe(true);
+    expect(isValidVersion('2.1.0-beta')).toBe(true);
+    expect(isValidVersion('1.0.0-alpha.1')).toBe(true);
+  });
+
+  it('rejects version with path traversal', () => {
+    expect(isValidVersion('.')).toBe(false);
+    expect(isValidVersion('..')).toBe(false);
   });
 });
 

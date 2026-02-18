@@ -57,6 +57,16 @@ export async function GET(
   const { pluginName, version, file } = resolvedParams;
   const fileName = file.join('/');
 
+  // Security: Validate pluginName and version segments (prevent path traversal)
+  const isValidPlugin = /^[a-zA-Z0-9-_]+$/.test(pluginName) && pluginName !== '.' && pluginName !== '..';
+  const isValidVersion = /^[0-9A-Za-z.-]+$/.test(version) && version !== '.' && version !== '..';
+  if (!isValidPlugin || !isValidVersion) {
+    return NextResponse.json(
+      { error: 'Invalid plugin name or version' },
+      { status: 400 }
+    );
+  }
+
   // Security: Validate file extension
   const ext = path.extname(fileName).toLowerCase();
   if (!ALLOWED_EXTENSIONS.includes(ext)) {

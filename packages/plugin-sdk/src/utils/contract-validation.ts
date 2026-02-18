@@ -139,7 +139,7 @@ export function validateShellContext(context: unknown): ValidationResult {
     );
   }
 
-  if (!('eventBus' in ctx) || typeof ctx.eventBus !== 'object') {
+  if (!('eventBus' in ctx) || ctx.eventBus === null || typeof ctx.eventBus !== 'object') {
     warnings.push(
       `Shell context is missing eventBus object.` +
       `\n  → Plugins that use useEvents() may fail.`

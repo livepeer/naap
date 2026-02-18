@@ -629,6 +629,18 @@ export function getAllCachedUMDPlugins(): LoadedUMDPlugin[] {
 }
 
 /**
+ * Escape HTML entities to prevent XSS when rendering error content.
+ */
+function escapeHtml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/**
  * Mount a UMD plugin with error handling
  */
 export function mountUMDPlugin(
@@ -659,8 +671,8 @@ export function mountUMDPlugin(
     );
     container.innerHTML = `
       <div class="plugin-error p-4 bg-red-50 border border-red-200 rounded-lg">
-        <h3 class="text-red-800 font-semibold">Plugin Error: ${plugin.name}</h3>
-        <p class="text-red-600 text-sm mt-1">${errMsg}</p>
+        <h3 class="text-red-800 font-semibold">Plugin Error: ${escapeHtml(plugin.name)}</h3>
+        <p class="text-red-600 text-sm mt-1">${escapeHtml(errMsg)}</p>
         <p class="text-red-400 text-xs mt-2">Check browser console for details.</p>
       </div>
     `;
