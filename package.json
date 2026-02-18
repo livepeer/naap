@@ -18,6 +18,7 @@
     "lint": "nx run-many --target=lint --all",
     "smoke": "./bin/smoke.sh",
     "e2e:plugin-publisher": "./bin/e2e-plugin-publisher.sh",
+    "e2e:plugin-publisher:cleanup": "npx tsx bin/cleanup-published-examples.ts",
     "db:setup": "./bin/db-setup.sh",
     "db:seed": "./bin/db-seed.sh",
     "db:reset": "./bin/db-reset.sh",

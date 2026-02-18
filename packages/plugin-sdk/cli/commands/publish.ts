@@ -215,12 +215,18 @@ export const publishCommand = new Command('publish')
             tag: options.tag,
           };
 
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          };
+          const csrfToken = process.env.NAAP_CSRF_TOKEN;
+          if (csrfToken) {
+            headers['x-csrf-token'] = csrfToken;
+          }
+
           const response = await fetch(`${options.registry}/api/v1/registry/publish`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-            },
+            headers,
             body: JSON.stringify(publishPayload),
           });
 
