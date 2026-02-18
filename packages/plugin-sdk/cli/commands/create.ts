@@ -311,26 +311,24 @@ export default createPluginConfig({
 `);
 
   // mount.tsx (single authoritative entry point for UMD shell integration)
-  await fs.writeFile(path.join(frontendDir, 'src', 'mount.tsx'), `import React from 'react';
-import { createRoot, Root } from 'react-dom/client';
-import type { ShellContext } from '@naap/plugin-sdk/types';
-import App from './App';
+  // Uses the delegate pattern: imports the plugin instance from App.tsx
+  await fs.writeFile(path.join(frontendDir, 'src', 'mount.tsx'), `import plugin from './App';
 
-let root: Root | null = null;
+const PLUGIN_GLOBAL_NAME = 'NaapPlugin${pascalName}';
 
-export function mount(container: HTMLElement, context: ShellContext) {
-  root = createRoot(container);
-  root.render(<App shellContext={context} />);
+export const mount = plugin.mount;
+export const unmount = plugin.unmount;
+export const metadata = plugin.metadata || { name: '${name}', version: '1.0.0' };
 
-  return () => {
-    if (root) {
-      root.unmount();
-      root = null;
-    }
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>)[PLUGIN_GLOBAL_NAME] = {
+    mount,
+    unmount,
+    metadata,
   };
 }
 
-export default { mount };
+export default { mount, unmount, metadata };
 `);
 
   // tsconfig.json
@@ -409,41 +407,30 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 @tailwind utilities;
 `);
 
-  // src/App.tsx - Main component (mount is handled exclusively by mount.tsx)
+  // src/App.tsx - Main component using createPlugin() pattern
   await fs.writeFile(path.join(frontendDir, 'src', 'App.tsx'), `import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { ShellProvider } from '@naap/plugin-sdk/hooks';
-import type { ShellContext } from '@naap/plugin-sdk/types';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { createPlugin } from '@naap/plugin-sdk';
 import Dashboard from './pages/Dashboard';
 import './index.css';
 
-interface AppProps {
-  shellContext?: ShellContext;
-  basename?: string;
-}
+const ${pascalName}App: React.FC = () => (
+  <MemoryRouter>
+    <Routes>
+      <Route path="/*" element={<Dashboard />} />
+    </Routes>
+  </MemoryRouter>
+);
 
-const App: React.FC<AppProps> = ({ shellContext, basename = '/${name}' }) => {
-  const content = (
-    <BrowserRouter basename={basename}>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="*" element={<Dashboard />} />
-      </Routes>
-    </BrowserRouter>
-  );
+const plugin = createPlugin({
+  name: '${name}',
+  version: '1.0.0',
+  routes: ['/${name}', '/${name}/*'],
+  App: ${pascalName}App,
+});
 
-  if (shellContext) {
-    return (
-      <ShellProvider value={shellContext}>
-        {content}
-      </ShellProvider>
-    );
-  }
-
-  return content;
-};
-
-export default App;
+export const mount = plugin.mount;
+export default plugin;
 `);
 
   // src/pages/Dashboard.tsx

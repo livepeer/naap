@@ -20,64 +20,52 @@ import os from 'os';
  * directly (avoids running the interactive CLI).
  */
 function generateAppTsx(name: string): string {
+  const pascalName = name.split(/[-_]/).map((s: string) => s.charAt(0).toUpperCase() + s.slice(1)).join('');
   return `import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { ShellProvider } from '@naap/plugin-sdk/hooks';
-import type { ShellContext } from '@naap/plugin-sdk/types';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { createPlugin } from '@naap/plugin-sdk';
 import Dashboard from './pages/Dashboard';
 import './index.css';
 
-interface AppProps {
-  shellContext?: ShellContext;
-  basename?: string;
-}
+const ${pascalName}App: React.FC = () => (
+  <MemoryRouter>
+    <Routes>
+      <Route path="/*" element={<Dashboard />} />
+    </Routes>
+  </MemoryRouter>
+);
 
-const App: React.FC<AppProps> = ({ shellContext, basename = '/${name}' }) => {
-  const content = (
-    <BrowserRouter basename={basename}>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="*" element={<Dashboard />} />
-      </Routes>
-    </BrowserRouter>
-  );
+const plugin = createPlugin({
+  name: '${name}',
+  version: '1.0.0',
+  routes: ['/${name}', '/${name}/*'],
+  App: ${pascalName}App,
+});
 
-  if (shellContext) {
-    return (
-      <ShellProvider value={shellContext}>
-        {content}
-      </ShellProvider>
-    );
-  }
-
-  return content;
-};
-
-export default App;
+export const mount = plugin.mount;
+export default plugin;
 `;
 }
 
-function generateMountTsx(): string {
-  return `import React from 'react';
-import { createRoot, Root } from 'react-dom/client';
-import type { ShellContext } from '@naap/plugin-sdk/types';
-import App from './App';
+function generateMountTsx(name: string): string {
+  const pascalName = name.split(/[-_]/).map((s: string) => s.charAt(0).toUpperCase() + s.slice(1)).join('');
+  return `import plugin from './App';
 
-let root: Root | null = null;
+const PLUGIN_GLOBAL_NAME = 'NaapPlugin${pascalName}';
 
-export function mount(container: HTMLElement, context: ShellContext) {
-  root = createRoot(container);
-  root.render(<App shellContext={context} />);
+export const mount = plugin.mount;
+export const unmount = plugin.unmount;
+export const metadata = plugin.metadata || { name: '${name}', version: '1.0.0' };
 
-  return () => {
-    if (root) {
-      root.unmount();
-      root = null;
-    }
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>)[PLUGIN_GLOBAL_NAME] = {
+    mount,
+    unmount,
+    metadata,
   };
 }
 
-export default { mount };
+export default { mount, unmount, metadata };
 `;
 }
 
@@ -124,28 +112,43 @@ describe('Create Command — Scaffolding Correctness', () => {
   // Mount entry-point uniqueness
   // ---------------------------------------------------------------
   describe('mount entry point', () => {
-    it('mount.tsx exports a mount function', () => {
-      const content = generateMountTsx();
-      expect(content).toContain('export function mount(');
-      expect(content).toContain('export default { mount }');
+    it('mount.tsx delegates to plugin from App.tsx', () => {
+      const content = generateMountTsx('my-plugin');
+      expect(content).toContain("import plugin from './App'");
+      expect(content).toContain('export const mount = plugin.mount');
     });
 
-    it('App.tsx does NOT export a mount function', () => {
+    it('mount.tsx exports unmount and metadata', () => {
+      const content = generateMountTsx('my-plugin');
+      expect(content).toContain('export const unmount = plugin.unmount');
+      expect(content).toContain('export const metadata = plugin.metadata');
+    });
+
+    it('mount.tsx registers on window for UMD', () => {
+      const content = generateMountTsx('my-plugin');
+      expect(content).toContain('NaapPluginMyPlugin');
+      expect(content).toContain("if (typeof window !== 'undefined')");
+    });
+
+    it('App.tsx uses createPlugin() pattern', () => {
+      const content = generateAppTsx('my-plugin');
+      expect(content).toContain("import { createPlugin } from '@naap/plugin-sdk'");
+      expect(content).toContain('createPlugin({');
+      expect(content).not.toContain('ShellProvider');
+      expect(content).not.toContain('createRoot');
+    });
+
+    it('App.tsx does NOT contain manual mount boilerplate', () => {
       const content = generateAppTsx('my-plugin');
       expect(content).not.toMatch(/export\s+function\s+mount/);
       expect(content).not.toContain('let root: Root | null');
+      expect(content).not.toContain('ReactDOM.createRoot');
     });
 
-    it('mount.tsx accepts ShellContext, not generic Record', () => {
-      const content = generateMountTsx();
-      expect(content).toContain('context: ShellContext');
-      expect(content).not.toContain('context: Record<string, unknown>');
-    });
-
-    it('mount.tsx properly cleans up root on unmount', () => {
-      const content = generateMountTsx();
-      expect(content).toContain('root.unmount()');
-      expect(content).toContain('root = null');
+    it('App.tsx exports mount from plugin instance', () => {
+      const content = generateAppTsx('my-plugin');
+      expect(content).toContain('export const mount = plugin.mount');
+      expect(content).toContain('export default plugin');
     });
   });
 

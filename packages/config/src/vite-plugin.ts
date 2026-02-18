@@ -84,27 +84,19 @@ function createStandardAliases(
 /**
  * Create a standardized Vite configuration for NAAP plugins.
  * 
- * This function generates a consistent Vite config that handles:
- * - React setup
- * - Path aliases to shared NAAP packages
- * - Development server configuration
+ * @deprecated Use `createPluginConfig()` from `@naap/plugin-build/vite` instead.
+ * This function is a legacy factory that is no longer used by any plugin.
+ * It will be removed in a future version.
  * 
- * Note: For production UMD builds, use `createPluginConfig()` from `@naap/plugin-build/vite`.
- * This function is for the legacy MF dev server compatibility only.
- * 
- * @example
+ * Migration:
  * ```typescript
- * // vite.config.ts
- * import { defineConfig } from 'vite';
+ * // Before (deprecated):
  * import { createPluginViteConfig } from '@naap/config/vite-plugin';
+ * export default defineConfig(createPluginViteConfig({ name: 'myPlugin', port: 3010, pluginDir: __dirname }));
  * 
- * export default defineConfig(
- *   createPluginViteConfig({
- *     name: 'myPlugin',
- *     port: 3010,
- *     pluginDir: __dirname,
- *   })
- * );
+ * // After (recommended):
+ * import { createPluginConfig } from '@naap/plugin-build/vite';
+ * export default createPluginConfig({ name: 'my-plugin', displayName: 'My Plugin', globalName: 'NaapPluginMyPlugin' });
  * ```
  */
 export function createPluginViteConfig(

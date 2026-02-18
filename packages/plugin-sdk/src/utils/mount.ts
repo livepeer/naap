@@ -15,6 +15,7 @@ import ReactDOM from 'react-dom/client';
 import type { ShellContext } from '../types/context.js';
 import type { PluginMountFn, PluginModule } from '../types/context.js';
 import { ShellProvider } from '../hooks/useShell.js';
+import { validateShellContext, formatPluginError } from './contract-validation.js';
 
 /**
  * Options for creating a plugin mount function
@@ -130,6 +131,15 @@ export function createPluginMount(options: CreatePluginMountOptions): {
   }
 
   const mount: PluginMountFn = (container: HTMLElement, context: ShellContext) => {
+    // Runtime context validation — emit warnings in development, never throw
+    if (process.env.NODE_ENV !== 'production') {
+      const ctxResult = validateShellContext(context);
+      if (!ctxResult.valid || ctxResult.warnings.length > 0) {
+        const pluginName = (options as unknown as Record<string, unknown>).name as string || 'unknown';
+        console.warn(formatPluginError(pluginName, 'mount', ctxResult));
+      }
+    }
+
     shellContext = context;
     mountGeneration++;
     const gen = mountGeneration;
@@ -233,6 +243,28 @@ export function createPlugin(
   options: CreatePluginMountOptions & PluginMetadata
 ): PluginModule & PluginMetadata {
   const { name, version, routes, ...mountOptions } = options;
+
+  // Runtime contract validation at construction time
+  if (typeof mountOptions.App !== 'function') {
+    const got = mountOptions.App === null ? 'null' : typeof mountOptions.App;
+    throw new Error(
+      `[NAAP Plugin "${name}"] App must be a React component (function), got: ${got}.` +
+      `\n  → Pass your root component: createPlugin({ ..., App: MyApp })`
+    );
+  }
+  if (typeof name !== 'string' || name.length === 0) {
+    throw new Error(
+      `[NAAP Plugin] name must be a non-empty string.` +
+      `\n  → Example: createPlugin({ name: 'my-plugin', ... })`
+    );
+  }
+  if (typeof version !== 'string' || version.length === 0) {
+    throw new Error(
+      `[NAAP Plugin "${name}"] version must be a non-empty string.` +
+      `\n  → Example: createPlugin({ ..., version: '1.0.0' })`
+    );
+  }
+
   const { init, mount, unmount, getContext } = createPluginMount(mountOptions);
 
   return {

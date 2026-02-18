@@ -11,11 +11,9 @@
  */
 
 import React from 'react';
-import ReactDOM from 'react-dom/client';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import type { ShellContext, PluginModule } from '@naap/plugin-sdk';
 import { 
-  ShellProvider,
+  createPlugin,
   useAuthService, 
   useNotify, 
   useEvents, 
@@ -25,11 +23,8 @@ import {
 } from '@naap/plugin-sdk';
 import { Hand, Sun, Moon, Bell, User, Zap, CheckCircle } from 'lucide-react';
 
-// Store shell context for mount function
-let shellContext: ShellContext | null = null;
-
 // Main page component using SDK hooks
-const HelloPage: React.FC = () => {
+export const HelloPage: React.FC = () => {
   // Use SDK hooks for shell services
   const auth = useAuthService();
   const notify = useNotify();
@@ -263,32 +258,20 @@ function MyComponent() {
   );
 };
 
-// Manifest for shell to load this plugin
-export const manifest: PluginModule & { name: string; version: string; routes: string[] } = {
-  name: 'helloWorld',
+const HelloWorldApp: React.FC = () => (
+  <MemoryRouter>
+    <Routes>
+      <Route path="/*" element={<HelloPage />} />
+    </Routes>
+  </MemoryRouter>
+);
+
+const plugin = createPlugin({
+  name: 'hello-world',
   version: '1.0.0',
   routes: ['/hello', '/hello/*'],
-  mount(container: HTMLElement, context: ShellContext) {
-    shellContext = context;
-    const root = ReactDOM.createRoot(container);
-    root.render(
-      <React.StrictMode>
-        {/* Wrap with ShellProvider to enable SDK hooks */}
-        <ShellProvider value={context}>
-          <MemoryRouter>
-            <Routes>
-              <Route path="/*" element={<HelloPage />} />
-            </Routes>
-          </MemoryRouter>
-        </ShellProvider>
-      </React.StrictMode>
-    );
-    return () => {
-      root.unmount();
-      shellContext = null;
-    };
-  },
-};
+  App: HelloWorldApp,
+});
 
-export const mount = manifest.mount;
-export default manifest;
+export const mount = plugin.mount;
+export default plugin;

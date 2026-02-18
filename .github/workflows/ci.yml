@@ -376,9 +376,7 @@ jobs:
       - name: Run lifecycle BDD feature specs
         run: |
           if [ -d "tests/lifecycle-bdd" ]; then
-            npx vitest run \
-              --dir tests/lifecycle-bdd \
-              --include "**/*.{test,spec,feature}.?(c|m)[jt]s?(x)"
+            npx vitest run --dir tests/lifecycle-bdd
           else
             echo "::notice::tests/lifecycle-bdd not present on this branch — skipping BDD specs"
           fi

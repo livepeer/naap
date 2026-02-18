@@ -5,29 +5,24 @@
  * - File extension allow-list enforcement
  * - Path traversal prevention
  * - CSS auto-discovery fallback
- * - ETag / 304 conditional responses (production only)
  * - Cache-Control header variants (hashed vs unhashed, dev vs prod)
- * - PLUGIN_DIR_MAP camelCase→kebab resolution
+ * - toKebabCase camelCase→kebab conversion (replaces old PLUGIN_DIR_MAP)
  * - 404 for missing plugins/files
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // The CDN route is a Next.js route handler that reads from the filesystem.
 // We validate the security and caching logic by testing the rules directly.
 
 const ALLOWED_EXTENSIONS = ['.js', '.css', '.map', '.json'];
 
-const PLUGIN_DIR_MAP: Record<string, string> = {
-  gatewayManager: 'gateway-manager',
-  orchestratorManager: 'orchestrator-manager',
-  capacityPlanner: 'capacity-planner',
-  marketplace: 'marketplace',
-  community: 'community',
-  developerApi: 'developer-api',
-  pluginPublisher: 'plugin-publisher',
-  daydreamVideo: 'daydream-video',
-};
+/**
+ * Same function used in the CDN route — deterministic camelCase to kebab-case.
+ */
+function toKebabCase(name: string): string {
+  return name.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+}
 
 function isAllowedExtension(fileName: string): boolean {
   const ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
@@ -38,8 +33,12 @@ function isPathTraversal(fileName: string): boolean {
   return fileName.includes('..') || fileName.includes('//');
 }
 
-function resolvePluginDir(pluginName: string): string {
-  return PLUGIN_DIR_MAP[pluginName] || pluginName;
+function isValidPluginName(pluginName: string): boolean {
+  return /^[a-zA-Z0-9-_]+$/.test(pluginName) && pluginName !== '.' && pluginName !== '..';
+}
+
+function isValidVersion(version: string): boolean {
+  return /^[0-9A-Za-z.-]+$/.test(version) && version !== '.' && version !== '..';
 }
 
 function computeCacheControl(isProd: boolean, hasContentHash: boolean): string {
@@ -90,18 +89,81 @@ describe('CDN Serve Route — Security', () => {
   });
 });
 
-describe('CDN Serve Route — Plugin Directory Mapping', () => {
-  it('maps camelCase to kebab-case', () => {
-    expect(resolvePluginDir('capacityPlanner')).toBe('capacity-planner');
-    expect(resolvePluginDir('pluginPublisher')).toBe('plugin-publisher');
+describe('CDN Serve Route — pluginName and version validation', () => {
+  it('accepts valid plugin names (camelCase, kebab-case, alphanumeric)', () => {
+    expect(isValidPluginName('gatewayManager')).toBe(true);
+    expect(isValidPluginName('gateway-manager')).toBe(true);
+    expect(isValidPluginName('marketplace')).toBe(true);
+    expect(isValidPluginName('plugin123')).toBe(true);
   });
 
-  it('passes through already-kebab names', () => {
-    expect(resolvePluginDir('my-custom-plugin')).toBe('my-custom-plugin');
+  it('rejects plugin names with path traversal', () => {
+    expect(isValidPluginName('.')).toBe(false);
+    expect(isValidPluginName('..')).toBe(false);
   });
 
-  it('passes through unmapped names as-is', () => {
-    expect(resolvePluginDir('unknown')).toBe('unknown');
+  it('rejects plugin names with invalid characters', () => {
+    expect(isValidPluginName('plugin/name')).toBe(false);
+    expect(isValidPluginName('plugin\\name')).toBe(false);
+  });
+
+  it('accepts valid versions (semver-like)', () => {
+    expect(isValidVersion('1.0.0')).toBe(true);
+    expect(isValidVersion('2.1.0-beta')).toBe(true);
+    expect(isValidVersion('1.0.0-alpha.1')).toBe(true);
+  });
+
+  it('rejects version with path traversal', () => {
+    expect(isValidVersion('.')).toBe(false);
+    expect(isValidVersion('..')).toBe(false);
+  });
+});
+
+describe('CDN Serve Route — toKebabCase conversion (replaces PLUGIN_DIR_MAP)', () => {
+  // Verify every entry from the old PLUGIN_DIR_MAP produces identical results
+  const OLD_MAP: Record<string, string> = {
+    gatewayManager: 'gateway-manager',
+    orchestratorManager: 'orchestrator-manager',
+    capacityPlanner: 'capacity-planner',
+    networkAnalytics: 'network-analytics',
+    marketplace: 'marketplace',
+    community: 'community',
+    developerApi: 'developer-api',
+    myWallet: 'my-wallet',
+    myDashboard: 'my-dashboard',
+    pluginPublisher: 'plugin-publisher',
+    daydreamVideo: 'daydream-video',
+  };
+
+  it('produces identical output for all old PLUGIN_DIR_MAP entries', () => {
+    Object.entries(OLD_MAP).forEach(([camel, expectedKebab]) => {
+      expect(toKebabCase(camel)).toBe(expectedKebab);
+    });
+  });
+
+  it('converts multi-word camelCase names', () => {
+    expect(toKebabCase('capacityPlanner')).toBe('capacity-planner');
+    expect(toKebabCase('pluginPublisher')).toBe('plugin-publisher');
+    expect(toKebabCase('daydreamVideo')).toBe('daydream-video');
+  });
+
+  it('passes single-word names through unchanged', () => {
+    expect(toKebabCase('marketplace')).toBe('marketplace');
+    expect(toKebabCase('community')).toBe('community');
+  });
+
+  it('handles already-kebab names (passthrough)', () => {
+    expect(toKebabCase('my-custom-plugin')).toBe('my-custom-plugin');
+    expect(toKebabCase('capacity-planner')).toBe('capacity-planner');
+  });
+
+  it('handles unknown/new plugin names without a map entry', () => {
+    expect(toKebabCase('someNewPlugin')).toBe('some-new-plugin');
+    expect(toKebabCase('dashboardProviderMock')).toBe('dashboard-provider-mock');
+  });
+
+  it('handles triple-word camelCase', () => {
+    expect(toKebabCase('dashboardProviderMock')).toBe('dashboard-provider-mock');
   });
 });
 
