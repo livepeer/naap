@@ -18,20 +18,23 @@ const EXAMPLE_NAMES = [
 ];
 
 async function main() {
-  for (const name of EXAMPLE_NAMES) {
-    const pkg = await prisma.pluginPackage.findUnique({ where: { name } });
-    if (pkg) {
-      await prisma.pluginVersion.deleteMany({ where: { packageId: pkg.id } });
-      await prisma.pluginPackage.delete({ where: { id: pkg.id } });
-      console.log(`Removed: ${name}`);
-    } else {
-      console.log(`Not found (already clean): ${name}`);
+  try {
+    for (const name of EXAMPLE_NAMES) {
+      const pkg = await prisma.pluginPackage.findUnique({ where: { name } });
+      if (pkg) {
+        await prisma.pluginVersion.deleteMany({ where: { packageId: pkg.id } });
+        await prisma.pluginPackage.delete({ where: { id: pkg.id } });
+        console.log(`Removed: ${name}`);
+      } else {
+        console.log(`Not found (already clean): ${name}`);
+      }
     }
+  } finally {
+    await prisma.$disconnect();
   }
-  await prisma.$disconnect();
 }
 
-main().catch((e) => {
+main().catch(async (e) => {
   console.error(e);
   process.exit(1);
 });

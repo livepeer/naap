@@ -2,10 +2,14 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci --only=production
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-COPY dist ./dist
+COPY examples/network-analytics/backend/package*.json ./
+RUN npm ci --omit=dev
+
+COPY examples/network-analytics/backend/dist ./dist
+
+USER appuser
 
 EXPOSE 4015
 

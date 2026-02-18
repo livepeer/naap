@@ -26,7 +26,7 @@ CLI="$ROOT_DIR/node_modules/.bin/naap-plugin"
 [ ! -x "$CLI" ] && CLI="node $ROOT_DIR/packages/plugin-sdk/dist/cli/index.js"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
 
 log_info()    { echo -e "${BLUE}[INFO]${NC}  $1"; }
 log_success() { echo -e "${GREEN}[OK]${NC}    $1"; }
@@ -56,7 +56,7 @@ for d in "$EXAMPLES_DIR"/*/; do
   name=$(basename "$d")
   [ -f "$d/plugin.json" ] && EXAMPLES+=("$name")
 done
-IFS=$'\n' EXAMPLES=($(sort <<<"${EXAMPLES[*]}")); unset IFS
+mapfile -t EXAMPLES < <(printf '%s\n' "${EXAMPLES[@]}" | sort)
 
 if [ ${#EXAMPLES[@]} -eq 0 ]; then
   log_error "No example plugins found in $EXAMPLES_DIR"
@@ -163,7 +163,8 @@ if [ "$DO_PUBLISH" = true ] && [ -z "$TOKEN" ] && [ -n "${E2E_AUTH_EMAIL:-}" ] &
   log_info "Obtaining token via login..."
   LOGIN_RESP=$(curl -s -X POST "$REGISTRY_URL/api/v1/auth/login" \
     -H "Content-Type: application/json" \
-    -d "{\"email\":\"$E2E_AUTH_EMAIL\",\"password\":\"$E2E_AUTH_PASSWORD\"}") || true
+    -d "$(jq -n --arg email "$E2E_AUTH_EMAIL" --arg pass "$E2E_AUTH_PASSWORD" \
+      '{email: $email, password: $pass}')") || true
   TOKEN=$(echo "$LOGIN_RESP" | grep -o '"token":"[^"]*"' | sed 's/"token":"\([^"]*\)"/\1/')
   CSRF=$(echo "$LOGIN_RESP" | grep -o '"csrfToken":"[^"]*"' | sed 's/"csrfToken":"\([^"]*\)"/\1/')
   if [ -z "$TOKEN" ]; then

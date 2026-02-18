@@ -26,11 +26,19 @@ export interface LogTransactionInput {
  */
 export async function logTransaction(input: LogTransactionInput): Promise<WalletTransactionLog> {
   const { metadata, ...rest } = input;
+  let safeMetadata: Record<string, unknown> | undefined;
+  if (metadata != null) {
+    try {
+      safeMetadata = JSON.parse(JSON.stringify(metadata));
+    } catch {
+      throw new Error('metadata must be JSON-serializable');
+    }
+  }
   return prisma.walletTransactionLog.create({
     data: {
       ...rest,
       status: 'pending',
-      metadata: metadata != null ? JSON.parse(JSON.stringify(metadata)) : undefined,
+      metadata: safeMetadata,
     },
   });
 }
@@ -63,7 +71,7 @@ export async function getPendingTransactions(
   chainId?: number
 ): Promise<WalletTransactionLog[]> {
   const where: { status: string; chainId?: number } = { status: 'pending' };
-  if (chainId) where.chainId = chainId;
+  if (chainId != null) where.chainId = chainId;
   return prisma.walletTransactionLog.findMany({
     where,
     orderBy: { timestamp: 'asc' },

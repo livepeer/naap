@@ -4,8 +4,8 @@ export default {
   theme: {
     extend: {
       colors: {
-        'bg-primary': 'var(--bg-primary)',
-        'bg-secondary': 'var(--bg-secondary)',
+        'primary': 'var(--bg-primary)',
+        'secondary': 'var(--bg-secondary)',
         'accent-emerald': 'var(--accent-emerald)',
       },
     },
