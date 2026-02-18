@@ -157,7 +157,7 @@ log_success "All ${#EXAMPLES[@]} plugins packaged successfully"
 REGISTRY_URL="${NAAP_REGISTRY_URL:-${E2E_REGISTRY_URL:-}}"
 TOKEN="${NAAP_REGISTRY_TOKEN:-${E2E_REGISTRY_TOKEN:-}}"
 
-# Optional: obtain token via login
+# Optional: obtain token + CSRF via login
 if [ "$DO_PUBLISH" = true ] && [ -z "$TOKEN" ] && [ -n "${E2E_AUTH_EMAIL:-}" ] && [ -n "${E2E_AUTH_PASSWORD:-}" ]; then
   REGISTRY_URL="${REGISTRY_URL:-http://localhost:4000}"
   log_info "Obtaining token via login..."
@@ -165,10 +165,12 @@ if [ "$DO_PUBLISH" = true ] && [ -z "$TOKEN" ] && [ -n "${E2E_AUTH_EMAIL:-}" ] &
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$E2E_AUTH_EMAIL\",\"password\":\"$E2E_AUTH_PASSWORD\"}") || true
   TOKEN=$(echo "$LOGIN_RESP" | grep -o '"token":"[^"]*"' | sed 's/"token":"\([^"]*\)"/\1/')
+  CSRF=$(echo "$LOGIN_RESP" | grep -o '"csrfToken":"[^"]*"' | sed 's/"csrfToken":"\([^"]*\)"/\1/')
   if [ -z "$TOKEN" ]; then
     log_warn "Login failed or no token in response. Set NAAP_REGISTRY_TOKEN manually."
   else
     log_success "Obtained token"
+    export NAAP_CSRF_TOKEN="$CSRF"
   fi
 fi
 
@@ -204,7 +206,7 @@ for name in "${EXAMPLES[@]}"; do
   # Get plugin name from manifest (might differ from dir name)
   PLUGIN_NAME=$(node -e "console.log(require('$dir/plugin.json').name)" 2>/dev/null || echo "$name")
   log_info "Publishing $PLUGIN_NAME..."
-  if (cd "$dir" && NAAP_REGISTRY_URL="$REGISTRY_URL" NAAP_REGISTRY_TOKEN="$TOKEN" $CLI publish 2>&1); then
+  if (cd "$dir" && NAAP_REGISTRY_URL="$REGISTRY_URL" NAAP_REGISTRY_TOKEN="$TOKEN" NAAP_CSRF_TOKEN="${NAAP_CSRF_TOKEN:-}" $CLI publish 2>&1); then
     log_success "Published $PLUGIN_NAME"
     PUBLISH_OK=$((PUBLISH_OK + 1))
     PUBLISHED_NAMES+=("$PLUGIN_NAME")
