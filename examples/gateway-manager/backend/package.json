@@ -9,8 +9,8 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@naap/types": "*",
-    "@naap/database": "*",
+    "@naap/types": "file:../../../packages/types",
+    "@naap/database": "file:../../../packages/database",
     "cors": "^2.8.6",
     "express": "^4.21.0"
   },

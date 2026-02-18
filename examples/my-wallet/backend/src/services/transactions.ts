@@ -2,6 +2,7 @@
  * Transaction Service - Transaction logging and tracking
  */
 
+import type { WalletTransactionLog } from '@naap/database';
 import { prisma } from '../db/client.js';
 
 export type TransactionType = 'stake' | 'unstake' | 'claim' | 'transfer' | 'other';
@@ -23,11 +24,13 @@ export interface LogTransactionInput {
 /**
  * Log a new transaction
  */
-export async function logTransaction(input: LogTransactionInput) {
+export async function logTransaction(input: LogTransactionInput): Promise<WalletTransactionLog> {
+  const { metadata, ...rest } = input;
   return prisma.walletTransactionLog.create({
     data: {
-      ...input,
+      ...rest,
       status: 'pending',
+      metadata: metadata != null ? JSON.parse(JSON.stringify(metadata)) : undefined,
     },
   });
 }
@@ -43,7 +46,7 @@ export async function updateTransactionStatus(
     gasUsed?: string;
     confirmedAt?: Date;
   }
-) {
+): Promise<WalletTransactionLog> {
   return prisma.walletTransactionLog.update({
     where: { txHash },
     data: {
@@ -56,10 +59,11 @@ export async function updateTransactionStatus(
 /**
  * Get pending transactions for monitoring
  */
-export async function getPendingTransactions(chainId?: number) {
-  const where: any = { status: 'pending' };
+export async function getPendingTransactions(
+  chainId?: number
+): Promise<WalletTransactionLog[]> {
+  const where: { status: string; chainId?: number } = { status: 'pending' };
   if (chainId) where.chainId = chainId;
-  
   return prisma.walletTransactionLog.findMany({
     where,
     orderBy: { timestamp: 'asc' },
@@ -77,8 +81,8 @@ export async function getTransactionHistory(
     limit?: number;
     offset?: number;
   }
-) {
-  const where: any = { address };
+): Promise<{ transactions: WalletTransactionLog[]; total: number }> {
+  const where: { address: string; type?: TransactionType; status?: TransactionStatus } = { address };
   if (options?.type) where.type = options.type;
   if (options?.status) where.status = options.status;
 

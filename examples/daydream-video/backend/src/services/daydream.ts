@@ -133,11 +133,11 @@ export async function listModels(apiKey: string): Promise<typeof MODELS> {
       return MODELS;
     }
 
-    const data = await response.json();
+    const data = await response.json() as Record<string, unknown> | Array<Record<string, unknown>>;
     // Use the API data if it's an array with the expected structure
-    if (Array.isArray(data) && data.length > 0 && data[0].id) return data;
-    if (data.models && Array.isArray(data.models)) return data.models;
-    if (data.data && Array.isArray(data.data)) return data.data;
+    if (Array.isArray(data) && data.length > 0 && (data[0] as Record<string, unknown>).id) return data as typeof MODELS;
+    if (!Array.isArray(data) && data.models && Array.isArray(data.models)) return data.models as typeof MODELS;
+    if (!Array.isArray(data) && data.data && Array.isArray(data.data)) return (data as Record<string, unknown[]>).data as typeof MODELS;
 
     return MODELS;
   } catch (error) {
@@ -226,9 +226,9 @@ export async function createStream(
     throw new Error(`Failed to create stream: ${response.status} ${errorText}`);
   }
 
-  const result = await response.json();
+  const result = (await response.json()) as CreateStreamResponse;
   console.log('Stream created:', result.id);
-  return result as CreateStreamResponse;
+  return result;
 }
 
 /**

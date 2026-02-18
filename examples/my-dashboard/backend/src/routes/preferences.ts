@@ -24,7 +24,7 @@ router.get('/preferences', async (req: Request, res: Response) => {
       });
     }
 
-    const preferences = await prisma.userDashboardPreference.findMany({
+    const preferences = await prisma.dashboardUserPreference.findMany({
       where: { userId },
       orderBy: { order: 'asc' },
     });
@@ -63,7 +63,7 @@ router.put('/preferences', async (req: Request, res: Response) => {
       });
     }
 
-    const preference = await prisma.userDashboardPreference.upsert({
+    const preference = await prisma.dashboardUserPreference.upsert({
       where: {
         userId_dashboardId: { userId, dashboardId },
       },
@@ -116,7 +116,7 @@ router.put('/preferences/bulk', async (req: Request, res: Response) => {
     // Update each preference in a transaction
     await prisma.$transaction(
       preferences.map((pref: { dashboardId: string; order: number; pinned?: boolean }) =>
-        prisma.userDashboardPreference.upsert({
+        prisma.dashboardUserPreference.upsert({
           where: {
             userId_dashboardId: { userId, dashboardId: pref.dashboardId },
           },
@@ -159,7 +159,7 @@ router.delete('/preferences/:dashboardId', async (req: Request, res: Response) =
       });
     }
 
-    await prisma.userDashboardPreference.delete({
+    await prisma.dashboardUserPreference.delete({
       where: {
         userId_dashboardId: { userId, dashboardId: req.params.dashboardId },
       },

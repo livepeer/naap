@@ -6,7 +6,8 @@
  */
 
 import { prisma } from '@naap/database';
+import type { PrismaClient } from '@naap/database';
 
-export const db = prisma;
+export const db: PrismaClient = prisma;
 
 export default db;

@@ -17,6 +17,7 @@
     "test": "nx run-many --target=test --all",
     "lint": "nx run-many --target=lint --all",
     "smoke": "./bin/smoke.sh",
+    "e2e:plugin-publisher": "./bin/e2e-plugin-publisher.sh",
     "db:setup": "./bin/db-setup.sh",
     "db:seed": "./bin/db-seed.sh",
     "db:reset": "./bin/db-reset.sh",
