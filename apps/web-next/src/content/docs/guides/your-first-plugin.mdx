@@ -13,6 +13,8 @@ In this guide, we'll build a **Task Tracker** plugin with:
 - A PostgreSQL database for persistence
 - Full integration with shell services (auth, notifications, events)
 
+> **New to plugin development?** Start with a frontend-only plugin (`naap-plugin create my-plugin`) and add a backend later. This guide shows the full-stack path for completeness.
+
 ## Step 1: Scaffold the Plugin
 
 ```bash
@@ -25,6 +27,11 @@ This creates a complete plugin skeleton. Navigate into the directory:
 cd task-tracker
 npm install
 ```
+
+> **Tip:** For a simpler start without Docker or Prisma, use `--simple`:
+> ```bash
+> naap-plugin create task-tracker --template full-stack --simple
+> ```
 
 ## Step 2: Define the Plugin Manifest
 
@@ -68,7 +75,13 @@ Edit `plugin.json`:
 
 NaaP uses a **single database with multi-schema isolation**. Models are defined centrally in `packages/database/prisma/schema.prisma` — never in the plugin directory. See [Database Architecture](/docs/concepts/database-architecture).
 
-Add your models to `packages/database/prisma/schema.prisma`:
+Add your models to `packages/database/prisma/schema.prisma`. You can do this manually or use the CLI:
+
+```bash
+naap-plugin add model TrackerTask title:String description:String status:String priority:String assigneeId:String createdBy:String
+```
+
+Or edit the file manually:
 
 ```prisma
 // Append to packages/database/prisma/schema.prisma

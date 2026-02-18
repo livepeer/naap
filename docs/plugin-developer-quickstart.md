@@ -5,8 +5,20 @@ A quick reference guide for common plugin development tasks.
 ## 🚀 Quick Commands
 
 ```bash
-# Create new plugin
+# Create new plugin (frontend-only by default)
 naap-plugin create my-plugin
+
+# Create with full-stack (no database)
+naap-plugin create my-plugin --template full-stack --simple
+
+# Create with full-stack (with database)
+naap-plugin create my-plugin --template full-stack
+
+# Add a backend endpoint incrementally
+naap-plugin add endpoint users --crud
+
+# Add a Prisma model (monorepo only)
+naap-plugin add model Todo title:String done:Boolean
 
 # Start development
 naap-plugin dev
@@ -31,11 +43,13 @@ naap-plugin version patch|minor|major
 
 ### 1. Create & Setup
 ```bash
-naap-plugin create my-plugin --template full-stack
+# Start with frontend-only (recommended)
+naap-plugin create my-plugin
 cd my-plugin
-npm install
-cd frontend && npm install && cd ..
-cd backend && npm install && cd ..
+
+# Or full-stack without database setup
+naap-plugin create my-plugin --template full-stack --simple
+cd my-plugin
 ```
 
 ### 2. Develop
@@ -123,18 +137,18 @@ naap-plugin build && naap-plugin package && naap-plugin publish
 
 ### `frontend/src/App.tsx` (Required)
 ```typescript
-import { createRoot } from 'react-dom/client';
-import { ShellProvider } from '@naap/plugin-sdk/hooks';
+import { createPlugin } from '@naap/plugin-sdk';
+import YourApp from './pages/YourApp';
 
-export function mount(container: HTMLElement, context: ShellContext) {
-  const root = createRoot(container);
-  root.render(
-    <ShellProvider value={context}>
-      <YourApp />
-    </ShellProvider>
-  );
-  return () => root.unmount();
-}
+const plugin = createPlugin({
+  name: 'my-plugin',
+  version: '1.0.0',
+  routes: ['/my-plugin', '/my-plugin/*'],
+  App: YourApp,
+});
+
+export const mount = plugin.mount;
+export default plugin;
 ```
 
 ### `backend/src/server.ts` (Required)
