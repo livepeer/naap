@@ -5,7 +5,7 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 COPY examples/my-wallet/backend/package*.json ./
-COPY packages ./packages
+COPY packages /packages
 RUN npm ci --omit=dev
 
 COPY examples/my-wallet/backend/dist ./dist

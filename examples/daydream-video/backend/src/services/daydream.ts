@@ -134,10 +134,17 @@ export async function listModels(apiKey: string): Promise<typeof MODELS> {
     }
 
     const data = await response.json() as Record<string, unknown> | Array<Record<string, unknown>>;
-    // Use the API data if it's an array with the expected structure
-    if (Array.isArray(data) && data.length > 0 && (data[0] as Record<string, unknown>).id) return data as typeof MODELS;
-    if (!Array.isArray(data) && data.models && Array.isArray(data.models)) return data.models as typeof MODELS;
-    if (!Array.isArray(data) && data.data && Array.isArray(data.data)) return (data as Record<string, unknown[]>).data as typeof MODELS;
+    const isModel = (m: unknown): m is { id: string } => !!m && typeof m === 'object' && 'id' in (m as Record<string, unknown>);
+
+    if (Array.isArray(data) && data.length > 0 && isModel(data[0])) return data as typeof MODELS;
+    if (!Array.isArray(data) && Array.isArray(data.models)) {
+      const models = (data.models as unknown[]).filter(isModel);
+      if (models.length > 0) return models as typeof MODELS;
+    }
+    if (!Array.isArray(data) && Array.isArray(data.data)) {
+      const models = (data.data as unknown[]).filter(isModel);
+      if (models.length > 0) return models as typeof MODELS;
+    }
 
     return MODELS;
   } catch (error) {

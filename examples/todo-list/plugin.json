@@ -10,10 +10,6 @@
     "email": "examples@naap.dev"
   },
   "icon": "CheckSquare",
-  "routes": [
-    "/todos",
-    "/todos/*"
-  ],
   "frontend": {
     "entry": "./frontend/dist/production/todo-list.js",
     "entryPoint": "./frontend/src/App.tsx",

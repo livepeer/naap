@@ -10,10 +10,6 @@
     "email": "examples@naap.dev"
   },
   "icon": "Hand",
-  "routes": [
-    "/hello",
-    "/hello/*"
-  ],
   "frontend": {
     "entry": "./frontend/dist/production/hello-world.js",
     "entryPoint": "./frontend/src/App.tsx",

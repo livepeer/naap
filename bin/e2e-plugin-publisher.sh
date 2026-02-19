@@ -21,9 +21,13 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 EXAMPLES_DIR="$ROOT_DIR/examples"
-CLI="$ROOT_DIR/node_modules/.bin/naap-plugin"
-# Fallback to dist if CLI not in node_modules (e.g. after npm run build in plugin-sdk)
-[ ! -x "$CLI" ] && CLI="node $ROOT_DIR/packages/plugin-sdk/dist/cli/index.js"
+CLI_BIN="$ROOT_DIR/node_modules/.bin/naap-plugin"
+CLI_USE_NODE=false
+if [ ! -x "$CLI_BIN" ]; then
+  CLI_BIN="$ROOT_DIR/packages/plugin-sdk/dist/cli/index.js"
+  CLI_USE_NODE=true
+fi
+run_cli() { if $CLI_USE_NODE; then node "$CLI_BIN" "$@"; else "$CLI_BIN" "$@"; fi; }
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -47,7 +51,8 @@ ensure_cli() {
     CLI_JS="$ROOT_DIR/packages/plugin-sdk/dist/plugin-sdk/cli/index.js"
     [ ! -f "$CLI_JS" ] && CLI_JS="$ROOT_DIR/packages/plugin-sdk/dist/cli/index.js"
   fi
-  CLI="node $CLI_JS"
+  CLI_BIN="$CLI_JS"
+  CLI_USE_NODE=true
 }
 
 # Discover example plugins
@@ -56,7 +61,8 @@ for d in "$EXAMPLES_DIR"/*/; do
   name=$(basename "$d")
   [ -f "$d/plugin.json" ] && EXAMPLES+=("$name")
 done
-mapfile -t EXAMPLES < <(printf '%s\n' "${EXAMPLES[@]}" | sort)
+# Sort EXAMPLES array (compatible with Bash 3.x on macOS)
+IFS=$'\n' EXAMPLES=($(printf '%s\n' "${EXAMPLES[@]}" | sort)); unset IFS
 
 if [ ${#EXAMPLES[@]} -eq 0 ]; then
   log_error "No example plugins found in $EXAMPLES_DIR"
@@ -105,7 +111,7 @@ BUILD_FAILED_NAMES=()
 for name in "${EXAMPLES[@]}"; do
   dir="$EXAMPLES_DIR/$name"
   log_info "Building $name..."
-  if (cd "$dir" && $CLI build --skip-security 2>&1); then
+  if (cd "$dir" && run_cli build --skip-security 2>&1); then
     log_success "Built $name"
     BUILD_OK=$((BUILD_OK + 1))
   else
@@ -134,7 +140,7 @@ PACK_FAILED_NAMES=()
 for name in "${EXAMPLES[@]}"; do
   dir="$EXAMPLES_DIR/$name"
   log_info "Packaging $name..."
-  if (cd "$dir" && $CLI package 2>&1); then
+  if (cd "$dir" && run_cli package 2>&1); then
     log_success "Packaged $name"
     PACK_OK=$((PACK_OK + 1))
   else
@@ -161,12 +167,13 @@ TOKEN="${NAAP_REGISTRY_TOKEN:-${E2E_REGISTRY_TOKEN:-}}"
 if [ "$DO_PUBLISH" = true ] && [ -z "$TOKEN" ] && [ -n "${E2E_AUTH_EMAIL:-}" ] && [ -n "${E2E_AUTH_PASSWORD:-}" ]; then
   REGISTRY_URL="${REGISTRY_URL:-http://localhost:4000}"
   log_info "Obtaining token via login..."
-  LOGIN_RESP=$(curl -s -X POST "$REGISTRY_URL/api/v1/auth/login" \
+  LOGIN_PAYLOAD=$(jq -n --arg email "$E2E_AUTH_EMAIL" --arg pass "$E2E_AUTH_PASSWORD" \
+    '{email: $email, password: $pass}')
+  LOGIN_RESP=$(curl -sS -X POST "$REGISTRY_URL/api/v1/auth/login" \
     -H "Content-Type: application/json" \
-    -d "$(jq -n --arg email "$E2E_AUTH_EMAIL" --arg pass "$E2E_AUTH_PASSWORD" \
-      '{email: $email, password: $pass}')") || true
-  TOKEN=$(echo "$LOGIN_RESP" | grep -o '"token":"[^"]*"' | sed 's/"token":"\([^"]*\)"/\1/')
-  CSRF=$(echo "$LOGIN_RESP" | grep -o '"csrfToken":"[^"]*"' | sed 's/"csrfToken":"\([^"]*\)"/\1/')
+    -d "$LOGIN_PAYLOAD" 2>&1) || true
+  TOKEN=$(echo "$LOGIN_RESP" | jq -r '.token // empty' 2>/dev/null)
+  CSRF=$(echo "$LOGIN_RESP" | jq -r '.csrfToken // empty' 2>/dev/null)
   if [ -z "$TOKEN" ]; then
     log_warn "Login failed or no token in response. Set NAAP_REGISTRY_TOKEN manually."
   else
@@ -207,7 +214,7 @@ for name in "${EXAMPLES[@]}"; do
   # Get plugin name from manifest (might differ from dir name)
   PLUGIN_NAME=$(node -e "console.log(require('$dir/plugin.json').name)" 2>/dev/null || echo "$name")
   log_info "Publishing $PLUGIN_NAME..."
-  if (cd "$dir" && NAAP_REGISTRY_URL="$REGISTRY_URL" NAAP_REGISTRY_TOKEN="$TOKEN" NAAP_CSRF_TOKEN="${NAAP_CSRF_TOKEN:-}" $CLI publish 2>&1); then
+  if (cd "$dir" && NAAP_REGISTRY_URL="$REGISTRY_URL" NAAP_REGISTRY_TOKEN="$TOKEN" NAAP_CSRF_TOKEN="${NAAP_CSRF_TOKEN:-}" run_cli publish 2>&1); then
     log_success "Published $PLUGIN_NAME"
     PUBLISH_OK=$((PUBLISH_OK + 1))
     PUBLISHED_NAMES+=("$PLUGIN_NAME")
@@ -237,18 +244,18 @@ else
   NEXT_URL="$PACKAGES_URL"
 fi
 
-RESP=$(curl -s "${PACKAGES_URL}?pageSize=100" 2>/dev/null) || RESP=""
-if [ -z "$RESP" ]; then
-  RESP=$(curl -s "${NEXT_URL}?pageSize=100" 2>/dev/null) || true
-fi
+RESP=$(curl -sS "${PACKAGES_URL}?pageSize=100" 2>&1) || {
+  log_warn "Primary URL failed ($PACKAGES_URL), trying fallback..."
+  RESP=$(curl -sS "${NEXT_URL}?pageSize=100" 2>&1) || true
+}
 
 if [ -z "$RESP" ]; then
   log_error "Could not fetch registry packages (tried $PACKAGES_URL and $NEXT_URL)"
   exit 1
 fi
 
-# Extract package names from JSON (simple grep/sed - works for "name":"xxx")
-LISTED_NAMES=$(echo "$RESP" | grep -o '"name":"[^"]*"' | sed 's/"name":"\([^"]*\)"/\1/g' | tr '\n' ' ')
+LISTED_NAMES=$(echo "$RESP" | jq -r '.packages[]?.name // empty' 2>/dev/null | tr '\n' ' ')
+[ -z "$LISTED_NAMES" ] && LISTED_NAMES=$(echo "$RESP" | jq -r '.[].name // empty' 2>/dev/null | tr '\n' ' ')
 
 MISSING=()
 for n in "${PUBLISHED_NAMES[@]}"; do

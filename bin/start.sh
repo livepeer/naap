@@ -1236,7 +1236,7 @@ stop_all() {
 stop_shell()       { log_section "Stopping Shell"; stop_service "shell-web"; kill_port $SHELL_PORT; log_success "Shell stopped"; }
 stop_all_plugins() { log_section "Stopping All Plugins"; for p in $(get_all_plugins); do stop_plugin "$p"; done; log_success "All plugins stopped"; }
 stop_services()    { log_section "Stopping Core Services"; stop_service "health-monitor"; stop_service "plugin-server"; stop_service "base-svc"; kill_port $BASE_SVC_PORT; kill_port $PLUGIN_SERVER_PORT; log_success "Core services stopped"; }
-stop_infra()       { log_section "Stopping Infrastructure"; check_docker && { cd "$ROOT_DIR"; _docker_compose down 2>/dev/null || true; log_success "Docker containers stopped"; }; }
+stop_infra()       { log_section "Stopping Infrastructure"; check_docker && { cd "$ROOT_DIR" || return 1; _docker_compose down 2>/dev/null || true; log_success "Docker containers stopped"; }; }
 
 ###############################################################################
 # RESTART

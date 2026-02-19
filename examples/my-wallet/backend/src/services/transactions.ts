@@ -70,7 +70,7 @@ export async function updateTransactionStatus(
 export async function getPendingTransactions(
   chainId?: number
 ): Promise<WalletTransactionLog[]> {
-  const where: { status: string; chainId?: number } = { status: 'pending' };
+  const where: { status: TransactionStatus; chainId?: number } = { status: 'pending' };
   if (chainId != null) where.chainId = chainId;
   return prisma.walletTransactionLog.findMany({
     where,

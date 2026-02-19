@@ -5,7 +5,7 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 COPY examples/gateway-manager/backend/package*.json ./
-COPY packages ./packages
+COPY packages /packages
 RUN npm ci --omit=dev
 
 COPY examples/gateway-manager/backend/dist ./dist

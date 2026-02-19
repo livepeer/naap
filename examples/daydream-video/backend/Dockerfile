@@ -5,7 +5,7 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 COPY examples/daydream-video/backend/package*.json ./
-COPY packages ./packages
+COPY packages /packages
 RUN npm ci --omit=dev
 
 COPY examples/daydream-video/backend/dist ./dist

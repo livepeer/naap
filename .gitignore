@@ -84,5 +84,3 @@ tsconfig.tsbuildinfo
 packages/types/src/*.js
 packages/types/src/*.d.ts
 packages/types/src/*.d.ts.map
-.vercel
-.env*.local
