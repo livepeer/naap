@@ -573,10 +573,15 @@ ensure_databases() {
     log_info "Starting unified database..."
     cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; return 1; }
     _docker_compose up -d database 2>&1 | grep -v "^$" | while read -r line; do log_debug "$line"; done
+    local dc_status=${PIPESTATUS[0]}
+    if [ "$dc_status" -ne 0 ]; then
+      log_error "Failed to start database container via docker compose."
+      return 1
+    fi
 
     # Wait for container to exist (compose may take a moment to create it)
     log_info "Waiting for database container..."
-    local max_wait=60
+    local max_wait=30
     for i in $(seq 1 "$max_wait"); do
       if docker exec "$c" pg_isready -U "$UNIFIED_DB_USER" > /dev/null 2>&1; then
         log_success "Unified database ready"
