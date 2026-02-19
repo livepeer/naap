@@ -84,3 +84,4 @@ tsconfig.tsbuildinfo
 packages/types/src/*.js
 packages/types/src/*.d.ts
 packages/types/src/*.d.ts.map
+apps/workflows/*/tsconfig.tsbuildinfo
