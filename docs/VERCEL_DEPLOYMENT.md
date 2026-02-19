@@ -103,7 +103,7 @@ automatically. This serves as the staging environment:
 
 Merge to `main` triggers production deployment:
 1. Vercel builds with `./bin/vercel-build.sh`
-2. Deploys to production URL (`naap.dev`)
+2. Deploys to production URL (`naap-platform.vercel.app`)
 3. Automated health check at `/api/health`
 4. Automatic rollback if health check fails
 
