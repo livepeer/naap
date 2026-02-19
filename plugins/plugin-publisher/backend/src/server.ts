@@ -15,6 +15,7 @@ import {
   testFrontendLoading,
   testBackendHealth,
 } from './services/pluginTester.js';
+import { createAuthMiddleware } from '@naap/plugin-server-sdk';
 
 /**
  * Sanitize a path component to prevent path traversal attacks.
@@ -93,6 +94,9 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(morgan('combined'));
+app.use(createAuthMiddleware({
+  publicPaths: ['/healthz'],
+}));
 
 // Rate limiting
 const limiter = rateLimit({

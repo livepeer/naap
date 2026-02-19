@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@naap/types": "*",
+    "@naap/plugin-server-sdk": "*",
     "cors": "^2.8.6",
     "express": "^4.21.0"
   },

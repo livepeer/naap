@@ -33,7 +33,8 @@ export interface AuthenticatedRequest extends Request {
 }
 
 interface AuthMiddlewareConfig {
-  secret: string;
+  /** @deprecated Unused. Tokens are validated via auth service. */
+  secret?: string;
   publicPaths?: string[];
   /** Auth service URL for token validation.
    *  Defaults to SHELL_URL or http://localhost:3000 (web-next shell).
@@ -106,9 +107,7 @@ function extractUserFromResponse(
  *
  * Token validation strategy:
  * 1. Check in-memory cache (avoids auth service call on every request)
- * 2. If token looks like a JWT (3 dot-separated parts), try local decode first
- * 3. Otherwise, validate against auth service /api/v1/auth/me
- * 4. Also accepts x-user-id header as fallback (for service-to-service calls)
+ * 2. Validate token against auth service /api/v1/auth/me
  */
 export function createAuthMiddleware(config: AuthMiddlewareConfig) {
   const { publicPaths = ['/healthz'] } = config;
@@ -140,15 +139,7 @@ export function createAuthMiddleware(config: AuthMiddlewareConfig) {
     // Extract token from Authorization header
     const authHeader = req.headers.authorization;
 
-    // Also check x-user-id header (for service-to-service or proxied calls)
-    const headerUserId = req.headers['x-user-id'] as string | undefined;
-
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      // Allow x-user-id as fallback for internal service calls
-      if (headerUserId) {
-        req.user = { id: headerUserId };
-        return next();
-      }
       return res.status(401).json({
         success: false,
         error: { code: 'UNAUTHORIZED', message: 'Missing or invalid authorization token' },
@@ -166,39 +157,7 @@ export function createAuthMiddleware(config: AuthMiddlewareConfig) {
       return next();
     }
 
-    // 2. Try JWT decode (if token has 3 dot-separated parts)
-    const parts = token.split('.');
-    if (parts.length === 3) {
-      try {
-        const payload = JSON.parse(
-          Buffer.from(parts[1], 'base64url').toString('utf-8')
-        );
-
-        // Check expiry
-        if (payload.exp && payload.exp * 1000 < Date.now()) {
-          return res.status(401).json({
-            success: false,
-            error: { code: 'TOKEN_EXPIRED', message: 'Token has expired' },
-          });
-        }
-
-        req.user = {
-          id: payload.sub || payload.id || payload.userId,
-          email: payload.email,
-          role: payload.role,
-          roles: payload.roles,
-        };
-
-        setCachedSession(token, req.user);
-        const teamId = req.headers['x-team-id'] as string | undefined;
-        if (teamId) req.teamId = teamId;
-        return next();
-      } catch {
-        // Not a valid JWT -- fall through to auth service validation
-      }
-    }
-
-    // 3. Validate opaque token against auth service
+    // 2. Validate token against auth service
     try {
       const validationUrl = `${authServiceUrl}/api/v1/auth/me`;
       console.log(`[auth] Validating token (${sanitizeForLog(token.slice(0, 8))}...${sanitizeForLog(token.slice(-4))}) against ${validationUrl}`);
@@ -241,13 +200,7 @@ export function createAuthMiddleware(config: AuthMiddlewareConfig) {
 
       next();
     } catch (err) {
-      // Auth service unreachable -- fail open in dev, fail closed in prod
-      const isDev = process.env.NODE_ENV !== 'production';
-      console.error(`[auth] Failed to reach auth service at ${authServiceUrl} (isDev=${isDev}):`, err);
-      if (isDev && headerUserId) {
-        req.user = { id: headerUserId };
-        return next();
-      }
+      console.error(`[auth] Failed to reach auth service at ${authServiceUrl}:`, err);
       return res.status(401).json({
         success: false,
         error: { code: 'AUTH_SERVICE_ERROR', message: 'Unable to validate authorization token' },
