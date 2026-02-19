@@ -95,7 +95,7 @@ app.use(cors({
 app.use(express.json());
 app.use(morgan('combined'));
 app.use(createAuthMiddleware({
-  publicPaths: ['/healthz'],
+  publicPaths: ['/healthz', '/static'],
 }));
 
 // Rate limiting
