@@ -10,13 +10,12 @@
     "email": "examples@naap.dev"
   },
   "icon": "Hand",
-  "routes": [
-    "/hello",
-    "/hello/*"
-  ],
   "frontend": {
+    "entry": "./frontend/dist/production/hello-world.js",
+    "entryPoint": "./frontend/src/App.tsx",
     "devPort": 3020,
-    "entryPoint": "./frontend/src/App.tsx"
+    "routes": ["/hello", "/hello/*"],
+    "navigation": { "label": "Hello World", "icon": "Hand" }
   },
   "rbac": {
     "roles": [

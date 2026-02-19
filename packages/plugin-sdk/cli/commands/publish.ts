@@ -12,6 +12,29 @@ import type { PluginManifest } from '../../src/types/manifest.js';
 
 const DEFAULT_REGISTRY = process.env.NAAP_REGISTRY_URL || 'https://plugins.naap.io';
 
+/**
+ * Fetch CSRF token from auth/me when NAAP_CSRF_TOKEN is not set.
+ * Session JWTs (non-naap_ keys) require CSRF for base-svc; naap_ API keys may be exempt.
+ */
+async function fetchCsrfTokenIfNeeded(registry: string, token: string): Promise<string | undefined> {
+  if (process.env.NAAP_CSRF_TOKEN) {
+    return process.env.NAAP_CSRF_TOKEN;
+  }
+  if (token.startsWith('naap_')) {
+    return undefined;
+  }
+  try {
+    const res = await fetch(`${registry}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return undefined;
+    const json = await res.json();
+    return json.data?.csrfToken ?? json.csrfToken;
+  } catch {
+    return undefined;
+  }
+}
+
 interface PublishOptions {
   registry: string;
   tag: string;
@@ -215,12 +238,18 @@ export const publishCommand = new Command('publish')
             tag: options.tag,
           };
 
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          };
+          const csrfToken = token ? await fetchCsrfTokenIfNeeded(options.registry, token) : undefined;
+          if (csrfToken) {
+            headers['x-csrf-token'] = csrfToken;
+          }
+
           const response = await fetch(`${options.registry}/api/v1/registry/publish`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-            },
+            headers,
             body: JSON.stringify(publishPayload),
           });
 

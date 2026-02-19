@@ -100,6 +100,10 @@ app.patch('/api/v1/todos/:id', authenticate, (req, res) => {
   const { id } = req.params;
   const { title, completed } = req.body;
 
+  if (!id) {
+    return res.status(400).json({ error: 'Missing id parameter' });
+  }
+
   const todo = todos.get(id);
 
   if (!todo) {
@@ -125,6 +129,10 @@ app.patch('/api/v1/todos/:id', authenticate, (req, res) => {
 app.delete('/api/v1/todos/:id', authenticate, (req, res) => {
   const userId = (req as any).user?.id;
   const { id } = req.params;
+
+  if (!id) {
+    return res.status(400).json({ error: 'Missing id parameter' });
+  }
 
   const todo = todos.get(id);
 

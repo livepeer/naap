@@ -68,7 +68,7 @@ export default function RegisterPage() {
   };
 
   const handleOAuthRegister = (provider: 'google' | 'github') => {
-    window.location.href = `${API_BASE}/v1/auth/${provider}?action=register`;
+    window.location.href = `${API_BASE}/v1/auth/oauth/${provider}?action=register`;
   };
 
   return (
