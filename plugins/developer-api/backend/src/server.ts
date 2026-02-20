@@ -317,15 +317,35 @@ app.get('/api/v1/developer/keys', async (req, res) => {
         include: { model: true },
         orderBy: { createdAt: 'desc' },
       });
-      const formatted = keys.map((k: any) => ({
-        id: k.id,
-        projectName: k.projectName,
-        modelId: k.modelId,
-        modelName: k.model?.name || 'Unknown',
-        keyPrefix: k.keyPrefix,
-        status: k.status.toLowerCase(),
-        createdAt: k.createdAt.toISOString(),
-        lastUsedAt: k.lastUsedAt?.toISOString() || null,
+
+      const formatted = await Promise.all(keys.map(async (k: any) => {
+        let project = null;
+        if (k.projectId) {
+          project = await prisma.devApiProject.findUnique({
+            where: { id: k.projectId },
+            select: { id: true, name: true, isDefault: true },
+          });
+        }
+        let billingProvider = null;
+        if (k.billingProviderId) {
+          billingProvider = await prisma.billingProvider.findUnique({
+            where: { id: k.billingProviderId },
+            select: { id: true, slug: true, displayName: true },
+          });
+        }
+
+        return {
+          id: k.id,
+          projectName: k.projectName,
+          project: project ?? { id: null, name: k.projectName, isDefault: false },
+          billingProvider,
+          modelId: k.modelId,
+          modelName: k.model?.name || 'Unknown',
+          keyPrefix: k.keyPrefix,
+          status: k.status.toLowerCase(),
+          createdAt: k.createdAt.toISOString(),
+          lastUsedAt: k.lastUsedAt?.toISOString() || null,
+        };
       }));
       return res.json({ keys: formatted, total: formatted.length });
     }
@@ -342,14 +362,32 @@ app.get('/api/v1/developer/keys/:id', async (req, res) => {
   try {
     const userId = getRequestUserId(req);
     if (prisma) {
-      const key = await prisma.devApiKey.findFirst({
+      const key: any = await prisma.devApiKey.findFirst({
         where: { id: req.params.id, userId },
         include: { model: true },
       });
       if (!key) return res.status(404).json({ error: 'API key not found' });
+
+      let project = null;
+      if (key.projectId) {
+        project = await prisma.devApiProject.findUnique({
+          where: { id: key.projectId },
+          select: { id: true, name: true, isDefault: true },
+        });
+      }
+      let billingProvider = null;
+      if (key.billingProviderId) {
+        billingProvider = await prisma.billingProvider.findUnique({
+          where: { id: key.billingProviderId },
+          select: { id: true, slug: true, displayName: true },
+        });
+      }
+
       return res.json({
         id: key.id,
         projectName: key.projectName,
+        project: project ?? { id: null, name: key.projectName, isDefault: false },
+        billingProvider,
         modelId: key.modelId,
         modelName: key.model?.name || 'Unknown',
         keyPrefix: key.keyPrefix,
@@ -391,6 +429,39 @@ app.post('/api/v1/developer/keys', async (req, res) => {
       });
       if (!gatewayOffer) return res.status(400).json({ error: 'Gateway does not offer this model' });
 
+      // Resolve billingProviderId: use provided or default to daydream
+      let resolvedBillingProviderId: string | null = billingProviderId || null;
+      if (!resolvedBillingProviderId) {
+        const daydream = await prisma.billingProvider.findUnique({
+          where: { slug: 'daydream' },
+          select: { id: true },
+        });
+        resolvedBillingProviderId = daydream?.id ?? null;
+      }
+
+      // Resolve projectId: use provided or find/create default project
+      let resolvedProjectId: string | null = projectId || null;
+      if (!resolvedProjectId) {
+        try {
+          let defaultProject = await prisma.devApiProject.findFirst({
+            where: { userId, isDefault: true },
+            select: { id: true },
+          });
+          if (!defaultProject) {
+            defaultProject = await prisma.devApiProject.create({
+              data: { userId, name: projectName.trim(), isDefault: true },
+            });
+          }
+          resolvedProjectId = defaultProject.id;
+        } catch {
+          const existing = await prisma.devApiProject.findFirst({
+            where: { userId, isDefault: true },
+            select: { id: true },
+          });
+          resolvedProjectId = existing?.id ?? null;
+        }
+      }
+
       const newKey = await prisma.devApiKey.create({
         data: {
           userId,
@@ -400,8 +471,8 @@ app.post('/api/v1/developer/keys', async (req, res) => {
           keyHash,
           keyPrefix,
           keyLookupId,
-          billingProviderId: billingProviderId || null,
-          projectId: projectId || null,
+          billingProviderId: resolvedBillingProviderId,
+          projectId: resolvedProjectId,
           status: 'ACTIVE',
         },
         include: { model: true },
