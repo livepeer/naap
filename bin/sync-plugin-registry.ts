@@ -22,6 +22,7 @@
  */
 
 import { PrismaClient } from '../packages/database/src/generated/client/index.js';
+import { BILLING_PROVIDERS } from '../packages/database/src/billing-providers.js';
 import {
   discoverPlugins,
   toWorkflowPluginData,
@@ -248,6 +249,28 @@ async function main(): Promise<void> {
     console.log(
       `[sync-plugin-registry] PluginPackages: ${pkgCreated} created, ${pkgUpdated} updated${!isVercelPreview ? `, ${unlisted} unlisted` : ''}`,
     );
+
+    // ------------------------------------------------------------------
+    // Sync BillingProvider catalog (idempotent upsert)
+    // ------------------------------------------------------------------
+    console.log('[sync-plugin-registry] Syncing billing providers...');
+
+    for (const bp of BILLING_PROVIDERS) {
+      await prisma.billingProvider.upsert({
+        where: { slug: bp.slug },
+        update: {
+          displayName: bp.displayName,
+          description: bp.description,
+          icon: bp.icon,
+          authType: bp.authType,
+          enabled: bp.enabled,
+          sortOrder: bp.sortOrder,
+        },
+        create: bp,
+      });
+    }
+    console.log(`[sync-plugin-registry] BillingProviders: ${BILLING_PROVIDERS.length} ensured`);
+
     console.log('[sync-plugin-registry] Done.');
   } finally {
     await prisma.$disconnect();
