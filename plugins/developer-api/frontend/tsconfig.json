@@ -2,13 +2,23 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": "../../../",
+    "composite": false,
+    "noEmit": true,
+    "noUnusedLocals": false,
+    "noImplicitReturns": false,
     "paths": {
-      "@naap/ui": ["../../../packages/ui/src/index.ts"],
-      "@naap/types": ["../../../packages/types/src/index.ts"],
-      "@naap/theme": ["../../../packages/theme/src/index.ts"],
-      "@naap/utils": ["../../../packages/utils/src/index.ts"]
+      "@naap/plugin-sdk": ["packages/plugin-sdk/dist/src/index.d.ts"],
+      "@naap/plugin-sdk/*": ["packages/plugin-sdk/dist/src/*"],
+      "@naap/ui": ["packages/ui/src/index.ts"],
+      "@naap/types": ["packages/types/src/index.ts"],
+      "@naap/theme": ["packages/theme/src/index.ts"],
+      "@naap/utils": ["packages/utils/src/index.ts"]
     }
   },
-  "include": ["src/**/*"]
+  "include": [
+    "src/**/*",
+    "../../../packages/ui/src/**/*",
+    "../../../packages/types/src/**/*"
+  ]
 }

@@ -20,7 +20,7 @@ const plugin = createPlugin({
 });
 
 /** @deprecated Use SDK hooks (useShell, useApiClient, etc.) instead */
-export const getShellContext = plugin.getContext;
+export const getShellContext = (plugin as any).getContext;
 
 export const manifest = plugin;
 export const mount = plugin.mount;

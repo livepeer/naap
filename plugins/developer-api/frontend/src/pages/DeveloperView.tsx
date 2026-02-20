@@ -123,6 +123,7 @@ export const DeveloperView: React.FC = () => {
   const [_loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showRevoked, setShowRevoked] = useState(false);
+  const [projectFilterId, setProjectFilterId] = useState<'__all__' | string>('__all__');
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createStep, setCreateStep] = useState<'form' | 'oauth' | 'success'>('form');
@@ -146,24 +147,29 @@ export const DeveloperView: React.FC = () => {
   const revokedCount = useMemo(() => apiKeys.filter(k => k.status === 'REVOKED').length, [apiKeys]);
 
   const displayedKeys = useMemo(() => {
-    const filtered = showRevoked ? apiKeys : apiKeys.filter(k => k.status !== 'REVOKED');
+    const filteredByRevoked = showRevoked ? apiKeys : apiKeys.filter(k => k.status !== 'REVOKED');
+    const filtered = projectFilterId === '__all__'
+      ? filteredByRevoked
+      : filteredByRevoked.filter(k => k.project?.id === projectFilterId);
     return [...filtered].sort((a, b) => {
       const aDefault = a.project?.isDefault ? 1 : 0;
       const bDefault = b.project?.isDefault ? 1 : 0;
       if (aDefault !== bDefault) return bDefault - aDefault;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [apiKeys, showRevoked]);
+  }, [apiKeys, showRevoked, projectFilterId]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [modelsJson, keysJson] = await Promise.all([
+      const [modelsJson, keysJson, projectsJson] = await Promise.all([
         fetch(`${BASE_URL}/api/v1/developer/models`).then(r => r.json()),
         fetch('/api/v1/developer/keys').then(r => r.json()),
+        fetch('/api/v1/developer/projects').then(r => r.json()),
       ]);
       setModels((modelsJson.data ?? modelsJson).models || []);
       setApiKeys((keysJson.data ?? keysJson).keys || []);
+      setProjects((projectsJson.data ?? projectsJson).projects || []);
     } catch (err) {
       console.error('Failed to load data:', err);
       setModels(getMockModels());
@@ -466,6 +472,29 @@ export const DeveloperView: React.FC = () => {
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-4">
                   <p className="text-text-secondary">{displayedKeys.length} API key{displayedKeys.length !== 1 ? 's' : ''}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-text-secondary">Project</span>
+                    <select
+                      value={projectFilterId}
+                      onChange={(e) => setProjectFilterId(e.target.value)}
+                      className="bg-bg-tertiary border border-white/10 rounded-xl py-2 px-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue appearance-none cursor-pointer"
+                    >
+                      <option value="__all__">All projects</option>
+                      {projects
+                        .slice()
+                        .sort((a, b) => {
+                          const aDefault = a.isDefault ? 1 : 0;
+                          const bDefault = b.isDefault ? 1 : 0;
+                          if (aDefault !== bDefault) return bDefault - aDefault;
+                          return a.name.localeCompare(b.name);
+                        })
+                        .map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}{p.isDefault ? ' (Default)' : ''}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
                   {revokedCount > 0 && (
                     <button onClick={() => setShowRevoked(!showRevoked)}
                       className="text-sm text-text-secondary hover:text-text-primary transition-colors">
@@ -484,6 +513,7 @@ export const DeveloperView: React.FC = () => {
                       <thead>
                         <tr className="text-left text-xs uppercase tracking-wider text-text-secondary border-b border-white/10">
                           <th className="pb-3 font-medium">Name</th>
+                          <th className="pb-3 font-medium">Project</th>
                           <th className="pb-3 font-medium">Secret Key</th>
                           <th className="pb-3 font-medium">Created</th>
                           <th className="pb-3 font-medium text-right">Status</th>
@@ -494,6 +524,18 @@ export const DeveloperView: React.FC = () => {
                           <tr key={key.id}>
                             <td className="py-4 pr-6">
                               <span className="text-sm font-medium text-text-primary">{key.label || key.keyPrefix}</span>
+                            </td>
+                            <td className="py-4 pr-6">
+                              {key.project ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-text-secondary">{key.project.name}</span>
+                                  {key.project.isDefault && (
+                                    <Badge variant="emerald">Default</Badge>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-sm text-text-secondary">—</span>
+                              )}
                             </td>
                             <td className="py-4 pr-6">
                               <span className="text-sm text-text-secondary font-mono">{key.keyPrefix}</span>
