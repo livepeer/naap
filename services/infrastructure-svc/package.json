@@ -28,7 +28,6 @@
     "@types/node": "^20.19.33",
     "@types/pg": "^8.11.0",
     "@types/semver": "^7.7.1",
-    "@types/tar": "^6.1.11",
     "@types/ws": "^8.5.10",
     "tsx": "^4.7.0",
     "typescript": "~5.9.3",
