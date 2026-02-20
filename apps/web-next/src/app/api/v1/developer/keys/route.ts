@@ -16,9 +16,12 @@ function generateApiKey(): string {
 }
 
 function hashApiKey(key: string): string {
-  // Use scrypt (a proper KDF) instead of bare SHA-256
   const salt = 'naap-api-key-v1';
   return crypto.scryptSync(key, salt, 32).toString('hex');
+}
+
+function generateKeyLookupId(): string {
+  return crypto.randomBytes(8).toString('hex');
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -121,9 +124,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return errors.badRequest('Gateway does not offer this model');
     }
 
-    // Generate API key
     const rawKey = generateApiKey();
     const keyHash = hashApiKey(rawKey);
+    const keyLookupId = generateKeyLookupId();
+
+    const billingProviderId = typeof body.billingProviderId === 'string'
+      ? body.billingProviderId.trim() || null
+      : null;
+    const projectId = typeof body.projectId === 'string'
+      ? body.projectId.trim() || null
+      : null;
 
     const apiKey = await prisma.devApiKey.create({
       data: {
@@ -133,6 +143,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         gatewayOfferId: gateway.id,
         keyHash,
         keyPrefix: rawKey.slice(0, 8),
+        keyLookupId,
+        billingProviderId,
+        projectId,
         status: 'ACTIVE',
       },
     });

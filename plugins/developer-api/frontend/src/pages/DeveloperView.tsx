@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Box, Key, BarChart3, BookOpen, Plus, Copy, RefreshCw, Trash2, Search } from 'lucide-react';
+import { Box, Key, BarChart3, BookOpen, Plus, Copy, RefreshCw, Trash2, Search, CreditCard, Cloud } from 'lucide-react';
 import { Card, Badge } from '@naap/ui';
 import { getServiceOrigin } from '@naap/plugin-sdk';
 
@@ -29,6 +29,15 @@ interface ApiKey {
   lastUsedAt: string | null;
 }
 
+interface BillingProviderInfo {
+  id: string;
+  slug: string;
+  displayName: string;
+  description: string | null;
+  icon: string | null;
+  authType: string;
+}
+
 // '' in production (same-origin), 'http://localhost:4011' in dev
 const BASE_URL = getServiceOrigin('developer-api');
 
@@ -45,10 +54,24 @@ export const DeveloperView: React.FC = () => {
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [_loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [billingProviders, setBillingProviders] = useState<BillingProviderInfo[]>([]);
 
   useEffect(() => {
     loadData();
   }, []);
+
+  const loadBillingProviders = useCallback(async () => {
+    try {
+      const json = await fetch('/api/v1/billing-providers').then(r => r.json());
+      setBillingProviders((json.data ?? json).providers || []);
+    } catch (err) {
+      console.error('Failed to load billing providers:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'usage') loadBillingProviders();
+  }, [activeTab, loadBillingProviders]);
 
   const loadData = async () => {
     setLoading(true);
@@ -175,13 +198,57 @@ export const DeveloperView: React.FC = () => {
           )}
 
           {activeTab === 'usage' && (
-            <Card>
-              <div className="text-center py-12">
-                <BarChart3 size={48} className="mx-auto mb-4 text-text-secondary opacity-30" />
-                <h3 className="text-lg font-bold text-text-primary mb-2">Usage Dashboard</h3>
-                <p className="text-text-secondary">Track your API usage and costs here</p>
-              </div>
-            </Card>
+            <div className="space-y-6">
+              <Card>
+                <div className="flex items-center gap-3 mb-4">
+                  <CreditCard size={20} className="text-accent-emerald" />
+                  <div>
+                    <h3 className="text-lg font-bold text-text-primary">Billing Providers</h3>
+                    <p className="text-sm text-text-secondary">Available billing providers for API key creation</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {billingProviders.length === 0 ? (
+                    <div className="text-center py-8 text-text-secondary">
+                      <CreditCard size={40} className="mx-auto mb-3 opacity-30" />
+                      <p>No billing providers available</p>
+                    </div>
+                  ) : billingProviders.map((bp) => (
+                    <div key={bp.id} className="flex items-center justify-between p-4 rounded-xl border bg-bg-tertiary/50 border-white/10">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-white/5 text-text-secondary">
+                          <Cloud size={20} />
+                        </div>
+                        <div>
+                          <p className="font-medium text-text-primary">{bp.displayName}</p>
+                          <p className="text-xs text-text-secondary">{bp.description || bp.slug}</p>
+                        </div>
+                      </div>
+                      <span className="text-xs text-text-secondary capitalize">{bp.authType}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between p-4 rounded-xl border border-dashed border-white/20 bg-bg-tertiary/30">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-white/5 text-text-secondary">
+                        <Plus size={20} />
+                      </div>
+                      <div>
+                        <p className="font-medium text-text-primary">Add your own Billing Provider</p>
+                        <p className="text-xs text-text-secondary">Connect a custom billing provider</p>
+                      </div>
+                    </div>
+                    <span className="text-xs text-text-secondary">Coming soon</span>
+                  </div>
+                </div>
+              </Card>
+              <Card>
+                <div className="text-center py-10">
+                  <BarChart3 size={40} className="mx-auto mb-3 text-text-secondary opacity-30" />
+                  <h3 className="text-base font-bold text-text-primary mb-1">Usage Dashboard</h3>
+                  <p className="text-sm text-text-secondary">Usage tracking and cost breakdown coming soon</p>
+                </div>
+              </Card>
+            </div>
           )}
 
           {activeTab === 'docs' && (

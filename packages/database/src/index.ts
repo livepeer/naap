@@ -267,5 +267,8 @@ export async function withRetry<T>(
   throw lastError;
 }
 
+// Billing provider catalog
+export { BILLING_PROVIDERS } from './billing-providers';
+
 // Default export for convenience
 export default prisma;

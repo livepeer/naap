@@ -15,6 +15,16 @@ const PORT = process.env.PORT || pluginConfig.backend?.devPort || 4007;
 
 app.use(cors());
 app.use(express.json());
+app.use((req, res, next) => {
+  const headerId = req.headers['x-request-id'];
+  const requestId = (typeof headerId === 'string' && headerId.trim().length > 0)
+    ? headerId.trim()
+    : crypto.randomUUID();
+
+  (req as any).requestId = requestId;
+  res.setHeader('x-request-id', requestId);
+  next();
+});
 app.use(createAuthMiddleware({
   publicPaths: ['/healthz'],
 }));
@@ -61,6 +71,7 @@ const inMemoryGatewayOffers: Record<string, any[]> = {
 };
 
 const inMemoryApiKeys: any[] = [];
+const inMemoryProjects: any[] = [];
 
 // ============================================
 // Utility Functions
@@ -78,6 +89,10 @@ function hashApiKey(key: string): string {
 
 function getKeyPrefix(key: string): string {
   return key.substring(0, 12) + '...';
+}
+
+function generateKeyLookupId(): string {
+  return crypto.randomBytes(8).toString('hex');
 }
 
 function getRequestUserId(req: express.Request): string {
@@ -185,6 +200,106 @@ app.get('/api/v1/developer/models/:id/gateways', async (req, res) => {
 });
 
 // ============================================
+// Projects
+// ============================================
+
+app.get('/api/v1/developer/projects', async (req, res) => {
+  try {
+    const userId = getRequestUserId(req);
+
+    if (prisma) {
+      const projects = await prisma.devApiProject.findMany({
+        where: { userId },
+        orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+        select: {
+          id: true,
+          name: true,
+          isDefault: true,
+          createdAt: true,
+        },
+      });
+      return res.json({ projects });
+    }
+
+    const projects = inMemoryProjects
+      .filter((p: any) => p.userId === userId)
+      .map((p: any, idx: number) => ({ p, idx }))
+      .sort((a: any, b: any) => {
+        const aIsDefault = Boolean(a.p?.isDefault);
+        const bIsDefault = Boolean(b.p?.isDefault);
+        if (aIsDefault !== bIsDefault) return aIsDefault ? -1 : 1;
+
+        const aName = String(a.p?.name ?? '');
+        const bName = String(b.p?.name ?? '');
+        const nameCmp = aName.localeCompare(bName);
+        if (nameCmp !== 0) return nameCmp;
+
+        // Stable tiebreaker (preserve original order).
+        return a.idx - b.idx;
+      })
+      .map(({ p }: any) => p);
+
+    res.json({ projects });
+  } catch (error) {
+    console.error('Error fetching projects:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/v1/developer/projects', async (req, res) => {
+  try {
+    const userId = getRequestUserId(req);
+    const { name } = req.body;
+
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Project name is required' });
+    }
+
+    const trimmedName = name.trim();
+
+    if (prisma) {
+      const existing = await prisma.devApiProject.findUnique({
+        where: { userId_name: { userId, name: trimmedName } },
+      });
+      if (existing) {
+        return res.status(400).json({ error: 'A project with this name already exists' });
+      }
+
+      const project = await prisma.devApiProject.create({
+        data: {
+          userId,
+          name: trimmedName,
+          isDefault: false,
+        },
+        select: {
+          id: true,
+          name: true,
+          isDefault: true,
+          createdAt: true,
+        },
+      });
+      return res.status(201).json({ project });
+    }
+
+    if (inMemoryProjects.find((p: any) => p.userId === userId && p.name === trimmedName)) {
+      return res.status(400).json({ error: 'A project with this name already exists' });
+    }
+    const project = {
+      id: `proj-${Date.now()}`,
+      userId,
+      name: trimmedName,
+      isDefault: false,
+      createdAt: new Date().toISOString(),
+    };
+    inMemoryProjects.push(project);
+    res.status(201).json({ project });
+  } catch (error) {
+    console.error('Error creating project:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
 // API Keys
 // ============================================
 
@@ -251,7 +366,7 @@ app.get('/api/v1/developer/keys/:id', async (req, res) => {
 
 app.post('/api/v1/developer/keys', async (req, res) => {
   try {
-    const { projectName, modelId, gatewayId } = req.body;
+    const { projectName, modelId, gatewayId, billingProviderId, projectId } = req.body;
     const userId = getRequestUserId(req);
 
     if (!projectName || !modelId || !gatewayId) {
@@ -261,6 +376,7 @@ app.post('/api/v1/developer/keys', async (req, res) => {
     const rawKey = generateApiKey();
     const keyHash = hashApiKey(rawKey);
     const keyPrefix = getKeyPrefix(rawKey);
+    const keyLookupId = generateKeyLookupId();
 
     if (prisma) {
       const model = await prisma.devApiAIModel.findUnique({ where: { id: modelId } });
@@ -279,6 +395,9 @@ app.post('/api/v1/developer/keys', async (req, res) => {
           gatewayOfferId: gatewayOffer.id,
           keyHash,
           keyPrefix,
+          keyLookupId,
+          billingProviderId: billingProviderId || null,
+          projectId: projectId || null,
           status: 'ACTIVE',
         },
         include: { model: true },
@@ -404,8 +523,20 @@ app.get('/api/v1/developer/usage', async (req, res) => {
 // ============================================
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+  const requestId = (_req as any)?.requestId;
+  console.error('Unhandled error:', {
+    requestId,
+    method: _req.method,
+    path: _req.originalUrl,
+    error: err instanceof Error
+      ? { name: err.name, message: err.message, stack: err.stack }
+      : err,
+  });
+
+  res.status(500).json({
+    error: 'Internal server error',
+    requestId,
+  });
 });
 
 // ============================================
