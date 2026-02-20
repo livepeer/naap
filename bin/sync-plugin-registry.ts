@@ -22,7 +22,6 @@
  */
 
 import { PrismaClient } from '../packages/database/src/generated/client/index.js';
-import { BILLING_PROVIDERS } from '../packages/database/src/billing-providers.js';
 import {
   discoverPlugins,
   toWorkflowPluginData,
@@ -30,6 +29,7 @@ import {
   toPluginVersionData,
   getBundleUrl,
 } from '../packages/database/src/plugin-discovery.js';
+import { BILLING_PROVIDERS } from '@naap/database';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
