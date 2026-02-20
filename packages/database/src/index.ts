@@ -13,6 +13,9 @@ import { PrismaClient as GeneratedPrismaClient, Prisma } from './generated/clien
 // Re-export all types from generated client
 export * from './generated/client/index.js';
 
+// Re-export catalog constants
+export { BILLING_PROVIDERS } from './billing-providers';
+
 // Type for transaction client
 export type TransactionClient = Omit<
   GeneratedPrismaClient,
@@ -266,9 +269,6 @@ export async function withRetry<T>(
 
   throw lastError;
 }
-
-// Billing provider catalog
-export { BILLING_PROVIDERS } from './billing-providers';
 
 // Default export for convenience
 export default prisma;

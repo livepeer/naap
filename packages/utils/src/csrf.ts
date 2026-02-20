@@ -23,7 +23,7 @@
  */
 
 import * as crypto from 'crypto';
-import type { Request, Response, NextFunction } from 'express';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
 // CSRF token store: sessionToken -> { token, createdAt }
 // In production, this should use Redis for distributed deployments
@@ -148,7 +148,7 @@ export function createCsrfMiddleware(options: CsrfMiddlewareOptions = {}) {
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const log = opts.logger || console.log;
 
-  return function csrfMiddleware(req: Request, res: Response, next: NextFunction) {
+  const csrfMiddleware: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
     // Skip safe methods
     if (opts.skipMethods.includes(req.method)) {
       return next();
@@ -198,17 +198,20 @@ export function createCsrfMiddleware(options: CsrfMiddlewareOptions = {}) {
       }
 
       log('[CSRF] Rejected request', logData);
-      return res.status(403).json({
+      res.status(403).json({
         success: false,
         error: {
           code: 'CSRF_INVALID',
           message: 'Invalid or missing CSRF token',
         },
       });
+      return;
     }
 
     next();
   };
+
+  return csrfMiddleware;
 }
 
 /**

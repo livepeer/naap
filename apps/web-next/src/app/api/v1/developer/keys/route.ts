@@ -1,7 +1,7 @@
 /**
  * Developer API Keys Routes
  * GET /api/v1/developer/keys - List user's API keys
- * POST /api/v1/developer/keys - Create new API key
+ * POST /api/v1/developer/keys - Create new API key (provider-issued key via OAuth)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -11,13 +11,24 @@ import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken, parsePagination } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
 
-function generateApiKey(): string {
-  return `naap_${crypto.randomBytes(24).toString('hex')}`;
+function isPrismaUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: string }).code === 'P2002'
+  );
 }
 
-function hashApiKey(key: string): string {
-  const salt = 'naap-api-key-v1';
-  return crypto.scryptSync(key, salt, 32).toString('hex');
+function parseApiKey(key: string): { lookupId: string; secret: string } | null {
+  const m = key.match(/^naap_([0-9a-f]{16})_([0-9a-f]{48})$/);
+  return m ? { lookupId: m[1], secret: m[2] } : null;
+}
+
+function getKeyPrefix(key: string): string {
+  const parsed = parseApiKey(key);
+  if (parsed) return `naap_${parsed.lookupId}...`;
+  return key.substring(0, 12) + '...';
 }
 
 function generateKeyLookupId(): string {
@@ -45,6 +56,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         orderBy: { createdAt: 'desc' },
         take: pageSize,
         skip,
+        include: {
+          project: { select: { id: true, name: true, isDefault: true } },
+          billingProvider: {
+            select: {
+              id: true,
+              slug: true,
+              displayName: true,
+            },
+          },
+        },
       }),
       prisma.devApiKey.count({
         where: { userId: user.id },
@@ -73,7 +94,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return errors.unauthorized('No auth token provided');
     }
 
-    // Validate CSRF token
     const csrfError = validateCSRF(request, token);
     if (csrfError) {
       return csrfError;
@@ -91,68 +111,147 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return errors.badRequest('Invalid JSON in request body');
     }
 
-    const projectName = body.projectName;
-    const modelId = body.modelId;
-    const gatewayId = body.gatewayId;
+    const billingProviderId = body.billingProviderId as string | undefined;
+    const rawApiKey = body.rawApiKey as string | undefined;
+    const modelId = body.modelId as string | undefined;
+    const gatewayId = body.gatewayId as string | undefined;
+    const projectId = body.projectId as string | undefined;
+    const projectName = body.projectName as string | undefined;
+    const label = body.label as string | undefined;
 
     if (
-      typeof projectName !== 'string' ||
-      typeof modelId !== 'string' ||
-      typeof gatewayId !== 'string' ||
-      projectName.trim() === '' ||
-      modelId.trim() === '' ||
-      gatewayId.trim() === ''
+      typeof billingProviderId !== 'string' ||
+      billingProviderId.trim() === ''
     ) {
-      return errors.badRequest('projectName, modelId, and gatewayId are required');
+      return errors.badRequest('billingProviderId is required');
     }
 
-    // Validate model exists in the database
-    const model = await prisma.devApiAIModel.findUnique({
-      where: { id: modelId },
-      select: { id: true },
+    if (typeof rawApiKey !== 'string' || rawApiKey.trim() === '') {
+      return errors.badRequest('rawApiKey is required');
+    }
+
+    const provider = await prisma.billingProvider.findUnique({
+      where: { id: billingProviderId },
+      select: { id: true, enabled: true },
     });
-    if (!model) {
-      return errors.badRequest('Invalid modelId');
+    if (!provider || !provider.enabled) {
+      return errors.badRequest('Invalid or disabled billing provider');
     }
 
-    // Validate gateway offers this model in the database
-    const gateway = await prisma.devApiGatewayOffer.findFirst({
-      where: { modelId, gatewayId },
-      select: { id: true },
-    });
-    if (!gateway) {
-      return errors.badRequest('Gateway does not offer this model');
+    let resolvedModelId: string | undefined;
+    if (modelId && typeof modelId === 'string' && modelId.trim() !== '') {
+      const model = await prisma.devApiAIModel.findUnique({
+        where: { id: modelId },
+        select: { id: true },
+      });
+      if (!model) {
+        return errors.badRequest('Invalid modelId');
+      }
+      resolvedModelId = model.id;
     }
 
-    const rawKey = generateApiKey();
-    const keyHash = hashApiKey(rawKey);
-    const keyLookupId = generateKeyLookupId();
+    let resolvedGatewayOfferId: string | undefined;
+    if (resolvedModelId && gatewayId && typeof gatewayId === 'string' && gatewayId.trim() !== '') {
+      const gateway = await prisma.devApiGatewayOffer.findFirst({
+        where: { modelId: resolvedModelId, gatewayId },
+        select: { id: true },
+      });
+      if (!gateway) {
+        return errors.badRequest('Gateway does not offer this model');
+      }
+      resolvedGatewayOfferId = gateway.id;
+    }
 
-    const billingProviderId = typeof body.billingProviderId === 'string'
-      ? body.billingProviderId.trim() || null
-      : null;
-    const projectId = typeof body.projectId === 'string'
-      ? body.projectId.trim() || null
-      : null;
+    let resolvedProjectId: string;
+    if (projectId) {
+      const project = await prisma.devApiProject.findUnique({
+        where: { id: projectId },
+        select: { id: true, userId: true },
+      });
+      if (!project || project.userId !== user.id) {
+        return errors.badRequest('Invalid projectId');
+      }
+      resolvedProjectId = project.id;
+    } else if (projectName && projectName.trim()) {
+      const trimmedName = projectName.trim();
+      let project = await prisma.devApiProject.findUnique({
+        where: { userId_name: { userId: user.id, name: trimmedName } },
+        select: { id: true },
+      });
+      if (!project) {
+        try {
+          project = await prisma.devApiProject.create({
+            data: {
+              userId: user.id,
+              name: trimmedName,
+              isDefault: false,
+            },
+          });
+        } catch (error) {
+          if (!isPrismaUniqueConstraintError(error)) {
+            throw error;
+          }
+          project = await prisma.devApiProject.findUnique({
+            where: { userId_name: { userId: user.id, name: trimmedName } },
+            select: { id: true },
+          });
+          if (!project) {
+            throw error;
+          }
+        }
+      }
+      resolvedProjectId = project.id;
+    } else {
+      let defaultProject = await prisma.devApiProject.findFirst({
+        where: { userId: user.id, isDefault: true },
+        select: { id: true },
+      });
+      if (!defaultProject) {
+        try {
+          defaultProject = await prisma.devApiProject.create({
+            data: {
+              userId: user.id,
+              name: 'Default',
+              isDefault: true,
+            },
+          });
+        } catch (error) {
+          if (!isPrismaUniqueConstraintError(error)) {
+            throw error;
+          }
+          defaultProject = await prisma.devApiProject.findFirst({
+            where: { userId: user.id, isDefault: true },
+            select: { id: true },
+          });
+          if (!defaultProject) {
+            throw error;
+          }
+        }
+      }
+      resolvedProjectId = defaultProject.id;
+    }
+
+    const keyLookupId = parseApiKey(rawApiKey)?.lookupId ?? generateKeyLookupId();
+    const keyPrefix = getKeyPrefix(rawApiKey);
+    const resolvedLabel = label && typeof label === 'string' && label.trim() ? label.trim() : null;
 
     const apiKey = await prisma.devApiKey.create({
       data: {
         userId: user.id,
-        projectName,
-        modelId,
-        gatewayOfferId: gateway.id,
-        keyHash,
-        keyPrefix: rawKey.slice(0, 8),
-        keyLookupId,
+        projectId: resolvedProjectId,
         billingProviderId,
-        projectId,
+        modelId: resolvedModelId || null,
+        gatewayOfferId: resolvedGatewayOfferId || null,
+        keyLookupId,
+        keyPrefix,
+        label: resolvedLabel,
         status: 'ACTIVE',
       },
     });
 
     return success({
       key: apiKey,
-      rawApiKey: rawKey,
+      rawApiKey,
       warning: 'Store this key securely. It will not be shown again.',
     });
   } catch (err) {

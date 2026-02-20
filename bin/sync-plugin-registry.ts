@@ -30,6 +30,7 @@ import {
   toPluginVersionData,
   getBundleUrl,
 } from '../packages/database/src/plugin-discovery.js';
+import { BILLING_PROVIDERS } from '@naap/database';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 

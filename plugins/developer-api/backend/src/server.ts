@@ -15,16 +15,6 @@ const PORT = process.env.PORT || pluginConfig.backend?.devPort || 4007;
 
 app.use(cors());
 app.use(express.json());
-app.use((req, res, next) => {
-  const headerId = req.headers['x-request-id'];
-  const requestId = (typeof headerId === 'string' && headerId.trim().length > 0)
-    ? headerId.trim()
-    : crypto.randomUUID();
-
-  (req as any).requestId = requestId;
-  res.setHeader('x-request-id', requestId);
-  next();
-});
 app.use(createAuthMiddleware({
   publicPaths: ['/healthz'],
 }));
@@ -72,27 +62,27 @@ const inMemoryGatewayOffers: Record<string, any[]> = {
 
 const inMemoryApiKeys: any[] = [];
 const inMemoryProjects: any[] = [];
+const inMemoryBillingProviders = [
+  { id: 'bp-daydream', slug: 'daydream', displayName: 'Daydream', description: 'AI-powered billing via Daydream', icon: 'cloud', authType: 'oauth' },
+];
 
 // ============================================
 // Utility Functions
 // ============================================
 
-function generateApiKey(): string {
-  return `naap_${crypto.randomBytes(24).toString('hex')}`;
-}
-
-function hashApiKey(key: string): string {
-  // Use scrypt (a proper KDF) instead of bare SHA-256
-  const salt = 'naap-api-key-v1';
-  return crypto.scryptSync(key, salt, 32).toString('hex');
-}
-
-function getKeyPrefix(key: string): string {
-  return key.substring(0, 12) + '...';
+function parseApiKey(key: string): { lookupId: string; secret: string } | null {
+  const m = key.match(/^naap_([0-9a-f]{16})_([0-9a-f]{48})$/);
+  return m ? { lookupId: m[1], secret: m[2] } : null;
 }
 
 function generateKeyLookupId(): string {
   return crypto.randomBytes(8).toString('hex');
+}
+
+function getKeyPrefix(key: string): string {
+  const parsed = parseApiKey(key);
+  if (parsed) return `naap_${parsed.lookupId}...`;
+  return key.substring(0, 12) + '...';
 }
 
 function getRequestUserId(req: express.Request): string {
@@ -216,30 +206,13 @@ app.get('/api/v1/developer/projects', async (req, res) => {
           name: true,
           isDefault: true,
           createdAt: true,
+          _count: { select: { apiKeys: true } },
         },
       });
       return res.json({ projects });
     }
 
-    const projects = inMemoryProjects
-      .filter((p: any) => p.userId === userId)
-      .map((p: any, idx: number) => ({ p, idx }))
-      .sort((a: any, b: any) => {
-        const aIsDefault = Boolean(a.p?.isDefault);
-        const bIsDefault = Boolean(b.p?.isDefault);
-        if (aIsDefault !== bIsDefault) return aIsDefault ? -1 : 1;
-
-        const aName = String(a.p?.name ?? '');
-        const bName = String(b.p?.name ?? '');
-        const nameCmp = aName.localeCompare(bName);
-        if (nameCmp !== 0) return nameCmp;
-
-        // Stable tiebreaker (preserve original order).
-        return a.idx - b.idx;
-      })
-      .map(({ p }: any) => p);
-
-    res.json({ projects });
+    res.json({ projects: inMemoryProjects.filter((p: any) => p.userId === userId) });
   } catch (error) {
     console.error('Error fetching projects:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -300,6 +273,35 @@ app.post('/api/v1/developer/projects', async (req, res) => {
 });
 
 // ============================================
+// Billing Providers
+// ============================================
+
+app.get('/api/v1/developer/billing-providers', async (_req, res) => {
+  try {
+    if (prisma) {
+      const providers = await prisma.billingProvider.findMany({
+        where: { enabled: true },
+        orderBy: { sortOrder: 'asc' },
+        select: {
+          id: true,
+          slug: true,
+          displayName: true,
+          description: true,
+          icon: true,
+          authType: true,
+        },
+      });
+      return res.json({ providers });
+    }
+
+    res.json({ providers: inMemoryBillingProviders });
+  } catch (error) {
+    console.error('Error fetching billing providers:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
 // API Keys
 // ============================================
 
@@ -310,16 +312,24 @@ app.get('/api/v1/developer/keys', async (req, res) => {
     if (prisma) {
       const keys = await prisma.devApiKey.findMany({
         where: { userId },
-        include: { model: true },
         orderBy: { createdAt: 'desc' },
+        include: {
+          project: { select: { id: true, name: true, isDefault: true } },
+          billingProvider: {
+            select: { id: true, slug: true, displayName: true },
+          },
+          model: { select: { id: true, name: true } },
+          gatewayOffer: { select: { id: true, gatewayId: true, gatewayName: true } },
+        },
       });
       const formatted = keys.map((k: any) => ({
         id: k.id,
-        projectName: k.projectName,
-        modelId: k.modelId,
+        project: k.project,
+        billingProvider: k.billingProvider,
         modelName: k.model?.name || 'Unknown',
+        gatewayName: k.gatewayOffer?.gatewayName || 'Unknown',
         keyPrefix: k.keyPrefix,
-        status: k.status.toLowerCase(),
+        status: k.status,
         createdAt: k.createdAt.toISOString(),
         lastUsedAt: k.lastUsedAt?.toISOString() || null,
       }));
@@ -337,19 +347,31 @@ app.get('/api/v1/developer/keys', async (req, res) => {
 app.get('/api/v1/developer/keys/:id', async (req, res) => {
   try {
     const userId = getRequestUserId(req);
+
     if (prisma) {
       const key = await prisma.devApiKey.findFirst({
-        where: { id: req.params.id, userId },
-        include: { model: true },
+        where: {
+          id: req.params.id,
+          userId,
+        },
+        include: {
+          project: { select: { id: true, name: true, isDefault: true } },
+          billingProvider: {
+            select: { id: true, slug: true, displayName: true },
+          },
+          model: { select: { id: true, name: true } },
+          gatewayOffer: { select: { id: true, gatewayId: true, gatewayName: true } },
+        },
       });
       if (!key) return res.status(404).json({ error: 'API key not found' });
       return res.json({
         id: key.id,
-        projectName: key.projectName,
-        modelId: key.modelId,
+        project: key.project,
+        billingProvider: key.billingProvider,
         modelName: key.model?.name || 'Unknown',
+        gatewayName: key.gatewayOffer?.gatewayName || 'Unknown',
         keyPrefix: key.keyPrefix,
-        status: key.status.toLowerCase(),
+        status: key.status,
         createdAt: key.createdAt.toISOString(),
         lastUsedAt: key.lastUsedAt?.toISOString() || null,
       });
@@ -366,75 +388,149 @@ app.get('/api/v1/developer/keys/:id', async (req, res) => {
 
 app.post('/api/v1/developer/keys', async (req, res) => {
   try {
-    const { projectName, modelId, gatewayId, billingProviderId, projectId } = req.body;
+    const { billingProviderId, rawApiKey, projectId, projectName, modelId, gatewayId, label } = req.body;
     const userId = getRequestUserId(req);
 
-    if (!projectName || !modelId || !gatewayId) {
-      return res.status(400).json({ error: 'projectName, modelId, and gatewayId required' });
+    if (!billingProviderId) {
+      return res.status(400).json({ error: 'billingProviderId is required' });
+    }
+    if (!rawApiKey || typeof rawApiKey !== 'string') {
+      return res.status(400).json({ error: 'rawApiKey is required' });
     }
 
-    const rawKey = generateApiKey();
-    const keyHash = hashApiKey(rawKey);
-    const keyPrefix = getKeyPrefix(rawKey);
-    const keyLookupId = generateKeyLookupId();
+    const keyLookupId = parseApiKey(rawApiKey)?.lookupId ?? generateKeyLookupId();
+    const keyPrefix = getKeyPrefix(rawApiKey);
 
     if (prisma) {
-      const model = await prisma.devApiAIModel.findUnique({ where: { id: modelId } });
-      if (!model) return res.status(400).json({ error: 'Invalid modelId' });
-
-      const gatewayOffer = await prisma.devApiGatewayOffer.findFirst({
-        where: { modelId, gatewayId },
+      const provider = await prisma.billingProvider.findUnique({
+        where: { id: billingProviderId },
+        select: { id: true, enabled: true },
       });
-      if (!gatewayOffer) return res.status(400).json({ error: 'Gateway does not offer this model' });
+      if (!provider || !provider.enabled) {
+        return res.status(400).json({ error: 'Invalid or disabled billing provider' });
+      }
+
+      let resolvedModelId: string | undefined;
+      if (modelId && typeof modelId === 'string' && modelId.trim() !== '') {
+        const model = await prisma.devApiAIModel.findUnique({ where: { id: modelId } });
+        if (!model) return res.status(400).json({ error: 'Invalid modelId' });
+        resolvedModelId = model.id;
+      }
+
+      let resolvedGatewayOfferId: string | undefined;
+      if (resolvedModelId && gatewayId && typeof gatewayId === 'string' && gatewayId.trim() !== '') {
+        const gatewayOffer = await prisma.devApiGatewayOffer.findFirst({
+          where: { modelId: resolvedModelId, gatewayId },
+        });
+        if (!gatewayOffer) return res.status(400).json({ error: 'Gateway does not offer this model' });
+        resolvedGatewayOfferId = gatewayOffer.id;
+      }
+
+      let resolvedProjectId: string;
+      if (projectId) {
+        const project = await prisma.devApiProject.findUnique({
+          where: { id: projectId },
+          select: { id: true, userId: true },
+        });
+        if (!project || project.userId !== userId) {
+          return res.status(400).json({ error: 'Invalid projectId' });
+        }
+        resolvedProjectId = project.id;
+      } else if (projectName && projectName.trim()) {
+        const trimmedName = projectName.trim();
+        let project = await prisma.devApiProject.findUnique({
+          where: { userId_name: { userId, name: trimmedName } },
+          select: { id: true },
+        });
+        if (!project) {
+          try {
+            project = await prisma.devApiProject.create({
+              data: { userId, name: trimmedName, isDefault: false },
+            });
+          } catch (err: unknown) {
+            if ((err as { code?: string })?.code === 'P2002') {
+              project = await prisma.devApiProject.findUniqueOrThrow({
+                where: { userId_name: { userId, name: trimmedName } },
+                select: { id: true },
+              });
+            } else {
+              throw err;
+            }
+          }
+        }
+        resolvedProjectId = project.id;
+      } else {
+        let defaultProject = await prisma.devApiProject.findFirst({
+          where: { userId, isDefault: true },
+          select: { id: true },
+        });
+        if (!defaultProject) {
+          try {
+            defaultProject = await prisma.devApiProject.create({
+              data: { userId, name: 'Default', isDefault: true },
+            });
+          } catch (err: unknown) {
+            if ((err as { code?: string })?.code === 'P2002') {
+              defaultProject = await prisma.devApiProject.findFirstOrThrow({
+                where: { userId, isDefault: true },
+                select: { id: true },
+              });
+            } else {
+              throw err;
+            }
+          }
+        }
+        resolvedProjectId = defaultProject.id;
+      }
+
+      const resolvedLabel = label && typeof label === 'string' && label.trim() ? label.trim() : null;
 
       const newKey = await prisma.devApiKey.create({
         data: {
           userId,
-          projectName,
-          modelId,
-          gatewayOfferId: gatewayOffer.id,
-          keyHash,
-          keyPrefix,
+          projectId: resolvedProjectId,
+          billingProviderId,
+          modelId: resolvedModelId || null,
+          gatewayOfferId: resolvedGatewayOfferId || null,
           keyLookupId,
-          billingProviderId: billingProviderId || null,
-          projectId: projectId || null,
+          keyPrefix,
+          label: resolvedLabel,
           status: 'ACTIVE',
         },
-        include: { model: true },
+        include: {
+          project: { select: { id: true, name: true, isDefault: true } },
+          billingProvider: {
+            select: { id: true, slug: true, displayName: true },
+          },
+        },
       });
 
       return res.status(201).json({
         key: {
           id: newKey.id,
-          projectName: newKey.projectName,
-          modelId: newKey.modelId,
-          modelName: newKey.model?.name || 'Unknown',
+          project: newKey.project,
+          billingProvider: newKey.billingProvider,
           keyPrefix: newKey.keyPrefix,
-          status: 'active',
+          label: newKey.label,
+          status: newKey.status,
           createdAt: newKey.createdAt.toISOString(),
         },
-        rawApiKey: rawKey,
+        rawApiKey,
         warning: 'Store this key securely. It will not be shown again.',
       });
     }
 
-    // In-memory fallback
-    const model = inMemoryModels.find(m => m.id === modelId);
-    if (!model) return res.status(400).json({ error: 'Invalid modelId' });
-
-    const gateway = (inMemoryGatewayOffers[modelId] || []).find(g => g.gatewayId === gatewayId);
-    if (!gateway) return res.status(400).json({ error: 'Gateway does not offer this model' });
+    const fallbackProject = inMemoryProjects.find((p: any) => p.id === projectId) || { id: 'proj-default', name: 'Default', isDefault: true };
+    const fallbackProvider = inMemoryBillingProviders.find(p => p.id === billingProviderId) || inMemoryBillingProviders[0];
 
     const newKey = {
       id: `key-${Date.now()}`,
       userId,
-      projectName,
-      modelId,
-      modelName: model.name,
-      gatewayId,
-      gatewayName: gateway.gatewayName,
+      project: { id: fallbackProject.id, name: fallbackProject.name, isDefault: fallbackProject.isDefault },
+      billingProvider: { id: fallbackProvider.id, slug: fallbackProvider.slug, displayName: fallbackProvider.displayName },
       keyPrefix,
-      status: 'active',
+      keyLookupId,
+      status: 'ACTIVE',
       createdAt: new Date().toISOString(),
       lastUsedAt: null,
     };
@@ -442,7 +538,7 @@ app.post('/api/v1/developer/keys', async (req, res) => {
 
     res.status(201).json({
       key: newKey,
-      rawApiKey: rawKey,
+      rawApiKey,
       warning: 'Store this key securely. It will not be shown again.',
     });
   } catch (error) {
@@ -454,11 +550,12 @@ app.post('/api/v1/developer/keys', async (req, res) => {
 app.delete('/api/v1/developer/keys/:id', async (req, res) => {
   try {
     const userId = getRequestUserId(req);
+
     if (prisma) {
       const key = await prisma.devApiKey.findUnique({ where: { id: req.params.id } });
-      if (!key) return res.status(404).json({ error: 'API key not found' });
-      if (key.userId !== userId) return res.status(404).json({ error: 'API key not found' });
-
+      if (!key || key.userId !== userId) {
+        return res.status(404).json({ error: 'API key not found' });
+      }
       await prisma.devApiKey.update({
         where: { id: req.params.id },
         data: { status: 'REVOKED', revokedAt: new Date() },
@@ -469,8 +566,7 @@ app.delete('/api/v1/developer/keys/:id', async (req, res) => {
 
     const keyIndex = inMemoryApiKeys.findIndex((k: any) => k.id === req.params.id && k.userId === userId);
     if (keyIndex === -1) return res.status(404).json({ error: 'API key not found' });
-
-    inMemoryApiKeys[keyIndex].status = 'revoked';
+    inMemoryApiKeys[keyIndex].status = 'REVOKED';
     res.json({ message: 'API key revoked', key: inMemoryApiKeys[keyIndex] });
   } catch (error) {
     console.error('Error revoking key:', error);
@@ -508,7 +604,7 @@ app.get('/api/v1/developer/usage', async (req, res) => {
     // Fallback
     res.json({
       totalKeys: inMemoryApiKeys.length,
-      activeKeys: inMemoryApiKeys.filter(k => k.status === 'active').length,
+      activeKeys: inMemoryApiKeys.filter(k => k.status?.toUpperCase?.() === 'ACTIVE').length,
       totalRequests: 0,
       totalCost: '0.0000',
     });
@@ -523,20 +619,8 @@ app.get('/api/v1/developer/usage', async (req, res) => {
 // ============================================
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  const requestId = (_req as any)?.requestId;
-  console.error('Unhandled error:', {
-    requestId,
-    method: _req.method,
-    path: _req.originalUrl,
-    error: err instanceof Error
-      ? { name: err.name, message: err.message, stack: err.stack }
-      : err,
-  });
-
-  res.status(500).json({
-    error: 'Internal server error',
-    requestId,
-  });
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 // ============================================
