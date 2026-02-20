@@ -13,6 +13,17 @@ const pluginConfig = JSON.parse(
 const app = express();
 const PORT = process.env.PORT || pluginConfig.backend?.devPort || 4007;
 
+app.use((req, res, next) => {
+  const incoming = req.header('x-request-id');
+  const requestId =
+    typeof incoming === 'string' && incoming.trim().length > 0
+      ? incoming.trim()
+      : (crypto as any).randomUUID?.() ?? crypto.randomBytes(16).toString('hex');
+
+  (req as any).requestId = requestId;
+  res.setHeader('x-request-id', requestId);
+  next();
+});
 app.use(cors());
 app.use(express.json());
 app.use(createAuthMiddleware({
@@ -25,11 +36,15 @@ app.use(createAuthMiddleware({
 
 // Dynamic import for Prisma client (generated)
 let prisma: any = null;
+let resolveDevApiProjectId: any = null;
+let DevApiProjectResolutionError: any = null;
 
 async function initDatabase() {
   try {
-    const { prisma: dbClient } = await import('@naap/database');
-    prisma = dbClient;
+    const db = await import('@naap/database');
+    prisma = db.prisma;
+    resolveDevApiProjectId = db.resolveDevApiProjectId;
+    DevApiProjectResolutionError = db.DevApiProjectResolutionError;
     await prisma.$connect();
     console.log('✅ Database connected');
     return true;
@@ -427,60 +442,18 @@ app.post('/api/v1/developer/keys', async (req, res) => {
       }
 
       let resolvedProjectId: string;
-      if (projectId) {
-        const project = await prisma.devApiProject.findUnique({
-          where: { id: projectId },
-          select: { id: true, userId: true },
+      try {
+        resolvedProjectId = await resolveDevApiProjectId({
+          prisma,
+          userId,
+          projectId,
+          projectName,
         });
-        if (!project || project.userId !== userId) {
-          return res.status(400).json({ error: 'Invalid projectId' });
+      } catch (err: unknown) {
+        if (DevApiProjectResolutionError && err instanceof DevApiProjectResolutionError) {
+          return res.status(400).json({ error: (err as Error).message });
         }
-        resolvedProjectId = project.id;
-      } else if (projectName && projectName.trim()) {
-        const trimmedName = projectName.trim();
-        let project = await prisma.devApiProject.findUnique({
-          where: { userId_name: { userId, name: trimmedName } },
-          select: { id: true },
-        });
-        if (!project) {
-          try {
-            project = await prisma.devApiProject.create({
-              data: { userId, name: trimmedName, isDefault: false },
-            });
-          } catch (err: unknown) {
-            if ((err as { code?: string })?.code === 'P2002') {
-              project = await prisma.devApiProject.findUniqueOrThrow({
-                where: { userId_name: { userId, name: trimmedName } },
-                select: { id: true },
-              });
-            } else {
-              throw err;
-            }
-          }
-        }
-        resolvedProjectId = project.id;
-      } else {
-        let defaultProject = await prisma.devApiProject.findFirst({
-          where: { userId, isDefault: true },
-          select: { id: true },
-        });
-        if (!defaultProject) {
-          try {
-            defaultProject = await prisma.devApiProject.create({
-              data: { userId, name: 'Default', isDefault: true },
-            });
-          } catch (err: unknown) {
-            if ((err as { code?: string })?.code === 'P2002') {
-              defaultProject = await prisma.devApiProject.findFirstOrThrow({
-                where: { userId, isDefault: true },
-                select: { id: true },
-              });
-            } else {
-              throw err;
-            }
-          }
-        }
-        resolvedProjectId = defaultProject.id;
+        throw err;
       }
 
       const resolvedLabel = label && typeof label === 'string' && label.trim() ? label.trim() : null;
@@ -619,8 +592,25 @@ app.get('/api/v1/developer/usage', async (req, res) => {
 // ============================================
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+  const req = _req as any;
+  const requestId = req.requestId || req.headers?.['x-request-id'] || 'unknown';
+  const method = req.method || 'UNKNOWN';
+  const path = req.originalUrl || req.url || 'unknown';
+
+  console.error(
+    `[developer-api][${requestId}] Unhandled error on ${method} ${path}:`,
+    err
+  );
+  res.status(500).json({
+    success: false,
+    error: {
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Internal server error',
+      requestId,
+      method,
+      path,
+    },
+  });
 });
 
 // ============================================

@@ -663,12 +663,18 @@ export const DeveloperView: React.FC = () => {
               </div>
             )}
             <div className="flex justify-end gap-3 pt-2">
-              <button onClick={closeCreateModal}
-                className="px-4 py-2.5 text-sm text-text-secondary hover:text-text-primary transition-colors rounded-xl hover:bg-white/5">Cancel</button>
-              <button onClick={handleCreateKey}
+              <button
+                onClick={handleCreateKey}
                 disabled={creating || modalDataLoading || billingProviders.length === 0 || !selectedBillingProviderId}
-                className="flex items-center gap-2 px-5 py-2.5 bg-accent-emerald text-white rounded-xl font-medium hover:bg-accent-emerald/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                className="order-2 flex items-center gap-2 px-5 py-2.5 bg-accent-emerald text-white rounded-xl font-medium hover:bg-accent-emerald/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
                 <Key size={16} /> Create API Key
+              </button>
+              <button
+                onClick={closeCreateModal}
+                className="order-1 px-4 py-2.5 text-sm text-text-secondary hover:text-text-primary transition-colors rounded-xl hover:bg-white/5"
+              >
+                Cancel
               </button>
             </div>
           </div>

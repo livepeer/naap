@@ -16,6 +16,9 @@ export * from './generated/client/index.js';
 // Re-export catalog constants
 export { BILLING_PROVIDERS } from './billing-providers';
 
+// Shared developer-api utilities
+export { DevApiProjectResolutionError, resolveDevApiProjectId } from './dev-api/resolveDevApiProject';
+
 // Type for transaction client
 export type TransactionClient = Omit<
   GeneratedPrismaClient,

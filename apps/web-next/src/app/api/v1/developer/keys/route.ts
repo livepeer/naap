@@ -10,15 +10,7 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken, parsePagination } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
-
-function isPrismaUniqueConstraintError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: string }).code === 'P2002'
-  );
-}
+import { DevApiProjectResolutionError, resolveDevApiProjectId } from '@naap/database';
 
 function parseApiKey(key: string): { lookupId: string; secret: string } | null {
   const m = key.match(/^naap_([0-9a-f]{16})_([0-9a-f]{48})$/);
@@ -163,72 +155,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     let resolvedProjectId: string;
-    if (projectId) {
-      const project = await prisma.devApiProject.findUnique({
-        where: { id: projectId },
-        select: { id: true, userId: true },
+    try {
+      resolvedProjectId = await resolveDevApiProjectId({
+        prisma,
+        userId: user.id,
+        projectId,
+        projectName,
       });
-      if (!project || project.userId !== user.id) {
-        return errors.badRequest('Invalid projectId');
+    } catch (error) {
+      if (error instanceof DevApiProjectResolutionError) {
+        return errors.badRequest(error.message);
       }
-      resolvedProjectId = project.id;
-    } else if (projectName && projectName.trim()) {
-      const trimmedName = projectName.trim();
-      let project = await prisma.devApiProject.findUnique({
-        where: { userId_name: { userId: user.id, name: trimmedName } },
-        select: { id: true },
-      });
-      if (!project) {
-        try {
-          project = await prisma.devApiProject.create({
-            data: {
-              userId: user.id,
-              name: trimmedName,
-              isDefault: false,
-            },
-          });
-        } catch (error) {
-          if (!isPrismaUniqueConstraintError(error)) {
-            throw error;
-          }
-          project = await prisma.devApiProject.findUnique({
-            where: { userId_name: { userId: user.id, name: trimmedName } },
-            select: { id: true },
-          });
-          if (!project) {
-            throw error;
-          }
-        }
-      }
-      resolvedProjectId = project.id;
-    } else {
-      let defaultProject = await prisma.devApiProject.findFirst({
-        where: { userId: user.id, isDefault: true },
-        select: { id: true },
-      });
-      if (!defaultProject) {
-        try {
-          defaultProject = await prisma.devApiProject.create({
-            data: {
-              userId: user.id,
-              name: 'Default',
-              isDefault: true,
-            },
-          });
-        } catch (error) {
-          if (!isPrismaUniqueConstraintError(error)) {
-            throw error;
-          }
-          defaultProject = await prisma.devApiProject.findFirst({
-            where: { userId: user.id, isDefault: true },
-            select: { id: true },
-          });
-          if (!defaultProject) {
-            throw error;
-          }
-        }
-      }
-      resolvedProjectId = defaultProject.id;
+      throw error;
     }
 
     const keyLookupId = parseApiKey(rawApiKey)?.lookupId ?? generateKeyLookupId();
