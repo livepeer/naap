@@ -7,6 +7,10 @@ import { createAuthMiddleware } from '@naap/plugin-server-sdk';
 
 config();
 
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f\u2028\u2029]/g, '');
+}
+
 const pluginConfig = JSON.parse(
   readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
 );
@@ -90,14 +94,16 @@ function parseApiKey(key: string): { lookupId: string; secret: string } | null {
   return m ? { lookupId: m[1], secret: m[2] } : null;
 }
 
-function generateKeyLookupId(): string {
-  return crypto.randomBytes(8).toString('hex');
+function deriveKeyLookupId(rawKey: string): string {
+  const parsed = parseApiKey(rawKey);
+  if (parsed) {
+    return parsed.lookupId;
+  }
+  return crypto.createHash('sha256').update(rawKey).digest('hex').slice(0, 16);
 }
 
-function getKeyPrefix(key: string): string {
-  const parsed = parseApiKey(key);
-  if (parsed) return `naap_${parsed.lookupId}...`;
-  return key.substring(0, 12) + '...';
+function getKeyPrefix(lookupId: string): string {
+  return `naap_${lookupId}...`;
 }
 
 function getRequestUserId(req: express.Request): string {
@@ -227,7 +233,17 @@ app.get('/api/v1/developer/projects', async (req, res) => {
       return res.json({ projects });
     }
 
-    res.json({ projects: inMemoryProjects.filter((p: any) => p.userId === userId) });
+    const projects = inMemoryProjects
+      .filter((p: any) => p.userId === userId)
+      .map((p: any) => ({
+        ...p,
+        _count: {
+          apiKeys: inMemoryApiKeys.filter(
+            (k: any) => k.userId === userId && k.project?.id === p.id
+          ).length,
+        },
+      }));
+    res.json({ projects });
   } catch (error) {
     console.error('Error fetching projects:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -341,6 +357,7 @@ app.get('/api/v1/developer/keys', async (req, res) => {
         id: k.id,
         project: k.project,
         billingProvider: k.billingProvider,
+        label: k.label ?? null,
         modelName: k.model?.name || 'Unknown',
         gatewayName: k.gatewayOffer?.gatewayName || 'Unknown',
         keyPrefix: k.keyPrefix,
@@ -383,6 +400,7 @@ app.get('/api/v1/developer/keys/:id', async (req, res) => {
         id: key.id,
         project: key.project,
         billingProvider: key.billingProvider,
+        label: key.label ?? null,
         modelName: key.model?.name || 'Unknown',
         gatewayName: key.gatewayOffer?.gatewayName || 'Unknown',
         keyPrefix: key.keyPrefix,
@@ -413,8 +431,8 @@ app.post('/api/v1/developer/keys', async (req, res) => {
       return res.status(400).json({ error: 'rawApiKey is required' });
     }
 
-    const keyLookupId = parseApiKey(rawApiKey)?.lookupId ?? generateKeyLookupId();
-    const keyPrefix = getKeyPrefix(rawApiKey);
+    const keyLookupId = deriveKeyLookupId(rawApiKey);
+    const keyPrefix = getKeyPrefix(keyLookupId);
 
     if (prisma) {
       const provider = await prisma.billingProvider.findUnique({
@@ -495,6 +513,7 @@ app.post('/api/v1/developer/keys', async (req, res) => {
 
     const fallbackProject = inMemoryProjects.find((p: any) => p.id === projectId) || { id: 'proj-default', name: 'Default', isDefault: true };
     const fallbackProvider = inMemoryBillingProviders.find(p => p.id === billingProviderId) || inMemoryBillingProviders[0];
+    const fallbackLabel = label && typeof label === 'string' && label.trim() ? label.trim() : null;
 
     const newKey = {
       id: `key-${Date.now()}`,
@@ -503,6 +522,7 @@ app.post('/api/v1/developer/keys', async (req, res) => {
       billingProvider: { id: fallbackProvider.id, slug: fallbackProvider.slug, displayName: fallbackProvider.displayName },
       keyPrefix,
       keyLookupId,
+      label: fallbackLabel,
       status: 'ACTIVE',
       createdAt: new Date().toISOString(),
       lastUsedAt: null,
@@ -598,7 +618,10 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   const path = req.originalUrl || req.url || 'unknown';
 
   console.error(
-    `[developer-api][${requestId}] Unhandled error on ${method} ${path}:`,
+    '[developer-api][%s] Unhandled error on %s %s:',
+    sanitizeForLog(requestId),
+    sanitizeForLog(method),
+    sanitizeForLog(path),
     err
   );
   res.status(500).json({

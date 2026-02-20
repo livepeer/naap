@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { billingProviderLoginSessions } from '../../_sessions';
+import { prisma } from '@/lib/db';
 
 const DAYDREAM_API_BASE = process.env.DAYDREAM_API_BASE || 'https://api.daydream.live';
 
@@ -22,14 +22,27 @@ async function exchangeTokenForApiKey(providerSlug: string, token: string): Prom
     throw new Error(`Unsupported billing provider for OAuth callback: ${providerSlug}`);
   }
 
-  const response = await fetch(`${DAYDREAM_API_BASE}/v1/api-key`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ name: 'dd_naap_linked' }),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000);
+  let response: Response;
+  try {
+    response = await fetch(`${DAYDREAM_API_BASE}/v1/api-key`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ name: 'dd_naap_linked' }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if ((err as { name?: string })?.name === 'AbortError') {
+      throw new Error('Daydream token exchange timed out');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     const text = await response.text();
@@ -52,7 +65,6 @@ export async function GET(
   const searchParams = request.nextUrl.searchParams;
   const token = searchParams.get('token');
   const state = searchParams.get('state');
-  const userId = searchParams.get('userId');
 
   const htmlResponse = (title: string, message: string, isError = false) => {
     const safeTitle = escapeHtml(title);
@@ -83,7 +95,9 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
     );
   }
 
-  const session = billingProviderLoginSessions.get(`state:${state}`);
+  const session = await prisma.billingProviderOAuthSession.findUnique({
+    where: { state },
+  });
   if (!session) {
     return htmlResponse(
       'Session Expired',
@@ -99,11 +113,13 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
   try {
     const apiKey = await exchangeTokenForApiKey(providerSlug, token);
 
-    session.status = 'complete';
-    session.accessToken = apiKey;
-    session.userId = userId;
-    billingProviderLoginSessions.set(session.loginSessionId, session);
-    billingProviderLoginSessions.set(`state:${state}`, session);
+    await prisma.billingProviderOAuthSession.update({
+      where: { loginSessionId: session.loginSessionId },
+      data: {
+        status: 'complete',
+        accessToken: apiKey,
+      },
+    });
 
     console.log(
       `[billing-auth:${providerSlug}] Callback complete for session ${session.loginSessionId.slice(0, 8)}...`

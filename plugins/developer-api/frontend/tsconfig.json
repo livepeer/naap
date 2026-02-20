@@ -8,8 +8,8 @@
     "noUnusedLocals": false,
     "noImplicitReturns": false,
     "paths": {
-      "@naap/plugin-sdk": ["packages/plugin-sdk/dist/src/index.d.ts"],
-      "@naap/plugin-sdk/*": ["packages/plugin-sdk/dist/src/*"],
+      "@naap/plugin-sdk": ["packages/plugin-sdk/src/index.ts"],
+      "@naap/plugin-sdk/*": ["packages/plugin-sdk/src/*"],
       "@naap/ui": ["packages/ui/src/index.ts"],
       "@naap/types": ["packages/types/src/index.ts"],
       "@naap/theme": ["packages/theme/src/index.ts"],

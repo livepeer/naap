@@ -7,7 +7,7 @@ import * as crypto from 'crypto';
 import { NextRequest } from 'next/server';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
-import { billingProviderLoginSessions } from '../../_sessions';
+import { prisma } from '@/lib/db';
 
 const DAYDREAM_AUTH_URL =
   process.env.DAYDREAM_AUTH_URL || 'https://app.daydream.live/sign-in/local';
@@ -22,32 +22,48 @@ function firstHeaderValue(value: string | null): string | null {
 }
 
 function resolveAppUrl(request: NextRequest): string {
-  const forwardedHost = firstHeaderValue(request.headers.get('x-forwarded-host'));
-  const forwardedProto = firstHeaderValue(request.headers.get('x-forwarded-proto'));
-  if (forwardedHost) {
-    const protocol =
-      forwardedProto ||
-      (forwardedHost.includes('localhost') || forwardedHost.startsWith('127.') ? 'http' : 'https');
-    return `${protocol}://${forwardedHost}`;
+  const isProduction =
+    process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+
+  // Dedicated override for OAuth callback origin (e.g. local dev through a plugin shell)
+  if (isProduction) {
+    if (!process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN) {
+      throw new Error('BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN must be set in production');
+    }
+    return process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN;
+  }
+
+  if (process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN) {
+    return process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN;
   }
 
   const host = firstHeaderValue(request.headers.get('host'));
+  const forwardedHost = firstHeaderValue(request.headers.get('x-forwarded-host'));
+  const forwardedProto = firstHeaderValue(request.headers.get('x-forwarded-proto'));
+
+  const isLocalHost = (value: string): boolean =>
+    value.includes('localhost') ||
+    value.startsWith('127.') ||
+    value.startsWith('0.0.0.0') ||
+    value.startsWith('[::1]');
+
   if (host) {
-    const protocol =
-      forwardedProto ||
-      (host.includes('localhost') || host.startsWith('127.') ? 'http' : 'https');
-    return `${protocol}://${host}`;
+    const useForwardedHost = isLocalHost(host) && !!forwardedHost;
+    const resolvedHost = useForwardedHost ? (forwardedHost as string) : host;
+
+    const protocol = isLocalHost(resolvedHost)
+      ? (forwardedProto || 'http')
+      : 'https';
+
+    return `${protocol}://${resolvedHost}`;
   }
 
-  if (request.nextUrl?.origin) {
-    return request.nextUrl.origin;
+  // Last-resort/dev fallback: only trust forwarded headers for localhost/127.*
+  if (forwardedHost && isLocalHost(forwardedHost)) {
+    const protocol = forwardedProto || 'http';
+    return `${protocol}://${forwardedHost}`;
   }
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL;
-  }
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
+
   return 'http://localhost:3000';
 }
 
@@ -87,26 +103,21 @@ export async function POST(
 
     // Build auth URL with redirect back to NAAP callback
     const authUrl = `${providerAuthUrl}?redirect_url=${encodeURIComponent(callbackUrl)}&state=${encodeURIComponent(state)}`;
-
-    const session = {
-      loginSessionId,
-      providerSlug,
-      gatewayNonce,
-      gatewayInstanceId,
-      naapUserId,
-      state,
-      status: 'pending' as const,
-      accessToken: null,
-      userId: null,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + LOGIN_SESSION_TTL_MS,
-      redeemed: false,
-    };
-
-    billingProviderLoginSessions.set(loginSessionId, session);
-
-    // Also store a reverse mapping from state -> loginSessionId so the callback can find it
-    billingProviderLoginSessions.set(`state:${state}`, session);
+    await prisma.billingProviderOAuthSession.create({
+      data: {
+        loginSessionId,
+        providerSlug,
+        gatewayNonce,
+        gatewayInstanceId,
+        naapUserId,
+        state,
+        status: 'pending',
+        accessToken: null,
+        providerUserId: null,
+        redeemedAt: null,
+        expiresAt: new Date(Date.now() + LOGIN_SESSION_TTL_MS),
+      },
+    });
 
     console.log(`[billing-auth:${providerSlug}] Started login session ${loginSessionId.slice(0, 8)}...`);
 

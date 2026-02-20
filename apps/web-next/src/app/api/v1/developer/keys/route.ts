@@ -17,14 +17,16 @@ function parseApiKey(key: string): { lookupId: string; secret: string } | null {
   return m ? { lookupId: m[1], secret: m[2] } : null;
 }
 
-function getKeyPrefix(key: string): string {
-  const parsed = parseApiKey(key);
-  if (parsed) return `naap_${parsed.lookupId}...`;
-  return key.substring(0, 12) + '...';
+function deriveKeyLookupId(rawKey: string): string {
+  const parsed = parseApiKey(rawKey);
+  if (parsed) {
+    return parsed.lookupId;
+  }
+  return crypto.createHash('sha256').update(rawKey).digest('hex').slice(0, 16);
 }
 
-function generateKeyLookupId(): string {
-  return crypto.randomBytes(8).toString('hex');
+function getKeyPrefix(lookupId: string): string {
+  return `naap_${lookupId}...`;
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -169,8 +171,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       throw error;
     }
 
-    const keyLookupId = parseApiKey(rawApiKey)?.lookupId ?? generateKeyLookupId();
-    const keyPrefix = getKeyPrefix(rawApiKey);
+    const keyLookupId = deriveKeyLookupId(rawApiKey);
+    const keyPrefix = getKeyPrefix(keyLookupId);
     const resolvedLabel = label && typeof label === 'string' && label.trim() ? label.trim() : null;
 
     const apiKey = await prisma.devApiKey.create({

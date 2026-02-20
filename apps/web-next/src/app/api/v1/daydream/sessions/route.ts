@@ -10,19 +10,19 @@ import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken, parsePagination } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
 
-// Default API key (users can override in settings)
-const DEFAULT_API_KEY = 'sk_McV4YRwF1gTVS6WEyBr4RQhnkFq4zh1revzVHpyYVzsKWa1eHT4KgxNKGyi1pUKB';
 const DAYDREAM_API_BASE = 'https://api.daydream.live/v1';
 
 async function getApiKey(userId: string): Promise<string> {
-  try {
-    const settings = await prisma.daydreamSettings.findUnique({
-      where: { userId },
-    });
-    return settings?.apiKey || DEFAULT_API_KEY;
-  } catch {
-    return DEFAULT_API_KEY;
+  const settings = await prisma.daydreamSettings.findUnique({
+    where: { userId },
+  });
+
+  const apiKey = settings?.apiKey;
+  if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
+    throw new Error('Daydream API key is not configured for this user');
   }
+
+  return apiKey;
 }
 
 async function createDaydreamStream(apiKey: string, params: Record<string, unknown>) {
@@ -99,7 +99,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const body = await request.json();
     const { prompt, seed, model_id, negative_prompt } = body;
 
-    const apiKey = await getApiKey(user.id);
+    let apiKey: string;
+    try {
+      apiKey = await getApiKey(user.id);
+    } catch (err) {
+      return errors.badRequest(
+        'Daydream API key is not configured. Configure it in Daydream settings before creating a session.'
+      );
+    }
 
     // Get user's default settings
     const settings = await prisma.daydreamSettings.findUnique({

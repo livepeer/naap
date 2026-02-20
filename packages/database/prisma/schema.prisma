@@ -181,6 +181,27 @@ model BillingProvider {
   @@schema("public")
 }
 
+model BillingProviderOAuthSession {
+  loginSessionId    String    @id
+  state             String    @unique
+  providerSlug      String
+  gatewayNonce      String
+  gatewayInstanceId String?
+  naapUserId        String?
+  status            String    @default("pending")
+  accessToken       String?
+  providerUserId    String?
+  redeemedAt        DateTime?
+  expiresAt         DateTime
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([expiresAt])
+  @@index([providerSlug])
+  @@index([naapUserId])
+  @@schema("public")
+}
+
 // ============================================
 // CORE PLATFORM - TEAMS & ORGANIZATIONS
 // ============================================

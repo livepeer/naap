@@ -144,7 +144,7 @@ const DEFAULT_OPTIONS: Required<Omit<CsrfMiddlewareOptions, 'logger'>> & Pick<Cs
  * Feature flag: Set `logOnly: true` for gradual rollout
  * This allows monitoring violations without breaking existing functionality
  */
-export function createCsrfMiddleware(options: CsrfMiddlewareOptions = {}) {
+export function createCsrfMiddleware(options: CsrfMiddlewareOptions = {}): RequestHandler {
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const log = opts.logger || console.log;
 

@@ -6,7 +6,7 @@
 import { NextRequest } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
-import { billingProviderLoginSessions } from '../../_sessions';
+import { prisma } from '@/lib/db';
 
 export async function GET(
   request: NextRequest,
@@ -19,9 +19,24 @@ export async function GET(
     return errors.badRequest('login_session_id is required');
   }
 
-  const session = billingProviderLoginSessions.get(loginSessionId);
+  const now = new Date();
+  const session = await prisma.billingProviderOAuthSession.findUnique({
+    where: { loginSessionId },
+  });
+
   if (!session) {
-    return success({ status: 'expired' });
+    const response = success({ status: 'expired' });
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
+
+  if (session.expiresAt <= now) {
+    await prisma.billingProviderOAuthSession.delete({
+      where: { loginSessionId },
+    }).catch(() => null);
+    const response = success({ status: 'expired' });
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   }
 
   if (session.providerSlug !== providerSlug) {
@@ -36,28 +51,42 @@ export async function GET(
     }
   }
 
-  // Re-fetch the session after the await to ensure it hasn't expired or been deleted
-  const currentSession = billingProviderLoginSessions.get(loginSessionId);
-  if (!currentSession) {
-    return success({ status: 'expired' });
-  }
-
-  if (currentSession.providerSlug !== providerSlug) {
-    return errors.forbidden('Session does not belong to this billing provider');
-  }
-
-  if (currentSession.status === 'complete') {
-    if (!billingProviderLoginSessions.markRedeemed(loginSessionId)) {
-      return success({ status: 'redeemed' });
+  if (session.status === 'complete') {
+    if (session.redeemedAt) {
+      const response = success({ status: 'redeemed' });
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
     }
 
-    return success({
+    const [redeemResult] = await prisma.$transaction([
+      prisma.billingProviderOAuthSession.updateMany({
+        where: {
+          loginSessionId,
+          redeemedAt: null,
+          status: 'complete',
+          expiresAt: { gt: now },
+        },
+        data: { redeemedAt: now },
+      }),
+    ]);
+
+    if (redeemResult.count !== 1) {
+      const response = success({ status: 'redeemed' });
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
+    }
+
+    const response = success({
       status: 'complete',
-      access_token: currentSession.accessToken,
-      user_id: currentSession.userId,
-      expires_in: Math.max(0, Math.floor((currentSession.expiresAt - Date.now()) / 1000)),
+      access_token: session.accessToken,
+      user_id: session.providerUserId,
+      expires_in: Math.max(0, Math.floor((session.expiresAt.getTime() - Date.now()) / 1000)),
     });
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   }
 
-  return success({ status: currentSession.status });
+  const response = success({ status: session.status });
+  response.headers.set('Cache-Control', 'no-store');
+  return response;
 }

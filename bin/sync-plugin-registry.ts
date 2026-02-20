@@ -22,7 +22,6 @@
  */
 
 import { PrismaClient } from '../packages/database/src/generated/client/index.js';
-import { BILLING_PROVIDERS } from '../packages/database/src/billing-providers.js';
 import {
   discoverPlugins,
   toWorkflowPluginData,

@@ -144,10 +144,15 @@ export const DeveloperView: React.FC = () => {
   const [revoking, setRevoking] = useState(false);
   const pollAbortControllerRef = useRef<AbortController | null>(null);
 
-  const revokedCount = useMemo(() => apiKeys.filter(k => k.status === 'REVOKED').length, [apiKeys]);
+  const revokedCount = useMemo(
+    () => apiKeys.filter(k => (k.status || '').toUpperCase() === 'REVOKED').length,
+    [apiKeys]
+  );
 
   const displayedKeys = useMemo(() => {
-    const filteredByRevoked = showRevoked ? apiKeys : apiKeys.filter(k => k.status !== 'REVOKED');
+    const filteredByRevoked = showRevoked
+      ? apiKeys
+      : apiKeys.filter(k => (k.status || '').toUpperCase() !== 'REVOKED');
     const filtered = projectFilterId === '__all__'
       ? filteredByRevoked
       : filteredByRevoked.filter(k => k.project?.id === projectFilterId);
@@ -270,9 +275,11 @@ export const DeveloperView: React.FC = () => {
       const abortController = new AbortController();
       pollAbortControllerRef.current = abortController;
 
+      const startCsrfToken = await fetchCsrfToken();
       const startRes = await fetch(`/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/start`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': startCsrfToken },
+        credentials: 'include',
         body: JSON.stringify({}),
       });
       if (!startRes.ok) {
@@ -293,8 +300,8 @@ export const DeveloperView: React.FC = () => {
 
       window.open(authUrl, '_blank', 'noopener,noreferrer');
 
-      const pollInterval = 2000;
-      const pollTimeout = 180000;
+      const pollInterval = startData.data?.poll_after_ms ?? startData.poll_after_ms ?? 2000;
+      const pollTimeout = (startData.data?.expires_in ?? startData.expires_in ?? 180) * 1000;
       const started = Date.now();
       let providerApiKey: string | null = null;
 
@@ -322,6 +329,12 @@ export const DeveloperView: React.FC = () => {
           if (status === 'complete') {
             providerApiKey = pollData.data?.access_token || pollData.access_token;
             break;
+          }
+          if (status === 'redeemed') {
+            setCreateError('Authentication redeemed. Please request a new token.');
+            setCreateStep('form');
+            setCreating(false);
+            return;
           }
           if (status === 'expired' || status === 'denied') {
             setCreateError(`Authentication ${status}. Please try again.`);
