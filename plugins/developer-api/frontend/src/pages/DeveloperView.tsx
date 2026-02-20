@@ -21,9 +21,8 @@ interface AIModel {
 
 interface ApiKey {
   id: string;
-  project?: { id: string; name: string; isDefault: boolean };
-  billingProvider?: { id: string; slug: string; displayName: string };
-  projectName?: string;
+  project: { id: string; name: string; isDefault: boolean };
+  billingProvider: { id: string; slug: string; displayName: string };
   modelName: string;
   gatewayName: string;
   keyPrefix: string;
@@ -155,8 +154,8 @@ export const DeveloperView: React.FC = () => {
                           <Key size={20} className="text-accent-blue" />
                         </div>
                         <div>
-                          <p className="font-medium text-text-primary">{key.project?.name ?? key.projectName ?? 'Unknown'}</p>
-                          <p className="text-xs text-text-secondary">{key.keyPrefix} • {key.billingProvider?.displayName ?? 'Unknown'}</p>
+                          <p className="font-medium text-text-primary">{key.project.name}</p>
+                          <p className="text-xs text-text-secondary">{key.keyPrefix} • {key.billingProvider.displayName}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">

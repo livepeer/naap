@@ -1394,7 +1394,6 @@ model DevApiProject {
 model DevApiKey {
   id                String              @id @default(uuid())
   userId            String
-  projectName       String?
   projectId         String
   project           DevApiProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   billingProviderId String
@@ -1403,7 +1402,6 @@ model DevApiKey {
   model             DevApiAIModel?      @relation(fields: [modelId], references: [id], onDelete: Cascade)
   gatewayOfferId    String?
   gatewayOffer      DevApiGatewayOffer? @relation(fields: [gatewayOfferId], references: [id], onDelete: SetNull)
-  keyHash           String?
   keyLookupId       String              @unique
   keyPrefix         String
   status            DevApiKeyStatus     @default(ACTIVE)

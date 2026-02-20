@@ -2,9 +2,6 @@
  * Developer API Keys Routes
  * GET /api/v1/developer/keys - List user's API keys
  * POST /api/v1/developer/keys - Create new API key (provider-issued key via OAuth)
- *
- * PR 3 (contract): relies on new columns (projectId, billingProviderId,
- * keyLookupId).  Still dual-writes projectName/keyHash for rollback safety.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -36,11 +33,6 @@ function getKeyPrefix(key: string): string {
 
 function generateKeyLookupId(): string {
   return crypto.randomBytes(8).toString('hex');
-}
-
-function hashApiKey(key: string): string {
-  const salt = 'naap-api-key-v1';
-  return crypto.scryptSync(key, salt, 32).toString('hex');
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -124,7 +116,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const modelId = body.modelId as string | undefined;
     const gatewayId = body.gatewayId as string | undefined;
     const projectId = body.projectId as string | undefined;
-    const projectName = body.projectName as string | undefined;
+    const projectName = body.projectName as string | undefined; // used only for default project naming
 
     if (
       typeof billingProviderId !== 'string' ||
@@ -213,7 +205,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const keyLookupId = parseApiKey(rawApiKey)?.lookupId ?? generateKeyLookupId();
     const keyPrefix = getKeyPrefix(rawApiKey);
-    const keyHash = hashApiKey(rawApiKey);
 
     const apiKey = await prisma.devApiKey.create({
       data: {
@@ -224,8 +215,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         gatewayOfferId: resolvedGatewayOfferId || null,
         keyLookupId,
         keyPrefix,
-        projectName: projectName?.trim() || 'Default',
-        keyHash,
         status: 'ACTIVE',
       },
     });

@@ -75,17 +75,9 @@ function parseApiKey(key: string): { lookupId: string; secret: string } | null {
   return m ? { lookupId: m[1], secret: m[2] } : null;
 }
 
-function generateApiKey(): string {
-  return `naap_${crypto.randomBytes(24).toString('hex')}`;
-}
-
-function hashApiKey(key: string): string {
-  // Use scrypt (a proper KDF) instead of bare SHA-256
-  const salt = 'naap-api-key-v1';
-  return crypto.scryptSync(key, salt, 32).toString('hex');
-}
-
 function getKeyPrefix(key: string): string {
+  const parsed = parseApiKey(key);
+  if (parsed) return `naap_${parsed.lookupId}...`;
   return key.substring(0, 12) + '...';
 }
 
@@ -406,7 +398,6 @@ app.post('/api/v1/developer/keys', async (req, res) => {
 
     const keyLookupId = parseApiKey(rawApiKey)?.lookupId ?? generateKeyLookupId();
     const keyPrefix = getKeyPrefix(rawApiKey);
-    const keyHash = hashApiKey(rawApiKey);
 
     if (prisma) {
       const provider = await prisma.billingProvider.findUnique({
@@ -477,8 +468,6 @@ app.post('/api/v1/developer/keys', async (req, res) => {
           gatewayOfferId: resolvedGatewayOfferId || null,
           keyLookupId,
           keyPrefix,
-          projectName: projectName?.trim() || 'Default',
-          keyHash,
           status: 'ACTIVE',
         },
         include: {
@@ -504,22 +493,17 @@ app.post('/api/v1/developer/keys', async (req, res) => {
     }
 
     // In-memory fallback
-    const model = inMemoryModels.find(m => m.id === modelId);
-    if (!model) return res.status(400).json({ error: 'Invalid modelId' });
-
-    const gateway = (inMemoryGatewayOffers[modelId] || []).find(g => g.gatewayId === gatewayId);
-    if (!gateway) return res.status(400).json({ error: 'Gateway does not offer this model' });
+    const fallbackProject = inMemoryProjects.find((p: any) => p.id === projectId) || { id: 'proj-default', name: projectName?.trim() || 'Default', isDefault: true };
+    const fallbackProvider = inMemoryBillingProviders.find(p => p.id === billingProviderId) || inMemoryBillingProviders[0];
 
     const newKey = {
       id: `key-${Date.now()}`,
       userId,
-      projectName,
-      modelId,
-      modelName: model.name,
-      gatewayId,
-      gatewayName: gateway.gatewayName,
+      project: { id: fallbackProject.id, name: fallbackProject.name, isDefault: fallbackProject.isDefault },
+      billingProvider: { id: fallbackProvider.id, slug: fallbackProvider.slug, displayName: fallbackProvider.displayName },
       keyPrefix,
-      status: 'active',
+      keyLookupId,
+      status: 'ACTIVE',
       createdAt: new Date().toISOString(),
       lastUsedAt: null,
     };
@@ -527,7 +511,7 @@ app.post('/api/v1/developer/keys', async (req, res) => {
 
     res.status(201).json({
       key: newKey,
-      rawApiKey: rawKey,
+      rawApiKey,
       warning: 'Store this key securely. It will not be shown again.',
     });
   } catch (error) {
