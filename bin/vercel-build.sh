@@ -59,13 +59,20 @@ fi
 # Step 3: Push schema to database
 # NOTE: prisma generate is NOT needed here — it already ran during
 # npm install via packages/database postinstall hook.
-# Always push — it's idempotent (no-ops when schema matches) and takes ~5s.
-# The previous diff-based skip was unreliable for feature branches where
-# schema changes were many commits back (DIFF_BASE only checks recent commits).
-echo "[3/5] Prisma db push..."
-cd packages/database || { echo "ERROR: Failed to cd to packages/database"; exit 1; }
-npx prisma db push --skip-generate --accept-data-loss 2>&1 || echo "WARN: prisma db push had issues (non-fatal)"
-cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
+#
+# SAFETY: Only push schema changes on production deploys.  Preview deployments
+# share the production database, so running `db push` from a feature branch
+# could apply destructive changes (column drops/renames) to live data.
+# Additive-only PRs are still safe, but we gate on production to enforce
+# the expand/contract migration discipline.
+if [ "${VERCEL_ENV}" = "production" ]; then
+  echo "[3/5] Prisma db push (production)..."
+  cd packages/database || { echo "ERROR: Failed to cd to packages/database"; exit 1; }
+  npx prisma db push --skip-generate --accept-data-loss 2>&1 || echo "WARN: prisma db push had issues (non-fatal)"
+  cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
+else
+  echo "[3/5] Skipping prisma db push (VERCEL_ENV=${VERCEL_ENV:-unset}, only runs on production)"
+fi
 
 # Step 4: Build Next.js app
 echo "[4/5] Building Next.js app..."
