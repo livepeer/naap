@@ -15,9 +15,8 @@
 generator client {
   provider        = "prisma-client-js"
   output          = "../src/generated/client"
-  // Keep this as "native" so `prisma generate` produces the correct engine
-  // for the machine doing the build (local dev, CI, Vercel).
-  binaryTargets   = ["native"]
+  // Include all common production targets: Vercel, Docker Alpine, AWS Lambda, etc.
+  binaryTargets   = ["native", "darwin-arm64", "linux-arm64-openssl-3.0.x", "debian-openssl-3.0.x", "rhel-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
   previewFeatures = ["multiSchema", "fullTextSearch"]
 }
 
