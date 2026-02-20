@@ -110,6 +110,24 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
     return htmlResponse('Authentication Failed', 'Provider/session mismatch detected.', true);
   }
 
+  if (Date.now() >= new Date(session.expiresAt).getTime()) {
+    await prisma.billingProviderOAuthSession
+      .updateMany({
+        where: {
+          loginSessionId: session.loginSessionId,
+          status: 'pending',
+        },
+        data: { status: 'expired' },
+      })
+      .catch(() => null);
+
+    return htmlResponse(
+      'Session Expired',
+      'The login session has expired or was already used. Please try again from NaaP.',
+      true
+    );
+  }
+
   try {
     const apiKey = await exchangeTokenForApiKey(providerSlug, token);
 
