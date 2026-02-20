@@ -72,6 +72,9 @@ const inMemoryGatewayOffers: Record<string, any[]> = {
 
 const inMemoryApiKeys: any[] = [];
 const inMemoryProjects: any[] = [];
+const inMemoryBillingProviders = [
+  { id: 'bp-daydream', slug: 'daydream', displayName: 'Daydream', description: 'AI-powered billing via Daydream', icon: 'cloud', authType: 'oauth' },
+];
 
 // ============================================
 // Utility Functions
@@ -221,25 +224,7 @@ app.get('/api/v1/developer/projects', async (req, res) => {
       return res.json({ projects });
     }
 
-    const projects = inMemoryProjects
-      .filter((p: any) => p.userId === userId)
-      .map((p: any, idx: number) => ({ p, idx }))
-      .sort((a: any, b: any) => {
-        const aIsDefault = Boolean(a.p?.isDefault);
-        const bIsDefault = Boolean(b.p?.isDefault);
-        if (aIsDefault !== bIsDefault) return aIsDefault ? -1 : 1;
-
-        const aName = String(a.p?.name ?? '');
-        const bName = String(b.p?.name ?? '');
-        const nameCmp = aName.localeCompare(bName);
-        if (nameCmp !== 0) return nameCmp;
-
-        // Stable tiebreaker (preserve original order).
-        return a.idx - b.idx;
-      })
-      .map(({ p }: any) => p);
-
-    res.json({ projects });
+    res.json({ projects: inMemoryProjects.filter((p: any) => p.userId === userId) });
   } catch (error) {
     console.error('Error fetching projects:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -295,6 +280,35 @@ app.post('/api/v1/developer/projects', async (req, res) => {
     res.status(201).json({ project });
   } catch (error) {
     console.error('Error creating project:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
+// Billing Providers
+// ============================================
+
+app.get('/api/v1/developer/billing-providers', async (_req, res) => {
+  try {
+    if (prisma) {
+      const providers = await prisma.billingProvider.findMany({
+        where: { enabled: true },
+        orderBy: { sortOrder: 'asc' },
+        select: {
+          id: true,
+          slug: true,
+          displayName: true,
+          description: true,
+          icon: true,
+          authType: true,
+        },
+      });
+      return res.json({ providers });
+    }
+
+    res.json({ providers: inMemoryBillingProviders });
+  } catch (error) {
+    console.error('Error fetching billing providers:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
