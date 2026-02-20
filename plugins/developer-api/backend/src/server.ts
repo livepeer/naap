@@ -3,6 +3,7 @@ import cors from 'cors';
 import crypto from 'crypto';
 import { readFileSync } from 'node:fs';
 import { config } from 'dotenv';
+import { createAuthMiddleware } from '@naap/plugin-server-sdk';
 
 config();
 
@@ -14,6 +15,9 @@ const PORT = process.env.PORT || pluginConfig.backend?.devPort || 4007;
 
 app.use(cors());
 app.use(express.json());
+app.use(createAuthMiddleware({
+  publicPaths: ['/healthz'],
+}));
 
 // ============================================
 // Database Connection
@@ -74,6 +78,14 @@ function hashApiKey(key: string): string {
 
 function getKeyPrefix(key: string): string {
   return key.substring(0, 12) + '...';
+}
+
+function getRequestUserId(req: express.Request): string {
+  const user = (req as any).user;
+  if (!user?.id) {
+    throw new Error('Unauthenticated request reached user-scoped route');
+  }
+  return user.id;
 }
 
 // ============================================
@@ -178,7 +190,7 @@ app.get('/api/v1/developer/models/:id/gateways', async (req, res) => {
 
 app.get('/api/v1/developer/keys', async (req, res) => {
   try {
-    const userId = req.headers['x-user-id'] as string || 'anonymous';
+    const userId = getRequestUserId(req);
 
     if (prisma) {
       const keys = await prisma.devApiKey.findMany({
@@ -199,7 +211,8 @@ app.get('/api/v1/developer/keys', async (req, res) => {
       return res.json({ keys: formatted, total: formatted.length });
     }
 
-    res.json({ keys: inMemoryApiKeys, total: inMemoryApiKeys.length });
+    const keys = inMemoryApiKeys.filter((k: any) => k.userId === userId);
+    res.json({ keys, total: keys.length });
   } catch (error) {
     console.error('Error fetching keys:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -208,9 +221,10 @@ app.get('/api/v1/developer/keys', async (req, res) => {
 
 app.get('/api/v1/developer/keys/:id', async (req, res) => {
   try {
+    const userId = getRequestUserId(req);
     if (prisma) {
-      const key = await prisma.devApiKey.findUnique({
-        where: { id: req.params.id },
+      const key = await prisma.devApiKey.findFirst({
+        where: { id: req.params.id, userId },
         include: { model: true },
       });
       if (!key) return res.status(404).json({ error: 'API key not found' });
@@ -226,7 +240,7 @@ app.get('/api/v1/developer/keys/:id', async (req, res) => {
       });
     }
 
-    const key = inMemoryApiKeys.find(k => k.id === req.params.id);
+    const key = inMemoryApiKeys.find((k: any) => k.id === req.params.id && k.userId === userId);
     if (!key) return res.status(404).json({ error: 'API key not found' });
     res.json(key);
   } catch (error) {
@@ -238,7 +252,7 @@ app.get('/api/v1/developer/keys/:id', async (req, res) => {
 app.post('/api/v1/developer/keys', async (req, res) => {
   try {
     const { projectName, modelId, gatewayId } = req.body;
-    const userId = req.headers['x-user-id'] as string || 'anonymous';
+    const userId = getRequestUserId(req);
 
     if (!projectName || !modelId || !gatewayId) {
       return res.status(400).json({ error: 'projectName, modelId, and gatewayId required' });
@@ -294,6 +308,7 @@ app.post('/api/v1/developer/keys', async (req, res) => {
 
     const newKey = {
       id: `key-${Date.now()}`,
+      userId,
       projectName,
       modelId,
       modelName: model.name,
@@ -319,9 +334,11 @@ app.post('/api/v1/developer/keys', async (req, res) => {
 
 app.delete('/api/v1/developer/keys/:id', async (req, res) => {
   try {
+    const userId = getRequestUserId(req);
     if (prisma) {
       const key = await prisma.devApiKey.findUnique({ where: { id: req.params.id } });
       if (!key) return res.status(404).json({ error: 'API key not found' });
+      if (key.userId !== userId) return res.status(404).json({ error: 'API key not found' });
 
       await prisma.devApiKey.update({
         where: { id: req.params.id },
@@ -331,7 +348,7 @@ app.delete('/api/v1/developer/keys/:id', async (req, res) => {
       return res.json({ message: 'API key revoked' });
     }
 
-    const keyIndex = inMemoryApiKeys.findIndex(k => k.id === req.params.id);
+    const keyIndex = inMemoryApiKeys.findIndex((k: any) => k.id === req.params.id && k.userId === userId);
     if (keyIndex === -1) return res.status(404).json({ error: 'API key not found' });
 
     inMemoryApiKeys[keyIndex].status = 'revoked';
@@ -348,7 +365,7 @@ app.delete('/api/v1/developer/keys/:id', async (req, res) => {
 
 app.get('/api/v1/developer/usage', async (req, res) => {
   try {
-    const userId = req.headers['x-user-id'] as string || 'anonymous';
+    const userId = getRequestUserId(req);
 
     if (prisma) {
       const keys = await prisma.devApiKey.findMany({
