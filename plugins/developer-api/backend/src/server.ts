@@ -61,6 +61,10 @@ const inMemoryGatewayOffers: Record<string, any[]> = {
 };
 
 const inMemoryApiKeys: any[] = [];
+const inMemoryProjects: any[] = [];
+const inMemoryBillingProviders = [
+  { id: 'bp-daydream', slug: 'daydream', displayName: 'Daydream', description: 'AI-powered billing via Daydream', icon: 'cloud', authType: 'oauth' },
+];
 
 // ============================================
 // Utility Functions
@@ -180,6 +184,117 @@ app.get('/api/v1/developer/models/:id/gateways', async (req, res) => {
     res.json({ modelId, gateways: offers });
   } catch (error) {
     console.error('Error fetching gateways:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
+// Projects
+// ============================================
+
+app.get('/api/v1/developer/projects', async (req, res) => {
+  try {
+    const userId = getRequestUserId(req);
+
+    if (prisma) {
+      const projects = await prisma.devApiProject.findMany({
+        where: { userId },
+        orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+        select: {
+          id: true,
+          name: true,
+          isDefault: true,
+          createdAt: true,
+        },
+      });
+      return res.json({ projects });
+    }
+
+    res.json({ projects: inMemoryProjects.filter((p: any) => p.userId === userId) });
+  } catch (error) {
+    console.error('Error fetching projects:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/v1/developer/projects', async (req, res) => {
+  try {
+    const userId = getRequestUserId(req);
+    const { name } = req.body;
+
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Project name is required' });
+    }
+
+    const trimmedName = name.trim();
+
+    if (prisma) {
+      const existing = await prisma.devApiProject.findUnique({
+        where: { userId_name: { userId, name: trimmedName } },
+      });
+      if (existing) {
+        return res.status(400).json({ error: 'A project with this name already exists' });
+      }
+
+      const project = await prisma.devApiProject.create({
+        data: {
+          userId,
+          name: trimmedName,
+          isDefault: false,
+        },
+        select: {
+          id: true,
+          name: true,
+          isDefault: true,
+          createdAt: true,
+        },
+      });
+      return res.status(201).json({ project });
+    }
+
+    if (inMemoryProjects.find((p: any) => p.userId === userId && p.name === trimmedName)) {
+      return res.status(400).json({ error: 'A project with this name already exists' });
+    }
+    const project = {
+      id: `proj-${Date.now()}`,
+      userId,
+      name: trimmedName,
+      isDefault: false,
+      createdAt: new Date().toISOString(),
+    };
+    inMemoryProjects.push(project);
+    res.status(201).json({ project });
+  } catch (error) {
+    console.error('Error creating project:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
+// Billing Providers
+// ============================================
+
+app.get('/api/v1/developer/billing-providers', async (_req, res) => {
+  try {
+    if (prisma) {
+      const providers = await prisma.billingProvider.findMany({
+        where: { enabled: true },
+        orderBy: { sortOrder: 'asc' },
+        select: {
+          id: true,
+          slug: true,
+          displayName: true,
+          description: true,
+          icon: true,
+          authType: true,
+        },
+      });
+      return res.json({ providers });
+    }
+
+    res.json({ providers: inMemoryBillingProviders });
+  } catch (error) {
+    console.error('Error fetching billing providers:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
