@@ -107,9 +107,6 @@ async function handleRequest(
     );
   }
 
-  // Get auth token if present
-  const token = getAuthToken(request);
-
   // Build the proxy URL
   const pathString = path.join('/');
   const targetUrl = `${serviceUrl}/api/v1/${pathString}${request.nextUrl.search}`;
@@ -118,9 +115,16 @@ async function handleRequest(
   const headers = new Headers();
   headers.set('Content-Type', request.headers.get('Content-Type') || 'application/json');
 
-  // Forward auth token
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
+  // Forward Authorization exactly as received when present.
+  // Fallback to cookie-derived Bearer token for browser flows that rely on session cookies.
+  const incomingAuthorization = request.headers.get('authorization');
+  if (incomingAuthorization) {
+    headers.set('Authorization', incomingAuthorization);
+  } else {
+    const token = getAuthToken(request);
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
   }
 
   // Forward observability headers

@@ -46,7 +46,10 @@ const nextConfig = {
   webpack: (config, { isServer }) => {
     // Prisma: ensure engine binaries are included in the standalone bundle.
     // This is the official fix for Prisma + Next.js monorepo deployments.
-    if (isServer) {
+    // Important: in `next dev`, the server output directories may not exist
+    // when the plugin runs, which can cause copyfile ENOENT errors.
+    // We only need this plugin for production (standalone) builds.
+    if (isServer && process.env.NODE_ENV === 'production') {
       config.plugins = [...config.plugins, new PrismaPlugin()];
     }
 

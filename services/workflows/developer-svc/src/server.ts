@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
 import { createCsrfMiddleware } from '@naap/utils';
+import type { RequestHandler } from 'express';
 import { 
   models, 
   gatewayOffers, 
@@ -26,7 +27,7 @@ app.use('/api', createCsrfMiddleware({
   skipPaths: ['/healthz', '/health'],
   logOnly: !csrfEnforce,
   logger: (msg, data) => console.log(`[developer-svc] ${msg}`, data),
-}));
+}) as unknown as RequestHandler);
 
 // Health check
 app.get('/healthz', (_req, res) => {

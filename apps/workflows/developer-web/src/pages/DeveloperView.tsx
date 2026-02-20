@@ -15,14 +15,14 @@ interface Tab {
 }
 
 const tabs: Tab[] = [
-  { id: 'models', label: 'Models', icon: <Box size={18} /> },
   { id: 'api-keys', label: 'API Keys', icon: <Key size={18} /> },
   { id: 'usage', label: 'Usage & Billing', icon: <BarChart3 size={18} /> },
+  { id: 'models', label: 'Models', icon: <Box size={18} /> },
   { id: 'docs', label: 'Docs', icon: <BookOpen size={18} /> },
 ];
 
 export const DeveloperView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabId>('models');
+  const [activeTab, setActiveTab] = useState<TabId>('api-keys');
 
   return (
     <div className="space-y-6">

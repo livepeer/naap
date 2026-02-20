@@ -33,6 +33,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         name: true,
         isDefault: true,
         createdAt: true,
+        _count: { select: { apiKeys: true } },
       },
     });
 

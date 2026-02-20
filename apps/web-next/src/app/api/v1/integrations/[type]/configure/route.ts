@@ -19,11 +19,6 @@ export async function POST(
       return errors.badRequest('Credentials are required');
     }
 
-    // In production, store encrypted credentials in IntegrationConfig table
-    // For now, just validate and return success
-    console.log(`Configuring integration: ${type}`, Object.keys(credentials));
-
-    // Validate required fields based on integration type
     const requiredFields: Record<string, string[]> = {
       openai: ['apiKey'],
       anthropic: ['apiKey'],
@@ -39,6 +34,9 @@ export async function POST(
     if (missing.length > 0) {
       return errors.badRequest(`Missing required fields: ${missing.join(', ')}`);
     }
+
+    // In production, store encrypted credentials in IntegrationConfig table
+    console.log(`Configuring integration: ${type}`, Object.keys(credentials));
 
     return success({
       message: `${type} integration configured successfully`,

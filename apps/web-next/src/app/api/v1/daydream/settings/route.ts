@@ -4,7 +4,7 @@
  * POST /api/v1/daydream/settings - Update user settings
  */
 
-import {NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
@@ -33,7 +33,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     return success({
-      hasApiKey: !!settings.apiKey,
       defaultPrompt: settings.defaultPrompt,
       defaultSeed: settings.defaultSeed,
       negativePrompt: settings.negativePrompt,
@@ -62,19 +61,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const body = await request.json();
-    const { apiKey, defaultPrompt, defaultSeed, negativePrompt } = body;
+    const { defaultPrompt, defaultSeed, negativePrompt } = body;
 
     const settings = await prisma.daydreamSettings.upsert({
       where: { userId: user.id },
       update: {
-        ...(apiKey !== undefined && { apiKey }),
         ...(defaultPrompt !== undefined && { defaultPrompt }),
         ...(defaultSeed !== undefined && { defaultSeed }),
         ...(negativePrompt !== undefined && { negativePrompt }),
       },
       create: {
         userId: user.id,
-        apiKey,
         defaultPrompt: defaultPrompt || 'superman',
         defaultSeed: defaultSeed || 42,
         negativePrompt: negativePrompt || 'blurry, low quality, flat, 2d',
@@ -82,7 +79,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
 
     return success({
-      hasApiKey: !!settings.apiKey,
       defaultPrompt: settings.defaultPrompt,
       defaultSeed: settings.defaultSeed,
       negativePrompt: settings.negativePrompt,
