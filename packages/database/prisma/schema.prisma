@@ -1397,6 +1397,7 @@ model DevApiKey {
   gatewayOffer      DevApiGatewayOffer? @relation(fields: [gatewayOfferId], references: [id], onDelete: SetNull)
   keyHash           String              @unique
   keyPrefix         String
+  label             String?
   status            DevApiKeyStatus     @default(ACTIVE)
   createdAt         DateTime            @default(now())
   lastUsedAt        DateTime?
