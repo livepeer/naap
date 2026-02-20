@@ -84,6 +84,10 @@ function getKeyPrefix(key: string): string {
   return key.substring(0, 12) + '...';
 }
 
+function generateKeyLookupId(): string {
+  return crypto.randomBytes(8).toString('hex');
+}
+
 function getRequestUserId(req: express.Request): string {
   const user = (req as any).user;
   if (!user?.id) {
@@ -366,7 +370,7 @@ app.get('/api/v1/developer/keys/:id', async (req, res) => {
 
 app.post('/api/v1/developer/keys', async (req, res) => {
   try {
-    const { projectName, modelId, gatewayId } = req.body;
+    const { projectName, modelId, gatewayId, billingProviderId, projectId } = req.body;
     const userId = getRequestUserId(req);
 
     if (!projectName || !modelId || !gatewayId) {
@@ -376,6 +380,7 @@ app.post('/api/v1/developer/keys', async (req, res) => {
     const rawKey = generateApiKey();
     const keyHash = hashApiKey(rawKey);
     const keyPrefix = getKeyPrefix(rawKey);
+    const keyLookupId = generateKeyLookupId();
 
     if (prisma) {
       const model = await prisma.devApiAIModel.findUnique({ where: { id: modelId } });
@@ -394,6 +399,9 @@ app.post('/api/v1/developer/keys', async (req, res) => {
           gatewayOfferId: gatewayOffer.id,
           keyHash,
           keyPrefix,
+          keyLookupId,
+          billingProviderId: billingProviderId || null,
+          projectId: projectId || null,
           status: 'ACTIVE',
         },
         include: { model: true },
