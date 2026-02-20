@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { encryptToken } from '@naap/database';
 
 const DAYDREAM_API_BASE = process.env.DAYDREAM_API_BASE || 'https://api.daydream.live';
 
@@ -135,7 +136,7 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
       where: { loginSessionId: session.loginSessionId },
       data: {
         status: 'complete',
-        accessToken: apiKey,
+        accessToken: encryptToken(apiKey),
       },
     });
 

@@ -5,31 +5,17 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import * as crypto from 'crypto';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken, parsePagination } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
-import { DevApiProjectResolutionError, resolveDevApiProjectId } from '@naap/database';
-
-function parseApiKey(key: string): { lookupId: string; secret: string } | null {
-  const m = key.match(/^naap_([0-9a-f]{16})_([0-9a-f]{48})$/);
-  return m ? { lookupId: m[1], secret: m[2] } : null;
-}
-
-function deriveKeyLookupId(rawKey: string): string {
-  const parsed = parseApiKey(rawKey);
-  if (parsed) {
-    return parsed.lookupId;
-  }
-  // For provider-issued keys without an embedded lookup id, use a random index id.
-  // This is not derived from key material and is used for indexing/display only.
-  return crypto.randomBytes(8).toString('hex');
-}
-
-function getKeyPrefix(lookupId: string): string {
-  return `naap_${lookupId}...`;
-}
+import {
+  DevApiProjectResolutionError,
+  resolveDevApiProjectId,
+  deriveKeyLookupId,
+  getKeyPrefix,
+  hashApiKey,
+} from '@naap/database';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -175,6 +161,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const keyLookupId = deriveKeyLookupId(rawApiKey);
     const keyPrefix = getKeyPrefix(keyLookupId);
+    const keyHash = hashApiKey(rawApiKey);
     const resolvedLabel = label && typeof label === 'string' && label.trim() ? label.trim() : null;
 
     const apiKey = await prisma.devApiKey.create({
@@ -186,6 +173,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         gatewayOfferId: resolvedGatewayOfferId || null,
         keyLookupId,
         keyPrefix,
+        keyHash,
         label: resolvedLabel,
         status: 'ACTIVE',
       },

@@ -22,7 +22,7 @@ app.use((req, res, next) => {
   const requestId =
     typeof incoming === 'string' && incoming.trim().length > 0
       ? incoming.trim()
-      : (crypto as any).randomUUID?.() ?? crypto.randomBytes(16).toString('hex');
+      : crypto.randomUUID();
 
   (req as any).requestId = requestId;
   res.setHeader('x-request-id', requestId);
@@ -49,6 +49,9 @@ async function initDatabase() {
     prisma = db.prisma;
     resolveDevApiProjectId = db.resolveDevApiProjectId;
     DevApiProjectResolutionError = db.DevApiProjectResolutionError;
+    if (db.deriveKeyLookupId) deriveKeyLookupId = db.deriveKeyLookupId;
+    if (db.getKeyPrefix) getKeyPrefix = db.getKeyPrefix;
+    if (db.hashApiKey) hashApiKey = db.hashApiKey;
     await prisma.$connect();
     console.log('✅ Database connected');
     return true;
@@ -89,24 +92,9 @@ const inMemoryBillingProviders = [
 // Utility Functions
 // ============================================
 
-function parseApiKey(key: string): { lookupId: string; secret: string } | null {
-  const m = key.match(/^naap_([0-9a-f]{16})_([0-9a-f]{48})$/);
-  return m ? { lookupId: m[1], secret: m[2] } : null;
-}
-
-function deriveKeyLookupId(rawKey: string): string {
-  const parsed = parseApiKey(rawKey);
-  if (parsed) {
-    return parsed.lookupId;
-  }
-  // For provider-issued keys without an embedded lookup id, use a random index id.
-  // This is not derived from key material and is used for indexing/display only.
-  return crypto.randomBytes(8).toString('hex');
-}
-
-function getKeyPrefix(lookupId: string): string {
-  return `naap_${lookupId}...`;
-}
+let deriveKeyLookupId: (rawKey: string) => string = (_key: string) => crypto.randomBytes(8).toString('hex');
+let getKeyPrefix: (lookupId: string) => string = (id: string) => `naap_${id}...`;
+let hashApiKey: (key: string) => string = (key: string) => crypto.scryptSync(key, 'naap-api-key-v1', 32).toString('hex');
 
 function getRequestUserId(req: express.Request): string {
   const user = (req as any).user;
@@ -477,6 +465,7 @@ app.post('/api/v1/developer/keys', async (req, res) => {
       }
 
       const resolvedLabel = label && typeof label === 'string' && label.trim() ? label.trim() : null;
+      const keyHash = hashApiKey(rawApiKey);
 
       const newKey = await prisma.devApiKey.create({
         data: {
@@ -487,6 +476,7 @@ app.post('/api/v1/developer/keys', async (req, res) => {
           gatewayOfferId: resolvedGatewayOfferId || null,
           keyLookupId,
           keyPrefix,
+          keyHash,
           label: resolvedLabel,
           status: 'ACTIVE',
         },

@@ -4,7 +4,7 @@
  */
 
 import * as crypto from 'crypto';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
@@ -12,6 +12,24 @@ import { prisma } from '@/lib/db';
 const DAYDREAM_AUTH_URL =
   process.env.DAYDREAM_AUTH_URL || 'https://app.daydream.live/sign-in/local';
 const LOGIN_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 5;
+
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(key: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(key);
+  if (!entry || now >= entry.resetAt) {
+    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT_MAX) {
+    return false;
+  }
+  entry.count++;
+  return true;
+}
 
 function firstHeaderValue(value: string | null): string | null {
   if (!value) {
@@ -77,9 +95,20 @@ function resolveProviderAuthUrl(providerSlug: string): string | null {
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ providerSlug: string }> }
-): Promise<ReturnType<typeof success>> {
+): Promise<NextResponse> {
   try {
     const { providerSlug } = await params;
+
+    const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    if (!checkRateLimit(`billing-auth:${clientIp}`)) {
+      return errors.tooManyRequests
+        ? errors.tooManyRequests('Too many authentication requests. Please try again later.')
+        : new NextResponse(
+            JSON.stringify({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many authentication requests. Please try again later.' } }),
+            { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '60' } }
+          );
+    }
+
     const providerAuthUrl = resolveProviderAuthUrl(providerSlug);
     if (!providerAuthUrl) {
       return errors.badRequest(`Unsupported billing provider for OAuth: ${providerSlug}`);

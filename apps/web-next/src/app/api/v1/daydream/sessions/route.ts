@@ -12,6 +12,14 @@ import { validateCSRF } from '@/lib/api/csrf';
 
 const DAYDREAM_API_BASE = 'https://api.daydream.live/v1';
 
+/**
+ * Retrieve the user's Daydream API key from their settings.
+ *
+ * BREAKING CHANGE (PR 124): The previous default/shared API key fallback has
+ * been removed. Users must now configure their own API key via the Daydream
+ * settings page or the new billing-provider OAuth flow before creating sessions.
+ * This improves security and per-user billing accountability.
+ */
 async function getApiKey(userId: string): Promise<string> {
   const settings = await prisma.daydreamSettings.findUnique({
     where: { userId },
@@ -19,7 +27,10 @@ async function getApiKey(userId: string): Promise<string> {
 
   const apiKey = settings?.apiKey;
   if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
-    throw new Error('Daydream API key is not configured for this user');
+    throw new Error(
+      'Daydream API key is not configured. ' +
+      'Please configure your API key in Daydream settings or link your account via a billing provider.'
+    );
   }
 
   return apiKey;

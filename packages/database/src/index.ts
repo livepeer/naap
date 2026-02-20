@@ -18,6 +18,8 @@ export { BILLING_PROVIDERS } from './billing-providers';
 
 // Shared developer-api utilities
 export { DevApiProjectResolutionError, resolveDevApiProjectId } from './dev-api/resolveDevApiProject';
+export { parseApiKey, deriveKeyLookupId, getKeyPrefix, hashApiKey } from './dev-api/key-utils';
+export { encryptToken, decryptToken } from './dev-api/token-encryption';
 
 // Type for transaction client
 export type TransactionClient = Omit<

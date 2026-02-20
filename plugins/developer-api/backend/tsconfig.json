@@ -2,11 +2,7 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "../../../"
+    "rootDir": "./src"
   },
-  "include": [
-    "src/**/*",
-    "../../../packages/database/src/**/*",
-    "../../../packages/plugin-server-sdk/src/**/*"
-  ]
+  "include": ["src/**/*"]
 }

@@ -3,15 +3,35 @@
  * Poll the status of a brokered billing-provider authentication session.
  */
 
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { prisma } from '@/lib/db';
+import { decryptToken } from '@naap/database';
+
+let lastCleanup = 0;
+const CLEANUP_INTERVAL_MS = 5 * 60_000;
+
+async function cleanupExpiredSessions(): Promise<void> {
+  const now = Date.now();
+  if (now - lastCleanup < CLEANUP_INTERVAL_MS) return;
+  lastCleanup = now;
+  try {
+    const { count } = await prisma.billingProviderOAuthSession.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
+    });
+    if (count > 0) {
+      console.log(`[billing-auth] Cleaned up ${count} expired OAuth sessions`);
+    }
+  } catch {
+    // non-critical
+  }
+}
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ providerSlug: string }> }
-): Promise<ReturnType<typeof success>> {
+): Promise<NextResponse> {
   const { providerSlug } = await params;
   const loginSessionId = request.nextUrl.searchParams.get('login_session_id');
 
@@ -76,15 +96,23 @@ export async function GET(
       return response;
     }
 
+    const accessToken = session.accessToken ? decryptToken(session.accessToken) : null;
+    if (!accessToken) {
+      return errors.internal('Failed to retrieve access token');
+    }
+
     const response = success({
       status: 'complete',
-      access_token: session.accessToken,
+      access_token: accessToken,
       user_id: session.providerUserId,
       expires_in: Math.max(0, Math.floor((session.expiresAt.getTime() - Date.now()) / 1000)),
     });
     response.headers.set('Cache-Control', 'no-store');
     return response;
   }
+
+  // Opportunistic cleanup of expired sessions (non-blocking)
+  cleanupExpiredSessions().catch(() => null);
 
   const response = success({ status: session.status });
   response.headers.set('Cache-Control', 'no-store');
