@@ -15,6 +15,16 @@ const PORT = process.env.PORT || pluginConfig.backend?.devPort || 4007;
 
 app.use(cors());
 app.use(express.json());
+app.use((req, res, next) => {
+  const headerId = req.headers['x-request-id'];
+  const requestId = (typeof headerId === 'string' && headerId.trim().length > 0)
+    ? headerId.trim()
+    : crypto.randomUUID();
+
+  (req as any).requestId = requestId;
+  res.setHeader('x-request-id', requestId);
+  next();
+});
 app.use(createAuthMiddleware({
   publicPaths: ['/healthz'],
 }));
@@ -214,7 +224,25 @@ app.get('/api/v1/developer/projects', async (req, res) => {
       return res.json({ projects });
     }
 
-    res.json({ projects: inMemoryProjects.filter((p: any) => p.userId === userId) });
+    const projects = inMemoryProjects
+      .filter((p: any) => p.userId === userId)
+      .map((p: any, idx: number) => ({ p, idx }))
+      .sort((a: any, b: any) => {
+        const aIsDefault = Boolean(a.p?.isDefault);
+        const bIsDefault = Boolean(b.p?.isDefault);
+        if (aIsDefault !== bIsDefault) return aIsDefault ? -1 : 1;
+
+        const aName = String(a.p?.name ?? '');
+        const bName = String(b.p?.name ?? '');
+        const nameCmp = aName.localeCompare(bName);
+        if (nameCmp !== 0) return nameCmp;
+
+        // Stable tiebreaker (preserve original order).
+        return a.idx - b.idx;
+      })
+      .map(({ p }: any) => p);
+
+    res.json({ projects });
   } catch (error) {
     console.error('Error fetching projects:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -527,8 +555,20 @@ app.get('/api/v1/developer/usage', async (req, res) => {
 // ============================================
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+  const requestId = (_req as any)?.requestId;
+  console.error('Unhandled error:', {
+    requestId,
+    method: _req.method,
+    path: _req.originalUrl,
+    error: err instanceof Error
+      ? { name: err.name, message: err.message, stack: err.stack }
+      : err,
+  });
+
+  res.status(500).json({
+    error: 'Internal server error',
+    requestId,
+  });
 });
 
 // ============================================
