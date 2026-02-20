@@ -99,7 +99,9 @@ function deriveKeyLookupId(rawKey: string): string {
   if (parsed) {
     return parsed.lookupId;
   }
-  return crypto.createHash('sha256').update(rawKey).digest('hex').slice(0, 16);
+  // For provider-issued keys without an embedded lookup id, use a random index id.
+  // This is not derived from key material and is used for indexing/display only.
+  return crypto.randomBytes(8).toString('hex');
 }
 
 function getKeyPrefix(lookupId: string): string {
