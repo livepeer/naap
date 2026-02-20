@@ -11,27 +11,27 @@
     "test": "vitest"
   },
   "dependencies": {
-    "express": "^4.18.2",
     "cors": "^2.8.6",
     "dockerode": "^4.0.2",
-    "pg": "^8.18.0",
-    "ws": "^8.19.0",
     "dotenv": "^16.6.1",
-    "yaml": "^2.3.0",
+    "express": "^4.18.2",
+    "pg": "^8.18.0",
     "tar": "^7.5.7",
-    "semver": "^7.6.0"
+    "ws": "^8.19.0"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
     "@types/cors": "^2.8.17",
     "@types/dockerode": "^3.3.28",
+    "@types/express": "^4.17.21",
     "@types/node": "^20.19.33",
     "@types/pg": "^8.11.0",
-    "@types/ws": "^8.5.10",
-    "@types/tar": "^6.1.11",
     "@types/semver": "^7.7.1",
-    "typescript": "~5.9.3",
+    "@types/ws": "^8.5.10",
+    "semver": "^7.6.0",
+    "yaml": "^2.3.0",
     "tsx": "^4.7.0",
-    "vitest": "^1.0.0"
+    "typescript": "~5.9.3",
+    "vite": "^6.0.0",
+    "vitest": "^4.0.18"
   }
 }

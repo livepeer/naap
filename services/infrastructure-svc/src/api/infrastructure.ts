@@ -123,11 +123,11 @@ infrastructureRouter.post('/provision', async (req: Request, res: Response) => {
     result.status = 'ready';
     broadcast('provision:completed', { pluginName, result });
     
-    res.json(result);
+    return res.json(result);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     broadcast('provision:error', { pluginName, error: errorMessage });
-    res.status(500).json({ error: errorMessage });
+    return res.status(500).json({ error: errorMessage });
   }
 });
 
