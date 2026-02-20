@@ -72,9 +72,6 @@ const inMemoryGatewayOffers: Record<string, any[]> = {
 
 const inMemoryApiKeys: any[] = [];
 const inMemoryProjects: any[] = [];
-const inMemoryBillingProviders = [
-  { id: 'bp-daydream', slug: 'daydream', displayName: 'Daydream', description: 'AI-powered billing via Daydream', icon: 'cloud', authType: 'oauth' },
-];
 
 // ============================================
 // Utility Functions
@@ -298,35 +295,6 @@ app.post('/api/v1/developer/projects', async (req, res) => {
     res.status(201).json({ project });
   } catch (error) {
     console.error('Error creating project:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// ============================================
-// Billing Providers
-// ============================================
-
-app.get('/api/v1/developer/billing-providers', async (_req, res) => {
-  try {
-    if (prisma) {
-      const providers = await prisma.billingProvider.findMany({
-        where: { enabled: true },
-        orderBy: { sortOrder: 'asc' },
-        select: {
-          id: true,
-          slug: true,
-          displayName: true,
-          description: true,
-          icon: true,
-          authType: true,
-        },
-      });
-      return res.json({ providers });
-    }
-
-    res.json({ providers: inMemoryBillingProviders });
-  } catch (error) {
-    console.error('Error fetching billing providers:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
