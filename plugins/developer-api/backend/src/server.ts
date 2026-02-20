@@ -631,9 +631,9 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
     error: {
       code: 'INTERNAL_SERVER_ERROR',
       message: 'Internal server error',
-      requestId,
-      method,
-      path,
+      requestId: sanitizeForLog(requestId),
+      method: sanitizeForLog(method),
+      path: sanitizeForLog(path),
     },
   });
 });
