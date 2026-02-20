@@ -561,7 +561,7 @@ export const DeveloperView: React.FC = () => {
                             <td className="py-4">
                               <div className="flex items-center justify-end gap-2">
                                 <Badge variant={key.status === 'ACTIVE' || key.status === 'active' ? 'emerald' : 'rose'}>{key.status}</Badge>
-                                {key.status !== 'REVOKED' && (
+                                {(key.status || '').toUpperCase() !== 'REVOKED' && (
                                   <button onClick={() => setRevokeKeyId(key.id)}
                                     className="p-2 hover:bg-white/5 rounded-lg text-accent-rose">
                                     <Trash2 size={16} />
