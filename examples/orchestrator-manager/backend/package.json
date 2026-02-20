@@ -9,7 +9,7 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@naap/types": "*",
+    "@naap/types": "file:../../../packages/types",
     "cors": "^2.8.6",
     "express": "^4.21.0"
   },

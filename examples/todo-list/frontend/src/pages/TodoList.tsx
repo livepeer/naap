@@ -134,7 +134,7 @@ export const TodoList: React.FC = () => {
           value={newTodo}
           onChange={(e) => setNewTodo(e.target.value)}
           placeholder="What needs to be done?"
-          className="flex-1 px-4 py-3 bg-bg-secondary border border-white/10 rounded-xl text-text-primary placeholder-text-tertiary focus:outline-none focus:border-accent-blue"
+          className="flex-1 px-4 py-3 bg-secondary border border-white/10 rounded-xl text-text-primary placeholder-text-tertiary focus:outline-none focus:border-accent-blue"
         />
         <button
           type="submit"
@@ -167,7 +167,7 @@ export const TodoList: React.FC = () => {
           {todos.map((todo) => (
             <div
               key={todo.id}
-              className="flex items-center gap-3 p-4 bg-bg-secondary border border-white/10 rounded-xl group"
+              className="flex items-center gap-3 p-4 bg-secondary border border-white/10 rounded-xl group"
             >
               <button
                 onClick={() => toggleTodo(todo.id)}
