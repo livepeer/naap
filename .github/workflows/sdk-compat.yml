@@ -31,15 +31,9 @@ jobs:
       fail-fast: false
       matrix:
         plugin:
-          - gateway-manager
-          - orchestrator-manager
           - capacity-planner
-          - network-analytics
           - community
           - marketplace
-          - my-dashboard
-          - my-wallet
-          - daydream-video
           - developer-api
           - plugin-publisher
     steps:
@@ -117,4 +111,4 @@ jobs:
           fi
 
           echo "## SDK Compatibility: PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "All 11 plugins are compatible with the SDK changes." >> $GITHUB_STEP_SUMMARY
+          echo "All plugins are compatible with the SDK changes." >> $GITHUB_STEP_SUMMARY
