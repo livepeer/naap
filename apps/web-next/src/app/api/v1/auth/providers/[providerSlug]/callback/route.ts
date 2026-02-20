@@ -37,7 +37,11 @@ async function exchangeTokenForApiKey(providerSlug: string, token: string): Prom
   }
 
   const result = await response.json();
-  return result.api_key || result.apiKey || result.key;
+  const apiKey = result.api_key || result.apiKey || result.key;
+  if (!apiKey) {
+    throw new Error('Daydream token exchange failed: no API key in response');
+  }
+  return apiKey;
 }
 
 export async function GET(
