@@ -22,7 +22,7 @@ app.get('/api/v1/orchestrator-manager/orchestrators', (_req, res) => res.json(or
 app.get('/api/v1/orchestrator-manager/orchestrators/:id', (req, res) => {
   const orch = orchestrators.find(o => o.id === req.params.id);
   if (!orch) return res.status(404).json({ error: 'Not found' });
-  res.json(orch);
+  return res.json(orch);
 });
 
 app.listen(PORT, () => console.log(`🚀 orchestrator-manager-svc running on http://localhost:${PORT}`));

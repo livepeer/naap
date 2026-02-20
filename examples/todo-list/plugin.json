@@ -10,17 +10,20 @@
     "email": "examples@naap.dev"
   },
   "icon": "CheckSquare",
-  "routes": [
-    "/todos",
-    "/todos/*"
-  ],
   "frontend": {
+    "entry": "./frontend/dist/production/todo-list.js",
+    "entryPoint": "./frontend/src/App.tsx",
     "devPort": 3021,
-    "entryPoint": "./frontend/src/App.tsx"
+    "routes": ["/todos", "/todos/*"],
+    "navigation": { "label": "Todo List", "icon": "CheckSquare" }
   },
   "backend": {
-    "devPort": 4021,
+    "entry": "./backend/dist/server.js",
     "entryPoint": "./backend/src/server.ts",
+    "devPort": 4021,
+    "port": 4021,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/todos",
     "database": true
   },
   "rbac": {
