@@ -21,9 +21,12 @@ interface AIModel {
 
 interface ApiKey {
   id: string;
-  projectName: string;
+  project?: { id: string; name: string; isDefault: boolean };
+  billingProvider?: { id: string; slug: string; displayName: string };
+  projectName?: string;
   modelName: string;
   gatewayName: string;
+  keyPrefix: string;
   status: string;
   createdAt: string;
   lastUsedAt: string | null;
@@ -152,8 +155,8 @@ export const DeveloperView: React.FC = () => {
                           <Key size={20} className="text-accent-blue" />
                         </div>
                         <div>
-                          <p className="font-medium text-text-primary">{key.projectName}</p>
-                          <p className="text-xs text-text-secondary">{key.modelName} • {key.gatewayName}</p>
+                          <p className="font-medium text-text-primary">{key.project?.name ?? key.projectName ?? 'Unknown'}</p>
+                          <p className="text-xs text-text-secondary">{key.keyPrefix} • {key.billingProvider?.displayName ?? 'Unknown'}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -216,8 +219,8 @@ function getMockModels(): AIModel[] {
 
 function getMockKeys(): ApiKey[] {
   return [
-    { id: 'key-1', projectName: 'Production App', modelName: 'SDXL Turbo', gatewayName: 'Gateway Alpha', status: 'active', createdAt: '2024-01-15', lastUsedAt: '2024-01-20' },
-    { id: 'key-2', projectName: 'Development', modelName: 'Stable Diffusion 1.5', gatewayName: 'Gateway Beta', status: 'active', createdAt: '2024-01-10', lastUsedAt: null },
+    { id: 'key-1', project: { id: 'p1', name: 'Production App', isDefault: true }, billingProvider: { id: 'bp1', slug: 'daydream', displayName: 'Daydream' }, modelName: 'SDXL Turbo', gatewayName: 'Gateway Alpha', keyPrefix: 'naap_abc12345...', status: 'ACTIVE', createdAt: '2024-01-15', lastUsedAt: '2024-01-20' },
+    { id: 'key-2', project: { id: 'p2', name: 'Development', isDefault: false }, billingProvider: { id: 'bp1', slug: 'daydream', displayName: 'Daydream' }, modelName: 'Stable Diffusion 1.5', gatewayName: 'Gateway Beta', keyPrefix: 'naap_def67890...', status: 'ACTIVE', createdAt: '2024-01-10', lastUsedAt: null },
   ];
 }
 
