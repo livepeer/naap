@@ -523,9 +523,8 @@ async function createBackend(targetDir: string, name: string, integrations: stri
 
   // package.json
   const deps: Record<string, string> = {
-    express: '^4.18.0',
-    cors: '^2.8.5',
     '@naap/database': 'workspace:*',
+    '@naap/plugin-server-sdk': 'workspace:*',
     '@naap/plugin-sdk': '^0.1.0',
     dotenv: '^16.3.0',
   };
@@ -736,14 +735,11 @@ async function createBackendSimple(targetDir: string, name: string): Promise<voi
       test: 'vitest',
     },
     dependencies: {
-      express: '^4.18.0',
-      cors: '^2.8.5',
+      '@naap/plugin-server-sdk': 'workspace:*',
       '@naap/plugin-sdk': '^0.1.0',
       dotenv: '^16.3.0',
     },
     devDependencies: {
-      '@types/express': '^4.17.0',
-      '@types/cors': '^2.8.0',
       '@types/node': '^22.0.0',
       typescript: '~5.8.2',
       tsx: '^4.7.0',

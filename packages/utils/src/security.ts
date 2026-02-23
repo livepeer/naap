@@ -88,6 +88,14 @@ export function createRateLimiter(
   return (req: Request, res: Response, next: NextFunction) => {
     const key = req.ip || 'unknown';
     const now = Date.now();
+
+    // Prune expired entries when the store grows large to prevent memory leaks
+    if (store.size > 10_000) {
+      for (const [ip, value] of store) {
+        if (now > value.resetTime) store.delete(ip);
+      }
+    }
+
     const entry = store.get(key);
 
     if (!entry || now > entry.resetTime) {

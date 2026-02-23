@@ -55,6 +55,14 @@ export interface PluginServerConfig {
   /** Rate limiting config (default: enabled, 200 req / 15 min). Set false to disable. */
   rateLimit?: false | RateLimitConfig;
 
+  /**
+   * Express "trust proxy" setting for correct req.ip behind reverse proxies.
+   * When behind a load balancer or reverse proxy, set to true (or the number
+   * of proxies) so Express reads the client IP from X-Forwarded-For instead
+   * of the proxy's IP. Default: false.
+   */
+  trustProxy?: boolean | string | number;
+
   /** Optional Prisma client for managed connection lifecycle */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   prisma?: { $disconnect: () => Promise<void>; $connect: () => Promise<void>; [key: string]: any };
@@ -105,12 +113,17 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
     compression: enableCompression = true,
     helmet: enableHelmet = true,
     rateLimit: rateLimitConfig = {},
+    trustProxy = false,
     prisma,
     setup,
     livepeer,
   } = config;
 
   const app = express();
+
+  if (trustProxy !== false) {
+    app.set('trust proxy', trustProxy);
+  }
   const router = Router();
   let server: ReturnType<Express['listen']> | null = null;
 
@@ -183,6 +196,12 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
     app.use((req: Request, res: Response, next: NextFunction) => {
       const key = req.ip || 'unknown';
       const now = Date.now();
+      // Prune expired entries when the store grows large to prevent memory leaks
+      if (store.size > 10_000) {
+        for (const [ip, value] of store) {
+          if (now > value.resetTime) store.delete(ip);
+        }
+      }
       const entry = store.get(key);
       if (!entry || now > entry.resetTime) {
         store.set(key, { count: 1, resetTime: now + windowMs });
