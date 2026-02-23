@@ -122,7 +122,22 @@ preflight_check() {
     tail -5 "$npm_log"
     log_success "Dependencies installed"
 
-    # Step 2: Install git hooks (pre-push validation)
+    # Step 2: Build internal workspace packages whose exports point to dist/
+    # These are gitignored, so a fresh clone won't have them. Consumers like
+    # plugin vite.config.ts (@naap/plugin-build) and base-svc (@naap/cache)
+    # will fail to start without this step.  Fixes: #129
+    log_info "Building workspace packages (plugin-build, cache)..."
+    (cd "$ROOT_DIR" && npm run build --workspace=@naap/plugin-build --workspace=@naap/cache) \
+      > "$LOG_DIR/workspace-bootstrap.log" 2>&1 || true
+    if [ -f "$ROOT_DIR/packages/plugin-build/dist/vite.js" ] && \
+       [ -f "$ROOT_DIR/packages/cache/dist/index.js" ]; then
+      log_success "Workspace packages built"
+    else
+      log_error "Workspace package build failed. Check logs/workspace-bootstrap.log"
+      exit 1
+    fi
+
+    # Step 3: Install git hooks (pre-push validation)
     if [ -f "$SCRIPT_DIR/install-git-hooks.sh" ]; then
       bash "$SCRIPT_DIR/install-git-hooks.sh" 2>/dev/null && \
         log_success "Git hooks installed" || log_warn "Could not install git hooks"
