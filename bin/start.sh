@@ -142,6 +142,17 @@ preflight_check() {
 }
 
 ###############################################################################
+# MACOS COMPATIBILITY
+###############################################################################
+
+# setsid is not available on macOS. Provide a no-op shim so the rest of the
+# script works. On macOS, processes are launched with & which already provides
+# sufficient isolation; the process-group kill fallback in kill_tree handles cleanup.
+if ! command -v setsid >/dev/null 2>&1; then
+  setsid() { "$@"; }
+fi
+
+###############################################################################
 # SIGNAL HANDLING & CLEANUP
 ###############################################################################
 
@@ -533,6 +544,20 @@ check_docker() {
   fi
 }
 
+# Resolve docker compose command: prefer `docker compose` (v2), fall back to `docker-compose` (v1).
+_docker_compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+  else
+    log_error "Neither 'docker compose' (v2) nor 'docker-compose' (v1) found."
+    echo -e "  ${DIM}Fix: Update Docker Desktop, or install the compose plugin:${NC}"
+    echo -e "  ${DIM}  https://docs.docker.com/compose/install/${NC}"
+    return 1
+  fi
+}
+
 # Start or ensure the single unified database is running.
 # Uses docker-compose.yml which defines ONE postgres container (naap-db).
 ensure_databases() {
@@ -540,26 +565,59 @@ ensure_databases() {
   check_docker || return 1
 
   local c="$UNIFIED_DB_CONTAINER"
-  local running=$(docker ps -q -f name="$c" 2>/dev/null)
+  local running
+  running=$(docker ps -q -f name="$c" 2>/dev/null)
 
   if [ -z "$running" ]; then
-    log_info "Starting unified database via docker-compose..."
+    # Check if the postgres image needs pulling (fresh install scenario).
+    # Image pull can take minutes on slow connections; warn the user upfront.
+    local image="postgres:16-alpine"
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+      log_info "Docker image '$image' not found locally — pulling (this may take a few minutes)..."
+      docker pull "$image" 2>&1 | while read -r line; do echo -e "  ${DIM}$line${NC}"; done
+      if ! docker image inspect "$image" >/dev/null 2>&1; then
+        log_error "Failed to pull Docker image '$image'. Check your internet connection."
+        return 1
+      fi
+      log_success "Docker image '$image' pulled"
+    fi
+
+    log_info "Starting unified database..."
     cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; return 1; }
-    docker-compose up -d database 2>&1 | grep -v "^$" | while read -r line; do log_debug "$line"; done
-    log_info "Waiting for database..."
+    _docker_compose up -d database 2>&1 | grep -v "^$" | while read -r line; do log_debug "$line"; done
+    local dc_status=${PIPESTATUS[0]}
+    if [ "$dc_status" -ne 0 ]; then
+      log_error "Failed to start database container via docker compose."
+      return 1
+    fi
+
+    # Wait for container to exist (compose may take a moment to create it)
+    log_info "Waiting for database container..."
+    local max_wait=30
+    for i in $(seq 1 "$max_wait"); do
+      if docker exec "$c" pg_isready -U "$UNIFIED_DB_USER" > /dev/null 2>&1; then
+        log_success "Unified database ready"
+        return 0
+      fi
+      if [ $((i % 10)) -eq 0 ]; then
+        log_info "Still waiting for database... ($i/${max_wait}s)"
+      fi
+      sleep 1
+    done
+    log_error "Unified database failed to start within ${max_wait}s."
+    echo -e "  ${DIM}Check Docker logs: docker logs $c${NC}"
+    echo -e "  ${DIM}Check container status: docker ps -a --filter name=$c${NC}"
+    return 1
+  else
+    docker exec "$c" pg_isready -U "$UNIFIED_DB_USER" > /dev/null 2>&1 && { log_success "Unified database running"; return 0; }
+    log_warn "Database container exists but not ready, waiting..."
     for i in $(seq 1 30); do
       docker exec "$c" pg_isready -U "$UNIFIED_DB_USER" > /dev/null 2>&1 && { log_success "Unified database ready"; return 0; }
       sleep 1
     done
-    log_error "Unified database failed to start"; return 1
-  else
-    docker exec "$c" pg_isready -U "$UNIFIED_DB_USER" > /dev/null 2>&1 && { log_success "Unified database running"; return 0; }
-    log_warn "Database container exists but not ready, waiting..."
-    for i in $(seq 1 15); do
-      docker exec "$c" pg_isready -U "$UNIFIED_DB_USER" > /dev/null 2>&1 && { log_success "Unified database ready"; return 0; }
-      sleep 1
-    done
-    log_error "Unified database failed"; return 1
+    log_error "Unified database not responding."
+    echo -e "  ${DIM}Check Docker logs: docker logs $c${NC}"
+    return 1
   fi
 }
 
@@ -1195,7 +1253,7 @@ stop_all() {
 stop_shell()       { log_section "Stopping Shell"; stop_service "shell-web"; kill_port $SHELL_PORT; log_success "Shell stopped"; }
 stop_all_plugins() { log_section "Stopping All Plugins"; for p in $(get_all_plugins); do stop_plugin "$p"; done; log_success "All plugins stopped"; }
 stop_services()    { log_section "Stopping Core Services"; stop_service "health-monitor"; stop_service "plugin-server"; stop_service "base-svc"; kill_port $BASE_SVC_PORT; kill_port $PLUGIN_SERVER_PORT; log_success "Core services stopped"; }
-stop_infra()       { log_section "Stopping Infrastructure"; check_docker && { cd "$ROOT_DIR"; docker-compose down 2>/dev/null || true; log_success "Docker containers stopped"; }; }
+stop_infra()       { log_section "Stopping Infrastructure"; check_docker && { cd "$ROOT_DIR" || return 1; _docker_compose down 2>/dev/null || true; log_success "Docker containers stopped"; }; }
 
 ###############################################################################
 # RESTART

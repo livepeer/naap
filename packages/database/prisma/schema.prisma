@@ -160,6 +160,49 @@ model EmailVerificationToken {
 }
 
 // ============================================
+// CORE PLATFORM - BILLING PROVIDERS
+// ============================================
+
+model BillingProvider {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  displayName String
+  description String?
+  icon        String?
+  authType    String   @default("oauth")
+  enabled     Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  devApiKeys DevApiKey[]
+
+  @@index([enabled])
+  @@schema("public")
+}
+
+model BillingProviderOAuthSession {
+  loginSessionId    String    @id
+  state             String    @unique
+  providerSlug      String
+  gatewayNonce      String
+  gatewayInstanceId String?
+  naapUserId        String?
+  status            String    @default("pending")
+  accessToken       String?
+  providerUserId    String?
+  redeemedAt        DateTime?
+  expiresAt         DateTime
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([expiresAt])
+  @@index([providerSlug])
+  @@index([naapUserId])
+  @@schema("public")
+}
+
+// ============================================
 // CORE PLATFORM - TEAMS & ORGANIZATIONS
 // ============================================
 
@@ -1354,27 +1397,51 @@ model DevApiGatewayOffer {
   @@schema("plugin_developer_api")
 }
 
+model DevApiProject {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  apiKeys DevApiKey[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@schema("plugin_developer_api")
+}
+
 model DevApiKey {
-  id             String              @id @default(uuid())
-  userId         String
-  projectName    String
-  modelId        String
-  model          DevApiAIModel       @relation(fields: [modelId], references: [id], onDelete: Cascade)
-  gatewayOfferId String?
-  gatewayOffer   DevApiGatewayOffer? @relation(fields: [gatewayOfferId], references: [id], onDelete: SetNull)
-  keyHash        String              @unique
-  keyPrefix      String
-  status         DevApiKeyStatus     @default(ACTIVE)
-  createdAt      DateTime            @default(now())
-  lastUsedAt     DateTime?
-  revokedAt      DateTime?
+  id                String              @id @default(uuid())
+  userId            String
+  projectId         String?
+  project           DevApiProject?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  billingProviderId String?
+  billingProvider   BillingProvider?    @relation(fields: [billingProviderId], references: [id], onDelete: Restrict)
+  modelId           String?
+  model             DevApiAIModel?      @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  gatewayOfferId    String?
+  gatewayOffer      DevApiGatewayOffer? @relation(fields: [gatewayOfferId], references: [id], onDelete: SetNull)
+  keyLookupId       String?             @unique
+  keyPrefix         String
+  label             String?
+  projectName       String?
+  keyHash           String?             @unique
+  status            DevApiKeyStatus     @default(ACTIVE)
+  createdAt         DateTime            @default(now())
+  lastUsedAt        DateTime?
+  revokedAt         DateTime?
 
   usageLogs DevApiUsageLog[]
 
   @@index([userId])
+  @@index([projectId])
+  @@index([billingProviderId])
   @@index([modelId])
   @@index([status])
   @@index([keyHash])
+  @@index([keyLookupId])
   @@schema("plugin_developer_api")
 }
 

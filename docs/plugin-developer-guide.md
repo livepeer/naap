@@ -43,16 +43,23 @@ naap-plugin --version
 
 ### 1.1 Create Plugin Structure
 
+By default, `naap-plugin create` scaffolds a **frontend-only** plugin — the fastest way to get started. You can upgrade to full-stack later.
+
 ```bash
-# Create a new plugin with interactive prompts
+# Frontend-only plugin (recommended start)
 naap-plugin create my-awesome-plugin
 
-# Or use flags for non-interactive creation
+# Full-stack with database (Prisma + Docker required)
+naap-plugin create my-awesome-plugin --template full-stack
+
+# Full-stack without database (in-memory backend, no Docker/Prisma needed)
+naap-plugin create my-awesome-plugin --template full-stack --simple
+
+# Non-interactive full-stack
 naap-plugin create my-awesome-plugin \
   --template full-stack \
   --category monitoring \
-  --description "Monitor system health and performance" \
-  --author "Your Name <you@example.com>"
+  --description "Monitor system health and performance"
 ```
 
 This creates:
@@ -63,7 +70,9 @@ my-awesome-plugin/
 ├── .naap/                   # Local dev config
 ├── frontend/                # React micro-frontend
 │   ├── src/
-│   │   ├── App.tsx         # Main component with mount()
+│   │   ├── App.tsx         # Plugin definition via createPlugin()
+│   │   ├── mount.tsx       # UMD entry point (delegates to App.tsx)
+│   │   ├── main.tsx        # Standalone dev entry point
 │   │   ├── pages/
 │   │   └── components/
 │   ├── vite.config.ts
@@ -161,41 +170,34 @@ This will:
 
 ### 2.2 Develop Frontend
 
-Edit `frontend/src/App.tsx`:
+Edit `frontend/src/App.tsx` using the canonical `createPlugin()` pattern:
 
 ```typescript
 import React from 'react';
-import { createRoot, Root } from 'react-dom/client';
-import { ShellProvider } from '@naap/plugin-sdk/hooks';
-import type { ShellContext, PluginManifest } from '@naap/plugin-sdk/types';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { createPlugin } from '@naap/plugin-sdk';
 import { MyPluginPage } from './pages/MyPluginPage';
 
-let root: Root | null = null;
+const MyApp: React.FC = () => (
+  <MemoryRouter>
+    <Routes>
+      <Route path="/*" element={<MyPluginPage />} />
+    </Routes>
+  </MemoryRouter>
+);
 
-export function mount(container: HTMLElement, context: ShellContext) {
-  root = createRoot(container);
-  root.render(
-    <ShellProvider value={context}>
-      <MyPluginPage />
-    </ShellProvider>
-  );
-  
-  return () => {
-    if (root) {
-      root.unmount();
-      root = null;
-    }
-  };
-}
-
-// Export manifest for shell discovery
-export const manifest: PluginManifest = {
+const plugin = createPlugin({
   name: 'my-awesome-plugin',
-  displayName: 'My Awesome Plugin',
   version: '1.0.0',
-  // ... other manifest fields
-};
+  routes: ['/my-awesome-plugin', '/my-awesome-plugin/*'],
+  App: MyApp,
+});
+
+export const mount = plugin.mount;
+export default plugin;
 ```
+
+The UMD entry `mount.tsx` delegates to this file — you rarely need to edit it.
 
 Create your pages in `frontend/src/pages/`:
 
@@ -918,6 +920,15 @@ const response = await fetch(proxyUrl, {
 ### Common Commands
 
 ```bash
+# Creation
+naap-plugin create my-plugin       # Frontend-only (default)
+naap-plugin create my-plugin --template full-stack          # With database
+naap-plugin create my-plugin --template full-stack --simple # No database
+
+# Incremental scaffolding
+naap-plugin add endpoint users --crud  # Add CRUD endpoint
+naap-plugin add model Todo title:String done:Boolean  # Add Prisma model
+
 # Development
 naap-plugin dev                    # Start dev servers
 naap-plugin dev --shell <url>      # Connect to custom shell
@@ -965,18 +976,21 @@ my-plugin/
 │   └── credentials.json    # Registry credentials (gitignored)
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx        # Must export mount() function
+│   │   ├── App.tsx        # Plugin definition via createPlugin()
+│   │   ├── mount.tsx      # UMD entry point (delegates to App.tsx)
+│   │   ├── main.tsx       # Standalone dev entry point
 │   │   ├── pages/
 │   │   └── components/
 │   ├── vite.config.ts
 │   └── package.json
-├── backend/
+├── backend/                 # (full-stack only)
 │   ├── src/
 │   │   ├── server.ts      # Express server
 │   │   └── routes/
-│   ├── prisma/
-│   │   ├── schema.prisma
-│   │   └── migrations/
+│   │       ├── index.ts   # Route aggregator
+│   │       └── README.md  # How to add routes
+│   ├── prisma/            # (omitted with --simple)
+│   │   └── schema.prisma
 │   └── package.json
 └── docs/
     ├── README.md

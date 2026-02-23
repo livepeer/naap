@@ -17,6 +17,8 @@
     "test": "nx run-many --target=test --all",
     "lint": "nx run-many --target=lint --all",
     "smoke": "./bin/smoke.sh",
+    "e2e:plugin-publisher": "./bin/e2e-plugin-publisher.sh",
+    "e2e:plugin-publisher:cleanup": "npx tsx bin/cleanup-published-examples.ts",
     "db:setup": "./bin/db-setup.sh",
     "db:seed": "./bin/db-seed.sh",
     "db:reset": "./bin/db-reset.sh",
@@ -59,6 +61,21 @@
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "vite": "^6.0.0"
+  },
+  "overrides": {
+    "minimatch": "10.2.2",
+    "eslint-plugin-import": {
+      "minimatch": "10.2.2"
+    },
+    "eslint-plugin-jsx-a11y": {
+      "minimatch": "10.2.2"
+    },
+    "eslint-plugin-react": {
+      "minimatch": "10.2.2"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "10.2.2"
+    }
   },
   "packageManager": "npm@10.9.4",
   "workspaces": [

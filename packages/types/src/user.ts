@@ -14,7 +14,6 @@ export interface AuthUser {
   address: string | null;
   roles: string[];
   permissions: Array<{ resource: string; action: string }> | string[];
-  // Compatibility aliases used by shell context / plugin SDK
   avatar?: string | null;
   walletAddress?: string | null;
 }

@@ -125,6 +125,14 @@ export {
   type PluginManifestExport,
 } from './utils/mount.js';
 
+// Runtime Contract Validation
+export {
+  validatePluginModule,
+  validateShellContext,
+  formatPluginError,
+  type ValidationResult,
+} from './utils/contract-validation.js';
+
 // API Hooks (Phase 4)
 export {
   usePluginApi,
@@ -171,6 +179,25 @@ export {
   type JobFeedEntry,
   type DashboardResolvers,
 } from './contracts/index.js';
+
+// Re-export commonly needed types from @naap/types for the 2-package developer model.
+// Plugin developers can import everything they need from @naap/plugin-sdk without
+// adding @naap/types as a direct dependency.
+export {
+  HEADER_CSRF_TOKEN,
+  HEADER_CORRELATION,
+  HEADER_PLUGIN_NAME,
+  HEADER_REQUEST_ID,
+  HEADER_TRACE_ID,
+  HEADER_TEAM_ID,
+  CORS_ALLOWED_HEADERS,
+  STANDARD_HEADERS,
+  CUSTOM_HEADERS,
+} from '@naap/types';
+
+export type {
+  AuthUser as NaapAuthUser,
+} from '@naap/types';
 
 // SDK version
 export const SDK_VERSION = '1.0.0';

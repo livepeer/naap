@@ -87,15 +87,15 @@ function formatProfile(profile: any) {
 }
 
 // ============================================
-// HELPER: Get userId from request (JWT auth or body fallback)
+// HELPER: Get userId from validated middleware context
 // ============================================
 
 function getUserId(req: any): string | null {
-  return req.user?.id || req.body?.userId || null;
+  return req.user?.id || null;
 }
 
 function getUserIdFromQuery(req: any): string | null {
-  return req.user?.id || (req.query?.userId as string) || null;
+  return req.user?.id || null;
 }
 
 // ============================================
@@ -222,7 +222,7 @@ const server = createPluginServer({
   name: 'community',
   port: parseInt(process.env.PORT || String(pluginConfig.backend?.devPort || 4006), 10),
   prisma: db,
-  publicRoutes: ['/healthz', '/api/v1/community/posts', '/api/v1/community/tags', '/api/v1/community/badges', '/api/v1/community/leaderboard', '/api/v1/community/stats', '/api/v1/community/search'],
+  publicRoutes: ['/healthz'],
 });
 
 const { router } = server;

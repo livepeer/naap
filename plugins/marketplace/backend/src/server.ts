@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { readFileSync } from 'node:fs';
+import { createAuthMiddleware } from '@naap/plugin-server-sdk';
 
 const pluginConfig = JSON.parse(
   readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
@@ -10,6 +11,9 @@ const PORT = process.env.PORT || pluginConfig.backend?.devPort || 4005;
 
 app.use(cors());
 app.use(express.json());
+app.use(createAuthMiddleware({
+  publicPaths: ['/healthz'],
+}));
 
 const assets = [
   { id: 'asset-1', name: 'Flux.1 Pipeline', category: 'Pipeline', author: 'Black Forest Labs', status: 'Active' },

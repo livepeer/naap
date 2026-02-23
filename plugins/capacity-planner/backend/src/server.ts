@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { readFileSync } from 'node:fs';
 import { config } from 'dotenv';
+import { createAuthMiddleware } from '@naap/plugin-server-sdk';
 
 config();
 
@@ -13,6 +14,9 @@ const PORT = process.env.PORT || pluginConfig.backend?.devPort || 4003;
 
 app.use(cors());
 app.use(express.json());
+app.use(createAuthMiddleware({
+  publicPaths: ['/healthz'],
+}));
 
 // ============================================
 // Database Connection
@@ -348,7 +352,12 @@ app.post('/api/v1/capacity-planner/requests', async (req, res) => {
 // Soft commit (toggle)
 app.post('/api/v1/capacity-planner/requests/:id/commit', async (req, res) => {
   try {
-    const { userId, userName } = req.body;
+    const user = (req as any).user;
+    if (!user?.id) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+    const userId = user.id;
+    const userName = req.body?.userName || user.id;
 
     if (prisma) {
       const request = await prisma.capacityRequest.findUnique({

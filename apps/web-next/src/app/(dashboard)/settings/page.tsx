@@ -8,10 +8,10 @@ import { useShell, useEvents } from '@/contexts/shell-context';
 import { usePlugins } from '@/contexts/plugin-context';
 import { getCsrfToken } from '@/lib/api/csrf';
 import {
-  User, Bell, Palette, Shield, Key, LogOut, Save, Globe,
-  Eye, EyeOff, Pin, GripVertical, RotateCw, Trash2, Settings as SettingsIcon,
-  Users, ExternalLink, Loader2, AlertTriangle, Info, Plug, Brain, Cloud, Mail,
-  CreditCard, Phone, Check, X, Plus, Pencil, Camera
+  User, Bell, Palette, Shield, LogOut, Save, Globe,
+  Eye, EyeOff, Pin, GripVertical, Trash2, Settings as SettingsIcon,
+  Users, ExternalLink, Loader2, AlertTriangle, Info,
+  X, Plus, Pencil, Camera
 } from 'lucide-react';
 import * as Icons from 'lucide-react';
 
@@ -39,13 +39,6 @@ interface PluginPreference {
   installId?: string;
   isCore?: boolean;
   installed?: boolean;
-}
-
-interface Integration {
-  type: string;
-  displayName: string;
-  configured: boolean;
-  category?: string;
 }
 
 interface TenantInstallation {
@@ -94,13 +87,6 @@ export default function SettingsPage() {
   const [profileAvatarPreview, setProfileAvatarPreview] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
 
-  // Integration state
-  const [integrations, setIntegrations] = useState<Integration[]>([]);
-  const [loadingIntegrations, setLoadingIntegrations] = useState(true);
-  const [configureIntegration, setConfigureIntegration] = useState<Integration | null>(null);
-  const [integrationCredentials, setIntegrationCredentials] = useState<Record<string, string>>({});
-  const [savingIntegration, setSavingIntegration] = useState(false);
-
   // Tenant plugin config state
   const [tenantInstallations, setTenantInstallations] = useState<TenantInstallation[]>([]);
   const [loadingTenantInstalls, setLoadingTenantInstalls] = useState(true);
@@ -114,7 +100,6 @@ export default function SettingsPage() {
 
   useEffect(() => {
     loadPluginsAndPreferences();
-    loadIntegrations();
     loadTenantInstallations();
   }, [isAuthenticated, currentTeamId]);
 
@@ -169,9 +154,13 @@ export default function SettingsPage() {
         }
       }
 
+      const csrfToken = await getCsrfToken();
       const res = await fetch(`/api/v1/tenant/installations/${configuringPlugin.id}/config`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
         body: JSON.stringify({ settings }),
       });
 
@@ -244,9 +233,13 @@ export default function SettingsPage() {
   const handleSaveProfile = async () => {
     setSavingProfile(true);
     try {
+      const csrfToken = await getCsrfToken();
       const res = await fetch('/api/v1/auth/profile', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
         body: JSON.stringify({
           displayName: profileName,
           avatarUrl: profileAvatarUrl,
@@ -266,108 +259,6 @@ export default function SettingsPage() {
       notifications.error('Failed to update profile');
     } finally {
       setSavingProfile(false);
-    }
-  };
-
-  const loadIntegrations = async () => {
-    try {
-      setLoadingIntegrations(true);
-      const res = await fetch('/api/v1/integrations');
-      if (res.ok) {
-        const data = await res.json();
-        setIntegrations(data.data?.integrations || data.integrations || []);
-      }
-    } catch (error) {
-      console.error('Failed to load integrations:', error);
-    } finally {
-      setLoadingIntegrations(false);
-    }
-  };
-
-  const handleConfigureIntegration = async () => {
-    if (!configureIntegration) return;
-
-    setSavingIntegration(true);
-    try {
-      const res = await fetch(`/api/v1/integrations/${configureIntegration.type}/configure`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credentials: integrationCredentials }),
-      });
-
-      if (res.ok) {
-        notifications.success(`${configureIntegration.displayName} configured successfully`);
-        setConfigureIntegration(null);
-        setIntegrationCredentials({});
-        await loadIntegrations();
-      } else {
-        notifications.error('Failed to configure integration');
-      }
-    } catch (error) {
-      console.error('Failed to configure integration:', error);
-      notifications.error('Failed to configure integration');
-    } finally {
-      setSavingIntegration(false);
-    }
-  };
-
-  const getIntegrationIcon = (type: string) => {
-    switch (type) {
-      case 'openai':
-      case 'anthropic':
-        return <Brain size={20} />;
-      case 'aws-s3':
-      case 'gcp-storage':
-      case 'azure-blob':
-        return <Cloud size={20} />;
-      case 'sendgrid':
-      case 'mailgun':
-      case 'ses':
-        return <Mail size={20} />;
-      case 'stripe':
-      case 'paypal':
-        return <CreditCard size={20} />;
-      case 'twilio':
-        return <Phone size={20} />;
-      default:
-        return <Plug size={20} />;
-    }
-  };
-
-  const getIntegrationFields = (type: string): Array<{ key: string; label: string; secret?: boolean }> => {
-    switch (type) {
-      case 'openai':
-        return [
-          { key: 'apiKey', label: 'API Key', secret: true },
-          { key: 'organization', label: 'Organization ID' },
-        ];
-      case 'anthropic':
-        return [{ key: 'apiKey', label: 'API Key', secret: true }];
-      case 'aws-s3':
-        return [
-          { key: 'accessKeyId', label: 'Access Key ID', secret: true },
-          { key: 'secretAccessKey', label: 'Secret Access Key', secret: true },
-          { key: 'region', label: 'Region' },
-          { key: 'bucket', label: 'Default Bucket' },
-        ];
-      case 'sendgrid':
-        return [
-          { key: 'apiKey', label: 'API Key', secret: true },
-          { key: 'fromEmail', label: 'Default From Email' },
-        ];
-      case 'stripe':
-        return [
-          { key: 'secretKey', label: 'Secret Key', secret: true },
-          { key: 'webhookSecret', label: 'Webhook Secret', secret: true },
-        ];
-      case 'twilio':
-        return [
-          { key: 'accountSid', label: 'Account SID', secret: true },
-          { key: 'authToken', label: 'Auth Token', secret: true },
-          { key: 'phoneNumber', label: 'Phone Number' },
-        ];
-      default:
-        return [{ key: 'apiKey', label: 'API Key', secret: true }];
     }
   };
 
@@ -581,10 +472,14 @@ export default function SettingsPage() {
     // Save new order for each plugin
     setSaving(true);
     try {
+      const csrfToken = await getCsrfToken();
       for (const plugin of updated) {
         await fetch('/api/v1/base/user/preferences', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+          },
           body: JSON.stringify({
             userId: user?.id,
             pluginName: plugin.name,
@@ -665,10 +560,14 @@ export default function SettingsPage() {
   const handleResetToDefaults = async () => {
     if (!isAuthenticated || !user?.id) return;
 
+    const csrfToken = await getCsrfToken();
     for (const pref of userPreferences) {
       await fetch('/api/v1/base/user/preferences', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
         body: JSON.stringify({
           userId: user.id,
           pluginName: pref.name,
@@ -1094,34 +993,6 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* API Keys Section */}
-      <section className="bg-card rounded-xl border p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <Key className="h-5 w-5 text-primary" />
-          <h2 className="text-lg font-semibold">API Keys</h2>
-        </div>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between p-4 bg-muted/50 rounded-xl border border-border">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                <Key size={20} className="text-amber-500" />
-              </div>
-              <div>
-                <p className="font-mono">lp_sk_****************************</p>
-                <p className="text-sm text-muted-foreground">Created 30 days ago</p>
-              </div>
-            </div>
-            <button className="p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-destructive transition-all">
-              <RotateCw size={18} />
-            </button>
-          </div>
-
-          <button className="w-full py-3 border border-dashed border-muted-foreground/30 rounded-xl text-muted-foreground hover:text-primary hover:border-primary/30 transition-all">
-            + Generate New API Key
-          </button>
-        </div>
-      </section>
-
       {/* My Plugin Configurations */}
       {isAuthenticated && tenantInstallations.length > 0 && (
         <section className="bg-card rounded-xl border p-6">
@@ -1195,74 +1066,6 @@ export default function SettingsPage() {
         </section>
       )}
 
-      {/* Integrations Section */}
-      <section className="bg-card rounded-xl border p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <Plug className="h-5 w-5 text-primary" />
-          <h2 className="text-lg font-semibold">Integrations</h2>
-        </div>
-        <p className="text-sm text-muted-foreground mb-4">
-          Connect third-party services for enhanced plugin capabilities
-        </p>
-        {loadingIntegrations ? (
-          <div className="flex items-center justify-center p-8">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          </div>
-        ) : integrations.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            <Plug className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            <p>No integrations available</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {integrations.map((integration) => (
-              <div
-                key={integration.type}
-                className={`p-4 rounded-xl border transition-all ${
-                  integration.configured
-                    ? 'bg-primary/5 border-primary/20'
-                    : 'bg-muted/50 border-border hover:border-muted-foreground/30'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                      integration.configured
-                        ? 'bg-primary/20 text-primary'
-                        : 'bg-muted text-muted-foreground'
-                    }`}>
-                      {getIntegrationIcon(integration.type)}
-                    </div>
-                    <div>
-                      <p className="font-medium">{integration.displayName}</p>
-                      <p className="text-xs text-muted-foreground">{integration.type}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {integration.configured && (
-                      <div className="flex items-center gap-1 text-primary text-xs">
-                        <Check size={14} />
-                        <span>Configured</span>
-                      </div>
-                    )}
-                    <button
-                      onClick={() => {
-                        setConfigureIntegration(integration);
-                        setIntegrationCredentials({});
-                      }}
-                      className="p-2 rounded-lg bg-muted hover:bg-muted/80 text-muted-foreground transition-all"
-                    >
-                      <SettingsIcon size={16} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
       {/* Save Button */}
       <div className="flex justify-end">
         <button className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-xl font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all">
@@ -1324,73 +1127,6 @@ export default function SettingsPage() {
               >
                 {uninstallLoading && <Loader2 className="w-4 h-4 animate-spin" />}
                 Uninstall
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Integration Configuration Modal */}
-      {configureIntegration && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-xl w-full max-w-md m-4 shadow-xl">
-            <div className="flex items-center justify-between p-6 border-b border-border">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                  {getIntegrationIcon(configureIntegration.type)}
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold">Configure {configureIntegration.displayName}</h3>
-                  <p className="text-sm text-muted-foreground">Enter your credentials</p>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  setConfigureIntegration(null);
-                  setIntegrationCredentials({});
-                }}
-                className="p-2 rounded-lg hover:bg-muted text-muted-foreground"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              {getIntegrationFields(configureIntegration.type).map((field) => (
-                <div key={field.key}>
-                  <label className="block text-sm font-medium text-muted-foreground mb-2">
-                    {field.label}
-                  </label>
-                  <input
-                    type={field.secret ? 'password' : 'text'}
-                    value={integrationCredentials[field.key] || ''}
-                    onChange={(e) => setIntegrationCredentials(prev => ({
-                      ...prev,
-                      [field.key]: e.target.value,
-                    }))}
-                    placeholder={field.secret ? '••••••••••••••' : ''}
-                    className="w-full bg-background border border-border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors"
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="flex gap-3 p-6 border-t border-border">
-              <button
-                onClick={() => {
-                  setConfigureIntegration(null);
-                  setIntegrationCredentials({});
-                }}
-                className="flex-1 px-4 py-3 bg-muted text-muted-foreground rounded-xl hover:bg-muted/80 transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfigureIntegration}
-                disabled={savingIntegration}
-                className="flex-1 px-4 py-3 bg-primary text-primary-foreground rounded-xl font-bold hover:bg-primary/90 transition-all disabled:opacity-50"
-              >
-                {savingIntegration ? 'Saving...' : 'Save Configuration'}
               </button>
             </div>
           </div>

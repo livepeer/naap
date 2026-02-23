@@ -2,7 +2,7 @@
 /* Inherits CSS variables from shell */
 
 .todo-item {
-  @apply flex items-center gap-3 p-4 bg-bg-secondary border border-white/10 rounded-xl transition-all;
+  @apply flex items-center gap-3 p-4 bg-secondary border border-white/10 rounded-xl transition-all;
 }
 
 .todo-item:hover {

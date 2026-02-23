@@ -22,7 +22,7 @@
  * - Test team
  */
 
-import { PrismaClient } from '@naap/database';
+import { BILLING_PROVIDERS, PrismaClient } from '@naap/database';
 import * as crypto from 'crypto';
 import * as path from 'path';
 
@@ -653,7 +653,28 @@ async function main() {
   console.log(`   ✅ Created ${prefCount} user plugin preferences for core plugins`);
 
   // ============================================
-  // 11. Historical Stats (Observability)
+  // 11. Billing Providers
+  // ============================================
+  console.log('💳 Seeding billing providers...');
+
+  for (const provider of BILLING_PROVIDERS) {
+    await prisma.billingProvider.upsert({
+      where: { slug: provider.slug },
+      update: {
+        displayName: provider.displayName,
+        description: provider.description,
+        icon: provider.icon,
+        authType: provider.authType,
+        enabled: provider.enabled,
+        sortOrder: provider.sortOrder,
+      },
+      create: provider,
+    });
+  }
+  console.log(`   ✅ Created ${BILLING_PROVIDERS.length} billing providers`);
+
+  // ============================================
+  // 12. Historical Stats (Observability)
   // ============================================
   console.log('📊 Creating historical stats...');
 
@@ -673,7 +694,7 @@ async function main() {
   console.log(`   ✅ Created ${stats.length} historical stats`);
 
   // ============================================
-  // 11. Job Feeds (Recent Activity)
+  // 13. Job Feeds (Recent Activity)
   // ============================================
   console.log('📡 Creating job feeds...');
 

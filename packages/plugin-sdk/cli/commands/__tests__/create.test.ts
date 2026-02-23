@@ -20,64 +20,52 @@ import os from 'os';
  * directly (avoids running the interactive CLI).
  */
 function generateAppTsx(name: string): string {
+  const pascalName = name.split(/[-_]/).map((s: string) => s.charAt(0).toUpperCase() + s.slice(1)).join('');
   return `import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { ShellProvider } from '@naap/plugin-sdk/hooks';
-import type { ShellContext } from '@naap/plugin-sdk/types';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { createPlugin } from '@naap/plugin-sdk';
 import Dashboard from './pages/Dashboard';
 import './index.css';
 
-interface AppProps {
-  shellContext?: ShellContext;
-  basename?: string;
-}
+const ${pascalName}App: React.FC = () => (
+  <MemoryRouter>
+    <Routes>
+      <Route path="/*" element={<Dashboard />} />
+    </Routes>
+  </MemoryRouter>
+);
 
-const App: React.FC<AppProps> = ({ shellContext, basename = '/${name}' }) => {
-  const content = (
-    <BrowserRouter basename={basename}>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="*" element={<Dashboard />} />
-      </Routes>
-    </BrowserRouter>
-  );
+const plugin = createPlugin({
+  name: '${name}',
+  version: '1.0.0',
+  routes: ['/${name}', '/${name}/*'],
+  App: ${pascalName}App,
+});
 
-  if (shellContext) {
-    return (
-      <ShellProvider value={shellContext}>
-        {content}
-      </ShellProvider>
-    );
-  }
-
-  return content;
-};
-
-export default App;
+export const mount = plugin.mount;
+export default plugin;
 `;
 }
 
-function generateMountTsx(): string {
-  return `import React from 'react';
-import { createRoot, Root } from 'react-dom/client';
-import type { ShellContext } from '@naap/plugin-sdk/types';
-import App from './App';
+function generateMountTsx(name: string): string {
+  const pascalName = name.split(/[-_]/).map((s: string) => s.charAt(0).toUpperCase() + s.slice(1)).join('');
+  return `import plugin from './App';
 
-let root: Root | null = null;
+const PLUGIN_GLOBAL_NAME = 'NaapPlugin${pascalName}';
 
-export function mount(container: HTMLElement, context: ShellContext) {
-  root = createRoot(container);
-  root.render(<App shellContext={context} />);
+export const mount = plugin.mount;
+export const unmount = plugin.unmount;
+export const metadata = plugin.metadata || { name: '${name}', version: '1.0.0' };
 
-  return () => {
-    if (root) {
-      root.unmount();
-      root = null;
-    }
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>)[PLUGIN_GLOBAL_NAME] = {
+    mount,
+    unmount,
+    metadata,
   };
 }
 
-export default { mount };
+export default { mount, unmount, metadata };
 `;
 }
 
@@ -124,28 +112,43 @@ describe('Create Command — Scaffolding Correctness', () => {
   // Mount entry-point uniqueness
   // ---------------------------------------------------------------
   describe('mount entry point', () => {
-    it('mount.tsx exports a mount function', () => {
-      const content = generateMountTsx();
-      expect(content).toContain('export function mount(');
-      expect(content).toContain('export default { mount }');
+    it('mount.tsx delegates to plugin from App.tsx', () => {
+      const content = generateMountTsx('my-plugin');
+      expect(content).toContain("import plugin from './App'");
+      expect(content).toContain('export const mount = plugin.mount');
     });
 
-    it('App.tsx does NOT export a mount function', () => {
+    it('mount.tsx exports unmount and metadata', () => {
+      const content = generateMountTsx('my-plugin');
+      expect(content).toContain('export const unmount = plugin.unmount');
+      expect(content).toContain('export const metadata = plugin.metadata');
+    });
+
+    it('mount.tsx registers on window for UMD', () => {
+      const content = generateMountTsx('my-plugin');
+      expect(content).toContain('NaapPluginMyPlugin');
+      expect(content).toContain("if (typeof window !== 'undefined')");
+    });
+
+    it('App.tsx uses createPlugin() pattern', () => {
+      const content = generateAppTsx('my-plugin');
+      expect(content).toContain("import { createPlugin } from '@naap/plugin-sdk'");
+      expect(content).toContain('createPlugin({');
+      expect(content).not.toContain('ShellProvider');
+      expect(content).not.toContain('createRoot');
+    });
+
+    it('App.tsx does NOT contain manual mount boilerplate', () => {
       const content = generateAppTsx('my-plugin');
       expect(content).not.toMatch(/export\s+function\s+mount/);
       expect(content).not.toContain('let root: Root | null');
+      expect(content).not.toContain('ReactDOM.createRoot');
     });
 
-    it('mount.tsx accepts ShellContext, not generic Record', () => {
-      const content = generateMountTsx();
-      expect(content).toContain('context: ShellContext');
-      expect(content).not.toContain('context: Record<string, unknown>');
-    });
-
-    it('mount.tsx properly cleans up root on unmount', () => {
-      const content = generateMountTsx();
-      expect(content).toContain('root.unmount()');
-      expect(content).toContain('root = null');
+    it('App.tsx exports mount from plugin instance', () => {
+      const content = generateAppTsx('my-plugin');
+      expect(content).toContain('export const mount = plugin.mount');
+      expect(content).toContain('export default plugin');
     });
   });
 
@@ -213,13 +216,129 @@ describe('Create Command — Scaffolding Correctness', () => {
   // ---------------------------------------------------------------
   describe('displayName prompt', () => {
     it('prompt questions include displayName', async () => {
-      // Read the create.ts source and verify the prompt array contains displayName
       const createSrc = await fs.readFile(
         path.join(__dirname, '..', 'create.ts'),
         'utf-8'
       );
       expect(createSrc).toContain("name: 'displayName'");
       expect(createSrc).toContain("message: 'Display name (human-readable):'");
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // Default template behavior (P0: frontend-first)
+  // ---------------------------------------------------------------
+  describe('default template behavior', () => {
+    it('TEMPLATES list places frontend-only first', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      const fullStackIdx = createSrc.indexOf("value: 'full-stack'");
+      const frontendOnlyIdx = createSrc.indexOf("value: 'frontend-only'");
+      expect(frontendOnlyIdx).toBeLessThan(fullStackIdx);
+    });
+
+    it('fallback template defaults to frontend-only when no option or answer', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      expect(createSrc).toContain("|| 'frontend-only') as PluginTemplate");
+    });
+
+    it('explicit --template full-stack overrides default', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      expect(createSrc).toContain("options?.template || answers.template || 'frontend-only'");
+    });
+
+    it('next-steps messaging hints at full-stack upgrade path for frontend-only', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      expect(createSrc).toContain("if (template === 'frontend-only')");
+      expect(createSrc).toContain('--template full-stack');
+      expect(createSrc).toContain('naap-plugin add endpoint');
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // Simple full-stack backend mode (P0: --simple flag)
+  // ---------------------------------------------------------------
+  describe('simple full-stack backend mode', () => {
+    it('CLI accepts --simple option', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      expect(createSrc).toContain("'--simple'");
+      expect(createSrc).toContain('Full-stack without Prisma/Docker');
+    });
+
+    it('simple backend scaffold has no Prisma or @naap/database dependency', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      const simpleBackendFn = createSrc.slice(
+        createSrc.indexOf('async function createBackendSimple'),
+        createSrc.indexOf('async function createDocs')
+      );
+      expect(simpleBackendFn).not.toContain('@naap/database');
+      expect(simpleBackendFn).not.toContain('prisma');
+      expect(simpleBackendFn).toContain('In-memory store');
+    });
+
+    it('simple backend scaffold uses deterministic port', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      const simpleBackendFn = createSrc.slice(
+        createSrc.indexOf('async function createBackendSimple'),
+        createSrc.indexOf('async function createDocs')
+      );
+      expect(simpleBackendFn).toContain('portHash');
+      expect(simpleBackendFn).toContain('4000 + (portHash % 1000)');
+    });
+
+    it('simple backend scaffold includes CRUD routes', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      const simpleBackendFn = createSrc.slice(
+        createSrc.indexOf('async function createBackendSimple'),
+        createSrc.indexOf('async function createDocs')
+      );
+      expect(simpleBackendFn).toContain("router.get('/'");
+      expect(simpleBackendFn).toContain("router.post('/'");
+      expect(simpleBackendFn).toContain("router.delete('/:id'");
+    });
+
+    it('simple mode branches from full-stack creation path', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      expect(createSrc).toContain('options?.simple');
+      expect(createSrc).toContain('createBackendSimple(targetDir, pluginName)');
+    });
+
+    it('simple backend package.json omits prisma devDependency', async () => {
+      const createSrc = await fs.readFile(
+        path.join(__dirname, '..', 'create.ts'),
+        'utf-8'
+      );
+      const simpleBackendFn = createSrc.slice(
+        createSrc.indexOf('async function createBackendSimple'),
+        createSrc.indexOf('async function createDocs')
+      );
+      expect(simpleBackendFn).not.toContain("prisma: '^5.0.0'");
     });
   });
 });
