@@ -588,31 +588,23 @@ async function createBackend(targetDir: string, name: string, integrations: stri
   const portHash = Array.from(name).reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
   const backendPort = 4000 + (portHash % 1000);
 
-  // src/server.ts
-  await fs.writeFile(path.join(backendDir, 'src', 'server.ts'), `import express from 'express';
-import cors from 'cors';
+  // src/server.ts — uses createPluginServer for built-in security defaults
+  // (rate limiting, CORS, helmet, auth, error handling)
+  await fs.writeFile(path.join(backendDir, 'src', 'server.ts'), `import { createPluginServer } from '@naap/plugin-server-sdk';
 import { config } from 'dotenv';
 import { router } from './routes/index.js';
 
 config();
 
-const app = express();
-const PORT = process.env.PORT || ${backendPort};
-
-app.use(cors());
-app.use(express.json());
-
-// Health check
-app.get('/healthz', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+const server = createPluginServer({
+  name: '${name}',
+  port: ${backendPort},
+  requireAuth: false,
 });
 
-// API routes
-app.use('/api/v1/${name}', router);
+server.router.use('/${name}', router);
 
-app.listen(PORT, () => {
-  console.log(\`🚀 ${name} backend running on port \${PORT}\`);
-});
+server.start();
 `);
 
   // src/routes/index.ts
@@ -775,28 +767,21 @@ async function createBackendSimple(targetDir: string, name: string): Promise<voi
     exclude: ['node_modules', 'dist'],
   }, { spaces: 2 });
 
-  await fs.writeFile(path.join(backendDir, 'src', 'server.ts'), `import express from 'express';
-import cors from 'cors';
+  await fs.writeFile(path.join(backendDir, 'src', 'server.ts'), `import { createPluginServer } from '@naap/plugin-server-sdk';
 import { config } from 'dotenv';
 import { router } from './routes/index.js';
 
 config();
 
-const app = express();
-const PORT = process.env.PORT || ${backendPort};
-
-app.use(cors());
-app.use(express.json());
-
-app.get('/healthz', (_req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+const server = createPluginServer({
+  name: '${name}',
+  port: ${backendPort},
+  requireAuth: false,
 });
 
-app.use('/api/v1/${name}', router);
+server.router.use('/${name}', router);
 
-app.listen(PORT, () => {
-  console.log(\`🚀 ${name} backend running on port \${PORT}\`);
-});
+server.start();
 `);
 
   await fs.writeFile(path.join(backendDir, 'src', 'routes', 'index.ts'), `import { Router } from 'express';

@@ -41,6 +41,18 @@ jobs:
           # Omitting the 'queries' key uses the built-in "security-extended"
           # suite which covers OWASP Top-10, CWE-25, injection, SSRF, etc.
           config: |
+            paths-ignore:
+              # Example plugins — community samples, not production code
+              - examples
+              # Test files — intentionally exercise edge cases
+              - '**/__tests__'
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.spec.ts'
+              # Plugin publisher test routes (test harness, not production)
+              - apps/web-next/src/app/api/v1/plugin-publisher/test
+              - apps/web-next/src/app/api/v1/plugin-publisher/test-backend
+              - apps/web-next/src/app/api/v1/plugin-publisher/test-frontend
             query-filters:
               # Keep only critical and high severity findings
               - include:

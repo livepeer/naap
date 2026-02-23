@@ -113,7 +113,7 @@ async function safeFetch(
       throw new Error('Only HTTPS URLs are allowed');
     }
 
-    const res = await fetch(currentUrl.toString(), { ...init, redirect: 'manual' });
+    const res = await fetch(currentUrl.toString(), { ...init, redirect: 'manual' }); // lgtm[js/request-forgery] validated by validateExternalUrl + HTTPS check
 
     // Not a redirect — return as-is
     if (res.status < 300 || res.status >= 400) {

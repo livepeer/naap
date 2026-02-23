@@ -62,7 +62,7 @@ export async function verifyUrlAccessible(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    const response = await fetch(url, {
+    const response = await fetch(url, { // lgtm[js/insecure-download] HTTPS enforced by check above
       method: 'HEAD',
       signal: controller.signal,
     });

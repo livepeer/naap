@@ -21,6 +21,9 @@ export * from './errorHandler.js';
 // Re-export tracing infrastructure
 export * from './tracing.js';
 
+// Re-export shared security utilities
+export * from './security.js';
+
 /**
  * Format an Ethereum address to a shortened display format
  */
