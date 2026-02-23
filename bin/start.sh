@@ -107,6 +107,7 @@ preflight_check() {
     log_info "Running first-time setup automatically..."
     echo ""
     log_section "First-Time Setup"
+    mkdir -p "$LOG_DIR" 2>/dev/null || true
 
     # Step 1: Install dependencies
     log_info "Installing dependencies (npm install)... This may take 1-2 minutes."
@@ -122,20 +123,20 @@ preflight_check() {
     tail -5 "$npm_log"
     log_success "Dependencies installed"
 
-    # Step 2: Build internal workspace packages whose exports point to dist/
-    # These are gitignored, so a fresh clone won't have them. Consumers like
-    # plugin vite.config.ts (@naap/plugin-build) and base-svc (@naap/cache)
-    # will fail to start without this step.  Fixes: #129
-    log_info "Building workspace packages (plugin-build, cache)..."
-    (cd "$ROOT_DIR" && npm run build --workspace=@naap/plugin-build --workspace=@naap/cache) \
-      > "$LOG_DIR/workspace-bootstrap.log" 2>&1 || true
-    if [ -f "$ROOT_DIR/packages/plugin-build/dist/vite.js" ] && \
-       [ -f "$ROOT_DIR/packages/cache/dist/index.js" ]; then
-      log_success "Workspace packages built"
-    else
-      log_error "Workspace package build failed. Check logs/workspace-bootstrap.log"
-      exit 1
+    # Step 2: Ensure internal workspace packages whose exports point to dist/ are built.
+    # Fresh clones won't have these (gitignored). Note: root postinstall usually handles
+    # this, but this remains as a fallback for installs done with --ignore-scripts.
+    log_info "Ensuring workspace packages are built (plugin-build, cache)..."
+    if [ ! -f "$ROOT_DIR/packages/plugin-build/dist/vite.js" ] || \
+       [ ! -f "$ROOT_DIR/packages/cache/dist/index.js" ] || \
+       [ ! -f "$ROOT_DIR/packages/cache/dist/index.d.ts" ]; then
+      BOOTSTRAP_LOG_PATH="$LOG_DIR/workspace-bootstrap.log" \
+        node "$ROOT_DIR/bin/bootstrap-workspace-packages.cjs" || {
+          log_error "Workspace package bootstrap failed. Check logs/workspace-bootstrap.log"
+          exit 1
+        }
     fi
+    log_success "Workspace packages ready"
 
     # Step 3: Install git hooks (pre-push validation)
     if [ -f "$SCRIPT_DIR/install-git-hooks.sh" ]; then
