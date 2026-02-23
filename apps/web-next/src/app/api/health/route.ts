@@ -14,6 +14,7 @@ export async function GET() {
     POSTGRES_PRISMA_URL: process.env.POSTGRES_PRISMA_URL ? `SET (${process.env.POSTGRES_PRISMA_URL.substring(0, 40)}...)` : 'EMPTY',
     POSTGRES_URL: process.env.POSTGRES_URL ? `SET (${process.env.POSTGRES_URL.substring(0, 40)}...)` : 'EMPTY',
     POSTGRES_URL_NON_POOLING: process.env.POSTGRES_URL_NON_POOLING ? 'SET' : 'EMPTY',
+    NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET ? `SET (len=${process.env.NEXTAUTH_SECRET.length})` : 'EMPTY',
     NODE_ENV: process.env.NODE_ENV || 'undefined',
     VERCEL: process.env.VERCEL || 'undefined',
     VERCEL_ENV: process.env.VERCEL_ENV || 'undefined',
