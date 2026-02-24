@@ -8,7 +8,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
-import { getAdminContext, isErrorResponse, loadConnectorWithEndpoints, loadConnector } from '@/lib/gateway/admin/team-guard';
+import { getAdminContext, isErrorResponse, loadConnectorWithEndpoints, loadOwnedConnector } from '@/lib/gateway/admin/team-guard';
 import { updateConnectorSchema } from '@/lib/gateway/admin/validation';
 import { invalidateConnectorCache } from '@/lib/gateway/resolve';
 
@@ -32,7 +32,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
   if (isErrorResponse(ctx)) return ctx;
 
   const { id } = await context.params;
-  const existing = await loadConnector(id, ctx.teamId);
+  const existing = await loadOwnedConnector(id, ctx.teamId);
   if (!existing) {
     return errors.notFound('Connector');
   }
@@ -72,7 +72,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   if (isErrorResponse(ctx)) return ctx;
 
   const { id } = await context.params;
-  const existing = await loadConnector(id, ctx.teamId);
+  const existing = await loadOwnedConnector(id, ctx.teamId);
   if (!existing) {
     return errors.notFound('Connector');
   }

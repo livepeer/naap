@@ -89,13 +89,13 @@ export async function GET(
   const pluginDir = toKebabCase(pluginName);
 
   // Resolve the bundle file. Check in order:
-  //   1. dist/plugins/{dir}/{version}/ — canonical CDN output from build-plugins.sh
-  //   2. plugins/{dir}/frontend/dist/production/ — source build (local dev)
+  //   1. Source build output (always fresh after vite build — single source of truth)
+  //   2. Aggregated CDN output (production / CI fallback from build-plugins.sh)
   const rootDir = process.cwd();
   const monorepoRoot = path.join(rootDir, '..', '..');
   const candidateDirs = [
-    path.join(monorepoRoot, 'dist', 'plugins', pluginDir, version),
     path.join(monorepoRoot, 'plugins', pluginDir, 'frontend', 'dist', 'production'),
+    path.join(monorepoRoot, 'dist', 'plugins', pluginDir, version),
   ];
 
   let versionDir = candidateDirs[0];
