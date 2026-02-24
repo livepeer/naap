@@ -7,6 +7,10 @@
 
 import * as crypto from 'crypto';
 import { prisma } from '../db';
+import {
+  sendVerificationEmail as sendEmailVerification,
+  sendPasswordResetEmail as sendEmailPasswordReset,
+} from '../email';
 
 /** Sanitize a value for safe log output (prevents log injection) */
 function sanitizeForLog(value: unknown): string {
@@ -269,6 +273,11 @@ export async function register(
         },
       },
     },
+  });
+
+  // Send verification email (non-blocking; don't fail registration if email fails)
+  sendVerificationEmail(user.id).catch((err) => {
+    console.error('[AUTH] Failed to send verification email:', (err as Error).message);
   });
 
   // Create session
@@ -663,13 +672,14 @@ export async function requestPasswordReset(email: string): Promise<{ success: bo
     },
   });
 
-  // In production, send email. For now, log to console (never log token in production)
-  const safeEmail = sanitizeForLog(email);
-  if (process.env.NODE_ENV !== 'production') {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const resetUrl = `${appUrl}/reset-password?token=${token}`;
+  const result = await sendEmailPasswordReset(email, resetUrl);
+
+  if (!result.success && process.env.NODE_ENV !== 'production') {
+    const safeEmail = sanitizeForLog(email);
     console.log(`[PASSWORD RESET] Token for ${safeEmail}: ${token}`);
-    console.log(`[PASSWORD RESET] Reset URL: /reset-password?token=${token}`);
-  } else {
-    console.log(`[PASSWORD RESET] Token generated for ${safeEmail}`);
+    console.log(`[PASSWORD RESET] Reset URL: ${resetUrl}`);
   }
 
   return { success: true, message: 'If an account exists, a reset link has been sent.' };
@@ -760,9 +770,18 @@ export async function sendVerificationEmail(userId: string): Promise<{ success: 
     },
   });
 
-  // In production, send email. For now, log to console
-  console.log(`[EMAIL VERIFICATION] Token for ${user.email}: ${token}`);
-  console.log(`[EMAIL VERIFICATION] Verify URL: /verify-email?token=${token}`);
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const verifyUrl = `${appUrl}/verify-email?token=${token}`;
+  const result = await sendEmailVerification(
+    user.email,
+    verifyUrl,
+    user.displayName ?? undefined
+  );
+
+  if (!result.success && process.env.NODE_ENV !== 'production') {
+    console.log(`[EMAIL VERIFICATION] Token for ${user.email}: ${token}`);
+    console.log(`[EMAIL VERIFICATION] Verify URL: ${verifyUrl}`);
+  }
 
   return { success: true };
 }
