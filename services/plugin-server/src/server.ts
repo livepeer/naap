@@ -250,6 +250,11 @@ function createRateLimiter(windowMs: number, maxRequests: number) {
   return (req: Request, res: Response, next: NextFunction) => {
     const key = req.ip || 'unknown';
     const now = Date.now();
+    if (rateLimitMap.size > 10_000) {
+      for (const [ip, value] of rateLimitMap) {
+        if (now > value.resetTime) rateLimitMap.delete(ip);
+      }
+    }
     const entry = rateLimitMap.get(key);
     if (!entry || now > entry.resetTime) {
       rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
