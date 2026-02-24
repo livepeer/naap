@@ -112,7 +112,6 @@ preflight_check() {
     log_info "Running first-time setup automatically..."
     echo ""
     log_section "First-Time Setup"
-    mkdir -p "$LOG_DIR" 2>/dev/null || true
 
     # Step 1: Install dependencies
     log_info "Installing dependencies (npm install)... This may take 1-2 minutes."
@@ -128,22 +127,7 @@ preflight_check() {
     tail -5 "$npm_log"
     log_success "Dependencies installed"
 
-    # Step 2: Ensure internal workspace packages whose exports point to dist/ are built.
-    # Fresh clones won't have these (gitignored). Note: root postinstall usually handles
-    # this, but this remains as a fallback for installs done with --ignore-scripts.
-    log_info "Ensuring workspace packages are built (plugin-build, cache)..."
-    if [ ! -f "$ROOT_DIR/packages/plugin-build/dist/vite.js" ] || \
-       [ ! -f "$ROOT_DIR/packages/cache/dist/index.js" ] || \
-       [ ! -f "$ROOT_DIR/packages/cache/dist/index.d.ts" ]; then
-      BOOTSTRAP_LOG_PATH="$LOG_DIR/workspace-bootstrap.log" \
-        node "$ROOT_DIR/bin/bootstrap-workspace-packages.cjs" || {
-          log_error "Workspace package bootstrap failed. Check logs/workspace-bootstrap.log"
-          exit 1
-        }
-    fi
-    log_success "Workspace packages ready"
-
-    # Step 3: Install git hooks (pre-push validation)
+    # Step 2: Install git hooks (pre-push validation)
     if [ -f "$SCRIPT_DIR/install-git-hooks.sh" ]; then
       bash "$SCRIPT_DIR/install-git-hooks.sh" 2>/dev/null && \
         log_success "Git hooks installed" || log_warn "Could not install git hooks"
@@ -151,6 +135,21 @@ preflight_check() {
 
     log_success "First-time setup complete. Continuing to start..."
     echo ""
+  fi
+
+  # Ensure internal workspace packages whose exports point to dist/ are built.
+  # Covers both fresh clones and installs done with --ignore-scripts.
+  if [ ! -f "$ROOT_DIR/packages/plugin-build/dist/index.js" ] || \
+     [ ! -f "$ROOT_DIR/packages/plugin-build/dist/vite.js" ] || \
+     [ ! -f "$ROOT_DIR/packages/cache/dist/index.js" ] || \
+     [ ! -f "$ROOT_DIR/packages/cache/dist/index.d.ts" ]; then
+    log_info "Ensuring workspace packages are built (plugin-build, cache)..."
+    BOOTSTRAP_LOG_PATH="$LOG_DIR/workspace-bootstrap.log" \
+      node "$ROOT_DIR/bin/bootstrap-workspace-packages.cjs" || {
+        log_error "Workspace package bootstrap failed. Check logs/workspace-bootstrap.log"
+        exit 1
+      }
+    log_success "Workspace packages ready"
   fi
 
   # Check Docker if we'll need databases

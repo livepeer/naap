@@ -97,6 +97,7 @@ function main() {
     console.error('[naap] Failed to run npm to build workspace packages.');
     console.error(build.error);
     if (logPath) console.error(`[naap] Build output written to ${logPath}`);
+    else if (build.output) console.error(build.output.trimEnd());
     process.exit(1);
   }
 
@@ -105,6 +106,7 @@ function main() {
     console.error('[naap] Workspace package bootstrap did not produce required artifacts:');
     console.error(formatMissing(missingAfter));
     if (logPath) console.error(`[naap] Build output written to ${logPath}`);
+    else if (build.output) console.error(build.output.trimEnd());
     process.exit(1);
   }
 
