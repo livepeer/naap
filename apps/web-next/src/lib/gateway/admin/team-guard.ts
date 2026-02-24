@@ -84,24 +84,42 @@ function scopeFilter(connectorId: string, scopeId: string) {
   return { id: connectorId, teamId: scopeId };
 }
 
+function visibleFilter(connectorId: string, scopeId: string) {
+  return {
+    OR: [
+      scopeFilter(connectorId, scopeId),
+      { id: connectorId, visibility: 'public', status: 'published' },
+    ],
+  };
+}
+
 /**
- * Load a connector by ID, verifying it belongs to the caller's scope.
- * Returns 404 for other scopes' connectors (prevents enumeration).
+ * Load a connector by ID, verifying it belongs to the caller's scope
+ * OR is a published public connector (visible to all authenticated users).
  */
 export async function loadConnector(connectorId: string, scopeId: string) {
-  const connector = await prisma.serviceConnector.findFirst({
+  return prisma.serviceConnector.findFirst({
+    where: visibleFilter(connectorId, scopeId),
+  });
+}
+
+/**
+ * Load a connector by ID, strictly within the caller's own scope.
+ * Use for write operations (update/delete) where public fallback is NOT allowed.
+ */
+export async function loadOwnedConnector(connectorId: string, scopeId: string) {
+  return prisma.serviceConnector.findFirst({
     where: scopeFilter(connectorId, scopeId),
   });
-  return connector;
 }
 
 /**
  * Load a connector by ID with its endpoints.
+ * Same visibility rules as loadConnector.
  */
 export async function loadConnectorWithEndpoints(connectorId: string, scopeId: string) {
-  const connector = await prisma.serviceConnector.findFirst({
-    where: scopeFilter(connectorId, scopeId),
+  return prisma.serviceConnector.findFirst({
+    where: visibleFilter(connectorId, scopeId),
     include: { endpoints: true },
   });
-  return connector;
 }
