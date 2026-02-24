@@ -13,8 +13,8 @@ import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard
 import {
   loadConnectorTemplates,
   getTemplateById,
-  type ConnectorTemplate,
 } from '@/lib/gateway/connector-templates';
+import { invalidateConnectorCache } from '@/lib/gateway/resolve';
 
 export async function GET() {
   const templates = await loadConnectorTemplates();
@@ -64,8 +64,15 @@ export async function POST(request: NextRequest) {
 
   const slug = customSlug || template.connector.slug;
 
-  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
-    return errors.badRequest('Slug must be lowercase alphanumeric with hyphens');
+  const existing = ctx.isPersonal
+    ? await prisma.serviceConnector.findUnique({
+        where: { ownerUserId_slug: { ownerUserId: ctx.userId, slug } },
+      })
+    : await prisma.serviceConnector.findUnique({
+        where: { teamId_slug: { teamId: ctx.teamId, slug } },
+      });
+  if (existing) {
+    return errors.conflict(`Connector with slug "${slug}" already exists. Use a custom slug.`);
   }
 
   let allowedHosts: string[] = [];
@@ -76,67 +83,55 @@ export async function POST(request: NextRequest) {
     return errors.badRequest('Invalid upstreamBaseUrl');
   }
 
-  const created = await prisma.$transaction(async (tx) => {
-    const existing = await tx.serviceConnector.findUnique({
-      where: { teamId_slug: { teamId: ctx.teamId, slug } },
-    });
-    if (existing) {
-      throw new Error(`CONFLICT:Connector with slug "${slug}" already exists. Use a custom slug.`);
-    }
+  const ownerData = ctx.isPersonal
+    ? { ownerUserId: ctx.userId }
+    : { teamId: ctx.teamId };
 
-    const connector = await tx.serviceConnector.create({
-      data: {
-        teamId: ctx.teamId,
-        createdBy: ctx.userId,
-        slug,
-        displayName: template.connector.displayName,
-        description: template.connector.description || '',
-        upstreamBaseUrl,
-        allowedHosts,
-        authType: template.connector.authType,
-        authConfig: template.connector.authConfig || {},
-        secretRefs: template.connector.secretRefs,
-        streamingEnabled: template.connector.streamingEnabled ?? false,
-        responseWrapper: template.connector.responseWrapper ?? true,
-        healthCheckPath: template.connector.healthCheckPath || null,
-        defaultTimeout: template.connector.defaultTimeout ?? 30000,
-        tags: template.connector.tags || [],
-        status: 'draft',
-      },
-    });
-
-    await tx.connectorEndpoint.createMany({
-      data: template.endpoints.map((ep) => ({
-        connectorId: connector.id,
-        name: ep.name,
-        method: ep.method,
-        path: ep.path,
-        upstreamPath: ep.upstreamPath,
-        upstreamContentType: ep.upstreamContentType || 'application/json',
-        bodyTransform: ep.bodyTransform || 'passthrough',
-        bodyBlacklist: ep.bodyBlacklist || [],
-        bodyPattern: ep.bodyPattern || null,
-        bodySchema: ep.bodySchema ?? undefined,
-        cacheTtl: ep.cacheTtl ?? null,
-        timeout: ep.timeout ?? null,
-        retries: ep.retries ?? 0,
-      })),
-    });
-
-    return tx.serviceConnector.findUnique({
-      where: { id: connector.id },
-      include: { endpoints: true },
-    });
-  }).catch((err) => {
-    if (err instanceof Error && err.message.startsWith('CONFLICT:')) {
-      return err.message.slice('CONFLICT:'.length);
-    }
-    throw err;
+  const connector = await prisma.serviceConnector.create({
+    data: {
+      ...ownerData,
+      createdBy: ctx.userId,
+      slug,
+      displayName: template.connector.displayName,
+      description: template.connector.description || '',
+      upstreamBaseUrl,
+      allowedHosts,
+      authType: template.connector.authType,
+      authConfig: template.connector.authConfig || {},
+      secretRefs: template.connector.secretRefs,
+      streamingEnabled: template.connector.streamingEnabled ?? false,
+      responseWrapper: template.connector.responseWrapper ?? true,
+      healthCheckPath: template.connector.healthCheckPath || null,
+      defaultTimeout: template.connector.defaultTimeout ?? 30000,
+      tags: template.connector.tags || [],
+      status: 'draft',
+    },
   });
 
-  if (typeof created === 'string') {
-    return errors.conflict(created);
-  }
+  await prisma.connectorEndpoint.createMany({
+    data: template.endpoints.map((ep) => ({
+      connectorId: connector.id,
+      name: ep.name,
+      method: ep.method,
+      path: ep.path,
+      upstreamPath: ep.upstreamPath,
+      upstreamContentType: ep.upstreamContentType || 'application/json',
+      bodyTransform: ep.bodyTransform || 'passthrough',
+      bodyBlacklist: ep.bodyBlacklist || [],
+      bodyPattern: ep.bodyPattern || null,
+      bodySchema: ep.bodySchema ?? undefined,
+      cacheTtl: ep.cacheTtl ?? null,
+      timeout: ep.timeout ?? null,
+      retries: ep.retries ?? 0,
+    })),
+  });
+
+  invalidateConnectorCache(ctx.teamId, connector.slug);
+
+  const created = await prisma.serviceConnector.findUnique({
+    where: { id: connector.id },
+    include: { endpoints: true },
+  });
 
   return success({
     connector: created,

@@ -1,0 +1,601 @@
+/**
+ * Seed Script: Livepeer Leaderboard Gateway
+ *
+ * Run after `start.sh --all` to:
+ *   1. Authenticate as admin dev user
+ *   2. Create BOTH a personal connector (for personal workspace) and a team
+ *      connector (if the livepeer-dev team exists) for "livepeer-leaderboard"
+ *   3. Create 3 endpoints per connector (pipelines, aggregated stats, raw stats)
+ *   4. Publish each connector
+ *   5. Create a gateway plan and API key for the primary scope
+ *   6. Register the leaderboard example plugin in WorkflowPlugin
+ *   7. Print gateway URLs and test API key
+ *
+ * Idempotent — safe to run multiple times.
+ *
+ * Usage:
+ *   npx tsx bin/seed-leaderboard-gateway.ts
+ */
+
+import { PrismaClient } from '../packages/database/src/generated/client/index.js';
+
+const SHELL_URL = process.env.SHELL_URL || 'http://localhost:3000';
+const AUTH_EMAIL = process.env.AUTH_EMAIL || 'admin@livepeer.org';
+const AUTH_PASSWORD = process.env.AUTH_PASSWORD || 'livepeer';
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  error?: string;
+}
+
+interface Connector {
+  id: string;
+  slug: string;
+  displayName: string;
+  status: string;
+}
+
+interface Endpoint {
+  id: string;
+  connectorId: string;
+  name: string;
+  method: string;
+  path: string;
+}
+
+interface GatewayPlan {
+  id: string;
+  name: string;
+  displayName: string;
+}
+
+interface GatewayApiKey {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  rawKey: string;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+async function apiCall<T>(
+  method: string,
+  path: string,
+  token: string,
+  teamId: string | null,
+  body?: unknown,
+): Promise<ApiResponse<T>> {
+  const url = `${SHELL_URL}${path}`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+  };
+  if (teamId) {
+    headers['x-team-id'] = teamId;
+  }
+  const res = await fetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const json = await res.json() as ApiResponse<T>;
+
+  if (!res.ok && res.status !== 409) {
+    throw new Error(
+      `${method} ${path} failed (${res.status}): ${JSON.stringify(json)}`,
+    );
+  }
+
+  return json;
+}
+
+function step(n: number, msg: string) {
+  console.log(`\n[${'='.repeat(60)}]`);
+  console.log(`  Step ${n}: ${msg}`);
+  console.log(`[${'='.repeat(60)}]`);
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+
+async function main() {
+  console.log('\n🚀 Livepeer Leaderboard Gateway — Seed Script\n');
+
+  // ── Step 1: Authenticate ──────────────────────────────────────────────────
+
+  step(1, 'Authenticating as dev user');
+
+  const loginRes = await fetch(`${SHELL_URL}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: AUTH_EMAIL, password: AUTH_PASSWORD }),
+  });
+
+  if (!loginRes.ok) {
+    throw new Error(
+      `Login failed (${loginRes.status}). Is start.sh --all running?`,
+    );
+  }
+
+  const loginData = (await loginRes.json()) as ApiResponse<{
+    token: string;
+    user: { id: string; displayName: string };
+  }>;
+  const token = loginData.data.token;
+  const userId = loginData.data.user.id;
+  console.log(
+    `  ✅ Authenticated as ${loginData.data.user.displayName} (${AUTH_EMAIL})`,
+  );
+
+  // ── Step 2: Resolve scope (team or personal) ──────────────────────────────
+
+  step(2, 'Resolving ownership scope');
+
+  const prisma = new PrismaClient();
+  let teamId: string | null = null;
+
+  try {
+    const team = await prisma.team.findFirst({
+      where: { slug: 'livepeer-dev' },
+    });
+    if (team) {
+      teamId = team.id;
+      console.log(`  ✅ Team found: ${team.name} (${teamId})`);
+    } else {
+      console.log(`  ℹ️  No team found — will only create personal connector`);
+    }
+    console.log(`  ✅ Personal scope: ownerUserId ${userId}`);
+  } catch (err) {
+    await prisma.$disconnect();
+    throw err;
+  }
+
+  // ── Shared connector/endpoint definitions ────────────────────────────────
+
+  const connectorBody = {
+    slug: 'livepeer-leaderboard',
+    displayName: 'Livepeer AI Leaderboard',
+    description:
+      'Orchestrator performance leaderboard for Livepeer AI pipelines (text-to-image, LLM, live-video-to-video, upscale)',
+    upstreamBaseUrl: 'https://leaderboard-api.livepeer.cloud',
+    allowedHosts: ['leaderboard-api.livepeer.cloud'],
+    defaultTimeout: 15000,
+    healthCheckPath: '/api/pipelines',
+    authType: 'none' as const,
+    responseWrapper: true,
+    streamingEnabled: false,
+    tags: ['livepeer', 'ai', 'leaderboard', 'orchestrator'],
+  };
+
+  const endpointDefs = [
+    {
+      name: 'list-pipelines',
+      description: 'List all AI pipelines with their models and supported regions',
+      method: 'GET',
+      path: '/pipelines',
+      upstreamPath: '/api/pipelines',
+      rateLimit: 200,
+      timeout: 5000,
+      cacheTtl: 300,
+    },
+    {
+      name: 'aggregated-stats',
+      description: 'Get aggregated performance scores by pipeline and model',
+      method: 'GET',
+      path: '/stats',
+      upstreamPath: '/api/aggregated_stats',
+      rateLimit: 100,
+      timeout: 10000,
+      cacheTtl: 60,
+    },
+    {
+      name: 'raw-stats',
+      description: 'Get raw per-run stats for a specific orchestrator',
+      method: 'GET',
+      path: '/stats/raw',
+      upstreamPath: '/api/raw_stats',
+      rateLimit: 50,
+      timeout: 15000,
+      cacheTtl: 30,
+    },
+  ];
+
+  /**
+   * Helper: seed one connector via Prisma directly (create + endpoints + publish).
+   * Uses Prisma instead of the admin API so we can create connectors for any user.
+   */
+  async function seedConnectorDirect(
+    ownerSpec: { ownerUserId: string } | { teamId: string },
+    createdBy: string,
+    label: string,
+  ): Promise<string> {
+    console.log(`\n  ── ${label} ──`);
+
+    const slug = 'livepeer-leaderboard';
+    const where = 'ownerUserId' in ownerSpec
+      ? { ownerUserId_slug: { ownerUserId: ownerSpec.ownerUserId, slug } }
+      : { teamId_slug: { teamId: ownerSpec.teamId, slug } };
+
+    let connector = await prisma.serviceConnector.findUnique({ where });
+
+    if (connector) {
+      console.log(`    ⏭️  Connector already exists: ${connector.id}`);
+    } else {
+      connector = await prisma.serviceConnector.create({
+        data: {
+          ...ownerSpec,
+          createdBy,
+          slug,
+          displayName: connectorBody.displayName,
+          description: connectorBody.description,
+          upstreamBaseUrl: connectorBody.upstreamBaseUrl,
+          allowedHosts: connectorBody.allowedHosts,
+          defaultTimeout: connectorBody.defaultTimeout,
+          healthCheckPath: connectorBody.healthCheckPath,
+          authType: connectorBody.authType,
+          responseWrapper: connectorBody.responseWrapper,
+          streamingEnabled: connectorBody.streamingEnabled,
+          tags: connectorBody.tags,
+          status: 'draft',
+        },
+      });
+      console.log(`    ✅ Created connector: ${connector.id}`);
+    }
+
+    // Ensure endpoints exist
+    const existingEps = await prisma.connectorEndpoint.findMany({
+      where: { connectorId: connector.id },
+      select: { path: true, method: true },
+    });
+    const existingSet = new Set(existingEps.map(e => `${e.method}:${e.path}`));
+
+    for (const ep of endpointDefs) {
+      if (existingSet.has(`${ep.method}:${ep.path}`)) {
+        console.log(`    ⏭️  Endpoint exists: ${ep.method} ${ep.path}`);
+        continue;
+      }
+      await prisma.connectorEndpoint.create({
+        data: {
+          connectorId: connector.id,
+          name: ep.name,
+          description: ep.description,
+          method: ep.method,
+          path: ep.path,
+          upstreamPath: ep.upstreamPath,
+          upstreamContentType: 'application/json',
+          bodyTransform: 'passthrough',
+          rateLimit: ep.rateLimit,
+          timeout: ep.timeout,
+          cacheTtl: ep.cacheTtl,
+        },
+      });
+      console.log(`    ✅ Endpoint: ${ep.method} ${ep.path} → ${ep.upstreamPath}`);
+    }
+
+    // Publish if not already
+    if (connector.status !== 'published') {
+      await prisma.serviceConnector.update({
+        where: { id: connector.id },
+        data: { status: 'published', publishedAt: new Date() },
+      });
+      console.log(`    ✅ Published`);
+    } else {
+      console.log(`    ⏭️  Already published`);
+    }
+
+    return connector.id;
+  }
+
+  // ── Step 3: Create personal connectors for ALL users ──────────────────────
+
+  step(3, 'Creating personal "livepeer-leaderboard" connectors for all users');
+
+  const allUsers = await prisma.user.findMany({ select: { id: true, email: true, displayName: true } });
+  let primaryPersonalConnectorId: string | undefined;
+
+  for (const user of allUsers) {
+    const label = `${user.displayName || user.email || user.id}`;
+    const connId = await seedConnectorDirect({ ownerUserId: user.id }, userId, label);
+    if (user.id === userId) primaryPersonalConnectorId = connId;
+  }
+  console.log(`\n  ✅ Created personal connectors for ${allUsers.length} users`);
+
+  const personalConnectorId = primaryPersonalConnectorId || allUsers[0]?.id || userId;
+
+  // ── Step 4: Create team connector (if team exists) ────────────────────────
+
+  step(4, 'Creating team "livepeer-leaderboard" connector');
+
+  if (teamId) {
+    await seedConnectorDirect({ teamId }, userId, `Team: ${teamId}`);
+  } else {
+    console.log('  ⏭️  No team — skipping team connector');
+  }
+
+  // ── Step 5: Create gateway plan ───────────────────────────────────────────
+
+  step(5, 'Creating gateway plan (personal scope)');
+
+  let planId: string | undefined;
+
+  const planRes = await fetch(`${SHELL_URL}/api/v1/gw/admin/plans`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      name: 'leaderboard-standard',
+      displayName: 'Leaderboard Standard',
+      rateLimit: 100,
+      dailyQuota: 5000,
+    }),
+  });
+
+  if (planRes.ok) {
+    const planData = (await planRes.json()) as ApiResponse<GatewayPlan>;
+    planId = planData.data.id;
+    console.log(`  ✅ Plan created: ${planData.data.displayName} (${planId})`);
+  } else if (planRes.status === 409) {
+    const existing = await prisma.gatewayPlan.findFirst({
+      where: { ownerUserId: userId, name: 'leaderboard-standard' },
+    });
+    planId = existing?.id;
+    console.log(`  ⏭️  Plan already exists: ${planId}`);
+  } else {
+    const body = await planRes.text();
+    throw new Error(`Create plan failed (${planRes.status}): ${body}`);
+  }
+
+  // ── Step 6: Create API key ────────────────────────────────────────────────
+
+  step(6, 'Creating test API key (personal scope)');
+
+  const existingKey = await prisma.gatewayApiKey.findFirst({
+    where: { ownerUserId: userId, name: 'leaderboard-test-key', status: 'active' },
+  });
+
+  let rawKey: string | undefined;
+
+  if (existingKey) {
+    console.log(
+      `  ⏭️  API key already exists: ${existingKey.keyPrefix}... (raw key not available — was shown on creation)`,
+    );
+  } else {
+    const res = await apiCall<GatewayApiKey>(
+      'POST',
+      '/api/v1/gw/admin/keys',
+      token,
+      null,
+      {
+        name: 'leaderboard-test-key',
+        connectorId: personalConnectorId,
+        planId,
+      },
+    );
+    rawKey = res.data.rawKey;
+    console.log(`  ✅ API key created: ${res.data.keyPrefix}...`);
+  }
+
+  // ── Step 7: Register leaderboard plugin ───────────────────────────────────
+
+  step(7, 'Registering leaderboard plugin (WorkflowPlugin + Marketplace + Installs)');
+
+  const BUNDLE_URL = '/cdn/plugins/leaderboard/1.0.0/leaderboard.js';
+
+  // 8a. WorkflowPlugin (makes the shell discover it)
+  await prisma.workflowPlugin.upsert({
+    where: { name: 'leaderboard' },
+    update: {
+      displayName: 'AI Leaderboard',
+      version: '1.0.0',
+      routes: ['/leaderboard', '/leaderboard/*'],
+      enabled: true,
+      icon: 'Trophy',
+      bundleUrl: BUNDLE_URL,
+    },
+    create: {
+      name: 'leaderboard',
+      displayName: 'AI Leaderboard',
+      version: '1.0.0',
+      remoteUrl: BUNDLE_URL,
+      bundleUrl: BUNDLE_URL,
+      globalName: 'NaapPluginLeaderboard',
+      deploymentType: 'cdn',
+      routes: ['/leaderboard', '/leaderboard/*'],
+      enabled: true,
+      order: 99,
+      icon: 'Trophy',
+      metadata: {
+        category: 'example',
+        description:
+          'Livepeer AI orchestrator performance leaderboard — consumes the Service Gateway',
+      },
+    },
+  });
+  console.log('  ✅ WorkflowPlugin: leaderboard → /leaderboard');
+
+  // 8b. PluginPackage (marketplace listing)
+  const pkg = await prisma.pluginPackage.upsert({
+    where: { name: 'leaderboard' },
+    update: {
+      displayName: 'AI Leaderboard',
+      description: 'Livepeer AI orchestrator performance leaderboard — consumes the Service Gateway',
+      category: 'example',
+      publishStatus: 'published',
+    },
+    create: {
+      name: 'leaderboard',
+      displayName: 'AI Leaderboard',
+      description: 'Livepeer AI orchestrator performance leaderboard — consumes the Service Gateway',
+      category: 'example',
+      author: 'NAAP Examples',
+      authorEmail: 'examples@naap.dev',
+      license: 'MIT',
+      keywords: ['leaderboard', 'livepeer', 'ai', 'orchestrator', 'performance'],
+      icon: 'Trophy',
+      isCore: false,
+      publishStatus: 'published',
+    },
+  });
+  console.log(`  ✅ PluginPackage: ${pkg.id}`);
+
+  // 8c. PluginVersion
+  const ver = await prisma.pluginVersion.upsert({
+    where: { packageId_version: { packageId: pkg.id, version: '1.0.0' } },
+    update: {
+      frontendUrl: BUNDLE_URL,
+      manifest: {
+        name: 'leaderboard',
+        displayName: 'AI Leaderboard',
+        version: '1.0.0',
+        description: 'Livepeer AI orchestrator performance leaderboard',
+        category: 'example',
+        icon: 'Trophy',
+      },
+    },
+    create: {
+      packageId: pkg.id,
+      version: '1.0.0',
+      frontendUrl: BUNDLE_URL,
+      manifest: {
+        name: 'leaderboard',
+        displayName: 'AI Leaderboard',
+        version: '1.0.0',
+        description: 'Livepeer AI orchestrator performance leaderboard',
+        category: 'example',
+        icon: 'Trophy',
+      },
+    },
+  });
+  console.log(`  ✅ PluginVersion: ${ver.id}`);
+
+  // 8d. PluginDeployment
+  const deployment = await prisma.pluginDeployment.upsert({
+    where: { packageId: pkg.id },
+    update: {
+      versionId: ver.id,
+      status: 'running',
+      frontendUrl: BUNDLE_URL,
+      deployedAt: new Date(),
+      healthStatus: 'healthy',
+    },
+    create: {
+      packageId: pkg.id,
+      versionId: ver.id,
+      status: 'running',
+      frontendUrl: BUNDLE_URL,
+      deployedAt: new Date(),
+      healthStatus: 'healthy',
+      activeInstalls: 0,
+    },
+  });
+  console.log(`  ✅ PluginDeployment: ${deployment.id}`);
+
+  // 8e. TenantPluginInstall for all users
+  const pluginUsers = await prisma.user.findMany({ select: { id: true } });
+  let installCount = 0;
+  for (const user of pluginUsers) {
+    const existing = await prisma.tenantPluginInstall.findUnique({
+      where: {
+        userId_deploymentId: { userId: user.id, deploymentId: deployment.id },
+      },
+    });
+    if (!existing) {
+      await prisma.tenantPluginInstall.create({
+        data: {
+          userId: user.id,
+          deploymentId: deployment.id,
+          status: 'active',
+          enabled: true,
+          order: 0,
+          installedAt: new Date(),
+        },
+      });
+      installCount++;
+    }
+  }
+
+  // 8f. UserPluginPreference for all users
+  for (const user of pluginUsers) {
+    await prisma.userPluginPreference.upsert({
+      where: {
+        userId_pluginName: { userId: user.id, pluginName: 'leaderboard' },
+      },
+      update: { enabled: true },
+      create: {
+        userId: user.id,
+        pluginName: 'leaderboard',
+        enabled: true,
+        pinned: false,
+        order: 99,
+      },
+    });
+  }
+
+  // Update activeInstalls count
+  const activeCount = await prisma.tenantPluginInstall.count({
+    where: { deploymentId: deployment.id, status: 'active' },
+  });
+  await prisma.pluginDeployment.update({
+    where: { id: deployment.id },
+    data: { activeInstalls: activeCount },
+  });
+
+  console.log(`  ✅ Installed for ${installCount} new users (${activeCount} total active)`);
+
+  await prisma.$disconnect();
+
+  // ── Summary ───────────────────────────────────────────────────────────────
+
+  console.log('\n' + '═'.repeat(62));
+  console.log('  🎉 Livepeer Leaderboard Gateway — Setup Complete');
+  console.log('═'.repeat(62));
+  console.log();
+  console.log('  Gateway Proxy URLs (authenticated via JWT or API key):');
+  console.log();
+  console.log(
+    `    GET ${SHELL_URL}/api/v1/gw/livepeer-leaderboard/pipelines`,
+  );
+  console.log(
+    `    GET ${SHELL_URL}/api/v1/gw/livepeer-leaderboard/stats?pipeline=text-to-image&model=black-forest-labs/FLUX.1-dev`,
+  );
+  console.log(
+    `    GET ${SHELL_URL}/api/v1/gw/livepeer-leaderboard/stats/raw?pipeline=text-to-image&model=black-forest-labs/FLUX.1-dev&orchestrator=0x...`,
+  );
+  console.log();
+
+  if (rawKey) {
+    console.log(`  Test API Key (save this — shown only once):`);
+    console.log(`    ${rawKey}`);
+    console.log();
+    console.log('  Quick test:');
+    console.log(
+      `    curl -H "Authorization: Bearer ${rawKey}" \\`,
+    );
+    console.log(
+      `         ${SHELL_URL}/api/v1/gw/livepeer-leaderboard/pipelines`,
+    );
+  } else {
+    console.log(
+      '  API key was created in a previous run (raw key not available).',
+    );
+    console.log(
+      '  Use JWT auth or create a new key via the Service Gateway UI.',
+    );
+  }
+
+  console.log();
+  console.log(
+    '  Leaderboard plugin: navigate to /leaderboard in the NaaP UI',
+  );
+  console.log();
+}
+
+main().catch((err) => {
+  console.error('\n❌ Seed failed:', err.message || err);
+  process.exit(1);
+});

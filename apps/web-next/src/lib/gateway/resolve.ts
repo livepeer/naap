@@ -3,7 +3,10 @@
  *
  * Loads connector + endpoint configuration from the database,
  * with an in-memory cache (60s TTL) to avoid DB hits on every request.
- * All queries are team-scoped.
+ *
+ * Supports polymorphic ownership:
+ *   - Team scope:     `scopeId` is a team UUID → lookup by `{ teamId, slug }`
+ *   - Personal scope: `scopeId` is `personal:<userId>` → lookup by `{ ownerUserId, slug }`
  */
 
 import { prisma } from '@/lib/db';
@@ -21,16 +24,18 @@ interface CacheEntry {
 // For stricter consistency, layer a distributed cache (Redis L2) in front.
 const CONFIG_CACHE = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 60_000; // 60 seconds
+const NEGATIVE_CACHE_TTL_MS = 5_000; // 5 seconds for not-found results
 
-function getCacheKey(teamId: string, slug: string, method: string, path: string): string {
-  return `gw:config:${teamId}:${slug}:${method}:${path}`;
+function getCacheKey(scopeId: string, slug: string, method: string, path: string): string {
+  return `gw:config:${scopeId}:${slug}:${method}:${path}`;
 }
 
 /**
- * Invalidate all cached configs for a connector (called on admin updates)
+ * Invalidate all cached configs for a connector (called on admin updates).
+ * `scopeId` can be a teamId or `personal:<userId>`.
  */
-export function invalidateConnectorCache(teamId: string, slug: string): void {
-  const prefix = `gw:config:${teamId}:${slug}:`;
+export function invalidateConnectorCache(scopeId: string, slug: string): void {
+  const prefix = `gw:config:${scopeId}:${slug}:`;
   for (const key of CONFIG_CACHE.keys()) {
     if (key.startsWith(prefix)) {
       CONFIG_CACHE.delete(key);
@@ -39,67 +44,51 @@ export function invalidateConnectorCache(teamId: string, slug: string): void {
 }
 
 /**
+ * Find a connector by owner scope + slug.
+ * Personal scope queries by `ownerUserId`; team scope queries by `teamId`.
+ */
+async function findConnectorByOwner(scopeId: string, slug: string) {
+  if (scopeId.startsWith('personal:')) {
+    const ownerUserId = scopeId.slice('personal:'.length);
+    return prisma.serviceConnector.findUnique({
+      where: { ownerUserId_slug: { ownerUserId, slug } },
+      include: { endpoints: true },
+    });
+  }
+  return prisma.serviceConnector.findUnique({
+    where: { teamId_slug: { teamId: scopeId, slug } },
+    include: { endpoints: true },
+  });
+}
+
+/**
  * Resolve connector + endpoint config for a gateway request.
  *
- * @param teamId  - Caller's team ID (resolved from auth BEFORE this call)
+ * @param scopeId - Caller's scope: a team UUID or `personal:<userId>`
  * @param slug    - Connector slug from URL path
  * @param method  - HTTP method (GET, POST, etc.)
  * @param path    - Consumer endpoint path (e.g. "/query")
  */
 export async function resolveConfig(
-  teamId: string,
+  scopeId: string,
   slug: string,
   method: string,
   path: string
 ): Promise<ResolvedConfig | null> {
-  const cacheKey = getCacheKey(teamId, slug, method, path);
+  const cacheKey = getCacheKey(scopeId, slug, method, path);
 
-  // Check cache
   const cached = CONFIG_CACHE.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.config;
   }
 
-  // Primary lookup: exact team + slug match
-  let connector = await prisma.serviceConnector.findUnique({
-    where: {
-      teamId_slug: { teamId, slug },
-    },
-    include: {
-      endpoints: true,
-    },
-  });
-
-  // Fallback: if the caller is in personal context (no team selected),
-  // search across all teams the user belongs to. This handles the common
-  // case where a plugin loads before the shell emits the team context.
-  if (!connector && teamId.startsWith('personal:')) {
-    const userId = teamId.slice('personal:'.length);
-    const memberships = await prisma.teamMember.findMany({
-      where: { userId },
-      select: { teamId: true },
-    });
-
-    for (const membership of memberships) {
-      const candidate = await prisma.serviceConnector.findUnique({
-        where: {
-          teamId_slug: { teamId: membership.teamId, slug },
-        },
-        include: { endpoints: true },
-      });
-      if (candidate && candidate.status === 'published') {
-        connector = candidate;
-        break;
-      }
-    }
-  }
+  const connector = await findConnectorByOwner(scopeId, slug);
 
   if (!connector || connector.status !== 'published') {
-    CONFIG_CACHE.set(cacheKey, { config: null, expiresAt: Date.now() + CACHE_TTL_MS });
+    CONFIG_CACHE.set(cacheKey, { config: null, expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS });
     return null;
   }
 
-  // Find matching endpoint
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const endpoint = connector.endpoints.find(
     (ep) =>
@@ -109,13 +98,14 @@ export async function resolveConfig(
   );
 
   if (!endpoint) {
-    CONFIG_CACHE.set(cacheKey, { config: null, expiresAt: Date.now() + CACHE_TTL_MS });
+    CONFIG_CACHE.set(cacheKey, { config: null, expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS });
     return null;
   }
 
   const resolvedConnector: ResolvedConnector = {
     id: connector.id,
     teamId: connector.teamId,
+    ownerUserId: connector.ownerUserId,
     slug: connector.slug,
     displayName: connector.displayName,
     status: connector.status,

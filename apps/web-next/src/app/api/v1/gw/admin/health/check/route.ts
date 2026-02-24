@@ -33,6 +33,7 @@ async function runHealthCheck(request: NextRequest) {
     select: {
       id: true,
       teamId: true,
+      ownerUserId: true,
       slug: true,
       upstreamBaseUrl: true,
       healthCheckPath: true,
@@ -59,6 +60,7 @@ async function runHealthCheck(request: NextRequest) {
         const timer = setTimeout(() => controller.abort(), PER_CONNECTOR_TIMEOUT_MS);
 
         try {
+          const scopeId = connector.teamId ?? `personal:${connector.ownerUserId}`;
           const result = await testUpstreamConnectivity(
             connector.upstreamBaseUrl,
             connector.healthCheckPath,
@@ -66,7 +68,7 @@ async function runHealthCheck(request: NextRequest) {
             connector.authConfig as Record<string, unknown>,
             connector.secretRefs,
             connector.allowedHosts,
-            connector.teamId,
+            scopeId,
             ''
           );
 

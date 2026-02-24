@@ -13,13 +13,18 @@ import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+function ownerWhere(ctx: { teamId: string; userId: string; isPersonal: boolean }) {
+  if (ctx.isPersonal) return { ownerUserId: ctx.userId };
+  return { teamId: ctx.teamId };
+}
+
 export async function GET(request: NextRequest, context: RouteContext) {
   const ctx = await getAdminContext(request);
   if (isErrorResponse(ctx)) return ctx;
 
   const { id } = await context.params;
   const apiKey = await prisma.gatewayApiKey.findFirst({
-    where: { id, teamId: ctx.teamId },
+    where: { id, ...ownerWhere(ctx) },
     include: {
       connector: { select: { id: true, slug: true, displayName: true } },
       plan: { select: { id: true, name: true, displayName: true } },
@@ -30,7 +35,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return errors.notFound('API Key');
   }
 
-  // Never return keyHash
   const { keyHash, ...safeKey } = apiKey;
   return success(safeKey);
 }
@@ -41,7 +45,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
   const { id } = await context.params;
   const apiKey = await prisma.gatewayApiKey.findFirst({
-    where: { id, teamId: ctx.teamId },
+    where: { id, ...ownerWhere(ctx) },
   });
 
   if (!apiKey) {

@@ -1,6 +1,6 @@
 /**
  * Service Gateway — Admin: Connector List / Create
- * GET  /api/v1/gw/admin/connectors   — List connectors (team-scoped)
+ * GET  /api/v1/gw/admin/connectors   — List connectors (scope-aware)
  * POST /api/v1/gw/admin/connectors   — Create draft connector
  */
 
@@ -11,6 +11,12 @@ import { prisma } from '@/lib/db';
 import { success, successPaginated, errors, parsePagination } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard';
 import { createConnectorSchema } from '@/lib/gateway/admin/validation';
+import { invalidateConnectorCache } from '@/lib/gateway/resolve';
+
+function ownerWhere(ctx: { teamId: string; userId: string; isPersonal: boolean }) {
+  if (ctx.isPersonal) return { ownerUserId: ctx.userId };
+  return { teamId: ctx.teamId };
+}
 
 export async function GET(request: NextRequest) {
   const ctx = await getAdminContext(request);
@@ -18,10 +24,10 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = request.nextUrl;
   const { page, pageSize, skip } = parsePagination(searchParams);
-  const status = searchParams.get('status'); // optional filter
+  const status = searchParams.get('status');
 
   const where = {
-    teamId: ctx.teamId,
+    ...ownerWhere(ctx),
     ...(status ? { status } : {}),
   };
 
@@ -65,15 +71,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Check for duplicate slug within team
-  const existing = await prisma.serviceConnector.findUnique({
-    where: { teamId_slug: { teamId: ctx.teamId, slug: parsed.data.slug } },
-  });
+  // Check for duplicate slug within scope
+  const existing = ctx.isPersonal
+    ? await prisma.serviceConnector.findUnique({
+        where: { ownerUserId_slug: { ownerUserId: ctx.userId, slug: parsed.data.slug } },
+      })
+    : await prisma.serviceConnector.findUnique({
+        where: { teamId_slug: { teamId: ctx.teamId, slug: parsed.data.slug } },
+      });
   if (existing) {
     return errors.conflict(`Connector with slug "${parsed.data.slug}" already exists`);
   }
 
-  // Auto-populate allowedHosts from upstream URL if empty
   let allowedHosts = parsed.data.allowedHosts;
   if (allowedHosts.length === 0) {
     try {
@@ -84,15 +93,21 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const ownerData = ctx.isPersonal
+    ? { ownerUserId: ctx.userId }
+    : { teamId: ctx.teamId };
+
   const connector = await prisma.serviceConnector.create({
     data: {
-      teamId: ctx.teamId,
+      ...ownerData,
       createdBy: ctx.userId,
       ...parsed.data,
       allowedHosts,
       status: 'draft',
     },
   });
+
+  invalidateConnectorCache(ctx.teamId, connector.slug);
 
   return success(connector);
 }

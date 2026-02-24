@@ -1619,11 +1619,14 @@ model PluginAlert {
 // REST APIs as managed, team-scoped endpoints.
 
 /// Upstream service definition — one per third-party API connection.
-/// Team-scoped: every connector belongs to exactly one team.
+/// Ownership: exactly one of teamId or ownerUserId must be set.
+///   - teamId set      → team-scoped connector (shared within a team)
+///   - ownerUserId set → personal connector (owned by a single user)
 model ServiceConnector {
   id                String   @id @default(uuid())
-  teamId            String
-  slug              String                          // URL-safe identifier, unique per team
+  teamId            String?                         // set for team-scoped connectors
+  ownerUserId       String?                         // set for personal connectors
+  slug              String                          // URL-safe identifier, unique per owner scope
   displayName       String
   description       String?
   status            String   @default("draft")      // draft | published | archived
@@ -1658,8 +1661,11 @@ model ServiceConnector {
   healthChecks      GatewayHealthCheck[]
 
   @@unique([teamId, slug])
+  @@unique([ownerUserId, slug])
   @@index([teamId])
   @@index([teamId, status])
+  @@index([ownerUserId])
+  @@index([ownerUserId, status])
   @@schema("plugin_service_gateway")
 }
 
@@ -1709,10 +1715,12 @@ model ConnectorEndpoint {
 
 /// Consumer API key — used by external apps and services to authenticate
 /// against the gateway. Key material is never stored; only SHA-256 hash.
+/// Ownership mirrors ServiceConnector: exactly one of teamId or ownerUserId must be set.
 model GatewayApiKey {
   id               String    @id @default(uuid())
-  teamId           String
-  connectorId      String?                           // null = access all team connectors
+  teamId           String?                           // set for team-scoped keys
+  ownerUserId      String?                           // set for personal keys
+  connectorId      String?                           // null = access all connectors in scope
   connector        ServiceConnector? @relation(fields: [connectorId], references: [id], onDelete: SetNull)
   planId           String?
   plan             GatewayPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
@@ -1732,16 +1740,20 @@ model GatewayApiKey {
   revokedAt        DateTime?
 
   @@index([teamId])
+  @@index([ownerUserId])
   @@index([keyHash])
   @@index([teamId, status])
+  @@index([ownerUserId, status])
   @@schema("plugin_service_gateway")
 }
 
 /// Rate limit and quota tier — assigned to API keys to control
-/// throughput and usage limits per team.
+/// throughput and usage limits per owner scope.
+/// Ownership mirrors ServiceConnector: exactly one of teamId or ownerUserId must be set.
 model GatewayPlan {
   id              String   @id @default(uuid())
-  teamId          String
+  teamId          String?                            // set for team-scoped plans
+  ownerUserId     String?                            // set for personal plans
   name            String
   displayName     String
 
@@ -1752,7 +1764,7 @@ model GatewayPlan {
   maxResponseSize Int      @default(4194304)          // 4 MB
   burstLimit      Int?
 
-  allowedConnectors String[]                         // empty = all team connectors
+  allowedConnectors String[]                         // empty = all connectors in scope
 
   apiKeys         GatewayApiKey[]
 
@@ -1760,7 +1772,9 @@ model GatewayPlan {
   updatedAt       DateTime @updatedAt
 
   @@unique([teamId, name])
+  @@unique([ownerUserId, name])
   @@index([teamId])
+  @@index([ownerUserId])
   @@schema("plugin_service_gateway")
 }
 
