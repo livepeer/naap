@@ -11,6 +11,7 @@ vi.mock('@/lib/db', () => ({
   prisma: {
     serviceConnector: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
     },
   },
 }));
@@ -19,6 +20,7 @@ import { prisma } from '@/lib/db';
 import { resolveConfig, invalidateConnectorCache } from '../resolve';
 
 const mockFindUnique = prisma.serviceConnector.findUnique as ReturnType<typeof vi.fn>;
+const mockFindFirst = prisma.serviceConnector.findFirst as ReturnType<typeof vi.fn>;
 
 function makeConnector(overrides?: Record<string, unknown>) {
   return {
@@ -28,6 +30,7 @@ function makeConnector(overrides?: Record<string, unknown>) {
     slug: 'my-api',
     displayName: 'My API',
     status: 'published',
+    visibility: 'private',
     upstreamBaseUrl: 'https://api.example.com',
     allowedHosts: ['api.example.com'],
     defaultTimeout: 30000,
@@ -84,6 +87,9 @@ describe('resolveConfig', () => {
     invalidateConnectorCache('team-1', 'my-api');
     invalidateConnectorCache('personal:user-1', 'my-api');
     invalidateConnectorCache('personal:user-2', 'my-api');
+    invalidateConnectorCache('personal:user-99', 'my-api');
+    invalidateConnectorCache('public', 'my-api');
+    mockFindFirst.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -224,6 +230,55 @@ describe('resolveConfig', () => {
     expect(mockFindUnique).toHaveBeenCalledTimes(2);
     expect(user1Config).not.toBeNull();
     expect(user2Config).toBeNull();
+  });
+
+  // ── Public connector fallback ──
+
+  it('resolves public connector via fallback when scope lookup fails', async () => {
+    mockFindUnique.mockResolvedValue(null);
+    mockFindFirst.mockResolvedValue(
+      makeConnector({
+        id: 'pub-conn-1',
+        teamId: null,
+        ownerUserId: 'admin-1',
+        visibility: 'public',
+      }),
+    );
+
+    const config = await resolveConfig('personal:user-99', 'my-api', 'POST', '/query');
+
+    expect(config).not.toBeNull();
+    expect(config!.connector.id).toBe('pub-conn-1');
+    expect(config!.connector.visibility).toBe('public');
+    expect(mockFindFirst).toHaveBeenCalledWith({
+      where: { slug: 'my-api', visibility: 'public', status: 'published' },
+      include: { endpoints: true },
+    });
+  });
+
+  it('does not use public fallback if scope lookup succeeds', async () => {
+    mockFindUnique.mockResolvedValue(makePersonalConnector('user-1'));
+
+    const config = await resolveConfig('personal:user-1', 'my-api', 'POST', '/query');
+
+    expect(config).not.toBeNull();
+    expect(config!.connector.ownerUserId).toBe('user-1');
+    expect(mockFindFirst).not.toHaveBeenCalled();
+  });
+
+  it('returns null when neither scope nor public lookup finds connector', async () => {
+    mockFindUnique.mockResolvedValue(null);
+    mockFindFirst.mockResolvedValue(null);
+
+    const config = await resolveConfig('personal:user-99', 'my-api', 'POST', '/query');
+    expect(config).toBeNull();
+  });
+
+  it('includes visibility field in resolved connector', async () => {
+    mockFindUnique.mockResolvedValue(makeConnector({ visibility: 'team' }));
+
+    const config = await resolveConfig('team-1', 'my-api', 'POST', '/query');
+    expect(config!.connector.visibility).toBe('team');
   });
 
   // ── Path matching ──

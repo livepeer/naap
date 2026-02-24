@@ -133,16 +133,19 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
 /**
  * Verify the caller has access to the resolved connector.
  *
- * Two ownership modes:
- *   - **Personal connector** (ownerUserId set): only the owning user may access.
- *   - **Team connector** (teamId set): caller's auth.teamId must match.
+ * Three visibility modes:
+ *   - **public**: any authenticated caller can access.
+ *   - **private / team** with ownerUserId: only the owning user may access.
+ *   - **private / team** with teamId: caller's auth.teamId must match.
  */
 export function verifyConnectorAccess(
   auth: AuthResult,
   connectorId: string,
   connectorTeamId: string | null,
-  connectorOwnerUserId: string | null
+  connectorOwnerUserId: string | null,
+  visibility: string
 ): boolean {
+  if (visibility === 'public') return true;
   if (connectorOwnerUserId) {
     return auth.callerId === connectorOwnerUserId;
   }

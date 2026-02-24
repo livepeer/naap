@@ -100,7 +100,12 @@ export async function POST(request: NextRequest) {
   if (parsed.data.connectorId) {
     const connector = await loadConnector(parsed.data.connectorId, ctx.teamId);
     if (!connector) {
-      return errors.notFound('Connector');
+      const publicConn = await prisma.serviceConnector.findFirst({
+        where: { id: parsed.data.connectorId, visibility: 'public', status: 'published' },
+      });
+      if (!publicConn) {
+        return errors.notFound('Connector');
+      }
     }
   }
 
