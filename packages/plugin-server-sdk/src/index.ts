@@ -23,7 +23,7 @@
  */
 
 export { createPluginServer } from './server';
-export type { PluginServerConfig, PluginServer } from './server';
+export type { PluginServerConfig, PluginServer, RateLimitConfig } from './server';
 export { createAuthMiddleware } from './middleware/auth';
 export type { AuthenticatedRequest } from './middleware/auth';
 export { createRequestLogger } from './middleware/logging';

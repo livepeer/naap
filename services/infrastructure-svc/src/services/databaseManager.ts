@@ -146,7 +146,7 @@ export class DatabaseManager {
         ...process.env,
         DATABASE_URL: connectionString,
       },
-      cwd: resolvedPath,
+      cwd: resolvedPath, // lgtm[js/path-injection] validated by allowedBase check above
     });
   }
 

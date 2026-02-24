@@ -20,6 +20,13 @@ import { createAuthMiddleware, type AuthenticatedRequest } from './middleware/au
 import { createRequestLogger } from './middleware/logging';
 import { createErrorHandler } from './middleware/errorHandler';
 
+export interface RateLimitConfig {
+  /** Time window in milliseconds (default: 15 minutes) */
+  windowMs?: number;
+  /** Maximum requests per IP within the window (default: 200) */
+  maxRequests?: number;
+}
+
 export interface PluginServerConfig {
   /** Plugin name (used for logging and health check) */
   name: string;
@@ -44,6 +51,17 @@ export interface PluginServerConfig {
 
   /** Whether to enable helmet security headers (default: true) */
   helmet?: boolean;
+
+  /** Rate limiting config (default: enabled, 200 req / 15 min). Set false to disable. */
+  rateLimit?: false | RateLimitConfig;
+
+  /**
+   * Express "trust proxy" setting for correct req.ip behind reverse proxies.
+   * When behind a load balancer or reverse proxy, set to true (or the number
+   * of proxies) so Express reads the client IP from X-Forwarded-For instead
+   * of the proxy's IP. Default: false.
+   */
+  trustProxy?: boolean | string | number;
 
   /** Optional Prisma client for managed connection lifecycle */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -94,12 +112,18 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
     jwtSecret = process.env.NEXTAUTH_SECRET || process.env.JWT_SECRET || 'dev-secret',
     compression: enableCompression = true,
     helmet: enableHelmet = true,
+    rateLimit: rateLimitConfig = {},
+    trustProxy = false,
     prisma,
     setup,
     livepeer,
   } = config;
 
   const app = express();
+
+  if (trustProxy !== false) {
+    app.set('trust proxy', trustProxy);
+  }
   const router = Router();
   let server: ReturnType<Express['listen']> | null = null;
 
@@ -162,6 +186,34 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
 
   // Request logging with correlation IDs
   app.use(createRequestLogger(name));
+
+  // ─── Rate Limiting ─────────────────────────────────────────────────
+
+  if (rateLimitConfig !== false) {
+    const windowMs = rateLimitConfig.windowMs ?? 15 * 60_000;
+    const maxRequests = rateLimitConfig.maxRequests ?? 200;
+    const store = new Map<string, { count: number; resetTime: number }>();
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      const key = req.ip || 'unknown';
+      const now = Date.now();
+      // Prune expired entries when the store grows large to prevent memory leaks
+      if (store.size > 10_000) {
+        for (const [ip, value] of store) {
+          if (now > value.resetTime) store.delete(ip);
+        }
+      }
+      const entry = store.get(key);
+      if (!entry || now > entry.resetTime) {
+        store.set(key, { count: 1, resetTime: now + windowMs });
+        return next();
+      }
+      if (entry.count >= maxRequests) {
+        return res.status(429).json({ error: 'Too many requests, please try again later' });
+      }
+      entry.count++;
+      return next();
+    }); // lgtm[js/missing-rate-limiting]
+  }
 
   // ─── Health Check ──────────────────────────────────────────────────
 

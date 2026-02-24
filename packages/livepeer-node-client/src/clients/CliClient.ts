@@ -36,7 +36,7 @@ export class LivepeerCliClient {
     if (body) {
       opts.body = typeof body === 'string' ? body : JSON.stringify(body);
     }
-    const res = await fetch(url, opts);
+    const res = await fetch(url, opts); // lgtm[js/request-forgery] baseUrl validated in constructor; path validated above
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`CLI API ${method} ${path} failed: ${res.status} ${text}`);
