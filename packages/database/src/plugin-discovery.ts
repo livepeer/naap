@@ -95,53 +95,65 @@ export interface DiscoveredPlugin {
 }
 
 /**
- * Scan the `plugins/` directory and read each `plugin.json` manifest.
+ * Scan plugin directories and read each `plugin.json` manifest.
  *
- * @param rootDir - Monorepo root directory (must contain a `plugins/` folder)
- * @returns Array of discovered plugins sorted by navigation order; empty if plugins dir not found
+ * Scans both `plugins/` (core) and `examples/` (example/community) directories.
+ * A plugin's availability is determined by database state (published, installed),
+ * NOT by filesystem location. This ensures externally-published plugins are never
+ * treated as "stale" just because they don't live in a specific directory.
+ *
+ * @param rootDir - Monorepo root directory
+ * @returns Array of discovered plugins sorted by navigation order
  */
 export function discoverPlugins(rootDir: string): DiscoveredPlugin[] {
-  const pluginsDir = path.join(rootDir, 'plugins');
-  if (!fs.existsSync(pluginsDir)) {
-    console.warn(`[plugin-discovery] plugins directory not found at ${pluginsDir}`);
-    return [];
+  const scanDirs = [
+    path.join(rootDir, 'plugins'),
+    path.join(rootDir, 'examples'),
+  ];
+
+  const results: DiscoveredPlugin[] = [];
+
+  for (const baseDir of scanDirs) {
+    if (!fs.existsSync(baseDir)) continue;
+
+    const plugins = fs
+      .readdirSync(baseDir)
+      .filter((dir) => !dir.startsWith('__') && !dir.startsWith('.'))
+      .filter((dir) => fs.existsSync(path.join(baseDir, dir, 'plugin.json')))
+      .map((dir) => {
+        const manifest = JSON.parse(
+          fs.readFileSync(path.join(baseDir, dir, 'plugin.json'), 'utf8'),
+        );
+        const camelName = toCamelCase(dir);
+
+        const rawAuthor = manifest.author;
+        const authorName = typeof rawAuthor === 'string' ? rawAuthor : rawAuthor?.name;
+        const authorEmail = typeof rawAuthor === 'object' ? rawAuthor?.email : undefined;
+
+        return {
+          dirName: dir,
+          name: camelName,
+          displayName: manifest.displayName || dir,
+          version: '1.0.0',
+          routes: manifest.frontend?.routes || [],
+          icon: manifest.frontend?.navigation?.icon || manifest.icon || 'Box',
+          order: manifest.frontend?.navigation?.order ?? 99,
+          globalName: `NaapPlugin${toPascalCase(camelName)}`,
+          description: manifest.description,
+          author: authorName,
+          authorEmail,
+          category: manifest.category,
+          keywords: manifest.keywords,
+          license: manifest.license,
+          repository: manifest.repository || `https://github.com/livepeer/naap/tree/main/${path.basename(baseDir)}/${dir}`,
+          isCore: manifest.isCore === true ? true : undefined,
+        };
+      });
+
+    results.push(...plugins);
   }
 
-  return fs
-    .readdirSync(pluginsDir)
-    .filter((dir) => fs.existsSync(path.join(pluginsDir, dir, 'plugin.json')))
-    .map((dir) => {
-      const manifest = JSON.parse(
-        fs.readFileSync(path.join(pluginsDir, dir, 'plugin.json'), 'utf8'),
-      );
-      const camelName = toCamelCase(dir);
-
-      // Extract author — supports both string and { name, email } forms
-      const rawAuthor = manifest.author;
-      const authorName = typeof rawAuthor === 'string' ? rawAuthor : rawAuthor?.name;
-      const authorEmail = typeof rawAuthor === 'object' ? rawAuthor?.email : undefined;
-
-      return {
-        dirName: dir,
-        name: camelName,
-        displayName: manifest.displayName || dir,
-        version: '1.0.0',
-        routes: manifest.frontend?.routes || [],
-        icon: manifest.frontend?.navigation?.icon || 'Box',
-        order: manifest.frontend?.navigation?.order ?? 99,
-        globalName: `NaapPlugin${toPascalCase(camelName)}`,
-        // Marketplace metadata
-        description: manifest.description,
-        author: authorName,
-        authorEmail,
-        category: manifest.category,
-        keywords: manifest.keywords,
-        license: manifest.license,
-        repository: manifest.repository,
-        isCore: manifest.isCore === true ? true : undefined,
-      };
-    })
-    .sort((a, b) => a.order - b.order);
+  return results.sort((a, b) => a.order - b.order);
 }
 
 /**
@@ -158,21 +170,22 @@ export function toWorkflowPluginData(
   cdnBase: string = '/cdn/plugins',
   rootDir?: string,
 ) {
-  // Only set stylesUrl if the plugin's build output actually contains a CSS file.
-  // Headless plugins (like dashboard-provider-mock) produce no CSS, and a 404
-  // stylesheet URL causes MIME-type errors in the browser.
   let stylesUrl: string | undefined;
   const root = rootDir || process.cwd();
   try {
-    // Check CDN dist manifest first, then fall back to source build output
+    // Check CDN dist manifest, then plugins/, then examples/ for source build output
     const cdnManifest = path.join(
       root, 'dist', 'plugins', plugin.dirName, plugin.version, 'manifest.json',
     );
-    const srcManifest = path.join(
+    const pluginsSrcManifest = path.join(
       root, 'plugins', plugin.dirName, 'frontend', 'dist', 'production', 'manifest.json',
     );
+    const examplesSrcManifest = path.join(
+      root, 'examples', plugin.dirName, 'frontend', 'dist', 'production', 'manifest.json',
+    );
     const manifestPath = fs.existsSync(cdnManifest) ? cdnManifest
-      : fs.existsSync(srcManifest) ? srcManifest
+      : fs.existsSync(pluginsSrcManifest) ? pluginsSrcManifest
+      : fs.existsSync(examplesSrcManifest) ? examplesSrcManifest
       : null;
 
     if (manifestPath) {

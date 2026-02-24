@@ -75,7 +75,12 @@ function csrfProtection(req: Request, res: Response, next: NextFunction) {
 }
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ALLOWED_ORIGINS
+    ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(s => s.trim())
+    : ['http://localhost:3000', 'http://localhost:3001'],
+  credentials: true,
+}));
 app.use(compression({
   level: 6,
   threshold: 1024, // Only compress responses > 1KB

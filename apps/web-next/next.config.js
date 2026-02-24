@@ -13,39 +13,46 @@ function toCamelCase(s) {
 }
 
 /**
- * Discover plugin routes from plugins/\*\/plugin.json and generate
- * Next.js beforeFiles rewrites: /gateway → /plugins/serviceGateway, etc.
+ * Discover plugin routes from plugins/\*\/plugin.json AND examples/\*\/plugin.json
+ * and generate Next.js beforeFiles rewrites:
+ *   /gateway      → /plugins/serviceGateway
+ *   /leaderboard  → /plugins/leaderboard
  */
 function discoverPluginRewrites() {
-  const pluginsDir = path.resolve(__dirname, '../../plugins');
-  if (!fs.existsSync(pluginsDir)) return [];
+  const scanDirs = [
+    path.resolve(__dirname, '../../plugins'),
+    path.resolve(__dirname, '../../examples'),
+  ];
 
   const rewrites = [];
-  for (const dir of fs.readdirSync(pluginsDir)) {
-    if (dir.startsWith('__') || dir.startsWith('.')) continue;
-    const manifestPath = path.join(pluginsDir, dir, 'plugin.json');
-    if (!fs.existsSync(manifestPath)) continue;
 
-    try {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-      const routes = manifest.frontend?.routes || [];
-      const camelName = toCamelCase(dir);
+  for (const baseDir of scanDirs) {
+    if (!fs.existsSync(baseDir)) continue;
 
-      for (const route of routes) {
-        if (route.endsWith('/*')) {
-          // /gateway/* → /plugins/serviceGateway (wildcard sub-paths)
-          const prefix = route.slice(0, -2);
-          rewrites.push({
-            source: `${prefix}/:path*`,
-            destination: `/plugins/${camelName}`,
-          });
-        } else {
-          // /gateway → /plugins/serviceGateway (exact match)
-          rewrites.push({ source: route, destination: `/plugins/${camelName}` });
+    for (const dir of fs.readdirSync(baseDir)) {
+      if (dir.startsWith('__') || dir.startsWith('.')) continue;
+      const manifestPath = path.join(baseDir, dir, 'plugin.json');
+      if (!fs.existsSync(manifestPath)) continue;
+
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+        const routes = manifest.frontend?.routes || [];
+        const camelName = toCamelCase(dir);
+
+        for (const route of routes) {
+          if (route.endsWith('/*')) {
+            const prefix = route.slice(0, -2);
+            rewrites.push({
+              source: `${prefix}/:path*`,
+              destination: `/plugins/${camelName}`,
+            });
+          } else {
+            rewrites.push({ source: route, destination: `/plugins/${camelName}` });
+          }
         }
+      } catch (e) {
+        console.warn(`[next.config] Failed to read ${manifestPath}:`, e.message);
       }
-    } catch (e) {
-      console.warn(`[next.config] Failed to read ${manifestPath}:`, e.message);
     }
   }
 

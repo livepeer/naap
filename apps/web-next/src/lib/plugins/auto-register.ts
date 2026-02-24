@@ -54,59 +54,70 @@ interface DiscoveredPlugin {
 }
 
 function discoverPlugins(rootDir: string, cdnBase: string): DiscoveredPlugin[] {
-  const pluginsDir = path.join(rootDir, 'plugins');
-  if (!fs.existsSync(pluginsDir)) return [];
+  const scanDirs = [
+    path.join(rootDir, 'plugins'),
+    path.join(rootDir, 'examples'),
+  ];
 
-  return fs
-    .readdirSync(pluginsDir)
-    .filter((dir) => !dir.startsWith('__') && !dir.startsWith('.'))
-    .filter((dir) => fs.existsSync(path.join(pluginsDir, dir, 'plugin.json')))
-    .map((dir) => {
-      const raw = fs.readFileSync(path.join(pluginsDir, dir, 'plugin.json'), 'utf8');
-      const manifest = JSON.parse(raw);
-      const camelName = toCamelCase(dir);
-      const version = '1.0.0';
-      const bundleUrl = `${cdnBase}/${dir}/${version}/${dir}.js`;
+  const results: DiscoveredPlugin[] = [];
 
-      // Check for built styles
-      let stylesUrl: string | null = null;
-      try {
-        const cdnManifest = path.join(rootDir, 'dist', 'plugins', dir, version, 'manifest.json');
-        const srcManifest = path.join(pluginsDir, dir, 'frontend', 'dist', 'production', 'manifest.json');
-        const mPath = fs.existsSync(cdnManifest) ? cdnManifest
-          : fs.existsSync(srcManifest) ? srcManifest : null;
-        if (mPath) {
-          const buildManifest = JSON.parse(fs.readFileSync(mPath, 'utf8'));
-          if (buildManifest.stylesFile) {
-            stylesUrl = `${cdnBase}/${dir}/${version}/${dir}.css`;
+  for (const baseDir of scanDirs) {
+    if (!fs.existsSync(baseDir)) continue;
+
+    const plugins = fs
+      .readdirSync(baseDir)
+      .filter((dir) => !dir.startsWith('__') && !dir.startsWith('.'))
+      .filter((dir) => fs.existsSync(path.join(baseDir, dir, 'plugin.json')))
+      .map((dir) => {
+        const raw = fs.readFileSync(path.join(baseDir, dir, 'plugin.json'), 'utf8');
+        const manifest = JSON.parse(raw);
+        const camelName = toCamelCase(dir);
+        const version = '1.0.0';
+        const bundleUrl = `${cdnBase}/${dir}/${version}/${dir}.js`;
+
+        // Check for built styles
+        let stylesUrl: string | null = null;
+        try {
+          const cdnManifest = path.join(rootDir, 'dist', 'plugins', dir, version, 'manifest.json');
+          const srcManifest = path.join(baseDir, dir, 'frontend', 'dist', 'production', 'manifest.json');
+          const mPath = fs.existsSync(cdnManifest) ? cdnManifest
+            : fs.existsSync(srcManifest) ? srcManifest : null;
+          if (mPath) {
+            const buildManifest = JSON.parse(fs.readFileSync(mPath, 'utf8'));
+            if (buildManifest.stylesFile) {
+              stylesUrl = `${cdnBase}/${dir}/${version}/${dir}.css`;
+            }
           }
-        }
-      } catch { /* leave null */ }
+        } catch { /* leave null */ }
 
-      const rawAuthor = manifest.author;
-      return {
-        dirName: dir,
-        name: camelName,
-        displayName: manifest.displayName || dir,
-        version,
-        description: manifest.description || `${manifest.displayName || dir} plugin for NAAP`,
-        category: manifest.category || 'other',
-        isCore: manifest.isCore === true,
-        routes: manifest.frontend?.routes || [],
-        icon: manifest.frontend?.navigation?.icon || 'Box',
-        order: manifest.frontend?.navigation?.order ?? 99,
-        globalName: `NaapPlugin${toPascalCase(camelName)}`,
-        bundleUrl,
-        stylesUrl,
-        author: typeof rawAuthor === 'string' ? rawAuthor : rawAuthor?.name || 'NAAP Team',
-        authorEmail: typeof rawAuthor === 'object' ? rawAuthor?.email || 'team@naap.io' : 'team@naap.io',
-        keywords: manifest.keywords || [],
-        license: manifest.license || 'MIT',
-        repository: manifest.repository || `https://github.com/livepeer/naap/tree/main/plugins/${dir}`,
-        rbacRoles: manifest.rbac?.roles,
-      };
-    })
-    .sort((a, b) => a.order - b.order);
+        const rawAuthor = manifest.author;
+        return {
+          dirName: dir,
+          name: camelName,
+          displayName: manifest.displayName || dir,
+          version,
+          description: manifest.description || `${manifest.displayName || dir} plugin for NAAP`,
+          category: manifest.category || 'other',
+          isCore: manifest.isCore === true,
+          routes: manifest.frontend?.routes || [],
+          icon: manifest.frontend?.navigation?.icon || manifest.icon || 'Box',
+          order: manifest.frontend?.navigation?.order ?? 99,
+          globalName: `NaapPlugin${toPascalCase(camelName)}`,
+          bundleUrl,
+          stylesUrl,
+          author: typeof rawAuthor === 'string' ? rawAuthor : rawAuthor?.name || 'NAAP Team',
+          authorEmail: typeof rawAuthor === 'object' ? rawAuthor?.email || 'team@naap.io' : 'team@naap.io',
+          keywords: manifest.keywords || [],
+          license: manifest.license || 'MIT',
+          repository: manifest.repository || `https://github.com/livepeer/naap/tree/main/${path.basename(baseDir)}/${dir}`,
+          rbacRoles: manifest.rbac?.roles,
+        };
+      });
+
+    results.push(...plugins);
+  }
+
+  return results.sort((a, b) => a.order - b.order);
 }
 
 // ─── Database Registration ────────────────────────────────────────────────
@@ -124,8 +135,9 @@ export async function autoRegisterPlugins(): Promise<void> {
   // Resolve monorepo root. process.cwd() in Next.js is the app dir (apps/web-next).
   const rootDir = path.resolve(process.cwd(), '../..');
   const pluginsDir = path.join(rootDir, 'plugins');
+  const examplesDir = path.join(rootDir, 'examples');
 
-  if (!fs.existsSync(pluginsDir)) {
+  if (!fs.existsSync(pluginsDir) && !fs.existsSync(examplesDir)) {
     // On Vercel or environments without the plugins directory, skip silently.
     // The build-time sync script (bin/sync-plugin-registry.ts) handles Vercel.
     return;
@@ -301,9 +313,14 @@ export async function autoRegisterPlugins(): Promise<void> {
       }
     }
 
-    // Cleanup stale plugins — only in production or local dev.
-    // Preview deployments share a DB, so one branch cleaning up another's
-    // plugins would break the other branch's preview.
+    // Cleanup truly orphaned plugins — only disable plugins that are:
+    //   1. NOT discovered on the filesystem (not in plugins/ or examples/)
+    //   2. NOT installed by any user (no UserPluginPreference records)
+    //   3. NOT installed by any tenant (no active TenantPluginInstall records)
+    //
+    // This ensures externally-published or marketplace-installed plugins
+    // are NEVER disrupted by filesystem-based discovery. A plugin that was
+    // published and installed remains available regardless of its source location.
     const discoveredNames = new Set(discovered.map((p) => p.name));
     const isPreview = process.env.VERCEL_ENV === 'preview';
 
@@ -312,28 +329,59 @@ export async function autoRegisterPlugins(): Promise<void> {
         where: { enabled: true },
         select: { name: true },
       });
+
       for (const db of enabledPlugins) {
-        if (!discoveredNames.has(db.name)) {
-          await prisma.workflowPlugin.update({
-            where: { name: db.name },
-            data: { enabled: false },
-          });
-          console.log(`[naap]   Disabled stale plugin: ${db.name}`);
+        if (discoveredNames.has(db.name)) continue;
+
+        // Check if any user has installed this plugin
+        const userInstallCount = await prisma.userPluginPreference.count({
+          where: { pluginName: db.name, enabled: true },
+        });
+        if (userInstallCount > 0) {
+          console.log(`[naap]   Keeping ${db.name} (${userInstallCount} user installs)`);
+          continue;
         }
+
+        // Check if any tenant deployment exists
+        const pkg = await prisma.pluginPackage.findUnique({
+          where: { name: db.name },
+          select: { deployment: { select: { activeInstalls: true } } },
+        });
+        if (pkg?.deployment && pkg.deployment.activeInstalls > 0) {
+          console.log(`[naap]   Keeping ${db.name} (${pkg.deployment.activeInstalls} tenant installs)`);
+          continue;
+        }
+
+        // Truly orphaned — no filesystem source, no installs
+        await prisma.workflowPlugin.update({
+          where: { name: db.name },
+          data: { enabled: false },
+        });
+        console.log(`[naap]   Disabled orphaned plugin: ${db.name}`);
       }
 
+      // Only unlist packages with zero installs AND not on filesystem
       const publishedPackages = await prisma.pluginPackage.findMany({
         where: { publishStatus: 'published' },
-        select: { name: true },
+        select: {
+          name: true,
+          deployment: { select: { activeInstalls: true } },
+        },
       });
       for (const pkg of publishedPackages) {
-        if (!discoveredNames.has(pkg.name)) {
-          await prisma.pluginPackage.update({
-            where: { name: pkg.name },
-            data: { publishStatus: 'unlisted' },
-          });
-          console.log(`[naap]   Unlisted stale package: ${pkg.name}`);
-        }
+        if (discoveredNames.has(pkg.name)) continue;
+        if (pkg.deployment && pkg.deployment.activeInstalls > 0) continue;
+
+        const userInstalls = await prisma.userPluginPreference.count({
+          where: { pluginName: pkg.name, enabled: true },
+        });
+        if (userInstalls > 0) continue;
+
+        await prisma.pluginPackage.update({
+          where: { name: pkg.name },
+          data: { publishStatus: 'unlisted' },
+        });
+        console.log(`[naap]   Unlisted orphaned package: ${pkg.name}`);
       }
     }
 

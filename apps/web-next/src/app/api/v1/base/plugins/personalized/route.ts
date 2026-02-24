@@ -117,21 +117,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             userPreferences.map((p) => [p.pluginName, p])
           );
 
-          // Build plugins from team installs using deployment/package info
-          // Filter out installs without valid deployment data
+          // Build plugins from team installs using deployment/package info.
+          // Routes are resolved from WorkflowPlugin (authoritative source) so
+          // that plugins installed from any location retain their correct routes.
+          const workflowPluginMap = new Map(
+            globalPlugins.map(wp => [normalizePluginName(wp.name), wp])
+          );
+
           const teamPlugins = teamPluginInstalls
             .filter(install => install.deployment?.package)
             .map((install, idx) => {
               const memberPref = install.memberAccess?.[0];
               const pkg = install.deployment!.package!;
               const ver = install.deployment!.version;
-              // Check user's personal preference first, then team member access, then install default
               const userPref = userPrefsMap.get(pkg.name);
               const isEnabled = userPref !== undefined
                 ? userPref.enabled
                 : (memberPref ? memberPref.visible : install.enabled);
               const order = userPref?.order ?? idx;
               const isPinned = userPref?.pinned ?? false;
+
+              // Use routes from WorkflowPlugin if available, fall back to generic
+              const wp = workflowPluginMap.get(normalizePluginName(pkg.name));
+              const routes = wp && Array.isArray(wp.routes) && (wp.routes as string[]).length > 0
+                ? wp.routes as string[]
+                : [`/${pkg.name || install.id}`, `/${pkg.name || install.id}/*`];
+
               return {
                 installId: install.id,
                 id: install.id,
@@ -139,8 +150,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                 displayName: pkg.displayName || pkg.name || 'Unknown Plugin',
                 description: pkg.description || '',
                 version: ver?.version || '1.0.0',
-                remoteUrl: pkg.repository || '',
-                routes: [`/plugins/${pkg.name || install.id}/*`],
+                remoteUrl: wp?.remoteUrl || pkg.repository || '',
+                bundleUrl: wp?.bundleUrl || undefined,
+                globalName: wp?.globalName || undefined,
+                stylesUrl: wp?.stylesUrl || undefined,
+                routes,
                 enabled: isEnabled,
                 order: order,
                 pinned: isPinned,

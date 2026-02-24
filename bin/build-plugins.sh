@@ -22,8 +22,9 @@ log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 
-# Plugin directories
+# Plugin directories — scan both core and example plugins
 PLUGINS_DIR="$ROOT_DIR/plugins"
+EXAMPLES_DIR="$ROOT_DIR/examples"
 OUTPUT_DIR="$ROOT_DIR/dist/plugins"
 
 # Ensure Node can resolve packages from the monorepo root node_modules.
@@ -130,23 +131,26 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Auto-discover plugins: find all plugin directories that have a frontend vite config
-# This means any new plugin with plugins/{name}/frontend/vite.config.ts is automatically included.
+# Auto-discover plugins: scan both plugins/ and examples/ for frontend vite configs.
+# Any directory with a frontend/vite.config.ts is included regardless of location.
 if [ -n "$SPECIFIC_PLUGIN" ]; then
   PLUGINS=("$SPECIFIC_PLUGIN")
 else
   PLUGINS=()
-  for config in "$PLUGINS_DIR"/*/frontend/vite.config.ts; do
-    [ -f "$config" ] || continue
-    plugin_name="$(basename "$(dirname "$(dirname "$config")")")"
-    PLUGINS+=("$plugin_name")
+  for scan_dir in "$PLUGINS_DIR" "$EXAMPLES_DIR"; do
+    [ -d "$scan_dir" ] || continue
+    for config in "$scan_dir"/*/frontend/vite.config.ts; do
+      [ -f "$config" ] || continue
+      plugin_name="$(basename "$(dirname "$(dirname "$config")")")"
+      PLUGINS+=("$plugin_name")
+    done
   done
   # Sort for deterministic output
   IFS=$'\n' PLUGINS=($(sort <<<"${PLUGINS[*]}")); unset IFS
 fi
 
 if [ ${#PLUGINS[@]} -eq 0 ]; then
-  log_warn "No plugins found in $PLUGINS_DIR with frontend/vite.config.ts"
+  log_warn "No plugins found in $PLUGINS_DIR or $EXAMPLES_DIR with frontend/vite.config.ts"
   exit 0
 fi
 
@@ -170,11 +174,21 @@ mkdir -p "$OUTPUT_DIR"
 # Build a single plugin
 build_plugin() {
   local plugin_name=$1
-  local plugin_dir="$PLUGINS_DIR/$plugin_name/frontend"
-  local plugin_root="$PLUGINS_DIR/$plugin_name"
+  local plugin_root=""
+  local plugin_dir=""
   local output_subdir="$OUTPUT_DIR/$plugin_name/1.0.0"
 
-  # Check if vite config exists
+  # Resolve plugin location — check plugins/ first, then examples/
+  if [ -d "$PLUGINS_DIR/$plugin_name" ]; then
+    plugin_root="$PLUGINS_DIR/$plugin_name"
+  elif [ -d "$EXAMPLES_DIR/$plugin_name" ]; then
+    plugin_root="$EXAMPLES_DIR/$plugin_name"
+  else
+    log_warn "Skipping $plugin_name - directory not found"
+    return 0
+  fi
+  plugin_dir="$plugin_root/frontend"
+
   if [ ! -f "$plugin_dir/vite.config.ts" ]; then
     log_warn "Skipping $plugin_name - no vite.config.ts"
     return 0

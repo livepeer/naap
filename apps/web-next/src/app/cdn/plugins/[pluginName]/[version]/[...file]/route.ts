@@ -88,11 +88,29 @@ export async function GET(
   // No hardcoded map needed — all plugin directories follow this convention
   const pluginDir = toKebabCase(pluginName);
 
-  // Build the file path
-  // In development: ../../../dist/plugins/[pluginDir]/[version]/[file]
-  // In production: could be Vercel Blob or local storage
+  // Resolve the bundle file. Check in order:
+  //   1. dist/plugins/{dir}/{version}/ — canonical CDN output from build-plugins.sh
+  //   2. plugins/{dir}/frontend/dist/production/ — source build (local dev)
+  //   3. examples/{dir}/frontend/dist/production/ — example plugins (local dev)
+  // This ensures plugins work regardless of where their source lives.
   const rootDir = process.cwd();
-  const versionDir = path.join(rootDir, '..', '..', 'dist', 'plugins', pluginDir, version);
+  const monorepoRoot = path.join(rootDir, '..', '..');
+  const candidateDirs = [
+    path.join(monorepoRoot, 'dist', 'plugins', pluginDir, version),
+    path.join(monorepoRoot, 'plugins', pluginDir, 'frontend', 'dist', 'production'),
+    path.join(monorepoRoot, 'examples', pluginDir, 'frontend', 'dist', 'production'),
+  ];
+
+  let versionDir = candidateDirs[0];
+  for (const dir of candidateDirs) {
+    try {
+      await stat(dir);
+      versionDir = dir;
+      break;
+    } catch {
+      // directory doesn't exist, try next
+    }
+  }
   let distPath = path.join(versionDir, fileName);
 
   try {

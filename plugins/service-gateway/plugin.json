@@ -1,10 +1,11 @@
 {
-  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "$schema": "../../packages/plugin-sdk/plugin.schema.json",
   "name": "service-gateway",
   "displayName": "Service Gateway",
   "version": "1.0.0",
   "description": "Zero-code serverless API gateway — expose any REST API (AI/LLM, ClickHouse, Daydream, etc.) as a managed, team-scoped API with auth, rate limiting, and usage tracking",
   "isCore": true,
+  "icon": "Globe",
   "author": {
     "name": "NAAP Team",
     "email": "team@naap.io",
@@ -22,7 +23,7 @@
 
   "frontend": {
     "entry": "./frontend/dist/production/service-gateway.js",
-    "devEntry": "./frontend/src/App.tsx",
+    "entryPoint": "./frontend/src/App.tsx",
     "devPort": 3116,
     "routes": [
       "/gateway",
@@ -53,15 +54,26 @@
         "name": "service-gateway:admin",
         "displayName": "Gateway Admin",
         "description": "Full access: create/edit/delete connectors, manage API keys, manage plans, view dashboard",
-        "permissions": ["gateway:read", "gateway:write", "gateway:admin", "gateway:configure"]
+        "permissions": [
+          { "resource": "service-gateway", "action": "*" },
+          { "resource": "service-gateway:connectors", "action": "*" },
+          { "resource": "service-gateway:keys", "action": "*" },
+          { "resource": "service-gateway:plans", "action": "*" },
+          { "resource": "service-gateway:dashboard", "action": "read" }
+        ]
       },
       {
         "name": "service-gateway:user",
         "displayName": "Gateway User",
         "description": "View connectors and docs, create personal API keys for published connectors, view own usage",
-        "permissions": ["gateway:read", "gateway:use"]
+        "permissions": [
+          { "resource": "service-gateway", "action": "read" },
+          { "resource": "service-gateway:keys:own", "action": "*" },
+          { "resource": "service-gateway:dashboard:own", "action": "read" }
+        ]
       }
-    ]
+    ],
+    "defaultRole": "service-gateway:user"
   },
 
   "config": {

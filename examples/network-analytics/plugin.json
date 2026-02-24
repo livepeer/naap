@@ -24,9 +24,7 @@
     "devPort": 3004,
     "routes": [
       "/analytics",
-      "/analytics/*",
-      "/leaderboard",
-      "/leaderboard/*"
+      "/analytics/*"
     ],
     "navigation": {
       "label": "Analytics",

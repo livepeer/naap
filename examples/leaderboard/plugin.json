@@ -1,0 +1,33 @@
+{
+  "$schema": "../../packages/plugin-sdk/plugin.schema.json",
+  "name": "leaderboard",
+  "displayName": "AI Leaderboard",
+  "version": "1.0.0",
+  "description": "Livepeer AI orchestrator performance leaderboard — consumes the Service Gateway",
+  "category": "example",
+  "author": {
+    "name": "NAAP Examples",
+    "email": "examples@naap.dev"
+  },
+  "icon": "Trophy",
+  "frontend": {
+    "entry": "./frontend/dist/production/leaderboard.js",
+    "entryPoint": "./frontend/src/App.tsx",
+    "devPort": 3022,
+    "routes": ["/leaderboard", "/leaderboard/*"],
+    "navigation": { "label": "AI Leaderboard", "icon": "Trophy" }
+  },
+  "rbac": {
+    "roles": [
+      {
+        "name": "leaderboard:user",
+        "displayName": "Leaderboard User",
+        "description": "Can view the AI leaderboard",
+        "permissions": [
+          { "resource": "leaderboard", "action": "read" }
+        ]
+      }
+    ],
+    "defaultRole": "leaderboard:user"
+  }
+}

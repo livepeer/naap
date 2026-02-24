@@ -105,50 +105,76 @@ async function main(): Promise<void> {
       }
     }
 
-    // Cleanup stale plugins — runs in production and local dev.
-    // Skipped ONLY on Vercel preview branches, where multiple branches share a
-    // single database and branch A disabling branch B's plugins would break previews.
+    // Cleanup truly orphaned plugins — only disable plugins that are:
+    //   1. NOT discovered on the filesystem
+    //   2. NOT installed by any user or tenant
+    // Published/installed plugins are NEVER touched, even if their source
+    // code is not in the repo (e.g. marketplace-installed, external plugins).
     const discoveredNames = new Set(discovered.map((p) => p.name));
     const isVercelPreview = process.env.VERCEL_ENV === 'preview';
     let disabled = 0;
     let unlisted = 0;
 
     if (!isVercelPreview) {
-      // Soft-disable stale WorkflowPlugin records
       const dbPlugins = await prisma.workflowPlugin.findMany({
         where: { enabled: true },
         select: { name: true },
       });
 
       for (const db of dbPlugins) {
-        if (!discoveredNames.has(db.name)) {
-          await prisma.workflowPlugin.update({
-            where: { name: db.name },
-            data: { enabled: false },
-          });
-          disabled++;
-          console.log(`  [DISABLED] ${db.name} (no longer in repo)`);
+        if (discoveredNames.has(db.name)) continue;
+
+        const userInstalls = await prisma.userPluginPreference.count({
+          where: { pluginName: db.name, enabled: true },
+        });
+        if (userInstalls > 0) {
+          console.log(`  [KEPT] ${db.name} (${userInstalls} user installs)`);
+          continue;
         }
+
+        const pkg = await prisma.pluginPackage.findUnique({
+          where: { name: db.name },
+          select: { deployment: { select: { activeInstalls: true } } },
+        });
+        if (pkg?.deployment && pkg.deployment.activeInstalls > 0) {
+          console.log(`  [KEPT] ${db.name} (${pkg.deployment.activeInstalls} tenant installs)`);
+          continue;
+        }
+
+        await prisma.workflowPlugin.update({
+          where: { name: db.name },
+          data: { enabled: false },
+        });
+        disabled++;
+        console.log(`  [DISABLED] ${db.name} (orphaned — no installs)`);
       }
 
-      // Unlist stale PluginPackage records
       const publishedPackages = await prisma.pluginPackage.findMany({
         where: { publishStatus: 'published' },
-        select: { name: true },
+        select: {
+          name: true,
+          deployment: { select: { activeInstalls: true } },
+        },
       });
 
       for (const pkg of publishedPackages) {
-        if (!discoveredNames.has(pkg.name)) {
-          await prisma.pluginPackage.update({
-            where: { name: pkg.name },
-            data: { publishStatus: 'unlisted' },
-          });
-          unlisted++;
-          console.log(`  [UNLISTED] ${pkg.name} (no longer in repo)`);
-        }
+        if (discoveredNames.has(pkg.name)) continue;
+        if (pkg.deployment && pkg.deployment.activeInstalls > 0) continue;
+
+        const userInstalls = await prisma.userPluginPreference.count({
+          where: { pluginName: pkg.name, enabled: true },
+        });
+        if (userInstalls > 0) continue;
+
+        await prisma.pluginPackage.update({
+          where: { name: pkg.name },
+          data: { publishStatus: 'unlisted' },
+        });
+        unlisted++;
+        console.log(`  [UNLISTED] ${pkg.name} (orphaned — no installs)`);
       }
     } else {
-      console.log('[sync-plugin-registry] Skipping stale plugin cleanup (Vercel preview — shared DB)');
+      console.log('[sync-plugin-registry] Skipping cleanup (Vercel preview — shared DB)');
     }
 
     console.log(

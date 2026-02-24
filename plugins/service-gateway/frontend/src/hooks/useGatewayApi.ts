@@ -40,9 +40,7 @@ export function useGatewayApi() {
 
   const get = useCallback(
     async <T = unknown>(path: string): Promise<T> => {
-      const res = await apiClient.get(`${GW_API_BASE}${path}`, {
-        headers: headers(),
-      });
+      const res = await apiClient.get(`${GW_API_BASE}${path}`, headers());
       return (res as { data: T }).data;
     },
     [apiClient, headers]
@@ -50,9 +48,7 @@ export function useGatewayApi() {
 
   const post = useCallback(
     async <T = unknown>(path: string, body?: unknown): Promise<T> => {
-      const res = await apiClient.post(`${GW_API_BASE}${path}`, body, {
-        headers: headers(),
-      });
+      const res = await apiClient.post(`${GW_API_BASE}${path}`, body, headers());
       return (res as { data: T }).data;
     },
     [apiClient, headers]
@@ -60,9 +56,7 @@ export function useGatewayApi() {
 
   const put = useCallback(
     async <T = unknown>(path: string, body?: unknown): Promise<T> => {
-      const res = await apiClient.put(`${GW_API_BASE}${path}`, body, {
-        headers: headers(),
-      });
+      const res = await apiClient.put(`${GW_API_BASE}${path}`, body, headers());
       return (res as { data: T }).data;
     },
     [apiClient, headers]
@@ -70,9 +64,7 @@ export function useGatewayApi() {
 
   const del = useCallback(
     async <T = unknown>(path: string): Promise<T> => {
-      const res = await apiClient.delete(`${GW_API_BASE}${path}`, {
-        headers: headers(),
-      });
+      const res = await apiClient.delete(`${GW_API_BASE}${path}`, headers());
       return (res as { data: T }).data;
     },
     [apiClient, headers]
