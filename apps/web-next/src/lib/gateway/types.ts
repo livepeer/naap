@@ -13,6 +13,7 @@ export interface ResolvedConnector {
   slug: string;
   displayName: string;
   status: string;
+  visibility: string;
   upstreamBaseUrl: string;
   allowedHosts: string[];
   defaultTimeout: number;

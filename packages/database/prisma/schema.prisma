@@ -1658,6 +1658,7 @@ model ServiceConnector {
   displayName       String
   description       String?
   status            String   @default("draft")      // draft | published | archived
+  visibility        String   @default("private")    // private | team | public
   version           Int      @default(1)
 
   // ── Upstream Config ──
@@ -1694,6 +1695,7 @@ model ServiceConnector {
   @@index([teamId, status])
   @@index([ownerUserId])
   @@index([ownerUserId, status])
+  @@index([visibility, status])
   @@schema("plugin_service_gateway")
 }
 

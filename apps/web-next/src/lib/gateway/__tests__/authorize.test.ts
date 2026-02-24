@@ -241,7 +241,7 @@ describe('extractTeamContext', () => {
 });
 
 describe('verifyConnectorAccess', () => {
-  // ── Team-scoped connectors ──
+  // ── Team-scoped connectors (private) ──
 
   it('allows access to team connector when team matches', () => {
     const auth: AuthResult = {
@@ -251,7 +251,7 @@ describe('verifyConnectorAccess', () => {
       teamId: 'team-1',
     };
 
-    expect(verifyConnectorAccess(auth, 'conn-1', 'team-1', null)).toBe(true);
+    expect(verifyConnectorAccess(auth, 'conn-1', 'team-1', null, 'private')).toBe(true);
   });
 
   it('denies access to team connector when team does not match', () => {
@@ -262,7 +262,7 @@ describe('verifyConnectorAccess', () => {
       teamId: 'team-1',
     };
 
-    expect(verifyConnectorAccess(auth, 'conn-1', 'team-2', null)).toBe(false);
+    expect(verifyConnectorAccess(auth, 'conn-1', 'team-2', null, 'private')).toBe(false);
   });
 
   it('denies personal user access to team connector', () => {
@@ -273,10 +273,10 @@ describe('verifyConnectorAccess', () => {
       teamId: 'personal:user-1',
     };
 
-    expect(verifyConnectorAccess(auth, 'conn-1', 'team-1', null)).toBe(false);
+    expect(verifyConnectorAccess(auth, 'conn-1', 'team-1', null, 'team')).toBe(false);
   });
 
-  // ── Personal connectors ──
+  // ── Personal connectors (private) ──
 
   it('allows owner access to personal connector', () => {
     const auth: AuthResult = {
@@ -286,7 +286,7 @@ describe('verifyConnectorAccess', () => {
       teamId: 'personal:user-1',
     };
 
-    expect(verifyConnectorAccess(auth, 'conn-1', null, 'user-1')).toBe(true);
+    expect(verifyConnectorAccess(auth, 'conn-1', null, 'user-1', 'private')).toBe(true);
   });
 
   it('denies other user access to personal connector', () => {
@@ -297,10 +297,10 @@ describe('verifyConnectorAccess', () => {
       teamId: 'personal:user-2',
     };
 
-    expect(verifyConnectorAccess(auth, 'conn-1', null, 'user-1')).toBe(false);
+    expect(verifyConnectorAccess(auth, 'conn-1', null, 'user-1', 'private')).toBe(false);
   });
 
-  it('denies team-scoped caller access to personal connector', () => {
+  it('allows caller when callerId matches ownerUserId even in team context', () => {
     const auth: AuthResult = {
       authenticated: true,
       callerType: 'jwt',
@@ -308,7 +308,43 @@ describe('verifyConnectorAccess', () => {
       teamId: 'team-1',
     };
 
-    expect(verifyConnectorAccess(auth, 'conn-1', null, 'user-1')).toBe(true);
+    expect(verifyConnectorAccess(auth, 'conn-1', null, 'user-1', 'private')).toBe(true);
+  });
+
+  // ── Public connectors ──
+
+  it('allows any authenticated caller to access a public connector', () => {
+    const auth: AuthResult = {
+      authenticated: true,
+      callerType: 'jwt',
+      callerId: 'user-99',
+      teamId: 'personal:user-99',
+    };
+
+    expect(verifyConnectorAccess(auth, 'conn-1', null, 'user-1', 'public')).toBe(true);
+  });
+
+  it('allows API key caller to access a public connector', () => {
+    const auth: AuthResult = {
+      authenticated: true,
+      callerType: 'apiKey',
+      callerId: 'user-3',
+      teamId: 'personal:user-3',
+      apiKeyId: 'key-1',
+    };
+
+    expect(verifyConnectorAccess(auth, 'conn-1', 'team-1', null, 'public')).toBe(true);
+  });
+
+  it('allows team-scoped caller to access a public connector owned by another team', () => {
+    const auth: AuthResult = {
+      authenticated: true,
+      callerType: 'jwt',
+      callerId: 'user-1',
+      teamId: 'team-2',
+    };
+
+    expect(verifyConnectorAccess(auth, 'conn-1', 'team-1', null, 'public')).toBe(true);
   });
 
   // ── Edge cases ──
@@ -321,6 +357,6 @@ describe('verifyConnectorAccess', () => {
       teamId: 'personal:user-1',
     };
 
-    expect(verifyConnectorAccess(auth, 'conn-1', null, null)).toBe(false);
+    expect(verifyConnectorAccess(auth, 'conn-1', null, null, 'private')).toBe(false);
   });
 });

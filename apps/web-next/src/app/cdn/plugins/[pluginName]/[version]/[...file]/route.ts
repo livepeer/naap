@@ -91,14 +91,11 @@ export async function GET(
   // Resolve the bundle file. Check in order:
   //   1. dist/plugins/{dir}/{version}/ — canonical CDN output from build-plugins.sh
   //   2. plugins/{dir}/frontend/dist/production/ — source build (local dev)
-  //   3. examples/{dir}/frontend/dist/production/ — example plugins (local dev)
-  // This ensures plugins work regardless of where their source lives.
   const rootDir = process.cwd();
   const monorepoRoot = path.join(rootDir, '..', '..');
   const candidateDirs = [
     path.join(monorepoRoot, 'dist', 'plugins', pluginDir, version),
     path.join(monorepoRoot, 'plugins', pluginDir, 'frontend', 'dist', 'production'),
-    path.join(monorepoRoot, 'examples', pluginDir, 'frontend', 'dist', 'production'),
   ];
 
   let versionDir = candidateDirs[0];

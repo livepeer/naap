@@ -63,7 +63,7 @@ async function handleRequest(
   }
 
   // ── 3. Verify Ownership Isolation ──
-  if (!verifyConnectorAccess(auth, config.connector.id, config.connector.teamId, config.connector.ownerUserId)) {
+  if (!verifyConnectorAccess(auth, config.connector.id, config.connector.teamId, config.connector.ownerUserId, config.connector.visibility)) {
     return buildErrorResponse(
       'NOT_FOUND',
       `Connector not found.`,

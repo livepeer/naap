@@ -97,10 +97,9 @@ export interface DiscoveredPlugin {
 /**
  * Scan plugin directories and read each `plugin.json` manifest.
  *
- * Scans both `plugins/` (core) and `examples/` (example/community) directories.
- * A plugin's availability is determined by database state (published, installed),
- * NOT by filesystem location. This ensures externally-published plugins are never
- * treated as "stale" just because they don't live in a specific directory.
+ * Scans `plugins/` directory only (core/production plugins).
+ * Example plugins in `examples/` are NOT auto-discovered; they must be
+ * explicitly registered via their own seed scripts (e.g. seed-leaderboard-gateway.ts).
  *
  * @param rootDir - Monorepo root directory
  * @returns Array of discovered plugins sorted by navigation order
@@ -108,7 +107,6 @@ export interface DiscoveredPlugin {
 export function discoverPlugins(rootDir: string): DiscoveredPlugin[] {
   const scanDirs = [
     path.join(rootDir, 'plugins'),
-    path.join(rootDir, 'examples'),
   ];
 
   const results: DiscoveredPlugin[] = [];
@@ -173,19 +171,14 @@ export function toWorkflowPluginData(
   let stylesUrl: string | undefined;
   const root = rootDir || process.cwd();
   try {
-    // Check CDN dist manifest, then plugins/, then examples/ for source build output
     const cdnManifest = path.join(
       root, 'dist', 'plugins', plugin.dirName, plugin.version, 'manifest.json',
     );
     const pluginsSrcManifest = path.join(
       root, 'plugins', plugin.dirName, 'frontend', 'dist', 'production', 'manifest.json',
     );
-    const examplesSrcManifest = path.join(
-      root, 'examples', plugin.dirName, 'frontend', 'dist', 'production', 'manifest.json',
-    );
     const manifestPath = fs.existsSync(cdnManifest) ? cdnManifest
       : fs.existsSync(pluginsSrcManifest) ? pluginsSrcManifest
-      : fs.existsSync(examplesSrcManifest) ? examplesSrcManifest
       : null;
 
     if (manifestPath) {

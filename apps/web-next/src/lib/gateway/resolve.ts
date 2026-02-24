@@ -29,12 +29,13 @@ function getCacheKey(scopeId: string, slug: string, method: string, path: string
 
 /**
  * Invalidate all cached configs for a connector (called on admin updates).
- * `scopeId` can be a teamId or `personal:<userId>`.
+ * `scopeId` can be a teamId, `personal:<userId>`, or `public`.
  */
 export function invalidateConnectorCache(scopeId: string, slug: string): void {
   const prefix = `gw:config:${scopeId}:${slug}:`;
+  const publicPrefix = `gw:config:public:${slug}:`;
   for (const key of CONFIG_CACHE.keys()) {
-    if (key.startsWith(prefix)) {
+    if (key.startsWith(prefix) || key.startsWith(publicPrefix)) {
       CONFIG_CACHE.delete(key);
     }
   }
@@ -54,6 +55,17 @@ async function findConnectorByOwner(scopeId: string, slug: string) {
   }
   return prisma.serviceConnector.findUnique({
     where: { teamId_slug: { teamId: scopeId, slug } },
+    include: { endpoints: true },
+  });
+}
+
+/**
+ * Fallback: find a public connector by slug (any owner).
+ * Used when the scope-based lookup fails.
+ */
+async function findPublicConnector(slug: string) {
+  return prisma.serviceConnector.findFirst({
+    where: { slug, visibility: 'public', status: 'published' },
     include: { endpoints: true },
   });
 }
@@ -79,7 +91,12 @@ export async function resolveConfig(
     return cached.config;
   }
 
-  const connector = await findConnectorByOwner(scopeId, slug);
+  let connector = await findConnectorByOwner(scopeId, slug);
+
+  // Fallback: try public connector if scope-based lookup fails
+  if (!connector || connector.status !== 'published') {
+    connector = await findPublicConnector(slug);
+  }
 
   if (!connector || connector.status !== 'published') {
     CONFIG_CACHE.set(cacheKey, { config: null, expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS });
@@ -106,6 +123,7 @@ export async function resolveConfig(
     slug: connector.slug,
     displayName: connector.displayName,
     status: connector.status,
+    visibility: connector.visibility,
     upstreamBaseUrl: connector.upstreamBaseUrl,
     allowedHosts: connector.allowedHosts,
     defaultTimeout: connector.defaultTimeout,

@@ -21,7 +21,6 @@ function toCamelCase(s) {
 function discoverPluginRewrites() {
   const scanDirs = [
     path.resolve(__dirname, '../../plugins'),
-    path.resolve(__dirname, '../../examples'),
   ];
 
   const rewrites = [];

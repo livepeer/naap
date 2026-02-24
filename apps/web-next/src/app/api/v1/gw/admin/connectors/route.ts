@@ -24,9 +24,23 @@ export async function GET(request: NextRequest) {
   const { page, pageSize, skip } = parsePagination(searchParams);
   const status = searchParams.get('status');
 
+  const scope = searchParams.get('scope') || 'all'; // own | public | all
+
+  const scopeCondition =
+    scope === 'own'
+      ? ownerWhere(ctx)
+      : scope === 'public'
+        ? { visibility: 'public', status: 'published' }
+        : {
+            OR: [
+              ownerWhere(ctx),
+              { visibility: 'public', status: 'published' },
+            ],
+          };
+
   const where = {
-    ...ownerWhere(ctx),
-    ...(status ? { status } : {}),
+    ...scopeCondition,
+    ...(status && scope !== 'public' ? { status } : {}),
   };
 
   const [connectors, total] = await Promise.all([

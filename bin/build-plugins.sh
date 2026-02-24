@@ -22,9 +22,9 @@ log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 
-# Plugin directories — scan both core and example plugins
+# Plugin directories
 PLUGINS_DIR="$ROOT_DIR/plugins"
-EXAMPLES_DIR="$ROOT_DIR/examples"
+EXAMPLES_DIR="$ROOT_DIR/examples"  # only used for explicit --plugin builds
 OUTPUT_DIR="$ROOT_DIR/dist/plugins"
 
 # Ensure Node can resolve packages from the monorepo root node_modules.
@@ -131,13 +131,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Auto-discover plugins: scan both plugins/ and examples/ for frontend vite configs.
-# Any directory with a frontend/vite.config.ts is included regardless of location.
+# Auto-discover plugins from plugins/ directory (core plugins only).
+# Example plugins in examples/ are NOT auto-built; use --plugin NAME to build one explicitly.
 if [ -n "$SPECIFIC_PLUGIN" ]; then
   PLUGINS=("$SPECIFIC_PLUGIN")
 else
   PLUGINS=()
-  for scan_dir in "$PLUGINS_DIR" "$EXAMPLES_DIR"; do
+  for scan_dir in "$PLUGINS_DIR"; do
     [ -d "$scan_dir" ] || continue
     for config in "$scan_dir"/*/frontend/vite.config.ts; do
       [ -f "$config" ] || continue
@@ -150,7 +150,7 @@ else
 fi
 
 if [ ${#PLUGINS[@]} -eq 0 ]; then
-  log_warn "No plugins found in $PLUGINS_DIR or $EXAMPLES_DIR with frontend/vite.config.ts"
+  log_warn "No plugins found in $PLUGINS_DIR with frontend/vite.config.ts"
   exit 0
 fi
 

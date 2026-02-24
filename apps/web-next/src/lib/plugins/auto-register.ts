@@ -56,7 +56,6 @@ interface DiscoveredPlugin {
 function discoverPlugins(rootDir: string, cdnBase: string): DiscoveredPlugin[] {
   const scanDirs = [
     path.join(rootDir, 'plugins'),
-    path.join(rootDir, 'examples'),
   ];
 
   const results: DiscoveredPlugin[] = [];
@@ -135,9 +134,8 @@ export async function autoRegisterPlugins(): Promise<void> {
   // Resolve monorepo root. process.cwd() in Next.js is the app dir (apps/web-next).
   const rootDir = path.resolve(process.cwd(), '../..');
   const pluginsDir = path.join(rootDir, 'plugins');
-  const examplesDir = path.join(rootDir, 'examples');
 
-  if (!fs.existsSync(pluginsDir) && !fs.existsSync(examplesDir)) {
+  if (!fs.existsSync(pluginsDir)) {
     // On Vercel or environments without the plugins directory, skip silently.
     // The build-time sync script (bin/sync-plugin-registry.ts) handles Vercel.
     return;
@@ -314,7 +312,7 @@ export async function autoRegisterPlugins(): Promise<void> {
     }
 
     // Cleanup truly orphaned plugins — only disable plugins that are:
-    //   1. NOT discovered on the filesystem (not in plugins/ or examples/)
+    //   1. NOT discovered on the filesystem (not in plugins/)
     //   2. NOT installed by any user (no UserPluginPreference records)
     //   3. NOT installed by any tenant (no active TenantPluginInstall records)
     //
