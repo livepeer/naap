@@ -1,6 +1,6 @@
 /**
  * Service Gateway — Admin: Plan List / Create
- * GET  /api/v1/gw/admin/plans   — List plans (team-scoped)
+ * GET  /api/v1/gw/admin/plans   — List plans (scope-aware)
  * POST /api/v1/gw/admin/plans   — Create new plan
  */
 
@@ -22,14 +22,17 @@ const createPlanSchema = z.object({
   allowedConnectors: z.array(z.string()).default([]),
 });
 
-const updatePlanSchema = createPlanSchema.partial().omit({ name: true });
+function ownerWhere(ctx: { teamId: string; userId: string; isPersonal: boolean }) {
+  if (ctx.isPersonal) return { ownerUserId: ctx.userId };
+  return { teamId: ctx.teamId };
+}
 
 export async function GET(request: NextRequest) {
   const ctx = await getAdminContext(request);
   if (isErrorResponse(ctx)) return ctx;
 
   const plans = await prisma.gatewayPlan.findMany({
-    where: { teamId: ctx.teamId },
+    where: ownerWhere(ctx),
     include: { apiKeys: { select: { id: true, status: true } } },
     orderBy: { createdAt: 'desc' },
   });
@@ -63,17 +66,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Check for duplicate name within team
-  const existing = await prisma.gatewayPlan.findUnique({
-    where: { teamId_name: { teamId: ctx.teamId, name: parsed.data.name } },
-  });
+  const existing = ctx.isPersonal
+    ? await prisma.gatewayPlan.findUnique({
+        where: { ownerUserId_name: { ownerUserId: ctx.userId, name: parsed.data.name } },
+      })
+    : await prisma.gatewayPlan.findUnique({
+        where: { teamId_name: { teamId: ctx.teamId, name: parsed.data.name } },
+      });
   if (existing) {
     return errors.conflict(`Plan "${parsed.data.name}" already exists`);
   }
 
+  const ownerData = ctx.isPersonal
+    ? { ownerUserId: ctx.userId }
+    : { teamId: ctx.teamId };
+
   const plan = await prisma.gatewayPlan.create({
     data: {
-      teamId: ctx.teamId,
+      ...ownerData,
       ...parsed.data,
     },
   });

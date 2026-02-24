@@ -54,7 +54,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
   }
 
   const connector = await prisma.serviceConnector.update({
-    where: { id, teamId: ctx.teamId },
+    where: { id },
     data: {
       ...parsed.data,
       version: { increment: 1 },
@@ -62,7 +62,6 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     include: { endpoints: true },
   });
 
-  // Invalidate config cache
   invalidateConnectorCache(ctx.teamId, connector.slug);
 
   return success(connector);
@@ -78,9 +77,8 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return errors.notFound('Connector');
   }
 
-  // Soft-delete by archiving (keeps data for audit)
   await prisma.serviceConnector.update({
-    where: { id, teamId: ctx.teamId },
+    where: { id },
     data: { status: 'archived' },
   });
 

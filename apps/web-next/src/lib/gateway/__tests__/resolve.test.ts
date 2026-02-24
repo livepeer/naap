@@ -1,8 +1,8 @@
 /**
  * Tests for Service Gateway — Config Resolver
  *
- * Verifies cache TTL behavior, team-scoped lookups,
- * endpoint matching, and path pattern resolution.
+ * Verifies cache TTL behavior, scope-aware lookups (team + personal),
+ * endpoint matching, path pattern resolution, and cache isolation.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -24,6 +24,7 @@ function makeConnector(overrides?: Record<string, unknown>) {
   return {
     id: 'conn-1',
     teamId: 'team-1',
+    ownerUserId: null,
     slug: 'my-api',
     displayName: 'My API',
     status: 'published',
@@ -68,13 +69,30 @@ function makeConnector(overrides?: Record<string, unknown>) {
   };
 }
 
+function makePersonalConnector(userId: string, overrides?: Record<string, unknown>) {
+  return makeConnector({
+    teamId: null,
+    ownerUserId: userId,
+    ...overrides,
+  });
+}
+
 describe('resolveConfig', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
     invalidateConnectorCache('team-1', 'my-api');
+    invalidateConnectorCache('personal:user-1', 'my-api');
+    invalidateConnectorCache('personal:user-2', 'my-api');
   });
 
-  it('resolves a published connector with matching endpoint', async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // ── Team-scoped lookups ──
+
+  it('resolves a published team connector with matching endpoint', async () => {
     mockFindUnique.mockResolvedValue(makeConnector());
 
     const config = await resolveConfig('team-1', 'my-api', 'POST', '/query');
@@ -82,15 +100,20 @@ describe('resolveConfig', () => {
     expect(config).not.toBeNull();
     expect(config!.connector.slug).toBe('my-api');
     expect(config!.connector.teamId).toBe('team-1');
+    expect(config!.connector.ownerUserId).toBeNull();
     expect(config!.endpoint.name).toBe('Query');
     expect(config!.endpoint.upstreamPath).toBe('/v1/query');
+
+    expect(mockFindUnique).toHaveBeenCalledWith({
+      where: { teamId_slug: { teamId: 'team-1', slug: 'my-api' } },
+      include: { endpoints: true },
+    });
   });
 
   it('returns null for non-existent connector', async () => {
     mockFindUnique.mockResolvedValue(null);
 
     const config = await resolveConfig('team-1', 'missing', 'GET', '/');
-
     expect(config).toBeNull();
   });
 
@@ -98,7 +121,6 @@ describe('resolveConfig', () => {
     mockFindUnique.mockResolvedValue(makeConnector({ status: 'draft' }));
 
     const config = await resolveConfig('team-1', 'my-api', 'POST', '/query');
-
     expect(config).toBeNull();
   });
 
@@ -106,7 +128,6 @@ describe('resolveConfig', () => {
     mockFindUnique.mockResolvedValue(makeConnector());
 
     const config = await resolveConfig('team-1', 'my-api', 'GET', '/query');
-
     expect(config).toBeNull();
   });
 
@@ -114,9 +135,35 @@ describe('resolveConfig', () => {
     mockFindUnique.mockResolvedValue(makeConnector());
 
     const config = await resolveConfig('team-1', 'my-api', 'POST', '/missing');
-
     expect(config).toBeNull();
   });
+
+  // ── Personal-scoped lookups ──
+
+  it('resolves a published personal connector via ownerUserId_slug', async () => {
+    mockFindUnique.mockResolvedValue(makePersonalConnector('user-1'));
+
+    const config = await resolveConfig('personal:user-1', 'my-api', 'POST', '/query');
+
+    expect(config).not.toBeNull();
+    expect(config!.connector.teamId).toBeNull();
+    expect(config!.connector.ownerUserId).toBe('user-1');
+    expect(config!.connector.slug).toBe('my-api');
+
+    expect(mockFindUnique).toHaveBeenCalledWith({
+      where: { ownerUserId_slug: { ownerUserId: 'user-1', slug: 'my-api' } },
+      include: { endpoints: true },
+    });
+  });
+
+  it('returns null for non-existent personal connector', async () => {
+    mockFindUnique.mockResolvedValue(null);
+
+    const config = await resolveConfig('personal:user-1', 'my-api', 'GET', '/');
+    expect(config).toBeNull();
+  });
+
+  // ── Cache behavior ──
 
   it('uses cache on subsequent calls within TTL', async () => {
     mockFindUnique.mockResolvedValue(makeConnector());
@@ -136,6 +183,50 @@ describe('resolveConfig', () => {
 
     expect(mockFindUnique).toHaveBeenCalledTimes(2);
   });
+
+  it('isolates cache between team and personal scope', async () => {
+    mockFindUnique.mockResolvedValueOnce(makeConnector());
+    mockFindUnique.mockResolvedValueOnce(makePersonalConnector('user-1'));
+
+    const teamConfig = await resolveConfig('team-1', 'my-api', 'POST', '/query');
+    const personalConfig = await resolveConfig('personal:user-1', 'my-api', 'POST', '/query');
+
+    expect(mockFindUnique).toHaveBeenCalledTimes(2);
+    expect(teamConfig!.connector.teamId).toBe('team-1');
+    expect(personalConfig!.connector.ownerUserId).toBe('user-1');
+  });
+
+  it('negative cache (not-found) expires quickly and allows re-resolution', async () => {
+    mockFindUnique.mockResolvedValueOnce(null);
+
+    const config1 = await resolveConfig('personal:user-1', 'my-api', 'POST', '/query');
+    expect(config1).toBeNull();
+    expect(mockFindUnique).toHaveBeenCalledTimes(1);
+
+    // Advance time past the short negative cache TTL (5s)
+    vi.advanceTimersByTime(6_000);
+
+    mockFindUnique.mockResolvedValueOnce(makePersonalConnector('user-1'));
+
+    const config2 = await resolveConfig('personal:user-1', 'my-api', 'POST', '/query');
+    expect(config2).not.toBeNull();
+    expect(config2!.connector.ownerUserId).toBe('user-1');
+    expect(mockFindUnique).toHaveBeenCalledTimes(2);
+  });
+
+  it('isolates cache between different personal scopes', async () => {
+    mockFindUnique.mockResolvedValueOnce(makePersonalConnector('user-1'));
+    mockFindUnique.mockResolvedValueOnce(null);
+
+    const user1Config = await resolveConfig('personal:user-1', 'my-api', 'POST', '/query');
+    const user2Config = await resolveConfig('personal:user-2', 'my-api', 'POST', '/query');
+
+    expect(mockFindUnique).toHaveBeenCalledTimes(2);
+    expect(user1Config).not.toBeNull();
+    expect(user2Config).toBeNull();
+  });
+
+  // ── Path matching ──
 
   it('matches endpoints with path params', async () => {
     const connector = makeConnector({
@@ -208,7 +299,6 @@ describe('resolveConfig', () => {
     mockFindUnique.mockResolvedValue(connector);
 
     const config = await resolveConfig('team-1', 'my-api', 'POST', '/query');
-
     expect(config).toBeNull();
   });
 });

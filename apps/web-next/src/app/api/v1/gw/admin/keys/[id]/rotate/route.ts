@@ -19,8 +19,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (isErrorResponse(ctx)) return ctx;
 
   const { id } = await context.params;
+  const ownerFilter = ctx.isPersonal
+    ? { ownerUserId: ctx.userId }
+    : { teamId: ctx.teamId };
+
   const oldKey = await prisma.gatewayApiKey.findFirst({
-    where: { id, teamId: ctx.teamId },
+    where: { id, ...ownerFilter },
   });
 
   if (!oldKey) {
@@ -40,7 +44,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const [newKey] = await prisma.$transaction([
     prisma.gatewayApiKey.create({
       data: {
-        teamId: ctx.teamId,
+        ...ownerFilter,
         createdBy: ctx.userId,
         name: `${oldKey.name} (rotated)`,
         keyHash,

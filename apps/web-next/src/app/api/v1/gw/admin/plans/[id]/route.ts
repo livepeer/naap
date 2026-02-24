@@ -24,13 +24,18 @@ const updatePlanSchema = z.object({
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+function ownerWhere(ctx: { teamId: string; userId: string; isPersonal: boolean }) {
+  if (ctx.isPersonal) return { ownerUserId: ctx.userId };
+  return { teamId: ctx.teamId };
+}
+
 export async function GET(request: NextRequest, context: RouteContext) {
   const ctx = await getAdminContext(request);
   if (isErrorResponse(ctx)) return ctx;
 
   const { id } = await context.params;
   const plan = await prisma.gatewayPlan.findFirst({
-    where: { id, teamId: ctx.teamId },
+    where: { id, ...ownerWhere(ctx) },
     include: { apiKeys: { select: { id: true, name: true, status: true } } },
   });
 
@@ -50,7 +55,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
   const { id } = await context.params;
   const existing = await prisma.gatewayPlan.findFirst({
-    where: { id, teamId: ctx.teamId },
+    where: { id, ...ownerWhere(ctx) },
   });
   if (!existing) {
     return errors.notFound('Plan');
@@ -86,7 +91,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
   const { id } = await context.params;
   const existing = await prisma.gatewayPlan.findFirst({
-    where: { id, teamId: ctx.teamId },
+    where: { id, ...ownerWhere(ctx) },
     include: { apiKeys: { where: { status: 'active' } } },
   });
 
@@ -94,7 +99,6 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return errors.notFound('Plan');
   }
 
-  // Prevent deletion if active keys reference this plan
   if (existing.apiKeys.length > 0) {
     return errors.conflict(
       `Cannot delete plan: ${existing.apiKeys.length} active API key(s) are using it. Revoke or reassign them first.`

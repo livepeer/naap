@@ -3,10 +3,11 @@
  *
  * Run after `start.sh --all` to:
  *   1. Authenticate as admin dev user
- *   2. Create a "livepeer-leaderboard" connector in the service gateway
- *   3. Create 3 endpoints (pipelines, aggregated stats, raw stats)
- *   4. Publish the connector
- *   5. Create a gateway plan and API key for testing
+ *   2. Create BOTH a personal connector (for personal workspace) and a team
+ *      connector (if the livepeer-dev team exists) for "livepeer-leaderboard"
+ *   3. Create 3 endpoints per connector (pipelines, aggregated stats, raw stats)
+ *   4. Publish each connector
+ *   5. Create a gateway plan and API key for the primary scope
  *   6. Register the leaderboard example plugin in WorkflowPlugin
  *   7. Print gateway URLs and test API key
  *
@@ -64,17 +65,20 @@ async function apiCall<T>(
   method: string,
   path: string,
   token: string,
-  teamId: string,
+  teamId: string | null,
   body?: unknown,
 ): Promise<ApiResponse<T>> {
   const url = `${SHELL_URL}${path}`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+  };
+  if (teamId) {
+    headers['x-team-id'] = teamId;
+  }
   const res = await fetch(url, {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      'x-team-id': teamId,
-    },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
 
@@ -126,34 +130,30 @@ async function main() {
     `  ✅ Authenticated as ${loginData.data.user.displayName} (${AUTH_EMAIL})`,
   );
 
-  // ── Step 2: Resolve team ID ───────────────────────────────────────────────
+  // ── Step 2: Resolve scope (team or personal) ──────────────────────────────
 
-  step(2, 'Resolving "Livepeer Development" team');
+  step(2, 'Resolving ownership scope');
 
   const prisma = new PrismaClient();
-  let teamId: string;
+  let teamId: string | null = null;
 
   try {
     const team = await prisma.team.findFirst({
       where: { slug: 'livepeer-dev' },
     });
-    if (!team) {
-      throw new Error(
-        'Team "livepeer-dev" not found. Run start.sh --all first to seed the database.',
-      );
+    if (team) {
+      teamId = team.id;
+      console.log(`  ✅ Team found: ${team.name} (${teamId})`);
+    } else {
+      console.log(`  ℹ️  No team found — will only create personal connector`);
     }
-    teamId = team.id;
-    console.log(`  ✅ Team: ${team.name} (${teamId})`);
+    console.log(`  ✅ Personal scope: ownerUserId ${userId}`);
   } catch (err) {
     await prisma.$disconnect();
     throw err;
   }
 
-  // ── Step 3: Create connector ──────────────────────────────────────────────
-
-  step(3, 'Creating "livepeer-leaderboard" connector');
-
-  let connectorId: string;
+  // ── Shared connector/endpoint definitions ────────────────────────────────
 
   const connectorBody = {
     slug: 'livepeer-leaderboard',
@@ -170,38 +170,10 @@ async function main() {
     tags: ['livepeer', 'ai', 'leaderboard', 'orchestrator'],
   };
 
-  try {
-    const res = await apiCall<Connector>(
-      'POST',
-      '/api/v1/gw/admin/connectors',
-      token,
-      teamId,
-      connectorBody,
-    );
-    connectorId = res.data.id;
-    console.log(`  ✅ Created connector: ${connectorId}`);
-  } catch (err) {
-    // 409 = slug already exists — look it up
-    const existing = await prisma.serviceConnector.findFirst({
-      where: { teamId, slug: 'livepeer-leaderboard' },
-    });
-    if (existing) {
-      connectorId = existing.id;
-      console.log(`  ⏭️  Connector already exists: ${connectorId}`);
-    } else {
-      throw err;
-    }
-  }
-
-  // ── Step 4: Create endpoints ──────────────────────────────────────────────
-
-  step(4, 'Creating connector endpoints');
-
-  const endpoints = [
+  const endpointDefs = [
     {
       name: 'list-pipelines',
-      description:
-        'List all AI pipelines with their models and supported regions',
+      description: 'List all AI pipelines with their models and supported regions',
       method: 'GET',
       path: '/pipelines',
       upstreamPath: '/api/pipelines',
@@ -211,8 +183,7 @@ async function main() {
     },
     {
       name: 'aggregated-stats',
-      description:
-        'Get aggregated performance scores by pipeline and model',
+      description: 'Get aggregated performance scores by pipeline and model',
       method: 'GET',
       path: '/stats',
       upstreamPath: '/api/aggregated_stats',
@@ -222,8 +193,7 @@ async function main() {
     },
     {
       name: 'raw-stats',
-      description:
-        'Get raw per-run stats for a specific orchestrator',
+      description: 'Get raw per-run stats for a specific orchestrator',
       method: 'GET',
       path: '/stats/raw',
       upstreamPath: '/api/raw_stats',
@@ -233,61 +203,121 @@ async function main() {
     },
   ];
 
-  for (const ep of endpoints) {
-    const epRes = await fetch(
-      `${SHELL_URL}/api/v1/gw/admin/connectors/${connectorId}/endpoints`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          'x-team-id': teamId,
-        },
-        body: JSON.stringify(ep),
-      },
-    );
+  /**
+   * Helper: seed one connector via Prisma directly (create + endpoints + publish).
+   * Uses Prisma instead of the admin API so we can create connectors for any user.
+   */
+  async function seedConnectorDirect(
+    ownerSpec: { ownerUserId: string } | { teamId: string },
+    createdBy: string,
+    label: string,
+  ): Promise<string> {
+    console.log(`\n  ── ${label} ──`);
 
-    if (epRes.ok) {
-      console.log(`  ✅ Endpoint: ${ep.method} ${ep.path} → ${ep.upstreamPath}`);
-    } else if (epRes.status === 409) {
-      console.log(`  ⏭️  Endpoint already exists: ${ep.method} ${ep.path}`);
+    const slug = 'livepeer-leaderboard';
+    const where = 'ownerUserId' in ownerSpec
+      ? { ownerUserId_slug: { ownerUserId: ownerSpec.ownerUserId, slug } }
+      : { teamId_slug: { teamId: ownerSpec.teamId, slug } };
+
+    let connector = await prisma.serviceConnector.findUnique({ where });
+
+    if (connector) {
+      console.log(`    ⏭️  Connector already exists: ${connector.id}`);
     } else {
-      const body = await epRes.text();
-      throw new Error(
-        `Create endpoint ${ep.method} ${ep.path} failed (${epRes.status}): ${body}`,
-      );
+      connector = await prisma.serviceConnector.create({
+        data: {
+          ...ownerSpec,
+          createdBy,
+          slug,
+          displayName: connectorBody.displayName,
+          description: connectorBody.description,
+          upstreamBaseUrl: connectorBody.upstreamBaseUrl,
+          allowedHosts: connectorBody.allowedHosts,
+          defaultTimeout: connectorBody.defaultTimeout,
+          healthCheckPath: connectorBody.healthCheckPath,
+          authType: connectorBody.authType,
+          responseWrapper: connectorBody.responseWrapper,
+          streamingEnabled: connectorBody.streamingEnabled,
+          tags: connectorBody.tags,
+          status: 'draft',
+        },
+      });
+      console.log(`    ✅ Created connector: ${connector.id}`);
     }
+
+    // Ensure endpoints exist
+    const existingEps = await prisma.connectorEndpoint.findMany({
+      where: { connectorId: connector.id },
+      select: { path: true, method: true },
+    });
+    const existingSet = new Set(existingEps.map(e => `${e.method}:${e.path}`));
+
+    for (const ep of endpointDefs) {
+      if (existingSet.has(`${ep.method}:${ep.path}`)) {
+        console.log(`    ⏭️  Endpoint exists: ${ep.method} ${ep.path}`);
+        continue;
+      }
+      await prisma.connectorEndpoint.create({
+        data: {
+          connectorId: connector.id,
+          name: ep.name,
+          description: ep.description,
+          method: ep.method,
+          path: ep.path,
+          upstreamPath: ep.upstreamPath,
+          upstreamContentType: 'application/json',
+          bodyTransform: 'passthrough',
+          rateLimit: ep.rateLimit,
+          timeout: ep.timeout,
+          cacheTtl: ep.cacheTtl,
+        },
+      });
+      console.log(`    ✅ Endpoint: ${ep.method} ${ep.path} → ${ep.upstreamPath}`);
+    }
+
+    // Publish if not already
+    if (connector.status !== 'published') {
+      await prisma.serviceConnector.update({
+        where: { id: connector.id },
+        data: { status: 'published', publishedAt: new Date() },
+      });
+      console.log(`    ✅ Published`);
+    } else {
+      console.log(`    ⏭️  Already published`);
+    }
+
+    return connector.id;
   }
 
-  // ── Step 5: Publish connector ─────────────────────────────────────────────
+  // ── Step 3: Create personal connectors for ALL users ──────────────────────
 
-  step(5, 'Publishing connector');
+  step(3, 'Creating personal "livepeer-leaderboard" connectors for all users');
 
-  const publishRes = await fetch(
-    `${SHELL_URL}/api/v1/gw/admin/connectors/${connectorId}/publish`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        'x-team-id': teamId,
-      },
-    },
-  );
+  const allUsers = await prisma.user.findMany({ select: { id: true, email: true, displayName: true } });
+  let primaryPersonalConnectorId: string | undefined;
 
-  if (publishRes.ok) {
-    const publishData = (await publishRes.json()) as ApiResponse<Connector>;
-    console.log(`  ✅ Connector published (status: ${publishData.data.status})`);
-  } else if (publishRes.status === 400 || publishRes.status === 409) {
-    console.log('  ⏭️  Connector already published');
+  for (const user of allUsers) {
+    const label = `${user.displayName || user.email || user.id}`;
+    const connId = await seedConnectorDirect({ ownerUserId: user.id }, userId, label);
+    if (user.id === userId) primaryPersonalConnectorId = connId;
+  }
+  console.log(`\n  ✅ Created personal connectors for ${allUsers.length} users`);
+
+  const personalConnectorId = primaryPersonalConnectorId || allUsers[0]?.id || userId;
+
+  // ── Step 4: Create team connector (if team exists) ────────────────────────
+
+  step(4, 'Creating team "livepeer-leaderboard" connector');
+
+  if (teamId) {
+    await seedConnectorDirect({ teamId }, userId, `Team: ${teamId}`);
   } else {
-    const body = await publishRes.text();
-    throw new Error(`Publish connector failed (${publishRes.status}): ${body}`);
+    console.log('  ⏭️  No team — skipping team connector');
   }
 
-  // ── Step 6: Create gateway plan ───────────────────────────────────────────
+  // ── Step 5: Create gateway plan ───────────────────────────────────────────
 
-  step(6, 'Creating gateway plan');
+  step(5, 'Creating gateway plan (personal scope)');
 
   let planId: string | undefined;
 
@@ -296,7 +326,6 @@ async function main() {
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
-      'x-team-id': teamId,
     },
     body: JSON.stringify({
       name: 'leaderboard-standard',
@@ -312,7 +341,7 @@ async function main() {
     console.log(`  ✅ Plan created: ${planData.data.displayName} (${planId})`);
   } else if (planRes.status === 409) {
     const existing = await prisma.gatewayPlan.findFirst({
-      where: { teamId, name: 'leaderboard-standard' },
+      where: { ownerUserId: userId, name: 'leaderboard-standard' },
     });
     planId = existing?.id;
     console.log(`  ⏭️  Plan already exists: ${planId}`);
@@ -321,12 +350,12 @@ async function main() {
     throw new Error(`Create plan failed (${planRes.status}): ${body}`);
   }
 
-  // ── Step 7: Create API key ────────────────────────────────────────────────
+  // ── Step 6: Create API key ────────────────────────────────────────────────
 
-  step(7, 'Creating test API key');
+  step(6, 'Creating test API key (personal scope)');
 
   const existingKey = await prisma.gatewayApiKey.findFirst({
-    where: { teamId, name: 'leaderboard-test-key', status: 'active' },
+    where: { ownerUserId: userId, name: 'leaderboard-test-key', status: 'active' },
   });
 
   let rawKey: string | undefined;
@@ -340,10 +369,10 @@ async function main() {
       'POST',
       '/api/v1/gw/admin/keys',
       token,
-      teamId,
+      null,
       {
         name: 'leaderboard-test-key',
-        connectorId,
+        connectorId: personalConnectorId,
         planId,
       },
     );
@@ -351,9 +380,9 @@ async function main() {
     console.log(`  ✅ API key created: ${res.data.keyPrefix}...`);
   }
 
-  // ── Step 8: Register leaderboard plugin ───────────────────────────────────
+  // ── Step 7: Register leaderboard plugin ───────────────────────────────────
 
-  step(8, 'Registering leaderboard plugin (WorkflowPlugin + Marketplace + Installs)');
+  step(7, 'Registering leaderboard plugin (WorkflowPlugin + Marketplace + Installs)');
 
   const BUNDLE_URL = '/cdn/plugins/leaderboard/1.0.0/leaderboard.js';
 
@@ -467,9 +496,9 @@ async function main() {
   console.log(`  ✅ PluginDeployment: ${deployment.id}`);
 
   // 8e. TenantPluginInstall for all users
-  const allUsers = await prisma.user.findMany({ select: { id: true } });
+  const pluginUsers = await prisma.user.findMany({ select: { id: true } });
   let installCount = 0;
-  for (const user of allUsers) {
+  for (const user of pluginUsers) {
     const existing = await prisma.tenantPluginInstall.findUnique({
       where: {
         userId_deploymentId: { userId: user.id, deploymentId: deployment.id },
@@ -491,7 +520,7 @@ async function main() {
   }
 
   // 8f. UserPluginPreference for all users
-  for (const user of allUsers) {
+  for (const user of pluginUsers) {
     await prisma.userPluginPreference.upsert({
       where: {
         userId_pluginName: { userId: user.id, pluginName: 'leaderboard' },

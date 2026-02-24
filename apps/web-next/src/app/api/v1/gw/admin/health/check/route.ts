@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
     select: {
       id: true,
       teamId: true,
+      ownerUserId: true,
       slug: true,
       upstreamBaseUrl: true,
       healthCheckPath: true,
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
 
   const results = await Promise.allSettled(
     connectors.map(async (connector) => {
+      const scopeId = connector.teamId ?? `personal:${connector.ownerUserId}`;
       const result = await testUpstreamConnectivity(
         connector.upstreamBaseUrl,
         connector.healthCheckPath,
@@ -52,8 +54,8 @@ export async function POST(request: NextRequest) {
         connector.authConfig as Record<string, unknown>,
         connector.secretRefs,
         connector.allowedHosts,
-        connector.teamId,
-        '' // Internal call — no user auth token needed for secrets
+        scopeId,
+        ''
       );
 
       // Determine status

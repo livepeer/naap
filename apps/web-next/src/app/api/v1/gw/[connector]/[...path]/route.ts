@@ -12,9 +12,9 @@
  * Streaming: SSE passthrough for LLM-style endpoints
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { resolveConfig } from '@/lib/gateway/resolve';
-import { authorize, extractTeamContext, verifyConnectorAccess } from '@/lib/gateway/authorize';
+import { authorize, verifyConnectorAccess } from '@/lib/gateway/authorize';
 import { buildUpstreamRequest } from '@/lib/gateway/transform';
 import { proxyToUpstream, ProxyError } from '@/lib/gateway/proxy';
 import { buildResponse, buildErrorResponse } from '@/lib/gateway/respond';
@@ -48,22 +48,22 @@ async function handleRequest(
     );
   }
 
-  const teamId = auth.teamId;
+  const scopeId = auth.teamId;
 
   // ── 2. Resolve Connector + Endpoint Config ──
-  const config = await resolveConfig(teamId, slug, method, consumerPath);
+  const config = await resolveConfig(scopeId, slug, method, consumerPath);
   if (!config) {
     return buildErrorResponse(
       'NOT_FOUND',
-      `No published connector "${slug}" with ${method} ${consumerPath} found for your team.`,
+      `No published connector "${slug}" with ${method} ${consumerPath} found for your scope.`,
       404,
       requestId,
       traceId
     );
   }
 
-  // ── 3. Verify Team Isolation ──
-  if (!await verifyConnectorAccess(auth, config.connector.id, config.connector.teamId)) {
+  // ── 3. Verify Ownership Isolation ──
+  if (!verifyConnectorAccess(auth, config.connector.id, config.connector.teamId, config.connector.ownerUserId)) {
     return buildErrorResponse(
       'NOT_FOUND',
       `Connector not found.`,
@@ -127,7 +127,7 @@ async function handleRequest(
 
   // ── 8. Resolve Secrets ──
   const token = getAuthToken(request);
-  const secrets = await resolveSecrets(teamId, config.connector.secretRefs, token);
+  const secrets = await resolveSecrets(scopeId, config.connector.secretRefs, token);
 
   // ── 9. Transform Request ──
   const upstream = buildUpstreamRequest(request, config, secrets, consumerBody, consumerPath);
@@ -147,9 +147,9 @@ async function handleRequest(
   } catch (err) {
     const proxyError = err instanceof ProxyError ? err : new ProxyError('UPSTREAM_ERROR', String(err), 502);
 
-    // Log error usage
     logUsage({
-      teamId,
+      teamId: scopeId,
+      ownerScope: scopeId,
       connectorId: config.connector.id,
       endpointName: config.endpoint.name,
       apiKeyId: auth.apiKeyId || null,
@@ -182,7 +182,8 @@ async function handleRequest(
   // ── 12. Log Usage (non-blocking via waitUntil) ──
   const responseBytes = parseInt(response.headers.get('content-length') || '0', 10);
   logUsage({
-    teamId,
+    teamId: scopeId,
+    ownerScope: scopeId,
     connectorId: config.connector.id,
     endpointName: config.endpoint.name,
     apiKeyId: auth.apiKeyId || null,

@@ -8,6 +8,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard';
+import { invalidateConnectorCache } from '@/lib/gateway/resolve';
 
 // ── Built-in templates (loaded from JSON at build time) ──
 
@@ -168,15 +169,17 @@ export async function POST(request: NextRequest) {
 
   const slug = customSlug || template.connector.slug;
 
-  // Check for duplicate slug
-  const existing = await prisma.serviceConnector.findUnique({
-    where: { teamId_slug: { teamId: ctx.teamId, slug } },
-  });
+  const existing = ctx.isPersonal
+    ? await prisma.serviceConnector.findUnique({
+        where: { ownerUserId_slug: { ownerUserId: ctx.userId, slug } },
+      })
+    : await prisma.serviceConnector.findUnique({
+        where: { teamId_slug: { teamId: ctx.teamId, slug } },
+      });
   if (existing) {
     return errors.conflict(`Connector with slug "${slug}" already exists. Use a custom slug.`);
   }
 
-  // Extract hostname for allowedHosts
   let allowedHosts: string[] = [];
   try {
     const url = new URL(upstreamBaseUrl);
@@ -185,10 +188,13 @@ export async function POST(request: NextRequest) {
     return errors.badRequest('Invalid upstreamBaseUrl');
   }
 
-  // Create connector from template
+  const ownerData = ctx.isPersonal
+    ? { ownerUserId: ctx.userId }
+    : { teamId: ctx.teamId };
+
   const connector = await prisma.serviceConnector.create({
     data: {
-      teamId: ctx.teamId,
+      ...ownerData,
       createdBy: ctx.userId,
       slug,
       displayName: template.connector.displayName,
@@ -227,6 +233,8 @@ export async function POST(request: NextRequest) {
       },
     });
   }
+
+  invalidateConnectorCache(ctx.teamId, connector.slug);
 
   // Reload with endpoints
   const created = await prisma.serviceConnector.findUnique({

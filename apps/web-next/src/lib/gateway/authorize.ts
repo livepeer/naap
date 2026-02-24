@@ -98,11 +98,14 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
     })
     .catch(() => {});
 
+  const resolvedTeamId = apiKey.teamId
+    ?? (apiKey.ownerUserId ? `personal:${apiKey.ownerUserId}` : '');
+
   return {
     authenticated: true,
     callerType: 'apiKey',
     callerId: apiKey.createdBy,
-    teamId: apiKey.teamId,
+    teamId: resolvedTeamId,
     apiKeyId: apiKey.id,
     planId: apiKey.planId || undefined,
     allowedEndpoints: apiKey.allowedEndpoints.length > 0 ? apiKey.allowedEndpoints : undefined,
@@ -115,36 +118,23 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
 }
 
 /**
- * Verify connector belongs to the caller's team.
- * If the API key is scoped to a specific connector, verify it matches.
+ * Verify the caller has access to the resolved connector.
  *
- * When the caller is in personal context (no x-team-id header), the
- * resolveConfig fallback may have found a connector via team membership.
- * In this case, the auth.teamId is `personal:<userId>` but the connector
- * belongs to a team the user is a member of. We verify membership here
- * rather than blindly rejecting the mismatch.
+ * Two ownership modes:
+ *   - **Personal connector** (ownerUserId set): only the owning user may access.
+ *   - **Team connector** (teamId set): caller's auth.teamId must match.
  */
-export async function verifyConnectorAccess(
+export function verifyConnectorAccess(
   auth: AuthResult,
   connectorId: string,
-  connectorTeamId: string
-): Promise<boolean> {
-  // Exact match — caller explicitly specified the correct team
-  if (auth.teamId === connectorTeamId) return true;
-
-  // Personal context fallback: verify team membership
-  if (auth.callerType === 'jwt' && auth.teamId.startsWith('personal:')) {
-    const userId = auth.teamId.slice('personal:'.length);
-    const membership = await prisma.teamMember.findFirst({
-      where: { userId, teamId: connectorTeamId },
-      select: { id: true },
-    });
-    if (membership) {
-      // Promote auth to the connector's team for this request
-      auth.teamId = connectorTeamId;
-      return true;
-    }
+  connectorTeamId: string | null,
+  connectorOwnerUserId: string | null
+): boolean {
+  if (connectorOwnerUserId) {
+    return auth.callerId === connectorOwnerUserId;
   }
-
+  if (connectorTeamId) {
+    return auth.teamId === connectorTeamId;
+  }
   return false;
 }

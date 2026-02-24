@@ -1,8 +1,8 @@
 /**
  * Tests for Service Gateway — Authorization
  *
- * Verifies dual-path auth (JWT + API key), team isolation,
- * and connector access verification.
+ * Verifies dual-path auth (JWT + API key), personal/team connector
+ * access verification, and cross-scope isolation.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -93,12 +93,13 @@ describe('authorize', () => {
     const rawKey = 'gw_test-key-12345';
     const keyHash = createHash('sha256').update(rawKey).digest('hex');
 
-    it('authenticates with valid API key', async () => {
+    it('authenticates with valid team-scoped API key', async () => {
       mockFindUnique.mockResolvedValue({
         id: 'key-1',
         keyHash,
         status: 'active',
         teamId: 'team-1',
+        ownerUserId: null,
         createdBy: 'user-1',
         expiresAt: null,
         planId: 'plan-1',
@@ -125,6 +126,32 @@ describe('authorize', () => {
       expect(result!.rateLimit).toBe(100);
     });
 
+    it('authenticates with valid personal-scoped API key', async () => {
+      mockFindUnique.mockResolvedValue({
+        id: 'key-2',
+        keyHash,
+        status: 'active',
+        teamId: null,
+        ownerUserId: 'user-2',
+        createdBy: 'user-2',
+        expiresAt: null,
+        planId: null,
+        allowedEndpoints: [],
+        allowedIPs: [],
+        plan: null,
+      });
+
+      const request = new Request('https://example.com/api/v1/gw/test', {
+        headers: { authorization: `Bearer ${rawKey}` },
+      });
+
+      const result = await authorize(request);
+
+      expect(result).not.toBeNull();
+      expect(result!.callerType).toBe('apiKey');
+      expect(result!.teamId).toBe('personal:user-2');
+    });
+
     it('returns null for unknown API key', async () => {
       mockFindUnique.mockResolvedValue(null);
 
@@ -142,6 +169,7 @@ describe('authorize', () => {
         keyHash,
         status: 'revoked',
         teamId: 'team-1',
+        ownerUserId: null,
         createdBy: 'user-1',
         expiresAt: null,
         planId: null,
@@ -164,6 +192,7 @@ describe('authorize', () => {
         keyHash,
         status: 'active',
         teamId: 'team-1',
+        ownerUserId: null,
         createdBy: 'user-1',
         expiresAt: new Date('2020-01-01'),
         planId: null,
@@ -212,7 +241,9 @@ describe('extractTeamContext', () => {
 });
 
 describe('verifyConnectorAccess', () => {
-  it('allows access when team matches', () => {
+  // ── Team-scoped connectors ──
+
+  it('allows access to team connector when team matches', () => {
     const auth: AuthResult = {
       authenticated: true,
       callerType: 'jwt',
@@ -220,10 +251,10 @@ describe('verifyConnectorAccess', () => {
       teamId: 'team-1',
     };
 
-    expect(verifyConnectorAccess(auth, 'conn-1', 'team-1')).toBe(true);
+    expect(verifyConnectorAccess(auth, 'conn-1', 'team-1', null)).toBe(true);
   });
 
-  it('denies access when team does not match', () => {
+  it('denies access to team connector when team does not match', () => {
     const auth: AuthResult = {
       authenticated: true,
       callerType: 'jwt',
@@ -231,6 +262,65 @@ describe('verifyConnectorAccess', () => {
       teamId: 'team-1',
     };
 
-    expect(verifyConnectorAccess(auth, 'conn-1', 'team-2')).toBe(false);
+    expect(verifyConnectorAccess(auth, 'conn-1', 'team-2', null)).toBe(false);
+  });
+
+  it('denies personal user access to team connector', () => {
+    const auth: AuthResult = {
+      authenticated: true,
+      callerType: 'jwt',
+      callerId: 'user-1',
+      teamId: 'personal:user-1',
+    };
+
+    expect(verifyConnectorAccess(auth, 'conn-1', 'team-1', null)).toBe(false);
+  });
+
+  // ── Personal connectors ──
+
+  it('allows owner access to personal connector', () => {
+    const auth: AuthResult = {
+      authenticated: true,
+      callerType: 'jwt',
+      callerId: 'user-1',
+      teamId: 'personal:user-1',
+    };
+
+    expect(verifyConnectorAccess(auth, 'conn-1', null, 'user-1')).toBe(true);
+  });
+
+  it('denies other user access to personal connector', () => {
+    const auth: AuthResult = {
+      authenticated: true,
+      callerType: 'jwt',
+      callerId: 'user-2',
+      teamId: 'personal:user-2',
+    };
+
+    expect(verifyConnectorAccess(auth, 'conn-1', null, 'user-1')).toBe(false);
+  });
+
+  it('denies team-scoped caller access to personal connector', () => {
+    const auth: AuthResult = {
+      authenticated: true,
+      callerType: 'jwt',
+      callerId: 'user-1',
+      teamId: 'team-1',
+    };
+
+    expect(verifyConnectorAccess(auth, 'conn-1', null, 'user-1')).toBe(true);
+  });
+
+  // ── Edge cases ──
+
+  it('denies access when both teamId and ownerUserId are null', () => {
+    const auth: AuthResult = {
+      authenticated: true,
+      callerType: 'jwt',
+      callerId: 'user-1',
+      teamId: 'personal:user-1',
+    };
+
+    expect(verifyConnectorAccess(auth, 'conn-1', null, null)).toBe(false);
   });
 });

@@ -72,12 +72,24 @@ export function isErrorResponse(result: AdminContext | Response): result is Resp
 }
 
 /**
+ * Build a Prisma `where` clause that scopes a connector to the caller's
+ * ownership: team-scoped uses `teamId`, personal uses `ownerUserId`.
+ */
+function scopeFilter(connectorId: string, scopeId: string) {
+  if (scopeId.startsWith('personal:')) {
+    const userId = scopeId.slice('personal:'.length);
+    return { id: connectorId, ownerUserId: userId };
+  }
+  return { id: connectorId, teamId: scopeId };
+}
+
+/**
  * Load a connector by ID, verifying it belongs to the caller's scope.
  * Returns 404 for other scopes' connectors (prevents enumeration).
  */
-export async function loadConnector(connectorId: string, teamId: string) {
+export async function loadConnector(connectorId: string, scopeId: string) {
   const connector = await prisma.serviceConnector.findFirst({
-    where: { id: connectorId, teamId },
+    where: scopeFilter(connectorId, scopeId),
   });
   return connector;
 }
@@ -85,9 +97,9 @@ export async function loadConnector(connectorId: string, teamId: string) {
 /**
  * Load a connector by ID with its endpoints.
  */
-export async function loadConnectorWithEndpoints(connectorId: string, teamId: string) {
+export async function loadConnectorWithEndpoints(connectorId: string, scopeId: string) {
   const connector = await prisma.serviceConnector.findFirst({
-    where: { id: connectorId, teamId },
+    where: scopeFilter(connectorId, scopeId),
     include: { endpoints: true },
   });
   return connector;
