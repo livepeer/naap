@@ -628,6 +628,7 @@ export default function SettingsPage() {
             <div className="flex items-start gap-6">
               <div className="relative group">
                 {getSafeImageUrl(profileAvatarPreview) ? (
+                  /* lgtm[js/xss-through-dom] URL sanitized by getSafeImageUrl (http/https only) */
                   <img src={getSafeImageUrl(profileAvatarPreview)!} alt="" className="w-20 h-20 rounded-2xl object-cover" />
                 ) : (
                   <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">
@@ -728,6 +729,7 @@ export default function SettingsPage() {
           <div className="space-y-6">
             <div className="flex items-center gap-6">
               {getSafeImageUrl(profileAvatarPreview) ? (
+                /* lgtm[js/xss-through-dom] URL sanitized by getSafeImageUrl (http/https only) */
                 <img src={getSafeImageUrl(profileAvatarPreview)!} alt="" className="w-20 h-20 rounded-2xl object-cover" />
               ) : (
                 <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">

@@ -106,8 +106,8 @@ function createLocalAdapter(config: StorageConfig): StorageAdapter {
 
       const dir = path.dirname(fullPath);
       
-      await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(fullPath, file);
+      await fs.mkdir(dir, { recursive: true }); // lgtm[js/path-injection] validated by safeResolvePath
+      await fs.writeFile(fullPath, file); // lgtm[js/path-injection] validated by safeResolvePath
       
       // Store metadata in a sidecar file
       const metadata: FileMetadata = {
@@ -115,20 +115,20 @@ function createLocalAdapter(config: StorageConfig): StorageAdapter {
         contentType: contentType || lookup(filePath) || 'application/octet-stream',
         lastModified: new Date(),
       };
-      await fs.writeFile(`${fullPath}.meta.json`, JSON.stringify(metadata));
+      await fs.writeFile(`${fullPath}.meta.json`, JSON.stringify(metadata)); // lgtm[js/path-injection] validated by safeResolvePath
       
       return this.getUrl(filePath);
     },
 
     async download(filePath: string): Promise<Buffer> {
       const fullPath = safeResolvePath(basePath, filePath);
-      return fs.readFile(fullPath);
+      return fs.readFile(fullPath); // lgtm[js/path-injection] validated by safeResolvePath
     },
 
     async delete(filePath: string): Promise<void> {
       const fullPath = safeResolvePath(basePath, filePath);
-      await fs.unlink(fullPath).catch(() => {});
-      await fs.unlink(`${fullPath}.meta.json`).catch(() => {});
+      await fs.unlink(fullPath).catch(() => {}); // lgtm[js/path-injection] validated by safeResolvePath
+      await fs.unlink(`${fullPath}.meta.json`).catch(() => {}); // lgtm[js/path-injection] validated by safeResolvePath
     },
 
     getUrl(filePath: string): string {
@@ -138,7 +138,7 @@ function createLocalAdapter(config: StorageConfig): StorageAdapter {
     async exists(filePath: string): Promise<boolean> {
       const fullPath = safeResolvePath(basePath, filePath);
       try {
-        await fs.access(fullPath);
+        await fs.access(fullPath); // lgtm[js/path-injection] validated by safeResolvePath
         return true;
       } catch {
         return false;
@@ -148,7 +148,7 @@ function createLocalAdapter(config: StorageConfig): StorageAdapter {
     async list(prefix: string): Promise<string[]> {
       const fullPath = safeResolvePath(basePath, prefix);
       try {
-        const entries = await fs.readdir(fullPath, { recursive: true });
+        const entries = await fs.readdir(fullPath, { recursive: true }); // lgtm[js/path-injection] validated by safeResolvePath
         return entries
           .filter(e => !e.endsWith('.meta.json'))
           .map(e => path.join(prefix, e.toString()));
@@ -160,12 +160,12 @@ function createLocalAdapter(config: StorageConfig): StorageAdapter {
     async getMetadata(filePath: string): Promise<FileMetadata | null> {
       const metaPath = safeResolvePath(basePath, `${filePath}.meta.json`);
       try {
-        const data = await fs.readFile(metaPath, 'utf-8');
+        const data = await fs.readFile(metaPath, 'utf-8'); // lgtm[js/path-injection] validated by safeResolvePath
         return JSON.parse(data);
       } catch {
         // Try to get basic metadata from file stats
         try {
-          const stats = await fs.stat(safeResolvePath(basePath, filePath));
+          const stats = await fs.stat(safeResolvePath(basePath, filePath)); // lgtm[js/path-injection] validated by safeResolvePath
           return {
             size: stats.size,
             contentType: lookup(filePath) || 'application/octet-stream',

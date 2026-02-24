@@ -17,6 +17,7 @@ import {
 } from '@naap/cache';
 
 const app = express();
+app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? true : process.env.TRUST_PROXY || false);
 const PORT = process.env.PORT || 4000;
 
 // Initialize Redis connection (will fallback to memory if unavailable)

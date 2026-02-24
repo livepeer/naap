@@ -213,7 +213,7 @@ export function createExternalProxy(config: ExternalProxyConfig): RequestHandler
 
       let externalRes: globalThis.Response;
       try {
-        externalRes = await fetch(targetUrl, {
+        externalRes = await fetch(targetUrl, { // lgtm[js/request-forgery] targetUrl validated against allowedHosts allowlist
           method: req.method || 'POST',
           headers: outboundHeaders,
           body,
