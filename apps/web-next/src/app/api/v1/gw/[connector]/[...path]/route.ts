@@ -65,7 +65,7 @@ async function handleRequest(
   }
 
   // ── 3. Verify Team Isolation ──
-  if (!verifyConnectorAccess(auth, config.connector.id, config.connector.teamId)) {
+  if (!await verifyConnectorAccess(auth, config.connector.id, config.connector.teamId)) {
     return buildErrorResponse(
       'NOT_FOUND',
       `Connector not found.`,
