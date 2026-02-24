@@ -10,6 +10,9 @@ import type { ResolvedConfig, ProxyResult } from './types';
 
 /**
  * Headers to strip from upstream responses (security + noise).
+ * content-length and transfer-encoding are stripped because the gateway
+ * may wrap the body in an envelope, changing its size. The runtime
+ * will set the correct content-length on the final response.
  */
 const STRIP_HEADERS = new Set([
   'server',
@@ -17,7 +20,10 @@ const STRIP_HEADERS = new Set([
   'x-aspnet-version',
   'x-aspnetmvc-version',
   'via',
-  'set-cookie', // don't forward upstream cookies
+  'set-cookie',
+  'content-length',
+  'transfer-encoding',
+  'content-encoding',
 ]);
 
 /**
