@@ -117,22 +117,34 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
 /**
  * Verify connector belongs to the caller's team.
  * If the API key is scoped to a specific connector, verify it matches.
+ *
+ * When the caller is in personal context (no x-team-id header), the
+ * resolveConfig fallback may have found a connector via team membership.
+ * In this case, the auth.teamId is `personal:<userId>` but the connector
+ * belongs to a team the user is a member of. We verify membership here
+ * rather than blindly rejecting the mismatch.
  */
-export function verifyConnectorAccess(
+export async function verifyConnectorAccess(
   auth: AuthResult,
   connectorId: string,
   connectorTeamId: string
-): boolean {
-  // Team isolation — the connector must belong to the caller's team
-  if (auth.teamId !== connectorTeamId) return false;
+): Promise<boolean> {
+  // Exact match — caller explicitly specified the correct team
+  if (auth.teamId === connectorTeamId) return true;
 
-  // If API key is scoped to a specific connector, verify it matches
-  if (auth.callerType === 'apiKey') {
-    // Check connector scoping on the key record (connectorId field)
-    // This is done by looking up the key's connector association
-    // If allowedEndpoints is set, the caller must be accessing an allowed endpoint
-    // (checked separately in the pipeline)
+  // Personal context fallback: verify team membership
+  if (auth.callerType === 'jwt' && auth.teamId.startsWith('personal:')) {
+    const userId = auth.teamId.slice('personal:'.length);
+    const membership = await prisma.teamMember.findFirst({
+      where: { userId, teamId: connectorTeamId },
+      select: { id: true },
+    });
+    if (membership) {
+      // Promote auth to the connector's team for this request
+      auth.teamId = connectorTeamId;
+      return true;
+    }
   }
 
-  return true;
+  return false;
 }

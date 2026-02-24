@@ -57,8 +57,8 @@ export async function resolveConfig(
     return cached.config;
   }
 
-  // Load from DB — always team-scoped
-  const connector = await prisma.serviceConnector.findUnique({
+  // Primary lookup: exact team + slug match
+  let connector = await prisma.serviceConnector.findUnique({
     where: {
       teamId_slug: { teamId, slug },
     },
@@ -66,6 +66,30 @@ export async function resolveConfig(
       endpoints: true,
     },
   });
+
+  // Fallback: if the caller is in personal context (no team selected),
+  // search across all teams the user belongs to. This handles the common
+  // case where a plugin loads before the shell emits the team context.
+  if (!connector && teamId.startsWith('personal:')) {
+    const userId = teamId.slice('personal:'.length);
+    const memberships = await prisma.teamMember.findMany({
+      where: { userId },
+      select: { teamId: true },
+    });
+
+    for (const membership of memberships) {
+      const candidate = await prisma.serviceConnector.findUnique({
+        where: {
+          teamId_slug: { teamId: membership.teamId, slug },
+        },
+        include: { endpoints: true },
+      });
+      if (candidate && candidate.status === 'published') {
+        connector = candidate;
+        break;
+      }
+    }
+  }
 
   if (!connector || connector.status !== 'published') {
     CONFIG_CACHE.set(cacheKey, { config: null, expiresAt: Date.now() + CACHE_TTL_MS });
