@@ -100,7 +100,7 @@ export function createAuthRoutes({ db, lifecycleService }: AuthRouteDeps) {
   });
 
   // Login with email/password
-  router.post('/auth/login', authLimiter, async (req: Request, res: Response) => {
+  router.post('/auth/login', authLimiter, async (req: Request, res: Response) => { // lgtm[js/missing-rate-limiting] authLimiter applied
     try {
       const { email, password } = req.body;
       const ipAddress = req.ip || req.socket.remoteAddress;
@@ -317,7 +317,7 @@ export function createAuthRoutes({ db, lifecycleService }: AuthRouteDeps) {
   });
 
   // Verify email with token
-  router.post('/auth/verify-email', authLimiter, async (req: Request, res: Response) => {
+  router.post('/auth/verify-email', authLimiter, async (req: Request, res: Response) => { // lgtm[js/missing-rate-limiting] authLimiter applied
     try {
       const { token } = req.body;
       if (!token || typeof token !== 'string') {
@@ -374,7 +374,7 @@ export function createAuthRoutes({ db, lifecycleService }: AuthRouteDeps) {
   });
 
   // Handle OAuth callback (called from frontend)
-  router.post('/auth/callback/:provider', authLimiter, async (req: Request, res: Response) => {
+  router.post('/auth/callback/:provider', authLimiter, async (req: Request, res: Response) => { // lgtm[js/missing-rate-limiting] authLimiter applied
     try {
       const { provider } = req.params;
       const { code } = req.body;

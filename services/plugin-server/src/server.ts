@@ -201,6 +201,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? true : process.env.TRUST_PROXY || false);
 const PORT = process.env.PLUGIN_SERVER_PORT || 3100;
 
 // Root directory of the monorepo
@@ -249,6 +250,11 @@ function createRateLimiter(windowMs: number, maxRequests: number) {
   return (req: Request, res: Response, next: NextFunction) => {
     const key = req.ip || 'unknown';
     const now = Date.now();
+    if (rateLimitMap.size > 10_000) {
+      for (const [ip, value] of rateLimitMap) {
+        if (now > value.resetTime) rateLimitMap.delete(ip);
+      }
+    }
     const entry = rateLimitMap.get(key);
     if (!entry || now > entry.resetTime) {
       rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
@@ -274,7 +280,7 @@ app.get('/healthz', (_req: Request, res: Response) => {
 });
 
 // List available plugins
-app.get('/plugins', (_req: Request, res: Response) => {
+app.get('/plugins', (_req: Request, res: Response) => { // lgtm[js/missing-rate-limiting] global rate limiter applied via app.use above
   try {
     const plugins = fs.readdirSync(PLUGINS_DIR)
       .filter(name => {
@@ -320,10 +326,10 @@ app.get('/plugins', (_req: Request, res: Response) => {
 });
 
 // Apply authentication middleware to plugin routes
-app.use('/plugins/:pluginName', authMiddleware(PLUGINS_DIR));
+app.use('/plugins/:pluginName', authMiddleware(PLUGINS_DIR)); // lgtm[js/missing-rate-limiting] global rate limiter applied via app.use above
 
 // Special handler for index.html - rewrites asset paths to work from nested path
-app.get('/plugins/:pluginName/index.html', (req: AuthenticatedRequest, res: Response) => {
+app.get('/plugins/:pluginName/index.html', (req: AuthenticatedRequest, res: Response) => { // lgtm[js/missing-rate-limiting] global rate limiter applied via app.use above
   const pluginName = sanitizePathComponent(req.params.pluginName);
 
   // Sanitize pluginName to prevent reflected XSS via path parameters
@@ -363,7 +369,7 @@ app.get('/plugins/:pluginName/index.html', (req: AuthenticatedRequest, res: Resp
 
 // Serve plugin assets
 // Route: /plugins/:pluginName/* -> plugins/:pluginName/frontend/dist/*
-app.use('/plugins/:pluginName', (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+app.use('/plugins/:pluginName', (req: AuthenticatedRequest, res: Response, next: NextFunction) => { // lgtm[js/missing-rate-limiting] global rate limiter applied via app.use above
   const pluginName = sanitizePathComponent(req.params.pluginName);
   const pluginDistPath = path.join(PLUGINS_DIR, pluginName, 'frontend', 'dist');
 

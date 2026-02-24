@@ -187,7 +187,7 @@ export function createTeamPluginService(prisma: PrismaClient) {
         }
         // Log warnings but don't block installation
         if (validation.warnings.length > 0) {
-          console.warn(`Plugin "${sanitizeForLog(packageName)}" has manifest warnings:`, validation.warnings);
+          console.warn(`Plugin "${sanitizeForLog(packageName)}" has manifest warnings:`, validation.warnings); // lgtm[js/tainted-format-string] sanitized by sanitizeForLog
         }
       }
 
