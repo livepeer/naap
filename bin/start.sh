@@ -12,6 +12,11 @@
 #   ./bin/start.sh status          Show running services
 #   ./bin/start.sh help            Show all options
 #
+# Ports (override via environment variables):
+#   SHELL_PORT=3001 ./bin/start.sh   Shell on custom port (default: 3000)
+#   BASE_SVC_PORT=4001               Base service port   (default: 4000)
+#   PLUGIN_SERVER_PORT=3200          Plugin server port   (default: 3100)
+#
 # Stop:
 #   ./bin/stop.sh                  Stop all services
 #   ./bin/stop.sh --infra          Also stop Docker containers
@@ -32,9 +37,9 @@ LOCK_FILE="$ROOT_DIR/.naap.lock"
 GRACEFUL_TIMEOUT="${GRACEFUL_TIMEOUT:-5}"
 MAX_HEALTH_RETRIES=30
 HEALTH_CHECK_INTERVAL=1
-SHELL_PORT=3000
-BASE_SVC_PORT=4000
-PLUGIN_SERVER_PORT=3100
+SHELL_PORT="${SHELL_PORT:-3000}"
+BASE_SVC_PORT="${BASE_SVC_PORT:-4000}"
+PLUGIN_SERVER_PORT="${PLUGIN_SERVER_PORT:-3100}"
 ARCHITECTURE_MODE=""
 PARALLEL_START="${PARALLEL_START:-1}"  # 1=parallel (default), 0=sequential
 CLEAN_NEXT="${CLEAN_NEXT:-0}"         # 1=delete .next cache before shell start
@@ -976,7 +981,7 @@ start_shell() {
   # Polling interval of 1000ms is efficient enough for dev and prevents the
   # Watchpack "too many open files" error that causes all pages to 404.
   _start_shell_attempt() {
-    setsid env WATCHPACK_POLLING=1000 npm run dev > "$LOG_DIR/shell-web.log" 2>&1 &
+    setsid env WATCHPACK_POLLING=1000 PORT=$SHELL_PORT npx next dev -p $SHELL_PORT > "$LOG_DIR/shell-web.log" 2>&1 &
     local pid=$!
     register_pid $pid "shell-web"
     wait_for_port $SHELL_PORT "next.js shell" 60 && {
@@ -1035,7 +1040,7 @@ start_plugin_server() {
   kill_port $PLUGIN_SERVER_PORT
   log_info "Starting plugin-server on port $PLUGIN_SERVER_PORT..."; cd "$ROOT_DIR/services/plugin-server"
   [ ! -d "node_modules" ] && (npm install --silent 2>/dev/null || npm install)
-  setsid npm run dev > "$LOG_DIR/plugin-server.log" 2>&1 &
+  setsid env PLUGIN_SERVER_PORT=$PLUGIN_SERVER_PORT npm run dev > "$LOG_DIR/plugin-server.log" 2>&1 &
   local pid=$!
   register_pid $pid "plugin-server"
   wait_for_health "http://localhost:$PLUGIN_SERVER_PORT/healthz" "plugin-server" 30 1 "$pid" && {
@@ -1497,11 +1502,11 @@ PEOF
   if [ ! -f "$web_env" ]; then
     cat > "$web_env" <<WEOF
 # NAAP Platform - Local Development Configuration (auto-generated)
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_APP_URL=http://localhost:$SHELL_PORT
 NEXTAUTH_SECRET=dev-secret-change-me-in-production-min-32-chars
 DATABASE_URL=$UNIFIED_DB_URL
-BASE_SVC_URL=http://localhost:4000
-PLUGIN_SERVER_URL=http://localhost:3100
+BASE_SVC_URL=http://localhost:$BASE_SVC_PORT
+PLUGIN_SERVER_URL=http://localhost:$PLUGIN_SERVER_PORT
 WEOF
     ((created++)) || true
     log_debug "Created $web_env"
@@ -1840,6 +1845,9 @@ show_help() {
   echo "  ./bin/stop.sh --infra    Also stop Docker containers"
   echo ""
   echo -e "${BOLD}Environment Variables:${NC}"
+  echo "  SHELL_PORT=N             Next.js shell port (default: 3000)"
+  echo "  BASE_SVC_PORT=N          Base service port (default: 4000)"
+  echo "  PLUGIN_SERVER_PORT=N     Plugin asset server port (default: 3100)"
   echo "  GRACEFUL_TIMEOUT=N       Force-kill timeout in seconds (default: 5)"
   echo "  PARALLEL_START=0         Force sequential backend startup"
   echo ""
@@ -1849,6 +1857,7 @@ show_help() {
   echo "  ./bin/start.sh community gateway-manager  # Shell + 2 plugins"
   echo "  ./bin/start.sh --all                      # Everything"
   echo "  ./bin/start.sh dev daydream-video          # Full dev mode (HMR)"
+  echo "  SHELL_PORT=3001 ./bin/start.sh              # Shell on port 3001"
   echo ""
   echo -e "${BOLD}First time?${NC} Just run ${CYAN}./bin/start.sh${NC} — setup is automatic on fresh clones."
   echo ""
