@@ -16,6 +16,7 @@
     "ci-check:full": "./bin/pre-push-validate.sh --full",
     "test": "nx run-many --target=test --all",
     "lint": "nx run-many --target=lint --all",
+    "postinstall": "node bin/bootstrap-workspace-packages.cjs",
     "smoke": "./bin/smoke.sh",
     "e2e:plugin-publisher": "./bin/e2e-plugin-publisher.sh",
     "e2e:plugin-publisher:cleanup": "npx tsx bin/cleanup-published-examples.ts",

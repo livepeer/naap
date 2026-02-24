@@ -137,6 +137,21 @@ preflight_check() {
     echo ""
   fi
 
+  # Ensure internal workspace packages whose exports point to dist/ are built.
+  # Covers both fresh clones and installs done with --ignore-scripts.
+  if [ ! -f "$ROOT_DIR/packages/plugin-build/dist/index.js" ] || \
+     [ ! -f "$ROOT_DIR/packages/plugin-build/dist/vite.js" ] || \
+     [ ! -f "$ROOT_DIR/packages/cache/dist/index.js" ] || \
+     [ ! -f "$ROOT_DIR/packages/cache/dist/index.d.ts" ]; then
+    log_info "Ensuring workspace packages are built (plugin-build, cache)..."
+    BOOTSTRAP_LOG_PATH="$LOG_DIR/workspace-bootstrap.log" \
+      node "$ROOT_DIR/bin/bootstrap-workspace-packages.cjs" || {
+        log_error "Workspace package bootstrap failed. Check logs/workspace-bootstrap.log"
+        exit 1
+      }
+    log_success "Workspace packages ready"
+  fi
+
   # Check Docker if we'll need databases
   if ! docker info >/dev/null 2>&1; then
     log_warn "Docker is not running. Database services will not be available."
