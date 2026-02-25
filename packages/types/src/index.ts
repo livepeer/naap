@@ -253,8 +253,7 @@ export interface DeveloperApiKey {
   projectName: string;
   modelId: string;
   modelName: string;
-  gatewayId: string;
-  gatewayName: string;
+  providerDisplayName: string;
   keyHash: string;
   status: ApiKeyStatus;
   createdAt: string;

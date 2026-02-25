@@ -1,43 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { X, Key, Copy, Check, AlertTriangle, ChevronDown } from 'lucide-react';
 import { Badge } from '@naap/ui';
-import type { AIModel, GatewayOffer } from '@naap/types';
-import { mockModels, mockGatewayOffers } from '../../data/mockData';
+import type { AIModel } from '@naap/types';
+import { mockModels } from '../../data/mockData';
 
 interface CreateKeyModalProps {
   preselectedModel?: AIModel;
-  preselectedGateway?: GatewayOffer;
   onClose: () => void;
-  onSuccess: (key: { projectName: string; modelId: string; gatewayId: string; rawKey: string }) => void;
+  onSuccess: (key: { projectName: string; modelId: string; rawKey: string }) => void;
 }
 
 export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
   preselectedModel,
-  preselectedGateway,
   onClose,
   onSuccess,
 }) => {
   const [step, setStep] = useState<'form' | 'success'>('form');
   const [projectName, setProjectName] = useState('');
   const [selectedModel, setSelectedModel] = useState<AIModel | null>(preselectedModel || null);
-  const [selectedGateway, setSelectedGateway] = useState<GatewayOffer | null>(preselectedGateway || null);
   const [generatedKey, setGeneratedKey] = useState('');
   const [copied, setCopied] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
-  const [showGatewayDropdown, setShowGatewayDropdown] = useState(false);
-
-  const availableGateways = selectedModel ? mockGatewayOffers[selectedModel.id] || [] : [];
-
-  // Reset gateway when model changes
-  useEffect(() => {
-    if (selectedModel && !preselectedGateway) {
-      setSelectedGateway(null);
-    }
-  }, [selectedModel, preselectedGateway]);
 
   const handleSubmit = () => {
-    if (!projectName || !selectedModel || !selectedGateway) return;
+    if (!projectName || !selectedModel) return;
 
     // Generate a mock API key
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -60,12 +47,11 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
     onSuccess({
       projectName,
       modelId: selectedModel!.id,
-      gatewayId: selectedGateway!.gatewayId,
       rawKey: generatedKey,
     });
   };
 
-  const isValid = projectName.trim().length > 0 && selectedModel && selectedGateway;
+  const isValid = projectName.trim().length > 0 && selectedModel;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -147,81 +133,16 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
               )}
             </div>
 
-            {/* Gateway Selector */}
-            <div className="relative">
-              <label className="block text-sm font-medium text-text-primary mb-2">
-                Gateway <span className="text-accent-rose">*</span>
-              </label>
-              <button
-                onClick={() => selectedModel && setShowGatewayDropdown(!showGatewayDropdown)}
-                disabled={!selectedModel}
-                className={`w-full flex items-center justify-between bg-bg-tertiary border border-white/10 rounded-xl py-3 px-4 text-sm transition-all ${
-                  selectedModel ? 'hover:border-white/20' : 'opacity-50 cursor-not-allowed'
-                }`}
-              >
-                {selectedGateway ? (
-                  <span className="text-text-primary">{selectedGateway.gatewayName}</span>
-                ) : (
-                  <span className="text-text-secondary">
-                    {selectedModel ? 'Select a gateway...' : 'Select a model first'}
-                  </span>
-                )}
-                <ChevronDown size={16} className="text-text-secondary" />
-              </button>
-              {showGatewayDropdown && (
-                <div className="absolute z-10 mt-2 w-full bg-bg-tertiary border border-white/10 rounded-xl overflow-hidden shadow-xl">
-                  <div className="max-h-48 overflow-y-auto custom-scrollbar">
-                    {availableGateways.map((gateway) => (
-                      <button
-                        key={gateway.gatewayId}
-                        onClick={() => {
-                          setSelectedGateway(gateway);
-                          setShowGatewayDropdown(false);
-                        }}
-                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors text-left"
-                      >
-                        <div>
-                          <p className="text-text-primary text-sm font-medium">{gateway.gatewayName}</p>
-                          <p className="text-text-secondary text-xs">
-                            {gateway.regions.join(', ')} • ${gateway.unitPrice.toFixed(3)}/min
-                          </p>
-                        </div>
-                        <Badge
-                          variant={
-                            gateway.slaTier === 'gold'
-                              ? 'emerald'
-                              : gateway.slaTier === 'silver'
-                              ? 'blue'
-                              : 'amber'
-                          }
-                        >
-                          {gateway.slaTier}
-                        </Badge>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Summary */}
             {isValid && (
               <div className="p-4 bg-bg-tertiary/50 rounded-xl">
                 <h4 className="text-sm font-medium text-text-primary mb-2">Summary</h4>
                 <div className="space-y-1 text-xs text-text-secondary">
                   <p>
-                    <span className="text-text-primary">{selectedModel?.name}</span> via{' '}
-                    <span className="text-text-primary">{selectedGateway?.gatewayName}</span>
+                    Model: <span className="text-text-primary">{selectedModel?.name}</span>
                   </p>
                   <p>
-                    Unit price:{' '}
-                    <span className="font-mono text-accent-emerald">
-                      ${selectedGateway?.unitPrice.toFixed(3)}/min
-                    </span>
-                  </p>
-                  <p>
-                    SLA: {selectedGateway?.uptimeGuarantee}% uptime, {selectedGateway?.latencyGuarantee}ms
-                    latency
+                    Provider: <span className="text-text-primary">Daydream</span>
                   </p>
                 </div>
               </div>
@@ -282,7 +203,7 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
                 Model: <span className="text-text-primary">{selectedModel?.name}</span>
               </p>
               <p className="text-text-secondary mt-1">
-                Gateway: <span className="text-text-primary">{selectedGateway?.gatewayName}</span>
+                Provider: <span className="text-text-primary">Daydream</span>
               </p>
             </div>
 

@@ -96,11 +96,11 @@ export function useApiKeys() {
   }, [execute]);
 
   const createKey = useCallback(
-    async (projectName: string, modelId: string, gatewayId: string) => {
+    async (projectName: string, modelId: string) => {
       const response = await fetch(`${API_BASE_URL}/keys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectName, modelId, gatewayId }),
+        body: JSON.stringify({ projectName, modelId }),
       });
       if (!response.ok) {
         const error = await response.json();

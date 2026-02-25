@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { Search, Filter, Star, Zap, DollarSign, Video, Image, Film, Box } from 'lucide-react';
-import type { AIModel, GatewayOffer } from '@naap/types';
+import type { AIModel } from '@naap/types';
 import { mockModels, mockGatewayOffers } from '../../data/mockData';
 import { ModelCard } from '../models/ModelCard';
 import { ModelDetailPanel } from '../models/ModelDetailPanel';
@@ -31,10 +31,7 @@ export const ModelsTab: React.FC = () => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [selectedModel, setSelectedModel] = useState<AIModel | null>(null);
   const [compareModels, setCompareModels] = useState<string[]>([]);
-  const [createKeyModal, setCreateKeyModal] = useState<{
-    model: AIModel;
-    gateway: GatewayOffer;
-  } | null>(null);
+  const [createKeyModal, setCreateKeyModal] = useState<{ model: AIModel } | null>(null);
 
   const filteredModels = useMemo(() => {
     let result = [...mockModels];
@@ -87,8 +84,8 @@ export const ModelsTab: React.FC = () => {
     });
   };
 
-  const handleCreateKey = (model: AIModel, gateway: GatewayOffer) => {
-    setCreateKeyModal({ model, gateway });
+  const handleCreateKey = (model: AIModel) => {
+    setCreateKeyModal({ model });
   };
 
   return (
@@ -162,7 +159,7 @@ export const ModelsTab: React.FC = () => {
               <Box size={48} className="text-text-secondary opacity-30 mb-4" />
               <h3 className="text-lg font-bold text-text-primary mb-2">Select a Model</h3>
               <p className="text-text-secondary text-sm max-w-sm">
-                Choose a model from the list to view details, compare performance metrics, and select a gateway.
+                Choose a model from the list to view details, compare performance metrics, and create an API key.
               </p>
             </div>
           )}
@@ -185,7 +182,6 @@ export const ModelsTab: React.FC = () => {
       {createKeyModal && (
         <CreateKeyModal
           preselectedModel={createKeyModal.model}
-          preselectedGateway={createKeyModal.gateway}
           onClose={() => setCreateKeyModal(null)}
           onSuccess={() => {
             setCreateKeyModal(null);

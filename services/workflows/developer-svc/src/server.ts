@@ -4,7 +4,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { createCsrfMiddleware } from '@naap/utils';
 import { 
   models, 
-  gatewayOffers, 
   apiKeys, 
   usageRecords, 
   invoices,
@@ -102,21 +101,15 @@ app.get('/api/v1/developer/keys/:id', (req, res) => {
 
 // Create new API key
 app.post('/api/v1/developer/keys', (req, res) => {
-  const { projectName, modelId, gatewayId } = req.body;
+  const { projectName, modelId } = req.body;
   
-  if (!projectName || !modelId || !gatewayId) {
-    return res.status(400).json({ error: 'projectName, modelId, and gatewayId are required' });
+  if (!projectName || !modelId) {
+    return res.status(400).json({ error: 'projectName and modelId are required' });
   }
   
   const model = models.find(m => m.id === modelId);
   if (!model) {
     return res.status(400).json({ error: 'Invalid modelId' });
-  }
-  
-  const gatewayOffersForModel = gatewayOffers[modelId] || [];
-  const gateway = gatewayOffersForModel.find(g => g.gatewayId === gatewayId);
-  if (!gateway) {
-    return res.status(400).json({ error: 'Gateway does not offer this model' });
   }
   
   const rawKey = generateApiKey();
@@ -125,8 +118,7 @@ app.post('/api/v1/developer/keys', (req, res) => {
     projectName,
     modelId,
     modelName: model.name,
-    gatewayId,
-    gatewayName: gateway.gatewayName,
+    providerDisplayName: 'Daydream',
     keyHash: hashApiKey(rawKey),
     status: 'active' as const,
     createdAt: new Date().toISOString(),

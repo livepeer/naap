@@ -1389,8 +1389,6 @@ model DevApiGatewayOffer {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  apiKeys DevApiKey[]
-
   @@unique([modelId, gatewayId])
   @@index([modelId])
   @@index([gatewayId])
@@ -1421,8 +1419,6 @@ model DevApiKey {
   billingProvider   BillingProvider?    @relation(fields: [billingProviderId], references: [id], onDelete: Restrict)
   modelId           String?
   model             DevApiAIModel?      @relation(fields: [modelId], references: [id], onDelete: Cascade)
-  gatewayOfferId    String?
-  gatewayOffer      DevApiGatewayOffer? @relation(fields: [gatewayOfferId], references: [id], onDelete: SetNull)
   keyLookupId       String?             @unique
   keyPrefix         String
   label             String?

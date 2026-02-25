@@ -60,7 +60,7 @@ export const ApiKeyTable: React.FC<ApiKeyTableProps> = ({
               Model
             </th>
             <th className="text-left text-xs font-bold text-text-secondary uppercase tracking-widest py-4 px-4">
-              Gateway
+              Provider
             </th>
             <th className="text-left text-xs font-bold text-text-secondary uppercase tracking-widest py-4 px-4">
               Created
@@ -93,7 +93,7 @@ export const ApiKeyTable: React.FC<ApiKeyTableProps> = ({
                 <span className="text-text-primary text-sm">{key.modelName}</span>
               </td>
               <td className="py-4 px-4">
-                <span className="text-text-primary text-sm">{key.gatewayName}</span>
+                <span className="text-text-primary text-sm">{key.providerDisplayName || '—'}</span>
               </td>
               <td className="py-4 px-4">
                 <span className="text-text-secondary text-sm">{formatDate(key.createdAt)}</span>

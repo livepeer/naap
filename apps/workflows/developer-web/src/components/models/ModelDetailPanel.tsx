@@ -9,7 +9,7 @@ interface ModelDetailPanelProps {
   model: AIModel;
   gatewayOffers: GatewayOffer[];
   onClose: () => void;
-  onCreateKey: (model: AIModel, gateway: GatewayOffer) => void;
+  onCreateKey: (model: AIModel) => void;
 }
 
 const typeLabels = {
@@ -130,7 +130,7 @@ export const ModelDetailPanel: React.FC<ModelDetailPanelProps> = ({
             <GatewayOfferCard
               key={offer.gatewayId}
               offer={offer}
-              onSelect={() => onCreateKey(model, offer)}
+              onSelect={() => onCreateKey(model)}
             />
           ))}
           {gatewayOffers.length === 0 && (
@@ -145,7 +145,7 @@ export const ModelDetailPanel: React.FC<ModelDetailPanelProps> = ({
       {gatewayOffers.length > 0 && (
         <div className="mt-4 pt-4 border-t border-white/10">
           <button
-            onClick={() => onCreateKey(model, gatewayOffers[0])}
+            onClick={() => onCreateKey(model)}
             className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-accent-emerald text-white rounded-xl font-bold hover:bg-accent-emerald/90 transition-all"
           >
             <Key size={18} />

@@ -67,7 +67,6 @@ export const APIKeysTab: React.FC = () => {
   const handleCreateSuccess = (data: {
     projectName: string;
     modelId: string;
-    gatewayId: string;
     rawKey: string;
   }) => {
     // In real app, would use response from API
@@ -76,8 +75,7 @@ export const APIKeysTab: React.FC = () => {
       projectName: data.projectName,
       modelId: data.modelId,
       modelName: mockApiKeys[0].modelName, // Would come from API
-      gatewayId: data.gatewayId,
-      gatewayName: mockApiKeys[0].gatewayName, // Would come from API
+      providerDisplayName: 'Daydream',
       keyHash: data.rawKey.slice(0, 6) + '****************************' + data.rawKey.slice(-4),
       status: 'active',
       createdAt: new Date().toISOString(),

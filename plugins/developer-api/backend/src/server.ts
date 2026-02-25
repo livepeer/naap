@@ -340,7 +340,6 @@ app.get('/api/v1/developer/keys', async (req, res) => {
             select: { id: true, slug: true, displayName: true },
           },
           model: { select: { id: true, name: true } },
-          gatewayOffer: { select: { id: true, gatewayId: true, gatewayName: true } },
         },
       });
       const formatted = keys.map((k: any) => ({
@@ -349,7 +348,7 @@ app.get('/api/v1/developer/keys', async (req, res) => {
         billingProvider: k.billingProvider,
         label: k.label ?? null,
         modelName: k.model?.name || 'Unknown',
-        gatewayName: k.gatewayOffer?.gatewayName || 'Unknown',
+        providerDisplayName: k.billingProvider?.displayName || 'Unknown',
         keyPrefix: k.keyPrefix,
         status: k.status,
         createdAt: k.createdAt.toISOString(),
@@ -382,7 +381,6 @@ app.get('/api/v1/developer/keys/:id', async (req, res) => {
             select: { id: true, slug: true, displayName: true },
           },
           model: { select: { id: true, name: true } },
-          gatewayOffer: { select: { id: true, gatewayId: true, gatewayName: true } },
         },
       });
       if (!key) return res.status(404).json({ error: 'API key not found' });
@@ -392,7 +390,7 @@ app.get('/api/v1/developer/keys/:id', async (req, res) => {
         billingProvider: key.billingProvider,
         label: key.label ?? null,
         modelName: key.model?.name || 'Unknown',
-        gatewayName: key.gatewayOffer?.gatewayName || 'Unknown',
+        providerDisplayName: key.billingProvider?.displayName || 'Unknown',
         keyPrefix: key.keyPrefix,
         status: key.status,
         createdAt: key.createdAt.toISOString(),
@@ -411,7 +409,7 @@ app.get('/api/v1/developer/keys/:id', async (req, res) => {
 
 app.post('/api/v1/developer/keys', async (req, res) => {
   try {
-    const { billingProviderId, rawApiKey, projectId, projectName, modelId, gatewayId, label } = req.body;
+    const { billingProviderId, rawApiKey, projectId, projectName, modelId, label } = req.body;
     const userId = getRequestUserId(req);
 
     if (!billingProviderId) {
@@ -440,15 +438,6 @@ app.post('/api/v1/developer/keys', async (req, res) => {
         resolvedModelId = model.id;
       }
 
-      let resolvedGatewayOfferId: string | undefined;
-      if (resolvedModelId && gatewayId && typeof gatewayId === 'string' && gatewayId.trim() !== '') {
-        const gatewayOffer = await prisma.devApiGatewayOffer.findFirst({
-          where: { modelId: resolvedModelId, gatewayId },
-        });
-        if (!gatewayOffer) return res.status(400).json({ error: 'Gateway does not offer this model' });
-        resolvedGatewayOfferId = gatewayOffer.id;
-      }
-
       let resolvedProjectId: string;
       try {
         resolvedProjectId = await resolveDevApiProjectId({
@@ -473,7 +462,6 @@ app.post('/api/v1/developer/keys', async (req, res) => {
           projectId: resolvedProjectId,
           billingProviderId,
           modelId: resolvedModelId || null,
-          gatewayOfferId: resolvedGatewayOfferId || null,
           keyLookupId,
           keyPrefix,
           keyHash,
