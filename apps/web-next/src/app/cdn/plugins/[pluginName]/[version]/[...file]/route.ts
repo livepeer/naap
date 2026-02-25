@@ -95,6 +95,7 @@ export async function GET(
   const monorepoRoot = path.join(rootDir, '..', '..');
   const candidateDirs = [
     path.join(monorepoRoot, 'plugins', pluginDir, 'frontend', 'dist', 'production'),
+    path.join(monorepoRoot, 'examples', pluginDir, 'frontend', 'dist', 'production'),
     path.join(monorepoRoot, 'dist', 'plugins', pluginDir, version),
   ];
 

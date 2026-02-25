@@ -9,6 +9,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./rateLimiter": {
+      "import": "./dist/rateLimiter.js",
+      "types": "./dist/rateLimiter.d.ts"
     }
   },
   "scripts": {

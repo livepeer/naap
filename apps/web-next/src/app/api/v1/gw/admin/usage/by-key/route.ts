@@ -15,10 +15,14 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const from = searchParams.get('from');
   const to = searchParams.get('to');
+  const connectorId = searchParams.get('connectorId');
+
+  const fromDate = from ? new Date(from) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const toDate = to ? new Date(to) : new Date();
 
   const timeFilter = {
-    ...(from ? { gte: new Date(from) } : { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }),
-    ...(to ? { lte: new Date(to) } : {}),
+    gte: isNaN(fromDate.getTime()) ? new Date(Date.now() - 24 * 60 * 60 * 1000) : fromDate,
+    lte: isNaN(toDate.getTime()) ? new Date() : toDate,
   };
 
   const byKey = await prisma.gatewayUsageRecord.groupBy({
@@ -27,6 +31,7 @@ export async function GET(request: NextRequest) {
       teamId: ctx.teamId,
       timestamp: timeFilter,
       apiKeyId: { not: null },
+      ...(connectorId ? { connectorId } : {}),
     },
     _count: true,
     _avg: { latencyMs: true },
@@ -35,6 +40,7 @@ export async function GET(request: NextRequest) {
 
   // Enrich with key names and plan info
   const keyIds = byKey.map((k) => k.apiKeyId).filter(Boolean) as string[];
+  if (keyIds.length === 0) return success([]);
   const ownerFilter = ctx.isPersonal
     ? { ownerUserId: ctx.userId }
     : { teamId: ctx.teamId };

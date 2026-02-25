@@ -21,8 +21,8 @@ import type { AuthResult, TeamContext } from './types';
 export async function authorize(request: Request): Promise<AuthResult | null> {
   const authHeader = request.headers.get('authorization') || '';
 
-  // Path 1: API Key auth (gw_ prefix)
-  if (authHeader.startsWith('Bearer gw_')) {
+  // Path 1: API Key auth (gk_ prefix)
+  if (authHeader.startsWith('Bearer gk_')) {
     return authorizeApiKey(authHeader.slice(7)); // strip "Bearer "
   }
 
