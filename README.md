@@ -73,6 +73,7 @@ onboarding process.
 
 **Featured Tutorials:**
 - [Build an App with Service Gateway](docs/tutorial-service-gateway-app.md) — Securely integrate 3rd-party APIs like Daydream AI.
+- [Intelligent Analytics Agent](docs/tutorial-intelligent-analytics-agent.md) — Advanced multi-connector orchestration with Gemini.
 - [Plugin Developer Guide](docs/plugin-developer-guide.md) — Comprehensive step-by-step guide.
 
 ```bash
