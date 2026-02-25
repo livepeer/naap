@@ -17,15 +17,34 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
   const [projectName, setProjectName] = useState('');
   const [generatedKey, setGeneratedKey] = useState('');
   const [copied, setCopied] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
-  const handleSubmit = () => {
-    if (!projectName) return;
+  const isValid = projectName.trim().length > 0;
 
-    const bytes = new Uint8Array(24);
-    crypto.getRandomValues(bytes);
-    const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-    setGeneratedKey(`naap_${hex}`);
-    setStep('success');
+  const handleSubmit = async () => {
+    if (!isValid) return;
+
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      const response = await fetch('http://localhost:4007/api/v1/developer/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectName: projectName.trim(), providerDisplayName }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error || `Request failed: ${response.status}`);
+      }
+      const data = await response.json() as { rawApiKey: string };
+      setGeneratedKey(data.rawApiKey);
+      setStep('success');
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to create API key');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleCopy = async () => {
@@ -54,8 +73,6 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
       rawKey: generatedKey,
     });
   };
-
-  const isValid = projectName.trim().length > 0;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -109,17 +126,22 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
               </div>
             )}
 
+            {/* Error */}
+            {submitError && (
+              <p className="text-xs text-accent-rose px-1">{submitError}</p>
+            )}
+
             {/* Submit */}
             <button
               onClick={handleSubmit}
-              disabled={!isValid}
+              disabled={!isValid || submitting}
               className={`w-full py-3 rounded-xl font-bold transition-all ${
-                isValid
+                isValid && !submitting
                   ? 'bg-accent-emerald text-white hover:bg-accent-emerald/90'
                   : 'bg-bg-tertiary text-text-secondary cursor-not-allowed'
               }`}
             >
-              Create API Key
+              {submitting ? 'Creating…' : 'Create API Key'}
             </button>
           </div>
         ) : (
