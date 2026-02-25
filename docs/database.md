@@ -60,7 +60,7 @@ Benefits:
 | `plugin_daydream`    | daydream-video   | DaydreamSettings, DaydreamSession    |
 | `plugin_gateway`     | gateway-manager  | Gateway, Connections, Metrics        |
 | `plugin_capacity`    | capacity-planner | CapacityRequest, SoftCommit          |
-| `plugin_developer_api` | developer-api  | AIModel, GatewayOffer, ApiKey        |
+| `plugin_developer_api` | developer-api  | AIModel, ApiKey, UsageLog            |
 
 ## Connection
 

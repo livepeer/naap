@@ -57,9 +57,6 @@ export const ApiKeyTable: React.FC<ApiKeyTableProps> = ({
               Project
             </th>
             <th className="text-left text-xs font-bold text-text-secondary uppercase tracking-widest py-4 px-4">
-              Model
-            </th>
-            <th className="text-left text-xs font-bold text-text-secondary uppercase tracking-widest py-4 px-4">
               Provider
             </th>
             <th className="text-left text-xs font-bold text-text-secondary uppercase tracking-widest py-4 px-4">
@@ -88,9 +85,6 @@ export const ApiKeyTable: React.FC<ApiKeyTableProps> = ({
                   <p className="font-medium text-text-primary">{key.projectName}</p>
                   <p className="text-xs font-mono text-text-secondary mt-0.5">{key.keyHash}</p>
                 </div>
-              </td>
-              <td className="py-4 px-4">
-                <span className="text-text-primary text-sm">{key.modelName}</span>
               </td>
               <td className="py-4 px-4">
                 <span className="text-text-primary text-sm">{key.providerDisplayName || '—'}</span>

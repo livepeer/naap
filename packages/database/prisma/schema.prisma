@@ -1368,30 +1368,9 @@ model DevApiAIModel {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  gatewayOffers DevApiGatewayOffer[]
-  apiKeys       DevApiKey[]
-
   @@index([type])
   @@index([featured])
   @@index([realtime])
-  @@schema("plugin_developer_api")
-}
-
-model DevApiGatewayOffer {
-  id           String        @id @default(uuid())
-  modelId      String
-  model        DevApiAIModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
-  gatewayId    String
-  gatewayName  String
-  price        Float
-  latency      Int
-  availability Float         @default(99.0)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-
-  @@unique([modelId, gatewayId])
-  @@index([modelId])
-  @@index([gatewayId])
   @@schema("plugin_developer_api")
 }
 
@@ -1415,10 +1394,8 @@ model DevApiKey {
   userId            String
   projectId         String?
   project           DevApiProject?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  billingProviderId String?
-  billingProvider   BillingProvider?    @relation(fields: [billingProviderId], references: [id], onDelete: Restrict)
-  modelId           String?
-  model             DevApiAIModel?      @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  billingProviderId String
+  billingProvider   BillingProvider     @relation(fields: [billingProviderId], references: [id], onDelete: Restrict)
   keyLookupId       String?             @unique
   keyPrefix         String
   label             String?
@@ -1434,7 +1411,6 @@ model DevApiKey {
   @@index([userId])
   @@index([projectId])
   @@index([billingProviderId])
-  @@index([modelId])
   @@index([status])
   @@index([keyHash])
   @@index([keyLookupId])

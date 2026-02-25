@@ -1,30 +1,25 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { X, Key, Copy, Check, AlertTriangle, ChevronDown } from 'lucide-react';
-import { Badge } from '@naap/ui';
-import type { AIModel } from '@naap/types';
-import { mockModels } from '../../data/mockData';
+import { X, Key, Copy, Check, AlertTriangle } from 'lucide-react';
 
 interface CreateKeyModalProps {
-  preselectedModel?: AIModel;
+  providerDisplayName?: string;
   onClose: () => void;
-  onSuccess: (key: { projectName: string; modelId: string; rawKey: string }) => void;
+  onSuccess: (key: { projectName: string; providerDisplayName: string; rawKey: string }) => void;
 }
 
 export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
-  preselectedModel,
+  providerDisplayName = 'Daydream',
   onClose,
   onSuccess,
 }) => {
   const [step, setStep] = useState<'form' | 'success'>('form');
   const [projectName, setProjectName] = useState('');
-  const [selectedModel, setSelectedModel] = useState<AIModel | null>(preselectedModel || null);
   const [generatedKey, setGeneratedKey] = useState('');
   const [copied, setCopied] = useState(false);
-  const [showModelDropdown, setShowModelDropdown] = useState(false);
 
   const handleSubmit = () => {
-    if (!projectName || !selectedModel) return;
+    if (!projectName) return;
 
     // Generate a mock API key
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -46,12 +41,12 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
   const handleDone = () => {
     onSuccess({
       projectName,
-      modelId: selectedModel!.id,
+      providerDisplayName,
       rawKey: generatedKey,
     });
   };
 
-  const isValid = projectName.trim().length > 0 && selectedModel;
+  const isValid = projectName.trim().length > 0;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -93,56 +88,13 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
               />
             </div>
 
-            {/* Model Selector */}
-            <div className="relative">
-              <label className="block text-sm font-medium text-text-primary mb-2">
-                Model <span className="text-accent-rose">*</span>
-              </label>
-              <button
-                onClick={() => setShowModelDropdown(!showModelDropdown)}
-                className="w-full flex items-center justify-between bg-bg-tertiary border border-white/10 rounded-xl py-3 px-4 text-sm hover:border-white/20 transition-all"
-              >
-                {selectedModel ? (
-                  <span className="text-text-primary">{selectedModel.name}</span>
-                ) : (
-                  <span className="text-text-secondary">Select a model...</span>
-                )}
-                <ChevronDown size={16} className="text-text-secondary" />
-              </button>
-              {showModelDropdown && (
-                <div className="absolute z-10 mt-2 w-full bg-bg-tertiary border border-white/10 rounded-xl overflow-hidden shadow-xl">
-                  <div className="max-h-48 overflow-y-auto custom-scrollbar">
-                    {mockModels.map((model) => (
-                      <button
-                        key={model.id}
-                        onClick={() => {
-                          setSelectedModel(model);
-                          setShowModelDropdown(false);
-                        }}
-                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors text-left"
-                      >
-                        <div>
-                          <p className="text-text-primary text-sm font-medium">{model.name}</p>
-                          <p className="text-text-secondary text-xs">{model.tagline}</p>
-                        </div>
-                        {model.featured && <Badge variant="emerald">Featured</Badge>}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Summary */}
             {isValid && (
               <div className="p-4 bg-bg-tertiary/50 rounded-xl">
                 <h4 className="text-sm font-medium text-text-primary mb-2">Summary</h4>
                 <div className="space-y-1 text-xs text-text-secondary">
                   <p>
-                    Model: <span className="text-text-primary">{selectedModel?.name}</span>
-                  </p>
-                  <p>
-                    Provider: <span className="text-text-primary">Daydream</span>
+                    Provider: <span className="text-text-primary">{providerDisplayName}</span>
                   </p>
                 </div>
               </div>
@@ -200,10 +152,7 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
                 Project: <span className="text-text-primary">{projectName}</span>
               </p>
               <p className="text-text-secondary mt-1">
-                Model: <span className="text-text-primary">{selectedModel?.name}</span>
-              </p>
-              <p className="text-text-secondary mt-1">
-                Provider: <span className="text-text-primary">Daydream</span>
+                Provider: <span className="text-text-primary">{providerDisplayName}</span>
               </p>
             </div>
 

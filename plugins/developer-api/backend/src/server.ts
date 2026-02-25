@@ -68,20 +68,6 @@ const inMemoryModels = [
   { id: 'model-krea', name: 'Krea AI', tagline: 'Creative AI for unique visuals', type: 'text-to-video', featured: true, realtime: true, costPerMinMin: 0.15, costPerMinMax: 0.30, latencyP50: 150, coldStart: 2500, fps: 30, useCases: ['Creative projects', 'Artistic content'], badges: ['Featured', 'Realtime'] },
 ];
 
-const inMemoryGatewayOffers: Record<string, any[]> = {
-  'model-sd15': [
-    { id: 'go-1', gatewayId: 'gw-1', gatewayName: 'Gateway Alpha', price: 0.02, latency: 120, availability: 99.9 },
-    { id: 'go-2', gatewayId: 'gw-2', gatewayName: 'Gateway Beta', price: 0.03, latency: 100, availability: 99.5 },
-  ],
-  'model-sdxl': [
-    { id: 'go-3', gatewayId: 'gw-1', gatewayName: 'Gateway Alpha', price: 0.08, latency: 180, availability: 99.9 },
-    { id: 'go-4', gatewayId: 'gw-3', gatewayName: 'Gateway Gamma', price: 0.10, latency: 160, availability: 99.8 },
-  ],
-  'model-krea': [
-    { id: 'go-5', gatewayId: 'gw-1', gatewayName: 'Gateway Alpha', price: 0.15, latency: 150, availability: 99.9 },
-  ],
-};
-
 const inMemoryApiKeys: any[] = [];
 const inMemoryProjects: any[] = [];
 const inMemoryBillingProviders = [
@@ -131,7 +117,6 @@ app.get('/api/v1/developer/models', async (req, res) => {
       const formatted = models.map((m: any) => ({
         ...m,
         costPerMin: { min: m.costPerMinMin, max: m.costPerMinMax },
-        gatewayCount: 0, // Would need a count query
       }));
       return res.json({ models: formatted, total: formatted.length });
     }
@@ -145,7 +130,6 @@ app.get('/api/v1/developer/models', async (req, res) => {
     const formatted = filtered.map(m => ({
       ...m,
       costPerMin: { min: m.costPerMinMin, max: m.costPerMinMax },
-      gatewayCount: (inMemoryGatewayOffers[m.id] || []).length,
     }));
     res.json({ models: formatted, total: formatted.length });
   } catch (error) {
@@ -173,29 +157,6 @@ app.get('/api/v1/developer/models/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching model:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.get('/api/v1/developer/models/:id/gateways', async (req, res) => {
-  try {
-    const modelId = req.params.id;
-
-    if (prisma) {
-      const model = await prisma.devApiAIModel.findUnique({ where: { id: modelId } });
-      if (!model) return res.status(404).json({ error: 'Model not found' });
-
-      const gateways = await prisma.devApiGatewayOffer.findMany({ where: { modelId } });
-      return res.json({ modelId, gateways });
-    }
-
-    const model = inMemoryModels.find(m => m.id === modelId);
-    if (!model) return res.status(404).json({ error: 'Model not found' });
-
-    const offers = inMemoryGatewayOffers[modelId] || [];
-    res.json({ modelId, gateways: offers });
-  } catch (error) {
-    console.error('Error fetching gateways:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -17,7 +17,6 @@ export function serialiseModel(m: {
   fps: number;
   useCases: string[];
   badges: string[];
-  _count?: { gatewayOffers: number };
 }) {
   return {
     id: m.id,
@@ -30,7 +29,6 @@ export function serialiseModel(m: {
     latencyP50: m.latencyP50,
     coldStart: m.coldStart,
     fps: m.fps,
-    gatewayCount: m._count?.gatewayOffers ?? 0,
     useCases: m.useCases,
     badges: m.badges,
   };

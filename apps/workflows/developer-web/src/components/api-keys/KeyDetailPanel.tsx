@@ -88,10 +88,6 @@ export const KeyDetailPanel: React.FC<KeyDetailPanelProps> = ({
           </h3>
           <div className="space-y-3">
             <div className="p-4 bg-bg-tertiary/50 rounded-xl">
-              <p className="text-xs text-text-secondary mb-1">Model</p>
-              <p className="font-medium text-text-primary">{apiKey.modelName}</p>
-            </div>
-            <div className="p-4 bg-bg-tertiary/50 rounded-xl">
               <p className="text-xs text-text-secondary mb-1">Provider</p>
               <p className="font-medium text-text-primary">{apiKey.providerDisplayName || '—'}</p>
             </div>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Clock, DollarSign, Server, Check } from 'lucide-react';
+import { Clock, DollarSign, Check } from 'lucide-react';
 import { Badge } from '@naap/ui';
 import type { AIModel } from '@naap/types';
 
@@ -71,7 +71,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
       </div>
 
       {/* Quick Metrics */}
-      <div className="grid grid-cols-3 gap-2 text-xs">
+      <div className="grid grid-cols-2 gap-2 text-xs">
         <div className="flex items-center gap-1.5 text-text-secondary">
           <DollarSign size={12} className="text-accent-emerald" />
           <span className="font-mono">${model.costPerMin.min.toFixed(2)}/min</span>
@@ -79,10 +79,6 @@ export const ModelCard: React.FC<ModelCardProps> = ({
         <div className="flex items-center gap-1.5 text-text-secondary">
           <Clock size={12} className="text-accent-blue" />
           <span className="font-mono">{model.latencyP50}ms</span>
-        </div>
-        <div className="flex items-center gap-1.5 text-text-secondary">
-          <Server size={12} className="text-accent-amber" />
-          <span className="font-mono">{model.gatewayCount}</span>
         </div>
       </div>
     </motion.div>

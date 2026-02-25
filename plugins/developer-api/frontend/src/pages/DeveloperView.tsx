@@ -30,7 +30,6 @@ interface AIModel {
   realtime: boolean;
   costPerMin: { min: number; max: number };
   latencyP50: number;
-  gatewayCount: number;
   badges: string[];
 }
 
@@ -495,7 +494,7 @@ export const DeveloperView: React.FC = () => {
                     <p className="text-sm text-text-secondary mb-4 line-clamp-2">{model.tagline}</p>
                     <div className="flex items-center justify-between text-xs text-text-secondary">
                       <span>${model.costPerMin.min.toFixed(2)} - ${model.costPerMin.max.toFixed(2)}/min</span>
-                      <span>{model.gatewayCount} gateways</span>
+                      <span>{model.latencyP50}ms p50 latency</span>
                     </div>
                   </Card>
                 ))}
@@ -838,9 +837,9 @@ export const DeveloperView: React.FC = () => {
 
 function getMockModels(): AIModel[] {
   return [
-    { id: 'model-sd15', name: 'Stable Diffusion 1.5', tagline: 'Fast, lightweight image generation', type: 'text-to-video', featured: false, realtime: true, costPerMin: { min: 0.02, max: 0.05 }, latencyP50: 120, gatewayCount: 8, badges: ['Realtime'] },
-    { id: 'model-sdxl', name: 'SDXL Turbo', tagline: 'High-quality video generation', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.08, max: 0.15 }, latencyP50: 180, gatewayCount: 12, badges: ['Featured', 'Best Quality'] },
-    { id: 'model-krea', name: 'Krea AI', tagline: 'Creative AI for unique visuals', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.15, max: 0.30 }, latencyP50: 150, gatewayCount: 10, badges: ['Featured', 'Realtime'] },
+    { id: 'model-sd15', name: 'Stable Diffusion 1.5', tagline: 'Fast, lightweight image generation', type: 'text-to-video', featured: false, realtime: true, costPerMin: { min: 0.02, max: 0.05 }, latencyP50: 120, badges: ['Realtime'] },
+    { id: 'model-sdxl', name: 'SDXL Turbo', tagline: 'High-quality video generation', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.08, max: 0.15 }, latencyP50: 180, badges: ['Featured', 'Best Quality'] },
+    { id: 'model-krea', name: 'Krea AI', tagline: 'Creative AI for unique visuals', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.15, max: 0.30 }, latencyP50: 150, badges: ['Featured', 'Realtime'] },
   ];
 }
 

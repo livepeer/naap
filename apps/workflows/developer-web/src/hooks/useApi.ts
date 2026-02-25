@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { AIModel, GatewayOffer, DeveloperApiKey, UsageRecord } from '@naap/types';
+import type { AIModel, DeveloperApiKey, UsageRecord } from '@naap/types';
 
 const API_BASE_URL = 'http://localhost:4007/api/v1/developer';
 
@@ -77,16 +77,6 @@ export function useModel(modelId: string) {
   return { model: data, loading, error, fetchModel };
 }
 
-export function useModelGateways(modelId: string) {
-  const { data, loading, error, execute } = useApiCall<{ modelId: string; gateways: GatewayOffer[] }>();
-
-  const fetchGateways = useCallback(() => {
-    return execute(`/models/${modelId}/gateways`);
-  }, [execute, modelId]);
-
-  return { gateways: data?.gateways || [], loading, error, fetchGateways };
-}
-
 // API Keys API
 export function useApiKeys() {
   const { data, loading, error, execute } = useApiCall<{ keys: DeveloperApiKey[]; total: number }>();
@@ -96,11 +86,11 @@ export function useApiKeys() {
   }, [execute]);
 
   const createKey = useCallback(
-    async (projectName: string, modelId: string) => {
+    async (projectName: string) => {
       const response = await fetch(`${API_BASE_URL}/keys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectName, modelId }),
+        body: JSON.stringify({ projectName }),
       });
       if (!response.ok) {
         const error = await response.json();

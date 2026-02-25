@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { Search, Filter, Star, Zap, DollarSign, Video, Image, Film, Box } from 'lucide-react';
 import type { AIModel } from '@naap/types';
-import { mockModels, mockGatewayOffers } from '../../data/mockData';
+import { mockModels } from '../../data/mockData';
 import { ModelCard } from '../models/ModelCard';
 import { ModelDetailPanel } from '../models/ModelDetailPanel';
 import { CompareDrawer } from '../models/CompareDrawer';
@@ -31,7 +31,7 @@ export const ModelsTab: React.FC = () => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [selectedModel, setSelectedModel] = useState<AIModel | null>(null);
   const [compareModels, setCompareModels] = useState<string[]>([]);
-  const [createKeyModal, setCreateKeyModal] = useState<{ model: AIModel } | null>(null);
+  const [showCreateKeyModal, setShowCreateKeyModal] = useState(false);
 
   const filteredModels = useMemo(() => {
     let result = [...mockModels];
@@ -84,8 +84,8 @@ export const ModelsTab: React.FC = () => {
     });
   };
 
-  const handleCreateKey = (model: AIModel) => {
-    setCreateKeyModal({ model });
+  const handleCreateKey = () => {
+    setShowCreateKeyModal(true);
   };
 
   return (
@@ -150,7 +150,6 @@ export const ModelsTab: React.FC = () => {
             <ModelDetailPanel
               key={selectedModel.id}
               model={selectedModel}
-              gatewayOffers={mockGatewayOffers[selectedModel.id] || []}
               onClose={() => setSelectedModel(null)}
               onCreateKey={handleCreateKey}
             />
@@ -179,12 +178,11 @@ export const ModelsTab: React.FC = () => {
       </AnimatePresence>
 
       {/* Create Key Modal */}
-      {createKeyModal && (
+      {showCreateKeyModal && (
         <CreateKeyModal
-          preselectedModel={createKeyModal.model}
-          onClose={() => setCreateKeyModal(null)}
+          onClose={() => setShowCreateKeyModal(false)}
           onSuccess={() => {
-            setCreateKeyModal(null);
+            setShowCreateKeyModal(false);
             // Could navigate to API Keys tab
           }}
         />
