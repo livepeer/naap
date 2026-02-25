@@ -85,22 +85,6 @@ export function useApiKeys() {
     return execute('/keys');
   }, [execute]);
 
-  const createKey = useCallback(
-    async (projectName: string) => {
-      const response = await fetch(`${API_BASE_URL}/keys`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectName }),
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to create key');
-      }
-      return response.json();
-    },
-    []
-  );
-
   const rotateKey = useCallback(async (keyId: string) => {
     const response = await fetch(`${API_BASE_URL}/keys/${keyId}/rotate`, {
       method: 'POST',
@@ -142,7 +126,6 @@ export function useApiKeys() {
     loading,
     error,
     fetchKeys,
-    createKey,
     rotateKey,
     renameKey,
     revokeKey,

@@ -222,7 +222,7 @@ export const DeveloperView: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'usage') loadBillingProviders();
+    if (activeTab === 'usage' || activeTab === 'api-keys') loadBillingProviders();
   }, [activeTab, loadBillingProviders]);
 
   const loadModalData = useCallback(async () => {

@@ -21,21 +21,30 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
   const handleSubmit = () => {
     if (!projectName) return;
 
-    // Generate a mock API key
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let key = 'lp_sk_';
-    for (let i = 0; i < 32; i++) {
-      key += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-
-    setGeneratedKey(key);
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    setGeneratedKey(`naap_${hex}`);
     setStep('success');
   };
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(generatedKey);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(generatedKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = generatedKey;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const handleDone = () => {

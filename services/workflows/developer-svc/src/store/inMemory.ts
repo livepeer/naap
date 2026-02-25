@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import type { AIModel, DeveloperApiKey, UsageRecord, Invoice } from '@naap/types';
 
 // In-memory store for development - ready to be replaced with Prisma later
@@ -138,12 +139,7 @@ export const invoices: Invoice[] = [
 
 // Helper to generate API key
 export function generateApiKey(): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let key = 'lp_sk_';
-  for (let i = 0; i < 32; i++) {
-    key += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return key;
+  return `naap_${randomBytes(24).toString('hex')}`;
 }
 
 // Helper to hash API key (just mask it for display)

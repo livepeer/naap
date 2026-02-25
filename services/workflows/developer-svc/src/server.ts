@@ -25,7 +25,7 @@ const csrfMiddleware = createCsrfMiddleware({
   skipPaths: ['/healthz', '/health'],
   logOnly: !csrfEnforce,
   logger: (msg, data) => console.log(`[developer-svc] ${msg}`, data),
-}) as unknown as express.RequestHandler;
+});
 app.use('/api', csrfMiddleware);
 
 // Health check
