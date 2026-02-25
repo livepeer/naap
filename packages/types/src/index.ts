@@ -240,6 +240,7 @@ export interface NetworkModel {
   e2eLatencyMs: number | null;
   slaScore: number | null;     // 0-1
   isRealtime: boolean;
+  gatewayOffers?: GatewayOffer[];
 }
 
 export interface AIModel {
@@ -255,6 +256,34 @@ export interface AIModel {
   fps: number;
   useCases: string[];
   badges: string[];
+}
+
+export type SLATier = 'bronze' | 'silver' | 'gold';
+export type CapacityLevel = 'low' | 'medium' | 'high';
+
+export interface NetworkDemandSummary {
+  gatewayId: string;
+  gatewayName: string;
+  pipeline: string;
+  regions: string[];
+  totalSessions: number;
+  servedSessions: number;
+  missingCapacityCount: number;
+  successRatio: number;
+  totalInferenceMinutes: number;
+  feePaymentEth: number;
+  demandLevel: CapacityLevel;
+}
+
+export interface GatewayOffer {
+  gatewayId: string;
+  gatewayName: string;
+  slaTier: SLATier;
+  uptimeGuarantee: number;
+  latencyGuarantee: number;
+  unitPrice: number;
+  regions: string[];
+  capacity: CapacityLevel;
 }
 
 export type ApiKeyStatus = 'active' | 'revoked';

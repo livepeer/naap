@@ -12,15 +12,24 @@
  */
 
 import { useState, useEffect } from 'react';
-import type { NetworkModel, GPUHardwareSummary } from '@naap/types';
+import type {
+  NetworkModel,
+  GPUHardwareSummary,
+  GatewayOffer,
+  NetworkDemandSummary,
+  CapacityLevel,
+  SLATier,
+} from '@naap/types';
 import {
   fetchPipelines,
   fetchRegions,
   fetchGPUMetrics,
   fetchSLACompliance,
+  fetchNetworkDemand,
   type GPUMetricRow,
   type SLAComplianceRow,
   type RegionEntry,
+  type NetworkDemandRow,
 } from '../api/leaderboard.js';
 import {
   PIPELINE_DISPLAY,
@@ -49,6 +58,10 @@ function matchesSLA(row: SLAComplianceRow, pipelineId: string, modelId: string):
   const m = row.model_id ?? row.pipeline;
   const p = row.pipeline;
   return m === modelId || p === modelId || (p === pipelineId && m === modelId);
+}
+
+function matchesDemand(row: NetworkDemandRow, pipelineId: string, modelId: string): boolean {
+  return row.pipeline === modelId || row.pipeline === pipelineId;
 }
 
 /** Aggregate GPU metric rows by gpu_name */
@@ -97,6 +110,90 @@ function weightedSLAScore(rows: SLAComplianceRow[]): number | null {
   return valid.reduce((s, r) => s + (r.sla_score! * r.known_sessions), 0) / totalSessions;
 }
 
+function gatewayId(gatewayName: string): string {
+  return gatewayName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
+
+function toCapacityLevel(missingCapacityCount: number, totalDemandSessions: number): CapacityLevel {
+  if (totalDemandSessions <= 0) return 'medium';
+  const shortageRate = missingCapacityCount / totalDemandSessions;
+  if (shortageRate <= 0.02) return 'high';
+  if (shortageRate <= 0.1) return 'medium';
+  return 'low';
+}
+
+function toSLATier(successRatio: number): SLATier {
+  if (successRatio >= 0.995) return 'gold';
+  if (successRatio >= 0.98) return 'silver';
+  return 'bronze';
+}
+
+function buildGatewayOffers(
+  rows: NetworkDemandRow[],
+  regionMap: Map<string, string>,
+  fallbackLatencyMs: number | null
+): GatewayOffer[] {
+  const byGateway = new Map<string, NetworkDemandRow[]>();
+  for (const row of rows) {
+    const bucket = byGateway.get(row.gateway) ?? [];
+    bucket.push(row);
+    byGateway.set(row.gateway, bucket);
+  }
+
+  const summaries: NetworkDemandSummary[] = [...byGateway.entries()].map(([gatewayName, group]) => {
+    const totalSessions = group.reduce((sum, row) => sum + row.total_sessions, 0);
+    const servedSessions = group.reduce((sum, row) => sum + row.served_sessions, 0);
+    const totalDemandSessions = group.reduce((sum, row) => sum + row.total_demand_sessions, 0);
+    const missingCapacityCount = group.reduce((sum, row) => sum + row.missing_capacity_count, 0);
+    const totalInferenceMinutes = group.reduce((sum, row) => sum + row.total_inference_minutes, 0);
+    const feePaymentEth = group.reduce((sum, row) => sum + row.fee_payment_eth, 0);
+    const weightedSuccess = totalSessions
+      ? group.reduce((sum, row) => sum + row.success_ratio * row.total_sessions, 0) / totalSessions
+      : 0;
+    const regions = [...new Set(
+      group
+        .map((row) => row.region)
+        .filter((region): region is string => Boolean(region))
+        .map((code) => regionMap.get(code) ?? code)
+    )];
+
+    return {
+      gatewayId: gatewayId(gatewayName),
+      gatewayName,
+      pipeline: group[0]?.pipeline ?? '',
+      regions,
+      totalSessions,
+      servedSessions,
+      missingCapacityCount,
+      successRatio: weightedSuccess,
+      totalInferenceMinutes,
+      feePaymentEth,
+      demandLevel: toCapacityLevel(missingCapacityCount, totalDemandSessions),
+    };
+  });
+
+  return summaries
+    .map((summary) => ({
+      gatewayId: summary.gatewayId,
+      gatewayName: summary.gatewayName,
+      slaTier: toSLATier(summary.successRatio),
+      uptimeGuarantee: Number((summary.successRatio * 100).toFixed(2)),
+      latencyGuarantee: fallbackLatencyMs ?? 250,
+      unitPrice:
+        summary.totalInferenceMinutes > 0
+          ? summary.feePaymentEth / summary.totalInferenceMinutes
+          : 0,
+      regions: summary.regions,
+      capacity: summary.demandLevel,
+    }))
+    .sort((a, b) => {
+      const capacityRank = { high: 3, medium: 2, low: 1 };
+      const byCapacity = capacityRank[b.capacity] - capacityRank[a.capacity];
+      if (byCapacity !== 0) return byCapacity;
+      return b.uptimeGuarantee - a.uptimeGuarantee;
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -109,7 +206,7 @@ export interface NetworkCapabilities {
   error: string | null;
 }
 
-export function useNetworkCapabilities(): NetworkCapabilities {
+export function useNetworkCapabilities(refreshIntervalMs = 60_000): NetworkCapabilities {
   const [models, setModels] = useState<NetworkModel[]>([]);
   const [gpuTypes, setGpuTypes] = useState<string[]>([]);
   const [regions, setRegions] = useState<RegionEntry[]>([]);
@@ -119,13 +216,16 @@ export function useNetworkCapabilities(): NetworkCapabilities {
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
+    async function load(isInitialLoad = false) {
       try {
-        const [pipelines, regionList, gpuRows, slaRows] = await Promise.all([
+        if (isInitialLoad) setLoading(true);
+
+        const [pipelines, regionList, gpuRows, slaRows, demandRows] = await Promise.all([
           fetchPipelines(),
           fetchRegions(),
           fetchGPUMetrics('1h'),
           fetchSLACompliance('24h'),
+          fetchNetworkDemand('1h'),
         ]);
 
         if (cancelled) return;
@@ -183,6 +283,10 @@ export function useNetworkCapabilities(): NetworkCapabilities {
             const regionNames = regionCodes
               .map((code) => regionMap.get(code) ?? code)
               .filter(Boolean);
+            const modelDemandRows = demandRows.filter((row) =>
+              matchesDemand(row, pipeline.id, modelId)
+            );
+            const gatewayOffers = buildGatewayOffers(modelDemandRows, regionMap, e2eLatencyMs);
 
             result.push({
               id: `${pipeline.id}::${modelId}`,
@@ -198,6 +302,7 @@ export function useNetworkCapabilities(): NetworkCapabilities {
               e2eLatencyMs,
               slaScore,
               isRealtime: avgFPS >= REALTIME_FPS_THRESHOLD,
+              gatewayOffers,
             });
           }
         }
@@ -219,13 +324,22 @@ export function useNetworkCapabilities(): NetworkCapabilities {
           setError(err instanceof Error ? err.message : 'Failed to load network data');
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && isInitialLoad) setLoading(false);
       }
     }
 
-    load();
-    return () => { cancelled = true; };
-  }, []);
+    load(true);
+    const pollInterval = refreshIntervalMs > 0
+      ? window.setInterval(() => {
+          void load(false);
+        }, refreshIntervalMs)
+      : null;
+
+    return () => {
+      cancelled = true;
+      if (pollInterval != null) window.clearInterval(pollInterval);
+    };
+  }, [refreshIntervalMs]);
 
   return { models, gpuTypes, regions, loading, error };
 }

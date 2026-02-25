@@ -1,18 +1,27 @@
 import React, { useState, useMemo } from 'react';
 import { AnimatePresence } from 'framer-motion';
-import { Search, Filter, Box, Cpu, MapPin, AlertCircle, Loader2, X, Copy, Check } from 'lucide-react';
+import {
+  Search,
+  Filter,
+  Box,
+  Cpu,
+  MapPin,
+  AlertCircle,
+  Loader2, X, Copy, Check,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 import type { NetworkModel } from '@naap/types';
 import { useNetworkCapabilities } from '../../hooks/useNetworkCapabilities';
 import { ModelCard } from '../models/ModelCard';
 import { ModelDetailPanel } from '../models/ModelDetailPanel';
 import { CompareDrawer } from '../models/CompareDrawer';
 import { CreateKeyModal } from '../api-keys/CreateKeyModal';
-
+import { shortGPUName } from '../../utils/gpu';
 /** Shorten "NVIDIA GeForce RTX 5090" → "RTX 5090" for filter chip labels */
-function shortGPUName(name: string): string {
-  return name.replace(/^NVIDIA\s+/i, '').replace(/^GeForce\s+/i, '');
-}
 
+// Skeleton card for loading state
 function SkeletonCard() {
   return (
     <div className="glass-card p-4 animate-pulse">
@@ -23,6 +32,13 @@ function SkeletonCard() {
   );
 }
 
+type SortOption =
+  | 'fps_desc'
+  | 'latency_asc'
+  | 'sla_desc'
+  | 'orchestrators_desc'
+  | 'regions_desc';
+
 export const ModelsTab: React.FC = () => {
   const { models, gpuTypes, regions, loading, error } = useNetworkCapabilities();
 
@@ -30,6 +46,13 @@ export const ModelsTab: React.FC = () => {
   const [pipelineFilter, setPipelineFilter] = useState('all');
   const [gpuFilter, setGpuFilter]           = useState('all');
   const [regionFilter, setRegionFilter]     = useState('all');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [minFPS, setMinFPS] = useState(0);
+  const [maxLatencyMs, setMaxLatencyMs] = useState(2000);
+  const [minSLAPercent, setMinSLAPercent] = useState(0);
+  const [minVRAMGB, setMinVRAMGB] = useState(0);
+  const [realtimeOnly, setRealtimeOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<SortOption>('fps_desc');
   const [selectedModel, setSelectedModel]   = useState<NetworkModel | null>(null);
   const [compareModels, setCompareModels]   = useState<string[]>([]);
   const [showCreateKeyModal, setShowCreateKeyModal] = useState(false);
@@ -70,8 +93,50 @@ export const ModelsTab: React.FC = () => {
       result = result.filter((m) => m.regionCodes.includes(regionFilter));
     }
 
+    result = result.filter((m) => {
+      if (m.avgFPS < minFPS) return false;
+      if (m.slaScore != null && m.slaScore * 100 < minSLAPercent) return false;
+      if (m.slaScore == null && minSLAPercent > 0) return false;
+      if (m.e2eLatencyMs != null && m.e2eLatencyMs > maxLatencyMs) return false;
+      if (m.e2eLatencyMs == null && maxLatencyMs < 2000) return false;
+      if (minVRAMGB > 0 && !m.gpuHardware.some((g) => g.memoryGB >= minVRAMGB)) return false;
+      if (realtimeOnly && !m.isRealtime) return false;
+      return true;
+    });
+
+    result.sort((a, b) => {
+      switch (sortBy) {
+        case 'latency_asc': {
+          const aValue = a.e2eLatencyMs ?? Number.MAX_SAFE_INTEGER;
+          const bValue = b.e2eLatencyMs ?? Number.MAX_SAFE_INTEGER;
+          return aValue - bValue;
+        }
+        case 'sla_desc':
+          return (b.slaScore ?? -1) - (a.slaScore ?? -1);
+        case 'orchestrators_desc':
+          return b.orchestratorCount - a.orchestratorCount;
+        case 'regions_desc':
+          return b.regionCodes.length - a.regionCodes.length;
+        case 'fps_desc':
+        default:
+          return b.avgFPS - a.avgFPS;
+      }
+    });
+
     return result;
-  }, [models, searchQuery, pipelineFilter, gpuFilter, regionFilter]);
+  }, [
+    models,
+    searchQuery,
+    pipelineFilter,
+    gpuFilter,
+    regionFilter,
+    minFPS,
+    maxLatencyMs,
+    minSLAPercent,
+    minVRAMGB,
+    realtimeOnly,
+    sortBy,
+  ]);
 
   const compareModelsList = useMemo(
     () => models.filter((m) => compareModels.includes(m.id)),
@@ -195,6 +260,142 @@ export const ModelsTab: React.FC = () => {
             ))}
           </div>
         )}
+
+        {/* Advanced constraints and sort */}
+        <div className="mb-3 rounded-xl border border-white/10 bg-bg-tertiary/30">
+          <button
+            onClick={() => setShowAdvancedFilters((value) => !value)}
+            className="w-full px-3 py-2.5 text-left flex items-center justify-between text-sm text-text-primary"
+          >
+            <span className="flex items-center gap-2">
+              <SlidersHorizontal size={14} className="text-text-secondary" />
+              Advanced Filters
+            </span>
+            {showAdvancedFilters ? (
+              <ChevronUp size={16} className="text-text-secondary" />
+            ) : (
+              <ChevronDown size={16} className="text-text-secondary" />
+            )}
+          </button>
+          {showAdvancedFilters && (
+            <div className="px-3 pb-3 space-y-3">
+              <div>
+                <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
+                  <span>Min FPS</span>
+                  <span className="font-mono">{minFPS}</span>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="range"
+                    min={0}
+                    max={120}
+                    step={1}
+                    value={minFPS}
+                    onChange={(e) => setMinFPS(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    max={120}
+                    value={minFPS}
+                    onChange={(e) => setMinFPS(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-16 bg-bg-secondary border border-white/10 rounded px-2 py-1 text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
+                  <span>Max Latency (ms)</span>
+                  <span className="font-mono">{maxLatencyMs}</span>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="range"
+                    min={50}
+                    max={2000}
+                    step={10}
+                    value={maxLatencyMs}
+                    onChange={(e) => setMaxLatencyMs(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <input
+                    type="number"
+                    min={50}
+                    max={2000}
+                    value={maxLatencyMs}
+                    onChange={(e) => setMaxLatencyMs(Math.max(50, Number(e.target.value) || 50))}
+                    className="w-20 bg-bg-secondary border border-white/10 rounded px-2 py-1 text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
+                  <span>Min SLA (%)</span>
+                  <span className="font-mono">{minSLAPercent}</span>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={minSLAPercent}
+                    onChange={(e) => setMinSLAPercent(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={minSLAPercent}
+                    onChange={(e) => setMinSLAPercent(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+                    className="w-16 bg-bg-secondary border border-white/10 rounded px-2 py-1 text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-xs text-text-secondary">
+                  Min VRAM (GB)
+                  <input
+                    type="number"
+                    min={0}
+                    value={minVRAMGB}
+                    onChange={(e) => setMinVRAMGB(Math.max(0, Number(e.target.value) || 0))}
+                    className="mt-1 w-full bg-bg-secondary border border-white/10 rounded px-2 py-1 text-xs font-mono"
+                  />
+                </label>
+
+                <label className="text-xs text-text-secondary">
+                  Sort by
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as SortOption)}
+                    className="mt-1 w-full bg-bg-secondary border border-white/10 rounded px-2 py-1 text-xs"
+                  >
+                    <option value="fps_desc">FPS (high to low)</option>
+                    <option value="latency_asc">Latency (low to high)</option>
+                    <option value="sla_desc">SLA score (high to low)</option>
+                    <option value="orchestrators_desc">Orchestrators (high to low)</option>
+                    <option value="regions_desc">Regions (high to low)</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={realtimeOnly}
+                  onChange={(e) => setRealtimeOnly(e.target.checked)}
+                />
+                Realtime models only
+              </label>
+            </div>
+          )}
+        </div>
 
         {/* Model list */}
         <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">

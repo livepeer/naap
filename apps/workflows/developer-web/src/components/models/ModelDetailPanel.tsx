@@ -3,16 +3,12 @@ import { motion } from 'framer-motion';
 import { X, Zap, Target, Activity, Cpu, MapPin, Key } from 'lucide-react';
 import { Badge } from '@naap/ui';
 import type { NetworkModel } from '@naap/types';
+import { shortGPUName } from '../../utils/gpu';
 
 interface ModelDetailPanelProps {
   model: NetworkModel;
   onClose: () => void;
-  onCreateKey: () => void;
-}
-
-/** Shorten "NVIDIA GeForce RTX 5090" → "RTX 5090" */
-function shortGPUName(name: string): string {
-  return name.replace(/^NVIDIA\s+/i, '').replace(/^GeForce\s+/i, '');
+  onCreateKey: (model: NetworkModel, gateway: GatewayOffer) => void;
 }
 
 export const ModelDetailPanel: React.FC<ModelDetailPanelProps> = ({

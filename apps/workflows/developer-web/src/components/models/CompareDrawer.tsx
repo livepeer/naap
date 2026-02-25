@@ -3,17 +3,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronUp } from 'lucide-react';
 import { Badge } from '@naap/ui';
 import type { NetworkModel } from '@naap/types';
+import { shortGPUName } from '../../utils/gpu';
 
 interface CompareDrawerProps {
   models: NetworkModel[];
   onRemove: (modelId: string) => void;
   onClear: () => void;
   onSelect: (model: NetworkModel) => void;
-}
-
-/** Shorten "NVIDIA GeForce RTX 5090" → "RTX 5090" */
-function shortGPUName(name: string): string {
-  return name.replace(/^NVIDIA\s+/i, '').replace(/^GeForce\s+/i, '');
 }
 
 export const CompareDrawer: React.FC<CompareDrawerProps> = ({
