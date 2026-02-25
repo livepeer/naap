@@ -27,6 +27,7 @@
 | [Plugin SDK Guide](../packages/plugin-sdk/DEVELOPER_GUIDE.md) | **Comprehensive SDK reference** (start here) |
 | [plugin-developer-quickstart.md](plugin-developer-quickstart.md) | 5-minute quick reference |
 | [plugin-developer-guide.md](plugin-developer-guide.md) | Step-by-step plugin development |
+| [tutorial-service-gateway-app.md](tutorial-service-gateway-app.md) | **Tutorial: Build an app with Service Gateway** |
 | [plugin-publishing-guide.md](plugin-publishing-guide.md) | Publishing plugins to the marketplace |
 
 ## Deployment
