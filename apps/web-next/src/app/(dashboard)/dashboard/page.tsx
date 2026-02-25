@@ -310,19 +310,25 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
         </div>
         <span className="text-sm font-semibold text-foreground">{data.totalEth.toFixed(1)} ETH</span>
       </div>
-      <div className="flex items-end gap-1.5 h-24">
-        {data.entries.map((d) => (
-          <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
-            <div className="w-full relative">
-              <div
-                className="w-full bg-amber-500/20 rounded-t-sm hover:bg-amber-500/40 transition-colors"
-                style={{ height: `${(d.eth / maxFee) * 80}px` }}
-                title={`${d.eth} ETH`}
-              />
+      <div className="relative">
+        <div className="flex items-end gap-1.5 h-24">
+          {data.entries.map((d) => (
+            <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
+              <div className="w-full relative">
+                <div
+                  className="w-full bg-amber-500/20 rounded-t-sm hover:bg-amber-500/40 transition-colors"
+                  style={{ height: `${(d.eth / maxFee) * 80}px` }}
+                  title={`${d.eth} ETH`}
+                />
+              </div>
+              <span className="text-[10px] text-muted-foreground">{d.day}</span>
             </div>
-            <span className="text-[10px] text-muted-foreground">{d.day}</span>
-          </div>
-        ))}
+          ))}
+        </div>
+        <div className="absolute inset-0 rounded-lg backdrop-blur-[2px] bg-card/60 flex flex-col items-center justify-center gap-1.5">
+          <span className="text-xs font-semibold text-foreground/70 uppercase tracking-widest">Coming Soon</span>
+          <span className="text-[10px] text-muted-foreground">Fee data not yet available</span>
+        </div>
       </div>
     </div>
   );
@@ -443,7 +449,7 @@ function JobFeedCard({ jobs, connected }: { jobs: JobFeedEntry[]; connected: boo
           </div>
         )}
       </div>
-      <div className="overflow-hidden">
+      <div className="relative overflow-hidden">
         {jobs.length === 0 ? (
           <div className="flex items-center justify-center h-32 text-xs text-muted-foreground">
             {connected ? 'Waiting for jobs...' : 'Job feed not connected'}
@@ -477,6 +483,10 @@ function JobFeedCard({ jobs, connected }: { jobs: JobFeedEntry[]; connected: boo
             </tbody>
           </table>
         )}
+        <div className="absolute inset-0 rounded-lg backdrop-blur-[2px] bg-card/60 flex flex-col items-center justify-center gap-1.5">
+          <span className="text-xs font-semibold text-foreground/70 uppercase tracking-widest">Coming Soon</span>
+          <span className="text-[10px] text-muted-foreground">Real-time feed not yet available</span>
+        </div>
       </div>
     </div>
   );
@@ -491,7 +501,7 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
         </div>
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Pipeline Unit Cost</span>
       </div>
-      <div className="overflow-hidden">
+      <div className="relative overflow-hidden">
         <table className="w-full text-xs">
           <thead>
             <tr className="text-muted-foreground border-b border-border">
@@ -512,6 +522,10 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
             ))}
           </tbody>
         </table>
+        <div className="absolute inset-0 rounded-lg backdrop-blur-[2px] bg-card/60 flex flex-col items-center justify-center gap-1.5">
+          <span className="text-xs font-semibold text-foreground/70 uppercase tracking-widest">Coming Soon</span>
+          <span className="text-[10px] text-muted-foreground">Pricing data not yet available</span>
+        </div>
       </div>
     </div>
   );
