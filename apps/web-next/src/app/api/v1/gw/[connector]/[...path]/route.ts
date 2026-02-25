@@ -5,7 +5,8 @@
  * The core serverless function that proxies consumer requests to upstream
  * services. Implements the full pipeline:
  *
- *   Resolve → Authorize → Policy → Validate → Transform → Proxy → Respond → Log
+ *   Authorize → Resolve → Access → IP → Body → Size → Policy → Validate →
+ *   Cache → Secrets → Transform → Proxy → Respond → Log
  *
  * Supports: GET, POST, PUT, PATCH, DELETE
  * Auth: JWT (NaaP plugins) or API Key (external consumers)
@@ -17,10 +18,13 @@ export const runtime = 'nodejs';
 import { NextRequest } from 'next/server';
 import { resolveConfig } from '@/lib/gateway/resolve';
 import { authorize, verifyConnectorAccess } from '@/lib/gateway/authorize';
+import { enforcePolicy } from '@/lib/gateway/policy';
+import { validateRequest } from '@/lib/gateway/validate';
 import { buildUpstreamRequest } from '@/lib/gateway/transform';
 import { proxyToUpstream, ProxyError } from '@/lib/gateway/proxy';
 import { buildResponse, buildErrorResponse } from '@/lib/gateway/respond';
 import { resolveSecrets } from '@/lib/gateway/secrets';
+import { getCachedResponse, setCachedResponse, buildCacheKey } from '@/lib/gateway/cache';
 import { getAuthToken, getClientIP } from '@/lib/api/response';
 import type { UsageData } from '@/lib/gateway/types';
 
@@ -129,14 +133,90 @@ async function handleRequest(
     );
   }
 
-  // ── 8. Resolve Secrets ──
-  const token = getAuthToken(request);
-  const secrets = await resolveSecrets(scopeId, config.connector.secretRefs, token);
+  // ── 8. Enforce Policy (rate limits, quotas) ──
+  const policy = await enforcePolicy(auth, config.endpoint, requestBytes);
+  if (!policy.allowed) {
+    const errorResponse = buildErrorResponse(
+      'RATE_LIMITED',
+      policy.reason || 'Request blocked by policy',
+      policy.statusCode || 429,
+      requestId,
+      traceId
+    );
+    if (policy.headers) {
+      for (const [k, v] of Object.entries(policy.headers)) {
+        errorResponse.headers.set(k, v);
+      }
+    }
+    return errorResponse;
+  }
 
-  // ── 9. Transform Request ──
+  // ── 9. Validate Request (headers, body pattern, schema) ──
+  const validation = validateRequest(request, config.endpoint, consumerBody);
+  if (!validation.valid) {
+    return buildErrorResponse(
+      'VALIDATION_ERROR',
+      validation.error || 'Request validation failed',
+      400,
+      requestId,
+      traceId
+    );
+  }
+
+  // ── 10. Response Cache Check (GET only) ──
+  const cacheKey = buildCacheKey(scopeId, slug, method, consumerPath, consumerBody);
+  const cacheTtl = config.endpoint.cacheTtl;
+  if (method === 'GET' && cacheTtl && cacheTtl > 0) {
+    const cached = getCachedResponse(cacheKey);
+    if (cached) {
+      const headers = new Headers(cached.headers);
+      headers.set('X-Gateway-Cache', 'HIT');
+      if (requestId) headers.set('x-request-id', requestId);
+      if (traceId) headers.set('x-trace-id', traceId);
+      if (policy.headers) {
+        for (const [k, v] of Object.entries(policy.headers)) {
+          headers.set(k, v);
+        }
+      }
+
+      logUsage({
+        teamId: scopeId,
+        ownerScope: scopeId,
+        connectorId: config.connector.id,
+        endpointName: config.endpoint.name,
+        apiKeyId: auth.apiKeyId || null,
+        callerType: auth.callerType,
+        callerId: auth.callerId,
+        method,
+        path: consumerPath,
+        statusCode: cached.status,
+        latencyMs: Date.now() - startMs,
+        upstreamLatencyMs: 0,
+        requestBytes,
+        responseBytes: cached.body.byteLength,
+        cached: true,
+        error: null,
+        region: process.env.VERCEL_REGION || null,
+      });
+
+      return new Response(cached.body, { status: cached.status, headers });
+    }
+  }
+
+  // ── 11. Resolve Secrets ──
+  // For public connectors, resolve upstream secrets from the connector owner's
+  // scope (the admin who configured the key), not the caller's scope.
+  const token = getAuthToken(request);
+  let secretScopeId = scopeId;
+  if (config.connector.visibility === 'public' && config.connector.ownerUserId) {
+    secretScopeId = `personal:${config.connector.ownerUserId}`;
+  }
+  const secrets = await resolveSecrets(secretScopeId, config.connector.secretRefs, token);
+
+  // ── 12. Transform Request ──
   const upstream = buildUpstreamRequest(request, config, secrets, consumerBody, consumerPath);
 
-  // ── 10. Proxy to Upstream ──
+  // ── 13. Proxy to Upstream ──
   const timeout = config.endpoint.timeout || config.connector.defaultTimeout;
 
   let proxyResult;
@@ -179,10 +259,27 @@ async function handleRequest(
     );
   }
 
-  // ── 11. Build Response ──
+  // ── 14. Build Response ──
   const response = await buildResponse(config, proxyResult, requestId, traceId);
 
-  // ── 12. Log Usage (non-blocking via waitUntil) ──
+  // Merge rate limit headers into successful response
+  if (policy.headers) {
+    for (const [k, v] of Object.entries(policy.headers)) {
+      response.headers.set(k, v);
+    }
+  }
+
+  // ── 15. Cache Store (GET + 2xx + cacheTtl) ──
+  if (method === 'GET' && cacheTtl && cacheTtl > 0 && proxyResult.response.status >= 200 && proxyResult.response.status < 300) {
+    const cloned = response.clone();
+    cloned.arrayBuffer().then((body) => {
+      const headers: Record<string, string> = {};
+      cloned.headers.forEach((v, k) => { headers[k] = v; });
+      setCachedResponse(cacheKey, { body, status: cloned.status, headers }, cacheTtl);
+    }).catch(() => {});
+  }
+
+  // ── 16. Log Usage (non-blocking) ──
   const responseBytes = parseInt(response.headers.get('content-length') || '0', 10);
   logUsage({
     teamId: scopeId,

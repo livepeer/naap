@@ -17,18 +17,28 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const from = searchParams.get('from');
   const to = searchParams.get('to');
+  const connectorId = searchParams.get('connectorId');
+
+  const fromDateRaw = from ? new Date(from) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const toDateRaw = to ? new Date(to) : new Date();
+
+  const fromDate = isNaN(fromDateRaw.getTime()) ? new Date(Date.now() - 24 * 60 * 60 * 1000) : fromDateRaw;
+  const toDate = isNaN(toDateRaw.getTime()) ? new Date() : toDateRaw;
 
   const timeFilter = {
-    ...(from ? { gte: new Date(from) } : { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }),
-    ...(to ? { lte: new Date(to) } : {}),
+    gte: fromDate,
+    lte: toDate,
+  };
+
+  const where = {
+    teamId: ctx.teamId,
+    timestamp: timeFilter,
+    ...(connectorId ? { connectorId } : {}),
   };
 
   const byConnector = await prisma.gatewayUsageRecord.groupBy({
     by: ['connectorId'],
-    where: {
-      teamId: ctx.teamId,
-      timestamp: timeFilter,
-    },
+    where,
     _count: true,
     _avg: { latencyMs: true, upstreamLatencyMs: true },
     _sum: { requestBytes: true, responseBytes: true },
@@ -37,12 +47,11 @@ export async function GET(request: NextRequest) {
 
   // Get error counts per connector
   const errorsByConnector = await prisma.gatewayUsageRecord.groupBy({
-    by: ['connectorId'],
     where: {
-      teamId: ctx.teamId,
-      timestamp: timeFilter,
+      ...where,
       statusCode: { gte: 400 },
     },
+    by: ['connectorId'],
     _count: true,
   });
 
