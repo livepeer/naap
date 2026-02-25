@@ -18,7 +18,7 @@ import {
   Cpu,
 } from 'lucide-react';
 import { Card, Badge, Modal } from '@naap/ui';
-import { useModelCatalog } from '../hooks/useModelCatalog';
+import { useModelCatalog, type CatalogModel } from '../hooks/useModelCatalog';
 
 type TabId = 'models' | 'api-keys' | 'usage' | 'docs';
 
@@ -130,6 +130,7 @@ export const DeveloperView: React.FC = () => {
   const [revoking, setRevoking] = useState(false);
   const pollAbortControllerRef = useRef<AbortController | null>(null);
   const { models: liveCatalogModels, loading: modelsLoading, error: modelsError } = useModelCatalog();
+  const [selectedModel, setSelectedModel] = useState<CatalogModel | null>(null);
 
   const revokedCount = useMemo(
     () => apiKeys.filter(k => (k.status || '').toUpperCase() === 'REVOKED').length,
@@ -520,7 +521,7 @@ export const DeveloperView: React.FC = () => {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredModels.map((model) => (
-                    <Card key={model.id} className="hover:border-accent-blue/30 transition-all cursor-pointer">
+                    <Card key={model.id} className="hover:border-accent-blue/30 transition-all cursor-pointer" onClick={() => setSelectedModel(model)}>
                       <div className="flex items-start justify-between mb-3">
                         <div>
                           <h3 className="font-bold text-text-primary">{model.displayName}</h3>
@@ -744,6 +745,67 @@ export const DeveloperView: React.FC = () => {
           )}
         </motion.div>
       </AnimatePresence>
+
+      {/* ===== Model Detail Modal ===== */}
+      <Modal isOpen={selectedModel !== null} onClose={() => setSelectedModel(null)}
+        title={selectedModel?.displayName ?? ''} size="lg">
+        {selectedModel && (
+          <div className="space-y-5">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary">{selectedModel.pipelineType}</Badge>
+              {selectedModel.isRealtime && <Badge variant="emerald">Realtime</Badge>}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 rounded-xl bg-bg-tertiary border border-white/10">
+                <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">Avg FPS</p>
+                <p className="text-2xl font-bold text-text-primary font-mono">
+                  {selectedModel.avgFPS > 0 ? selectedModel.avgFPS : '—'}
+                </p>
+              </div>
+              <div className="p-4 rounded-xl bg-bg-tertiary border border-white/10">
+                <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">Latency (p50)</p>
+                <p className="text-2xl font-bold text-text-primary font-mono">
+                  {selectedModel.latencyP50 != null ? `${selectedModel.latencyP50}ms` : '—'}
+                </p>
+              </div>
+              <div className="p-4 rounded-xl bg-bg-tertiary border border-white/10">
+                <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">SLA Score</p>
+                <p className="text-2xl font-bold text-accent-emerald font-mono">
+                  {selectedModel.slaScore != null ? `${Math.round(selectedModel.slaScore * 100)}%` : '—'}
+                </p>
+              </div>
+              <div className="p-4 rounded-xl bg-bg-tertiary border border-white/10">
+                <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">Orchestrators</p>
+                <p className="text-2xl font-bold text-text-primary font-mono">
+                  {selectedModel.orchestratorCount}
+                </p>
+              </div>
+            </div>
+
+            {selectedModel.gpuTypes.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-text-secondary mb-2 flex items-center gap-1.5">
+                  <Cpu size={14} /> GPU Hardware
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {selectedModel.gpuTypes.map((gpu) => (
+                    <span key={gpu} className="px-3 py-1 rounded-full bg-bg-tertiary border border-white/10 text-xs font-mono text-text-primary">
+                      {gpu}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-xs text-text-secondary font-mono break-all">
+                Model ID: {selectedModel.modelId}
+              </p>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* ===== Create Key Modal ===== */}
       <Modal isOpen={showCreateModal} onClose={closeCreateModal}
