@@ -10,9 +10,20 @@ const EMAIL_FROM =
   process.env.EMAIL_FROM || 'NaaP Platform <onboarding@resend.dev>';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
+let _resendClient: Resend | null | undefined;
 function getResendClient(): Resend | null {
-  if (!RESEND_API_KEY) return null;
-  return new Resend(RESEND_API_KEY);
+  if (_resendClient !== undefined) return _resendClient;
+  _resendClient = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
+  return _resendClient;
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /**
@@ -23,7 +34,8 @@ function buildVerificationEmailHtml(params: {
   displayName?: string;
 }): string {
   const { verifyUrl, displayName } = params;
-  const greeting = displayName ? `Hi ${displayName}` : 'Hi there';
+  const safeName = displayName ? escapeHtml(displayName) : '';
+  const greeting = safeName ? `Hi ${safeName}` : 'Hi there';
 
   return `<!DOCTYPE html>
 <html>
@@ -160,10 +172,12 @@ export async function sendVerificationEmail(
   const client = getResendClient();
 
   if (!client) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[EMAIL] RESEND_API_KEY is not configured — verification email not sent');
+    } else {
       console.log('[EMAIL] (no RESEND_API_KEY) Verification URL:', verifyUrl);
     }
-    return { success: true };
+    return { success: false, error: 'Email service not configured' };
   }
 
   const html = buildVerificationEmailHtml({ verifyUrl, displayName });
@@ -193,10 +207,12 @@ export async function sendPasswordResetEmail(
   const client = getResendClient();
 
   if (!client) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[EMAIL] RESEND_API_KEY is not configured — password reset email not sent');
+    } else {
       console.log('[EMAIL] (no RESEND_API_KEY) Reset URL:', resetUrl);
     }
-    return { success: true };
+    return { success: false, error: 'Email service not configured' };
   }
 
   const html = buildPasswordResetEmailHtml({ resetUrl });

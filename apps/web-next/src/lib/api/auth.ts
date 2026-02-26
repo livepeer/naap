@@ -779,7 +779,8 @@ export async function sendVerificationEmail(userId: string): Promise<{ success: 
   );
 
   if (!result.success && process.env.NODE_ENV !== 'production') {
-    console.log(`[EMAIL VERIFICATION] Token for ${user.email}: ${token}`);
+    const safeEmail = sanitizeForLog(user.email);
+    console.log(`[EMAIL VERIFICATION] Token for ${safeEmail}: ${token}`);
     console.log(`[EMAIL VERIFICATION] Verify URL: ${verifyUrl}`);
   }
 
