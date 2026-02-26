@@ -16,6 +16,7 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
+      "@naap/plugin-sdk": ["../../../packages/plugin-sdk/src"],
       "@naap/ui": ["../../../packages/ui/src"],
       "@naap/types": ["../../../packages/types/src"],
       "@naap/theme": ["../../../packages/theme/src"],

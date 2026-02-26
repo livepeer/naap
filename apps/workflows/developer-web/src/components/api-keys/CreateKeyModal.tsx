@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { X, Key, Copy, Check, AlertTriangle } from 'lucide-react';
+import { getServiceOrigin } from '@naap/plugin-sdk';
 
 interface CreateKeyModalProps {
   providerDisplayName?: string;
@@ -28,7 +29,7 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
     setSubmitting(true);
     setSubmitError('');
     try {
-      const response = await fetch('http://localhost:4007/api/v1/developer/keys', {
+      const response = await fetch(`${getServiceOrigin('developer-api')}/api/v1/developer/keys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectName: projectName.trim(), providerDisplayName }),
@@ -37,8 +38,14 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
         const body = await response.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error || `Request failed: ${response.status}`);
       }
-      const data = await response.json() as { rawApiKey: string };
-      setGeneratedKey(data.rawApiKey);
+      const data = await response.json() as unknown;
+      const rawApiKey = data != null && typeof (data as Record<string, unknown>).rawApiKey === 'string'
+        ? (data as { rawApiKey: string }).rawApiKey
+        : '';
+      if (!rawApiKey) {
+        throw new Error('Server returned an invalid API key');
+      }
+      setGeneratedKey(rawApiKey);
       setStep('success');
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Failed to create API key');
@@ -68,7 +75,7 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
 
   const handleDone = () => {
     onSuccess({
-      projectName,
+      projectName: projectName.trim(),
       providerDisplayName,
       rawKey: generatedKey,
     });

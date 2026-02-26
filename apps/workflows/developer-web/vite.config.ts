@@ -8,6 +8,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
+      '@naap/plugin-sdk': path.resolve(__dirname, '../../../packages/plugin-sdk/src'),
       '@naap/ui': path.resolve(__dirname, '../../../packages/ui/src'),
       '@naap/types': path.resolve(__dirname, '../../../packages/types/src'),
       '@naap/theme': path.resolve(__dirname, '../../../packages/theme/src'),

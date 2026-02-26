@@ -1,7 +1,8 @@
 import { useState, useCallback } from 'react';
 import type { AIModel, DeveloperApiKey, UsageRecord } from '@naap/types';
+import { getServiceOrigin } from '@naap/plugin-sdk';
 
-const API_BASE_URL = 'http://localhost:4007/api/v1/developer';
+const API_BASE = `${getServiceOrigin('developer-api')}/api/v1/developer`;
 
 interface ApiState<T> {
   data: T | null;
@@ -21,7 +22,7 @@ export function useApiCall<T>() {
     setState((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
-      const response = await fetch(`${API_BASE_URL}${url}`, {
+      const response = await fetch(`${API_BASE}${url}`, {
         headers: {
           'Content-Type': 'application/json',
           ...options?.headers,
@@ -86,7 +87,7 @@ export function useApiKeys() {
   }, [execute]);
 
   const rotateKey = useCallback(async (keyId: string) => {
-    const response = await fetch(`${API_BASE_URL}/keys/${keyId}/rotate`, {
+    const response = await fetch(`${API_BASE}/keys/${keyId}/rotate`, {
       method: 'POST',
     });
     if (!response.ok) {
@@ -97,7 +98,7 @@ export function useApiKeys() {
   }, []);
 
   const renameKey = useCallback(async (keyId: string, projectName: string) => {
-    const response = await fetch(`${API_BASE_URL}/keys/${keyId}`, {
+    const response = await fetch(`${API_BASE}/keys/${keyId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectName }),
@@ -110,7 +111,7 @@ export function useApiKeys() {
   }, []);
 
   const revokeKey = useCallback(async (keyId: string) => {
-    const response = await fetch(`${API_BASE_URL}/keys/${keyId}`, {
+    const response = await fetch(`${API_BASE}/keys/${keyId}`, {
       method: 'DELETE',
     });
     if (!response.ok) {
