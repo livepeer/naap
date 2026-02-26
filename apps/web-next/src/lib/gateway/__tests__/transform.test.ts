@@ -17,9 +17,11 @@ function makeConfig(overrides?: {
     connector: {
       id: 'conn-1',
       teamId: 'team-1',
+      ownerUserId: null,
       slug: 'my-api',
       displayName: 'My API',
       status: 'published',
+      visibility: 'private',
       upstreamBaseUrl: 'https://api.example.com',
       allowedHosts: ['api.example.com'],
       defaultTimeout: 30000,

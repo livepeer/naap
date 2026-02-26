@@ -104,12 +104,15 @@ export async function resolveConfig(
   }
 
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const endpoint = connector.endpoints.find(
-    (ep) =>
-      ep.enabled &&
-      ep.method.toUpperCase() === method.toUpperCase() &&
-      matchPath(ep.path, normalizedPath)
-  );
+  const matchingEndpoints = connector.endpoints
+    .filter(
+      (ep) =>
+        ep.enabled &&
+        ep.method.toUpperCase() === method.toUpperCase() &&
+        matchPath(ep.path, normalizedPath)
+    )
+    .sort((a, b) => pathSpecificity(b.path) - pathSpecificity(a.path));
+  const endpoint = matchingEndpoints[0];
 
   if (!endpoint) {
     CONFIG_CACHE.set(cacheKey, { config: null, expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS });
@@ -173,16 +176,45 @@ export async function resolveConfig(
 
 /**
  * Match consumer path against endpoint path pattern.
- * Supports simple wildcard segments: /tables/:name -> /tables/foo
+ * Supports parameterized segments (:param) and catch-all (:param*).
  */
 function matchPath(pattern: string, actual: string): boolean {
   const patternParts = pattern.split('/').filter(Boolean);
   const actualParts = actual.split('/').filter(Boolean);
 
+  const lastPattern = patternParts[patternParts.length - 1];
+  const isCatchAll = lastPattern?.endsWith('*');
+
+  if (isCatchAll) {
+    if (actualParts.length < patternParts.length) return false;
+    return patternParts.slice(0, -1).every(
+      (part, i) => part.startsWith(':') || part === actualParts[i]
+    );
+  }
+
   if (patternParts.length !== actualParts.length) return false;
 
   return patternParts.every((part, i) => {
-    if (part.startsWith(':')) return true; // wildcard segment
+    if (part.startsWith(':')) return true;
     return part === actualParts[i];
   });
+}
+
+/**
+ * Score a path pattern for specificity sorting.
+ * Higher = more specific. Exact segments > params > catch-all.
+ */
+function pathSpecificity(pattern: string): number {
+  const parts = pattern.split('/').filter(Boolean);
+  let score = 0;
+  for (const part of parts) {
+    if (part.endsWith('*')) {
+      score += 1;
+    } else if (part.startsWith(':')) {
+      score += 10;
+    } else {
+      score += 100;
+    }
+  }
+  return score;
 }

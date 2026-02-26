@@ -66,7 +66,25 @@ async function handleRequest(
     );
   }
 
-  // ── 3. Verify Ownership Isolation ──
+  // ── 3. Read Consumer Body (after config, so we know bodyTransform) ──
+  let consumerBody: string | null = null;
+  let consumerBodyRaw: ArrayBuffer | null = null;
+  let requestBytes = 0;
+  if (method !== 'GET' && method !== 'HEAD') {
+    try {
+      if (config.endpoint.bodyTransform === 'binary') {
+        consumerBodyRaw = await request.arrayBuffer();
+        requestBytes = consumerBodyRaw.byteLength;
+      } else {
+        consumerBody = await request.text();
+        requestBytes = new TextEncoder().encode(consumerBody).length;
+      }
+    } catch {
+      // No body
+    }
+  }
+
+  // ── 4. Verify Ownership Isolation ──
   if (!verifyConnectorAccess(auth, config.connector.id, config.connector.teamId, config.connector.ownerUserId, config.connector.visibility)) {
     return buildErrorResponse(
       'NOT_FOUND',
@@ -77,7 +95,7 @@ async function handleRequest(
     );
   }
 
-  // ── 4. Endpoint Access Check (API key scoping) ──
+  // ── 5. Endpoint Access Check (API key scoping) ──
   if (auth.allowedEndpoints && auth.allowedEndpoints.length > 0) {
     if (!auth.allowedEndpoints.includes(config.endpoint.id) &&
         !auth.allowedEndpoints.includes(config.endpoint.name)) {
@@ -91,7 +109,7 @@ async function handleRequest(
     }
   }
 
-  // ── 5. IP Allowlist Check ──
+  // ── 6. IP Allowlist Check ──
   if (auth.allowedIPs && auth.allowedIPs.length > 0) {
     const clientIP = getClientIP(request);
     if (clientIP && !auth.allowedIPs.includes(clientIP)) {
@@ -102,18 +120,6 @@ async function handleRequest(
         requestId,
         traceId
       );
-    }
-  }
-
-  // ── 6. Read Consumer Body ──
-  let consumerBody: string | null = null;
-  let requestBytes = 0;
-  if (method !== 'GET' && method !== 'HEAD') {
-    try {
-      consumerBody = await request.text();
-      requestBytes = new TextEncoder().encode(consumerBody).length;
-    } catch {
-      // No body
     }
   }
 
@@ -160,7 +166,8 @@ async function handleRequest(
   }
 
   // ── 10. Response Cache Check (GET only) ──
-  const cacheKey = buildCacheKey(scopeId, slug, method, consumerPath, consumerBody);
+  const queryString = request.nextUrl.search || '';
+  const cacheKey = buildCacheKey(scopeId, slug, method, consumerPath + queryString, consumerBody);
   const cacheTtl = config.endpoint.cacheTtl;
   if (method === 'GET' && cacheTtl && cacheTtl > 0) {
     const cached = getCachedResponse(cacheKey);
@@ -210,7 +217,7 @@ async function handleRequest(
   const secrets = await resolveSecrets(secretScopeId, config.connector.secretRefs, token);
 
   // ── 12. Transform Request ──
-  const upstream = buildUpstreamRequest(request, config, secrets, consumerBody, consumerPath);
+  const upstream = buildUpstreamRequest(request, config, secrets, consumerBody, consumerPath, consumerBodyRaw);
 
   // ── 13. Proxy to Upstream ──
   const timeout = config.endpoint.timeout || config.connector.defaultTimeout;
@@ -354,5 +361,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
+  return handleRequest(request, context);
+}
+
+export async function HEAD(request: NextRequest, context: RouteContext) {
   return handleRequest(request, context);
 }

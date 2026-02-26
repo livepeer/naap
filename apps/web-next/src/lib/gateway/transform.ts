@@ -10,6 +10,7 @@ import type {
   ResolvedSecrets,
   UpstreamRequest,
 } from './types';
+import { signAwsV4 } from './aws-sig-v4';
 
 /**
  * Build the upstream request from the consumer request and resolved config.
@@ -19,24 +20,15 @@ export function buildUpstreamRequest(
   config: ResolvedConfig,
   secrets: ResolvedSecrets,
   consumerBody: string | null,
-  consumerPath: string
+  consumerPath: string,
+  consumerBodyRaw?: ArrayBuffer | null,
 ): UpstreamRequest {
   const { connector, endpoint } = config;
 
   // ── URL ──
-  let upstreamUrl = buildUpstreamUrl(connector.upstreamBaseUrl, endpoint, consumerPath);
-
-  // Query-param auth: append secret as a URL parameter (e.g. Gemini ?key=...)
-  if (connector.authType === 'query') {
-    const paramName = (connector.authConfig.paramName as string) || 'key';
-    const secretRef = (connector.authConfig.secretRef as string) || 'token';
-    const secretValue = secrets[secretRef];
-    if (secretValue) {
-      const url = new URL(upstreamUrl);
-      url.searchParams.set(paramName, secretValue);
-      upstreamUrl = url.toString();
-    }
-  }
+  const consumerUrl = new URL(request.url);
+  const upstreamUrl = buildUpstreamUrl(connector.upstreamBaseUrl, endpoint, consumerPath, consumerUrl.searchParams);
+  const url = new URL(upstreamUrl);
 
   // ── Method ──
   const method = endpoint.upstreamMethod || endpoint.method;
@@ -45,9 +37,12 @@ export function buildUpstreamRequest(
   const headers = buildUpstreamHeaders(connector, endpoint, secrets, request);
 
   // ── Body ──
-  const body = transformBody(endpoint, consumerBody);
+  const body = transformBody(endpoint, consumerBody, consumerBodyRaw);
 
-  return { url: upstreamUrl, method, headers, body };
+  // ── Auth injection (after URL + body are finalized) ──
+  injectAuth(headers, connector, secrets, method, url, body);
+
+  return { url: url.toString(), method, headers, body };
 }
 
 /**
@@ -56,17 +51,19 @@ export function buildUpstreamRequest(
 function buildUpstreamUrl(
   baseUrl: string,
   endpoint: ResolvedConfig['endpoint'],
-  consumerPath: string
+  consumerPath: string,
+  consumerSearchParams?: URLSearchParams
 ): string {
-  // Map path params from consumer to upstream
   const consumerParts = consumerPath.split('/').filter(Boolean);
   const patternParts = endpoint.path.split('/').filter(Boolean);
 
   let upstreamPath = endpoint.upstreamPath;
 
-  // Replace :param placeholders with actual values from consumer path
   patternParts.forEach((part, i) => {
-    if (part.startsWith(':') && consumerParts[i]) {
+    if (part.endsWith('*') && part.startsWith(':')) {
+      const catchAllSegments = consumerParts.slice(i);
+      upstreamPath = upstreamPath.replace(part, catchAllSegments.join('/'));
+    } else if (part.startsWith(':') && consumerParts[i]) {
       upstreamPath = upstreamPath.replace(part, consumerParts[i]);
     }
   });
@@ -75,7 +72,14 @@ function buildUpstreamUrl(
   const path = upstreamPath.startsWith('/') ? upstreamPath : `/${upstreamPath}`;
   const url = new URL(`${base}${path}`);
 
-  // Add configured query params
+  // Forward consumer query params (e.g. ?pipeline=...&model=...)
+  if (consumerSearchParams) {
+    consumerSearchParams.forEach((value, key) => {
+      url.searchParams.set(key, value);
+    });
+  }
+
+  // Static/configured query params override consumer params
   const queryParams = endpoint.upstreamQueryParams;
   if (queryParams && typeof queryParams === 'object') {
     for (const [key, value] of Object.entries(queryParams)) {
@@ -97,11 +101,12 @@ function buildUpstreamHeaders(
 ): Headers {
   const headers = new Headers();
 
-  // Content type
-  headers.set('Content-Type', endpoint.upstreamContentType);
-
-  // Auth injection
-  injectAuth(headers, connector, secrets);
+  if (endpoint.upstreamContentType) {
+    headers.set('Content-Type', endpoint.upstreamContentType);
+  } else {
+    const original = request.headers.get('content-type');
+    if (original) headers.set('Content-Type', original);
+  }
 
   // Custom header mapping
   const mapping = endpoint.headerMapping;
@@ -127,7 +132,10 @@ function buildUpstreamHeaders(
 function injectAuth(
   headers: Headers,
   connector: ResolvedConfig['connector'],
-  secrets: ResolvedSecrets
+  secrets: ResolvedSecrets,
+  method: string,
+  url: URL,
+  body?: BodyInit | null,
 ): void {
   const config = connector.authConfig;
 
@@ -159,9 +167,36 @@ function injectAuth(
       break;
     }
 
-    case 'query':
-      // Query params are handled in URL construction, not headers
+    case 'query': {
+      const paramName = (config.paramName as string) || 'key';
+      const secretRef = (config.secretRef as string) || 'token';
+      const secretValue = secrets[secretRef];
+      if (secretValue) {
+        url.searchParams.set(paramName, secretValue);
+      }
       break;
+    }
+
+    case 'aws-s3': {
+      const accessKeyRef = (config.accessKeyRef as string) || 'access_key';
+      const secretKeyRef = (config.secretKeyRef as string) || 'secret_key';
+      const accessKey = secrets[accessKeyRef] || '';
+      const secretKey = secrets[secretKeyRef] || '';
+      if (accessKey && secretKey) {
+        signAwsV4({
+          method,
+          url,
+          headers,
+          body: body instanceof ArrayBuffer ? body : typeof body === 'string' ? body : null,
+          accessKey,
+          secretKey,
+          region: (config.region as string) || 'us-east-1',
+          service: (config.service as string) || 's3',
+          signPayload: (config.signPayload as boolean) ?? false,
+        });
+      }
+      break;
+    }
 
     case 'none':
     default:
@@ -174,8 +209,13 @@ function injectAuth(
  */
 function transformBody(
   endpoint: ResolvedConfig['endpoint'],
-  consumerBody: string | null
+  consumerBody: string | null,
+  consumerBodyRaw?: ArrayBuffer | null,
 ): BodyInit | undefined {
+  if (endpoint.bodyTransform === 'binary') {
+    return consumerBodyRaw ? consumerBodyRaw : undefined;
+  }
+
   if (!consumerBody && !endpoint.upstreamStaticBody) {
     return undefined;
   }
