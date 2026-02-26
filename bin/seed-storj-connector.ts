@@ -232,7 +232,7 @@ async function main() {
   const scopeId = `personal:${userId}`;
 
   // Store access key
-  const accessSecretKey = `gw:${scopeId}:access_key`;
+  const accessSecretKey = `gw:${scopeId}:storj-s3:access_key`;
   const accessEncrypted = encrypt(accessKey);
   await prisma.secretVault.upsert({
     where: { key: accessSecretKey },
@@ -250,7 +250,7 @@ async function main() {
   console.log(`  Access key stored: ${accessKey.slice(0, 8)}...`);
 
   if (secretKey) {
-    const secretSecretKey = `gw:${scopeId}:secret_key`;
+    const secretSecretKey = `gw:${scopeId}:storj-s3:secret_key`;
     const secretEncrypted = encrypt(secretKey);
     await prisma.secretVault.upsert({
       where: { key: secretSecretKey },

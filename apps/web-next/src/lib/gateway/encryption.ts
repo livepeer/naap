@@ -1,18 +1,37 @@
 /**
  * Shared encryption key and AES-256-GCM utilities for gateway secrets.
  *
- * Single module ensures the same key is used across admin routes and
- * the proxy engine, even when ENCRYPTION_KEY is not set in the environment
- * (development fallback).
+ * ENCRYPTION_KEY env var is REQUIRED in production (Vercel).
+ * In development, falls back to a stable default key so secrets persist
+ * across Next.js hot reloads and server restarts.
  */
 
 import * as crypto from 'crypto';
 
+const DEV_FALLBACK_KEY = 'naap-local-dev-gateway-encryption-key-32ch';
+
 let _key: string | null = null;
+let _warned = false;
 
 function getEncryptionKey(): string {
   if (_key) return _key;
-  _key = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+
+  const envKey = process.env.ENCRYPTION_KEY;
+  if (envKey) {
+    _key = envKey;
+  } else if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+    throw new Error(
+      'ENCRYPTION_KEY environment variable is required in production. ' +
+      'Set it in Vercel project settings to a stable 32+ character string.'
+    );
+  } else {
+    if (!_warned) {
+      console.warn('[gateway] ENCRYPTION_KEY not set — using dev fallback. Set it in .env.local for production-like behavior.');
+      _warned = true;
+    }
+    _key = DEV_FALLBACK_KEY;
+  }
+
   return _key;
 }
 

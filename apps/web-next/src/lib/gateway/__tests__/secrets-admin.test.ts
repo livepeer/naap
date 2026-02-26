@@ -15,18 +15,27 @@ describe('Secrets Admin Logic', () => {
   const mockSecretRefs = ['token', 'password'];
 
   describe('secret key construction', () => {
-    it('builds correct key format for team scope', () => {
+    it('builds connector-scoped key for team scope', () => {
       const scopeId = 'team-123';
+      const connectorSlug = 'daydream';
       const name = 'token';
-      const key = `gw:${scopeId}:${name}`;
-      expect(key).toBe('gw:team-123:token');
+      const key = `gw:${scopeId}:${connectorSlug}:${name}`;
+      expect(key).toBe('gw:team-123:daydream:token');
     });
 
-    it('builds correct key format for personal scope', () => {
+    it('builds connector-scoped key for personal scope', () => {
       const scopeId = 'personal:user-456';
+      const connectorSlug = 'gemini';
       const name = 'token';
-      const key = `gw:${scopeId}:${name}`;
-      expect(key).toBe('gw:personal:user-456:token');
+      const key = `gw:${scopeId}:${connectorSlug}:${name}`;
+      expect(key).toBe('gw:personal:user-456:gemini:token');
+    });
+
+    it('different connectors with same ref produce different keys', () => {
+      const scopeId = 'personal:user-456';
+      const keyA = `gw:${scopeId}:daydream:token`;
+      const keyB = `gw:${scopeId}:gemini:token`;
+      expect(keyA).not.toBe(keyB);
     });
   });
 

@@ -26,7 +26,8 @@ export async function testUpstreamConnectivity(
   secretRefs: string[],
   allowedHosts: string[],
   teamId: string,
-  authToken: string
+  authToken: string,
+  connectorSlug: string,
 ): Promise<ConnectivityResult> {
   const startMs = Date.now();
 
@@ -43,7 +44,7 @@ export async function testUpstreamConnectivity(
     }
 
     // Resolve secrets for auth
-    const secrets = await resolveSecrets(teamId, secretRefs, authToken);
+    const secrets = await resolveSecrets(teamId, secretRefs, authToken, connectorSlug);
 
     const headers: Record<string, string> = {};
     const testUrl = new URL(healthCheckPath || '/', upstreamBaseUrl);
