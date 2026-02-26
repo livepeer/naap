@@ -143,6 +143,11 @@ export const ModelsTab: React.FC = () => {
     [models, compareModels]
   );
 
+  const pipelineTypes = useMemo(
+    () => [...new Set(models.map((m) => m.pipelineType))].sort(),
+    [models]
+  );
+
   const toggleCompare = (modelId: string) => {
     setCompareModels((prev) => {
       if (prev.includes(modelId)) return prev.filter((id) => id !== modelId);
@@ -494,18 +499,23 @@ export const ModelsTab: React.FC = () => {
               onClick={async () => {
                 try {
                   await navigator.clipboard.writeText(createdKeyInfo.rawKey);
+                  setCreatedKeyCopied(true);
+                  setTimeout(() => setCreatedKeyCopied(false), 2000);
                 } catch {
+                  // Fallback for older browsers
                   const ta = document.createElement('textarea');
                   ta.value = createdKeyInfo.rawKey;
                   ta.style.position = 'fixed';
                   ta.style.opacity = '0';
                   document.body.appendChild(ta);
                   ta.select();
-                  document.execCommand('copy');
+                  const success = document.execCommand('copy');
                   document.body.removeChild(ta);
+                  if (success) {
+                    setCreatedKeyCopied(true);
+                    setTimeout(() => setCreatedKeyCopied(false), 2000);
+                  }
                 }
-                setCreatedKeyCopied(true);
-                setTimeout(() => setCreatedKeyCopied(false), 2000);
               }}
               className={`shrink-0 p-2 rounded-xl transition-all ${
                 createdKeyCopied
@@ -523,8 +533,12 @@ export const ModelsTab: React.FC = () => {
       {/* Create Key Modal */}
       {showCreateKeyModal && (
         <CreateKeyModal
+          providerDisplayName="Daydream"
           onClose={() => setShowCreateKeyModal(false)}
-          onSuccess={() => setShowCreateKeyModal(false)}
+          onSuccess={(data) => {
+            setCreatedKeyInfo(data);
+            setShowCreateKeyModal(false);
+          }}
         />
       )}
     </div>

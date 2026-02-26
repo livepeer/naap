@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, Key, Copy, Check, AlertTriangle } from 'lucide-react';
+import { getServiceOrigin } from '@naap/plugin-sdk';
 
 interface CreateKeyModalProps {
-  providerDisplayName?: string;
+  providerDisplayName: string;
   onClose: () => void;
   onSuccess: (key: { projectName: string; providerDisplayName: string; rawKey: string }) => void;
 }
 
 export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
-  providerDisplayName = 'Daydream',
+  providerDisplayName,
   onClose,
   onSuccess,
 }) => {
@@ -17,15 +18,59 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
   const [projectName, setProjectName] = useState('');
   const [generatedKey, setGeneratedKey] = useState('');
   const [copied, setCopied] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
-  const handleSubmit = () => {
-    if (!projectName) return;
+  const isValid = projectName.trim().length > 0;
 
-    const bytes = new Uint8Array(24);
-    crypto.getRandomValues(bytes);
-    const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-    setGeneratedKey(`naap_${hex}`);
-    setStep('success');
+  // Handle escape key and prevent closure when submitting
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !submitting) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, submitting]);
+
+  // Handle backdrop click
+  const handleBackdropClick = () => {
+    if (!submitting) {
+      onClose();
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!isValid) return;
+
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      const response = await fetch(`${getServiceOrigin('developer-api')}/api/v1/developer/keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectName: projectName.trim(), providerDisplayName }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error || `Request failed: ${response.status}`);
+      }
+      const data = await response.json() as unknown;
+      const rawApiKey = data != null && typeof (data as Record<string, unknown>).rawApiKey === 'string'
+        ? (data as { rawApiKey: string }).rawApiKey
+        : '';
+      if (!rawApiKey) {
+        throw new Error('Server returned an invalid API key');
+      }
+      setGeneratedKey(rawApiKey);
+      setStep('success');
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to create API key');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleCopy = async () => {
@@ -40,30 +85,31 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
       ta.style.opacity = '0';
       document.body.appendChild(ta);
       ta.select();
-      document.execCommand('copy');
+      const success = document.execCommand('copy');
       document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (success) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
     }
   };
 
   const handleDone = () => {
     onSuccess({
-      projectName,
+      projectName: projectName.trim(),
       providerDisplayName,
       rawKey: generatedKey,
     });
   };
 
-  const isValid = projectName.trim().length > 0;
-
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={handleBackdropClick}>
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-bg-secondary border border-white/10 rounded-2xl w-full max-w-lg overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-white/10">
@@ -76,7 +122,15 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
               <p className="text-sm text-text-secondary">Generate credentials for your project</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-lg transition-colors">
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className={`p-2 rounded-lg transition-colors ${
+              submitting
+                ? 'opacity-50 cursor-not-allowed'
+                : 'hover:bg-white/5'
+            }`}
+          >
             <X size={20} className="text-text-secondary" />
           </button>
         </div>
@@ -109,17 +163,22 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
               </div>
             )}
 
+            {/* Error */}
+            {submitError && (
+              <p className="text-xs text-accent-rose px-1">{submitError}</p>
+            )}
+
             {/* Submit */}
             <button
               onClick={handleSubmit}
-              disabled={!isValid}
+              disabled={!isValid || submitting}
               className={`w-full py-3 rounded-xl font-bold transition-all ${
-                isValid
+                isValid && !submitting
                   ? 'bg-accent-emerald text-white hover:bg-accent-emerald/90'
                   : 'bg-bg-tertiary text-text-secondary cursor-not-allowed'
               }`}
             >
-              Create API Key
+              {submitting ? 'Creating…' : 'Create API Key'}
             </button>
           </div>
         ) : (

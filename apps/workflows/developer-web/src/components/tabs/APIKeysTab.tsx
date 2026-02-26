@@ -186,6 +186,7 @@ export const APIKeysTab: React.FC = () => {
       {/* Create Modal */}
       {showCreateModal && (
         <CreateKeyModal
+          providerDisplayName="Daydream"
           onClose={() => setShowCreateModal(false)}
           onSuccess={handleCreateSuccess}
         />

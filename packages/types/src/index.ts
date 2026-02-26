@@ -285,7 +285,6 @@ export interface GatewayOffer {
   regions: string[];
   capacity: CapacityLevel;
 }
-
 export type ApiKeyStatus = 'active' | 'revoked';
 
 export interface DeveloperApiKey {

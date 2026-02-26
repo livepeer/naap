@@ -1,7 +1,8 @@
 import { useState, useCallback } from 'react';
 import type { AIModel, DeveloperApiKey, UsageRecord } from '@naap/types';
+import { getServiceOrigin } from '@naap/plugin-sdk';
 
-const API_BASE_URL = 'http://localhost:4007/api/v1/developer';
+const API_BASE = `${getServiceOrigin('developer-api')}/api/v1/developer`;
 
 interface ApiState<T> {
   data: T | null;
@@ -21,11 +22,12 @@ export function useApiCall<T>() {
     setState((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
-      const response = await fetch(`${API_BASE_URL}${url}`, {
+      const response = await fetch(`${API_BASE}${url}`, {
         headers: {
           'Content-Type': 'application/json',
           ...options?.headers,
         },
+        credentials: 'include',
         ...options,
       });
 
@@ -78,6 +80,18 @@ export function useModel(modelId: string) {
 }
 
 // API Keys API
+function requestJson(url: string, options?: RequestInit, errorMessage?: string) {
+  return fetch(url, {
+    credentials: 'include',
+    ...options,
+  }).then(async (response) => {
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || errorMessage);
+    }
+    return response.json();
+  });
+}
 export function useApiKeys() {
   const { data, loading, error, execute } = useApiCall<{ keys: DeveloperApiKey[]; total: number }>();
 
@@ -86,38 +100,23 @@ export function useApiKeys() {
   }, [execute]);
 
   const rotateKey = useCallback(async (keyId: string) => {
-    const response = await fetch(`${API_BASE_URL}/keys/${keyId}/rotate`, {
+    return requestJson(`${API_BASE}/keys/${keyId}/rotate`, {
       method: 'POST',
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to rotate key');
-    }
-    return response.json();
+    }, 'Failed to rotate key');
   }, []);
 
   const renameKey = useCallback(async (keyId: string, projectName: string) => {
-    const response = await fetch(`${API_BASE_URL}/keys/${keyId}`, {
+    return requestJson(`${API_BASE}/keys/${keyId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectName }),
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to rename key');
-    }
-    return response.json();
+    }, 'Failed to rename key');
   }, []);
 
   const revokeKey = useCallback(async (keyId: string) => {
-    const response = await fetch(`${API_BASE_URL}/keys/${keyId}`, {
+    return requestJson(`${API_BASE}/keys/${keyId}`, {
       method: 'DELETE',
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to revoke key');
-    }
-    return response.json();
+    }, 'Failed to revoke key');
   }, []);
 
   return {

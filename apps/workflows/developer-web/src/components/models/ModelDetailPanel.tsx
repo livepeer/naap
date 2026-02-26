@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { X, Zap, Target, Activity, Cpu, MapPin, Key } from 'lucide-react';
 import { Badge } from '@naap/ui';
-import type { NetworkModel } from '@naap/types';
+import type { NetworkModel, GatewayOffer } from '@naap/types';
 import { shortGPUName } from '../../utils/gpu';
 
 interface ModelDetailPanelProps {

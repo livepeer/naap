@@ -9,6 +9,7 @@
     "preview": "vite preview --port 3007 --host 0.0.0.0 --strictPort"
   },
   "dependencies": {
+    "@naap/plugin-sdk": "*",
     "@naap/ui": "*",
     "@naap/types": "*",
     "@naap/theme": "*",

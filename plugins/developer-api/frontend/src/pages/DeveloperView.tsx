@@ -21,7 +21,6 @@ import { Card, Badge, Modal } from '@naap/ui';
 import { useModelCatalog, type CatalogModel } from '../hooks/useModelCatalog';
 
 type TabId = 'models' | 'api-keys' | 'usage' | 'docs';
-
 interface ApiKeyProject {
   id: string;
   name: string;
@@ -940,5 +939,4 @@ export const DeveloperView: React.FC = () => {
     </div>
   );
 };
-
 export default DeveloperView;
