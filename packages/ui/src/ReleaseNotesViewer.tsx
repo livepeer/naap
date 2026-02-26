@@ -33,7 +33,7 @@ export const ReleaseNotesViewer: React.FC<ReleaseNotesViewerProps> = ({ isOpen, 
                   <Github size={20} />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold font-outfit">Livepeer Release Notes</h2>
+                  <h2 className="text-xl font-bold font-sans">Livepeer Release Notes</h2>
                   <p className="text-xs text-text-secondary">Viewing version <span className="text-accent-blue font-mono">{version}</span></p>
                 </div>
               </div>

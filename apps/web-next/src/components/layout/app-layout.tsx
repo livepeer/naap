@@ -5,14 +5,30 @@ import { Sidebar } from './sidebar';
 import { TopBar } from './top-bar';
 import { useShell, useEvents } from '@/contexts/shell-context';
 
-// Constants - must match sidebar.tsx
-const SIDEBAR_DEFAULT_WIDTH = 256;
-const SIDEBAR_COLLAPSED_WIDTH = 68;
+// Constants — must match sidebar.tsx
+const SIDEBAR_DEFAULT_WIDTH = 240;
+const SIDEBAR_COLLAPSED_WIDTH = 52;
 
 interface AppLayoutProps {
   children: React.ReactNode;
 }
 
+/**
+ * AppLayout — Linear-inspired shell.
+ *
+ * Structure:
+ *   ┌─────────┬──────────────────────────────┐
+ *   │         │  ┌────────────────────────┐   │
+ *   │ Sidebar │  │ TopBar                 │   │
+ *   │ (frame) │  │────────────────────────│   │
+ *   │         │  │ Content (scrollable)   │   │
+ *   │         │  └────────────────────────┘   │
+ *   └─────────┴──────────────────────────────┘
+ *
+ * The sidebar sits at the frame level (bg-background).
+ * The content panel floats as a rounded card (bg-card) with
+ * a small gap exposing the dark frame beneath.
+ */
 export function AppLayout({ children }: AppLayoutProps) {
   const { isSidebarOpen } = useShell();
   const eventBus = useEvents();
@@ -24,41 +40,43 @@ export function AppLayout({ children }: AppLayoutProps) {
     return saved ? parseInt(saved, 10) : SIDEBAR_DEFAULT_WIDTH;
   });
 
-  // Handle resize events from sidebar
   const handleResize = useCallback((data: { width: number }) => {
     setSidebarWidth(data.width);
   }, []);
 
-  // Listen for sidebar width changes via event bus
   useEffect(() => {
     const unsubscribe = eventBus.on('shell:sidebar:resize', handleResize);
     return unsubscribe;
   }, [eventBus, handleResize]);
 
-  // Also sync on initial mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const saved = localStorage.getItem('naap_sidebar_width');
-    if (saved) {
-      setSidebarWidth(parseInt(saved, 10));
-    }
+    if (saved) setSidebarWidth(parseInt(saved, 10));
   }, []);
 
-  // Calculate actual width based on sidebar state
   const actualWidth = isSidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED_WIDTH;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-screen bg-background overflow-hidden">
+      {/* Sidebar — fixed, frame level */}
       <Sidebar />
-      <TopBar />
-      <main
+
+      {/* Content region — offset by sidebar, with gap for the dark frame */}
+      <div
         style={{ paddingLeft: actualWidth }}
-        className="pt-14 min-h-screen transition-all duration-300"
+        className="h-screen pt-2 pr-2 pb-2 transition-all duration-200"
       >
-        <div className="p-6">
-          {children}
+        {/* Floating content panel */}
+        <div className="h-full flex flex-col rounded-lg overflow-hidden bg-card border border-border/60">
+          <TopBar />
+          <main className="flex-1 overflow-y-auto">
+            <div className="px-5 py-4">
+              {children}
+            </div>
+          </main>
         </div>
-      </main>
+      </div>
     </div>
   );
 }
