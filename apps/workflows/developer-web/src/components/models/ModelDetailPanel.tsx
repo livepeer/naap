@@ -2,14 +2,12 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { X, Clock, Zap, Play, Target, Key } from 'lucide-react';
 import { Badge } from '@naap/ui';
-import type { AIModel, GatewayOffer } from '@naap/types';
-import { GatewayOfferCard } from './GatewayOfferCard';
+import type { AIModel } from '@naap/types';
 
 interface ModelDetailPanelProps {
   model: AIModel;
-  gatewayOffers: GatewayOffer[];
   onClose: () => void;
-  onCreateKey: (model: AIModel, gateway: GatewayOffer) => void;
+  onCreateKey: () => void;
 }
 
 const typeLabels = {
@@ -28,7 +26,6 @@ const badgeVariants = {
 
 export const ModelDetailPanel: React.FC<ModelDetailPanelProps> = ({
   model,
-  gatewayOffers,
   onClose,
   onCreateKey,
 }) => {
@@ -120,39 +117,16 @@ export const ModelDetailPanel: React.FC<ModelDetailPanelProps> = ({
         </div>
       </div>
 
-      {/* Gateway Offers */}
-      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-        <h3 className="text-sm font-bold text-text-secondary uppercase tracking-widest mb-3">
-          Gateways Offering This Model ({gatewayOffers.length})
-        </h3>
-        <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-          {gatewayOffers.map((offer) => (
-            <GatewayOfferCard
-              key={offer.gatewayId}
-              offer={offer}
-              onSelect={() => onCreateKey(model, offer)}
-            />
-          ))}
-          {gatewayOffers.length === 0 && (
-            <div className="text-center py-8 text-text-secondary">
-              No gateways currently offer this model
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* CTA */}
-      {gatewayOffers.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-white/10">
-          <button
-            onClick={() => onCreateKey(model, gatewayOffers[0])}
-            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-accent-emerald text-white rounded-xl font-bold hover:bg-accent-emerald/90 transition-all"
-          >
-            <Key size={18} />
-            Create API Key for {model.name}
-          </button>
-        </div>
-      )}
+      <div className="mt-4 pt-4 border-t border-white/10">
+        <button
+          onClick={onCreateKey}
+          className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-accent-emerald text-white rounded-xl font-bold hover:bg-accent-emerald/90 transition-all"
+        >
+          <Key size={18} />
+          Create API Key for {model.name}
+        </button>
+      </div>
     </motion.div>
   );
 };

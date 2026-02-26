@@ -4,7 +4,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { createCsrfMiddleware } from '@naap/utils';
 import { 
   models, 
-  gatewayOffers, 
   apiKeys, 
   usageRecords, 
   invoices,
@@ -22,11 +21,12 @@ app.use(express.json());
 // Using logOnly mode initially for gradual rollout
 // Set CSRF_ENFORCE=true to enable enforcement
 const csrfEnforce = process.env.CSRF_ENFORCE === 'true';
-app.use('/api', createCsrfMiddleware({
+const csrfMiddleware = createCsrfMiddleware({
   skipPaths: ['/healthz', '/health'],
   logOnly: !csrfEnforce,
   logger: (msg, data) => console.log(`[developer-svc] ${msg}`, data),
-}));
+});
+app.use('/api', csrfMiddleware);
 
 // Health check
 app.get('/healthz', (_req, res) => {
@@ -70,18 +70,6 @@ app.get('/api/v1/developer/models/:id', (req, res) => {
   res.json(model);
 });
 
-// Get gateways offering a model
-app.get('/api/v1/developer/models/:id/gateways', (req, res) => {
-  const model = models.find(m => m.id === req.params.id);
-  
-  if (!model) {
-    return res.status(404).json({ error: 'Model not found' });
-  }
-  
-  const offers = gatewayOffers[req.params.id] || [];
-  res.json({ modelId: req.params.id, gateways: offers });
-});
-
 // ============ API Keys Endpoints ============
 
 // List all API keys
@@ -102,31 +90,17 @@ app.get('/api/v1/developer/keys/:id', (req, res) => {
 
 // Create new API key
 app.post('/api/v1/developer/keys', (req, res) => {
-  const { projectName, modelId, gatewayId } = req.body;
+  const { projectName, providerDisplayName } = req.body;
   
-  if (!projectName || !modelId || !gatewayId) {
-    return res.status(400).json({ error: 'projectName, modelId, and gatewayId are required' });
-  }
-  
-  const model = models.find(m => m.id === modelId);
-  if (!model) {
-    return res.status(400).json({ error: 'Invalid modelId' });
-  }
-  
-  const gatewayOffersForModel = gatewayOffers[modelId] || [];
-  const gateway = gatewayOffersForModel.find(g => g.gatewayId === gatewayId);
-  if (!gateway) {
-    return res.status(400).json({ error: 'Gateway does not offer this model' });
+  if (!projectName) {
+    return res.status(400).json({ error: 'projectName is required' });
   }
   
   const rawKey = generateApiKey();
   const newKey = {
     id: `key-${uuidv4().slice(0, 8)}`,
     projectName,
-    modelId,
-    modelName: model.name,
-    gatewayId,
-    gatewayName: gateway.gatewayName,
+    providerDisplayName: providerDisplayName || 'Daydream',
     keyHash: hashApiKey(rawKey),
     status: 'active' as const,
     createdAt: new Date().toISOString(),

@@ -1,4 +1,4 @@
-import type { AIModel, GatewayOffer, DeveloperApiKey, UsageRecord, Invoice } from '@naap/types';
+import type { AIModel, DeveloperApiKey, UsageRecord, Invoice } from '@naap/types';
 
 // AI Models
 export const mockModels: AIModel[] = [
@@ -13,7 +13,6 @@ export const mockModels: AIModel[] = [
     latencyP50: 120,
     coldStart: 2000,
     fps: 24,
-    gatewayCount: 8,
     useCases: ['Live streaming effects', 'Interactive applications', 'Prototyping'],
     badges: ['Realtime', 'Low-cost'],
   },
@@ -28,7 +27,6 @@ export const mockModels: AIModel[] = [
     latencyP50: 180,
     coldStart: 3500,
     fps: 30,
-    gatewayCount: 12,
     useCases: ['Content creation', 'Marketing videos', 'Social media'],
     badges: ['Featured', 'Best Quality', 'Realtime'],
   },
@@ -43,7 +41,6 @@ export const mockModels: AIModel[] = [
     latencyP50: 450,
     coldStart: 5000,
     fps: 24,
-    gatewayCount: 6,
     useCases: ['Long-form content', 'Animation', 'Film production'],
     badges: ['Featured', 'High-quality'],
   },
@@ -58,7 +55,6 @@ export const mockModels: AIModel[] = [
     latencyP50: 200,
     coldStart: 4000,
     fps: 30,
-    gatewayCount: 5,
     useCases: ['Style transfer', 'Video enhancement', 'Effects'],
     badges: ['Realtime'],
   },
@@ -73,7 +69,6 @@ export const mockModels: AIModel[] = [
     latencyP50: 150,
     coldStart: 2500,
     fps: 30,
-    gatewayCount: 10,
     useCases: ['Creative projects', 'Artistic content', 'Experimental'],
     badges: ['Featured', 'Realtime', 'Best Quality'],
   },
@@ -88,52 +83,17 @@ export const mockModels: AIModel[] = [
     latencyP50: 800,
     coldStart: 8000,
     fps: 24,
-    gatewayCount: 4,
     useCases: ['Cinema-quality', 'Professional production', 'VFX'],
     badges: ['Best Quality'],
   },
 ];
-
-// Gateway offers per model
-export const mockGatewayOffers: Record<string, GatewayOffer[]> = {
-  'model-sd15': [
-    { gatewayId: 'gw-1', gatewayName: 'Livepeer Studio', slaTier: 'gold', uptimeGuarantee: 99.99, latencyGuarantee: 100, unitPrice: 0.02, regions: ['US-East', 'EU-West'], capacity: 'high' },
-    { gatewayId: 'gw-2', gatewayName: 'Decentralized AI Labs', slaTier: 'silver', uptimeGuarantee: 99.9, latencyGuarantee: 150, unitPrice: 0.025, regions: ['EU-West'], capacity: 'medium' },
-    { gatewayId: 'gw-4', gatewayName: 'Render Core', slaTier: 'gold', uptimeGuarantee: 99.99, latencyGuarantee: 80, unitPrice: 0.03, regions: ['US-West', 'US-East'], capacity: 'high' },
-  ],
-  'model-sdxl': [
-    { gatewayId: 'gw-1', gatewayName: 'Livepeer Studio', slaTier: 'gold', uptimeGuarantee: 99.99, latencyGuarantee: 150, unitPrice: 0.08, regions: ['US-East', 'EU-West', 'Asia-Pacific'], capacity: 'high' },
-    { gatewayId: 'gw-2', gatewayName: 'Decentralized AI Labs', slaTier: 'silver', uptimeGuarantee: 99.9, latencyGuarantee: 200, unitPrice: 0.09, regions: ['EU-West'], capacity: 'medium' },
-    { gatewayId: 'gw-3', gatewayName: 'GPU Pool Network', slaTier: 'bronze', uptimeGuarantee: 99.5, latencyGuarantee: 250, unitPrice: 0.085, regions: ['Asia-Pacific'], capacity: 'low' },
-    { gatewayId: 'gw-4', gatewayName: 'Render Core', slaTier: 'gold', uptimeGuarantee: 99.99, latencyGuarantee: 120, unitPrice: 0.10, regions: ['US-West', 'US-East'], capacity: 'high' },
-  ],
-  'model-longlive': [
-    { gatewayId: 'gw-1', gatewayName: 'Livepeer Studio', slaTier: 'gold', uptimeGuarantee: 99.99, latencyGuarantee: 400, unitPrice: 0.12, regions: ['US-East'], capacity: 'medium' },
-    { gatewayId: 'gw-4', gatewayName: 'Render Core', slaTier: 'gold', uptimeGuarantee: 99.99, latencyGuarantee: 350, unitPrice: 0.15, regions: ['US-West'], capacity: 'high' },
-  ],
-  'model-vace': [
-    { gatewayId: 'gw-1', gatewayName: 'Livepeer Studio', slaTier: 'silver', uptimeGuarantee: 99.9, latencyGuarantee: 200, unitPrice: 0.10, regions: ['US-East'], capacity: 'medium' },
-    { gatewayId: 'gw-2', gatewayName: 'Decentralized AI Labs', slaTier: 'silver', uptimeGuarantee: 99.9, latencyGuarantee: 220, unitPrice: 0.11, regions: ['EU-West'], capacity: 'medium' },
-  ],
-  'model-krea': [
-    { gatewayId: 'gw-1', gatewayName: 'Livepeer Studio', slaTier: 'gold', uptimeGuarantee: 99.99, latencyGuarantee: 130, unitPrice: 0.15, regions: ['US-East', 'EU-West'], capacity: 'high' },
-    { gatewayId: 'gw-4', gatewayName: 'Render Core', slaTier: 'gold', uptimeGuarantee: 99.99, latencyGuarantee: 120, unitPrice: 0.18, regions: ['US-West', 'US-East'], capacity: 'high' },
-    { gatewayId: 'gw-3', gatewayName: 'GPU Pool Network', slaTier: 'bronze', uptimeGuarantee: 99.5, latencyGuarantee: 180, unitPrice: 0.16, regions: ['Asia-Pacific'], capacity: 'medium' },
-  ],
-  'model-cogvideo': [
-    { gatewayId: 'gw-4', gatewayName: 'Render Core', slaTier: 'gold', uptimeGuarantee: 99.99, latencyGuarantee: 700, unitPrice: 0.25, regions: ['US-West'], capacity: 'medium' },
-  ],
-};
 
 // API Keys
 export const mockApiKeys: DeveloperApiKey[] = [
   {
     id: 'key-1',
     projectName: 'My Video App',
-    modelId: 'model-sdxl',
-    modelName: 'SDXL Turbo',
-    gatewayId: 'gw-1',
-    gatewayName: 'Livepeer Studio',
+    providerDisplayName: 'Daydream',
     keyHash: 'lp_sk_****************************a1b2',
     status: 'active',
     createdAt: '2025-12-01T10:00:00Z',
@@ -142,10 +102,7 @@ export const mockApiKeys: DeveloperApiKey[] = [
   {
     id: 'key-2',
     projectName: 'Streaming Demo',
-    modelId: 'model-sd15',
-    modelName: 'Stable Diffusion 1.5',
-    gatewayId: 'gw-4',
-    gatewayName: 'Render Core',
+    providerDisplayName: 'Daydream',
     keyHash: 'lp_sk_****************************c3d4',
     status: 'active',
     createdAt: '2026-01-05T09:00:00Z',
@@ -177,19 +134,3 @@ export const mockInvoices: Invoice[] = [
   { id: 'inv-2', date: '2026-01-01', amount: 52.30, status: 'paid' },
 ];
 
-// Helper to get all gateway offers
-export const getAllGatewayOffers = (): GatewayOffer[] => {
-  const seen = new Set<string>();
-  const result: GatewayOffer[] = [];
-  
-  Object.values(mockGatewayOffers).forEach((offers) => {
-    offers.forEach((offer) => {
-      if (!seen.has(offer.gatewayId)) {
-        seen.add(offer.gatewayId);
-        result.push(offer);
-      }
-    });
-  });
-  
-  return result;
-};

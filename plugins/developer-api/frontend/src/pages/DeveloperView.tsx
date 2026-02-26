@@ -30,7 +30,6 @@ interface AIModel {
   realtime: boolean;
   costPerMin: { min: number; max: number };
   latencyP50: number;
-  gatewayCount: number;
   badges: string[];
 }
 
@@ -124,6 +123,7 @@ export const DeveloperView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showRevoked, setShowRevoked] = useState(false);
   const [projectFilterId, setProjectFilterId] = useState<'__all__' | string>('__all__');
+  const [providerFilterId, setProviderFilterId] = useState<'__all__' | string>('__all__');
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createStep, setCreateStep] = useState<'form' | 'oauth' | 'success'>('form');
@@ -149,20 +149,42 @@ export const DeveloperView: React.FC = () => {
     [apiKeys]
   );
 
+  const providerOptions = useMemo(() => {
+    if (billingProviders.length > 0) {
+      return billingProviders
+        .map((provider) => ({ id: provider.id, displayName: provider.displayName }))
+        .sort((a, b) => a.displayName.localeCompare(b.displayName));
+    }
+
+    const seen = new Set<string>();
+    return apiKeys
+      .map((key) => key.billingProvider)
+      .filter((provider): provider is ApiKey['billingProvider'] => {
+        if (!provider?.id || seen.has(provider.id)) return false;
+        seen.add(provider.id);
+        return true;
+      })
+      .map((provider) => ({ id: provider.id, displayName: provider.displayName }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  }, [billingProviders, apiKeys]);
+
   const displayedKeys = useMemo(() => {
     const filteredByRevoked = showRevoked
       ? apiKeys
       : apiKeys.filter(k => (k.status || '').toUpperCase() !== 'REVOKED');
-    const filtered = projectFilterId === '__all__'
+    const filteredByProject = projectFilterId === '__all__'
       ? filteredByRevoked
       : filteredByRevoked.filter(k => k.project?.id === projectFilterId);
+    const filtered = providerFilterId === '__all__'
+      ? filteredByProject
+      : filteredByProject.filter(k => k.billingProvider?.id === providerFilterId);
     return [...filtered].sort((a, b) => {
       const aDefault = a.project?.isDefault ? 1 : 0;
       const bDefault = b.project?.isDefault ? 1 : 0;
       if (aDefault !== bDefault) return bDefault - aDefault;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [apiKeys, showRevoked, projectFilterId]);
+  }, [apiKeys, showRevoked, projectFilterId, providerFilterId]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -200,7 +222,7 @@ export const DeveloperView: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'usage') loadBillingProviders();
+    if (activeTab === 'usage' || activeTab === 'api-keys') loadBillingProviders();
   }, [activeTab, loadBillingProviders]);
 
   const loadModalData = useCallback(async () => {
@@ -472,7 +494,7 @@ export const DeveloperView: React.FC = () => {
                     <p className="text-sm text-text-secondary mb-4 line-clamp-2">{model.tagline}</p>
                     <div className="flex items-center justify-between text-xs text-text-secondary">
                       <span>${model.costPerMin.min.toFixed(2)} - ${model.costPerMin.max.toFixed(2)}/min</span>
-                      <span>{model.gatewayCount} gateways</span>
+                      <span>{model.latencyP50}ms p50 latency</span>
                     </div>
                   </Card>
                 ))}
@@ -508,6 +530,21 @@ export const DeveloperView: React.FC = () => {
                         ))}
                     </select>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-text-secondary">Provider</span>
+                    <select
+                      value={providerFilterId}
+                      onChange={(e) => setProviderFilterId(e.target.value)}
+                      className="bg-bg-tertiary border border-white/10 rounded-xl py-2 px-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue appearance-none cursor-pointer"
+                    >
+                      <option value="__all__">All providers</option>
+                      {providerOptions.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.displayName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   {revokedCount > 0 && (
                     <button onClick={() => setShowRevoked(!showRevoked)}
                       className="text-sm text-text-secondary hover:text-text-primary transition-colors">
@@ -527,6 +564,7 @@ export const DeveloperView: React.FC = () => {
                         <tr className="text-left text-xs uppercase tracking-wider text-text-secondary border-b border-white/10">
                           <th className="pb-3 font-medium">Name</th>
                           <th className="pb-3 font-medium">Project</th>
+                          <th className="pb-3 font-medium">Provider</th>
                           <th className="pb-3 font-medium">Secret Key</th>
                           <th className="pb-3 font-medium">Created</th>
                           <th className="pb-3 font-medium text-right">Status</th>
@@ -549,6 +587,11 @@ export const DeveloperView: React.FC = () => {
                               ) : (
                                 <span className="text-sm text-text-secondary">—</span>
                               )}
+                            </td>
+                            <td className="py-4 pr-6">
+                              <span className="text-sm text-text-secondary">
+                                {key.billingProvider?.displayName || '—'}
+                              </span>
                             </td>
                             <td className="py-4 pr-6">
                               <span className="text-sm text-text-secondary font-mono">{key.keyPrefix}</span>
@@ -794,9 +837,9 @@ export const DeveloperView: React.FC = () => {
 
 function getMockModels(): AIModel[] {
   return [
-    { id: 'model-sd15', name: 'Stable Diffusion 1.5', tagline: 'Fast, lightweight image generation', type: 'text-to-video', featured: false, realtime: true, costPerMin: { min: 0.02, max: 0.05 }, latencyP50: 120, gatewayCount: 8, badges: ['Realtime'] },
-    { id: 'model-sdxl', name: 'SDXL Turbo', tagline: 'High-quality video generation', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.08, max: 0.15 }, latencyP50: 180, gatewayCount: 12, badges: ['Featured', 'Best Quality'] },
-    { id: 'model-krea', name: 'Krea AI', tagline: 'Creative AI for unique visuals', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.15, max: 0.30 }, latencyP50: 150, gatewayCount: 10, badges: ['Featured', 'Realtime'] },
+    { id: 'model-sd15', name: 'Stable Diffusion 1.5', tagline: 'Fast, lightweight image generation', type: 'text-to-video', featured: false, realtime: true, costPerMin: { min: 0.02, max: 0.05 }, latencyP50: 120, badges: ['Realtime'] },
+    { id: 'model-sdxl', name: 'SDXL Turbo', tagline: 'High-quality video generation', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.08, max: 0.15 }, latencyP50: 180, badges: ['Featured', 'Best Quality'] },
+    { id: 'model-krea', name: 'Krea AI', tagline: 'Creative AI for unique visuals', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.15, max: 0.30 }, latencyP50: 150, badges: ['Featured', 'Realtime'] },
   ];
 }
 

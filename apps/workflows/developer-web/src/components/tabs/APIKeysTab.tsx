@@ -15,8 +15,18 @@ export const APIKeysTab: React.FC = () => {
   const [renameValue, setRenameValue] = useState('');
 
   const handleCopyKey = async (key: DeveloperApiKey) => {
-    await navigator.clipboard.writeText(key.keyHash);
-    // Could show toast notification
+    try {
+      await navigator.clipboard.writeText(key.keyHash);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = key.keyHash;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
   };
 
   const handleRotateKey = (key: DeveloperApiKey) => {
@@ -66,18 +76,14 @@ export const APIKeysTab: React.FC = () => {
 
   const handleCreateSuccess = (data: {
     projectName: string;
-    modelId: string;
-    gatewayId: string;
+    providerDisplayName: string;
     rawKey: string;
   }) => {
     // In real app, would use response from API
     const newKey: DeveloperApiKey = {
       id: `key-${Date.now()}`,
       projectName: data.projectName,
-      modelId: data.modelId,
-      modelName: mockApiKeys[0].modelName, // Would come from API
-      gatewayId: data.gatewayId,
-      gatewayName: mockApiKeys[0].gatewayName, // Would come from API
+      providerDisplayName: data.providerDisplayName,
       keyHash: data.rawKey.slice(0, 6) + '****************************' + data.rawKey.slice(-4),
       status: 'active',
       createdAt: new Date().toISOString(),
@@ -180,6 +186,7 @@ export const APIKeysTab: React.FC = () => {
       {/* Create Modal */}
       {showCreateModal && (
         <CreateKeyModal
+          providerDisplayName="Daydream"
           onClose={() => setShowCreateModal(false)}
           onSuccess={handleCreateSuccess}
         />

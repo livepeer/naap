@@ -95,8 +95,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const billingProviderId = body.billingProviderId as string | undefined;
     const rawApiKey = body.rawApiKey as string | undefined;
-    const modelId = body.modelId as string | undefined;
-    const gatewayId = body.gatewayId as string | undefined;
     const projectId = body.projectId as string | undefined;
     const projectName = body.projectName as string | undefined;
     const label = body.label as string | undefined;
@@ -118,30 +116,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
     if (!provider || !provider.enabled) {
       return errors.badRequest('Invalid or disabled billing provider');
-    }
-
-    let resolvedModelId: string | undefined;
-    if (modelId && typeof modelId === 'string' && modelId.trim() !== '') {
-      const model = await prisma.devApiAIModel.findUnique({
-        where: { id: modelId },
-        select: { id: true },
-      });
-      if (!model) {
-        return errors.badRequest('Invalid modelId');
-      }
-      resolvedModelId = model.id;
-    }
-
-    let resolvedGatewayOfferId: string | undefined;
-    if (resolvedModelId && gatewayId && typeof gatewayId === 'string' && gatewayId.trim() !== '') {
-      const gateway = await prisma.devApiGatewayOffer.findFirst({
-        where: { modelId: resolvedModelId, gatewayId },
-        select: { id: true },
-      });
-      if (!gateway) {
-        return errors.badRequest('Gateway does not offer this model');
-      }
-      resolvedGatewayOfferId = gateway.id;
     }
 
     let resolvedProjectId: string;
@@ -169,8 +143,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         userId: user.id,
         projectId: resolvedProjectId,
         billingProviderId,
-        modelId: resolvedModelId || null,
-        gatewayOfferId: resolvedGatewayOfferId || null,
         keyLookupId,
         keyPrefix,
         keyHash,

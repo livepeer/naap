@@ -1,6 +1,6 @@
 /**
  * Developer API Static Data
- * Models and gateway offers are static/reference data
+ * Models are static/reference data
  */
 
 export interface AIModel {
@@ -14,17 +14,8 @@ export interface AIModel {
   latencyP50: number;
   coldStart: number;
   fps: number;
-  gatewayCount: number;
   useCases: string[];
   badges: string[];
-}
-
-export interface GatewayOffer {
-  gatewayId: string;
-  gatewayName: string;
-  price: number;
-  latency: number;
-  availability: number;
 }
 
 export const models: AIModel[] = [
@@ -39,7 +30,6 @@ export const models: AIModel[] = [
     latencyP50: 120,
     coldStart: 2000,
     fps: 24,
-    gatewayCount: 8,
     useCases: ['Live streaming', 'Prototyping'],
     badges: ['Realtime'],
   },
@@ -54,7 +44,6 @@ export const models: AIModel[] = [
     latencyP50: 180,
     coldStart: 3500,
     fps: 30,
-    gatewayCount: 12,
     useCases: ['Content creation', 'Marketing'],
     badges: ['Featured', 'Best Quality'],
   },
@@ -69,34 +58,11 @@ export const models: AIModel[] = [
     latencyP50: 150,
     coldStart: 2500,
     fps: 30,
-    gatewayCount: 10,
     useCases: ['Creative projects', 'Artistic content'],
     badges: ['Featured', 'Realtime'],
   },
 ];
 
-export const gatewayOffers: Record<string, GatewayOffer[]> = {
-  'model-sd15': [
-    { gatewayId: 'gw-1', gatewayName: 'Gateway Alpha', price: 0.02, latency: 120, availability: 99.9 },
-    { gatewayId: 'gw-2', gatewayName: 'Gateway Beta', price: 0.03, latency: 100, availability: 99.5 },
-  ],
-  'model-sdxl': [
-    { gatewayId: 'gw-1', gatewayName: 'Gateway Alpha', price: 0.08, latency: 180, availability: 99.9 },
-    { gatewayId: 'gw-3', gatewayName: 'Gateway Gamma', price: 0.10, latency: 160, availability: 99.8 },
-  ],
-  'model-krea': [
-    { gatewayId: 'gw-1', gatewayName: 'Gateway Alpha', price: 0.15, latency: 150, availability: 99.9 },
-  ],
-};
-
 export function getModel(id: string): AIModel | undefined {
   return models.find(m => m.id === id);
-}
-
-export function getGatewayOffers(modelId: string): GatewayOffer[] {
-  return gatewayOffers[modelId] || [];
-}
-
-export function getGatewayOffer(modelId: string, gatewayId: string): GatewayOffer | undefined {
-  return getGatewayOffers(modelId).find(g => g.gatewayId === gatewayId);
 }

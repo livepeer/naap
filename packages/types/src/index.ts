@@ -227,23 +227,8 @@ export interface AIModel {
   latencyP50: number;
   coldStart: number;
   fps: number;
-  gatewayCount: number;
   useCases: string[];
   badges: string[];
-}
-
-export type SLATier = 'bronze' | 'silver' | 'gold';
-export type CapacityLevel = 'low' | 'medium' | 'high';
-
-export interface GatewayOffer {
-  gatewayId: string;
-  gatewayName: string;
-  slaTier: SLATier;
-  uptimeGuarantee: number;
-  latencyGuarantee: number;
-  unitPrice: number;
-  regions: string[];
-  capacity: CapacityLevel;
 }
 
 export type ApiKeyStatus = 'active' | 'revoked';
@@ -251,10 +236,7 @@ export type ApiKeyStatus = 'active' | 'revoked';
 export interface DeveloperApiKey {
   id: string;
   projectName: string;
-  modelId: string;
-  modelName: string;
-  gatewayId: string;
-  gatewayName: string;
+  providerDisplayName: string;
   keyHash: string;
   status: ApiKeyStatus;
   createdAt: string;

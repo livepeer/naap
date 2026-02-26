@@ -1,79 +1,115 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Key, Copy, Check, AlertTriangle, ChevronDown } from 'lucide-react';
-import { Badge } from '@naap/ui';
-import type { AIModel, GatewayOffer } from '@naap/types';
-import { mockModels, mockGatewayOffers } from '../../data/mockData';
+import { X, Key, Copy, Check, AlertTriangle } from 'lucide-react';
+import { getServiceOrigin } from '@naap/plugin-sdk';
 
 interface CreateKeyModalProps {
-  preselectedModel?: AIModel;
-  preselectedGateway?: GatewayOffer;
+  providerDisplayName: string;
   onClose: () => void;
-  onSuccess: (key: { projectName: string; modelId: string; gatewayId: string; rawKey: string }) => void;
+  onSuccess: (key: { projectName: string; providerDisplayName: string; rawKey: string }) => void;
 }
 
 export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
-  preselectedModel,
-  preselectedGateway,
+  providerDisplayName,
   onClose,
   onSuccess,
 }) => {
   const [step, setStep] = useState<'form' | 'success'>('form');
   const [projectName, setProjectName] = useState('');
-  const [selectedModel, setSelectedModel] = useState<AIModel | null>(preselectedModel || null);
-  const [selectedGateway, setSelectedGateway] = useState<GatewayOffer | null>(preselectedGateway || null);
   const [generatedKey, setGeneratedKey] = useState('');
   const [copied, setCopied] = useState(false);
-  const [showModelDropdown, setShowModelDropdown] = useState(false);
-  const [showGatewayDropdown, setShowGatewayDropdown] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
-  const availableGateways = selectedModel ? mockGatewayOffers[selectedModel.id] || [] : [];
+  const isValid = projectName.trim().length > 0;
 
-  // Reset gateway when model changes
+  // Handle escape key and prevent closure when submitting
   useEffect(() => {
-    if (selectedModel && !preselectedGateway) {
-      setSelectedGateway(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !submitting) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, submitting]);
+
+  // Handle backdrop click
+  const handleBackdropClick = () => {
+    if (!submitting) {
+      onClose();
     }
-  }, [selectedModel, preselectedGateway]);
+  };
 
-  const handleSubmit = () => {
-    if (!projectName || !selectedModel || !selectedGateway) return;
+  const handleSubmit = async () => {
+    if (!isValid) return;
 
-    // Generate a mock API key
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let key = 'lp_sk_';
-    for (let i = 0; i < 32; i++) {
-      key += chars.charAt(Math.floor(Math.random() * chars.length));
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      const response = await fetch(`${getServiceOrigin('developer-api')}/api/v1/developer/keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectName: projectName.trim(), providerDisplayName }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error || `Request failed: ${response.status}`);
+      }
+      const data = await response.json() as unknown;
+      const rawApiKey = data != null && typeof (data as Record<string, unknown>).rawApiKey === 'string'
+        ? (data as { rawApiKey: string }).rawApiKey
+        : '';
+      if (!rawApiKey) {
+        throw new Error('Server returned an invalid API key');
+      }
+      setGeneratedKey(rawApiKey);
+      setStep('success');
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to create API key');
+    } finally {
+      setSubmitting(false);
     }
-
-    setGeneratedKey(key);
-    setStep('success');
   };
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(generatedKey);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(generatedKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = generatedKey;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const success = document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (success) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    }
   };
 
   const handleDone = () => {
     onSuccess({
-      projectName,
-      modelId: selectedModel!.id,
-      gatewayId: selectedGateway!.gatewayId,
+      projectName: projectName.trim(),
+      providerDisplayName,
       rawKey: generatedKey,
     });
   };
 
-  const isValid = projectName.trim().length > 0 && selectedModel && selectedGateway;
-
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={handleBackdropClick}>
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-bg-secondary border border-white/10 rounded-2xl w-full max-w-lg overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-white/10">
@@ -86,7 +122,15 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
               <p className="text-sm text-text-secondary">Generate credentials for your project</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-lg transition-colors">
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className={`p-2 rounded-lg transition-colors ${
+              submitting
+                ? 'opacity-50 cursor-not-allowed'
+                : 'hover:bg-white/5'
+            }`}
+          >
             <X size={20} className="text-text-secondary" />
           </button>
         </div>
@@ -107,137 +151,34 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
               />
             </div>
 
-            {/* Model Selector */}
-            <div className="relative">
-              <label className="block text-sm font-medium text-text-primary mb-2">
-                Model <span className="text-accent-rose">*</span>
-              </label>
-              <button
-                onClick={() => setShowModelDropdown(!showModelDropdown)}
-                className="w-full flex items-center justify-between bg-bg-tertiary border border-white/10 rounded-xl py-3 px-4 text-sm hover:border-white/20 transition-all"
-              >
-                {selectedModel ? (
-                  <span className="text-text-primary">{selectedModel.name}</span>
-                ) : (
-                  <span className="text-text-secondary">Select a model...</span>
-                )}
-                <ChevronDown size={16} className="text-text-secondary" />
-              </button>
-              {showModelDropdown && (
-                <div className="absolute z-10 mt-2 w-full bg-bg-tertiary border border-white/10 rounded-xl overflow-hidden shadow-xl">
-                  <div className="max-h-48 overflow-y-auto custom-scrollbar">
-                    {mockModels.map((model) => (
-                      <button
-                        key={model.id}
-                        onClick={() => {
-                          setSelectedModel(model);
-                          setShowModelDropdown(false);
-                        }}
-                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors text-left"
-                      >
-                        <div>
-                          <p className="text-text-primary text-sm font-medium">{model.name}</p>
-                          <p className="text-text-secondary text-xs">{model.tagline}</p>
-                        </div>
-                        {model.featured && <Badge variant="emerald">Featured</Badge>}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Gateway Selector */}
-            <div className="relative">
-              <label className="block text-sm font-medium text-text-primary mb-2">
-                Gateway <span className="text-accent-rose">*</span>
-              </label>
-              <button
-                onClick={() => selectedModel && setShowGatewayDropdown(!showGatewayDropdown)}
-                disabled={!selectedModel}
-                className={`w-full flex items-center justify-between bg-bg-tertiary border border-white/10 rounded-xl py-3 px-4 text-sm transition-all ${
-                  selectedModel ? 'hover:border-white/20' : 'opacity-50 cursor-not-allowed'
-                }`}
-              >
-                {selectedGateway ? (
-                  <span className="text-text-primary">{selectedGateway.gatewayName}</span>
-                ) : (
-                  <span className="text-text-secondary">
-                    {selectedModel ? 'Select a gateway...' : 'Select a model first'}
-                  </span>
-                )}
-                <ChevronDown size={16} className="text-text-secondary" />
-              </button>
-              {showGatewayDropdown && (
-                <div className="absolute z-10 mt-2 w-full bg-bg-tertiary border border-white/10 rounded-xl overflow-hidden shadow-xl">
-                  <div className="max-h-48 overflow-y-auto custom-scrollbar">
-                    {availableGateways.map((gateway) => (
-                      <button
-                        key={gateway.gatewayId}
-                        onClick={() => {
-                          setSelectedGateway(gateway);
-                          setShowGatewayDropdown(false);
-                        }}
-                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors text-left"
-                      >
-                        <div>
-                          <p className="text-text-primary text-sm font-medium">{gateway.gatewayName}</p>
-                          <p className="text-text-secondary text-xs">
-                            {gateway.regions.join(', ')} • ${gateway.unitPrice.toFixed(3)}/min
-                          </p>
-                        </div>
-                        <Badge
-                          variant={
-                            gateway.slaTier === 'gold'
-                              ? 'emerald'
-                              : gateway.slaTier === 'silver'
-                              ? 'blue'
-                              : 'amber'
-                          }
-                        >
-                          {gateway.slaTier}
-                        </Badge>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Summary */}
             {isValid && (
               <div className="p-4 bg-bg-tertiary/50 rounded-xl">
                 <h4 className="text-sm font-medium text-text-primary mb-2">Summary</h4>
                 <div className="space-y-1 text-xs text-text-secondary">
                   <p>
-                    <span className="text-text-primary">{selectedModel?.name}</span> via{' '}
-                    <span className="text-text-primary">{selectedGateway?.gatewayName}</span>
-                  </p>
-                  <p>
-                    Unit price:{' '}
-                    <span className="font-mono text-accent-emerald">
-                      ${selectedGateway?.unitPrice.toFixed(3)}/min
-                    </span>
-                  </p>
-                  <p>
-                    SLA: {selectedGateway?.uptimeGuarantee}% uptime, {selectedGateway?.latencyGuarantee}ms
-                    latency
+                    Provider: <span className="text-text-primary">{providerDisplayName}</span>
                   </p>
                 </div>
               </div>
             )}
 
+            {/* Error */}
+            {submitError && (
+              <p className="text-xs text-accent-rose px-1">{submitError}</p>
+            )}
+
             {/* Submit */}
             <button
               onClick={handleSubmit}
-              disabled={!isValid}
+              disabled={!isValid || submitting}
               className={`w-full py-3 rounded-xl font-bold transition-all ${
-                isValid
+                isValid && !submitting
                   ? 'bg-accent-emerald text-white hover:bg-accent-emerald/90'
                   : 'bg-bg-tertiary text-text-secondary cursor-not-allowed'
               }`}
             >
-              Create API Key
+              {submitting ? 'Creating…' : 'Create API Key'}
             </button>
           </div>
         ) : (
@@ -279,10 +220,7 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
                 Project: <span className="text-text-primary">{projectName}</span>
               </p>
               <p className="text-text-secondary mt-1">
-                Model: <span className="text-text-primary">{selectedModel?.name}</span>
-              </p>
-              <p className="text-text-secondary mt-1">
-                Gateway: <span className="text-text-primary">{selectedGateway?.gatewayName}</span>
+                Provider: <span className="text-text-primary">{providerDisplayName}</span>
               </p>
             </div>
 

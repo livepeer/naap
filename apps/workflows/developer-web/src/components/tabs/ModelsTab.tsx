@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { AnimatePresence } from 'framer-motion';
-import { Search, Filter, Star, Zap, DollarSign, Video, Image, Film, Box } from 'lucide-react';
-import type { AIModel, GatewayOffer } from '@naap/types';
-import { mockModels, mockGatewayOffers } from '../../data/mockData';
+import { Search, Filter, Star, Zap, DollarSign, Video, Image, Film, Box, X, Copy, Check } from 'lucide-react';
+import type { AIModel } from '@naap/types';
+import { mockModels } from '../../data/mockData';
 import { ModelCard } from '../models/ModelCard';
 import { ModelDetailPanel } from '../models/ModelDetailPanel';
 import { CompareDrawer } from '../models/CompareDrawer';
@@ -31,10 +31,13 @@ export const ModelsTab: React.FC = () => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [selectedModel, setSelectedModel] = useState<AIModel | null>(null);
   const [compareModels, setCompareModels] = useState<string[]>([]);
-  const [createKeyModal, setCreateKeyModal] = useState<{
-    model: AIModel;
-    gateway: GatewayOffer;
+  const [showCreateKeyModal, setShowCreateKeyModal] = useState(false);
+  const [createdKeyInfo, setCreatedKeyInfo] = useState<{
+    projectName: string;
+    providerDisplayName: string;
+    rawKey: string;
   } | null>(null);
+  const [createdKeyCopied, setCreatedKeyCopied] = useState(false);
 
   const filteredModels = useMemo(() => {
     let result = [...mockModels];
@@ -87,8 +90,8 @@ export const ModelsTab: React.FC = () => {
     });
   };
 
-  const handleCreateKey = (model: AIModel, gateway: GatewayOffer) => {
-    setCreateKeyModal({ model, gateway });
+  const handleCreateKey = () => {
+    setShowCreateKeyModal(true);
   };
 
   return (
@@ -153,7 +156,6 @@ export const ModelsTab: React.FC = () => {
             <ModelDetailPanel
               key={selectedModel.id}
               model={selectedModel}
-              gatewayOffers={mockGatewayOffers[selectedModel.id] || []}
               onClose={() => setSelectedModel(null)}
               onCreateKey={handleCreateKey}
             />
@@ -162,7 +164,7 @@ export const ModelsTab: React.FC = () => {
               <Box size={48} className="text-text-secondary opacity-30 mb-4" />
               <h3 className="text-lg font-bold text-text-primary mb-2">Select a Model</h3>
               <p className="text-text-secondary text-sm max-w-sm">
-                Choose a model from the list to view details, compare performance metrics, and select a gateway.
+                Choose a model from the list to view details, compare performance metrics, and create an API key.
               </p>
             </div>
           )}
@@ -181,15 +183,69 @@ export const ModelsTab: React.FC = () => {
         )}
       </AnimatePresence>
 
+      {/* Created Key Banner */}
+      {createdKeyInfo && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg bg-bg-secondary border border-accent-emerald/30 rounded-2xl shadow-2xl p-4">
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <p className="text-sm font-semibold text-accent-emerald">API Key Created</p>
+            <button
+              onClick={() => setCreatedKeyInfo(null)}
+              className="p-1 hover:bg-white/5 rounded-lg transition-colors shrink-0"
+            >
+              <X size={14} className="text-text-secondary" />
+            </button>
+          </div>
+          <p className="text-xs text-text-secondary mb-2">
+            Project: <span className="text-text-primary">{createdKeyInfo.projectName}</span>
+            {' · '}Provider: <span className="text-text-primary">{createdKeyInfo.providerDisplayName}</span>
+          </p>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 bg-bg-tertiary border border-white/10 rounded-xl py-2 px-3 font-mono text-xs text-text-primary overflow-x-auto">
+              {createdKeyInfo.rawKey}
+            </div>
+            <button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(createdKeyInfo.rawKey);
+                  setCreatedKeyCopied(true);
+                  setTimeout(() => setCreatedKeyCopied(false), 2000);
+                } catch {
+                  // Fallback for older browsers
+                  const ta = document.createElement('textarea');
+                  ta.value = createdKeyInfo.rawKey;
+                  ta.style.position = 'fixed';
+                  ta.style.opacity = '0';
+                  document.body.appendChild(ta);
+                  ta.select();
+                  const success = document.execCommand('copy');
+                  document.body.removeChild(ta);
+                  if (success) {
+                    setCreatedKeyCopied(true);
+                    setTimeout(() => setCreatedKeyCopied(false), 2000);
+                  }
+                }
+              }}
+              className={`shrink-0 p-2 rounded-xl transition-all ${
+                createdKeyCopied
+                  ? 'bg-accent-emerald text-white'
+                  : 'bg-bg-tertiary text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              {createdKeyCopied ? <Check size={16} /> : <Copy size={16} />}
+            </button>
+          </div>
+          <p className="text-xs text-accent-amber mt-2">Save this key — it won't be shown again.</p>
+        </div>
+      )}
+
       {/* Create Key Modal */}
-      {createKeyModal && (
+      {showCreateKeyModal && (
         <CreateKeyModal
-          preselectedModel={createKeyModal.model}
-          preselectedGateway={createKeyModal.gateway}
-          onClose={() => setCreateKeyModal(null)}
-          onSuccess={() => {
-            setCreateKeyModal(null);
-            // Could navigate to API Keys tab
+          providerDisplayName="Daydream"
+          onClose={() => setShowCreateKeyModal(false)}
+          onSuccess={(data) => {
+            setCreatedKeyInfo(data);
+            setShowCreateKeyModal(false);
           }}
         />
       )}

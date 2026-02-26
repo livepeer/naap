@@ -30,9 +30,6 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
 
     const model = await prisma.devApiAIModel.findUnique({
       where: { id },
-      include: {
-        _count: { select: { gatewayOffers: true } },
-      },
     });
 
     if (!model) {

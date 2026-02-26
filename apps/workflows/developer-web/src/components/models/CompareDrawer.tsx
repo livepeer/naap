@@ -76,7 +76,6 @@ export const CompareDrawer: React.FC<CompareDrawerProps> = ({
                     <th className="pb-3 px-4">P50 Latency</th>
                     <th className="pb-3 px-4">Cold Start</th>
                     <th className="pb-3 px-4">FPS</th>
-                    <th className="pb-3 px-4">Gateways</th>
                     <th className="pb-3 pl-4 w-20"></th>
                   </tr>
                 </thead>
@@ -113,9 +112,6 @@ export const CompareDrawer: React.FC<CompareDrawerProps> = ({
                       </td>
                       <td className="py-3 px-4">
                         <span className="font-mono text-text-primary">{model.fps}</span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-mono text-text-primary">{model.gatewayCount}</span>
                       </td>
                       <td className="py-3 pl-4">
                         <button

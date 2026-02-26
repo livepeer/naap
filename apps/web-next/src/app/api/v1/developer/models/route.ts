@@ -42,9 +42,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const rows = await prisma.devApiAIModel.findMany({
       where,
       orderBy: [{ featured: 'desc' }, { name: 'asc' }],
-      include: {
-        _count: { select: { gatewayOffers: true } },
-      },
     });
 
     const models = rows.map(serialiseModel);
