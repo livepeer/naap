@@ -50,37 +50,50 @@ module.exports = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
-        
-        // NAAP Brand Colors (direct values for convenience)
-        'bg-primary': 'hsl(var(--bg-primary))',
-        'bg-secondary': 'hsl(var(--bg-secondary))',
-        'bg-tertiary': 'hsl(var(--bg-tertiary))',
-        'text-primary': 'hsl(var(--text-primary))',
-        'text-secondary': 'hsl(var(--text-secondary))',
-        
-        // Brand Accent Colors
-        'accent-emerald': 'hsl(var(--accent-emerald))',
-        'accent-blue': 'hsl(var(--accent-blue))',
-        'accent-amber': 'hsl(var(--accent-amber))',
-        'accent-rose': 'hsl(var(--accent-rose))',
-        
-        // Status Colors
+
+        // Brand surface colors (CSS variable based)
+        'surface-primary': 'var(--bg-primary)',
+        'surface-secondary': 'var(--bg-secondary)',
+        'surface-tertiary': 'var(--bg-tertiary)',
+
+        // Brand text colors (CSS variable based)
+        'content-primary': 'var(--text-primary)',
+        'content-secondary': 'var(--text-secondary)',
+        'content-body': 'var(--text-body)',
+        'content-supporting': 'var(--text-supporting)',
+        'content-muted': 'var(--text-muted)',
+        'content-disabled': 'var(--text-disabled)',
+
+        // Brand accent colors
+        'accent-green': 'var(--accent-green)',
+        'accent-blue': 'var(--accent-blue)',
+        'accent-amber': 'var(--accent-amber)',
+        'accent-rose': 'var(--accent-rose)',
+        'accent-purple': 'var(--accent-purple)',
+
+        // Legacy aliases (for existing component compat)
+        'accent-emerald': 'var(--accent-emerald)',
+        'bg-primary': 'var(--bg-primary)',
+        'bg-secondary': 'var(--bg-secondary)',
+        'bg-tertiary': 'var(--bg-tertiary)',
+        'text-primary': 'var(--text-primary)',
+        'text-secondary': 'var(--text-secondary)',
+
+        // Status colors
         success: 'hsl(var(--success))',
         warning: 'hsl(var(--warning))',
         error: 'hsl(var(--error))',
         info: 'hsl(var(--info))',
-        
+
         // Direct color values (for cases where CSS vars aren't available)
         naap: {
-          'bg-primary': '#0a0f1a',
-          'bg-secondary': '#111827',
-          'bg-tertiary': '#1f2937',
-          'emerald': '#10b981',
+          'bg-primary': '#181818',
+          'bg-secondary': '#1E1E1E',
+          'bg-tertiary': '#242424',
+          'green': '#18794E',
           'blue': '#3b82f6',
           'amber': '#f59e0b',
           'rose': '#f43f5e',
-          'text-primary': '#f9fafb',
-          'text-secondary': '#9ca3af',
         },
       },
       borderRadius: {
@@ -89,10 +102,18 @@ module.exports = {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
-        // Brand fonts
-        sans: ['Outfit', 'system-ui', 'sans-serif'],
-        outfit: ['Outfit', 'system-ui', 'sans-serif'],
+        sans: ['Inter', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+      },
+      transitionDuration: {
+        instant: '100ms',
+        fast: '150ms',
+        normal: '200ms',
+        slow: '300ms',
+      },
+      transitionTimingFunction: {
+        'ease-smooth': 'cubic-bezier(0.4, 0, 0.2, 1)',
+        'ease-out-smooth': 'cubic-bezier(0, 0, 0.2, 1)',
       },
       keyframes: {
         'accordion-down': {
