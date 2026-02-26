@@ -4,13 +4,13 @@ import { X, Key, Copy, Check, AlertTriangle } from 'lucide-react';
 import { getServiceOrigin } from '@naap/plugin-sdk';
 
 interface CreateKeyModalProps {
-  providerDisplayName?: string;
+  providerDisplayName: string;
   onClose: () => void;
   onSuccess: (key: { projectName: string; providerDisplayName: string; rawKey: string }) => void;
 }
 
 export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
-  providerDisplayName = 'Daydream',
+  providerDisplayName,
   onClose,
   onSuccess,
 }) => {
@@ -66,10 +66,12 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
       ta.style.opacity = '0';
       document.body.appendChild(ta);
       ta.select();
-      document.execCommand('copy');
+      const success = document.execCommand('copy');
       document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (success) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
     }
   };
 

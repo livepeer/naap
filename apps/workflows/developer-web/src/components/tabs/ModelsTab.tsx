@@ -236,6 +236,7 @@ export const ModelsTab: React.FC = () => {
       {/* Create Key Modal */}
       {showCreateKeyModal && (
         <CreateKeyModal
+          providerDisplayName="Daydream"
           onClose={() => setShowCreateKeyModal(false)}
           onSuccess={(data) => {
             setCreatedKeyInfo(data);
