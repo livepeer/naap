@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, Key, Copy, Check, AlertTriangle } from 'lucide-react';
 import { getServiceOrigin } from '@naap/plugin-sdk';
@@ -22,6 +22,25 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
   const [submitError, setSubmitError] = useState('');
 
   const isValid = projectName.trim().length > 0;
+
+  // Handle escape key and prevent closure when submitting
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !submitting) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, submitting]);
+
+  // Handle backdrop click
+  const handleBackdropClick = () => {
+    if (!submitting) {
+      onClose();
+    }
+  };
 
   const handleSubmit = async () => {
     if (!isValid) return;
@@ -84,12 +103,13 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={handleBackdropClick}>
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-bg-secondary border border-white/10 rounded-2xl w-full max-w-lg overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-white/10">
@@ -102,7 +122,15 @@ export const CreateKeyModal: React.FC<CreateKeyModalProps> = ({
               <p className="text-sm text-text-secondary">Generate credentials for your project</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-lg transition-colors">
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className={`p-2 rounded-lg transition-colors ${
+              submitting
+                ? 'opacity-50 cursor-not-allowed'
+                : 'hover:bg-white/5'
+            }`}
+          >
             <X size={20} className="text-text-secondary" />
           </button>
         </div>
