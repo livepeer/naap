@@ -164,11 +164,12 @@ function step(n: number, msg: string) {
 
 async function storeUpstreamSecret(
   scopeId: string,
+  connectorSlug: string,
   name: string,
   value: string,
   authToken: string
 ): Promise<boolean> {
-  const key = `gw:${scopeId}:${name}`;
+  const key = `gw:${scopeId}:${connectorSlug}:${name}`;
   try {
     const res = await fetch(`${BASE_SVC_URL}/api/secrets`, {
       method: 'POST',
@@ -341,7 +342,7 @@ async function main() {
     const envValue = process.env[def.envKey];
     if (envValue) {
       for (const ref of def.secretRefs) {
-        const ok = await storeUpstreamSecret(scopeId, ref, envValue, token);
+        const ok = await storeUpstreamSecret(scopeId, def.slug, ref, envValue, token);
         console.log(`  Secret "${ref}": ${ok ? 'stored' : 'FAILED to store'}`);
       }
     } else {

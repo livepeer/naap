@@ -214,7 +214,7 @@ async function handleRequest(
   if (config.connector.visibility === 'public' && config.connector.ownerUserId) {
     secretScopeId = `personal:${config.connector.ownerUserId}`;
   }
-  const secrets = await resolveSecrets(secretScopeId, config.connector.secretRefs, token);
+  const secrets = await resolveSecrets(secretScopeId, config.connector.secretRefs, token, config.connector.slug);
 
   // ── 12. Transform Request ──
   const upstream = buildUpstreamRequest(request, config, secrets, consumerBody, consumerPath, consumerBodyRaw);

@@ -28,7 +28,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
     connector.secretRefs,
     connector.allowedHosts,
     ctx.teamId,
-    ctx.token
+    ctx.token,
+    connector.slug
   );
 
   return success(result);

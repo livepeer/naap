@@ -17,11 +17,14 @@ const SECRET_CACHE_TTL_MS = 300_000; // 5 minutes
  * Resolve all secrets referenced by a connector.
  *
  * Reads directly from SecretVault via Prisma and decrypts using AES-256-GCM.
+ * Secret keys are namespaced per connector slug to prevent collisions when
+ * multiple connectors in the same scope share the same secretRef name.
  */
 export async function resolveSecrets(
   teamId: string,
   secretRefs: string[],
-  _authToken: string | null
+  _authToken: string | null,
+  connectorSlug: string,
 ): Promise<ResolvedSecrets> {
   if (secretRefs.length === 0) return {};
 
@@ -29,7 +32,7 @@ export async function resolveSecrets(
 
   await Promise.all(
     secretRefs.map(async (ref) => {
-      const key = `gw:${teamId}:${ref}`;
+      const key = `gw:${teamId}:${connectorSlug}:${ref}`;
 
       const cached = SECRET_CACHE.get(key);
       if (cached && cached.expiresAt > Date.now()) {
@@ -67,9 +70,10 @@ export async function storeSecret(
   teamId: string,
   name: string,
   value: string,
-  _authToken: string
+  _authToken: string,
+  connectorSlug: string,
 ): Promise<boolean> {
-  const key = `gw:${teamId}:${name}`;
+  const key = `gw:${teamId}:${connectorSlug}:${name}`;
 
   try {
     const { encryptedValue, iv } = encrypt(value);
@@ -98,9 +102,10 @@ export async function storeSecret(
 export async function deleteSecret(
   teamId: string,
   name: string,
-  _authToken: string
+  _authToken: string,
+  connectorSlug: string,
 ): Promise<boolean> {
-  const key = `gw:${teamId}:${name}`;
+  const key = `gw:${teamId}:${connectorSlug}:${name}`;
 
   try {
     await prisma.secretVault.delete({ where: { key } });

@@ -10,7 +10,7 @@
 
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
-import { success, errors } from '@/lib/api/response';
+import { success } from '@/lib/api/response';
 import { testUpstreamConnectivity } from '@/lib/gateway/admin/test-connectivity';
 
 export async function POST(request: NextRequest) {
@@ -55,7 +55,8 @@ export async function POST(request: NextRequest) {
         connector.secretRefs,
         connector.allowedHosts,
         scopeId,
-        ''
+        '',
+        connector.slug
       );
 
       // Determine status

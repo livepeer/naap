@@ -20,8 +20,8 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 const SECRET_KEY_PREFIX = 'gw';
 
-function secretKey(scopeId: string, name: string): string {
-  return `${SECRET_KEY_PREFIX}:${scopeId}:${name}`;
+function secretKey(scopeId: string, connectorSlug: string, name: string): string {
+  return `${SECRET_KEY_PREFIX}:${scopeId}:${connectorSlug}:${name}`;
 }
 
 export async function GET(request: NextRequest, context: RouteContext) {
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const secretRefs: string[] = connector.secretRefs || [];
   const statuses = await Promise.all(
     secretRefs.map(async (name) => {
-      const key = secretKey(ctx.teamId, name);
+      const key = secretKey(ctx.teamId, connector.slug, name);
       const record = await prisma.secretVault.findUnique({
         where: { key },
         select: { updatedAt: true },
@@ -91,7 +91,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
   await Promise.all(
     Object.entries(body).map(async ([name, value]) => {
-      const key = secretKey(ctx.teamId, name);
+      const key = secretKey(ctx.teamId, connector.slug, name);
       const { encryptedValue, iv } = encrypt(value);
       await prisma.secretVault.upsert({
         where: { key },
@@ -109,7 +109,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
   const statuses = await Promise.all(
     secretRefs.map(async (name) => {
-      const key = secretKey(ctx.teamId, name);
+      const key = secretKey(ctx.teamId, connector.slug, name);
       const record = await prisma.secretVault.findUnique({
         where: { key },
         select: { updatedAt: true },
