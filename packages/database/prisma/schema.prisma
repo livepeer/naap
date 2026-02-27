@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api"]
+  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api", "plugin_service_gateway"]
 }
 
 // ============================================
@@ -1610,4 +1610,202 @@ model PluginAlert {
   @@index([enabled])
   @@index([severity])
   @@schema("public")
+}
+
+// ============================================
+// PLUGIN: SERVICE GATEWAY
+// ============================================
+// Zero-code serverless API gateway for exposing third-party
+// REST APIs as managed, team-scoped endpoints.
+
+/// Upstream service definition — one per third-party API connection.
+/// Team-scoped: every connector belongs to exactly one team.
+model ServiceConnector {
+  id                String   @id @default(uuid())
+  teamId            String
+  slug              String                          // URL-safe identifier, unique per team
+  displayName       String
+  description       String?
+  status            String   @default("draft")      // draft | published | archived
+  version           Int      @default(1)
+
+  // ── Upstream Config ──
+  upstreamBaseUrl   String
+  allowedHosts      String[]                        // SSRF protection allowlist
+  defaultTimeout    Int      @default(30000)         // ms
+  healthCheckPath   String?
+
+  // ── Auth Config ──
+  authType          String   @default("none")       // none | bearer | header | basic | query
+  authConfig        Json     @default("{}")          // auth-type-specific config (no secrets here)
+  secretRefs        String[]                         // references to SecretVault keys
+
+  // ── Response Config ──
+  responseWrapper   Boolean  @default(true)          // wrap in NaaP envelope
+  streamingEnabled  Boolean  @default(false)         // SSE passthrough
+  errorMapping      Json     @default("{}")          // status code → message mapping
+
+  // ── Meta ──
+  tags              String[]
+  createdBy         String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  publishedAt       DateTime?
+
+  // ── Relations ──
+  endpoints         ConnectorEndpoint[]
+  apiKeys           GatewayApiKey[]
+  healthChecks      GatewayHealthCheck[]
+
+  @@unique([teamId, slug])
+  @@index([teamId])
+  @@index([teamId, status])
+  @@schema("plugin_service_gateway")
+}
+
+/// Individual route within a connector — maps a consumer-facing
+/// endpoint to an upstream path with optional transforms and policies.
+model ConnectorEndpoint {
+  id                  String   @id @default(uuid())
+  connectorId         String
+  connector           ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  name                String
+  description         String?
+  method              String                          // GET | POST | PUT | PATCH | DELETE
+  path                String                          // consumer path, e.g. /query
+  enabled             Boolean  @default(true)
+
+  // ── Upstream Mapping ──
+  upstreamMethod      String?                         // override method if different
+  upstreamPath        String                          // upstream path, e.g. /
+  upstreamContentType String   @default("application/json")
+  upstreamQueryParams Json     @default("{}")
+  upstreamStaticBody  String?                         // static body for GET-as-POST patterns
+  bodyTransform       String   @default("passthrough") // passthrough | extract:field | static | template
+  headerMapping       Json     @default("{}")
+
+  // ── Policy ──
+  rateLimit           Int?                            // req/min override (null = use plan)
+  timeout             Int?                            // ms override (null = use connector default)
+  maxRequestSize      Int?                            // bytes
+  maxResponseSize     Int?                            // bytes
+  cacheTtl            Int?                            // seconds (null = no cache)
+  retries             Int      @default(0)
+
+  // ── Validation ──
+  bodyPattern         String?                         // regex the body must match
+  bodyBlacklist       String[]                        // keywords that must not appear in body
+  bodySchema          Json?                           // JSON Schema for body validation
+  requiredHeaders     String[]
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([connectorId, method, path])
+  @@index([connectorId])
+  @@schema("plugin_service_gateway")
+}
+
+/// Consumer API key — used by external apps and services to authenticate
+/// against the gateway. Key material is never stored; only SHA-256 hash.
+model GatewayApiKey {
+  id               String    @id @default(uuid())
+  teamId           String
+  connectorId      String?                           // null = access all team connectors
+  connector        ServiceConnector? @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+  planId           String?
+  plan             GatewayPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  name             String
+  keyHash          String    @unique                 // SHA-256 of the raw key
+  keyPrefix        String                            // first 8 chars for display: gw_abc12345...
+  status           String    @default("active")      // active | revoked | expired
+
+  allowedEndpoints String[]                          // empty = all endpoints
+  allowedIPs       String[]                          // empty = all IPs
+  expiresAt        DateTime?
+  lastUsedAt       DateTime?
+
+  createdBy        String
+  createdAt        DateTime  @default(now())
+  revokedAt        DateTime?
+
+  @@index([teamId])
+  @@index([keyHash])
+  @@index([teamId, status])
+  @@schema("plugin_service_gateway")
+}
+
+/// Rate limit and quota tier — assigned to API keys to control
+/// throughput and usage limits per team.
+model GatewayPlan {
+  id              String   @id @default(uuid())
+  teamId          String
+  name            String
+  displayName     String
+
+  rateLimit       Int      @default(100)             // requests per minute
+  dailyQuota      Int?                               // null = unlimited
+  monthlyQuota    Int?                               // null = unlimited
+  maxRequestSize  Int      @default(1048576)          // 1 MB
+  maxResponseSize Int      @default(4194304)          // 4 MB
+  burstLimit      Int?
+
+  allowedConnectors String[]                         // empty = all team connectors
+
+  apiKeys         GatewayApiKey[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([teamId, name])
+  @@index([teamId])
+  @@schema("plugin_service_gateway")
+}
+
+/// Per-request usage log — written asynchronously via waitUntil()
+/// after every gateway request. Used for analytics and billing.
+model GatewayUsageRecord {
+  id                String   @id @default(uuid())
+  teamId            String
+  connectorId       String
+  endpointName      String
+  apiKeyId          String?                          // null if JWT auth
+  callerType        String                           // jwt | apiKey
+  callerId          String
+
+  method            String
+  path              String
+  statusCode        Int
+  latencyMs         Int
+  upstreamLatencyMs Int
+  requestBytes      Int      @default(0)
+  responseBytes     Int      @default(0)
+  cached            Boolean  @default(false)
+  error             String?
+  region            String?
+
+  timestamp         DateTime @default(now())
+
+  @@index([teamId, timestamp])
+  @@index([connectorId, timestamp])
+  @@index([apiKeyId, timestamp])
+  @@schema("plugin_service_gateway")
+}
+
+/// Upstream health status — recorded periodically by cron job
+/// and on-demand via test-connectivity.
+model GatewayHealthCheck {
+  id            String   @id @default(uuid())
+  connectorId   String
+  connector     ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  status        String                               // up | down | degraded
+  latencyMs     Int
+  statusCode    Int?
+  error         String?
+  checkedAt     DateTime @default(now())
+
+  @@index([connectorId, checkedAt])
+  @@schema("plugin_service_gateway")
 }
