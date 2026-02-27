@@ -42,8 +42,8 @@ function csrfProtection(req: Request, res: Response, next: NextFunction) {
     return next();
   }
 
-  // Skip CSRF for OAuth callbacks, webhooks, and review endpoints (they have their own auth)
-  if (req.path.includes('/callback/') || req.path.includes('/webhook') || req.path.includes('/reviews')) {
+  // Skip CSRF for OAuth callbacks, webhooks, review, and example-publish endpoints (they have their own auth)
+  if (req.path.includes('/callback/') || req.path.includes('/webhook') || req.path.includes('/reviews') || req.path.includes('/examples/')) {
     return next();
   }
 

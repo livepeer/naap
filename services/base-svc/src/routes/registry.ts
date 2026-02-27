@@ -623,6 +623,42 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
         throw createErr;
       }
 
+      // Auto-install for the publisher: ensure a deployment + TenantPluginInstall
+      // exist so the plugin is immediately visible in their sidebar and settings.
+      try {
+        let deployment = await db.pluginDeployment.findUnique({ where: { packageId: pkg.id } });
+        if (!deployment) {
+          deployment = await db.pluginDeployment.create({
+            data: {
+              packageId: pkg.id, versionId: version.id, status: 'running',
+              frontendUrl: frontendUrl || '', deployedAt: new Date(),
+              healthStatus: 'healthy', activeInstalls: 0,
+            },
+          });
+        }
+
+        const existingInstall = await db.tenantPluginInstall.findFirst({
+          where: { userId, deploymentId: deployment.id, status: { not: 'uninstalled' } },
+        });
+        if (!existingInstall) {
+          await db.tenantPluginInstall.create({
+            data: { userId, deploymentId: deployment.id, status: 'active', enabled: true },
+          });
+          await db.pluginDeployment.update({
+            where: { id: deployment.id },
+            data: { activeInstalls: { increment: 1 } },
+          });
+        }
+
+        await db.userPluginPreference.upsert({
+          where: { userId_pluginName: { userId, pluginName: manifest.name } },
+          update: { enabled: true },
+          create: { userId, pluginName: manifest.name, enabled: true, order: 0, pinned: false },
+        });
+      } catch (installErr) {
+        console.warn('Auto-install after publish failed (non-fatal):', installErr);
+      }
+
       await lifecycleService.audit({
         action: 'plugin.publish', resource: 'plugin', resourceId: manifest.name, userId,
         details: { version: manifest.version, frontendUrl, backendImage, publisherId: publisher.id },
@@ -639,7 +675,7 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
   // Example Plugin Publishing (feature-flagged)
   // ==========================================================================
 
-  const MONOREPO_ROOT = process.cwd();
+  const MONOREPO_ROOT = path.resolve(process.cwd(), process.env.MONOREPO_ROOT || '../..');
   const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || '/cdn/plugins';
 
   async function isExamplePublishingEnabled(): Promise<boolean> {
@@ -656,13 +692,16 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
 
       const examples = discoverFromDir(MONOREPO_ROOT, 'examples');
 
-      const existingNames = examples.length > 0
+      const publishedPkgs = examples.length > 0
         ? await db.pluginPackage.findMany({
-            where: { name: { in: examples.map((e: DiscoveredPlugin) => e.name) } },
+            where: {
+              name: { in: examples.map((e: DiscoveredPlugin) => e.name) },
+              publishStatus: 'published',
+            },
             select: { name: true },
           })
         : [];
-      const publishedSet = new Set(existingNames.map((p: { name: string }) => p.name));
+      const publishedSet = new Set(publishedPkgs.map((p: { name: string }) => p.name));
 
       const result = examples.map((e: DiscoveredPlugin) => ({
         name: e.name,
@@ -717,7 +756,7 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
         });
       }
 
-      // Atomic publish: package + version + workflow + deployment in a transaction
+      // Atomic publish: package + version + workflow + deployment + install in a transaction
       const result = await db.$transaction(async (tx: any) => {
         const pkgData = toPluginPackageData(example, PLUGIN_CDN_URL);
         const pkg = await tx.pluginPackage.upsert({
@@ -734,13 +773,21 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
         });
 
         const workflowData = toWorkflowPluginData(example, PLUGIN_CDN_URL, MONOREPO_ROOT);
+        const existingWP = await tx.workflowPlugin.findUnique({
+          where: { name: example.name },
+          select: { metadata: true },
+        });
+        const mergedMetadata = {
+          ...((existingWP?.metadata as Record<string, unknown>) || {}),
+          originalRoutes: example.originalRoutes,
+        };
         await tx.workflowPlugin.upsert({
           where: { name: example.name },
-          update: workflowData,
-          create: workflowData,
+          update: { ...workflowData, metadata: mergedMetadata },
+          create: { ...workflowData, metadata: mergedMetadata },
         });
 
-        await tx.pluginDeployment.upsert({
+        const deployment = await tx.pluginDeployment.upsert({
           where: { packageId: pkg.id },
           update: {
             versionId: version.id,
@@ -758,6 +805,32 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
             healthStatus: 'healthy',
             activeInstalls: 0,
           },
+        });
+
+        // Auto-install for the publishing user so the plugin appears in their
+        // sidebar, settings, and marketplace as "Installed".
+        const existingInstall = await tx.tenantPluginInstall.findFirst({
+          where: { userId, deploymentId: deployment.id, status: { not: 'uninstalled' } },
+        });
+        if (!existingInstall) {
+          await tx.tenantPluginInstall.create({
+            data: {
+              userId,
+              deploymentId: deployment.id,
+              status: 'active',
+              enabled: true,
+            },
+          });
+          await tx.pluginDeployment.update({
+            where: { id: deployment.id },
+            data: { activeInstalls: { increment: 1 } },
+          });
+        }
+
+        await tx.userPluginPreference.upsert({
+          where: { userId_pluginName: { userId, pluginName: example.name } },
+          update: { enabled: true },
+          create: { userId, pluginName: example.name, enabled: true, order: 0, pinned: false },
         });
 
         return { package: pkg, version };

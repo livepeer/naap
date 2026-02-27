@@ -48,7 +48,7 @@ describe('Plugin Lifecycle Integration', () => {
       description: 'A simple UI widget',
       frontend: {
         entry: './frontend/dist/production/ui-widget.js',
-        routes: ['/widget'],
+        routes: ['/plugins/ui-widget', '/plugins/ui-widget/*'],
       },
     };
 
@@ -96,7 +96,7 @@ describe('Plugin Lifecycle Integration', () => {
       description: 'Manages application data',
       frontend: {
         entry: './frontend/dist/production/data-manager.js',
-        routes: ['/data-manager'],
+        routes: ['/plugins/data-manager', '/plugins/data-manager/*'],
       },
       backend: {
         entry: './backend/src/server.ts',
@@ -161,7 +161,7 @@ describe('Plugin Lifecycle Integration', () => {
       const result = validatePublishManifest({
         name: 'Invalid_Name',
         version: '1.0.0',
-        frontend: { entry: './frontend/dist/production/test.js', routes: ['/test'] },
+        frontend: { entry: './frontend/dist/production/test.js', routes: ['/plugins/test'] },
       });
 
       expect(result.valid).toBe(false);
@@ -172,7 +172,7 @@ describe('Plugin Lifecycle Integration', () => {
       const result = validatePublishManifest({
         name: 'test-plugin',
         version: 'not-semver',
-        frontend: { entry: './frontend/dist/production/test.js', routes: ['/test'] },
+        frontend: { entry: './frontend/dist/production/test.js', routes: ['/plugins/test'] },
       });
 
       expect(result.valid).toBe(false);

@@ -1,7 +1,7 @@
 /**
  * Publish Verification Service Tests
  * 
- * Tests for URL accessibility and Docker image verification.
+ * Tests for URL accessibility, Docker image verification, and route validation.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -133,7 +133,7 @@ describe('validatePublishManifest', () => {
       description: 'A test plugin',
       frontend: {
         entry: './frontend/dist/production/my-plugin.js',
-        routes: ['/my-plugin'],
+        routes: ['/plugins/my-plugin', '/plugins/my-plugin/*'],
       },
     };
 
@@ -146,7 +146,7 @@ describe('validatePublishManifest', () => {
   it('should fail for missing name', () => {
     const manifest = {
       version: '1.0.0',
-      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/plugin'] },
     };
 
     // @ts-ignore - testing invalid input
@@ -160,7 +160,7 @@ describe('validatePublishManifest', () => {
     const manifest = {
       name: 'MyPlugin', // Should be kebab-case
       version: '1.0.0',
-      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/plugin'] },
     };
 
     const result = validatePublishManifest(manifest);
@@ -172,7 +172,7 @@ describe('validatePublishManifest', () => {
   it('should fail for missing version', () => {
     const manifest = {
       name: 'my-plugin',
-      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/plugin'] },
     };
 
     // @ts-ignore - testing invalid input
@@ -186,7 +186,7 @@ describe('validatePublishManifest', () => {
     const manifest = {
       name: 'my-plugin',
       version: 'v1', // Should be semver
-      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/plugin'] },
     };
 
     const result = validatePublishManifest(manifest);
@@ -211,12 +211,77 @@ describe('validatePublishManifest', () => {
     const manifest = {
       name: 'my-plugin',
       version: '1.0.0',
-      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/plugin'] },
     };
 
     const result = validatePublishManifest(manifest);
 
     expect(result.warnings.some(w => w.code === 'MISSING_DESCRIPTION')).toBe(true);
+  });
+
+  describe('route validation', () => {
+    const validManifest = (routes: string[]) => ({
+      name: 'my-plugin',
+      version: '1.0.0',
+      displayName: 'My Plugin',
+      description: 'Test',
+      frontend: {
+        entry: './frontend/dist/production/my-plugin.js',
+        routes,
+      },
+    });
+
+    it('should accept routes under /plugins/{name}', () => {
+      const result = validatePublishManifest(
+        validManifest(['/plugins/my-plugin', '/plugins/my-plugin/*'])
+      );
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should reject top-level routes with ROUTE_NAMESPACE_VIOLATION', () => {
+      const result = validatePublishManifest(
+        validManifest(['/wallet', '/wallet/*'])
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.code === 'ROUTE_NAMESPACE_VIOLATION')).toBe(true);
+    });
+
+    it('should reject reserved paths with ROUTE_RESERVED_PATH', () => {
+      const result = validatePublishManifest(
+        validManifest(['/settings'])
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.code === 'ROUTE_RESERVED_PATH')).toBe(true);
+    });
+
+    it('should reject /admin as reserved', () => {
+      const result = validatePublishManifest(
+        validManifest(['/admin'])
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.code === 'ROUTE_RESERVED_PATH')).toBe(true);
+    });
+
+    it('should accept plugins with no routes (headless)', () => {
+      const manifest = {
+        name: 'my-provider',
+        version: '1.0.0',
+        frontend: { entry: './frontend/dist/production/provider.js', routes: [] as string[] },
+      };
+      const result = validatePublishManifest(manifest);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should accept plugins with no frontend at all', () => {
+      const manifest = {
+        name: 'my-backend',
+        version: '1.0.0',
+        backend: { entry: './server.js', port: 4001 },
+      };
+      const result = validatePublishManifest(manifest);
+      expect(result.valid).toBe(true);
+    });
   });
 });
 
@@ -235,7 +300,7 @@ describe('verifyPublish', () => {
         version: '1.0.0',
         displayName: 'My Plugin',
         description: 'Test',
-        frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+        frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/my-plugin'] },
       },
       frontendUrl: 'http://localhost:3000/cdn/plugins/my-plugin/1.0.0/my-plugin.js',
     });
@@ -253,7 +318,7 @@ describe('verifyPublish', () => {
       manifest: {
         name: 'my-plugin',
         version: '1.0.0',
-        frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+        frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/my-plugin'] },
       },
       frontendUrl: 'http://localhost:3100/missing.js',
     });
@@ -300,7 +365,7 @@ describe('verifyPublish', () => {
       manifest: {
         name: 'my-plugin',
         version: '1.0.0',
-        frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+        frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/my-plugin'] },
       },
       frontendUrl: 'http://localhost:3000/cdn/plugins/my-plugin/1.0.0/my-plugin.js',
       skipUrlCheck: true,
