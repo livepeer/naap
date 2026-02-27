@@ -12,6 +12,8 @@
  * Streaming: SSE passthrough for LLM-style endpoints
  */
 
+export const runtime = 'nodejs';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveConfig } from '@/lib/gateway/resolve';
 import { authorize, extractTeamContext, verifyConnectorAccess } from '@/lib/gateway/authorize';
