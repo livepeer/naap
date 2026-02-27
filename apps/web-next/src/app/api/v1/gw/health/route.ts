@@ -5,6 +5,8 @@
  * Returns basic health status for the gateway plugin.
  */
 
+export const runtime = 'nodejs';
+
 import { NextResponse } from 'next/server';
 
 export async function GET() {

@@ -26,6 +26,7 @@ const nextConfig = {
     '@naap/utils',
     '@naap/config',
     '@naap/plugin-sdk',
+    '@naap/cache',
   ],
 
   // Image optimization
