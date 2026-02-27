@@ -125,6 +125,16 @@ export const PlansPage: React.FC = () => {
                   className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-sm"
                 />
               </div>
+              <div className="space-y-1">
+                <label className="block text-xs text-gray-400">Monthly Quota (optional)</label>
+                <input
+                  type="number"
+                  value={monthlyQuota}
+                  onChange={(e) => setMonthlyQuota(e.target.value)}
+                  placeholder="Unlimited"
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-sm"
+                />
+              </div>
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowCreate(false)} className="px-3 py-1.5 text-gray-400 text-sm">Cancel</button>

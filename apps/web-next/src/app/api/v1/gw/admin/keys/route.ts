@@ -9,14 +9,26 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, successPaginated, errors, parsePagination } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse, loadConnector } from '@/lib/gateway/admin/team-guard';
+import { logAudit } from '@/lib/gateway/admin/audit';
 import { z } from 'zod';
+
+const IP_V4 = /^(\d{1,3}\.){3}\d{1,3}$/;
+const CIDR_V4 = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
+const IP_V6 = /^[0-9a-fA-F:]+$/;
+const CIDR_V6 = /^[0-9a-fA-F:]+\/\d{1,3}$/;
+
+function isValidIPOrCIDR(value: string): boolean {
+  return IP_V4.test(value) || CIDR_V4.test(value) || IP_V6.test(value) || CIDR_V6.test(value);
+}
 
 const createKeySchema = z.object({
   name: z.string().min(1).max(128),
   connectorId: z.string().uuid().optional(),
   planId: z.string().uuid().optional(),
   allowedEndpoints: z.array(z.string()).default([]),
-  allowedIPs: z.array(z.string()).default([]),
+  allowedIPs: z.array(
+    z.string().refine(isValidIPOrCIDR, { message: 'Must be a valid IPv4, IPv6, or CIDR range' })
+  ).default([]),
   expiresAt: z.string().datetime().optional(),
 });
 
@@ -126,6 +138,8 @@ export async function POST(request: NextRequest) {
       plan: { select: { id: true, name: true, displayName: true } },
     },
   });
+
+  logAudit(ctx, { action: 'key.create', resourceId: apiKey.id, details: { name: parsed.data.name, keyPrefix }, request });
 
   const { keyHash: _, ...safeKey } = apiKey;
   return success({

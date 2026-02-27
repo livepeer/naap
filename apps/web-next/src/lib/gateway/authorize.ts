@@ -11,8 +11,29 @@
 import { createHash } from 'crypto';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
-import { getAuthToken } from '@/lib/api/response';
+import { getAuthToken, getClientIP } from '@/lib/api/response';
+import { personalScopeId } from './scope';
 import type { AuthResult, TeamContext } from './types';
+
+let _authFailLimiter: { consume: (key: string, points?: number) => Promise<{ allowed: boolean }> } | null = null;
+
+function getAuthFailLimiter() {
+  if (!_authFailLimiter) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { createRateLimiter } = require('@naap/cache/rateLimiter');
+      _authFailLimiter = createRateLimiter({
+        points: 10,
+        duration: 60,
+        blockDuration: 300,
+        keyPrefix: 'gw:auth:fail',
+      });
+    } catch {
+      _authFailLimiter = { consume: async () => ({ allowed: true }) };
+    }
+  }
+  return _authFailLimiter;
+}
 
 /**
  * Extract team context from the request.
@@ -21,9 +42,18 @@ import type { AuthResult, TeamContext } from './types';
 export async function authorize(request: Request): Promise<AuthResult | null> {
   const authHeader = request.headers.get('authorization') || '';
 
-  // Path 1: API Key auth (gk_ prefix)
-  if (authHeader.startsWith('Bearer gk_')) {
-    return authorizeApiKey(authHeader.slice(7)); // strip "Bearer "
+  // Path 1: API Key auth (gw_ prefix)
+  if (authHeader.startsWith('Bearer gw_')) {
+    const clientIP = getClientIP(request) || 'unknown';
+    const limiter = getAuthFailLimiter();
+    const rl = await limiter.consume(clientIP, 0);
+    if (!rl.allowed) return null;
+
+    const result = await authorizeApiKey(authHeader.slice(7)); // strip "Bearer "
+    if (!result) {
+      await limiter.consume(clientIP);
+    }
+    return result;
   }
 
   // Path 2: JWT auth
@@ -57,7 +87,7 @@ async function authorizeJwt(token: string, request: Request): Promise<AuthResult
     if (!user) return null;
 
     // Team context from x-team-id header, or personal scope fallback
-    const teamId = request.headers.get('x-team-id') || `personal:${user.id}`;
+    const teamId = request.headers.get('x-team-id') || personalScopeId(user.id);
 
     return {
       authenticated: true,
@@ -99,7 +129,7 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
     .catch(() => {});
 
   const resolvedTeamId = apiKey.teamId
-    ?? (apiKey.ownerUserId ? `personal:${apiKey.ownerUserId}` : '');
+    ?? (apiKey.ownerUserId ? personalScopeId(apiKey.ownerUserId) : '');
 
   return {
     authenticated: true,

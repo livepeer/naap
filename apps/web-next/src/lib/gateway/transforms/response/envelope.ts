@@ -44,8 +44,8 @@ export const envelopeResponse: ResponseTransformStrategy = {
           status: ctx.upstreamResponse.status,
           headers: responseHeaders,
         });
-      } catch {
-        // Fall through to raw passthrough on parse failure
+      } catch (err) {
+        console.warn('[gateway] envelope response: failed to construct envelope, falling back to raw:', err);
       }
     }
 

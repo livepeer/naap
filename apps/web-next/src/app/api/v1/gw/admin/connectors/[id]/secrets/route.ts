@@ -15,6 +15,7 @@ import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse, loadOwnedConnector } from '@/lib/gateway/admin/team-guard';
 import { encrypt } from '@/lib/gateway/encryption';
 import { prisma } from '@/lib/db';
+import { logAudit } from '@/lib/gateway/admin/audit';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -107,7 +108,9 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     })
   );
 
-  const statuses = await Promise.all(
+  logAudit(ctx, { action: 'secret.set', resourceId: id, details: { refs: Object.keys(body), slug: connector.slug }, request });
+
+  const updatedStatuses = await Promise.all(
     secretRefs.map(async (name) => {
       const key = secretKey(ctx.teamId, connector.slug, name);
       const record = await prisma.secretVault.findUnique({
@@ -122,5 +125,5 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     })
   );
 
-  return success(statuses);
+  return success(updatedStatuses);
 }

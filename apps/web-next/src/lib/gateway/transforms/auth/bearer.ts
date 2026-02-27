@@ -7,6 +7,9 @@ export const bearerAuth: AuthStrategy = {
     const token = ctx.secrets[tokenRef] || '';
     if (token) {
       ctx.headers.set('Authorization', `Bearer ${token}`);
+    } else {
+      console.warn(`[gateway] auth: secret "${tokenRef}" not resolved for connector "${ctx.connectorSlug}"`);
+      ctx.headers.set('X-Gateway-Warning', 'missing-auth-secret');
     }
   },
 };

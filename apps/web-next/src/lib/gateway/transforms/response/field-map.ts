@@ -1,5 +1,4 @@
 import type { ResponseTransformStrategy, ResponseTransformContext } from '../types';
-import { getNestedValue } from '../types';
 import { buildSafeResponseHeaders } from './shared';
 
 /**
@@ -9,7 +8,7 @@ import { buildSafeResponseHeaders } from './shared';
  * Format: "field-map:sourceField->targetField,sourceField2->targetField2"
  * Example: "field-map:items->data,total_count->meta.total"
  *
- * Falls back to envelope or raw passthrough if the response is not JSON
+ * Falls back to raw passthrough if the response is not JSON
  * or if the mapping fails.
  */
 export const fieldMapResponse: ResponseTransformStrategy = {
@@ -29,14 +28,16 @@ export const fieldMapResponse: ResponseTransformStrategy = {
     try {
       const rawBody = await ctx.upstreamResponse.text();
       const parsed = JSON.parse(rawBody);
-      const mapped = applyFieldMapping(parsed, ctx.connectorSlug);
+      const mappings = parseMappingConfig(ctx.responseBodyTransform);
+      const mapped = applyFieldMapping(parsed, mappings);
 
       responseHeaders.set('Content-Type', 'application/json');
       return new Response(JSON.stringify(mapped), {
         status: ctx.upstreamResponse.status,
         headers: responseHeaders,
       });
-    } catch {
+    } catch (err) {
+      console.warn('[gateway] field-map transform failed, falling back to raw:', err);
       responseHeaders.set('Content-Type', contentType);
       const body = await ctx.upstreamResponse.arrayBuffer();
       return new Response(body, {
@@ -47,20 +48,41 @@ export const fieldMapResponse: ResponseTransformStrategy = {
   },
 };
 
-function applyFieldMapping(
-  data: unknown,
-  _connectorSlug: string,
-): unknown {
-  if (typeof data !== 'object' || data === null) return data;
+interface FieldMapping {
+  source: string;
+  target: string;
+}
 
-  const result: Record<string, unknown> = {};
-  const source = data as Record<string, unknown>;
+/**
+ * Parse "field-map:source->target,source2->target2" into structured mappings.
+ * Returns an empty array if the format is invalid (passthrough behavior).
+ */
+function parseMappingConfig(config: string): FieldMapping[] {
+  const prefix = 'field-map:';
+  if (!config.startsWith(prefix)) return [];
 
-  for (const [key, value] of Object.entries(source)) {
-    setNestedValue(result, key, value);
+  const spec = config.slice(prefix.length).trim();
+  if (!spec) return [];
+
+  return spec.split(',').reduce<FieldMapping[]>((acc, pair) => {
+    const parts = pair.trim().split('->');
+    if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
+      acc.push({ source: parts[0].trim(), target: parts[1].trim() });
+    }
+    return acc;
+  }, []);
+}
+
+function getNestedValue(obj: unknown, path: string): unknown {
+  const parts = path.split('.');
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current === null || current === undefined || typeof current !== 'object') {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[part];
   }
-
-  return result;
+  return current;
 }
 
 function setNestedValue(
@@ -79,4 +101,22 @@ function setNestedValue(
   current[parts[parts.length - 1]] = value;
 }
 
-export { getNestedValue };
+function applyFieldMapping(
+  data: unknown,
+  mappings: FieldMapping[],
+): unknown {
+  if (typeof data !== 'object' || data === null) return data;
+
+  if (mappings.length === 0) {
+    return data;
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const { source, target } of mappings) {
+    const value = getNestedValue(data, source);
+    if (value !== undefined) {
+      setNestedValue(result, target, value);
+    }
+  }
+  return result;
+}

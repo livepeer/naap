@@ -27,6 +27,7 @@ export interface AuthContext {
   headers: Headers;
   authConfig: Record<string, unknown>;
   secrets: ResolvedSecrets;
+  connectorSlug: string;
   method: string;
   url: URL;
   body?: BodyInit | null;
@@ -45,6 +46,7 @@ export interface ResponseTransformContext {
   responseWrapper: boolean;
   streamingEnabled: boolean;
   errorMapping: Record<string, string>;
+  responseBodyTransform: string;
   upstreamLatencyMs: number;
   cached: boolean;
   requestId: string | null;
@@ -59,7 +61,7 @@ export interface ResponseTransformStrategy {
 // ── Shared Utilities ──
 
 export function interpolateSecrets(template: string, secrets: ResolvedSecrets): string {
-  return template.replace(/\{\{secrets\.(\w+)\}\}/g, (_, name) => secrets[name] || '');
+  return template.replace(/\{\{secrets\.([\w-]+)\}\}/g, (_, name) => secrets[name] || '');
 }
 
 export function interpolateTemplate(template: string, body: Record<string, unknown>): string {

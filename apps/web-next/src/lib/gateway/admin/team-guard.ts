@@ -13,12 +13,14 @@
  *   - Team scope:     x-team-id header present → data scoped to team.
  *   - Personal scope: no x-team-id header     → data scoped to personal:{userId}.
  *
+ * Team membership is verified before granting team-scoped access.
  * Returns 404 (not 403) for other scopes' resources to prevent enumeration.
  */
 
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken, errors } from '@/lib/api/response';
+import { personalScopeId, scopeFilter as buildScopeFilter } from '@/lib/gateway/scope';
 
 export interface AdminContext {
   userId: string;
@@ -34,6 +36,7 @@ export interface AdminContext {
  *
  * Supports two modes:
  * - **Team scope**: `x-team-id` header is present → data scoped to the team.
+ *   The user's membership in the team is verified before granting access.
  * - **Personal scope**: no `x-team-id` header → data scoped to `personal:{userId}`.
  *
  * Returns AdminContext or a NextResponse error.
@@ -46,8 +49,6 @@ export async function getAdminContext(
     return errors.unauthorized('Authentication required');
   }
 
-  // Validate session directly against the database (no HTTP round-trip).
-  // validateSession returns a typed AuthUser or null.
   const user = await validateSession(token);
   if (!user) {
     return errors.unauthorized('Invalid or expired token');
@@ -56,12 +57,25 @@ export async function getAdminContext(
   const headerTeamId = request.headers.get('x-team-id');
 
   if (headerTeamId) {
-    // Team scope
+    const membership = await prisma.teamMember.findFirst({
+      where: { teamId: headerTeamId, userId: user.id },
+      select: { id: true },
+    });
+
+    if (!membership) {
+      const team = await prisma.team.findFirst({
+        where: { id: headerTeamId, ownerId: user.id },
+        select: { id: true },
+      });
+      if (!team) {
+        return errors.forbidden('You are not a member of this team');
+      }
+    }
+
     return { userId: user.id, teamId: headerTeamId, token, isPersonal: false };
   }
 
-  // Personal scope — deterministic identifier scoped to this user
-  return { userId: user.id, teamId: `personal:${user.id}`, token, isPersonal: true };
+  return { userId: user.id, teamId: personalScopeId(user.id), token, isPersonal: true };
 }
 
 /**
@@ -71,16 +85,8 @@ export function isErrorResponse(result: AdminContext | Response): result is Resp
   return result instanceof Response;
 }
 
-/**
- * Build a Prisma `where` clause that scopes a connector to the caller's
- * ownership: team-scoped uses `teamId`, personal uses `ownerUserId`.
- */
 function scopeFilter(connectorId: string, scopeId: string) {
-  if (scopeId.startsWith('personal:')) {
-    const userId = scopeId.slice('personal:'.length);
-    return { id: connectorId, ownerUserId: userId };
-  }
-  return { id: connectorId, teamId: scopeId };
+  return buildScopeFilter(connectorId, scopeId);
 }
 
 function visibleFilter(connectorId: string, scopeId: string) {

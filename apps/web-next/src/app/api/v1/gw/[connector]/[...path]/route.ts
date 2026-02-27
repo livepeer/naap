@@ -14,6 +14,7 @@
  */
 
 import { NextRequest } from 'next/server';
+import { after } from 'next/server';
 import { resolveConfig } from '@/lib/gateway/resolve';
 import { authorize, verifyConnectorAccess } from '@/lib/gateway/authorize';
 import { enforcePolicy } from '@/lib/gateway/policy';
@@ -25,6 +26,8 @@ import { resolveSecrets } from '@/lib/gateway/secrets';
 import { getCachedResponse, setCachedResponse, buildCacheKey } from '@/lib/gateway/cache';
 import { getAuthToken, getClientIP } from '@/lib/api/response';
 import type { UsageData } from '@/lib/gateway/types';
+import { matchIPAllowlist } from '@/lib/gateway/types';
+import { bufferUsage } from '@/lib/gateway/usage-buffer';
 import '@/lib/gateway/transforms';
 
 type RouteContext = { params: Promise<{ connector: string; path: string[] }> };
@@ -80,8 +83,8 @@ async function handleRequest(
         consumerBody = await request.text();
         requestBytes = new TextEncoder().encode(consumerBody).length;
       }
-    } catch {
-      // No body
+    } catch (err) {
+      console.warn('[gateway] failed to read request body:', err);
     }
   }
 
@@ -110,10 +113,10 @@ async function handleRequest(
     }
   }
 
-  // ── 6. IP Allowlist Check ──
+  // ── 6. IP Allowlist Check (supports CIDR ranges) ──
   if (auth.allowedIPs && auth.allowedIPs.length > 0) {
     const clientIP = getClientIP(request);
-    if (clientIP && !auth.allowedIPs.includes(clientIP)) {
+    if (clientIP && !matchIPAllowlist(clientIP, auth.allowedIPs)) {
       return buildErrorResponse(
         'FORBIDDEN',
         'Request from this IP address is not allowed.',
@@ -230,7 +233,8 @@ async function handleRequest(
       timeout,
       config.endpoint.retries,
       config.connector.allowedHosts,
-      config.connector.streamingEnabled
+      config.connector.streamingEnabled,
+      config.connector.slug
     );
   } catch (err) {
     const proxyError = err instanceof ProxyError ? err : new ProxyError('UPSTREAM_ERROR', String(err), 502);
@@ -275,17 +279,22 @@ async function handleRequest(
   }
 
   // ── 15. Cache Store (GET + 2xx + cacheTtl) ──
-  if (method === 'GET' && cacheTtl && cacheTtl > 0 && proxyResult.response.status >= 200 && proxyResult.response.status < 300) {
+  const shouldCache = method === 'GET' && cacheTtl && cacheTtl > 0
+    && proxyResult.response.status >= 200 && proxyResult.response.status < 300;
+
+  let responseBytes: number;
+  if (shouldCache) {
     const cloned = response.clone();
-    cloned.arrayBuffer().then((body) => {
-      const headers: Record<string, string> = {};
-      cloned.headers.forEach((v, k) => { headers[k] = v; });
-      setCachedResponse(cacheKey, { body, status: cloned.status, headers }, cacheTtl);
-    }).catch(() => {});
+    const responseBodyBuffer = await cloned.arrayBuffer();
+    responseBytes = responseBodyBuffer.byteLength;
+    const headers: Record<string, string> = {};
+    cloned.headers.forEach((v, k) => { headers[k] = v; });
+    setCachedResponse(cacheKey, { body: responseBodyBuffer, status: cloned.status, headers }, cacheTtl);
+  } else {
+    responseBytes = parseInt(response.headers.get('content-length') || '0', 10);
   }
 
   // ── 16. Log Usage (non-blocking) ──
-  const responseBytes = parseInt(response.headers.get('content-length') || '0', 10);
   logUsage({
     teamId: scopeId,
     ownerScope: scopeId,
@@ -310,37 +319,14 @@ async function handleRequest(
 }
 
 /**
- * Non-blocking usage logging. In production this would use waitUntil().
- * For now, fire-and-forget the DB write.
+ * Schedule a non-blocking usage log write via Next.js `after()`.
+ * Records are accumulated in a UsageBuffer and flushed in batches
+ * (50 records or every 5s) to reduce DB write pressure.
  */
 function logUsage(data: UsageData): void {
-  // Dynamically import to avoid loading Prisma on every request path
-  import('@/lib/db').then(({ prisma }) => {
-    prisma.gatewayUsageRecord
-      .create({
-        data: {
-          teamId: data.teamId,
-          connectorId: data.connectorId,
-          endpointName: data.endpointName,
-          apiKeyId: data.apiKeyId,
-          callerType: data.callerType,
-          callerId: data.callerId,
-          method: data.method,
-          path: data.path,
-          statusCode: data.statusCode,
-          latencyMs: data.latencyMs,
-          upstreamLatencyMs: data.upstreamLatencyMs,
-          requestBytes: data.requestBytes,
-          responseBytes: data.responseBytes,
-          cached: data.cached,
-          error: data.error,
-          region: data.region,
-        },
-      })
-      .catch((err) => {
-        console.error('[gateway] usage log failed:', err);
-      });
-  }).catch(() => {});
+  after(() => {
+    bufferUsage(data);
+  });
 }
 
 // ── HTTP Method Handlers ──

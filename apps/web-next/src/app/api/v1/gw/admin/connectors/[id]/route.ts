@@ -11,6 +11,7 @@ import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse, loadConnectorWithEndpoints, loadOwnedConnector } from '@/lib/gateway/admin/team-guard';
 import { updateConnectorSchema } from '@/lib/gateway/admin/validation';
 import { invalidateConnectorCache } from '@/lib/gateway/resolve';
+import { logAudit } from '@/lib/gateway/admin/audit';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -64,6 +65,8 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
   invalidateConnectorCache(ctx.teamId, connector.slug);
 
+  logAudit(ctx, { action: 'connector.update', resourceId: id, details: { slug: connector.slug }, request });
+
   return success(connector);
 }
 
@@ -83,6 +86,8 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   });
 
   invalidateConnectorCache(ctx.teamId, existing.slug);
+
+  logAudit(ctx, { action: 'connector.delete', resourceId: id, details: { slug: existing.slug }, request });
 
   return success({ id, status: 'archived' });
 }

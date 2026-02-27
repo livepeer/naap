@@ -11,6 +11,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard';
+import { logAudit } from '@/lib/gateway/admin/audit';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -66,10 +67,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }),
   ]);
 
+  logAudit(ctx, { action: 'key.rotate', resourceId: newKey.id, details: { rotatedFrom: id, name: oldKey.name }, request });
+
   const { keyHash: _, ...safeKey } = newKey;
   return success({
     ...safeKey,
-    rawKey, // ⚠️ Only returned on creation
+    rawKey,
     rotatedFrom: id,
   });
 }
