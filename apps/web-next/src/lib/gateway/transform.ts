@@ -90,7 +90,7 @@ function buildUpstreamUrl(
 
   if (consumerSearchParams) {
     consumerSearchParams.forEach((value, key) => {
-      url.searchParams.set(key, value);
+      url.searchParams.append(key, value);
     });
   }
 
