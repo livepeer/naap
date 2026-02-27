@@ -5,6 +5,8 @@
  * DELETE /api/v1/gw/admin/connectors/:id
  */
 
+export const runtime = 'nodejs';
+
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';

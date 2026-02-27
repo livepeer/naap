@@ -6,6 +6,8 @@
  * Atomic: new key is valid before old key is revoked.
  */
 
+export const runtime = 'nodejs';
+
 import { randomBytes, createHash } from 'crypto';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';

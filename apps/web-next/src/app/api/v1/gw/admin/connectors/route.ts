@@ -4,6 +4,8 @@
  * POST /api/v1/gw/admin/connectors   — Create draft connector
  */
 
+export const runtime = 'nodejs';
+
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, successPaginated, errors, parsePagination } from '@/lib/api/response';

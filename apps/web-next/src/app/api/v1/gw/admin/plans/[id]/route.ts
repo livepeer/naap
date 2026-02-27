@@ -5,6 +5,8 @@
  * DELETE /api/v1/gw/admin/plans/:id
  */
 
+export const runtime = 'nodejs';
+
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
