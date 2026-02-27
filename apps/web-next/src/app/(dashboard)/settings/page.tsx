@@ -14,6 +14,7 @@ import {
   X, Plus, Pencil, Camera
 } from 'lucide-react';
 import * as Icons from 'lucide-react';
+import { Button, Input, Textarea, Label, Modal } from '@naap/ui';
 
 /** Only allow http/https URLs for image sources to prevent XSS via javascript: URIs */
 function getSafeImageUrl(url: string | null | undefined): string | null {
@@ -63,7 +64,7 @@ export default function SettingsPage() {
   const { theme, notifications } = useShell();
   const { plugins, refreshPlugins } = usePlugins();
   const eventBus = useEvents();
-  
+
   const [notificationSettings, setNotificationSettings] = useState({
     email: true,
     push: true,
@@ -73,7 +74,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [loadingPrefs, setLoadingPrefs] = useState(true);
   const [prefsError, setPrefsError] = useState<string | null>(null);
-  
+
   // Uninstall state
   const [uninstallingPlugin, setUninstallingPlugin] = useState<PluginPreference | null>(null);
   const [showUninstallConfirm, setShowUninstallConfirm] = useState(false);
@@ -157,7 +158,7 @@ export default function SettingsPage() {
       const csrfToken = await getCsrfToken();
       const res = await fetch(`/api/v1/tenant/installations/${configuringPlugin.id}/config`, {
         method: 'PUT',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken,
         },
@@ -236,7 +237,7 @@ export default function SettingsPage() {
       const csrfToken = await getCsrfToken();
       const res = await fetch('/api/v1/auth/profile', {
         method: 'PATCH',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken,
         },
@@ -268,7 +269,7 @@ export default function SettingsPage() {
       setPrefsError(null);
 
       // Normalize plugin name for deduplication
-      const normalizePluginName = (name: string) => 
+      const normalizePluginName = (name: string) =>
         name.toLowerCase().replace(/[-_]/g, '');
 
       // If in team context, fetch team plugins
@@ -278,7 +279,7 @@ export default function SettingsPage() {
           if (res.ok) {
             const data = await res.json();
             const teamPlugins = data.data?.plugins || data.plugins || [];
-            
+
             // Deduplicate and convert to preferences format
             const seenNames = new Set<string>();
             const prefs: PluginPreference[] = teamPlugins
@@ -379,12 +380,12 @@ export default function SettingsPage() {
     try {
       const csrfToken = await getCsrfToken();
       let res;
-      
+
       if (isTeamContext && currentTeamId && pref.installId) {
         // Team context: use team-specific endpoint
         res = await fetch(`/api/v1/teams/${currentTeamId}/members/me/plugins/${pref.installId}`, {
           method: 'PUT',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'X-CSRF-Token': csrfToken,
           },
@@ -398,7 +399,7 @@ export default function SettingsPage() {
         // Personal context: use user preferences endpoint
         res = await fetch('/api/v1/base/user/preferences', {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'X-CSRF-Token': csrfToken,
           },
@@ -466,9 +467,9 @@ export default function SettingsPage() {
       ...plugin,
       order: index,
     }));
-    
+
     setUserPreferences(updated);
-    
+
     // Save new order for each plugin
     setSaving(true);
     try {
@@ -476,7 +477,7 @@ export default function SettingsPage() {
       for (const plugin of updated) {
         await fetch('/api/v1/base/user/preferences', {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'X-CSRF-Token': csrfToken,
           },
@@ -517,13 +518,13 @@ export default function SettingsPage() {
     setUninstallLoading(true);
     try {
       const csrfToken = await getCsrfToken();
-      
+
       let res;
       if (isTeamContext && currentTeamId && uninstallingPlugin.installId) {
         // Team context: uninstall from team
         res = await fetch(`/api/v1/teams/${currentTeamId}/plugins/${uninstallingPlugin.installId}`, {
           method: 'DELETE',
-          headers: { 
+          headers: {
             'x-user-id': user?.id || 'anonymous',
             'X-CSRF-Token': csrfToken,
           },
@@ -532,7 +533,7 @@ export default function SettingsPage() {
         // Personal context: uninstall from user
         res = await fetch(`/api/v1/installations/${uninstallingPlugin.name}`, {
           method: 'DELETE',
-          headers: { 
+          headers: {
             'x-user-id': user?.id || 'anonymous',
             'X-CSRF-Token': csrfToken,
           },
@@ -564,7 +565,7 @@ export default function SettingsPage() {
     for (const pref of userPreferences) {
       await fetch('/api/v1/base/user/preferences', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken,
         },
@@ -595,53 +596,54 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
+        <h1 className="text-lg font-semibold">Settings</h1>
         <p className="text-muted-foreground mt-1">
           Manage your account and application preferences
         </p>
       </div>
 
       {/* Profile Section */}
-      <section className="bg-card rounded-xl border p-6">
-        <div className="flex items-center justify-between mb-6">
+      <section className="bg-card rounded-lg border p-4">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <User className="h-5 w-5 text-primary" />
-            <h2 className="text-lg font-semibold">Profile</h2>
+            <User className="h-5 w-5 text-muted-foreground" />
+            <h2 className="text-sm font-semibold">Profile</h2>
           </div>
           {!editingProfile && (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Pencil size={14} />}
               onClick={handleStartEditProfile}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-muted rounded-lg hover:bg-muted/80 transition-all text-muted-foreground hover:text-foreground"
             >
-              <Pencil size={14} />
               Edit Profile
-            </button>
+            </Button>
           )}
         </div>
 
         {editingProfile ? (
-          /* ── Editing mode ────────────────────────────────────────── */
-          <div className="space-y-6">
+          /* -- Editing mode ------------------------------------------------ */
+          <div className="space-y-4">
             {/* Avatar */}
-            <div className="flex items-start gap-6">
+            <div className="flex items-start gap-4">
               <div className="relative group">
                 {getSafeImageUrl(profileAvatarPreview) ? (
                   /* lgtm[js/xss-through-dom] URL sanitized by getSafeImageUrl (http/https only) */
-                  <img src={getSafeImageUrl(profileAvatarPreview)!} alt="" className="w-20 h-20 rounded-2xl object-cover" />
+                  <img src={getSafeImageUrl(profileAvatarPreview)!} alt="" className="w-20 h-20 rounded-xl object-cover" />
                 ) : (
-                  <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">
+                  <div className="w-20 h-20 rounded-xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">
                     {(profileName || user?.email || 'U')[0].toUpperCase()}
                   </div>
                 )}
-                <div className="absolute inset-0 rounded-2xl bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute inset-0 rounded-xl bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                   <Camera size={20} className="text-white" />
                 </div>
               </div>
               <div className="flex-1">
-                <label className="block text-sm font-medium mb-1.5">Avatar URL</label>
-                <input
+                <Label className="mb-1.5 block">Avatar URL</Label>
+                <Input
                   type="url"
                   value={profileAvatarUrl}
                   onChange={(e) => {
@@ -649,7 +651,6 @@ export default function SettingsPage() {
                     setProfileAvatarPreview(e.target.value || null);
                   }}
                   placeholder="https://example.com/avatar.jpg"
-                  className="w-full bg-background border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors"
                 />
                 <p className="text-xs text-muted-foreground mt-1">Paste a URL to an image for your profile picture</p>
               </div>
@@ -657,22 +658,21 @@ export default function SettingsPage() {
 
             {/* Display Name */}
             <div>
-              <label className="block text-sm font-medium mb-1.5">Display Name</label>
-              <input
+              <Label className="mb-1.5 block">Display Name</Label>
+              <Input
                 type="text"
                 value={profileName}
                 onChange={(e) => setProfileName(e.target.value)}
                 maxLength={50}
                 placeholder="Your display name"
-                className="w-full bg-background border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors"
               />
               <p className="text-xs text-muted-foreground mt-1">{profileName.length}/50 characters</p>
             </div>
 
             {/* Bio / Description */}
             <div>
-              <label className="block text-sm font-medium mb-1.5">About</label>
-              <textarea
+              <Label className="mb-1.5 block">About</Label>
+              <Textarea
                 value={profileBio}
                 onChange={(e) => {
                   if (e.target.value.length <= 150) setProfileBio(e.target.value);
@@ -680,7 +680,6 @@ export default function SettingsPage() {
                 maxLength={150}
                 rows={3}
                 placeholder="Tell us a bit about yourself..."
-                className="w-full bg-background border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors resize-none"
               />
               <p className={`text-xs mt-1 ${profileBio.length >= 140 ? 'text-amber-500' : 'text-muted-foreground'}`}>
                 {profileBio.length}/150 characters
@@ -689,7 +688,7 @@ export default function SettingsPage() {
 
             {/* Email (read-only) */}
             <div>
-              <label className="block text-sm font-medium mb-1.5 text-muted-foreground">Email</label>
+              <Label className="mb-1.5 block text-muted-foreground">Email</Label>
               <p className="text-sm font-mono px-4 py-2.5 bg-muted/50 rounded-lg text-muted-foreground">
                 {user?.email || 'Not set'}
               </p>
@@ -708,36 +707,38 @@ export default function SettingsPage() {
 
             {/* Save / Cancel */}
             <div className="flex items-center gap-3 pt-2">
-              <button
+              <Button
+                variant="primary"
+                size="md"
+                icon={<Save size={16} />}
+                loading={savingProfile}
                 onClick={handleSaveProfile}
-                disabled={savingProfile}
-                className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
               >
-                {savingProfile ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                 Save Profile
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
+                size="md"
                 onClick={handleCancelEditProfile}
-                className="px-5 py-2.5 border border-border rounded-lg text-sm hover:bg-muted transition-all"
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
-          /* ── View mode ───────────────────────────────────────────── */
-          <div className="space-y-6">
-            <div className="flex items-center gap-6">
+          /* -- View mode --------------------------------------------------- */
+          <div className="space-y-4">
+            <div className="flex items-center gap-4">
               {getSafeImageUrl(profileAvatarPreview) ? (
                 /* lgtm[js/xss-through-dom] URL sanitized by getSafeImageUrl (http/https only) */
-                <img src={getSafeImageUrl(profileAvatarPreview)!} alt="" className="w-20 h-20 rounded-2xl object-cover" />
+                <img src={getSafeImageUrl(profileAvatarPreview)!} alt="" className="w-20 h-20 rounded-xl object-cover" />
               ) : (
-                <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">
+                <div className="w-20 h-20 rounded-xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">
                   {(profileName || user?.email || 'U')[0].toUpperCase()}
                 </div>
               )}
               <div className="flex-1">
-                <h3 className="text-lg font-bold">
+                <h3 className="text-base font-semibold">
                   {profileName || user?.email?.split('@')[0] || 'User'}
                 </h3>
                 <p className="text-sm text-muted-foreground font-mono">
@@ -762,24 +763,24 @@ export default function SettingsPage() {
       </section>
 
       {/* Notifications */}
-      <section className="bg-card rounded-xl border p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <Bell className="h-5 w-5 text-primary" />
-          <h2 className="text-lg font-semibold">Notifications</h2>
+      <section className="bg-card rounded-lg border p-4">
+        <div className="flex items-center gap-3 mb-4">
+          <Bell className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Notifications</h2>
         </div>
-        <div className="space-y-4">
+        <div className="space-y-3">
           {[
-            { key: 'email', icon: <Globe size={20} />, label: 'Email Notifications', desc: 'Receive email alerts for important events' },
-            { key: 'push', icon: <Bell size={20} />, label: 'Push Notifications', desc: 'Browser push notifications for real-time updates' },
-            { key: 'sla', icon: <Shield size={20} />, label: 'SLA Alerts', desc: 'Get notified when SLA thresholds are at risk' },
+            { key: 'email', icon: <Globe size={18} />, label: 'Email Notifications', desc: 'Receive email alerts for important events' },
+            { key: 'push', icon: <Bell size={18} />, label: 'Push Notifications', desc: 'Browser push notifications for real-time updates' },
+            { key: 'sla', icon: <Shield size={18} />, label: 'SLA Alerts', desc: 'Get notified when SLA thresholds are at risk' },
           ].map((item) => (
-            <div key={item.key} className="flex items-center justify-between p-4 bg-muted/50 rounded-xl">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+            <div key={item.key} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center text-muted-foreground">
                   {item.icon}
                 </div>
                 <div>
-                  <p className="font-medium">{item.label}</p>
+                  <p className="font-medium text-sm">{item.label}</p>
                   <p className="text-sm text-muted-foreground">{item.desc}</p>
                 </div>
               </div>
@@ -799,98 +800,104 @@ export default function SettingsPage() {
       </section>
 
       {/* Plugin Personalization */}
-      <section className="bg-card rounded-xl border p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <SettingsIcon className="h-5 w-5 text-primary" />
-          <h2 className="text-lg font-semibold">
+      <section className="bg-card rounded-lg border p-4">
+        <div className="flex items-center gap-3 mb-4">
+          <SettingsIcon className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">
             {isTeamContext ? `Team Plugins: ${teamName}` : 'Personalize Plugins'}
           </h2>
         </div>
 
         {/* Team context info banner */}
         {isTeamContext && (
-          <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                  <Users size={20} className="text-blue-500" />
+                <div className="w-8 h-8 rounded-md bg-blue-500/20 flex items-center justify-center">
+                  <Users size={18} className="text-blue-500" />
                 </div>
                 <div>
-                  <p className="font-medium">Team Context Active</p>
+                  <p className="font-medium text-sm">Team Context Active</p>
                   <p className="text-sm text-muted-foreground">
                     Showing plugins installed for your team
                   </p>
                 </div>
               </div>
               <div className="flex gap-2">
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<SettingsIcon size={14} />}
                   onClick={() => router.push(`/teams/${currentTeamId}`)}
-                  className="flex items-center gap-2 px-3 py-2 bg-muted text-sm rounded-lg hover:bg-muted/80 transition-all"
                 >
-                  <SettingsIcon size={14} />
                   Manage Team
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<ExternalLink size={14} />}
                   onClick={() => router.push(`/marketplace?teamId=${currentTeamId}`)}
-                  className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-500/90 transition-all"
                 >
-                  <ExternalLink size={14} />
                   Install More
-                </button>
+                </Button>
               </div>
             </div>
           </div>
         )}
 
         {!isAuthenticated ? (
-          <div className="p-6 bg-muted/50 rounded-xl text-center">
-            <p className="text-muted-foreground">Sign in to personalize your plugin experience.</p>
+          <div className="p-4 bg-muted/50 rounded-lg text-center">
+            <p className="text-muted-foreground text-sm">Sign in to personalize your plugin experience.</p>
           </div>
         ) : loadingPrefs ? (
           <div className="flex items-center justify-center p-12">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : prefsError ? (
-          <div className="p-6 bg-destructive/10 border border-destructive/20 rounded-xl">
+          <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
             <div className="flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className="font-medium mb-1">Failed to Load Plugins</p>
+                <p className="font-medium text-sm mb-1">Failed to Load Plugins</p>
                 <p className="text-sm text-muted-foreground mb-3">{prefsError}</p>
-                <button
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => {
                     setPrefsError(null);
                     loadPluginsAndPreferences();
                   }}
-                  className="px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:bg-primary/90 transition-all"
                 >
                   Retry
-                </button>
+                </Button>
               </div>
             </div>
           </div>
         ) : userPreferences.length === 0 ? (
-          <div className="p-6 bg-muted/50 rounded-xl text-center">
-            <p className="text-muted-foreground">No plugins available.</p>
-            <button
+          <div className="p-4 bg-muted/50 rounded-lg text-center">
+            <p className="text-muted-foreground text-sm">No plugins available.</p>
+            <Button
+              variant="primary"
+              size="sm"
+              className="mt-4"
               onClick={loadPluginsAndPreferences}
-              className="mt-4 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:bg-primary/90 transition-all"
             >
               Retry
-            </button>
+            </Button>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between mb-4">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between mb-3">
               <p className="text-sm text-muted-foreground">
                 Drag to reorder • Toggle to enable/disable • Pin to keep at top
               </p>
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={handleResetToDefaults}
-                className="px-3 py-1.5 text-xs bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 transition-all"
               >
                 Reset to Defaults
-              </button>
+              </Button>
             </div>
 
             <Reorder.Group
@@ -903,16 +910,16 @@ export default function SettingsPage() {
                 <Reorder.Item
                   key={plugin.name}
                   value={plugin}
-                  className="bg-muted/50 rounded-lg p-4 flex items-center gap-4 hover:bg-muted/70 transition-all cursor-grab active:cursor-grabbing"
+                  className="bg-muted/50 rounded-lg p-3 flex items-center gap-3 hover:bg-muted/70 transition-all cursor-grab active:cursor-grabbing"
                 >
                   <GripVertical size={20} className="text-muted-foreground" />
 
                   <div className="flex-1 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                    <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center text-muted-foreground">
                       {getIcon(plugin.icon)}
                     </div>
                     <div>
-                      <p className="font-medium">{plugin.displayName}</p>
+                      <p className="font-medium text-sm">{plugin.displayName}</p>
                       <p className="text-xs text-muted-foreground">{plugin.name}</p>
                     </div>
                   </div>
@@ -964,7 +971,7 @@ export default function SettingsPage() {
             </Reorder.Group>
 
             {saving && (
-              <div className="mt-4 text-center text-sm text-primary flex items-center justify-center gap-2">
+              <div className="mt-3 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Saving preferences...
               </div>
@@ -974,47 +981,48 @@ export default function SettingsPage() {
       </section>
 
       {/* Appearance Section */}
-      <section className="bg-card rounded-xl border p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <Palette className="h-5 w-5 text-primary" />
-          <h2 className="text-lg font-semibold">Appearance</h2>
+      <section className="bg-card rounded-lg border p-4">
+        <div className="flex items-center gap-3 mb-4">
+          <Palette className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Appearance</h2>
         </div>
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-medium">Theme</p>
+            <p className="font-medium text-sm">Theme</p>
             <p className="text-sm text-muted-foreground">
               Currently using {theme.mode} mode
             </p>
           </div>
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={handleThemeToggle}
-            className="px-4 py-2 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-colors"
           >
             Switch to {theme.mode === 'dark' ? 'Light' : 'Dark'} Mode
-          </button>
+          </Button>
         </div>
       </section>
 
       {/* My Plugin Configurations */}
       {isAuthenticated && tenantInstallations.length > 0 && (
-        <section className="bg-card rounded-xl border p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <SettingsIcon className="h-5 w-5 text-primary" />
-            <h2 className="text-lg font-semibold">My Plugin Configurations</h2>
+        <section className="bg-card rounded-lg border p-4">
+          <div className="flex items-center gap-3 mb-4">
+            <SettingsIcon className="h-5 w-5 text-muted-foreground" />
+            <h2 className="text-sm font-semibold">My Plugin Configurations</h2>
           </div>
-          <p className="text-sm text-muted-foreground mb-4">
+          <p className="text-sm text-muted-foreground mb-3">
             Personal settings for your installed plugins (isolated per user)
           </p>
 
           {loadingTenantInstalls ? (
             <div className="flex items-center justify-center p-8">
-              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl mb-4">
+              <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg mb-3">
                 <div className="flex items-start gap-3">
-                  <Info size={20} className="text-blue-500 flex-shrink-0 mt-0.5" />
+                  <Info size={18} className="text-blue-500 flex-shrink-0 mt-0.5" />
                   <div className="text-sm text-muted-foreground">
                     <p className="font-medium mb-1">Multi-Tenant Plugin Configuration</p>
                     <p>Each user has their own isolated configuration for plugins. Changes you make here won&apos;t affect other users.</p>
@@ -1025,15 +1033,15 @@ export default function SettingsPage() {
               {tenantInstallations.map((installation) => (
                 <div
                   key={installation.id}
-                  className="p-4 bg-muted/50 rounded-xl border border-border hover:border-muted-foreground/30 transition-all"
+                  className="p-3 bg-muted/50 rounded-lg border border-border hover:border-muted-foreground/30 transition-all"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                      <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center text-muted-foreground">
                         {getIcon(installation.deployment.package.icon)}
                       </div>
                       <div>
-                        <p className="font-medium">{installation.deployment.package.displayName}</p>
+                        <p className="font-medium text-sm">{installation.deployment.package.displayName}</p>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <span>v{installation.deployment.version.version}</span>
                           <span className={`w-2 h-2 rounded-full ${
@@ -1052,13 +1060,13 @@ export default function SettingsPage() {
                           {Object.keys(installation.config.settings || {}).length} settings
                         </span>
                       )}
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<SettingsIcon size={16} />}
                         onClick={() => handleOpenPluginConfig(installation)}
-                        className="p-2 rounded-lg bg-muted hover:bg-muted/80 text-muted-foreground transition-all"
                         title="Configure plugin"
-                      >
-                        <SettingsIcon size={16} />
-                      </button>
+                      />
                     </div>
                   </div>
                 </div>
@@ -1070,162 +1078,149 @@ export default function SettingsPage() {
 
       {/* Save Button */}
       <div className="flex justify-end">
-        <button className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-xl font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all">
-          <Save size={18} />
+        <Button
+          variant="primary"
+          size="lg"
+          icon={<Save size={18} />}
+          loading={saving}
+        >
           Save Changes
-        </button>
+        </Button>
       </div>
 
       {/* Danger Zone */}
-      <section className="bg-destructive/5 rounded-xl border border-destructive/20 p-6">
-        <div className="flex items-center gap-3 mb-6">
+      <section className="bg-destructive/5 rounded-lg border border-destructive/20 p-4">
+        <div className="flex items-center gap-3 mb-4">
           <LogOut className="h-5 w-5 text-destructive" />
-          <h2 className="text-lg font-semibold text-destructive">Danger Zone</h2>
+          <h2 className="text-sm font-semibold text-destructive">Danger Zone</h2>
         </div>
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-medium">Sign Out</p>
+            <p className="font-medium text-sm">Sign Out</p>
             <p className="text-sm text-muted-foreground">
               Sign out from all devices
             </p>
           </div>
-          <button
+          <Button
+            variant="destructive"
+            size="sm"
             onClick={() => logout()}
-            className="px-4 py-2 bg-destructive text-destructive-foreground rounded-lg hover:opacity-90 transition-opacity"
           >
             Sign Out
-          </button>
+          </Button>
         </div>
       </section>
 
       {/* Uninstall Confirmation Modal */}
-      {showUninstallConfirm && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md m-4 shadow-xl">
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-destructive">
-              <Trash2 className="w-5 h-5" />
-              Uninstall Plugin
-            </h2>
+      <Modal
+        isOpen={showUninstallConfirm}
+        onClose={() => {
+          setShowUninstallConfirm(false);
+          setUninstallingPlugin(null);
+        }}
+        title="Uninstall Plugin"
+        size="sm"
+      >
+        <p className="text-muted-foreground mb-4">
+          Are you sure you want to uninstall &quot;{uninstallingPlugin?.displayName}&quot;?
+          You can reinstall it later from the Marketplace.
+        </p>
 
-            <p className="text-muted-foreground mb-4">
-              Are you sure you want to uninstall &quot;{uninstallingPlugin?.displayName}&quot;?
-              You can reinstall it later from the Marketplace.
-            </p>
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowUninstallConfirm(false);
-                  setUninstallingPlugin(null);
-                }}
-                className="px-4 py-2 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleUninstallConfirm}
-                disabled={uninstallLoading}
-                className="flex items-center gap-2 px-4 py-2 bg-destructive text-destructive-foreground rounded-lg hover:bg-destructive/90 transition-colors disabled:opacity-50"
-              >
-                {uninstallLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                Uninstall
-              </button>
-            </div>
-          </div>
+        <div className="flex justify-end gap-3">
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={() => {
+              setShowUninstallConfirm(false);
+              setUninstallingPlugin(null);
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            size="md"
+            loading={uninstallLoading}
+            onClick={handleUninstallConfirm}
+          >
+            Uninstall
+          </Button>
         </div>
-      )}
+      </Modal>
 
       {/* Plugin Configuration Modal */}
-      {configuringPlugin && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 overflow-y-auto py-8">
-          <div className="bg-card border border-border rounded-xl w-full max-w-xl m-4 shadow-xl">
-            <div className="flex items-center justify-between p-6 border-b border-border">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                  {getIcon(configuringPlugin.deployment.package.icon)}
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold">
-                    Configure {configuringPlugin.deployment.package.displayName}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    v{configuringPlugin.deployment.version.version}
-                  </p>
-                </div>
-              </div>
+      <Modal
+        isOpen={!!configuringPlugin}
+        onClose={() => {
+          setConfiguringPlugin(null);
+          setTenantConfigEntries([]);
+        }}
+        title={`Configure ${configuringPlugin?.deployment.package.displayName || ''}`}
+        description={configuringPlugin ? `v${configuringPlugin.deployment.version.version}` : undefined}
+        size="lg"
+      >
+        <p className="text-sm text-muted-foreground mb-4">
+          Add custom configuration key-value pairs for this plugin
+        </p>
+
+        <div className="space-y-3">
+          {tenantConfigEntries.map((entry, index) => (
+            <div key={index} className="flex items-center gap-2">
+              <Input
+                type="text"
+                value={entry.key}
+                onChange={(e) => handleUpdateConfigEntry(index, 'key', e.target.value)}
+                placeholder="Key"
+                className="flex-1"
+              />
+              <Input
+                type={entry.isSecret ? 'password' : 'text'}
+                value={entry.value}
+                onChange={(e) => handleUpdateConfigEntry(index, 'value', e.target.value)}
+                placeholder="Value"
+                className="flex-1"
+              />
               <button
-                onClick={() => {
-                  setConfiguringPlugin(null);
-                  setTenantConfigEntries([]);
-                }}
-                className="p-2 rounded-lg hover:bg-muted text-muted-foreground"
+                onClick={() => handleRemoveConfigEntry(index)}
+                className="p-2 rounded-lg hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-all"
               >
-                <X size={20} />
+                <X size={16} />
               </button>
             </div>
+          ))}
 
-            <div className="p-6 max-h-96 overflow-y-auto">
-              <p className="text-sm text-muted-foreground mb-4">
-                Add custom configuration key-value pairs for this plugin
-              </p>
-
-              <div className="space-y-3">
-                {tenantConfigEntries.map((entry, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={entry.key}
-                      onChange={(e) => handleUpdateConfigEntry(index, 'key', e.target.value)}
-                      placeholder="Key"
-                      className="flex-1 bg-background border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors text-sm"
-                    />
-                    <input
-                      type={entry.isSecret ? 'password' : 'text'}
-                      value={entry.value}
-                      onChange={(e) => handleUpdateConfigEntry(index, 'value', e.target.value)}
-                      placeholder="Value"
-                      className="flex-1 bg-background border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors text-sm"
-                    />
-                    <button
-                      onClick={() => handleRemoveConfigEntry(index)}
-                      className="p-2 rounded-lg hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-all"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                ))}
-
-                <button
-                  onClick={handleAddConfigEntry}
-                  className="w-full py-2 border border-dashed border-muted-foreground/30 rounded-lg text-muted-foreground hover:text-primary hover:border-primary/30 transition-all flex items-center justify-center gap-2"
-                >
-                  <Plus size={16} />
-                  Add Entry
-                </button>
-              </div>
-            </div>
-
-            <div className="flex gap-3 p-6 border-t border-border">
-              <button
-                onClick={() => {
-                  setConfiguringPlugin(null);
-                  setTenantConfigEntries([]);
-                }}
-                className="flex-1 px-4 py-3 bg-muted text-muted-foreground rounded-xl hover:bg-muted/80 transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSavePluginConfig}
-                disabled={saving}
-                className="flex-1 px-4 py-3 bg-primary text-primary-foreground rounded-xl font-bold hover:bg-primary/90 transition-all disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : 'Save Configuration'}
-              </button>
-            </div>
-          </div>
+          <button
+            onClick={handleAddConfigEntry}
+            className="w-full py-2 border border-dashed border-muted-foreground/30 rounded-lg text-muted-foreground hover:text-primary hover:border-primary/30 transition-all flex items-center justify-center gap-2"
+          >
+            <Plus size={16} />
+            Add Entry
+          </button>
         </div>
-      )}
+
+        <div className="flex gap-3 mt-6 pt-4 border-t border-border">
+          <Button
+            variant="ghost"
+            size="md"
+            className="flex-1"
+            onClick={() => {
+              setConfiguringPlugin(null);
+              setTenantConfigEntries([]);
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            className="flex-1"
+            loading={saving}
+            onClick={handleSavePluginConfig}
+          >
+            Save Configuration
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

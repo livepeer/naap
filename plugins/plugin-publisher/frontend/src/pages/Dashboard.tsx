@@ -39,7 +39,7 @@ export const Dashboard: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Plugin Publisher"
         subtitle="Publish and manage your plugins in the NAAP marketplace"
@@ -48,56 +48,56 @@ export const Dashboard: React.FC = () => {
 
       {/* Stats Overview */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="glass-card p-5">
+        <div className="glass-card p-3">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-text-secondary text-sm">Total Plugins</p>
-              <p className="text-3xl font-bold text-text-primary mt-1">{plugins.length}</p>
+              <p className="text-xl font-semibold text-text-primary mt-1">{plugins.length}</p>
             </div>
-            <div className="p-3 bg-accent-blue/20 rounded-xl">
-              <Package className="w-6 h-6 text-accent-blue" />
+            <div className="p-2 bg-accent-blue/20 rounded-md">
+              <Package className="w-4 h-4 text-accent-blue" />
             </div>
           </div>
         </div>
 
-        <div className="glass-card p-5">
+        <div className="glass-card p-3">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-text-secondary text-sm">Published</p>
-              <p className="text-3xl font-bold text-text-primary mt-1">{publishedCount}</p>
+              <p className="text-xl font-semibold text-text-primary mt-1">{publishedCount}</p>
             </div>
-            <div className="p-3 bg-accent-emerald/20 rounded-xl">
-              <TrendingUp className="w-6 h-6 text-accent-emerald" />
+            <div className="p-2 bg-accent-emerald/20 rounded-md">
+              <TrendingUp className="w-4 h-4 text-accent-emerald" />
             </div>
           </div>
         </div>
 
-        <div className="glass-card p-5">
+        <div className="glass-card p-3">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-text-secondary text-sm">Total Downloads</p>
-              <p className="text-3xl font-bold text-text-primary mt-1">
+              <p className="text-xl font-semibold text-text-primary mt-1">
                 {totalDownloads.toLocaleString()}
               </p>
             </div>
-            <div className="p-3 bg-accent-purple/20 rounded-xl">
-              <Download className="w-6 h-6 text-accent-purple" />
+            <div className="p-2 bg-accent-purple/20 rounded-md">
+              <Download className="w-4 h-4 text-accent-purple" />
             </div>
           </div>
         </div>
 
-        <div className="glass-card p-5">
+        <div className="glass-card p-3">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-text-secondary text-sm">Avg Rating</p>
-              <p className="text-3xl font-bold text-text-primary mt-1">
+              <p className="text-xl font-semibold text-text-primary mt-1">
                 {plugins.length > 0
                   ? (plugins.reduce((sum, p) => sum + (p.rating || 0), 0) / plugins.length).toFixed(1)
                   : '-'}
               </p>
             </div>
-            <div className="p-3 bg-accent-amber/20 rounded-xl">
-              <TrendingUp className="w-6 h-6 text-accent-amber" />
+            <div className="p-2 bg-accent-amber/20 rounded-md">
+              <TrendingUp className="w-4 h-4 text-accent-amber" />
             </div>
           </div>
         </div>
@@ -105,18 +105,18 @@ export const Dashboard: React.FC = () => {
 
       {/* Quick Actions */}
       <div>
-        <h2 className="text-lg font-semibold text-text-primary mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-4 gap-4">
+        <h2 className="text-sm font-semibold text-text-primary mb-3">Quick Actions</h2>
+        <div className="grid grid-cols-4 gap-3">
           {quickActions.map((action) => (
             <button
               key={action.path}
               onClick={() => navigate(action.path)}
-              className="glass-card p-5 hover:border-accent-emerald/30 transition-all text-left group"
+              className="glass-card p-3 hover:border-accent-emerald/30 transition-all text-left group"
             >
-              <div className={`p-3 ${action.color}/20 rounded-xl w-fit group-hover:scale-110 transition-transform`}>
-                <action.icon className={`w-6 h-6 ${action.color.replace('bg-', 'text-')}`} />
+              <div className={`p-2 ${action.color}/20 rounded-md w-fit group-hover:scale-110 transition-transform`}>
+                <action.icon className={`w-4 h-4 ${action.color.replace('bg-', 'text-')}`} />
               </div>
-              <p className="mt-3 font-medium text-text-primary">{action.label}</p>
+              <p className="mt-2 font-medium text-text-primary">{action.label}</p>
             </button>
           ))}
         </div>
@@ -124,8 +124,8 @@ export const Dashboard: React.FC = () => {
 
       {/* Recent Plugins */}
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-text-primary">Recent Plugins</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-text-primary">Recent Plugins</h2>
           <button
             onClick={() => navigate('/plugins')}
             className="text-sm text-accent-emerald hover:underline"
@@ -136,13 +136,13 @@ export const Dashboard: React.FC = () => {
 
         {loading ? (
           <div className="glass-card p-8 text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-emerald mx-auto"></div>
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent-emerald mx-auto"></div>
             <p className="mt-4 text-text-secondary">Loading plugins...</p>
           </div>
         ) : plugins.length === 0 ? (
           <div className="glass-card p-8 text-center">
-            <Package className="w-12 h-12 text-text-secondary mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-text-primary mb-2">No plugins yet</h3>
+            <Package className="w-8 h-8 text-text-secondary mx-auto mb-4" />
+            <h3 className="text-sm font-semibold text-text-primary mb-2">No plugins yet</h3>
             <p className="text-text-secondary mb-4">
               Publish your first plugin to the NAAP marketplace.
             </p>
@@ -151,7 +151,7 @@ export const Dashboard: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             {plugins.slice(0, 4).map((plugin) => (
               <div
                 key={plugin.id}

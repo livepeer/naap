@@ -63,22 +63,22 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({ onClose, onCre
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-bg-primary border border-white/10 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl">
+      <div className="bg-bg-primary border border-white/10 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-white/10">
-          <h2 className="text-xl font-bold text-text-primary">Create New Post</h2>
+        <div className="flex items-center justify-between p-4 border-b border-white/10">
+          <h2 className="text-sm font-semibold text-text-primary">Create New Post</h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+            className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
           >
             <X size={20} className="text-text-secondary" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {/* Post Type */}
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-3">
+            <label className="block text-xs font-medium text-text-secondary mb-2">
               What type of post is this?
             </label>
             <div className="grid grid-cols-3 gap-3">
@@ -87,7 +87,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({ onClose, onCre
                   key={type.value}
                   type="button"
                   onClick={() => setPostType(type.value)}
-                  className={`p-4 rounded-xl border text-left transition-all ${
+                  className={`p-3 rounded-lg border text-left transition-all ${
                     postType === type.value
                       ? 'border-accent-blue bg-accent-blue/10'
                       : 'border-white/10 hover:border-white/20'
@@ -109,13 +109,13 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({ onClose, onCre
 
           {/* Category */}
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-2">
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">
               Category
             </label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="w-full bg-bg-secondary border border-white/10 rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-accent-blue appearance-none cursor-pointer"
+              className="w-full bg-bg-secondary border border-white/10 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-accent-blue appearance-none cursor-pointer"
             >
               {CATEGORIES.map((cat) => (
                 <option key={cat.value} value={cat.value}>
@@ -127,7 +127,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({ onClose, onCre
 
           {/* Title */}
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-2">
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">
               Title
             </label>
             <input
@@ -139,19 +139,19 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({ onClose, onCre
                   ? 'e.g., How do I configure multi-GPU transcoding?'
                   : 'Give your post a clear title'
               }
-              className="w-full bg-bg-secondary border border-white/10 rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-accent-blue"
+              className="w-full bg-bg-secondary border border-white/10 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-accent-blue"
             />
           </div>
 
           {/* Content */}
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-2">
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">
               Content
             </label>
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              rows={10}
+              rows={8}
               placeholder={`Describe your ${postType.toLowerCase()} in detail...
 
 You can use Markdown:
@@ -163,13 +163,13 @@ Be specific and include relevant details like:
 - Your setup/configuration
 - Error messages (if any)
 - What you've already tried`}
-              className="w-full bg-bg-secondary border border-white/10 rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-accent-blue resize-none font-mono"
+              className="w-full bg-bg-secondary border border-white/10 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-accent-blue resize-none font-mono"
             />
           </div>
 
           {/* Tags */}
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-2">
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">
               Tags (comma separated)
             </label>
             <input
@@ -177,30 +177,30 @@ Be specific and include relevant details like:
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder="e.g., gpu, orchestrator, troubleshooting"
-              className="w-full bg-bg-secondary border border-white/10 rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-accent-blue"
+              className="w-full bg-bg-secondary border border-white/10 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-accent-blue"
             />
           </div>
 
           {/* Error */}
           {error && (
-            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">
+            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
               {error}
             </div>
           )}
 
           {/* Actions */}
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+          <div className="flex items-center justify-end gap-3 pt-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-6 py-2.5 text-text-secondary hover:text-text-primary transition-colors"
+              className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting}
-              className="flex items-center gap-2 px-6 py-2.5 bg-accent-emerald text-white rounded-xl font-medium hover:bg-accent-emerald/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-3 py-1.5 bg-accent-emerald text-white rounded-md text-xs font-medium hover:bg-accent-emerald/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? (
                 <>

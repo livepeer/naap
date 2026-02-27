@@ -27,14 +27,14 @@ export const PluginCard: React.FC<PluginCardProps> = ({ plugin, onUnpublish }) =
   };
 
   return (
-    <div className="glass-card p-5 hover:border-accent-emerald/30 transition-all cursor-pointer">
+    <div className="glass-card p-3 hover:border-accent-emerald/30 transition-all cursor-pointer">
       <div className="flex items-start justify-between">
-        <div className="flex items-center gap-4" onClick={() => navigate(`/plugins/${plugin.name}`)}>
-          <div className="p-3 bg-bg-tertiary rounded-xl">
-            <LucideIcon name={plugin.icon || 'Package'} className="w-6 h-6 text-accent-emerald" />
+        <div className="flex items-center gap-3" onClick={() => navigate(`/plugins/${plugin.name}`)}>
+          <div className="p-2 bg-bg-tertiary rounded-md">
+            <LucideIcon name={plugin.icon || 'Package'} className="w-4 h-4 text-accent-emerald" />
           </div>
           <div>
-            <h3 className="font-semibold text-text-primary">{plugin.displayName || plugin.name}</h3>
+            <h3 className="text-sm font-semibold text-text-primary">{plugin.displayName || plugin.name}</h3>
             <p className="text-sm text-text-secondary">{plugin.name}</p>
           </div>
         </div>
@@ -50,22 +50,22 @@ export const PluginCard: React.FC<PluginCardProps> = ({ plugin, onUnpublish }) =
             </button>
             
             {showMenu && (
-              <div className="absolute right-0 top-full mt-1 bg-bg-secondary border border-white/10 rounded-lg shadow-xl z-10 min-w-[160px]">
+              <div className="absolute right-0 top-full mt-1 bg-bg-secondary border border-white/10 rounded-lg shadow-xl z-10 min-w-[140px]">
                 <button
                   onClick={(e) => { e.stopPropagation(); navigate(`/plugins/${plugin.name}`); }}
-                  className="w-full px-4 py-2 text-left text-sm hover:bg-bg-tertiary flex items-center gap-2"
+                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-bg-tertiary flex items-center gap-2"
                 >
                   <Eye className="w-4 h-4" /> View Details
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); onUnpublish?.(plugin.name); setShowMenu(false); }}
-                  className="w-full px-4 py-2 text-left text-sm hover:bg-bg-tertiary flex items-center gap-2 text-accent-amber"
+                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-bg-tertiary flex items-center gap-2 text-accent-amber"
                 >
                   <EyeOff className="w-4 h-4" /> Unlist
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); onUnpublish?.(plugin.name); setShowMenu(false); }}
-                  className="w-full px-4 py-2 text-left text-sm hover:bg-bg-tertiary flex items-center gap-2 text-accent-rose"
+                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-bg-tertiary flex items-center gap-2 text-accent-rose"
                 >
                   <Trash2 className="w-4 h-4" /> Deprecate
                 </button>
@@ -75,11 +75,11 @@ export const PluginCard: React.FC<PluginCardProps> = ({ plugin, onUnpublish }) =
         </div>
       </div>
       
-      <p className="mt-3 text-sm text-text-secondary line-clamp-2">
+      <p className="mt-2 text-sm text-text-secondary line-clamp-2">
         {plugin.description || 'No description available'}
       </p>
       
-      <div className="mt-4 flex items-center gap-6 text-sm text-text-secondary">
+      <div className="mt-2 flex items-center gap-4 text-sm text-text-secondary">
         <div className="flex items-center gap-1">
           <Download className="w-4 h-4" />
           <span>{(plugin.downloads ?? 0).toLocaleString()}</span>
