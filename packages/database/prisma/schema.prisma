@@ -1719,7 +1719,8 @@ model ConnectorEndpoint {
   upstreamContentType String   @default("application/json")
   upstreamQueryParams Json     @default("{}")
   upstreamStaticBody  String?                         // static body for GET-as-POST patterns
-  bodyTransform       String   @default("passthrough") // passthrough | extract:field | static | template
+  bodyTransform       String   @default("passthrough") // passthrough | extract:field | static | template | binary | form-encode
+  responseBodyTransform String  @default("none")       // none | field-map (extensible via registry)
   headerMapping       Json     @default("{}")
 
   // ── Policy ──

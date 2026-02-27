@@ -25,6 +25,7 @@ import { resolveSecrets } from '@/lib/gateway/secrets';
 import { getCachedResponse, setCachedResponse, buildCacheKey } from '@/lib/gateway/cache';
 import { getAuthToken, getClientIP } from '@/lib/api/response';
 import type { UsageData } from '@/lib/gateway/types';
+import '@/lib/gateway/transforms';
 
 type RouteContext = { params: Promise<{ connector: string; path: string[] }> };
 

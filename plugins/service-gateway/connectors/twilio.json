@@ -21,10 +21,10 @@
     "tags": ["twilio", "sms", "voice", "messaging", "communication"]
   },
   "endpoints": [
-    { "name": "send-message", "description": "Send an SMS or MMS message", "method": "POST", "path": "/messages", "upstreamPath": "/2010-04-01/Accounts/{account_sid}/Messages.json", "rateLimit": 30, "timeout": 10000, "upstreamContentType": "application/x-www-form-urlencoded" },
+    { "name": "send-message", "description": "Send an SMS or MMS message", "method": "POST", "path": "/messages", "upstreamPath": "/2010-04-01/Accounts/{account_sid}/Messages.json", "rateLimit": 30, "timeout": 10000, "upstreamContentType": "application/x-www-form-urlencoded", "bodyTransform": "form-encode" },
     { "name": "list-messages", "description": "List sent/received messages", "method": "GET", "path": "/messages", "upstreamPath": "/2010-04-01/Accounts/{account_sid}/Messages.json", "rateLimit": 100, "timeout": 10000 },
     { "name": "get-message", "description": "Get message details", "method": "GET", "path": "/messages/:sid", "upstreamPath": "/2010-04-01/Accounts/{account_sid}/Messages/:sid.json", "rateLimit": 100, "timeout": 5000 },
-    { "name": "make-call", "description": "Initiate a phone call", "method": "POST", "path": "/calls", "upstreamPath": "/2010-04-01/Accounts/{account_sid}/Calls.json", "rateLimit": 20, "timeout": 30000, "upstreamContentType": "application/x-www-form-urlencoded" },
+    { "name": "make-call", "description": "Initiate a phone call", "method": "POST", "path": "/calls", "upstreamPath": "/2010-04-01/Accounts/{account_sid}/Calls.json", "rateLimit": 20, "timeout": 30000, "upstreamContentType": "application/x-www-form-urlencoded", "bodyTransform": "form-encode" },
     { "name": "list-calls", "description": "List call records", "method": "GET", "path": "/calls", "upstreamPath": "/2010-04-01/Accounts/{account_sid}/Calls.json", "rateLimit": 100, "timeout": 10000 }
   ],
   "envKey": "TWILIO_AUTH_TOKEN"
