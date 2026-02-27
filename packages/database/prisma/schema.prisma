@@ -1810,3 +1810,21 @@ model GatewayHealthCheck {
   @@index([connectorId, checkedAt])
   @@schema("plugin_service_gateway")
 }
+
+/// Connector template stored in the database. Populated from JSON files
+/// during build/deploy by sync-plugin-registry.ts. Provides the same data
+/// that was previously loaded from disk via fs.readFileSync.
+model GatewayConnectorTemplate {
+  id            String   @id                          // e.g. "ai-llm"
+  name          String
+  description   String
+  icon          String   @default("")
+  category      String   @default("")
+  connector     Json                                  // ConnectorTemplateConnector shape
+  endpoints     Json                                  // ConnectorTemplateEndpoint[] shape
+  source        String   @default("builtin")          // builtin | community
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@schema("plugin_service_gateway")
+}

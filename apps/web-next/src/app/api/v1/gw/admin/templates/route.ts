@@ -1,147 +1,33 @@
 /**
  * Service Gateway — Admin: Templates
- * GET  /api/v1/gw/admin/templates        — List available templates
+ * GET  /api/v1/gw/admin/templates        — List available connector templates
  * POST /api/v1/gw/admin/templates         — Create connector from template
  */
+
+export const runtime = 'nodejs';
 
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard';
+import {
+  loadConnectorTemplates,
+  getTemplateById,
+  type ConnectorTemplate,
+} from '@/lib/gateway/connector-templates';
 
-// ── Built-in templates (loaded from JSON at build time) ──
+export async function GET() {
+  const templates = await loadConnectorTemplates();
 
-interface TemplateEndpoint {
-  name: string;
-  description?: string;
-  method: string;
-  path: string;
-  upstreamPath: string;
-  upstreamContentType?: string;
-  bodyTransform?: string;
-  bodyBlacklist?: string[];
-  bodyPattern?: string;
-  bodySchema?: unknown;
-  cacheTtl?: number;
-  timeout?: number;
-  retries?: number;
-}
-
-interface Template {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  category: string;
-  connector: {
-    slug: string;
-    displayName: string;
-    description?: string;
-    authType: string;
-    authConfig: Record<string, unknown>;
-    secretRefs: string[];
-    streamingEnabled?: boolean;
-    responseWrapper?: boolean;
-    healthCheckPath?: string;
-    defaultTimeout?: number;
-    tags?: string[];
-  };
-  endpoints: TemplateEndpoint[];
-}
-
-// Templates are embedded at build time — in production these would be loaded from files
-const TEMPLATES: Template[] = [
-  {
-    id: 'ai-llm',
-    name: 'AI / LLM',
-    description: 'OpenAI-compatible LLM inference API — works with OpenAI, Anthropic, Azure OpenAI, Ollama, vLLM',
-    icon: '🤖',
-    category: 'ai',
-    connector: {
-      slug: 'ai-llm',
-      displayName: 'AI / LLM API',
-      description: 'OpenAI-compatible LLM inference API',
-      authType: 'bearer',
-      authConfig: { tokenRef: 'token' },
-      secretRefs: ['token'],
-      streamingEnabled: true,
-      responseWrapper: true,
-      healthCheckPath: '/v1/models',
-      defaultTimeout: 60000,
-      tags: ['ai', 'llm', 'openai'],
-    },
-    endpoints: [
-      { name: 'Chat Completions', method: 'POST', path: '/chat', upstreamPath: '/v1/chat/completions', upstreamContentType: 'application/json', bodyTransform: 'passthrough', timeout: 60000, retries: 0 },
-      { name: 'Completions', method: 'POST', path: '/completions', upstreamPath: '/v1/completions', upstreamContentType: 'application/json', bodyTransform: 'passthrough', timeout: 60000, retries: 0 },
-      { name: 'Embeddings', method: 'POST', path: '/embeddings', upstreamPath: '/v1/embeddings', upstreamContentType: 'application/json', bodyTransform: 'passthrough' },
-      { name: 'List Models', method: 'GET', path: '/models', upstreamPath: '/v1/models', upstreamContentType: 'application/json', bodyTransform: 'passthrough', cacheTtl: 300 },
-    ],
-  },
-  {
-    id: 'clickhouse',
-    name: 'ClickHouse',
-    description: 'ClickHouse analytics database — SQL queries with SELECT-only enforcement',
-    icon: '📊',
-    category: 'analytics',
-    connector: {
-      slug: 'clickhouse',
-      displayName: 'ClickHouse',
-      description: 'ClickHouse analytics query API with SELECT-only enforcement',
-      authType: 'basic',
-      authConfig: { usernameRef: 'username', passwordRef: 'password' },
-      secretRefs: ['username', 'password'],
-      streamingEnabled: false,
-      responseWrapper: true,
-      healthCheckPath: '/ping',
-      defaultTimeout: 30000,
-      tags: ['analytics', 'database', 'clickhouse', 'sql'],
-    },
-    endpoints: [
-      { name: 'Query', method: 'POST', path: '/query', upstreamPath: '/', upstreamContentType: 'application/json', bodyTransform: 'passthrough', bodyBlacklist: ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'ALTER', 'CREATE', 'TRUNCATE'], timeout: 30000 },
-      { name: 'Tables', method: 'GET', path: '/tables', upstreamPath: '/?query=SHOW+TABLES+FORMAT+JSON', upstreamContentType: 'application/json', bodyTransform: 'passthrough', cacheTtl: 60 },
-    ],
-  },
-  {
-    id: 'daydream',
-    name: 'Daydream API',
-    description: 'Daydream.live real-time AI video generation API',
-    icon: '🎥',
-    category: 'media',
-    connector: {
-      slug: 'daydream',
-      displayName: 'Daydream API',
-      description: 'Real-time AI video generation via Daydream.live',
-      authType: 'bearer',
-      authConfig: { tokenRef: 'token' },
-      secretRefs: ['token'],
-      streamingEnabled: true,
-      responseWrapper: true,
-      healthCheckPath: '/health',
-      defaultTimeout: 30000,
-      tags: ['ai', 'video', 'streaming', 'daydream'],
-    },
-    endpoints: [
-      { name: 'Create Stream', method: 'POST', path: '/streams', upstreamPath: '/api/v1/streams', upstreamContentType: 'application/json', bodyTransform: 'passthrough' },
-      { name: 'Get Stream', method: 'GET', path: '/streams/:id', upstreamPath: '/api/v1/streams/:id', upstreamContentType: 'application/json', bodyTransform: 'passthrough' },
-      { name: 'Update Prompt', method: 'PUT', path: '/streams/:id/prompt', upstreamPath: '/api/v1/streams/:id/prompt', upstreamContentType: 'application/json', bodyTransform: 'passthrough' },
-      { name: 'Stop Stream', method: 'DELETE', path: '/streams/:id', upstreamPath: '/api/v1/streams/:id', upstreamContentType: 'application/json', bodyTransform: 'passthrough' },
-    ],
-  },
-];
-
-export async function GET(request: NextRequest) {
-  const ctx = await getAdminContext(request);
-  if (isErrorResponse(ctx)) return ctx;
-
-  const summaries = TEMPLATES.map(({ id, name, description, icon, category, connector, endpoints }) => ({
-    id,
-    name,
-    description,
-    icon,
-    category,
-    slug: connector.slug,
-    authType: connector.authType,
-    endpointCount: endpoints.length,
+  const summaries = templates.map((t) => ({
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    icon: t.icon,
+    category: t.category,
+    slug: t.connector.slug,
+    authType: t.connector.authType,
+    endpointCount: t.endpoints.length,
   }));
 
   return success(summaries);
@@ -171,7 +57,7 @@ export async function POST(request: NextRequest) {
     return errors.badRequest('templateId and upstreamBaseUrl are required');
   }
 
-  const template = TEMPLATES.find((t) => t.id === templateId);
+  const template = await getTemplateById(templateId);
   if (!template) {
     return errors.notFound('Template');
   }
@@ -208,7 +94,7 @@ export async function POST(request: NextRequest) {
         upstreamBaseUrl,
         allowedHosts,
         authType: template.connector.authType,
-        authConfig: template.connector.authConfig,
+        authConfig: template.connector.authConfig || {},
         secretRefs: template.connector.secretRefs,
         streamingEnabled: template.connector.streamingEnabled ?? false,
         responseWrapper: template.connector.responseWrapper ?? true,
