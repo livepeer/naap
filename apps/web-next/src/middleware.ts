@@ -1,13 +1,16 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-// Plugin route mapping: path prefix → plugin name
-// These routes are defined in the database seed and used by plugins
+// Plugin route mapping: path prefix → plugin name (camelCase)
+// Each entry maps a custom URL prefix to the internal plugin name used
+// by the /plugins/[name] loader page. When adding a new plugin with
+// custom routes, add it here AND in the plugin's plugin.json frontend.routes.
 const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/capacity': 'capacityPlanner',
   '/forum': 'community',
   '/developers': 'developerApi',
   '/publish': 'pluginPublisher',
+  '/gateway': 'serviceGateway',
   // Note: /marketplace and /dashboard have their own page.tsx files
 };
 

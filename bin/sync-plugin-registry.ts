@@ -330,6 +330,30 @@ async function main(): Promise<void> {
       );
     }
 
+    // ------------------------------------------------------------------
+    // Validate middleware route map completeness
+    // ------------------------------------------------------------------
+    const middlewarePath = path.join(MONOREPO_ROOT, 'apps', 'web-next', 'src', 'middleware.ts');
+    if (fs.existsSync(middlewarePath)) {
+      const middlewareSrc = fs.readFileSync(middlewarePath, 'utf-8');
+      let missingRoutes = 0;
+      for (const p of discovered) {
+        if (!p.routes || p.routes.length === 0) continue;
+        const primaryRoute = p.routes[0]; // e.g. "/gateway"
+        if (!middlewareSrc.includes(`'${primaryRoute}'`)) {
+          console.warn(
+            `  [WARN] Plugin "${p.name}" defines route "${primaryRoute}" but it's missing from middleware.ts PLUGIN_ROUTE_MAP`,
+          );
+          missingRoutes++;
+        }
+      }
+      if (missingRoutes > 0) {
+        console.warn(
+          `[sync-plugin-registry] ${missingRoutes} plugin route(s) missing from middleware.ts — users will see 404 for these plugins`,
+        );
+      }
+    }
+
     console.log('[sync-plugin-registry] Done.');
   } finally {
     await prisma.$disconnect();
