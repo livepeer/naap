@@ -6,9 +6,15 @@
 import {NextRequest, NextResponse } from 'next/server';
 import { requestPasswordReset } from '@/lib/api/auth';
 import { success, errors } from '@/lib/api/response';
+import { enforceRateLimit } from '@/lib/api/rate-limit';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const rateLimitResponse = enforceRateLimit(request, { keyPrefix: 'auth:forgot-password' });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     const body = await request.json();
     const { email } = body;
 

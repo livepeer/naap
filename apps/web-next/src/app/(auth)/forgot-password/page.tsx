@@ -18,20 +18,21 @@ export default function ForgotPasswordPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE}/v1/auth/forgot-password`, {
+      await fetch(`${API_BASE}/v1/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Failed to send reset email');
-      }
-
+      // Avoid account enumeration from UI behavior: submit success state
+      // regardless of backend status.
       setIsSubmitted(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send reset email');
+      setError(
+        err instanceof Error
+          ? 'Unable to send reset email. Please try again later.'
+          : 'Unable to send reset email. Please try again later.'
+      );
     } finally {
       setIsLoading(false);
     }

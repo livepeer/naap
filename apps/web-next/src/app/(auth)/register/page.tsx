@@ -54,14 +54,13 @@ export default function RegisterPage() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Registration failed');
+        throw new Error('Unable to create account. Please try again later.');
       }
 
       // Redirect to verify email page
       router.push(`/verify-email?email=${encodeURIComponent(formData.email)}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
+      setError(err instanceof Error ? err.message : 'Unable to create account. Please try again later.');
     } finally {
       setIsLoading(false);
     }

@@ -34,15 +34,14 @@ function VerifyEmailContent() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Verification failed');
+        throw new Error('Invalid or expired verification token');
       }
 
       setStatus('success');
       setTimeout(() => router.push('/login'), 3000);
     } catch (err) {
       setStatus('error');
-      setError(err instanceof Error ? err.message : 'Verification failed');
+      setError(err instanceof Error ? err.message : 'Unable to verify email. Please try again later.');
     }
   };
 
@@ -65,7 +64,7 @@ function VerifyEmailContent() {
 
       setResendSuccess(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to resend');
+      setError(err instanceof Error ? err.message : 'Unable to resend verification email. Please try again later.');
     } finally {
       setIsResending(false);
     }

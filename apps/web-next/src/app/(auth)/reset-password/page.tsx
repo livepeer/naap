@@ -60,14 +60,13 @@ function ResetPasswordForm() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Failed to reset password');
+        throw new Error('Invalid or expired reset token');
       }
 
       setIsSuccess(true);
       setTimeout(() => router.push('/login'), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to reset password');
+      setError(err instanceof Error ? err.message : 'Unable to reset password. Please try again later.');
     } finally {
       setIsLoading(false);
     }
