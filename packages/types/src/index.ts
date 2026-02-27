@@ -216,6 +216,33 @@ export interface ThemeTokens {
 // Developer API Manager types
 export type AIModelType = 'text-to-video' | 'image-to-video' | 'video-to-video';
 
+export interface GPUHardwareSummary {
+  name: string;          // "NVIDIA GeForce RTX 5090"
+  count: number;         // distinct gpu_id count
+  memoryGB: number;      // gpu_memory_total / 1e9, rounded
+  avgFPS: number;
+  p95FPS: number;
+  avgLatencyMs: number | null;
+  failureRate: number;   // 0-1
+}
+
+export interface NetworkModel {
+  id: string;                  // "{pipelineId}::{modelId}"
+  pipelineId: string;          // "live-video-to-video"
+  pipelineType: string;        // "Video-to-Video" (display name)
+  modelId: string;             // "streamdiffusion-sdxl"
+  displayName: string;         // "SDXL StreamDiffusion"
+  regions: string[];           // display names: ["Frankfurt", "Chicago", "Seattle"]
+  regionCodes: string[];       // ["FRA", "MDW", "SEA"]
+  gpuHardware: GPUHardwareSummary[];
+  orchestratorCount: number;
+  avgFPS: number;
+  e2eLatencyMs: number | null;
+  slaScore: number | null;     // 0-1
+  isRealtime: boolean;
+  gatewayOffers?: GatewayOffer[];
+}
+
 export interface AIModel {
   id: string;
   name: string;
@@ -231,6 +258,33 @@ export interface AIModel {
   badges: string[];
 }
 
+export type SLATier = 'bronze' | 'silver' | 'gold';
+export type CapacityLevel = 'low' | 'medium' | 'high';
+
+export interface NetworkDemandSummary {
+  gatewayId: string;
+  gatewayName: string;
+  pipeline: string;
+  regions: string[];
+  totalSessions: number;
+  servedSessions: number;
+  missingCapacityCount: number;
+  successRatio: number;
+  totalInferenceMinutes: number;
+  feePaymentEth: number;
+  demandLevel: CapacityLevel;
+}
+
+export interface GatewayOffer {
+  gatewayId: string;
+  gatewayName: string;
+  slaTier: SLATier;
+  uptimeGuarantee: number;
+  latencyGuarantee: number;
+  unitPrice: number;
+  regions: string[];
+  capacity: CapacityLevel;
+}
 export type ApiKeyStatus = 'active' | 'revoked';
 
 export interface DeveloperApiKey {
