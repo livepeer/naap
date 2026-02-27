@@ -231,7 +231,7 @@ async function main() {
           status: 'active',
         },
       });
-      console.log(`  API key: ${rawKey.slice(0, 8)}... (full: ${rawKey})`);
+      console.log(`  API key: ${rawKey.slice(0, 11)}...`);
     } else {
       console.log(`  API key exists: ${existingKey.keyPrefix}...`);
     }
