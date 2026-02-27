@@ -17,6 +17,7 @@ interface Connector {
   visibility?: string;
   ownerUserId?: string | null;
   teamId?: string | null;
+  category?: string;
   endpointCount: number;
   updatedAt: string;
   tags: string[];
@@ -40,6 +41,16 @@ const VISIBILITY_BADGES: Record<string, { label: string; className: string }> = 
   public: { label: '🌐 Public', className: 'bg-blue-500/10 text-blue-400 border-blue-500/30' },
 };
 
+const CATEGORY_META: Record<string, { label: string; icon: string; color: string }> = {
+  ai:        { label: 'AI & ML',     icon: '🤖', color: 'bg-violet-500/10 text-violet-400 border-violet-500/30' },
+  video:     { label: 'Video',       icon: '🎬', color: 'bg-pink-500/10 text-pink-400 border-pink-500/30' },
+  database:  { label: 'Database',    icon: '🗄️', color: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
+  storage:   { label: 'Storage',     icon: '📦', color: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30' },
+  payments:  { label: 'Payments',    icon: '💳', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' },
+  messaging: { label: 'Messaging',   icon: '📡', color: 'bg-orange-500/10 text-orange-400 border-orange-500/30' },
+  email:     { label: 'Email',       icon: '✉️', color: 'bg-sky-500/10 text-sky-400 border-sky-500/30' },
+};
+
 const TEMPLATES = [
   { id: 'ai-llm', label: 'AI / LLM', icon: '🤖', desc: 'OpenAI-compatible APIs' },
   { id: 'clickhouse', label: 'ClickHouse', icon: '📊', desc: 'Analytics queries' },
@@ -53,6 +64,7 @@ export const ConnectorListPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [scopeFilter, setScopeFilter] = useState<string>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
 
   const { get: apiGet } = api;
   const loadConnectors = useCallback(() => {
@@ -68,11 +80,23 @@ export const ConnectorListPage: React.FC = () => {
   }, [loadConnectors]);
 
   const connectors = data?.data || [];
-  const filtered = connectors.filter(
-    (c) =>
+
+  const categoryCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of connectors) {
+      const cat = c.category || '';
+      if (cat) counts[cat] = (counts[cat] || 0) + 1;
+    }
+    return counts;
+  }, [connectors]);
+
+  const filtered = connectors.filter((c) => {
+    const matchesSearch =
       c.displayName.toLowerCase().includes(search.toLowerCase()) ||
-      c.slug.toLowerCase().includes(search.toLowerCase())
-  );
+      c.slug.toLowerCase().includes(search.toLowerCase());
+    const matchesCategory = !categoryFilter || c.category === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
 
   return (
     <TeamGuard>
@@ -109,7 +133,7 @@ export const ConnectorListPage: React.FC = () => {
         </div>
 
         {/* Search + Filter */}
-        <div className="flex gap-3 mb-6">
+        <div className="flex gap-3 mb-4">
           <input
             type="text"
             placeholder="Search connectors..."
@@ -128,6 +152,39 @@ export const ConnectorListPage: React.FC = () => {
             <option value="archived">Archived</option>
           </select>
         </div>
+
+        {/* Category Filter Pills */}
+        {Object.keys(categoryCounts).length > 0 && (
+          <div className="flex gap-2 mb-6 flex-wrap">
+            <button
+              onClick={() => setCategoryFilter('')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                !categoryFilter
+                  ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
+                  : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-600'
+              }`}
+            >
+              All ({connectors.length})
+            </button>
+            {Object.entries(CATEGORY_META).map(([key, meta]) => {
+              const count = categoryCounts[key];
+              if (!count) return null;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setCategoryFilter(categoryFilter === key ? '' : key)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                    categoryFilter === key
+                      ? meta.color
+                      : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-600'
+                  }`}
+                >
+                  {meta.icon} {meta.label} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Loading */}
         {loading && (
@@ -197,7 +254,12 @@ export const ConnectorListPage: React.FC = () => {
                 {connector.description && (
                   <p className="text-xs text-gray-400 mb-3 line-clamp-2">{connector.description}</p>
                 )}
-                <div className="flex items-center gap-3 text-xs text-gray-500">
+                <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
+                  {connector.category && CATEGORY_META[connector.category] && (
+                    <span className={`px-1.5 py-0.5 rounded border text-[10px] font-medium ${CATEGORY_META[connector.category].color}`}>
+                      {CATEGORY_META[connector.category].icon} {CATEGORY_META[connector.category].label}
+                    </span>
+                  )}
                   <span>{connector.endpointCount} endpoint{connector.endpointCount !== 1 ? 's' : ''}</span>
                   <span>·</span>
                   <span>{connector.slug}</span>

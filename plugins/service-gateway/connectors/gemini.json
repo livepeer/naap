@@ -1,0 +1,29 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "gemini",
+  "name": "Google Gemini API",
+  "description": "Google Gemini generative AI — chat, embeddings, and model listing",
+  "icon": "✨",
+  "category": "ai",
+  "connector": {
+    "slug": "gemini",
+    "displayName": "Google Gemini API",
+    "description": "Google Gemini generative AI — chat, embeddings, and model listing",
+    "category": "ai",
+    "upstreamBaseUrl": "https://generativelanguage.googleapis.com",
+    "allowedHosts": ["generativelanguage.googleapis.com"],
+    "defaultTimeout": 60000,
+    "authType": "query",
+    "authConfig": { "paramName": "key", "secretRef": "token" },
+    "secretRefs": ["token"],
+    "streamingEnabled": true,
+    "tags": ["google", "gemini", "ai", "llm", "generative"]
+  },
+  "endpoints": [
+    { "name": "list-models", "description": "List available Gemini models", "method": "GET", "path": "/models", "upstreamPath": "/v1beta/models", "rateLimit": 100, "timeout": 5000, "cacheTtl": 300 },
+    { "name": "generate-content", "description": "Generate content with Gemini", "method": "POST", "path": "/chat", "upstreamPath": "/v1beta/models/gemini-2.0-flash:generateContent", "rateLimit": 30, "timeout": 30000 },
+    { "name": "embed-content", "description": "Generate text embeddings", "method": "POST", "path": "/embeddings", "upstreamPath": "/v1beta/models/text-embedding-004:embedContent", "rateLimit": 50, "timeout": 15000 },
+    { "name": "stream-chat", "description": "Stream chat response (SSE)", "method": "POST", "path": "/stream-chat", "upstreamPath": "/v1beta/models/gemini-2.0-flash:streamGenerateContent", "rateLimit": 20, "timeout": 60000 }
+  ],
+  "envKey": "GEMINI_API_KEY"
+}

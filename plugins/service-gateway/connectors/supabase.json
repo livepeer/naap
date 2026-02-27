@@ -1,0 +1,33 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "supabase",
+  "name": "Supabase",
+  "description": "Supabase — Postgres database, authentication, and storage via REST (PostgREST)",
+  "icon": "⚡",
+  "category": "database",
+  "connector": {
+    "slug": "supabase",
+    "displayName": "Supabase",
+    "description": "Supabase — Postgres database, authentication, and storage via REST (PostgREST)",
+    "category": "database",
+    "upstreamBaseUrl": "https://YOUR_PROJECT_REF.supabase.co",
+    "allowedHosts": ["supabase.co"],
+    "defaultTimeout": 30000,
+    "authType": "header",
+    "authConfig": { "headers": { "apikey": "{{secrets.anon_key}}", "Authorization": "Bearer {{secrets.anon_key}}" } },
+    "secretRefs": ["anon_key"],
+    "streamingEnabled": false,
+    "tags": ["supabase", "postgres", "database", "auth", "storage", "baas"]
+  },
+  "endpoints": [
+    { "name": "rest-read", "description": "Read data via PostgREST (any table/view)", "method": "GET", "path": "/rest/:path*", "upstreamPath": "/rest/v1/:path*", "rateLimit": 200, "timeout": 10000 },
+    { "name": "rest-insert", "description": "Insert rows via PostgREST", "method": "POST", "path": "/rest/:path*", "upstreamPath": "/rest/v1/:path*", "rateLimit": 50, "timeout": 10000 },
+    { "name": "rest-update", "description": "Update rows via PostgREST", "method": "PATCH", "path": "/rest/:path*", "upstreamPath": "/rest/v1/:path*", "rateLimit": 50, "timeout": 10000 },
+    { "name": "rest-delete", "description": "Delete rows via PostgREST", "method": "DELETE", "path": "/rest/:path*", "upstreamPath": "/rest/v1/:path*", "rateLimit": 30, "timeout": 10000 },
+    { "name": "auth-signup", "description": "Sign up a new user", "method": "POST", "path": "/auth/signup", "upstreamPath": "/auth/v1/signup", "rateLimit": 10, "timeout": 10000 },
+    { "name": "auth-token", "description": "Sign in with email/password", "method": "POST", "path": "/auth/token", "upstreamPath": "/auth/v1/token?grant_type=password", "rateLimit": 20, "timeout": 10000 },
+    { "name": "storage-upload", "description": "Upload a file to storage", "method": "POST", "path": "/storage/object/:path*", "upstreamPath": "/storage/v1/object/:path*", "rateLimit": 20, "timeout": 60000, "bodyTransform": "binary", "upstreamContentType": "" },
+    { "name": "storage-download", "description": "Download a file from storage", "method": "GET", "path": "/storage/object/:path*", "upstreamPath": "/storage/v1/object/:path*", "rateLimit": 100, "timeout": 30000 }
+  ],
+  "envKey": "SUPABASE_ANON_KEY"
+}

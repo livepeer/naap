@@ -1,0 +1,196 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "connector-template.schema.json",
+  "title": "Service Gateway Connector Template",
+  "description": "Declarative schema for defining a Service Gateway connector. Drop a JSON file conforming to this schema into the connectors/ folder and it will be auto-discovered.",
+  "type": "object",
+  "required": ["id", "name", "description", "icon", "category", "connector", "endpoints"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional JSON Schema reference for editor validation"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+      "minLength": 2,
+      "maxLength": 64,
+      "description": "Unique template identifier (typically matches connector.slug)"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Human-readable template name shown in the picker UI"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 1024,
+      "description": "Short description of what this connector does"
+    },
+    "icon": {
+      "type": "string",
+      "maxLength": 32,
+      "description": "Emoji or icon identifier for the template picker"
+    },
+    "category": {
+      "type": "string",
+      "enum": ["ai", "video", "database", "storage", "payments", "messaging", "email"],
+      "description": "Primary classification for filtering"
+    },
+    "connector": {
+      "type": "object",
+      "required": ["slug", "displayName", "upstreamBaseUrl", "authType", "secretRefs"],
+      "additionalProperties": false,
+      "description": "ServiceConnector creation data",
+      "properties": {
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "category": {
+          "type": "string",
+          "enum": ["ai", "video", "database", "storage", "payments", "messaging", "email"]
+        },
+        "upstreamBaseUrl": {
+          "type": "string",
+          "description": "Default upstream base URL (user can override for self-hosted instances)"
+        },
+        "allowedHosts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "SSRF protection allowlist; auto-derived from upstreamBaseUrl if omitted"
+        },
+        "defaultTimeout": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 120000,
+          "default": 30000
+        },
+        "healthCheckPath": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "authType": {
+          "type": "string",
+          "enum": ["none", "bearer", "header", "basic", "query", "aws-s3"]
+        },
+        "authConfig": {
+          "type": "object",
+          "description": "Auth-type-specific configuration (no secrets)"
+        },
+        "secretRefs": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 64 },
+          "description": "References to secrets the user must provide"
+        },
+        "streamingEnabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "responseWrapper": {
+          "type": "boolean",
+          "default": true,
+          "description": "Wrap upstream response in GatewayEnvelope"
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 32 },
+          "description": "Free-form tags for search"
+        }
+      }
+    },
+    "endpoints": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "method", "path", "upstreamPath"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "method": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^/",
+            "maxLength": 256,
+            "description": "Consumer-facing path"
+          },
+          "upstreamPath": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "Upstream path to proxy to"
+          },
+          "upstreamContentType": {
+            "type": "string",
+            "maxLength": 128,
+            "default": "application/json"
+          },
+          "bodyTransform": {
+            "type": "string",
+            "maxLength": 128,
+            "default": "passthrough"
+          },
+          "rateLimit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Requests per minute"
+          },
+          "timeout": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 120000,
+            "description": "Endpoint-specific timeout in ms"
+          },
+          "cacheTtl": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Response cache TTL in seconds"
+          },
+          "retries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5,
+            "default": 0
+          },
+          "bodyBlacklist": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Keywords that must not appear in request body"
+          },
+          "bodyPattern": {
+            "type": "string",
+            "description": "Regex the request body must match"
+          }
+        }
+      }
+    },
+    "envKey": {
+      "type": "string",
+      "description": "Environment variable name for auto-provisioning upstream secrets in the seed script"
+    }
+  }
+}

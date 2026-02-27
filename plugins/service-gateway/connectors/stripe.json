@@ -1,0 +1,34 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "stripe",
+  "name": "Stripe Payments",
+  "description": "Stripe — payment processing, subscriptions, customers, and checkout sessions",
+  "icon": "💳",
+  "category": "payments",
+  "connector": {
+    "slug": "stripe",
+    "displayName": "Stripe Payments",
+    "description": "Stripe — payment processing, subscriptions, customers, and checkout sessions",
+    "category": "payments",
+    "upstreamBaseUrl": "https://api.stripe.com",
+    "allowedHosts": ["api.stripe.com"],
+    "defaultTimeout": 30000,
+    "authType": "bearer",
+    "authConfig": { "tokenRef": "token" },
+    "secretRefs": ["token"],
+    "streamingEnabled": false,
+    "responseWrapper": false,
+    "tags": ["stripe", "payments", "billing", "subscriptions", "fintech"]
+  },
+  "endpoints": [
+    { "name": "create-customer", "description": "Create a customer", "method": "POST", "path": "/customers", "upstreamPath": "/v1/customers", "rateLimit": 50, "timeout": 10000, "upstreamContentType": "application/x-www-form-urlencoded" },
+    { "name": "get-customer", "description": "Retrieve a customer", "method": "GET", "path": "/customers/:id", "upstreamPath": "/v1/customers/:id", "rateLimit": 100, "timeout": 5000 },
+    { "name": "list-customers", "description": "List customers", "method": "GET", "path": "/customers", "upstreamPath": "/v1/customers", "rateLimit": 100, "timeout": 10000 },
+    { "name": "create-payment-intent", "description": "Create a payment intent", "method": "POST", "path": "/payment-intents", "upstreamPath": "/v1/payment_intents", "rateLimit": 50, "timeout": 10000, "upstreamContentType": "application/x-www-form-urlencoded" },
+    { "name": "get-payment-intent", "description": "Retrieve a payment intent", "method": "GET", "path": "/payment-intents/:id", "upstreamPath": "/v1/payment_intents/:id", "rateLimit": 100, "timeout": 5000 },
+    { "name": "create-subscription", "description": "Create a subscription", "method": "POST", "path": "/subscriptions", "upstreamPath": "/v1/subscriptions", "rateLimit": 20, "timeout": 10000, "upstreamContentType": "application/x-www-form-urlencoded" },
+    { "name": "get-subscription", "description": "Retrieve a subscription", "method": "GET", "path": "/subscriptions/:id", "upstreamPath": "/v1/subscriptions/:id", "rateLimit": 100, "timeout": 5000 },
+    { "name": "create-checkout-session", "description": "Create a checkout session", "method": "POST", "path": "/checkout/sessions", "upstreamPath": "/v1/checkout/sessions", "rateLimit": 20, "timeout": 10000, "upstreamContentType": "application/x-www-form-urlencoded" }
+  ],
+  "envKey": "STRIPE_SECRET_KEY"
+}

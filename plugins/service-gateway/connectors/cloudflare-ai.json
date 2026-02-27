@@ -1,0 +1,27 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "cloudflare-ai",
+  "name": "Cloudflare Workers AI",
+  "description": "Cloudflare Workers AI — run AI models at the edge (LLM, image, speech, embeddings)",
+  "icon": "⚡",
+  "category": "ai",
+  "connector": {
+    "slug": "cloudflare-ai",
+    "displayName": "Cloudflare Workers AI",
+    "description": "Cloudflare Workers AI — run AI models at the edge (LLM, image, speech, embeddings)",
+    "category": "ai",
+    "upstreamBaseUrl": "https://api.cloudflare.com",
+    "allowedHosts": ["api.cloudflare.com"],
+    "defaultTimeout": 60000,
+    "authType": "bearer",
+    "authConfig": { "tokenRef": "token" },
+    "secretRefs": ["token"],
+    "streamingEnabled": true,
+    "tags": ["cloudflare", "ai", "edge", "workers", "inference"]
+  },
+  "endpoints": [
+    { "name": "run-model", "description": "Run an AI model (text-generation, embeddings, image, etc.)", "method": "POST", "path": "/ai/run/:model*", "upstreamPath": "/client/v4/accounts/{account_id}/ai/run/:model*", "rateLimit": 30, "timeout": 60000 },
+    { "name": "list-models", "description": "Search available AI models", "method": "GET", "path": "/ai/models", "upstreamPath": "/client/v4/accounts/{account_id}/ai/models/search", "rateLimit": 100, "timeout": 5000, "cacheTtl": 300 }
+  ],
+  "envKey": "CLOUDFLARE_API_TOKEN"
+}

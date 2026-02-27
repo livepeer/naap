@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const { page, pageSize, skip } = parsePagination(searchParams);
   const status = searchParams.get('status');
+  const category = searchParams.get('category');
 
   const scope = searchParams.get('scope') || 'all'; // own | public | all
 
@@ -43,6 +44,7 @@ export async function GET(request: NextRequest) {
   const where = {
     ...scopeCondition,
     ...(status && scope !== 'public' ? { status } : {}),
+    ...(category ? { category } : {}),
   };
 
   const [connectors, total] = await Promise.all([

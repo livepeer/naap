@@ -1,0 +1,32 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "clickhouse",
+  "name": "ClickHouse Cloud",
+  "description": "ClickHouse Cloud — managed analytics database with REST API for service and organization management",
+  "icon": "📊",
+  "category": "database",
+  "connector": {
+    "slug": "clickhouse",
+    "displayName": "ClickHouse Cloud",
+    "description": "ClickHouse Cloud — managed analytics database with REST API for service and organization management",
+    "category": "database",
+    "upstreamBaseUrl": "https://api.clickhouse.cloud",
+    "allowedHosts": ["api.clickhouse.cloud"],
+    "defaultTimeout": 30000,
+    "authType": "basic",
+    "authConfig": { "usernameRef": "username", "passwordRef": "password" },
+    "secretRefs": ["username", "password"],
+    "streamingEnabled": false,
+    "tags": ["clickhouse", "analytics", "database", "olap", "cloud"]
+  },
+  "endpoints": [
+    { "name": "list-organizations", "description": "List organizations", "method": "GET", "path": "/organizations", "upstreamPath": "/v1/organizations", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 },
+    { "name": "list-services", "description": "List services in an organization", "method": "GET", "path": "/organizations/:orgId/services", "upstreamPath": "/v1/organizations/:orgId/services", "rateLimit": 100, "timeout": 10000, "cacheTtl": 30 },
+    { "name": "create-service", "description": "Create a new ClickHouse service", "method": "POST", "path": "/organizations/:orgId/services", "upstreamPath": "/v1/organizations/:orgId/services", "rateLimit": 5, "timeout": 30000 },
+    { "name": "get-service", "description": "Get service details", "method": "GET", "path": "/organizations/:orgId/services/:serviceId", "upstreamPath": "/v1/organizations/:orgId/services/:serviceId", "rateLimit": 100, "timeout": 5000, "cacheTtl": 15 },
+    { "name": "update-service", "description": "Update service configuration (scale, state)", "method": "PATCH", "path": "/organizations/:orgId/services/:serviceId", "upstreamPath": "/v1/organizations/:orgId/services/:serviceId", "rateLimit": 10, "timeout": 30000 },
+    { "name": "delete-service", "description": "Delete a service", "method": "DELETE", "path": "/organizations/:orgId/services/:serviceId", "upstreamPath": "/v1/organizations/:orgId/services/:serviceId", "rateLimit": 5, "timeout": 30000 },
+    { "name": "list-backups", "description": "List service backups", "method": "GET", "path": "/organizations/:orgId/services/:serviceId/backups", "upstreamPath": "/v1/organizations/:orgId/services/:serviceId/backups", "rateLimit": 50, "timeout": 10000, "cacheTtl": 60 }
+  ],
+  "envKey": "CLICKHOUSE_API_KEY"
+}

@@ -1650,6 +1650,7 @@ model ServiceConnector {
   errorMapping      Json     @default("{}")          // status code → message mapping
 
   // ── Meta ──
+  category          String   @default("")                // ai | video | database | storage | payments | messaging | email
   tags              String[]
   createdBy         String
   createdAt         DateTime @default(now())
