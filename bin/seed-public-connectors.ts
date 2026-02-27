@@ -35,6 +35,7 @@ interface ConnectorDef {
   authConfig: Record<string, unknown>;
   secretRefs: string[];
   streamingEnabled: boolean;
+  responseWrapper?: boolean;
   tags: string[];
   envKey: string;
   endpoints: EndpointDef[];
@@ -49,6 +50,8 @@ interface EndpointDef {
   rateLimit?: number;
   timeout?: number;
   cacheTtl?: number;
+  bodyTransform?: string;
+  upstreamContentType?: string;
 }
 
 // ── Connector Definitions ──────────────────────────────────────────────────
@@ -121,6 +124,34 @@ const CONNECTORS: ConnectorDef[] = [
       { name: 'stream-chat', description: 'Stream chat response (SSE)', method: 'POST', path: '/stream-chat', upstreamPath: '/v1beta/models/gemini-2.0-flash:streamGenerateContent', rateLimit: 20, timeout: 60000 },
     ],
   },
+  {
+    slug: 'storj-s3',
+    displayName: 'Storj S3 Object Storage',
+    description: 'Storj decentralized S3-compatible object storage — buckets, objects, multipart uploads',
+    upstreamBaseUrl: 'https://gateway.storjshare.io',
+    allowedHosts: ['gateway.storjshare.io'],
+    defaultTimeout: 30000,
+    authType: 'aws-s3',
+    authConfig: { accessKeyRef: 'access_key', secretKeyRef: 'secret_key', region: 'us-1', service: 's3', signPayload: false, pathStyle: true },
+    secretRefs: ['access_key', 'secret_key'],
+    streamingEnabled: false,
+    responseWrapper: false,
+    tags: ['storj', 's3', 'object-storage', 'decentralized'],
+    envKey: 'STORJ_ACCESS_KEY',
+    endpoints: [
+      { name: 'list-buckets', description: 'List all buckets', method: 'GET', path: '/', upstreamPath: '/', rateLimit: 100, timeout: 10000, bodyTransform: 'passthrough', upstreamContentType: '' },
+      { name: 'create-bucket', description: 'Create a bucket', method: 'PUT', path: '/:bucket', upstreamPath: '/:bucket', rateLimit: 10, timeout: 10000, bodyTransform: 'binary', upstreamContentType: '' },
+      { name: 'delete-bucket', description: 'Delete a bucket', method: 'DELETE', path: '/:bucket', upstreamPath: '/:bucket', rateLimit: 10, timeout: 10000, bodyTransform: 'passthrough', upstreamContentType: '' },
+      { name: 'head-bucket', description: 'Check bucket existence', method: 'HEAD', path: '/:bucket', upstreamPath: '/:bucket', rateLimit: 200, timeout: 5000, bodyTransform: 'passthrough', upstreamContentType: '' },
+      { name: 'list-objects', description: 'List objects in a bucket', method: 'GET', path: '/:bucket', upstreamPath: '/:bucket', rateLimit: 100, timeout: 15000, bodyTransform: 'passthrough', upstreamContentType: '' },
+      { name: 'put-object', description: 'Upload object / upload part', method: 'PUT', path: '/:bucket/:key*', upstreamPath: '/:bucket/:key*', rateLimit: 50, timeout: 60000, bodyTransform: 'binary', upstreamContentType: '' },
+      { name: 'get-object', description: 'Download an object', method: 'GET', path: '/:bucket/:key*', upstreamPath: '/:bucket/:key*', rateLimit: 200, timeout: 30000, bodyTransform: 'passthrough', upstreamContentType: '' },
+      { name: 'delete-object', description: 'Delete an object or abort multipart upload', method: 'DELETE', path: '/:bucket/:key*', upstreamPath: '/:bucket/:key*', rateLimit: 50, timeout: 10000, bodyTransform: 'passthrough', upstreamContentType: '' },
+      { name: 'head-object', description: 'Get object metadata', method: 'HEAD', path: '/:bucket/:key*', upstreamPath: '/:bucket/:key*', rateLimit: 200, timeout: 5000, bodyTransform: 'passthrough', upstreamContentType: '' },
+      { name: 'post-object', description: 'Create/complete multipart upload', method: 'POST', path: '/:bucket/:key*', upstreamPath: '/:bucket/:key*', rateLimit: 30, timeout: 30000, bodyTransform: 'binary', upstreamContentType: '' },
+      { name: 'post-bucket', description: 'Batch delete objects', method: 'POST', path: '/:bucket', upstreamPath: '/:bucket', rateLimit: 20, timeout: 30000, bodyTransform: 'binary', upstreamContentType: '' },
+    ],
+  },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -133,11 +164,12 @@ function step(n: number, msg: string) {
 
 async function storeUpstreamSecret(
   scopeId: string,
+  connectorSlug: string,
   name: string,
   value: string,
   authToken: string
 ): Promise<boolean> {
-  const key = `gw:${scopeId}:${name}`;
+  const key = `gw:${scopeId}:${connectorSlug}:${name}`;
   try {
     const res = await fetch(`${BASE_SVC_URL}/api/secrets`, {
       method: 'POST',
@@ -211,6 +243,7 @@ async function main() {
           authConfig: def.authConfig,
           secretRefs: def.secretRefs,
           streamingEnabled: def.streamingEnabled,
+          responseWrapper: def.responseWrapper ?? true,
           tags: def.tags,
           status: 'draft',
         },
@@ -240,8 +273,8 @@ async function main() {
           method: ep.method,
           path: ep.path,
           upstreamPath: ep.upstreamPath,
-          upstreamContentType: 'application/json',
-          bodyTransform: 'passthrough',
+          upstreamContentType: ep.upstreamContentType ?? 'application/json',
+          bodyTransform: ep.bodyTransform ?? 'passthrough',
           rateLimit: ep.rateLimit,
           timeout: ep.timeout,
           cacheTtl: ep.cacheTtl,
@@ -309,7 +342,7 @@ async function main() {
     const envValue = process.env[def.envKey];
     if (envValue) {
       for (const ref of def.secretRefs) {
-        const ok = await storeUpstreamSecret(scopeId, ref, envValue, token);
+        const ok = await storeUpstreamSecret(scopeId, def.slug, ref, envValue, token);
         console.log(`  Secret "${ref}": ${ok ? 'stored' : 'FAILED to store'}`);
       }
     } else {
