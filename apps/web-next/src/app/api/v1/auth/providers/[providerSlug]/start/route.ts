@@ -11,6 +11,8 @@ import { prisma } from '@/lib/db';
 
 const DAYDREAM_AUTH_URL =
   process.env.DAYDREAM_AUTH_URL || 'https://app.daydream.live/sign-in/local';
+const PYMTHOUSE_AUTH_URL =
+  process.env.PYMTHOUSE_AUTH_URL || 'http://localhost:3001/naap-link';
 const LOGIN_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 5;
@@ -88,6 +90,9 @@ function resolveAppUrl(request: NextRequest): string {
 function resolveProviderAuthUrl(providerSlug: string): string | null {
   if (providerSlug === 'daydream') {
     return DAYDREAM_AUTH_URL;
+  }
+  if (providerSlug === 'pymthouse') {
+    return PYMTHOUSE_AUTH_URL;
   }
   return null;
 }

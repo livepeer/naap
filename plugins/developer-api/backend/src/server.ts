@@ -72,6 +72,7 @@ const inMemoryApiKeys: any[] = [];
 const inMemoryProjects: any[] = [];
 const inMemoryBillingProviders = [
   { id: 'bp-daydream', slug: 'daydream', displayName: 'Daydream', description: 'AI-powered billing via Daydream', icon: 'cloud', authType: 'oauth' },
+  { id: 'bp-pymthouse', slug: 'pymthouse', displayName: 'pymthouse', description: 'Livepeer payment clearinghouse', icon: 'wallet', authType: 'oauth' },
 ];
 
 // ============================================

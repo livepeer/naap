@@ -8,6 +8,7 @@ import { prisma } from '@/lib/db';
 import { encryptToken } from '@naap/database';
 
 const DAYDREAM_API_BASE = process.env.DAYDREAM_API_BASE || 'https://api.daydream.live';
+const PYMTHOUSE_API_BASE = process.env.PYMTHOUSE_API_BASE || 'http://localhost:3001';
 
 function escapeHtml(value: string): string {
   return value
@@ -19,43 +20,66 @@ function escapeHtml(value: string): string {
 }
 
 async function exchangeTokenForApiKey(providerSlug: string, token: string): Promise<string> {
-  if (providerSlug !== 'daydream') {
-    throw new Error(`Unsupported billing provider for OAuth callback: ${providerSlug}`);
-  }
-
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10_000);
-  let response: Response;
+
   try {
-    response = await fetch(`${DAYDREAM_API_BASE}/v1/api-key`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ name: 'dd_naap_linked' }),
-      signal: controller.signal,
-    });
+    if (providerSlug === 'daydream') {
+      const response = await fetch(`${DAYDREAM_API_BASE}/v1/api-key`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name: 'dd_naap_linked' }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Daydream token exchange failed: ${response.status} ${text}`);
+      }
+
+      const result = await response.json();
+      const apiKey = result.api_key || result.apiKey || result.key;
+      if (!apiKey) {
+        throw new Error('Daydream token exchange failed: no API key in response');
+      }
+      return apiKey;
+    }
+
+    if (providerSlug === 'pymthouse') {
+      const response = await fetch(`${PYMTHOUSE_API_BASE}/api/v1/naap/exchange`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`pymthouse token exchange failed: ${response.status} ${text}`);
+      }
+
+      const result = await response.json();
+      const apiKey = result.api_key || result.apiKey || result.key;
+      if (!apiKey) {
+        throw new Error('pymthouse token exchange failed: no API key in response');
+      }
+      return apiKey;
+    }
+
+    throw new Error(`Unsupported billing provider for OAuth callback: ${providerSlug}`);
   } catch (err) {
     if ((err as { name?: string })?.name === 'AbortError') {
-      throw new Error('Daydream token exchange timed out');
+      throw new Error(`${providerSlug} token exchange timed out`);
     }
     throw err;
   } finally {
     clearTimeout(timeoutId);
   }
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Daydream token exchange failed: ${response.status} ${text}`);
-  }
-
-  const result = await response.json();
-  const apiKey = result.api_key || result.apiKey || result.key;
-  if (!apiKey) {
-    throw new Error('Daydream token exchange failed: no API key in response');
-  }
-  return apiKey;
 }
 
 export async function GET(

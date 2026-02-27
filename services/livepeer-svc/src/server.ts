@@ -131,7 +131,7 @@ const MOCK_CAPABILITIES = [
 const MOCK_STATUS = {
   connected: true,
   version: '0.7.5-mock',
-  network: 'arbitrum-mainnet',
+  network: 'arbitrum-one-mainnet',
   ethAddress: '0x1234567890123456789012345678901234567890',
   orchestratorMode: false,
   broadcasterMode: true,
