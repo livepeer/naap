@@ -4,6 +4,8 @@
  * POST /api/v1/gw/admin/plans   — Create new plan
  */
 
+export const runtime = 'nodejs';
+
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';

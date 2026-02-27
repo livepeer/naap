@@ -6,6 +6,8 @@
  * Requires at least one endpoint to be configured.
  */
 
+export const runtime = 'nodejs';
+
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';

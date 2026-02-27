@@ -4,6 +4,8 @@
  * POST /api/v1/gw/admin/keys   — Create new API key (returns raw key ONCE)
  */
 
+export const runtime = 'nodejs';
+
 import { randomBytes, createHash } from 'crypto';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
