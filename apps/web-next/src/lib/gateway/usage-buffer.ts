@@ -1,18 +1,17 @@
 /**
  * Service Gateway — Usage Buffer
  *
- * Accumulates usage records in memory and flushes them to the database
- * in batches via `prisma.gatewayUsageRecord.createMany()`.
+ * Records gateway usage to the database. Supports two modes:
+ *   - Serverless (Vercel): writes each record immediately in the background
+ *   - Long-lived (local dev): batches records and flushes periodically
  *
- * Flush triggers:
- *  - 50 records accumulated
- *  - 5 seconds since last flush
- *  - 500 records (backpressure cap — immediate flush)
- *  - Process shutdown signal
+ * Environment detection is automatic — no configuration needed.
  */
 
 import { prisma } from '@/lib/db';
 import type { UsageData } from './types';
+
+const IS_SERVERLESS = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 
 const BATCH_SIZE = 50;
 const FLUSH_INTERVAL_MS = 5_000;
@@ -21,6 +20,35 @@ const MAX_RETRIES = 2;
 
 let buffer: UsageData[] = [];
 let flushTimer: ReturnType<typeof setInterval> | null = null;
+
+function toDbRecord(d: UsageData) {
+  return {
+    teamId: d.teamId,
+    connectorId: d.connectorId,
+    endpointName: d.endpointName,
+    apiKeyId: d.apiKeyId,
+    callerType: d.callerType,
+    callerId: d.callerId,
+    method: d.method,
+    path: d.path,
+    statusCode: d.statusCode,
+    latencyMs: d.latencyMs,
+    upstreamLatencyMs: d.upstreamLatencyMs,
+    requestBytes: d.requestBytes,
+    responseBytes: d.responseBytes,
+    cached: d.cached,
+    error: d.error,
+    region: d.region,
+  };
+}
+
+async function writeOne(data: UsageData): Promise<void> {
+  try {
+    await prisma.gatewayUsageRecord.create({ data: toDbRecord(data) });
+  } catch (err) {
+    console.error('[gateway] usage write failed:', err);
+  }
+}
 
 function ensureTimer(): void {
   if (flushTimer) return;
@@ -37,24 +65,7 @@ async function flush(retryCount = 0): Promise<void> {
   const batch = buffer.splice(0, buffer.length);
   try {
     await prisma.gatewayUsageRecord.createMany({
-      data: batch.map((d) => ({
-        teamId: d.teamId,
-        connectorId: d.connectorId,
-        endpointName: d.endpointName,
-        apiKeyId: d.apiKeyId,
-        callerType: d.callerType,
-        callerId: d.callerId,
-        method: d.method,
-        path: d.path,
-        statusCode: d.statusCode,
-        latencyMs: d.latencyMs,
-        upstreamLatencyMs: d.upstreamLatencyMs,
-        requestBytes: d.requestBytes,
-        responseBytes: d.responseBytes,
-        cached: d.cached,
-        error: d.error,
-        region: d.region,
-      })),
+      data: batch.map(toDbRecord),
     });
   } catch (err) {
     console.error('[gateway] batch usage write failed:', err);
@@ -66,21 +77,23 @@ async function flush(retryCount = 0): Promise<void> {
   }
 }
 
+/**
+ * Record a usage event. In serverless mode, writes immediately (fire-and-forget).
+ * In local dev, accumulates in a buffer and flushes periodically.
+ */
 export function bufferUsage(data: UsageData): void {
+  if (IS_SERVERLESS) {
+    writeOne(data);
+    return;
+  }
+
   buffer.push(data);
   ensureTimer();
-  if (buffer.length >= BACKPRESSURE_LIMIT) {
-    flush();
-  } else if (buffer.length >= BATCH_SIZE) {
+  if (buffer.length >= BACKPRESSURE_LIMIT || buffer.length >= BATCH_SIZE) {
     flush();
   }
 }
 
 export async function flushUsageBuffer(): Promise<void> {
   await flush();
-}
-
-if (typeof process !== 'undefined') {
-  const shutdown = () => { flush(); };
-  process.on('beforeExit', shutdown);
 }

@@ -15,13 +15,13 @@ import { getAuthToken, getClientIP } from '@/lib/api/response';
 import { personalScopeId, isPersonalScope } from './scope';
 import type { AuthResult, TeamContext } from './types';
 
-let _authFailLimiter: { consume: (key: string, points?: number) => Promise<{ allowed: boolean }> } | null = null;
+type RateLimiter = { consume: (key: string, points?: number) => Promise<{ allowed: boolean }> };
+let _authFailLimiter: RateLimiter | null = null;
 
-function getAuthFailLimiter() {
+async function getAuthFailLimiter(): Promise<RateLimiter> {
   if (!_authFailLimiter) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { createRateLimiter } = require('@naap/cache/rateLimiter');
+      const { createRateLimiter } = await import('@naap/cache/rateLimiter');
       _authFailLimiter = createRateLimiter({
         points: 10,
         duration: 60,
@@ -45,7 +45,7 @@ export async function authorize(request: Request): Promise<AuthResult | null> {
   // Path 1: API Key auth (gw_ prefix)
   if (authHeader.startsWith('Bearer gw_')) {
     const clientIP = getClientIP(request) || 'unknown';
-    const limiter = getAuthFailLimiter();
+    const limiter = await getAuthFailLimiter();
     const rl = await limiter.consume(clientIP, 0);
     if (!rl.allowed) return null;
 
