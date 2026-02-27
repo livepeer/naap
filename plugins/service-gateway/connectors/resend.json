@@ -1,0 +1,31 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "resend",
+  "name": "Resend Email API",
+  "description": "Resend — modern email API for transactional emails, domains, and API key management",
+  "icon": "✉️",
+  "category": "email",
+  "connector": {
+    "slug": "resend",
+    "displayName": "Resend Email API",
+    "description": "Resend — modern email API for transactional emails, domains, and API key management",
+    "category": "email",
+    "upstreamBaseUrl": "https://api.resend.com",
+    "allowedHosts": ["api.resend.com"],
+    "defaultTimeout": 15000,
+    "authType": "bearer",
+    "authConfig": { "tokenRef": "token" },
+    "secretRefs": ["token"],
+    "streamingEnabled": false,
+    "tags": ["resend", "email", "transactional", "smtp"]
+  },
+  "endpoints": [
+    { "name": "send-email", "description": "Send a single email", "method": "POST", "path": "/emails", "upstreamPath": "/emails", "rateLimit": 50, "timeout": 10000 },
+    { "name": "send-batch", "description": "Send a batch of emails", "method": "POST", "path": "/emails/batch", "upstreamPath": "/emails/batch", "rateLimit": 10, "timeout": 15000 },
+    { "name": "get-email", "description": "Get email delivery status", "method": "GET", "path": "/emails/:id", "upstreamPath": "/emails/:id", "rateLimit": 100, "timeout": 5000 },
+    { "name": "list-domains", "description": "List verified domains", "method": "GET", "path": "/domains", "upstreamPath": "/domains", "rateLimit": 100, "timeout": 5000, "cacheTtl": 60 },
+    { "name": "create-domain", "description": "Add a domain for sending", "method": "POST", "path": "/domains", "upstreamPath": "/domains", "rateLimit": 5, "timeout": 10000 },
+    { "name": "list-api-keys", "description": "List API keys", "method": "GET", "path": "/api-keys", "upstreamPath": "/api-keys", "rateLimit": 50, "timeout": 5000, "cacheTtl": 60 }
+  ],
+  "envKey": "RESEND_API_KEY"
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "vercel-blob",
+  "name": "Vercel Blob Storage",
+  "description": "Vercel Blob — edge-optimized file storage for static assets, images, and documents",
+  "icon": "▲",
+  "category": "storage",
+  "connector": {
+    "slug": "vercel-blob",
+    "displayName": "Vercel Blob Storage",
+    "description": "Vercel Blob — edge-optimized file storage for static assets, images, and documents",
+    "category": "storage",
+    "upstreamBaseUrl": "https://blob.vercel-storage.com",
+    "allowedHosts": ["blob.vercel-storage.com"],
+    "defaultTimeout": 30000,
+    "authType": "bearer",
+    "authConfig": { "tokenRef": "token" },
+    "secretRefs": ["token"],
+    "streamingEnabled": false,
+    "responseWrapper": false,
+    "tags": ["vercel", "blob", "storage", "edge", "cdn"]
+  },
+  "endpoints": [
+    { "name": "list-blobs", "description": "List stored blobs", "method": "GET", "path": "/", "upstreamPath": "/", "rateLimit": 100, "timeout": 10000, "cacheTtl": 15 },
+    { "name": "upload-blob", "description": "Upload a file", "method": "PUT", "path": "/:pathname*", "upstreamPath": "/:pathname*", "rateLimit": 30, "timeout": 60000, "bodyTransform": "binary", "upstreamContentType": "" },
+    { "name": "delete-blobs", "description": "Delete one or more blobs", "method": "POST", "path": "/delete", "upstreamPath": "/delete", "rateLimit": 20, "timeout": 10000 },
+    { "name": "copy-blob", "description": "Copy a blob to a new path", "method": "PUT", "path": "/copy", "upstreamPath": "/copy", "rateLimit": 20, "timeout": 10000 }
+  ],
+  "envKey": "BLOB_READ_WRITE_TOKEN"
+}

@@ -1,160 +1,34 @@
 /**
- * Seed Script: Public Connectors (Daydream, Livepeer Studio, Gemini)
+ * Seed Script: Public Connectors
  *
- * Run after `start.sh --all` to:
- *   1. Authenticate as admin dev user
- *   2. Create 3 public connectors with endpoints, plans, and API keys
- *   3. Optionally provision upstream API keys via environment variables
+ * Reads connector templates from plugins/service-gateway/connectors/*.json
+ * and creates them as public connectors with endpoints, plans, and API keys.
  *
  * Idempotent — safe to run multiple times.
  *
  * Usage:
  *   npx tsx bin/seed-public-connectors.ts
  *
- * Optional env vars for upstream secrets:
- *   DAYDREAM_API_KEY=dd_xxx
- *   LIVEPEER_STUDIO_API_KEY=lp_xxx
- *   GEMINI_API_KEY=AIza_xxx
+ * Optional env vars for upstream secrets (set any you have):
+ *   DAYDREAM_API_KEY, LIVEPEER_STUDIO_API_KEY, GEMINI_API_KEY,
+ *   STORJ_ACCESS_KEY, OPENAI_API_KEY, STRIPE_SECRET_KEY,
+ *   CONFLUENT_KAFKA_API_KEY, CLICKHOUSE_API_KEY, SUPABASE_ANON_KEY,
+ *   TWILIO_AUTH_TOKEN, CLOUDFLARE_API_TOKEN, RESEND_API_KEY,
+ *   PINECONE_API_KEY, NEON_API_KEY, UPSTASH_REDIS_TOKEN,
+ *   BLOB_READ_WRITE_TOKEN
  */
 
 import { PrismaClient } from '../packages/database/src/generated/client/index.js';
+import { loadConnectorTemplates, type ConnectorTemplate } from '../plugins/service-gateway/connectors/loader.js';
 
 const SHELL_URL = process.env.SHELL_URL || 'http://localhost:3000';
 const BASE_SVC_URL = process.env.BASE_SVC_URL || 'http://localhost:4000';
 const AUTH_EMAIL = process.env.AUTH_EMAIL || 'admin@livepeer.org';
 const AUTH_PASSWORD = process.env.AUTH_PASSWORD || 'livepeer';
 
-interface ConnectorDef {
-  slug: string;
-  displayName: string;
-  description: string;
-  upstreamBaseUrl: string;
-  allowedHosts: string[];
-  defaultTimeout: number;
-  authType: string;
-  authConfig: Record<string, unknown>;
-  secretRefs: string[];
-  streamingEnabled: boolean;
-  responseWrapper?: boolean;
-  tags: string[];
-  envKey: string;
-  endpoints: EndpointDef[];
-}
-
-interface EndpointDef {
-  name: string;
-  description: string;
-  method: string;
-  path: string;
-  upstreamPath: string;
-  rateLimit?: number;
-  timeout?: number;
-  cacheTtl?: number;
-  bodyTransform?: string;
-  upstreamContentType?: string;
-}
-
-// ── Connector Definitions ──────────────────────────────────────────────────
-
-const CONNECTORS: ConnectorDef[] = [
-  {
-    slug: 'daydream',
-    displayName: 'Daydream API',
-    description: 'Daydream.live streaming API — create and manage AI-powered live streams',
-    upstreamBaseUrl: 'https://api.daydream.live',
-    allowedHosts: ['api.daydream.live'],
-    defaultTimeout: 30000,
-    authType: 'bearer',
-    authConfig: { tokenRef: 'token' },
-    secretRefs: ['token'],
-    streamingEnabled: true,
-    tags: ['daydream', 'streaming', 'ai', 'live'],
-    envKey: 'DAYDREAM_API_KEY',
-    endpoints: [
-      { name: 'create-stream', description: 'Create a new live stream', method: 'POST', path: '/streams', upstreamPath: '/v1/streams', rateLimit: 20, timeout: 10000 },
-      { name: 'get-stream', description: 'Get stream details', method: 'GET', path: '/streams/:id', upstreamPath: '/v1/streams/:id', rateLimit: 100, timeout: 5000, cacheTtl: 30 },
-      { name: 'update-stream', description: 'Update stream parameters', method: 'PATCH', path: '/streams/:id', upstreamPath: '/v1/streams/:id', rateLimit: 50, timeout: 10000 },
-      { name: 'update-prompt', description: 'Update stream AI prompt', method: 'PUT', path: '/streams/:id/prompt', upstreamPath: '/v1/streams/:id/prompt', rateLimit: 30, timeout: 10000 },
-      { name: 'delete-stream', description: 'Delete a stream', method: 'DELETE', path: '/streams/:id', upstreamPath: '/v1/streams/:id', rateLimit: 20, timeout: 5000 },
-      { name: 'list-models', description: 'List available AI models', method: 'GET', path: '/models', upstreamPath: '/v1/models', rateLimit: 100, timeout: 5000, cacheTtl: 300 },
-    ],
-  },
-  {
-    slug: 'livepeer-studio',
-    displayName: 'Livepeer Studio API',
-    description: 'Livepeer Studio — video streaming, transcoding, and AI generation APIs',
-    upstreamBaseUrl: 'https://livepeer.studio/api',
-    allowedHosts: ['livepeer.studio'],
-    defaultTimeout: 30000,
-    authType: 'bearer',
-    authConfig: { tokenRef: 'token' },
-    secretRefs: ['token'],
-    streamingEnabled: false,
-    tags: ['livepeer', 'studio', 'video', 'streaming', 'ai'],
-    envKey: 'LIVEPEER_STUDIO_API_KEY',
-    endpoints: [
-      { name: 'list-streams', description: 'List all streams', method: 'GET', path: '/streams', upstreamPath: '/stream', rateLimit: 100, timeout: 10000, cacheTtl: 30 },
-      { name: 'create-stream', description: 'Create a new stream', method: 'POST', path: '/streams', upstreamPath: '/stream', rateLimit: 20, timeout: 10000 },
-      { name: 'get-stream', description: 'Get stream by ID', method: 'GET', path: '/streams/:id', upstreamPath: '/stream/:id', rateLimit: 200, timeout: 5000, cacheTtl: 15 },
-      { name: 'delete-stream', description: 'Delete a stream', method: 'DELETE', path: '/streams/:id', upstreamPath: '/stream/:id', rateLimit: 20, timeout: 5000 },
-      { name: 'list-assets', description: 'List all assets', method: 'GET', path: '/assets', upstreamPath: '/asset', rateLimit: 100, timeout: 10000, cacheTtl: 30 },
-      { name: 'upload-asset-url', description: 'Upload asset from URL', method: 'POST', path: '/assets/upload/url', upstreamPath: '/asset/upload/url', rateLimit: 10, timeout: 30000 },
-      { name: 'get-asset', description: 'Get asset by ID', method: 'GET', path: '/assets/:id', upstreamPath: '/asset/:id', rateLimit: 200, timeout: 5000, cacheTtl: 15 },
-      { name: 'text-to-image', description: 'Generate image from text prompt', method: 'POST', path: '/generate/text-to-image', upstreamPath: '/generate/text-to-image', rateLimit: 10, timeout: 60000 },
-      { name: 'image-to-video', description: 'Generate video from image', method: 'POST', path: '/generate/image-to-video', upstreamPath: '/generate/image-to-video', rateLimit: 5, timeout: 60000 },
-    ],
-  },
-  {
-    slug: 'gemini',
-    displayName: 'Google Gemini API',
-    description: 'Google Gemini generative AI — chat, embeddings, and model listing',
-    upstreamBaseUrl: 'https://generativelanguage.googleapis.com',
-    allowedHosts: ['generativelanguage.googleapis.com'],
-    defaultTimeout: 60000,
-    authType: 'query',
-    authConfig: { paramName: 'key', secretRef: 'token' },
-    secretRefs: ['token'],
-    streamingEnabled: true,
-    tags: ['google', 'gemini', 'ai', 'llm', 'generative'],
-    envKey: 'GEMINI_API_KEY',
-    endpoints: [
-      { name: 'list-models', description: 'List available Gemini models', method: 'GET', path: '/models', upstreamPath: '/v1beta/models', rateLimit: 100, timeout: 5000, cacheTtl: 300 },
-      { name: 'generate-content', description: 'Generate content with Gemini', method: 'POST', path: '/chat', upstreamPath: '/v1beta/models/gemini-2.0-flash:generateContent', rateLimit: 30, timeout: 30000 },
-      { name: 'embed-content', description: 'Generate text embeddings', method: 'POST', path: '/embeddings', upstreamPath: '/v1beta/models/text-embedding-004:embedContent', rateLimit: 50, timeout: 15000 },
-      { name: 'stream-chat', description: 'Stream chat response (SSE)', method: 'POST', path: '/stream-chat', upstreamPath: '/v1beta/models/gemini-2.0-flash:streamGenerateContent', rateLimit: 20, timeout: 60000 },
-    ],
-  },
-  {
-    slug: 'storj-s3',
-    displayName: 'Storj S3 Object Storage',
-    description: 'Storj decentralized S3-compatible object storage — buckets, objects, multipart uploads',
-    upstreamBaseUrl: 'https://gateway.storjshare.io',
-    allowedHosts: ['gateway.storjshare.io'],
-    defaultTimeout: 30000,
-    authType: 'aws-s3',
-    authConfig: { accessKeyRef: 'access_key', secretKeyRef: 'secret_key', region: 'us-1', service: 's3', signPayload: false, pathStyle: true },
-    secretRefs: ['access_key', 'secret_key'],
-    streamingEnabled: false,
-    responseWrapper: false,
-    tags: ['storj', 's3', 'object-storage', 'decentralized'],
-    envKey: 'STORJ_ACCESS_KEY',
-    endpoints: [
-      { name: 'list-buckets', description: 'List all buckets', method: 'GET', path: '/', upstreamPath: '/', rateLimit: 100, timeout: 10000, bodyTransform: 'passthrough', upstreamContentType: '' },
-      { name: 'create-bucket', description: 'Create a bucket', method: 'PUT', path: '/:bucket', upstreamPath: '/:bucket', rateLimit: 10, timeout: 10000, bodyTransform: 'binary', upstreamContentType: '' },
-      { name: 'delete-bucket', description: 'Delete a bucket', method: 'DELETE', path: '/:bucket', upstreamPath: '/:bucket', rateLimit: 10, timeout: 10000, bodyTransform: 'passthrough', upstreamContentType: '' },
-      { name: 'head-bucket', description: 'Check bucket existence', method: 'HEAD', path: '/:bucket', upstreamPath: '/:bucket', rateLimit: 200, timeout: 5000, bodyTransform: 'passthrough', upstreamContentType: '' },
-      { name: 'list-objects', description: 'List objects in a bucket', method: 'GET', path: '/:bucket', upstreamPath: '/:bucket', rateLimit: 100, timeout: 15000, bodyTransform: 'passthrough', upstreamContentType: '' },
-      { name: 'put-object', description: 'Upload object / upload part', method: 'PUT', path: '/:bucket/:key*', upstreamPath: '/:bucket/:key*', rateLimit: 50, timeout: 60000, bodyTransform: 'binary', upstreamContentType: '' },
-      { name: 'get-object', description: 'Download an object', method: 'GET', path: '/:bucket/:key*', upstreamPath: '/:bucket/:key*', rateLimit: 200, timeout: 30000, bodyTransform: 'passthrough', upstreamContentType: '' },
-      { name: 'delete-object', description: 'Delete an object or abort multipart upload', method: 'DELETE', path: '/:bucket/:key*', upstreamPath: '/:bucket/:key*', rateLimit: 50, timeout: 10000, bodyTransform: 'passthrough', upstreamContentType: '' },
-      { name: 'head-object', description: 'Get object metadata', method: 'HEAD', path: '/:bucket/:key*', upstreamPath: '/:bucket/:key*', rateLimit: 200, timeout: 5000, bodyTransform: 'passthrough', upstreamContentType: '' },
-      { name: 'post-object', description: 'Create/complete multipart upload', method: 'POST', path: '/:bucket/:key*', upstreamPath: '/:bucket/:key*', rateLimit: 30, timeout: 30000, bodyTransform: 'binary', upstreamContentType: '' },
-      { name: 'post-bucket', description: 'Batch delete objects', method: 'POST', path: '/:bucket', upstreamPath: '/:bucket', rateLimit: 20, timeout: 30000, bodyTransform: 'binary', upstreamContentType: '' },
-    ],
-  },
-];
-
-// ── Helpers ──────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
 
 function step(n: number, msg: string) {
   console.log(`\n[${'='.repeat(60)}]`);
@@ -186,12 +60,16 @@ async function storeUpstreamSecret(
   }
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN
+// ═══════════════════════════════════════════════════════════════════════════════
 
 async function main() {
-  console.log('\n  Public Connectors — Seed Script\n');
+  const templates = loadConnectorTemplates();
 
-  // Step 1: Authenticate
+  console.log('\n  Public Connectors — Seed Script');
+  console.log(`  ${templates.length} connectors loaded from JSON templates\n`);
+
   step(1, 'Authenticating as dev user');
   const loginRes = await fetch(`${SHELL_URL}/api/v1/auth/login`, {
     method: 'POST',
@@ -211,40 +89,57 @@ async function main() {
   const scopeId = `personal:${userId}`;
   console.log(`  Authenticated as ${loginData.data.user.displayName} (${AUTH_EMAIL})`);
 
-  // Step 2: Initialize DB
   step(2, 'Initializing database client');
   const prisma = new PrismaClient();
 
-  // Step 3: Create connectors
   let connectorIndex = 0;
-  for (const def of CONNECTORS) {
+  for (const def of templates) {
     connectorIndex++;
-    step(2 + connectorIndex, `Creating connector: ${def.displayName}`);
+    step(2 + connectorIndex, `[${connectorIndex}/${templates.length}] ${def.name}`);
+
+    const conn = def.connector;
+    const slug = conn.slug;
 
     let connector = await prisma.serviceConnector.findFirst({
-      where: { slug: def.slug, visibility: 'public' },
+      where: { slug, visibility: 'public' },
     });
 
     if (connector) {
       console.log(`  Connector already exists: ${connector.id}`);
+      if (connector.category !== def.category) {
+        await prisma.serviceConnector.update({
+          where: { id: connector.id },
+          data: { category: def.category },
+        });
+        console.log(`  Updated category: ${def.category}`);
+      }
     } else {
+      let allowedHosts = conn.allowedHosts || [];
+      if (allowedHosts.length === 0) {
+        try {
+          allowedHosts = [new URL(conn.upstreamBaseUrl).hostname];
+        } catch { /* ignore */ }
+      }
+
       connector = await prisma.serviceConnector.create({
         data: {
           ownerUserId: userId,
           createdBy: userId,
-          slug: def.slug,
-          displayName: def.displayName,
-          description: def.description,
+          slug,
+          displayName: conn.displayName,
+          description: conn.description || def.description,
+          category: def.category,
           visibility: 'public',
-          upstreamBaseUrl: def.upstreamBaseUrl,
-          allowedHosts: def.allowedHosts,
-          defaultTimeout: def.defaultTimeout,
-          authType: def.authType,
-          authConfig: def.authConfig,
-          secretRefs: def.secretRefs,
-          streamingEnabled: def.streamingEnabled,
-          responseWrapper: def.responseWrapper ?? true,
-          tags: def.tags,
+          upstreamBaseUrl: conn.upstreamBaseUrl,
+          allowedHosts,
+          defaultTimeout: conn.defaultTimeout ?? 30000,
+          healthCheckPath: conn.healthCheckPath ?? null,
+          authType: conn.authType,
+          authConfig: conn.authConfig || {},
+          secretRefs: conn.secretRefs,
+          streamingEnabled: conn.streamingEnabled ?? false,
+          responseWrapper: conn.responseWrapper ?? true,
+          tags: conn.tags || [],
           status: 'draft',
         },
       });
@@ -278,6 +173,9 @@ async function main() {
           rateLimit: ep.rateLimit,
           timeout: ep.timeout,
           cacheTtl: ep.cacheTtl,
+          retries: ep.retries ?? 0,
+          bodyBlacklist: ep.bodyBlacklist ?? [],
+          bodyPattern: ep.bodyPattern ?? null,
         },
       });
       console.log(`  Endpoint: ${ep.method} ${ep.path} -> ${ep.upstreamPath}`);
@@ -293,7 +191,7 @@ async function main() {
     }
 
     // Plan
-    const planName = `${def.slug}-standard`;
+    const planName = `${slug}-standard`;
     let plan = await prisma.gatewayPlan.findFirst({
       where: { ownerUserId: userId, name: planName },
     });
@@ -302,7 +200,7 @@ async function main() {
         data: {
           ownerUserId: userId,
           name: planName,
-          displayName: `${def.displayName} Standard`,
+          displayName: `${conn.displayName} Standard`,
           rateLimit: 60,
           dailyQuota: 1000,
         },
@@ -314,7 +212,7 @@ async function main() {
 
     // API Key
     const existingKey = await prisma.gatewayApiKey.findFirst({
-      where: { ownerUserId: userId, name: `${def.slug}-test-key`, status: 'active' },
+      where: { ownerUserId: userId, name: `${slug}-test-key`, status: 'active' },
     });
     if (!existingKey) {
       const crypto = await import('crypto');
@@ -327,7 +225,7 @@ async function main() {
           createdBy: userId,
           connectorId,
           planId: plan.id,
-          name: `${def.slug}-test-key`,
+          name: `${slug}-test-key`,
           keyHash: hash,
           keyPrefix: rawKey.slice(0, 8),
           status: 'active',
@@ -339,14 +237,16 @@ async function main() {
     }
 
     // Upstream secret
-    const envValue = process.env[def.envKey];
-    if (envValue) {
-      for (const ref of def.secretRefs) {
-        const ok = await storeUpstreamSecret(scopeId, def.slug, ref, envValue, token);
-        console.log(`  Secret "${ref}": ${ok ? 'stored' : 'FAILED to store'}`);
+    if (def.envKey) {
+      const envValue = process.env[def.envKey];
+      if (envValue) {
+        for (const ref of conn.secretRefs) {
+          const ok = await storeUpstreamSecret(scopeId, slug, ref, envValue, token);
+          console.log(`  Secret "${ref}": ${ok ? 'stored' : 'FAILED to store'}`);
+        }
+      } else {
+        console.log(`  Secret: ${def.envKey} not set — configure via Settings tab UI`);
       }
-    } else {
-      console.log(`  Secret: ${def.envKey} not set — configure via Settings tab UI`);
     }
   }
 
@@ -354,17 +254,19 @@ async function main() {
 
   // Summary
   console.log('\n' + '='.repeat(62));
-  console.log('  Public Connectors — Seed Complete');
+  console.log(`  Public Connectors — Seed Complete (${templates.length} connectors)`);
   console.log('='.repeat(62));
+
   console.log();
-  for (const def of CONNECTORS) {
-    console.log(`  ${def.displayName} (/${def.slug})`);
-    for (const ep of def.endpoints) {
-      console.log(`    ${ep.method.padEnd(6)} ${SHELL_URL}/api/v1/gw/${def.slug}${ep.path}`);
-    }
-    console.log();
+  for (const def of templates) {
+    const epCount = def.endpoints.length;
+    const auth = def.connector.authType === 'none' ? 'no auth' : def.connector.authType;
+    console.log(`  ${def.name} (/${def.connector.slug}) — ${epCount} endpoints, ${auth}`);
   }
+
+  console.log();
   console.log('  To configure upstream API keys, use the Settings tab in the Service Gateway UI.');
+  console.log(`  Or set env vars and re-run: npx tsx bin/seed-public-connectors.ts`);
   console.log();
 }
 
