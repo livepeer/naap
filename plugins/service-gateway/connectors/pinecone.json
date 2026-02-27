@@ -1,0 +1,31 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "pinecone",
+  "name": "Pinecone Vector Database",
+  "description": "Pinecone — managed vector database for similarity search, RAG, and AI applications",
+  "icon": "🌲",
+  "category": "ai",
+  "connector": {
+    "slug": "pinecone",
+    "displayName": "Pinecone Vector Database",
+    "description": "Pinecone — managed vector database for similarity search, RAG, and AI applications",
+    "category": "ai",
+    "upstreamBaseUrl": "https://api.pinecone.io",
+    "allowedHosts": ["api.pinecone.io"],
+    "defaultTimeout": 30000,
+    "authType": "header",
+    "authConfig": { "headers": { "Api-Key": "{{secrets.api_key}}" } },
+    "secretRefs": ["api_key"],
+    "streamingEnabled": false,
+    "tags": ["pinecone", "vector", "database", "ai", "rag", "embeddings"]
+  },
+  "endpoints": [
+    { "name": "list-indexes", "description": "List all indexes", "method": "GET", "path": "/indexes", "upstreamPath": "/indexes", "rateLimit": 100, "timeout": 5000, "cacheTtl": 60 },
+    { "name": "create-index", "description": "Create a new index", "method": "POST", "path": "/indexes", "upstreamPath": "/indexes", "rateLimit": 5, "timeout": 30000 },
+    { "name": "describe-index", "description": "Get index details", "method": "GET", "path": "/indexes/:indexName", "upstreamPath": "/indexes/:indexName", "rateLimit": 100, "timeout": 5000, "cacheTtl": 30 },
+    { "name": "delete-index", "description": "Delete an index", "method": "DELETE", "path": "/indexes/:indexName", "upstreamPath": "/indexes/:indexName", "rateLimit": 5, "timeout": 30000 },
+    { "name": "list-collections", "description": "List all collections", "method": "GET", "path": "/collections", "upstreamPath": "/collections", "rateLimit": 100, "timeout": 5000, "cacheTtl": 60 },
+    { "name": "create-collection", "description": "Create a collection from an index", "method": "POST", "path": "/collections", "upstreamPath": "/collections", "rateLimit": 5, "timeout": 30000 }
+  ],
+  "envKey": "PINECONE_API_KEY"
+}

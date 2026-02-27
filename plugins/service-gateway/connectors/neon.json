@@ -1,0 +1,32 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "neon",
+  "name": "Neon Serverless Postgres",
+  "description": "Neon — serverless Postgres with branching, autoscaling, and management API",
+  "icon": "🐘",
+  "category": "database",
+  "connector": {
+    "slug": "neon",
+    "displayName": "Neon Serverless Postgres",
+    "description": "Neon — serverless Postgres with branching, autoscaling, and management API",
+    "category": "database",
+    "upstreamBaseUrl": "https://console.neon.tech/api/v2",
+    "allowedHosts": ["console.neon.tech"],
+    "defaultTimeout": 30000,
+    "authType": "bearer",
+    "authConfig": { "tokenRef": "token" },
+    "secretRefs": ["token"],
+    "streamingEnabled": false,
+    "tags": ["neon", "postgres", "serverless", "database", "branching"]
+  },
+  "endpoints": [
+    { "name": "list-projects", "description": "List all projects", "method": "GET", "path": "/projects", "upstreamPath": "/projects", "rateLimit": 100, "timeout": 10000, "cacheTtl": 30 },
+    { "name": "create-project", "description": "Create a new Neon project", "method": "POST", "path": "/projects", "upstreamPath": "/projects", "rateLimit": 5, "timeout": 30000 },
+    { "name": "get-project", "description": "Get project details", "method": "GET", "path": "/projects/:projectId", "upstreamPath": "/projects/:projectId", "rateLimit": 100, "timeout": 5000, "cacheTtl": 15 },
+    { "name": "delete-project", "description": "Delete a project", "method": "DELETE", "path": "/projects/:projectId", "upstreamPath": "/projects/:projectId", "rateLimit": 5, "timeout": 30000 },
+    { "name": "list-branches", "description": "List branches for a project", "method": "GET", "path": "/projects/:projectId/branches", "upstreamPath": "/projects/:projectId/branches", "rateLimit": 100, "timeout": 10000, "cacheTtl": 15 },
+    { "name": "create-branch", "description": "Create a database branch", "method": "POST", "path": "/projects/:projectId/branches", "upstreamPath": "/projects/:projectId/branches", "rateLimit": 10, "timeout": 30000 },
+    { "name": "list-databases", "description": "List databases in a branch", "method": "GET", "path": "/projects/:projectId/branches/:branchId/databases", "upstreamPath": "/projects/:projectId/branches/:branchId/databases", "rateLimit": 100, "timeout": 5000, "cacheTtl": 15 }
+  ],
+  "envKey": "NEON_API_KEY"
+}
