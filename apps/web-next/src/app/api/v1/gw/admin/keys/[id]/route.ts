@@ -10,6 +10,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard';
+import { logAudit } from '@/lib/gateway/admin/audit';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -60,6 +61,8 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   if (revoked.count === 0) {
     return errors.conflict('API key is already revoked');
   }
+
+  logAudit(ctx, { action: 'key.revoke', resourceId: id, details: { name: apiKey.name }, request });
 
   return success({ id, status: 'revoked' });
 }

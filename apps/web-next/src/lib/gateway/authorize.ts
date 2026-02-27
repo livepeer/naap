@@ -10,10 +10,30 @@
 
 import { createHash } from 'crypto';
 import { prisma } from '@/lib/db';
-import { getAuthToken } from '@/lib/api/response';
+import { validateSession } from '@/lib/api/auth';
+import { getAuthToken, getClientIP } from '@/lib/api/response';
+import { personalScopeId } from './scope';
 import type { AuthResult, TeamContext } from './types';
 
-const BASE_SVC_URL = process.env.BASE_SVC_URL || process.env.NEXT_PUBLIC_BASE_SVC_URL || 'http://localhost:4000';
+let _authFailLimiter: { consume: (key: string, points?: number) => Promise<{ allowed: boolean }> } | null = null;
+
+function getAuthFailLimiter() {
+  if (!_authFailLimiter) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { createRateLimiter } = require('@naap/cache/rateLimiter');
+      _authFailLimiter = createRateLimiter({
+        points: 10,
+        duration: 60,
+        blockDuration: 300,
+        keyPrefix: 'gw:auth:fail',
+      });
+    } catch {
+      _authFailLimiter = { consume: async () => ({ allowed: true }) };
+    }
+  }
+  return _authFailLimiter;
+}
 
 /**
  * Extract team context from the request.
@@ -22,9 +42,18 @@ const BASE_SVC_URL = process.env.BASE_SVC_URL || process.env.NEXT_PUBLIC_BASE_SV
 export async function authorize(request: Request): Promise<AuthResult | null> {
   const authHeader = request.headers.get('authorization') || '';
 
-  // Path 1: API Key auth (gk_ prefix)
-  if (authHeader.startsWith('Bearer gk_')) {
-    return authorizeApiKey(authHeader.slice(7)); // strip "Bearer "
+  // Path 1: API Key auth (gw_ prefix)
+  if (authHeader.startsWith('Bearer gw_')) {
+    const clientIP = getClientIP(request) || 'unknown';
+    const limiter = getAuthFailLimiter();
+    const rl = await limiter.consume(clientIP, 0);
+    if (!rl.allowed) return null;
+
+    const result = await authorizeApiKey(authHeader.slice(7)); // strip "Bearer "
+    if (!result) {
+      await limiter.consume(clientIP);
+    }
+    return result;
   }
 
   // Path 2: JWT auth
@@ -52,29 +81,18 @@ export function extractTeamContext(request: Request): TeamContext | null {
 
 async function authorizeJwt(token: string, request: Request): Promise<AuthResult | null> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5_000);
+    // Validate session directly against the database using the shell's
+    // shared auth utility — no HTTP round-trip to base-svc required.
+    const user = await validateSession(token);
+    if (!user) return null;
 
-    const meResponse = await fetch(`${BASE_SVC_URL}/api/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!meResponse.ok) return null;
-
-    const me = await meResponse.json();
-    const userId = me.data?.id || me.id;
-    if (!userId) return null;
-
-    const teamId = request.headers.get('x-team-id');
-    if (!teamId) return null;
+    // Team context from x-team-id header, or personal scope fallback
+    const teamId = request.headers.get('x-team-id') || personalScopeId(user.id);
 
     return {
       authenticated: true,
       callerType: 'jwt',
-      callerId: userId,
+      callerId: user.id,
       teamId,
     };
   } catch {
@@ -111,7 +129,7 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
     .catch(() => {});
 
   const resolvedTeamId = apiKey.teamId
-    ?? (apiKey.ownerUserId ? `personal:${apiKey.ownerUserId}` : '');
+    ?? (apiKey.ownerUserId ? personalScopeId(apiKey.ownerUserId) : '');
 
   return {
     authenticated: true,

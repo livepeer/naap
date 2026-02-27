@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     ...(connectorId ? { connectorId } : {}),
   };
 
-  const [aggregate, errorCount, total] = await Promise.all([
+  const [aggregate, errorCount] = await Promise.all([
     prisma.gatewayUsageRecord.aggregate({
       where,
       _avg: { latencyMs: true, upstreamLatencyMs: true },
@@ -46,8 +46,9 @@ export async function GET(request: NextRequest) {
     prisma.gatewayUsageRecord.count({
       where: { ...where, statusCode: { gte: 400 } },
     }),
-    prisma.gatewayUsageRecord.count({ where }),
   ]);
+
+  const total = aggregate._count;
 
   // Top connectors by request count
   const topConnectors = await prisma.gatewayUsageRecord.groupBy({

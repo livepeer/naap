@@ -612,7 +612,13 @@ export const ConnectorDetailPage: React.FC = () => {
                     <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
                       <p className="text-xs text-gray-400">Data Transferred</p>
                       <p className="text-2xl font-bold text-gray-100 mt-1">
-                        {((usageSummary.totalRequestBytes + usageSummary.totalResponseBytes) / 1024).toFixed(1)}<span className="text-sm text-gray-400 ml-1">KB</span>
+                        {(() => {
+                          const bytes = usageSummary.totalRequestBytes + usageSummary.totalResponseBytes;
+                          if (bytes >= 1024 * 1024 * 1024) return <>{(bytes / (1024 * 1024 * 1024)).toFixed(1)}<span className="text-sm text-gray-400 ml-1">GB</span></>;
+                          if (bytes >= 1024 * 1024) return <>{(bytes / (1024 * 1024)).toFixed(1)}<span className="text-sm text-gray-400 ml-1">MB</span></>;
+                          if (bytes >= 1024) return <>{(bytes / 1024).toFixed(1)}<span className="text-sm text-gray-400 ml-1">KB</span></>;
+                          return <>{bytes}<span className="text-sm text-gray-400 ml-1">B</span></>;
+                        })()}
                       </p>
                     </div>
                   </div>

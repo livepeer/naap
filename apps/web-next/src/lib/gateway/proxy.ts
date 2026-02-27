@@ -2,11 +2,56 @@
  * Service Gateway — Upstream Proxy
  *
  * Sends the transformed request to the upstream service.
- * Handles: timeouts, retries, SSE streaming, SSRF protection.
+ * Handles: timeouts, retries, SSE streaming, SSRF protection, circuit breaking.
  */
 
 import type { UpstreamRequest, ProxyResult } from './types';
 import { validateHost } from './types';
+
+// ── Circuit Breaker ──
+
+type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+
+interface CircuitBreaker {
+  state: CircuitState;
+  failures: number;
+  lastFailureAt: number;
+  nextProbeAt: number;
+}
+
+const FAILURE_THRESHOLD = 5;
+const OPEN_DURATION_MS = 30_000;
+const circuitBreakers = new Map<string, CircuitBreaker>();
+
+function getCircuit(slug: string): CircuitBreaker {
+  let cb = circuitBreakers.get(slug);
+  if (!cb) {
+    cb = { state: 'CLOSED', failures: 0, lastFailureAt: 0, nextProbeAt: 0 };
+    circuitBreakers.set(slug, cb);
+  }
+  if (cb.state === 'OPEN' && Date.now() >= cb.nextProbeAt) {
+    cb.state = 'HALF_OPEN';
+  }
+  return cb;
+}
+
+function recordSuccess(slug: string): void {
+  const cb = circuitBreakers.get(slug);
+  if (cb) {
+    cb.state = 'CLOSED';
+    cb.failures = 0;
+  }
+}
+
+function recordFailure(slug: string): void {
+  const cb = getCircuit(slug);
+  cb.failures++;
+  cb.lastFailureAt = Date.now();
+  if (cb.failures >= FAILURE_THRESHOLD || cb.state === 'HALF_OPEN') {
+    cb.state = 'OPEN';
+    cb.nextProbeAt = Date.now() + OPEN_DURATION_MS;
+  }
+}
 
 /**
  * Proxy a request to the upstream service.
@@ -20,7 +65,9 @@ export async function proxyToUpstream(
   upstream: UpstreamRequest,
   timeout: number,
   retries: number,
-  allowedHosts: string[]
+  allowedHosts: string[],
+  streaming: boolean,
+  connectorSlug?: string
 ): Promise<ProxyResult> {
   // ── SSRF Protection ──
   const url = new URL(upstream.url);
@@ -30,6 +77,18 @@ export async function proxyToUpstream(
       `Host "${url.hostname}" is not allowed`,
       403
     );
+  }
+
+  // ── Circuit Breaker ──
+  if (connectorSlug) {
+    const cb = getCircuit(connectorSlug);
+    if (cb.state === 'OPEN') {
+      throw new ProxyError(
+        'CIRCUIT_OPEN',
+        `Circuit breaker open for connector "${connectorSlug}". Retry after cooldown.`,
+        503
+      );
+    }
   }
 
   let lastError: Error | null = null;
@@ -53,6 +112,8 @@ export async function proxyToUpstream(
       clearTimeout(timeoutId);
       const upstreamLatencyMs = Date.now() - startMs;
 
+      if (connectorSlug) recordSuccess(connectorSlug);
+
       return {
         response,
         upstreamLatencyMs,
@@ -62,8 +123,8 @@ export async function proxyToUpstream(
       clearTimeout(timeoutId);
       lastError = err instanceof Error ? err : new Error(String(err));
 
-      // Don't retry on abort (timeout) or SSRF block
       if (controller.signal.aborted) {
+        if (connectorSlug) recordFailure(connectorSlug);
         throw new ProxyError(
           'UPSTREAM_TIMEOUT',
           `Upstream timed out after ${timeout}ms`,
@@ -71,14 +132,14 @@ export async function proxyToUpstream(
         );
       }
 
-      // Retry on network errors only
       if (attempt < attempts - 1) {
-        // Exponential backoff: 100ms, 200ms, 400ms...
         await sleep(100 * Math.pow(2, attempt));
         continue;
       }
     }
   }
+
+  if (connectorSlug) recordFailure(connectorSlug);
 
   throw new ProxyError(
     'UPSTREAM_UNAVAILABLE',

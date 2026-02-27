@@ -7,11 +7,12 @@ export const basicAuth: AuthStrategy = {
     const passRef = (ctx.authConfig.passwordRef as string) || 'password';
     const username = ctx.secrets[userRef] || '';
     const password = ctx.secrets[passRef] || '';
+
     if (!username && !password) {
-      console.warn('[gateway] basic auth: missing credentials, skipping Authorization header');
+      console.warn(`[gateway] auth: secrets "${userRef}"/"${passRef}" not resolved for connector "${ctx.connectorSlug}"`);
       ctx.headers.set('X-Gateway-Warning', 'missing-auth-secret');
-      return;
     }
+
     const encoded = Buffer.from(`${username}:${password}`).toString('base64');
     ctx.headers.set('Authorization', `Basic ${encoded}`);
   },

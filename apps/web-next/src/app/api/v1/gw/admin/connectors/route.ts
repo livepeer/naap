@@ -12,6 +12,7 @@ import { success, successPaginated, errors, parsePagination } from '@/lib/api/re
 import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard';
 import { createConnectorSchema } from '@/lib/gateway/admin/validation';
 import { invalidateConnectorCache } from '@/lib/gateway/resolve';
+import { logAudit } from '@/lib/gateway/admin/audit';
 
 function ownerWhere(ctx: { teamId: string; userId: string; isPersonal: boolean }) {
   if (ctx.isPersonal) return { ownerUserId: ctx.userId };
@@ -124,6 +125,8 @@ export async function POST(request: NextRequest) {
   });
 
   invalidateConnectorCache(ctx.teamId, connector.slug);
+
+  logAudit(ctx, { action: 'connector.create', resourceId: connector.id, details: { slug: connector.slug }, request });
 
   return success(connector);
 }

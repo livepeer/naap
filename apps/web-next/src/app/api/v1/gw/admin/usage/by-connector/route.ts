@@ -57,14 +57,12 @@ export async function GET(request: NextRequest) {
 
   const errorMap = new Map(errorsByConnector.map((e) => [e.connectorId, e._count]));
 
-  // Enrich with connector names
+  // Enrich with connector names — include both owned and public connectors
+  // since usage records may reference public connectors from other scopes
   const connectorIds = byConnector.map((c) => c.connectorId);
-  const ownerFilter = ctx.isPersonal
-    ? { ownerUserId: ctx.userId }
-    : { teamId: ctx.teamId };
 
   const connectors = await prisma.serviceConnector.findMany({
-    where: { id: { in: connectorIds }, ...ownerFilter },
+    where: { id: { in: connectorIds } },
     select: { id: true, slug: true, displayName: true },
   });
   const connectorMap = new Map(connectors.map((c) => [c.id, c]));
