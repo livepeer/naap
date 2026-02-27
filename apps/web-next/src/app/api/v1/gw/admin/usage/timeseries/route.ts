@@ -6,6 +6,8 @@
  * Query params: from, to, interval (1m, 5m, 1h, 1d), connectorId
  */
 
+export const runtime = 'nodejs';
+
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success } from '@/lib/api/response';

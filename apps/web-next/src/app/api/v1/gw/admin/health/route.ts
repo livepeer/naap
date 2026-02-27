@@ -5,6 +5,8 @@
  * Returns the latest health status for all published connectors (team-scoped).
  */
 
+export const runtime = 'nodejs';
+
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success } from '@/lib/api/response';
