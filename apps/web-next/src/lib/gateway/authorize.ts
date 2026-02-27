@@ -110,11 +110,14 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
     })
     .catch(() => {});
 
+  const resolvedTeamId = apiKey.teamId
+    ?? (apiKey.ownerUserId ? `personal:${apiKey.ownerUserId}` : '');
+
   return {
     authenticated: true,
     callerType: 'apiKey',
     callerId: apiKey.createdBy,
-    teamId: apiKey.teamId,
+    teamId: resolvedTeamId,
     apiKeyId: apiKey.id,
     connectorId: apiKey.connectorId || undefined,
     planId: apiKey.planId || undefined,
@@ -128,37 +131,26 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
 }
 
 /**
- * Verify connector belongs to the caller's team.
- * If the API key is scoped to a specific connector, verify it matches.
+ * Verify the caller has access to the resolved connector.
  *
- * When the caller is in personal context (no x-team-id header), the
- * resolveConfig fallback may have found a connector via team membership.
- * In this case, the auth.teamId is `personal:<userId>` but the connector
- * belongs to a team the user is a member of. We verify membership here
- * rather than blindly rejecting the mismatch.
+ * Three visibility modes:
+ *   - **public**: any authenticated caller can access.
+ *   - **private / team** with ownerUserId: only the owning user may access.
+ *   - **private / team** with teamId: caller's auth.teamId must match.
  */
-export async function verifyConnectorAccess(
+export function verifyConnectorAccess(
   auth: AuthResult,
   connectorId: string,
-  connectorTeamId: string
-): Promise<{ allowed: boolean; resolvedTeamId: string }> {
-  if (auth.callerType === 'apiKey' && auth.connectorId && auth.connectorId !== connectorId) {
-    return { allowed: false, resolvedTeamId: auth.teamId };
+  connectorTeamId: string | null,
+  connectorOwnerUserId: string | null,
+  visibility: string
+): boolean {
+  if (visibility === 'public') return true;
+  if (connectorOwnerUserId) {
+    return auth.callerId === connectorOwnerUserId;
   }
-
-  if (auth.teamId === connectorTeamId) {
-    return { allowed: true, resolvedTeamId: connectorTeamId };
+  if (connectorTeamId) {
+    return auth.teamId === connectorTeamId;
   }
-
-  if (auth.callerType === 'jwt' && auth.teamId.startsWith('personal:')) {
-    const membership = await prisma.teamMember.findFirst({
-      where: { userId: auth.callerId, teamId: connectorTeamId },
-      select: { id: true },
-    });
-    if (membership) {
-      return { allowed: true, resolvedTeamId: connectorTeamId };
-    }
-  }
-
-  return { allowed: false, resolvedTeamId: auth.teamId };
+  return false;
 }

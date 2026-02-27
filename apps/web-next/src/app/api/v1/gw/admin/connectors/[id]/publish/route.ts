@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   const updated = await prisma.serviceConnector.update({
-    where: { id, teamId: ctx.teamId },
+    where: { id },
     data: {
       status: 'published',
       publishedAt: new Date(),

@@ -15,6 +15,9 @@ interface Connector {
   displayName: string;
   description: string | null;
   status: string;
+  visibility?: string;
+  ownerUserId?: string | null;
+  teamId?: string | null;
   version: number;
   upstreamBaseUrl: string;
   authType: string;
@@ -29,6 +32,12 @@ interface Connector {
     enabled: boolean;
   }>;
 }
+
+const VISIBILITY_BADGES: Record<string, { label: string; className: string }> = {
+  private: { label: '🔒 Private', className: 'bg-gray-500/10 text-gray-400' },
+  team: { label: '👥 Team', className: 'bg-purple-500/10 text-purple-400' },
+  public: { label: '🌐 Public', className: 'bg-blue-500/10 text-blue-400' },
+};
 
 interface ApiKey {
   id: string;
@@ -142,6 +151,11 @@ export const ConnectorDetailPage: React.FC = () => {
               <span className={`px-2 py-0.5 text-xs font-medium rounded ${STATUS_COLORS[connector.status]}`}>
                 {connector.status}
               </span>
+              {connector.visibility && VISIBILITY_BADGES[connector.visibility] && (
+                <span className={`px-2 py-0.5 text-xs font-medium rounded ${VISIBILITY_BADGES[connector.visibility].className}`}>
+                  {VISIBILITY_BADGES[connector.visibility].label}
+                </span>
+              )}
               <span className="text-xs text-gray-500 font-mono">{connector.slug}</span>
               <span className="text-xs text-gray-500">v{connector.version}</span>
             </div>
@@ -340,6 +354,7 @@ export const ConnectorDetailPage: React.FC = () => {
                 <div><span className="text-gray-400">Upstream URL:</span> <span className="text-gray-200 font-mono text-xs ml-1">{connector.upstreamBaseUrl}</span></div>
                 <div><span className="text-gray-400">Auth Type:</span> <span className="text-gray-200 ml-1">{connector.authType}</span></div>
                 <div><span className="text-gray-400">Streaming:</span> <span className="text-gray-200 ml-1">{connector.streamingEnabled ? 'Enabled' : 'Disabled'}</span></div>
+                <div><span className="text-gray-400">Visibility:</span> <span className="text-gray-200 ml-1 capitalize">{connector.visibility || 'private'}</span></div>
                 <div><span className="text-gray-400">Endpoints:</span> <span className="text-gray-200 ml-1">{connector.endpoints.length}</span></div>
               </div>
             </div>

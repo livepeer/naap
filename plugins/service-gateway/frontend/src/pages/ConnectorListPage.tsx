@@ -14,6 +14,9 @@ interface Connector {
   displayName: string;
   description: string | null;
   status: string;
+  visibility?: string;
+  ownerUserId?: string | null;
+  teamId?: string | null;
   endpointCount: number;
   updatedAt: string;
   tags: string[];
@@ -31,6 +34,12 @@ const STATUS_COLORS: Record<string, string> = {
   archived: 'bg-gray-500/10 text-gray-400 border-gray-500/30',
 };
 
+const VISIBILITY_BADGES: Record<string, { label: string; className: string }> = {
+  private: { label: '🔒 Private', className: 'bg-gray-500/10 text-gray-400 border-gray-500/30' },
+  team: { label: '👥 Team', className: 'bg-purple-500/10 text-purple-400 border-purple-500/30' },
+  public: { label: '🌐 Public', className: 'bg-blue-500/10 text-blue-400 border-blue-500/30' },
+};
+
 const TEMPLATES = [
   { id: 'ai-llm', label: 'AI / LLM', icon: '🤖', desc: 'OpenAI-compatible APIs' },
   { id: 'clickhouse', label: 'ClickHouse', icon: '📊', desc: 'Analytics queries' },
@@ -43,12 +52,16 @@ export const ConnectorListPage: React.FC = () => {
   const { data, loading, error, execute } = useAsync<ConnectorsResponse>();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [scopeFilter, setScopeFilter] = useState<string>('all');
 
+  const { get: apiGet } = api;
   const loadConnectors = useCallback(() => {
     const params = new URLSearchParams();
     if (statusFilter) params.set('status', statusFilter);
-    return execute(() => api.get(`/connectors?${params.toString()}`));
-  }, [execute, api, statusFilter]);
+    if (scopeFilter) params.set('scope', scopeFilter);
+    return execute(() => apiGet(`/connectors?${params.toString()}`));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [execute, apiGet, statusFilter, scopeFilter]);
 
   useEffect(() => {
     loadConnectors();
@@ -76,6 +89,23 @@ export const ConnectorListPage: React.FC = () => {
           >
             + New Connector
           </button>
+        </div>
+
+        {/* Scope Tabs */}
+        <div className="flex gap-1 border-b border-gray-700 mb-4">
+          {([['all', 'All Connectors'], ['own', 'My Connectors'], ['public', 'Public']] as const).map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => setScopeFilter(val)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                scopeFilter === val
+                  ? 'border-blue-500 text-blue-400'
+                  : 'border-transparent text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {/* Search + Filter */}
@@ -171,6 +201,14 @@ export const ConnectorListPage: React.FC = () => {
                   <span>{connector.endpointCount} endpoint{connector.endpointCount !== 1 ? 's' : ''}</span>
                   <span>·</span>
                   <span>{connector.slug}</span>
+                  {connector.visibility && VISIBILITY_BADGES[connector.visibility] && (
+                    <>
+                      <span>·</span>
+                      <span className={`px-1.5 py-0.5 rounded border text-[10px] font-medium ${VISIBILITY_BADGES[connector.visibility].className}`}>
+                        {VISIBILITY_BADGES[connector.visibility].label}
+                      </span>
+                    </>
+                  )}
                 </div>
               </button>
             ))}

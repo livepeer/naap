@@ -923,6 +923,14 @@ _detect_changed_plugins() {
 }
 
 ensure_plugins_built() {
+  # Clean up stale static CDN bundles that shadow the dynamic CDN route handler.
+  # public/cdn/ is only needed for Vercel static serving (created by vercel-build.sh).
+  # If it exists locally, Next.js serves its stale files before reaching the API route.
+  if [ -d "$ROOT_DIR/apps/web-next/public/cdn" ]; then
+    log_warn "Removing stale public/cdn/ (Vercel-only artifact)"
+    rm -rf "$ROOT_DIR/apps/web-next/public/cdn"
+  fi
+
   log_info "Checking plugin builds..."
   local to_build=() up_to_date=0
   for pj in "$ROOT_DIR/plugins"/*/plugin.json; do

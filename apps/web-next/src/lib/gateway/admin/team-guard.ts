@@ -73,23 +73,53 @@ export function isErrorResponse(result: AdminContext | Response): result is Resp
 }
 
 /**
- * Load a connector by ID, verifying it belongs to the caller's team.
- * Returns 404 for other teams' connectors (prevents enumeration).
+ * Build a Prisma `where` clause that scopes a connector to the caller's
+ * ownership: team-scoped uses `teamId`, personal uses `ownerUserId`.
  */
-export async function loadConnector(connectorId: string, teamId: string) {
-  const connector = await prisma.serviceConnector.findFirst({
-    where: { id: connectorId, teamId },
+function scopeFilter(connectorId: string, scopeId: string) {
+  if (scopeId.startsWith('personal:')) {
+    const userId = scopeId.slice('personal:'.length);
+    return { id: connectorId, ownerUserId: userId };
+  }
+  return { id: connectorId, teamId: scopeId };
+}
+
+function visibleFilter(connectorId: string, scopeId: string) {
+  return {
+    OR: [
+      scopeFilter(connectorId, scopeId),
+      { id: connectorId, visibility: 'public', status: 'published' },
+    ],
+  };
+}
+
+/**
+ * Load a connector by ID, verifying it belongs to the caller's scope
+ * OR is a published public connector (visible to all authenticated users).
+ */
+export async function loadConnector(connectorId: string, scopeId: string) {
+  return prisma.serviceConnector.findFirst({
+    where: visibleFilter(connectorId, scopeId),
   });
-  return connector;
+}
+
+/**
+ * Load a connector by ID, strictly within the caller's own scope.
+ * Use for write operations (update/delete) where public fallback is NOT allowed.
+ */
+export async function loadOwnedConnector(connectorId: string, scopeId: string) {
+  return prisma.serviceConnector.findFirst({
+    where: scopeFilter(connectorId, scopeId),
+  });
 }
 
 /**
  * Load a connector by ID with its endpoints.
+ * Same visibility rules as loadConnector.
  */
-export async function loadConnectorWithEndpoints(connectorId: string, teamId: string) {
-  const connector = await prisma.serviceConnector.findFirst({
-    where: { id: connectorId, teamId },
+export async function loadConnectorWithEndpoints(connectorId: string, scopeId: string) {
+  return prisma.serviceConnector.findFirst({
+    where: visibleFilter(connectorId, scopeId),
     include: { endpoints: true },
   });
-  return connector;
 }

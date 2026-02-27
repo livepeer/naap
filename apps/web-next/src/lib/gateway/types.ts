@@ -8,10 +8,12 @@
 
 export interface ResolvedConnector {
   id: string;
-  teamId: string;
+  teamId: string | null;
+  ownerUserId: string | null;
   slug: string;
   displayName: string;
   status: string;
+  visibility: string;
   upstreamBaseUrl: string;
   allowedHosts: string[];
   defaultTimeout: number;
@@ -105,6 +107,7 @@ export interface ProxyResult {
 
 export interface UsageData {
   teamId: string;
+  ownerScope: string;
   connectorId: string;
   endpointName: string;
   apiKeyId: string | null;
