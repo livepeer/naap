@@ -28,7 +28,6 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
     });
   } catch (err) {
     console.error('Forgot password error:', err);
-    // Don't reveal the actual error to prevent email enumeration
     return success({
       message: 'If an account exists, a reset link has been sent.',
     });

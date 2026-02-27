@@ -190,10 +190,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
       if (!response.ok) {
-        const body = await response.json();
-        // API returns { error: { code, message } } or { message }
-        const msg = body.error?.message || body.message || 'Login failed';
-        throw new Error(msg);
+        if (response.status === 503) {
+          throw new Error('Unable to sign in right now. Please try again later.');
+        }
+        throw new Error('Invalid email or password');
       }
       const data = await response.json();
 

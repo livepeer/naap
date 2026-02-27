@@ -6,9 +6,15 @@
 import {NextRequest, NextResponse } from 'next/server';
 import { verifyEmail } from '@/lib/api/auth';
 import { success, errors } from '@/lib/api/response';
+import { enforceRateLimit } from '@/lib/api/rate-limit';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const rateLimitResponse = enforceRateLimit(request, { keyPrefix: 'auth:verify-email' });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     const body = await request.json();
     const { token } = body;
 
@@ -21,8 +27,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return success({
       user: result.user,
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Email verification failed';
-    return errors.badRequest(message);
+  } catch {
+    return errors.badRequest('Invalid or expired verification token');
   }
 }
