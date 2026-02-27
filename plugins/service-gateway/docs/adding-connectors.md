@@ -34,9 +34,11 @@ Match each requirement to an existing strategy:
 | Query param auth | `query` | Gemini style |
 | AWS S3 signing | `aws-s3` | S3-compatible storage |
 | No auth | `none` | Public APIs |
-| JSON response wrapping | `envelope` | Default |
-| Raw passthrough | `raw` | When consumers need unmodified response |
-| SSE streaming | `streaming` | LLM chat completions |
+| JSON response wrapping | `envelope` | Default (`responseBodyTransform: "envelope"`) |
+| Raw passthrough | `raw` | `responseBodyTransform: "raw"` |
+| SSE streaming | `streaming` | `responseBodyTransform: "streaming"` |
+| Field restructuring | `field-map` | `responseBodyTransform: "field-map"` |
+| No response transform | `none` | `responseBodyTransform: "none"` (default) |
 
 If no existing strategy fits, create a new one per the [adding transforms guide](./adding-transforms.md).
 

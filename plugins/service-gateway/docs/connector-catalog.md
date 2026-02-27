@@ -196,6 +196,8 @@ Reference table for all Service Gateway connectors, their transform configuratio
 
 | Mode | Connectors using it |
 |------|-------------------|
+| none | Default — no response transform applied |
 | envelope | openai, gemini, daydream, livepeer-studio, livepeer-leaderboard, cloudflare-ai, clickhouse, neon, pinecone, supabase, resend, confluent-kafka, storj-s3 |
 | raw | upstash-redis, vercel-blob, stripe, twilio |
 | streaming | openai (chat), gemini (stream), daydream, cloudflare-ai |
+| field-map | Custom field restructuring via mapping config |

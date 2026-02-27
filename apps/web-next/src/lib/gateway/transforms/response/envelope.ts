@@ -9,12 +9,12 @@ export const envelopeResponse: ResponseTransformStrategy = {
 
     if (contentType.includes('application/json')) {
       try {
-        const body = await ctx.upstreamResponse.text();
+        const rawBody = await ctx.upstreamResponse.text();
         let parsedBody: unknown;
         try {
-          parsedBody = JSON.parse(body);
+          parsedBody = JSON.parse(rawBody);
         } catch {
-          parsedBody = body;
+          parsedBody = rawBody;
         }
 
         const envelope: Record<string, unknown> = {
@@ -45,7 +45,10 @@ export const envelopeResponse: ResponseTransformStrategy = {
           headers: responseHeaders,
         });
       } catch {
-        // Fall through to raw passthrough on parse failure
+        return new Response(null, {
+          status: ctx.upstreamResponse.status,
+          headers: responseHeaders,
+        });
       }
     }
 
