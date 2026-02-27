@@ -17,6 +17,7 @@ import type { UsageData } from './types';
 const BATCH_SIZE = 50;
 const FLUSH_INTERVAL_MS = 5_000;
 const BACKPRESSURE_LIMIT = 500;
+const MAX_RETRIES = 2;
 
 let buffer: UsageData[] = [];
 let flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -31,7 +32,7 @@ function ensureTimer(): void {
   }
 }
 
-async function flush(): Promise<void> {
+async function flush(retryCount = 0): Promise<void> {
   if (buffer.length === 0) return;
   const batch = buffer.splice(0, buffer.length);
   try {
@@ -57,6 +58,11 @@ async function flush(): Promise<void> {
     });
   } catch (err) {
     console.error('[gateway] batch usage write failed:', err);
+    if (retryCount < MAX_RETRIES && buffer.length + batch.length < BACKPRESSURE_LIMIT) {
+      buffer.unshift(...batch);
+    } else {
+      console.error(`[gateway] dropping ${batch.length} usage records after ${retryCount} retries`);
+    }
   }
 }
 

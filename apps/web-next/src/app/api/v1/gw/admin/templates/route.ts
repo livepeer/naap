@@ -82,31 +82,31 @@ async function createConnectorFromTemplate(
     ? { ownerUserId: ctx.userId }
     : { teamId: ctx.teamId };
 
-  const connector = await prisma.serviceConnector.create({
-    data: {
-      ...ownerData,
-      createdBy: ctx.userId,
-      slug,
-      displayName: conn.displayName,
-      description: conn.description || template.description,
-      category: template.category,
-      upstreamBaseUrl: upstreamBaseUrl || '',
-      allowedHosts,
-      authType: conn.authType,
-      authConfig: conn.authConfig || {},
-      secretRefs: conn.secretRefs,
-      streamingEnabled: conn.streamingEnabled ?? false,
-      responseWrapper: conn.responseWrapper ?? true,
-      healthCheckPath: conn.healthCheckPath || null,
-      defaultTimeout: conn.defaultTimeout ?? 30000,
-      tags: conn.tags || [],
-      status: 'draft',
-    },
-  });
-
-  for (const ep of template.endpoints) {
-    await prisma.connectorEndpoint.create({
+  const created = await prisma.$transaction(async (tx) => {
+    const connector = await tx.serviceConnector.create({
       data: {
+        ...ownerData,
+        createdBy: ctx.userId,
+        slug,
+        displayName: conn.displayName,
+        description: conn.description || template.description,
+        category: template.category,
+        upstreamBaseUrl,
+        allowedHosts,
+        authType: conn.authType,
+        authConfig: conn.authConfig || {},
+        secretRefs: conn.secretRefs,
+        streamingEnabled: conn.streamingEnabled ?? false,
+        responseWrapper: conn.responseWrapper ?? true,
+        healthCheckPath: conn.healthCheckPath || null,
+        defaultTimeout: conn.defaultTimeout ?? 30000,
+        tags: conn.tags || [],
+        status: 'draft',
+      },
+    });
+
+    await tx.connectorEndpoint.createMany({
+      data: template.endpoints.map((ep) => ({
         connectorId: connector.id,
         name: ep.name,
         description: ep.description,
@@ -120,16 +120,16 @@ async function createConnectorFromTemplate(
         cacheTtl: ep.cacheTtl || null,
         timeout: ep.timeout || null,
         retries: ep.retries || 0,
-      },
+      })),
     });
-  }
 
-  invalidateConnectorCache(ctx.teamId, connector.slug);
-
-  const created = await prisma.serviceConnector.findUnique({
-    where: { id: connector.id },
-    include: { endpoints: true },
+    return tx.serviceConnector.findUnique({
+      where: { id: connector.id },
+      include: { endpoints: true },
+    });
   });
+
+  invalidateConnectorCache(ctx.teamId, slug);
 
   return { connector: created };
 }
