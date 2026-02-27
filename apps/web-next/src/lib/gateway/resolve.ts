@@ -16,6 +16,9 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+// Process-local cache: each serverless instance maintains its own copy.
+// Stale data may be served for up to TTL after config changes.
+// For stricter consistency, layer a distributed cache (Redis L2) in front.
 const CONFIG_CACHE = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 60_000; // 60 seconds
 

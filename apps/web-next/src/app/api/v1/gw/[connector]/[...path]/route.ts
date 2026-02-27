@@ -90,10 +90,12 @@ async function handleRequest(
   // ── 5. IP Allowlist Check ──
   if (auth.allowedIPs && auth.allowedIPs.length > 0) {
     const clientIP = getClientIP(request);
-    if (clientIP && !auth.allowedIPs.includes(clientIP)) {
+    if (!clientIP || !auth.allowedIPs.includes(clientIP)) {
       return buildErrorResponse(
         'FORBIDDEN',
-        'Request from this IP address is not allowed.',
+        clientIP
+          ? 'Request from this IP address is not allowed.'
+          : 'Unable to determine client IP for allowlist check.',
         403,
         requestId,
         traceId
@@ -141,8 +143,7 @@ async function handleRequest(
       upstream,
       timeout,
       config.endpoint.retries,
-      config.connector.allowedHosts,
-      config.connector.streamingEnabled
+      config.connector.allowedHosts
     );
   } catch (err) {
     const proxyError = err instanceof ProxyError ? err : new ProxyError('UPSTREAM_ERROR', String(err), 502);

@@ -55,7 +55,7 @@ function buildUpstreamUrl(
   // Replace :param placeholders with actual values from consumer path
   patternParts.forEach((part, i) => {
     if (part.startsWith(':') && consumerParts[i]) {
-      upstreamPath = upstreamPath.replace(part, consumerParts[i]);
+      upstreamPath = upstreamPath.replaceAll(part, consumerParts[i]);
     }
   });
 

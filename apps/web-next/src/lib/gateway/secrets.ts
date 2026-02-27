@@ -41,22 +41,31 @@ export async function resolveSecrets(
       }
 
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3_000);
+
         const response = await fetch(`${BASE_SVC_URL}/api/secrets/${encodeURIComponent(key)}`, {
           headers: {
             ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
             'x-internal-service': 'service-gateway',
           },
+          signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (response.ok) {
           const data = await response.json();
           const value = data.data?.value || data.value || '';
           secrets[ref] = value;
           SECRET_CACHE.set(key, { value, expiresAt: Date.now() + SECRET_CACHE_TTL_MS });
+        } else {
+          secrets[ref] = '';
+          SECRET_CACHE.set(key, { value: '', expiresAt: Date.now() + 30_000 });
         }
       } catch {
-        // Secret not found — leave as empty string
         secrets[ref] = '';
+        SECRET_CACHE.set(key, { value: '', expiresAt: Date.now() + 30_000 });
       }
     })
   );
@@ -116,8 +125,11 @@ export async function deleteSecret(
       },
     });
 
-    SECRET_CACHE.delete(key);
-    return response.ok;
+    if (response.ok) {
+      SECRET_CACHE.delete(key);
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }

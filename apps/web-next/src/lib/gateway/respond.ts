@@ -23,16 +23,16 @@ const STRIP_HEADERS = new Set([
 /**
  * Build the consumer-facing response from upstream response.
  */
-export function buildResponse(
+export async function buildResponse(
   config: ResolvedConfig,
   proxyResult: ProxyResult,
   requestId: string | null,
   traceId: string | null
-): Response {
+): Promise<Response> {
   const { response, upstreamLatencyMs, cached } = proxyResult;
   const { connector } = config;
 
-  const responseContentType = response.headers.get('content-type') || '';
+  const responseContentType = (response.headers.get('content-type') || '').toLowerCase();
 
   // ── SSE Streaming — passthrough without wrapping ──
   if (connector.streamingEnabled && responseContentType.includes('text/event-stream')) {
@@ -40,7 +40,7 @@ export function buildResponse(
   }
 
   // ── Standard Response ──
-  return buildStandardResponse(
+  return await buildStandardResponse(
     config,
     response,
     requestId,

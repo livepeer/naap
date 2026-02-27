@@ -52,10 +52,15 @@ export function extractTeamContext(request: Request): TeamContext | null {
 
 async function authorizeJwt(token: string, request: Request): Promise<AuthResult | null> {
   try {
-    // Validate JWT via base-svc /api/auth/me
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5_000);
+
     const meResponse = await fetch(`${BASE_SVC_URL}/api/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     if (!meResponse.ok) return null;
 
@@ -63,7 +68,6 @@ async function authorizeJwt(token: string, request: Request): Promise<AuthResult
     const userId = me.data?.id || me.id;
     if (!userId) return null;
 
-    // Team context from x-team-id header (set by NaaP shell)
     const teamId = request.headers.get('x-team-id');
     if (!teamId) return null;
 
@@ -112,6 +116,7 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
     callerId: apiKey.createdBy,
     teamId: apiKey.teamId,
     apiKeyId: apiKey.id,
+    connectorId: apiKey.connectorId || undefined,
     planId: apiKey.planId || undefined,
     allowedEndpoints: apiKey.allowedEndpoints.length > 0 ? apiKey.allowedEndpoints : undefined,
     allowedIPs: apiKey.allowedIPs.length > 0 ? apiKey.allowedIPs : undefined,
@@ -131,15 +136,10 @@ export function verifyConnectorAccess(
   connectorId: string,
   connectorTeamId: string
 ): boolean {
-  // Team isolation — the connector must belong to the caller's team
   if (auth.teamId !== connectorTeamId) return false;
 
-  // If API key is scoped to a specific connector, verify it matches
-  if (auth.callerType === 'apiKey') {
-    // Check connector scoping on the key record (connectorId field)
-    // This is done by looking up the key's connector association
-    // If allowedEndpoints is set, the caller must be accessing an allowed endpoint
-    // (checked separately in the pipeline)
+  if (auth.callerType === 'apiKey' && auth.connectorId) {
+    if (auth.connectorId !== connectorId) return false;
   }
 
   return true;

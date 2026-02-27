@@ -1791,6 +1791,7 @@ model GatewayUsageRecord {
   @@index([teamId, timestamp])
   @@index([connectorId, timestamp])
   @@index([apiKeyId, timestamp])
+  @@index([teamId, connectorId, timestamp])
   @@schema("plugin_service_gateway")
 }
 

@@ -15,14 +15,12 @@ import { validateHost } from './types';
  * @param timeout   - Timeout in milliseconds
  * @param retries   - Number of retry attempts on failure
  * @param allowedHosts - Allowed upstream hostnames (SSRF protection)
- * @param streaming - Whether SSE streaming is enabled for this connector
  */
 export async function proxyToUpstream(
   upstream: UpstreamRequest,
   timeout: number,
   retries: number,
-  allowedHosts: string[],
-  streaming: boolean
+  allowedHosts: string[]
 ): Promise<ProxyResult> {
   // ── SSRF Protection ──
   const url = new URL(upstream.url);

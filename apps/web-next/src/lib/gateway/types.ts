@@ -59,12 +59,15 @@ export interface ResolvedConfig {
 
 export type CallerType = 'jwt' | 'apiKey';
 
-export interface AuthResult {
-  authenticated: boolean;
+export type AuthResult = AuthResultAuthenticated;
+
+interface AuthResultAuthenticated {
+  authenticated: true;
   callerType: CallerType;
   callerId: string;
   teamId: string;
   apiKeyId?: string;
+  connectorId?: string;
   planId?: string;
   allowedEndpoints?: string[];
   allowedIPs?: string[];
@@ -134,7 +137,7 @@ const PRIVATE_IP_RANGES = [
   /^192\.168\./,
   /^0\./,
   /^169\.254\./,
-  /^fc00:/,
+  /^f[cd]00:/i,
   /^fe80:/,
   /^::1$/,
   /^localhost$/i,
