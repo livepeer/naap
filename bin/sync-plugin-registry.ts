@@ -275,10 +275,10 @@ async function main(): Promise<void> {
     // ------------------------------------------------------------------
     // Sync Gateway Connector Templates (JSON → DB)
     // ------------------------------------------------------------------
-    const templatesDir = path.join(MONOREPO_ROOT, 'plugins', 'service-gateway', 'templates');
+    const templatesDir = path.join(MONOREPO_ROOT, 'plugins', 'service-gateway', 'connectors');
     if (fs.existsSync(templatesDir)) {
       console.log('[sync-plugin-registry] Syncing gateway connector templates...');
-      const jsonFiles = fs.readdirSync(templatesDir).filter((f) => f.endsWith('.json'));
+      const jsonFiles = fs.readdirSync(templatesDir).filter((f) => f.endsWith('.json') && !f.includes('schema'));
       let tplCreated = 0;
       let tplUpdated = 0;
 
