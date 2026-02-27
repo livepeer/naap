@@ -5,7 +5,7 @@
  * All calls are team-scoped via x-team-id header.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useApiClient } from '@naap/plugin-sdk';
 import { useTeam } from '@naap/plugin-sdk';
 
@@ -16,7 +16,7 @@ export function useGatewayApi() {
   const teamContext = useTeam();
   const teamId = teamContext?.currentTeam?.id;
 
-  const headers = useCallback(() => {
+  const extraHeaders = useMemo(() => {
     const h: Record<string, string> = {};
     if (teamId) h['x-team-id'] = teamId;
     return h;
@@ -24,45 +24,37 @@ export function useGatewayApi() {
 
   const get = useCallback(
     async <T = unknown>(path: string): Promise<T> => {
-      const res = await apiClient.get(`${GW_API_BASE}${path}`, {
-        headers: headers(),
-      });
+      const res = await apiClient.get(`${GW_API_BASE}${path}`, extraHeaders);
       return res.data as T;
     },
-    [apiClient, headers]
+    [apiClient, extraHeaders]
   );
 
   const post = useCallback(
     async <T = unknown>(path: string, body?: unknown): Promise<T> => {
-      const res = await apiClient.post(`${GW_API_BASE}${path}`, body, {
-        headers: headers(),
-      });
+      const res = await apiClient.post(`${GW_API_BASE}${path}`, body, extraHeaders);
       return res.data as T;
     },
-    [apiClient, headers]
+    [apiClient, extraHeaders]
   );
 
   const put = useCallback(
     async <T = unknown>(path: string, body?: unknown): Promise<T> => {
-      const res = await apiClient.put(`${GW_API_BASE}${path}`, body, {
-        headers: headers(),
-      });
+      const res = await apiClient.put(`${GW_API_BASE}${path}`, body, extraHeaders);
       return res.data as T;
     },
-    [apiClient, headers]
+    [apiClient, extraHeaders]
   );
 
   const del = useCallback(
     async <T = unknown>(path: string): Promise<T> => {
-      const res = await apiClient.delete(`${GW_API_BASE}${path}`, {
-        headers: headers(),
-      });
+      const res = await apiClient.delete(`${GW_API_BASE}${path}`, extraHeaders);
       return res.data as T;
     },
-    [apiClient, headers]
+    [apiClient, extraHeaders]
   );
 
-  return { get, post, put, del, teamId };
+  return useMemo(() => ({ get, post, put, del, teamId }), [get, post, put, del, teamId]);
 }
 
 /**
