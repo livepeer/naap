@@ -79,7 +79,10 @@ async function main() {
 
   step(3, 'Configuring Gemini upstream API key');
 
-  const GEMINI_KEY = process.env.GEMINI_API_KEY || '***REMOVED***';
+  const GEMINI_KEY = process.env.GEMINI_API_KEY;
+  if (!GEMINI_KEY) {
+    throw new Error('GEMINI_API_KEY environment variable is required. Set it before running this script.');
+  }
 
   const secretScope = `personal:${userId}`;
   const secretRef = 'token';
