@@ -6,6 +6,8 @@
  * Supports JSON (default) or YAML (?format=yaml).
  */
 
+export const runtime = 'nodejs';
+
 import { NextRequest } from 'next/server';
 import { getAdminContext, isErrorResponse, loadConnectorWithEndpoints } from '@/lib/gateway/admin/team-guard';
 import { generateOpenApiSpec, jsonToYaml } from '@/lib/gateway/openapi';

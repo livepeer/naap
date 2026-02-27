@@ -5,6 +5,8 @@
  * Owner-only: removes a single upstream secret from SecretVault.
  */
 
+export const runtime = 'nodejs';
+
 import { NextRequest } from 'next/server';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse, loadOwnedConnector } from '@/lib/gateway/admin/team-guard';

@@ -9,6 +9,8 @@
  * and proxies the SDP offer/answer. The actual media stream is peer-to-peer.
  */
 
+export const runtime = 'nodejs';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';
 
