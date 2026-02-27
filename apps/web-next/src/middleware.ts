@@ -2,13 +2,26 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 // Plugin route mapping: path prefix → plugin name
-// These routes are defined in the database seed and used by plugins
+// Maps custom route prefixes to their plugin's camelCase name so the
+// middleware can rewrite e.g. /gateway → /plugins/serviceGateway.
+// Keep in sync with WorkflowPlugin.routes / plugin.json.
+// Routes with their own page.tsx (/marketplace, /dashboard) are excluded.
+// /plugins/* paths are handled by the dynamic [pluginName] route automatically.
 const PLUGIN_ROUTE_MAP: Record<string, string> = {
+  '/wallet': 'myWallet',
+  '/gateway': 'serviceGateway',
+  '/gateways': 'gatewayManager',
+  '/orchestrators': 'orchestratorManager',
   '/capacity': 'capacityPlanner',
+  '/analytics': 'networkAnalytics',
+  '/leaderboard': 'networkAnalytics',
   '/forum': 'community',
   '/developers': 'developerApi',
   '/publish': 'pluginPublisher',
-  // Note: /marketplace and /dashboard have their own page.tsx files
+  '/daydream': 'daydreamVideo',
+  '/hello': 'helloWorld',
+  '/intelligent-dashboard': 'intelligentDashboard',
+  '/todos': 'todoList',
 };
 
 // CSP configuration for plugin pages
@@ -191,6 +204,13 @@ export function middleware(request: NextRequest) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
       return NextResponse.redirect(loginUrl);
+    }
+  }
+
+  // Redirect authenticated users away from auth pages (login/register)
+  if (authRoutes.some(route => pathname.startsWith(route))) {
+    if (token) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
     }
   }
 
