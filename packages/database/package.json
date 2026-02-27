@@ -15,6 +15,11 @@
       "types": "./src/generated/client/index.d.ts",
       "import": "./src/generated/client/index.js",
       "require": "./src/generated/client/index.js"
+    },
+    "./plugin-discovery": {
+      "types": "./src/plugin-discovery.ts",
+      "import": "./src/plugin-discovery.ts",
+      "require": "./src/plugin-discovery.ts"
     }
   },
   "scripts": {
