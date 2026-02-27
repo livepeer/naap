@@ -104,12 +104,11 @@ export function deriveSigningKey(
 
 function hashPayload(body: ArrayBuffer | string | null | undefined): string {
   const hash = crypto.createHash('sha256');
-  if (body instanceof ArrayBuffer) {
-    hash.update(Buffer.from(body));
-  } else if (typeof body === 'string') {
+  if (typeof body === 'string') {
     hash.update(body, 'utf8');
+  } else if (body != null && typeof body === 'object' && 'byteLength' in body) {
+    hash.update(Buffer.from(body as ArrayBuffer));
   }
-  // empty body → hash of empty string
   return hash.digest('hex');
 }
 
