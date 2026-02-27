@@ -1,8 +1,8 @@
 /**
- * Service Gateway — Request Transform
+ * Service Gateway — Request Transform (Orchestrator)
  *
  * Builds the upstream request from consumer request + connector config.
- * Handles: URL construction, auth injection, body transforms, header mapping.
+ * Delegates body transformation and auth injection to the strategy registry.
  */
 
 import type {
@@ -10,7 +10,8 @@ import type {
   ResolvedSecrets,
   UpstreamRequest,
 } from './types';
-import { signAwsV4 } from './aws-sig-v4';
+import { registry } from './transforms';
+import { interpolateSecrets } from './transforms/types';
 
 /**
  * Build the upstream request from the consumer request and resolved config.
@@ -34,13 +35,27 @@ export function buildUpstreamRequest(
   const method = endpoint.upstreamMethod || endpoint.method;
 
   // ── Headers ──
-  const headers = buildUpstreamHeaders(connector, endpoint, secrets, request);
+  const headers = buildUpstreamHeaders(endpoint, secrets, request);
 
-  // ── Body ──
-  const body = transformBody(endpoint, consumerBody, consumerBodyRaw);
+  // ── Body (registry-dispatched) ──
+  const bodyStrategy = registry.getBody(endpoint.bodyTransform);
+  const body = bodyStrategy.transform({
+    bodyTransform: endpoint.bodyTransform,
+    consumerBody,
+    consumerBodyRaw,
+    upstreamStaticBody: endpoint.upstreamStaticBody,
+  });
 
-  // ── Auth injection (after URL + body are finalized) ──
-  injectAuth(headers, connector, secrets, method, url, body);
+  // ── Auth injection (registry-dispatched, after URL + body are finalized) ──
+  const authStrategy = registry.getAuth(connector.authType);
+  authStrategy.inject({
+    headers,
+    authConfig: connector.authConfig,
+    secrets,
+    method,
+    url,
+    body,
+  });
 
   return { url: url.toString(), method, headers, body };
 }
@@ -72,14 +87,12 @@ function buildUpstreamUrl(
   const path = upstreamPath.startsWith('/') ? upstreamPath : `/${upstreamPath}`;
   const url = new URL(`${base}${path}`);
 
-  // Forward consumer query params (e.g. ?pipeline=...&model=...)
   if (consumerSearchParams) {
     consumerSearchParams.forEach((value, key) => {
       url.searchParams.set(key, value);
     });
   }
 
-  // Static/configured query params override consumer params
   const queryParams = endpoint.upstreamQueryParams;
   if (queryParams && typeof queryParams === 'object') {
     for (const [key, value] of Object.entries(queryParams)) {
@@ -91,10 +104,9 @@ function buildUpstreamUrl(
 }
 
 /**
- * Build upstream headers: content type, auth injection, custom mappings.
+ * Build upstream headers: content type, custom mappings, observability.
  */
 function buildUpstreamHeaders(
-  connector: ResolvedConfig['connector'],
   endpoint: ResolvedConfig['endpoint'],
   secrets: ResolvedSecrets,
   request: Request
@@ -108,7 +120,6 @@ function buildUpstreamHeaders(
     if (original) headers.set('Content-Type', original);
   }
 
-  // Custom header mapping
   const mapping = endpoint.headerMapping;
   if (mapping && typeof mapping === 'object') {
     for (const [key, value] of Object.entries(mapping)) {
@@ -116,7 +127,6 @@ function buildUpstreamHeaders(
     }
   }
 
-  // Forward observability headers
   const requestId = request.headers.get('x-request-id');
   if (requestId) headers.set('x-request-id', requestId);
 
@@ -124,166 +134,4 @@ function buildUpstreamHeaders(
   if (traceId) headers.set('x-trace-id', traceId);
 
   return headers;
-}
-
-/**
- * Inject authentication into upstream request headers based on auth type.
- */
-function injectAuth(
-  headers: Headers,
-  connector: ResolvedConfig['connector'],
-  secrets: ResolvedSecrets,
-  method: string,
-  url: URL,
-  body?: BodyInit | null,
-): void {
-  const config = connector.authConfig;
-
-  switch (connector.authType) {
-    case 'bearer': {
-      const tokenRef = (config.tokenRef as string) || 'token';
-      const token = secrets[tokenRef] || '';
-      if (token) {
-        headers.set('Authorization', `Bearer ${token}`);
-      }
-      break;
-    }
-
-    case 'header': {
-      const headerEntries = (config.headers as Record<string, string>) || {};
-      for (const [key, valueRef] of Object.entries(headerEntries)) {
-        headers.set(key, interpolateSecrets(valueRef, secrets));
-      }
-      break;
-    }
-
-    case 'basic': {
-      const userRef = (config.usernameRef as string) || 'username';
-      const passRef = (config.passwordRef as string) || 'password';
-      const username = secrets[userRef] || '';
-      const password = secrets[passRef] || '';
-      const encoded = Buffer.from(`${username}:${password}`).toString('base64');
-      headers.set('Authorization', `Basic ${encoded}`);
-      break;
-    }
-
-    case 'query': {
-      const paramName = (config.paramName as string) || 'key';
-      const secretRef = (config.secretRef as string) || 'token';
-      const secretValue = secrets[secretRef];
-      if (secretValue) {
-        url.searchParams.set(paramName, secretValue);
-      }
-      break;
-    }
-
-    case 'aws-s3': {
-      const accessKeyRef = (config.accessKeyRef as string) || 'access_key';
-      const secretKeyRef = (config.secretKeyRef as string) || 'secret_key';
-      const accessKey = secrets[accessKeyRef] || '';
-      const secretKey = secrets[secretKeyRef] || '';
-      if (accessKey && secretKey) {
-        signAwsV4({
-          method,
-          url,
-          headers,
-          body: body instanceof ArrayBuffer ? body : typeof body === 'string' ? body : null,
-          accessKey,
-          secretKey,
-          region: (config.region as string) || 'us-east-1',
-          service: (config.service as string) || 's3',
-          signPayload: (config.signPayload as boolean) ?? false,
-        });
-      }
-      break;
-    }
-
-    case 'none':
-    default:
-      break;
-  }
-}
-
-/**
- * Transform the request body based on the endpoint's bodyTransform setting.
- */
-function transformBody(
-  endpoint: ResolvedConfig['endpoint'],
-  consumerBody: string | null,
-  consumerBodyRaw?: ArrayBuffer | null,
-): BodyInit | undefined {
-  if (endpoint.bodyTransform === 'binary') {
-    return consumerBodyRaw ? consumerBodyRaw : undefined;
-  }
-
-  if (!consumerBody && !endpoint.upstreamStaticBody) {
-    return undefined;
-  }
-
-  switch (endpoint.bodyTransform) {
-    case 'passthrough':
-      return consumerBody || undefined;
-
-    case 'static':
-      return endpoint.upstreamStaticBody || undefined;
-
-    case 'template': {
-      if (!endpoint.upstreamStaticBody || !consumerBody) {
-        return consumerBody || undefined;
-      }
-      try {
-        const body = JSON.parse(consumerBody);
-        return interpolateTemplate(endpoint.upstreamStaticBody, body);
-      } catch {
-        return consumerBody;
-      }
-    }
-
-    default: {
-      // extract:fieldPath
-      if (endpoint.bodyTransform.startsWith('extract:') && consumerBody) {
-        const fieldPath = endpoint.bodyTransform.slice('extract:'.length);
-        try {
-          const body = JSON.parse(consumerBody);
-          const extracted = getNestedValue(body, fieldPath);
-          return extracted !== undefined ? JSON.stringify(extracted) : consumerBody;
-        } catch {
-          return consumerBody;
-        }
-      }
-      return consumerBody || undefined;
-    }
-  }
-}
-
-/**
- * Replace {{secrets.name}} placeholders with actual secret values.
- */
-function interpolateSecrets(template: string, secrets: ResolvedSecrets): string {
-  return template.replace(/\{\{secrets\.(\w+)\}\}/g, (_, name) => secrets[name] || '');
-}
-
-/**
- * Replace {{body.field}} placeholders with values from the request body.
- */
-function interpolateTemplate(template: string, body: Record<string, unknown>): string {
-  return template.replace(/\{\{body\.([.\w]+)\}\}/g, (_, path) => {
-    const value = getNestedValue(body, path);
-    return value !== undefined ? String(value) : '';
-  });
-}
-
-/**
- * Safely get a nested value from an object by dot-separated path.
- */
-function getNestedValue(obj: unknown, path: string): unknown {
-  const parts = path.split('.');
-  let current: unknown = obj;
-  for (const part of parts) {
-    if (current === null || current === undefined || typeof current !== 'object') {
-      return undefined;
-    }
-    current = (current as Record<string, unknown>)[part];
-  }
-  return current;
 }

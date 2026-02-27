@@ -57,6 +57,7 @@ export const createEndpointSchema = z.object({
   upstreamQueryParams: z.record(z.string()).default({}),
   upstreamStaticBody: z.string().max(65_536).optional(),
   bodyTransform: z.string().max(128).default('passthrough'),
+  responseBodyTransform: z.string().max(128).default('none'),
   headerMapping: z.record(z.string()).default({}),
   rateLimit: z.number().int().min(1).optional(),
   timeout: z.number().int().min(1000).max(120_000).optional(),
