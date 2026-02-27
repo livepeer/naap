@@ -6,7 +6,17 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
+import * as path from 'path';
+import * as fs from 'fs';
 import type { AuditLogInput } from '../services/lifecycle';
+import {
+  discoverFromDir,
+  toPluginPackageData,
+  toPluginVersionData,
+  toWorkflowPluginData,
+  getBundleUrl,
+  type DiscoveredPlugin,
+} from '@naap/database/plugin-discovery';
 
 /** Sanitize a value for safe log output (prevents log injection) */
 function sanitizeForLog(value: unknown): string {
@@ -624,6 +634,150 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
       res.status(500).json({ error: 'Internal server error' });
     }
   });
+
+  // ==========================================================================
+  // Example Plugin Publishing (feature-flagged)
+  // ==========================================================================
+
+  const MONOREPO_ROOT = process.cwd();
+  const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || '/cdn/plugins';
+
+  async function isExamplePublishingEnabled(): Promise<boolean> {
+    const flag = await db.featureFlag.findUnique({ where: { key: 'enableExamplePublishing' } });
+    return flag?.enabled === true;
+  }
+
+  /** GET /registry/examples - list available example plugins */
+  router.get('/registry/examples', async (_req: Request, res: Response) => {
+    try {
+      if (!(await isExamplePublishingEnabled())) {
+        return res.status(403).json({ error: 'Example plugin publishing is not enabled' });
+      }
+
+      const examples = discoverFromDir(MONOREPO_ROOT, 'examples');
+
+      const existingNames = examples.length > 0
+        ? await db.pluginPackage.findMany({
+            where: { name: { in: examples.map((e: DiscoveredPlugin) => e.name) } },
+            select: { name: true },
+          })
+        : [];
+      const publishedSet = new Set(existingNames.map((p: { name: string }) => p.name));
+
+      const result = examples.map((e: DiscoveredPlugin) => ({
+        name: e.name,
+        dirName: e.dirName,
+        displayName: e.displayName,
+        description: e.description || '',
+        category: e.category || 'example',
+        author: e.author || 'NAAP Examples',
+        version: e.version,
+        icon: e.icon,
+        alreadyPublished: publishedSet.has(e.name),
+      }));
+
+      res.json({ success: true, examples: result });
+    } catch (error) {
+      console.error('List examples error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** POST /registry/examples/:name/publish - publish an example plugin to marketplace */
+  router.post('/registry/examples/:name/publish', async (req: Request, res: Response) => {
+    try {
+      if (!(await isExamplePublishingEnabled())) {
+        return res.status(403).json({ error: 'Example plugin publishing is not enabled' });
+      }
+
+      const userId = await getUserIdFromRequest(req);
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
+
+      const { name: pluginName } = req.params;
+
+      // Discover examples and validate the requested name exists (path traversal safe)
+      const examples = discoverFromDir(MONOREPO_ROOT, 'examples');
+      const example = examples.find((e: DiscoveredPlugin) => e.name === pluginName);
+      if (!example) {
+        return res.status(404).json({
+          error: 'Example plugin not found',
+          available: examples.map((e: DiscoveredPlugin) => e.name),
+        });
+      }
+
+      // Verify the plugin has been built
+      const bundlePath = path.join(
+        MONOREPO_ROOT, 'dist', 'plugins', example.dirName,
+        example.version, `${example.dirName}.js`,
+      );
+      if (!fs.existsSync(bundlePath)) {
+        return res.status(400).json({
+          error: `Plugin "${example.dirName}" must be built first`,
+          hint: `Run: bin/build-plugins.sh --plugin ${example.dirName}`,
+        });
+      }
+
+      // Atomic publish: package + version + workflow + deployment in a transaction
+      const result = await db.$transaction(async (tx: any) => {
+        const pkgData = toPluginPackageData(example, PLUGIN_CDN_URL);
+        const pkg = await tx.pluginPackage.upsert({
+          where: { name: example.name },
+          update: { ...pkgData, publishStatus: 'published' },
+          create: pkgData,
+        });
+
+        const versionData = toPluginVersionData(example, pkg.id, PLUGIN_CDN_URL);
+        const version = await tx.pluginVersion.upsert({
+          where: { packageId_version: { packageId: pkg.id, version: example.version } },
+          update: { frontendUrl: versionData.frontendUrl, manifest: versionData.manifest as any },
+          create: versionData,
+        });
+
+        const workflowData = toWorkflowPluginData(example, PLUGIN_CDN_URL, MONOREPO_ROOT);
+        await tx.workflowPlugin.upsert({
+          where: { name: example.name },
+          update: workflowData,
+          create: workflowData,
+        });
+
+        await tx.pluginDeployment.upsert({
+          where: { packageId: pkg.id },
+          update: {
+            versionId: version.id,
+            status: 'running',
+            frontendUrl: getBundleUrl(PLUGIN_CDN_URL, example.dirName, example.version),
+            deployedAt: new Date(),
+            healthStatus: 'healthy',
+          },
+          create: {
+            packageId: pkg.id,
+            versionId: version.id,
+            status: 'running',
+            frontendUrl: getBundleUrl(PLUGIN_CDN_URL, example.dirName, example.version),
+            deployedAt: new Date(),
+            healthStatus: 'healthy',
+            activeInstalls: 0,
+          },
+        });
+
+        return { package: pkg, version };
+      });
+
+      await lifecycleService.audit({
+        action: 'plugin.publish', resource: 'plugin', resourceId: example.name,
+        userId, details: { version: example.version, source: 'example' },
+      });
+
+      res.status(201).json({ success: true, ...result });
+    } catch (error) {
+      console.error('Publish example error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // ==========================================================================
+  // Token-authenticated Publish
+  // ==========================================================================
 
   /** POST /registry/publish/token - API token authenticated publish */
   router.post('/registry/publish/token', apiLimiter, requireToken('publish'), async (req: any, res: Response) => { // lgtm[js/missing-rate-limiting] apiLimiter applied

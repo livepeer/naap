@@ -72,6 +72,11 @@ async function main() {
       enabled: true,
       description: 'Enable notifications',
     },
+    {
+      key: 'enableExamplePublishing',
+      enabled: false,
+      description: 'Allow users to publish bundled example plugins to the marketplace (admin toggle)',
+    },
   ];
 
   for (const flag of featureFlags) {
