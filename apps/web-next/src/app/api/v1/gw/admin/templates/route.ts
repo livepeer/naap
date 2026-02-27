@@ -64,6 +64,10 @@ export async function POST(request: NextRequest) {
 
   const slug = customSlug || template.connector.slug;
 
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
+    return errors.badRequest('Slug must be lowercase alphanumeric with hyphens');
+  }
+
   const existing = ctx.isPersonal
     ? await prisma.serviceConnector.findUnique({
         where: { ownerUserId_slug: { ownerUserId: ctx.userId, slug } },
