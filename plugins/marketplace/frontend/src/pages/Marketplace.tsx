@@ -535,27 +535,32 @@ export const MarketplacePage: React.FC = () => {
   const loadInstallations = useCallback(async (overrideTeamId?: string | null) => {
     try {
       const activeTeamId = overrideTeamId !== undefined ? overrideTeamId : teamIdRef.current;
-      // Use team-scoped endpoint when in team context
-      const url = activeTeamId
-        ? `${BASE_URL}/api/v1/base/plugins/personalized?teamId=${encodeURIComponent(activeTeamId)}`
-        : `${BASE_URL}/api/v1/installations`;
+
+      // Use the same-origin personalized endpoint (Next.js API route) which
+      // properly handles both team and personal contexts and returns an
+      // `installed` flag for personal context.
+      const params = new URLSearchParams();
+      if (activeTeamId) params.set('teamId', activeTeamId);
+      const url = `/api/v1/base/plugins/personalized${params.toString() ? `?${params}` : ''}`;
 
       const response = await fetch(url, { credentials: 'include' });
       if (response.ok) {
-        const data = await response.json();
+        const json = await response.json();
+        const plugins = json.data?.plugins || json.plugins || [];
 
         const map = new Map<string, PluginInstallation>();
         if (activeTeamId) {
-          // Team-scoped response format
-          const plugins = data.data?.plugins || data.plugins || [];
+          // Team context: every plugin returned is team-installed (or core)
           plugins.forEach((p: { name: string; installId?: string; id?: string }) => {
             map.set(p.name, { id: p.installId || p.id || '', packageId: '', status: 'active' });
           });
         } else {
-          // Personal installations format
-          (data.installations || []).forEach((inst: PluginInstallation & { package: { name: string } }) => {
-            map.set(inst.package.name, inst);
-          });
+          // Personal context: only include plugins explicitly installed by the user
+          plugins
+            .filter((p: { installed?: boolean }) => p.installed === true)
+            .forEach((p: { name: string; id?: string }) => {
+              map.set(p.name, { id: p.id || '', packageId: '', status: 'active' });
+            });
         }
         setInstallations(map);
       }
@@ -602,10 +607,11 @@ export const MarketplacePage: React.FC = () => {
           body: JSON.stringify({ packageId: pkg.id, packageName: pkg.name }),
         });
       } else {
-        // Personal install
-        response = await fetch(`${BASE_URL}/api/v1/installations`, {
+        // Personal install via tenant installations endpoint
+        response = await fetch(`${BASE_URL}/api/v1/tenant/installations`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ packageName: pkg.name }),
         });
       }
@@ -640,8 +646,8 @@ export const MarketplacePage: React.FC = () => {
           credentials: 'include',
         });
       } else {
-        // Personal uninstall
-        response = await fetch(`${BASE_URL}/api/v1/installations/${pkg.name}`, { method: 'DELETE' });
+        // Personal uninstall via same-origin route (Next.js handles UserPluginPreference removal)
+        response = await fetch(`/api/v1/installations/${pkg.name}`, { method: 'DELETE', credentials: 'include' });
       }
 
       if (response.ok) {

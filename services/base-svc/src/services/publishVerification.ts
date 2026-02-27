@@ -2,6 +2,7 @@
  * Publish Verification Service
  * 
  * Verifies that plugin resources are accessible before publishing:
+ * - Route namespace enforcement (non-core plugins must use /plugins/{name})
  * - Frontend URL accessibility
  * - Docker image existence (if provided)
  * - Manifest validation
@@ -248,6 +249,42 @@ export function validatePublishManifest(manifest: DeepPartial<PluginManifest>): 
       code: 'NO_COMPONENTS',
       message: 'Plugin must have at least frontend or backend',
     });
+  }
+
+  // Route namespace validation — non-core plugins must use /plugins/{name} routes.
+  // Top-level routes are reserved for core platform plugins managed by admins.
+  const RESERVED_PATHS = new Set([
+    '/settings', '/admin', '/api', '/auth', '/login', '/signup',
+    '/dashboard', '/onboarding', '/profile', '/notifications',
+    '/cdn', '/plugins',
+  ]);
+
+  const routes: unknown[] =
+    (manifest as any).frontend?.routes ||
+    (manifest as any).routes ||
+    [];
+
+  if (Array.isArray(routes) && routes.length > 0) {
+    for (const route of routes) {
+      if (typeof route !== 'string') continue;
+      const basePath = route.replace(/\/?\*$/, '');
+
+      if (!basePath.startsWith('/plugins/')) {
+        errors.push({
+          code: 'ROUTE_NAMESPACE_VIOLATION',
+          message: `Route "${route}" must be under /plugins/ namespace (e.g., /plugins/${manifest.name}/*). Top-level routes are reserved for core platform plugins.`,
+          field: 'frontend.routes',
+        });
+      }
+
+      if (RESERVED_PATHS.has(basePath)) {
+        errors.push({
+          code: 'ROUTE_RESERVED_PATH',
+          message: `Route "${route}" conflicts with a reserved platform path`,
+          field: 'frontend.routes',
+        });
+      }
+    }
   }
 
   // Warnings for marketplace presentation

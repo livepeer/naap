@@ -30,6 +30,30 @@ export function toPascalCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/**
+ * Convert camelCase to kebab-case.
+ * @param s - Input string in camelCase (e.g. "myWallet")
+ * @returns Kebab-case string (e.g. "my-wallet")
+ */
+export function toKebabCase(s: string): string {
+  return s.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '');
+}
+
+/**
+ * Normalize plugin routes based on core status.
+ * Core plugins keep their original top-level routes (e.g. /marketplace).
+ * Non-core plugins are namespaced under /plugins/{dirName} to prevent
+ * route conflicts with shell pages.
+ */
+export function normalizePluginRoutes(
+  originalRoutes: string[],
+  dirName: string,
+  isCore: boolean,
+): string[] {
+  if (isCore) return originalRoutes;
+  return [`/plugins/${dirName}`, `/plugins/${dirName}/*`];
+}
+
 // ─── CDN URL Helpers ─────────────────────────────────────────────────────────
 
 /**
@@ -65,8 +89,10 @@ export interface DiscoveredPlugin {
   displayName: string;
   /** Semver version (always "1.0.0" for local builds) */
   version: string;
-  /** Frontend route paths from plugin.json */
+  /** Frontend route paths (normalized: non-core → /plugins/{dir}) */
   routes: string[];
+  /** Original routes from plugin.json before normalization */
+  originalRoutes: string[];
   /** Navigation icon name */
   icon: string;
   /** Navigation order */
@@ -121,12 +147,16 @@ export function discoverFromDir(rootDir: string, subDir: string): DiscoveredPlug
       const authorName = typeof rawAuthor === 'string' ? rawAuthor : rawAuthor?.name;
       const authorEmail = typeof rawAuthor === 'object' ? rawAuthor?.email : undefined;
 
+      const rawRoutes: string[] = manifest.frontend?.routes || [];
+      const isCore = manifest.isCore === true;
+
       return {
         dirName: dir,
         name: camelName,
         displayName: manifest.displayName || dir,
         version: '1.0.0',
-        routes: manifest.frontend?.routes || [],
+        originalRoutes: rawRoutes,
+        routes: normalizePluginRoutes(rawRoutes, dir, isCore),
         icon: manifest.frontend?.navigation?.icon || 'Box',
         order: manifest.frontend?.navigation?.order ?? 99,
         globalName: `NaapPlugin${toPascalCase(camelName)}`,
