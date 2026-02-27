@@ -26,8 +26,24 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = request.nextUrl;
   const { page, pageSize, skip } = parsePagination(searchParams);
-  const connectorId = searchParams.get('connectorId');
-  const status = searchParams.get('status');
+
+  const listQuerySchema = z.object({
+    connectorId: z.string().uuid().optional(),
+    status: z.enum(['active', 'revoked', 'expired']).optional(),
+  });
+
+  const queryParsed = listQuerySchema.safeParse({
+    connectorId: searchParams.get('connectorId') ?? undefined,
+    status: searchParams.get('status') ?? undefined,
+  });
+
+  if (!queryParsed.success) {
+    return errors.validationError(
+      Object.fromEntries(queryParsed.error.errors.map((e) => [e.path.join('.'), e.message]))
+    );
+  }
+
+  const { connectorId, status } = queryParsed.data;
 
   const where = {
     teamId: ctx.teamId,

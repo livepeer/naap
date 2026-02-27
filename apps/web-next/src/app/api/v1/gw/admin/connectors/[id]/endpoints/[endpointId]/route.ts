@@ -67,6 +67,17 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     );
   }
 
+  if (parsed.data.method || parsed.data.path) {
+    const method = parsed.data.method ?? existing.method;
+    const path = parsed.data.path ?? existing.path;
+    const duplicate = await prisma.connectorEndpoint.findFirst({
+      where: { connectorId: id, method, path, id: { not: endpointId } },
+    });
+    if (duplicate) {
+      return errors.conflict(`Endpoint ${method} ${path} already exists on this connector`);
+    }
+  }
+
   const endpoint = await prisma.connectorEndpoint.update({
     where: { id: endpointId },
     data: parsed.data,

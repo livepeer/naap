@@ -114,8 +114,8 @@ export async function enforcePolicy(
   }
 
   // ── Request Size ──
-  const maxSize = endpoint.maxRequestSize || auth.maxRequestSize;
-  if (maxSize && requestBytes > maxSize) {
+  const maxSize = endpoint.maxRequestSize ?? auth.maxRequestSize;
+  if (maxSize != null && requestBytes > maxSize) {
     return {
       allowed: false,
       reason: `Request body exceeds maximum size of ${maxSize} bytes`,

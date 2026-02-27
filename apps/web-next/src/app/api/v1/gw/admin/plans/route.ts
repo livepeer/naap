@@ -22,8 +22,6 @@ const createPlanSchema = z.object({
   allowedConnectors: z.array(z.string()).default([]),
 });
 
-const updatePlanSchema = createPlanSchema.partial().omit({ name: true });
-
 export async function GET(request: NextRequest) {
   const ctx = await getAdminContext(request);
   if (isErrorResponse(ctx)) return ctx;
