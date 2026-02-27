@@ -51,7 +51,7 @@ export const MyPlugins: React.FC = () => {
     );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="My Plugins"
         subtitle={`${plugins.length} plugins published`}
@@ -64,9 +64,9 @@ export const MyPlugins: React.FC = () => {
       />
 
       {/* Filters */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-secondary" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
           <input
             type="text"
             placeholder="Search plugins..."
@@ -77,7 +77,7 @@ export const MyPlugins: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <Filter className="w-5 h-5 text-text-secondary" />
+          <Filter className="w-4 h-4 text-text-secondary" />
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -95,13 +95,13 @@ export const MyPlugins: React.FC = () => {
       {/* Plugin List */}
       {loading ? (
         <div className="glass-card p-8 text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-emerald mx-auto"></div>
+          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent-emerald mx-auto"></div>
           <p className="mt-4 text-text-secondary">Loading plugins...</p>
         </div>
       ) : filteredPlugins.length === 0 ? (
         <div className="glass-card p-8 text-center">
-          <Package className="w-12 h-12 text-text-secondary mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-text-primary mb-2">
+          <Package className="w-8 h-8 text-text-secondary mx-auto mb-4" />
+          <h3 className="text-sm font-semibold text-text-primary mb-2">
             {search || statusFilter !== 'all' ? 'No plugins found' : 'No plugins yet'}
           </h3>
           <p className="text-text-secondary mb-4">
@@ -116,7 +116,7 @@ export const MyPlugins: React.FC = () => {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-3">
           {filteredPlugins.map((plugin) => (
             <PluginCard key={plugin.id} plugin={plugin} onUnpublish={handleUnpublish} />
           ))}

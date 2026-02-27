@@ -87,7 +87,7 @@ export const PluginDetail: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-emerald"></div>
+        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent-emerald"></div>
       </div>
     );
   }
@@ -95,8 +95,8 @@ export const PluginDetail: React.FC = () => {
   if (!plugin) {
     return (
       <div className="glass-card p-8 text-center">
-        <Package className="w-12 h-12 text-text-secondary mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-text-primary mb-2">Plugin Not Found</h3>
+        <Package className="w-8 h-8 text-text-secondary mx-auto mb-4" />
+        <h3 className="text-sm font-semibold text-text-primary mb-2">Plugin Not Found</h3>
         <button onClick={() => navigate('/plugins')} className="btn-primary mt-4">
           Back to Plugins
         </button>
@@ -105,7 +105,7 @@ export const PluginDetail: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title={plugin.displayName}
         subtitle={plugin.name}
@@ -142,23 +142,23 @@ export const PluginDetail: React.FC = () => {
       />
 
       {/* Plugin Info */}
-      <div className="grid grid-cols-3 gap-6">
-        <div className="col-span-2 space-y-6">
+      <div className="grid grid-cols-3 gap-4">
+        <div className="col-span-2 space-y-4">
           {/* Description */}
-          <div className="glass-card p-6">
+          <div className="glass-card p-4">
             <div className="flex items-start gap-4">
-              <div className="p-4 bg-bg-tertiary rounded-xl">
-                <LucideIcon name={plugin.icon || 'Package'} className="w-8 h-8 text-accent-emerald" />
+              <div className="p-2.5 bg-bg-tertiary rounded-lg">
+                <LucideIcon name={plugin.icon || 'Package'} className="w-5 h-5 text-accent-emerald" />
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
-                  <h2 className="text-xl font-semibold text-text-primary">{plugin.displayName}</h2>
+                  <h2 className="text-base font-semibold text-text-primary">{plugin.displayName}</h2>
                   {getStatusBadge()}
                 </div>
                 <p className="text-text-secondary">
                   {plugin.description || 'No description available'}
                 </p>
-                <div className="flex items-center gap-6 mt-4 text-sm text-text-secondary">
+                <div className="flex items-center gap-4 mt-4 text-sm text-text-secondary">
                   <div className="flex items-center gap-1">
                     <Download className="w-4 h-4" />
                     <span>{(plugin.downloads ?? 0).toLocaleString()} downloads</span>
@@ -180,16 +180,16 @@ export const PluginDetail: React.FC = () => {
 
           {/* Stats */}
           <div>
-            <h3 className="text-lg font-semibold text-text-primary mb-4">Statistics</h3>
+            <h3 className="text-sm font-semibold text-text-primary mb-3">Statistics</h3>
             <StatsChart stats={stats} loading={statsLoading} />
           </div>
         </div>
 
         {/* Sidebar */}
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* Metadata */}
-          <div className="glass-card p-6">
-            <h3 className="font-medium text-text-primary mb-4">Details</h3>
+          <div className="glass-card p-4">
+            <h3 className="font-medium text-text-primary mb-3">Details</h3>
             <dl className="space-y-3 text-sm">
               <div>
                 <dt className="text-text-secondary">Author</dt>
@@ -215,8 +215,8 @@ export const PluginDetail: React.FC = () => {
           </div>
 
           {/* Versions */}
-          <div className="glass-card p-6">
-            <h3 className="font-medium text-text-primary mb-4">Versions</h3>
+          <div className="glass-card p-4">
+            <h3 className="font-medium text-text-primary mb-3">Versions</h3>
             {plugin.versions && plugin.versions.length > 0 ? (
               <ul className="space-y-2">
                 {plugin.versions.slice(0, 5).map((version) => (

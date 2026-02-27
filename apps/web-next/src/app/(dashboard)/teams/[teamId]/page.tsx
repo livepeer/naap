@@ -27,6 +27,7 @@ import {
   X,
   User2
 } from 'lucide-react';
+import { Button } from '@naap/ui';
 import { PluginConfigModal } from '@/components/teams/plugin-config-modal';
 import { MemberAccessModal } from '@/components/teams/member-access-modal';
 import { PersonalConfigModal } from '@/components/teams/personal-config-modal';
@@ -212,22 +213,24 @@ export default function TeamDashboardPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   if (error || !team) {
     return (
-      <div className="p-6 max-w-4xl mx-auto">
-        <button
+      <div className="max-w-4xl mx-auto">
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<ArrowLeft className="w-4 h-4" />}
           onClick={() => router.push('/teams')}
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors"
+          className="mb-4"
         >
-          <ArrowLeft className="w-4 h-4" />
           Back to Teams
-        </button>
-        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg">
+        </Button>
+        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg text-sm">
           {error || 'Team not found'}
         </div>
       </div>
@@ -235,106 +238,111 @@ export default function TeamDashboardPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <button
+    <div className="max-w-4xl mx-auto">
+      <Button
+        variant="ghost"
+        size="sm"
+        icon={<ArrowLeft className="w-4 h-4" />}
         onClick={() => router.push('/teams')}
-        className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors"
+        className="mb-4"
       >
-        <ArrowLeft className="w-4 h-4" />
         Back to Teams
-      </button>
+      </Button>
 
       {/* Team Header */}
-      <div className="bg-card border border-border rounded-xl p-6 mb-6">
+      <div className="bg-card border border-border rounded-lg p-4 mb-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-xl bg-primary/10 flex items-center justify-center">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center">
               {team.avatarUrl ? (
-                <img src={team.avatarUrl} alt={team.name} className="w-16 h-16 rounded-xl" />
+                <img src={team.avatarUrl} alt={team.name} className="w-12 h-12 rounded-lg" />
               ) : (
-                <Users className="w-8 h-8 text-primary" />
+                <Users className="w-6 h-6 text-muted-foreground" />
               )}
             </div>
             <div>
-              <h1 className="text-2xl font-bold">{team.name}</h1>
-              <p className="text-muted-foreground">{team.description || 'No description'}</p>
-              <div className="flex items-center gap-2 mt-2">
+              <h1 className="text-lg font-semibold">{team.name}</h1>
+              <p className="text-[13px] text-muted-foreground">{team.description || 'No description'}</p>
+              <div className="flex items-center gap-1.5 mt-1">
                 {ROLE_ICONS[myRole]}
-                <span className="text-sm text-muted-foreground">{ROLE_LABELS[myRole]}</span>
+                <span className="text-xs text-muted-foreground">{ROLE_LABELS[myRole]}</span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Users className="w-4 h-4" />}
               onClick={() => router.push(`/teams/${teamId}/members`)}
-              className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg hover:bg-muted transition-colors"
             >
-              <Users className="w-4 h-4" />
               Members
-            </button>
+            </Button>
             {(myRole === 'owner' || myRole === 'admin') && (
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Settings className="w-4 h-4" />}
                 onClick={() => router.push(`/teams/${teamId}/settings`)}
-                className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg hover:bg-muted transition-colors"
               >
-                <Settings className="w-4 h-4" />
                 Settings
-              </button>
+              </Button>
             )}
           </div>
         </div>
       </div>
 
       {/* Team Plugins */}
-      <div className="bg-card border border-border rounded-xl p-6">
+      <div className="bg-card border border-border rounded-lg p-4">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Package className="w-5 h-5" />
+          <h2 className="text-sm font-semibold flex items-center gap-2">
+            <Package className="w-4 h-4" />
             Installed Plugins
           </h2>
           {canInstallPlugins && (
-            <button
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Plus className="w-4 h-4" />}
               onClick={() => router.push(`/marketplace?teamId=${teamId}&teamName=${encodeURIComponent(team.name)}`)}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
             >
-              <Plus className="w-4 h-4" />
               Add Plugin
-            </button>
+            </Button>
           )}
         </div>
-        <p className="text-sm text-muted-foreground mb-4">
+        <p className="text-xs text-muted-foreground mb-4">
           Manage plugins available to this team. When members switch to this team workspace,
           they will only see enabled plugins installed here.
         </p>
 
         {actionError && (
-          <div className="mb-4 flex items-center gap-2 p-3 bg-destructive/10 text-destructive rounded-lg text-sm">
+          <div className="mb-3 flex items-center gap-2 p-3 bg-destructive/10 text-destructive rounded-lg text-sm">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             <span>{actionError}</span>
             <button
               onClick={() => setActionError(null)}
               className="ml-auto p-1 hover:bg-destructive/20 rounded"
             >
-              <X className="w-4 h-4" />
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
         {plugins.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
-            <Package className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            <p>No plugins installed yet</p>
+            <Package className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            <p className="text-sm">No plugins installed yet</p>
             {canInstallPlugins && (
               <button
                 onClick={() => router.push(`/marketplace?teamId=${teamId}&teamName=${encodeURIComponent(team.name)}`)}
-                className="mt-3 text-primary hover:underline"
+                className="mt-2 text-sm text-primary hover:underline"
               >
                 Browse Marketplace
               </button>
             )}
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {plugins.map(plugin => {
               const pluginName = plugin.displayName || plugin.deployment?.package?.displayName || 'Plugin';
               const pluginVersion = plugin.version || plugin.deployment?.version?.version || '1.0.0';
@@ -342,33 +350,34 @@ export default function TeamDashboardPage() {
               return (
                 <div
                   key={plugin.id}
-                  className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
+                  className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <Package className="w-5 h-5 text-primary" />
+                    <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center">
+                      <Package className="w-4 h-4 text-muted-foreground" />
                     </div>
                     <div>
-                      <h3 className="font-medium">{pluginName}</h3>
-                      <p className="text-sm text-muted-foreground">
+                      <h3 className="text-sm font-medium">{pluginName}</h3>
+                      <p className="text-xs text-muted-foreground font-mono">
                         v{pluginVersion}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     {/* Personal Settings - available to all members */}
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => openPersonalConfigModal(plugin)}
-                      className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                       title="My Settings (personal overrides)"
                     >
-                      <User2 className="w-4 h-4" />
-                    </button>
+                      <User2 className="w-3.5 h-3.5" />
+                    </Button>
                     {canManagePlugins && (
                       <>
                         <button
                           onClick={() => handleTogglePlugin(plugin.id, !plugin.enabled)}
-                          className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition-colors ${
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors duration-fast ${
                             plugin.enabled
                               ? 'bg-green-500/10 text-green-500'
                               : 'bg-muted text-muted-foreground'
@@ -377,38 +386,42 @@ export default function TeamDashboardPage() {
                         >
                           {plugin.enabled ? (
                             <>
-                              <ToggleRight className="w-4 h-4" />
+                              <ToggleRight className="w-3.5 h-3.5" />
                               Enabled
                             </>
                           ) : (
                             <>
-                              <ToggleLeft className="w-4 h-4" />
+                              <ToggleLeft className="w-3.5 h-3.5" />
                               Disabled
                             </>
                           )}
                         </button>
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => openConfigModal(plugin)}
-                          className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                           title="Configure plugin (team settings)"
                         >
-                          <Settings2 className="w-4 h-4" />
-                        </button>
-                        <button
+                          <Settings2 className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => openAccessModal(plugin)}
-                          className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                           title="Manage member access"
                         >
-                          <UserCog className="w-4 h-4" />
-                        </button>
+                          <UserCog className="w-3.5 h-3.5" />
+                        </Button>
                         {myRole === 'owner' && (
-                          <button
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => handleUninstallPlugin(plugin.id)}
-                            className="p-2 text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
                             title="Uninstall plugin"
+                            className="text-destructive hover:bg-destructive/10"
                           >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
                         )}
                       </>
                     )}

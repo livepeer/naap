@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { useEvents } from '@/contexts/shell-context';
+import { Button, Input, Textarea, Label, Modal } from '@naap/ui';
 
 interface Team {
   id: string;
@@ -119,71 +120,73 @@ export default function TeamListPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="max-w-4xl mx-auto">
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold">Teams</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-lg font-semibold">Teams</h1>
+          <p className="text-[13px] text-muted-foreground mt-0.5">
             Manage your teams and collaborate with others
           </p>
         </div>
-        <button
+        <Button
+          variant="primary"
+          size="sm"
+          icon={<Plus className="w-4 h-4" />}
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
         >
-          <Plus className="w-4 h-4" />
           Create Team
-        </button>
+        </Button>
       </div>
 
       {error && (
-        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg mb-6">
+        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg mb-4">
           {error}
         </div>
       )}
 
       {teams.length === 0 ? (
-        <div className="text-center py-12 bg-muted/50 rounded-xl">
-          <Users className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-lg font-medium mb-2">No teams yet</h3>
-          <p className="text-muted-foreground mb-4">
+        <div className="text-center py-8 bg-muted/50 rounded-lg">
+          <Users className="w-8 h-8 mx-auto text-muted-foreground mb-3" />
+          <h3 className="text-sm font-medium mb-1">No teams yet</h3>
+          <p className="text-[13px] text-muted-foreground mb-4">
             Create a team to start collaborating with others
           </p>
-          <button
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<Plus className="w-4 h-4" />}
             onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
           >
-            <Plus className="w-4 h-4" />
             Create Your First Team
-          </button>
+          </Button>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {teams.map(team => {
             const role = team.membership?.role || 'member';
             return (
               <div
                 key={team.id}
                 onClick={() => router.push(`/teams/${team.id}`)}
-                className="flex items-center justify-between p-4 bg-card border border-border rounded-xl hover:border-primary/50 cursor-pointer transition-colors"
+                className="flex items-center justify-between p-3 bg-card border border-border rounded-lg hover:border-border/80 cursor-pointer transition-colors duration-fast"
               >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center">
                     {team.avatarUrl ? (
-                      <img src={team.avatarUrl} alt={team.name} className="w-12 h-12 rounded-lg" />
+                      <img src={team.avatarUrl} alt={team.name} className="w-10 h-10 rounded-md" />
                     ) : (
-                      <Users className="w-6 h-6 text-primary" />
+                      <Users className="w-5 h-5 text-muted-foreground" />
                     )}
                   </div>
                   <div>
-                    <h3 className="font-medium">{team.name}</h3>
-                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                    <h3 className="text-sm font-medium">{team.name}</h3>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
                       <span className="flex items-center gap-1">
                         {ROLE_ICONS[role]}
                         {ROLE_LABELS[role]}
@@ -199,7 +202,7 @@ export default function TeamListPage() {
                     </div>
                   </div>
                 </div>
-                <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
               </div>
             );
           })}
@@ -207,59 +210,53 @@ export default function TeamListPage() {
       )}
 
       {/* Create Team Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md m-4 shadow-xl">
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <Users className="w-5 h-5 text-primary" />
-              Create Team
-            </h2>
-
-            <form onSubmit={handleCreateTeam} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Team Name</label>
-                <input
-                  type="text"
-                  value={newTeamName}
-                  onChange={(e) => setNewTeamName(e.target.value)}
-                  placeholder="My Team"
-                  className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Description (optional)</label>
-                <textarea
-                  value={newTeamDescription}
-                  onChange={(e) => setNewTeamDescription(e.target.value)}
-                  rows={3}
-                  placeholder="A brief description of your team"
-                  className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={creating}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
-                >
-                  {creating && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Create Team
-                </button>
-              </div>
-            </form>
+      <Modal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title="Create Team"
+        size="md"
+      >
+        <form onSubmit={handleCreateTeam} className="space-y-4">
+          <div>
+            <Label className="mb-1.5 block">Team Name</Label>
+            <Input
+              type="text"
+              value={newTeamName}
+              onChange={(e) => setNewTeamName(e.target.value)}
+              placeholder="My Team"
+              required
+            />
           </div>
-        </div>
-      )}
+
+          <div>
+            <Label className="mb-1.5 block">Description (optional)</Label>
+            <Textarea
+              value={newTeamDescription}
+              onChange={(e) => setNewTeamDescription(e.target.value)}
+              rows={3}
+              placeholder="A brief description of your team"
+              className="resize-none"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowCreateModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              loading={creating}
+            >
+              Create Team
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

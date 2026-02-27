@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { Bell, Search } from 'lucide-react';
+import { Bell } from 'lucide-react';
 
 /**
  * Derive a human-readable view title from the current pathname.
@@ -50,15 +50,6 @@ export function TopBar() {
 
         {/* Right side — contextual actions */}
         <div className="flex items-center gap-1">
-          {/* Search (opens command palette) */}
-          <button
-            className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors duration-100"
-            aria-label="Search (⌘K)"
-            title="Search (⌘K)"
-          >
-            <Search size={16} />
-          </button>
-
           {/* Notifications */}
           <button
             className="relative p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors duration-100"
