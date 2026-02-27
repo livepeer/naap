@@ -31,9 +31,9 @@
    Dark Mode
    ============================================ */
 .dark {
-  --bg-primary: #0a0f1a;
-  --bg-secondary: #111827;
-  --bg-tertiary: #1f2937;
+  --bg-primary: #121212;
+  --bg-secondary: #1a1a1a;
+  --bg-tertiary: #262626;
   --text-primary: #f9fafb;
   --text-secondary: #9ca3af;
   --text-tertiary: #6b7280;
@@ -60,7 +60,7 @@ body {
 }
 
 .dark .glass-card {
-  background-color: rgba(17, 24, 39, 0.8);
+  background-color: rgba(26, 26, 26, 0.8);
 }
 
 .btn-primary {
