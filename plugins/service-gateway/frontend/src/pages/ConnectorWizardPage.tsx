@@ -10,7 +10,6 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
 import { SecretField } from '../components/SecretField';
-import { TeamGuard } from '../components/TeamGuard';
 
 const WIZARD_STEPS = ['Template', 'Connect', 'Endpoints', 'Review'];
 const AUTH_TYPES = ['none', 'bearer', 'header', 'basic', 'query'] as const;
@@ -316,8 +315,7 @@ export const ConnectorWizardPage: React.FC = () => {
     : WIZARD_STEPS;
 
   return (
-    <TeamGuard>
-      <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 max-w-4xl mx-auto">
         {/* Stepper */}
         <div className="flex items-center gap-2 mb-8">
           {displayedSteps.map((s, i) => (
@@ -758,6 +756,5 @@ export const ConnectorWizardPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </TeamGuard>
   );
 };

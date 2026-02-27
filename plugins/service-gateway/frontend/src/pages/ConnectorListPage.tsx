@@ -6,7 +6,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
-import { TeamGuard } from '../components/TeamGuard';
 
 interface Connector {
   id: string;
@@ -99,8 +98,7 @@ export const ConnectorListPage: React.FC = () => {
   });
 
   return (
-    <TeamGuard>
-      <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -277,6 +275,5 @@ export const ConnectorListPage: React.FC = () => {
           </div>
         )}
       </div>
-    </TeamGuard>
   );
 };

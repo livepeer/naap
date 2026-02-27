@@ -1,0 +1,7 @@
+{
+  "/gateway": "serviceGateway",
+  "/capacity": "capacityPlanner",
+  "/forum": "community",
+  "/developers": "developerApi",
+  "/publish": "pluginPublisher"
+}

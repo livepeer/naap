@@ -331,28 +331,29 @@ async function main(): Promise<void> {
     }
 
     // ------------------------------------------------------------------
-    // Validate middleware route map completeness
+    // Auto-generate plugin-routes.json for middleware consumption
     // ------------------------------------------------------------------
-    const middlewarePath = path.join(MONOREPO_ROOT, 'apps', 'web-next', 'src', 'middleware.ts');
-    if (fs.existsSync(middlewarePath)) {
-      const middlewareSrc = fs.readFileSync(middlewarePath, 'utf-8');
-      let missingRoutes = 0;
-      for (const p of discovered) {
-        if (!p.routes || p.routes.length === 0) continue;
-        const primaryRoute = p.routes[0]; // e.g. "/gateway"
-        if (!middlewareSrc.includes(`'${primaryRoute}'`)) {
-          console.warn(
-            `  [WARN] Plugin "${p.name}" defines route "${primaryRoute}" but it's missing from middleware.ts PLUGIN_ROUTE_MAP`,
-          );
-          missingRoutes++;
-        }
-      }
-      if (missingRoutes > 0) {
-        console.warn(
-          `[sync-plugin-registry] ${missingRoutes} plugin route(s) missing from middleware.ts — users will see 404 for these plugins`,
-        );
-      }
+    // Routes that already have dedicated page.tsx files and should NOT
+    // be rewritten by the middleware to the generic plugin loader.
+    const ROUTES_WITH_DEDICATED_PAGES = new Set(['/marketplace', '/dashboard']);
+
+    const routeMap: Record<string, string> = {};
+    for (const p of discovered) {
+      if (!p.routes || p.routes.length === 0) continue;
+      const primaryRoute = p.routes[0]; // e.g. "/gateway"
+      if (ROUTES_WITH_DEDICATED_PAGES.has(primaryRoute)) continue;
+      routeMap[primaryRoute] = p.name;
     }
+
+    const generatedDir = path.join(MONOREPO_ROOT, 'apps', 'web-next', 'src', 'generated');
+    if (!fs.existsSync(generatedDir)) {
+      fs.mkdirSync(generatedDir, { recursive: true });
+    }
+    const routesPath = path.join(generatedDir, 'plugin-routes.json');
+    fs.writeFileSync(routesPath, JSON.stringify(routeMap, null, 2) + '\n', 'utf-8');
+    console.log(
+      `[sync-plugin-registry] Generated ${routesPath} with ${Object.keys(routeMap).length} route(s): ${Object.keys(routeMap).join(', ')}`,
+    );
 
     console.log('[sync-plugin-registry] Done.');
   } finally {

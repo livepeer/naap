@@ -5,7 +5,6 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
-import { TeamGuard } from '../components/TeamGuard';
 
 // ── Types ──
 
@@ -154,8 +153,7 @@ export const DashboardPage: React.FC = () => {
   const health = healthRes?.data;
 
   return (
-    <TeamGuard>
-      <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-100">Dashboard</h1>
@@ -290,6 +288,5 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </TeamGuard>
   );
 };
