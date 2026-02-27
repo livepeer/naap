@@ -22,8 +22,8 @@ const BASE_SVC_URL = process.env.BASE_SVC_URL || process.env.NEXT_PUBLIC_BASE_SV
 export async function authorize(request: Request): Promise<AuthResult | null> {
   const authHeader = request.headers.get('authorization') || '';
 
-  // Path 1: API Key auth (gw_ prefix)
-  if (authHeader.startsWith('Bearer gw_')) {
+  // Path 1: API Key auth (gk_ prefix)
+  if (authHeader.startsWith('Bearer gk_')) {
     return authorizeApiKey(authHeader.slice(7)); // strip "Bearer "
   }
 

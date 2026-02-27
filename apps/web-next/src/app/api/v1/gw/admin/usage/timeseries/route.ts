@@ -33,8 +33,11 @@ export async function GET(request: NextRequest) {
   const connectorId = searchParams.get('connectorId');
 
   const intervalMs = INTERVAL_MS[interval] || INTERVAL_MS['5m'];
-  const fromDate = from ? new Date(from) : new Date(Date.now() - 60 * 60 * 1000);
-  const toDate = to ? new Date(to) : new Date();
+  const fromDateRaw = from ? new Date(from) : new Date(Date.now() - 60 * 60 * 1000);
+  const toDateRaw = to ? new Date(to) : new Date();
+
+  const fromDate = isNaN(fromDateRaw.getTime()) ? new Date(Date.now() - 60 * 60 * 1000) : fromDateRaw;
+  const toDate = isNaN(toDateRaw.getTime()) ? new Date() : toDateRaw;
 
   const records = await prisma.gatewayUsageRecord.findMany({
     where: {

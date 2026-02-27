@@ -11,12 +11,11 @@
  * 5. OutputPlayer connects to playbackId via lvpr.tv iframe
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock, Wifi, WifiOff, RefreshCw, AlertCircle } from 'lucide-react';
 import { WebcamPiP } from '../components/WebcamPiP';
 import { OutputPlayer } from '../components/OutputPlayer';
-import { ControlToolbar, StreamParams } from '../components/ControlToolbar';
+import { ControlToolbar, StreamParams, ConnectionStatus } from '../components/ControlToolbar';
 import { useWHIP } from '../hooks/useWHIP';
 import {
   createStream,
@@ -24,8 +23,6 @@ import {
   endStream,
   type StreamResponse,
 } from '../lib/api';
-
-type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 export const Studio: React.FC = () => {
   const navigate = useNavigate();
@@ -178,75 +175,59 @@ export const Studio: React.FC = () => {
   const isStreaming = status === 'connected' || status === 'connecting';
 
   return (
-    <div className="relative h-full min-h-[600px] bg-black overflow-hidden">
-      {/* Fullscreen AI Output -- connects via lvpr.tv or WHEP */}
-      <div className="absolute inset-0">
-        <OutputPlayer
-          playbackId={streamInfo?.playbackId || null}
-          isStreaming={isStreaming}
-        />
-      </div>
+    <div className="h-full min-h-[600px] bg-black overflow-hidden selection:bg-purple-500/30 flex flex-col">
+      {/* Top Section: Immersive Video Area */}
+      <div className="flex-1 relative bg-[#050505] overflow-hidden">
+        {/* Fullscreen AI Output */}
+        <div className="absolute inset-0 z-0">
+          <OutputPlayer
+            playbackId={streamInfo?.playbackId || null}
+            isStreaming={isStreaming}
+          />
+        </div>
 
-      {/* PiP Webcam */}
-      <WebcamPiP stream={webcamStream} onStreamChange={setWebcamStream} disabled={isStreaming} />
-
-      {/* Minimal Header - top right */}
-      <div className="absolute top-4 right-4 z-20 flex items-center gap-3">
-        <div className="flex items-center gap-2 px-3 py-2 bg-black/60 backdrop-blur-sm rounded-full">
-          {status === 'connected' ? (
-            <>
-              <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              <Wifi className="w-4 h-4 text-green-400" />
-            </>
-          ) : status === 'connecting' ? (
-            <>
-              <RefreshCw className="w-4 h-4 text-yellow-400 animate-spin" />
-              <span className="text-xs text-yellow-400">Connecting</span>
-            </>
-          ) : status === 'error' ? (
-            <>
-              <AlertCircle className="w-4 h-4 text-red-400" />
-              <span className="text-xs text-red-400">Error</span>
-            </>
-          ) : (
-            <WifiOff className="w-4 h-4 text-gray-400" />
+        {/* Header Overlay — Minimal subtle info */}
+        <div className="absolute top-6 right-6 z-20 pointer-events-none">
+          {status === 'connected' && (
+            <div className="flex flex-col items-end gap-1 animate-in fade-in slide-in-from-top-2">
+              <span className="text-[10px] font-bold text-green-400 uppercase tracking-[0.2em] [text-shadow:0_0_10px_rgba(74,222,128,0.5)]">AI Stream Live</span>
+              <div className="w-32 h-1 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-green-400 animate-progress" style={{ width: '100%' }} />
+              </div>
+            </div>
           )}
         </div>
 
-        {sessionStartTime && (
-          <div className="flex items-center gap-2 px-3 py-2 bg-black/60 backdrop-blur-sm rounded-full">
-            <Clock className="w-4 h-4 text-purple-400" />
-            <span className="text-sm font-mono text-white">{elapsedTime}</span>
-          </div>
-        )}
+        {/* Webcam PiP — Floating in the video area */}
+        <div className="absolute top-6 left-6 z-30 transition-all duration-500">
+          <WebcamPiP stream={webcamStream} onStreamChange={setWebcamStream} disabled={isStreaming} />
+        </div>
+
+        {/* Visual Ambient Effects (within video area) */}
+        <div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
+          <div className="absolute -bottom-48 -left-48 w-96 h-96 bg-purple-600/5 blur-[120px] rounded-full" />
+          <div className="absolute -top-48 -right-48 w-96 h-96 bg-blue-600/5 blur-[120px] rounded-full" />
+        </div>
       </div>
 
-      {/* Error toast */}
-      {error && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 px-4 py-3 bg-red-500/90 backdrop-blur-sm rounded-xl flex items-center gap-3 shadow-2xl">
-          <AlertCircle className="w-5 h-5 text-white" />
-          <span className="text-white text-sm">{error}</span>
-          <button onClick={() => setError(null)} className="ml-2 text-white/60 hover:text-white">×</button>
-        </div>
-      )}
-
-      {/* Status message toast */}
-      {statusMessage && !error && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 px-4 py-3 bg-blue-500/90 backdrop-blur-sm rounded-xl flex items-center gap-3 shadow-2xl">
-          <span className="text-white text-sm">{statusMessage}</span>
-        </div>
-      )}
-
-      {/* Floating Control Toolbar */}
-      <ControlToolbar
-        params={params}
-        onChange={handleParamsChange}
-        onStart={startStreaming}
-        onStop={stopStreaming}
-        isStreaming={isStreaming}
-        canStart={!!webcamStream}
-        onSettingsClick={() => navigate('/settings')}
-      />
+      {/* Bottom Section: Dedicated Control Console (No Overlap) */}
+      <div className="flex-shrink-0 bg-[#0a0a0a] border-t border-white/5 relative z-40">
+        <ControlToolbar
+          params={params}
+          onChange={handleParamsChange}
+          onStart={startStreaming}
+          onStop={stopStreaming}
+          isStreaming={isStreaming}
+          canStart={!!webcamStream}
+          onSettingsClick={() => navigate('/settings')}
+          status={status}
+          elapsedTime={elapsedTime}
+          sessionActive={!!sessionStartTime}
+          error={error}
+          onErrorDismiss={() => setError(null)}
+          statusMessage={statusMessage}
+        />
+      </div>
     </div>
   );
 };

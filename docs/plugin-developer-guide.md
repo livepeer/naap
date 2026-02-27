@@ -438,6 +438,20 @@ naap-plugin test --e2e
 
 ---
 
+## Advanced Tutorials & Examples
+
+To see how complex, production-ready plugins are built using the latest platform features, check out these deep-dives:
+
+### Service Gateway Integration
+Learn how to build a feature-rich application (using **Daydream AI Video** as the model) that securely integrates with third-party APIs without writing custom backend proxy code.
+👉 [**Building an App with the Service Gateway**](./tutorial-service-gateway-app.md)
+
+### Intelligent Analytics Agent (Multi-Connector)
+Explore how to orchestrate multiple external services (Gemini + Livepeer Leaderboard) to build an LLM-powered agent that delivers interactive data insights.
+👉 [**Building an Intelligent Analytics Agent**](./tutorial-intelligent-analytics-agent.md)
+
+---
+
 ## Step 4: Build and Package
 
 ### 4.1 Build Your Plugin

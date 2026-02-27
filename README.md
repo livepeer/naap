@@ -71,6 +71,11 @@ New plugin teams can be fully autonomous within a few minutes. Read the
 [Plugin Team Guide](docs/PLUGIN_TEAM_GUIDE.md) for the complete self-service
 onboarding process.
 
+**Featured Tutorials:**
+- [Build an App with Service Gateway](docs/tutorial-service-gateway-app.md) — Securely integrate 3rd-party APIs like Daydream AI.
+- [Intelligent Analytics Agent](docs/tutorial-intelligent-analytics-agent.md) — Advanced multi-connector orchestration with Gemini.
+- [Plugin Developer Guide](docs/plugin-developer-guide.md) — Comprehensive step-by-step guide.
+
 ```bash
 # Scaffold a new plugin
 npx naap-plugin create my-plugin

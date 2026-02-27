@@ -22,9 +22,12 @@ export async function GET(request: NextRequest) {
   const to = searchParams.get('to');
   const connectorId = searchParams.get('connectorId');
 
+  const fromDate = from ? new Date(from) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const toDate = to ? new Date(to) : new Date();
+
   const timeFilter = {
-    ...(from ? { gte: new Date(from) } : { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }),
-    ...(to ? { lte: new Date(to) } : {}),
+    gte: isNaN(fromDate.getTime()) ? new Date(Date.now() - 24 * 60 * 60 * 1000) : fromDate,
+    lte: isNaN(toDate.getTime()) ? new Date() : toDate,
   };
 
   const where = {

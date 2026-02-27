@@ -1,29 +1,27 @@
 /**
  * Service Gateway — Secret Resolution
  *
- * Retrieves encrypted secrets from SecretVault for upstream auth injection.
- * Secrets are stored with team-scoped keys: gw:{teamId}:{secretName}
+ * Retrieves encrypted secrets from SecretVault via Prisma and decrypts them
+ * for upstream auth injection. Uses the shared encryption module to guarantee
+ * the same key across admin writes and proxy reads.
  */
 
+import { prisma } from '@/lib/db';
+import { encrypt, decrypt } from './encryption';
 import type { ResolvedSecrets } from './types';
 
-const BASE_SVC_URL = process.env.BASE_SVC_URL || process.env.NEXT_PUBLIC_BASE_SVC_URL || 'http://localhost:4000';
-
-// In-memory secret cache (short TTL — secrets change less frequently)
 const SECRET_CACHE = new Map<string, { value: string; expiresAt: number }>();
 const SECRET_CACHE_TTL_MS = 300_000; // 5 minutes
 
 /**
  * Resolve all secrets referenced by a connector.
  *
- * @param teamId    - Team ID for scoping
- * @param secretRefs - Array of secret reference names (e.g. ["token", "password"])
- * @param authToken  - Internal auth token for SecretVault API calls
+ * Reads directly from SecretVault via Prisma and decrypts using AES-256-GCM.
  */
 export async function resolveSecrets(
   teamId: string,
   secretRefs: string[],
-  authToken: string | null
+  _authToken: string | null
 ): Promise<ResolvedSecrets> {
   if (secretRefs.length === 0) return {};
 
@@ -33,7 +31,6 @@ export async function resolveSecrets(
     secretRefs.map(async (ref) => {
       const key = `gw:${teamId}:${ref}`;
 
-      // Check cache
       const cached = SECRET_CACHE.get(key);
       if (cached && cached.expiresAt > Date.now()) {
         secrets[ref] = cached.value;
@@ -41,29 +38,20 @@ export async function resolveSecrets(
       }
 
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3_000);
-
-        const response = await fetch(`${BASE_SVC_URL}/api/secrets/${encodeURIComponent(key)}`, {
-          headers: {
-            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-            'x-internal-service': 'service-gateway',
-          },
-          signal: controller.signal,
+        const record = await prisma.secretVault.findUnique({
+          where: { key },
+          select: { encryptedValue: true, iv: true },
         });
 
-        clearTimeout(timeoutId);
-
-        if (response.ok) {
-          const data = await response.json();
-          const value = data.data?.value || data.value || '';
+        if (record && record.encryptedValue && record.iv) {
+          const value = decrypt(record.encryptedValue, record.iv);
           secrets[ref] = value;
           SECRET_CACHE.set(key, { value, expiresAt: Date.now() + SECRET_CACHE_TTL_MS });
         } else {
           secrets[ref] = '';
-          SECRET_CACHE.set(key, { value: '', expiresAt: Date.now() + 30_000 });
         }
-      } catch {
+      } catch (err) {
+        console.error(`[gateway] Failed to resolve secret "${ref}":`, err);
         secrets[ref] = '';
         SECRET_CACHE.set(key, { value: '', expiresAt: Date.now() + 30_000 });
       }
@@ -80,28 +68,27 @@ export async function storeSecret(
   teamId: string,
   name: string,
   value: string,
-  authToken: string
+  _authToken: string
 ): Promise<boolean> {
   const key = `gw:${teamId}:${name}`;
 
   try {
-    const response = await fetch(`${BASE_SVC_URL}/api/secrets`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authToken}`,
-        'x-internal-service': 'service-gateway',
+    const { encryptedValue, iv } = encrypt(value);
+    await prisma.secretVault.upsert({
+      where: { key },
+      update: { encryptedValue, iv, updatedAt: new Date() },
+      create: {
+        key,
+        encryptedValue,
+        iv,
+        scope: teamId,
+        createdBy: 'system',
       },
-      body: JSON.stringify({ key, value }),
     });
-
-    if (response.ok) {
-      // Invalidate cache
-      SECRET_CACHE.delete(key);
-      return true;
-    }
-    return false;
-  } catch {
+    SECRET_CACHE.delete(key);
+    return true;
+  } catch (err) {
+    console.error(`[gateway] Failed to store secret "${name}":`, err);
     return false;
   }
 }
@@ -112,25 +99,16 @@ export async function storeSecret(
 export async function deleteSecret(
   teamId: string,
   name: string,
-  authToken: string
+  _authToken: string
 ): Promise<boolean> {
   const key = `gw:${teamId}:${name}`;
 
   try {
-    const response = await fetch(`${BASE_SVC_URL}/api/secrets/${encodeURIComponent(key)}`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${authToken}`,
-        'x-internal-service': 'service-gateway',
-      },
-    });
-
-    if (response.ok) {
-      SECRET_CACHE.delete(key);
-      return true;
-    }
-    return false;
+    await prisma.secretVault.delete({ where: { key } });
+    SECRET_CACHE.delete(key);
+    return true;
   } catch {
+    SECRET_CACHE.delete(key);
     return false;
   }
 }
