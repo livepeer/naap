@@ -27,7 +27,7 @@ export function useGatewayApi() {
       const res = await apiClient.get(`${GW_API_BASE}${path}`, {
         headers: headers(),
       });
-      return res as T;
+      return res.data as T;
     },
     [apiClient, headers]
   );
@@ -37,7 +37,7 @@ export function useGatewayApi() {
       const res = await apiClient.post(`${GW_API_BASE}${path}`, body, {
         headers: headers(),
       });
-      return res as T;
+      return res.data as T;
     },
     [apiClient, headers]
   );
@@ -47,7 +47,7 @@ export function useGatewayApi() {
       const res = await apiClient.put(`${GW_API_BASE}${path}`, body, {
         headers: headers(),
       });
-      return res as T;
+      return res.data as T;
     },
     [apiClient, headers]
   );
@@ -57,7 +57,7 @@ export function useGatewayApi() {
       const res = await apiClient.delete(`${GW_API_BASE}${path}`, {
         headers: headers(),
       });
-      return res as T;
+      return res.data as T;
     },
     [apiClient, headers]
   );
