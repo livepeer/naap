@@ -73,7 +73,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
   }
 
   const plan = await prisma.gatewayPlan.update({
-    where: { id },
+    where: { id, teamId: ctx.teamId },
     data: parsed.data,
   });
 

@@ -33,11 +33,16 @@ export async function getAdminContext(
     return errors.unauthorized('Authentication required');
   }
 
-  // Validate JWT via base-svc
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5_000);
+
     const meResponse = await fetch(`${BASE_SVC_URL}/api/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     if (!meResponse.ok) {
       return errors.unauthorized('Invalid or expired token');

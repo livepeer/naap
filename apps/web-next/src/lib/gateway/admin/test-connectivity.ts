@@ -45,8 +45,9 @@ export async function testUpstreamConnectivity(
     // Resolve secrets for auth
     const secrets = await resolveSecrets(teamId, secretRefs, authToken);
 
-    // Build headers
     const headers: Record<string, string> = {};
+    const testUrl = new URL(healthCheckPath || '/', upstreamBaseUrl);
+
     if (authType === 'bearer') {
       const tokenRef = (authConfig.tokenRef as string) || 'token';
       const token = secrets[tokenRef] || '';
@@ -54,27 +55,30 @@ export async function testUpstreamConnectivity(
     } else if (authType === 'basic') {
       const username = secrets[(authConfig.usernameRef as string) || 'username'] || '';
       const password = secrets[(authConfig.passwordRef as string) || 'password'] || '';
-      headers['Authorization'] = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+      if (username || password) {
+        headers['Authorization'] = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+      }
     } else if (authType === 'header') {
       const headerEntries = (authConfig.headers as Record<string, string>) || {};
       for (const [key, valueRef] of Object.entries(headerEntries)) {
         headers[key] = secrets[valueRef] || valueRef;
       }
+    } else if (authType === 'query') {
+      const queryEntries = (authConfig.queryParams as Record<string, string>) || {};
+      for (const [key, valueRef] of Object.entries(queryEntries)) {
+        testUrl.searchParams.set(key, secrets[valueRef] || valueRef);
+      }
     }
-
-    const testPath = healthCheckPath || '/';
-    const testUrl = `${upstreamBaseUrl.replace(/\/$/, '')}${testPath}`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15_000);
 
-    const response = await fetch(testUrl, {
+    const response = await fetch(testUrl.toString(), {
       method: 'GET',
       headers,
       signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
+      redirect: 'manual',
+    }).finally(() => clearTimeout(timeoutId));
 
     return {
       success: response.ok,

@@ -46,14 +46,14 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return errors.notFound('API Key');
   }
 
-  if (apiKey.status === 'revoked') {
-    return errors.conflict('API key is already revoked');
-  }
-
-  await prisma.gatewayApiKey.update({
-    where: { id },
+  const revoked = await prisma.gatewayApiKey.updateMany({
+    where: { id, teamId: ctx.teamId, status: { not: 'revoked' } },
     data: { status: 'revoked', revokedAt: new Date() },
   });
+
+  if (revoked.count === 0) {
+    return errors.conflict('API key is already revoked');
+  }
 
   return success({ id, status: 'revoked' });
 }

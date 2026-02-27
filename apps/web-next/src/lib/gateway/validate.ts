@@ -36,14 +36,17 @@ export function validateRequest(
 
   // ── Body Regex Pattern ──
   if (endpoint.bodyPattern) {
+    if (consumerBody.length > 1_000_000) {
+      return { valid: false, error: 'Request body too large for pattern matching' };
+    }
     try {
       const regex = new RegExp(endpoint.bodyPattern);
       if (!regex.test(consumerBody)) {
         return { valid: false, error: 'Request body does not match required pattern' };
       }
     } catch {
-      // Invalid regex configured — skip validation (log as config error)
       console.warn(`[gateway] Invalid bodyPattern regex for endpoint ${endpoint.id}: ${endpoint.bodyPattern}`);
+      return { valid: false, error: 'Invalid body pattern configuration' };
     }
   }
 
@@ -78,7 +81,7 @@ function validateJsonSchema(body: string, schema: unknown): ValidationResult {
     const s = schema as Record<string, unknown>;
 
     // Check type
-    if (s.type === 'object' && typeof parsed !== 'object') {
+    if (s.type === 'object' && (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))) {
       return { valid: false, error: 'Request body must be a JSON object' };
     }
 
