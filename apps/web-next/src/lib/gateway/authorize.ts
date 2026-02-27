@@ -141,24 +141,24 @@ export async function verifyConnectorAccess(
   auth: AuthResult,
   connectorId: string,
   connectorTeamId: string
-): Promise<boolean> {
-  if (auth.callerType === 'apiKey' && auth.connectorId) {
-    if (auth.connectorId !== connectorId) return false;
+): Promise<{ allowed: boolean; resolvedTeamId: string }> {
+  if (auth.callerType === 'apiKey' && auth.connectorId && auth.connectorId !== connectorId) {
+    return { allowed: false, resolvedTeamId: auth.teamId };
   }
 
-  if (auth.teamId === connectorTeamId) return true;
+  if (auth.teamId === connectorTeamId) {
+    return { allowed: true, resolvedTeamId: connectorTeamId };
+  }
 
   if (auth.callerType === 'jwt' && auth.teamId.startsWith('personal:')) {
-    const userId = auth.teamId.slice('personal:'.length);
     const membership = await prisma.teamMember.findFirst({
-      where: { userId, teamId: connectorTeamId },
+      where: { userId: auth.callerId, teamId: connectorTeamId },
       select: { id: true },
     });
     if (membership) {
-      auth.teamId = connectorTeamId;
-      return true;
+      return { allowed: true, resolvedTeamId: connectorTeamId };
     }
   }
 
-  return false;
+  return { allowed: false, resolvedTeamId: auth.teamId };
 }

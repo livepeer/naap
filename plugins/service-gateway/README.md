@@ -16,7 +16,7 @@ Zero-code serverless API gateway for NaaP — expose any REST API as a managed, 
 
 ## Architecture
 
-```
+```text
 Consumer → Vercel Edge → Gateway Engine → Upstream Service
                            ↓
                      Resolve → Authorize → Policy → Validate → Transform → Proxy → Respond → Log

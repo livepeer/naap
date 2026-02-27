@@ -71,8 +71,8 @@ const TEMPLATES: Template[] = [
       tags: ['ai', 'llm', 'openai'],
     },
     endpoints: [
-      { name: 'Chat Completions', method: 'POST', path: '/chat', upstreamPath: '/v1/chat/completions', upstreamContentType: 'application/json', bodyTransform: 'passthrough', timeout: 60000, retries: 1 },
-      { name: 'Completions', method: 'POST', path: '/completions', upstreamPath: '/v1/completions', upstreamContentType: 'application/json', bodyTransform: 'passthrough', timeout: 60000, retries: 1 },
+      { name: 'Chat Completions', method: 'POST', path: '/chat', upstreamPath: '/v1/chat/completions', upstreamContentType: 'application/json', bodyTransform: 'passthrough', timeout: 60000, retries: 0 },
+      { name: 'Completions', method: 'POST', path: '/completions', upstreamPath: '/v1/completions', upstreamContentType: 'application/json', bodyTransform: 'passthrough', timeout: 60000, retries: 0 },
       { name: 'Embeddings', method: 'POST', path: '/embeddings', upstreamPath: '/v1/embeddings', upstreamContentType: 'application/json', bodyTransform: 'passthrough' },
       { name: 'List Models', method: 'GET', path: '/models', upstreamPath: '/v1/models', upstreamContentType: 'application/json', bodyTransform: 'passthrough', cacheTtl: 300 },
     ],
@@ -97,7 +97,7 @@ const TEMPLATES: Template[] = [
       tags: ['analytics', 'database', 'clickhouse', 'sql'],
     },
     endpoints: [
-      { name: 'Query', method: 'POST', path: '/query', upstreamPath: '/', upstreamContentType: 'application/json', bodyTransform: 'passthrough', bodyBlacklist: ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'ALTER', 'CREATE', 'TRUNCATE'], bodyPattern: '(?i)^\\s*SELECT\\b', timeout: 30000 },
+      { name: 'Query', method: 'POST', path: '/query', upstreamPath: '/', upstreamContentType: 'application/json', bodyTransform: 'passthrough', bodyBlacklist: ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'ALTER', 'CREATE', 'TRUNCATE'], timeout: 30000 },
       { name: 'Tables', method: 'GET', path: '/tables', upstreamPath: '/?query=SHOW+TABLES+FORMAT+JSON', upstreamContentType: 'application/json', bodyTransform: 'passthrough', cacheTtl: 60 },
     ],
   },
@@ -129,8 +129,11 @@ const TEMPLATES: Template[] = [
   },
 ];
 
-export async function GET() {
-  const summaries = TEMPLATES.map(({ id, name, description, icon, category, connector }) => ({
+export async function GET(request: NextRequest) {
+  const ctx = await getAdminContext(request);
+  if (isErrorResponse(ctx)) return ctx;
+
+  const summaries = TEMPLATES.map(({ id, name, description, icon, category, connector, endpoints }) => ({
     id,
     name,
     description,
@@ -138,7 +141,7 @@ export async function GET() {
     category,
     slug: connector.slug,
     authType: connector.authType,
-    endpointCount: TEMPLATES.find((t) => t.id === id)?.endpoints.length || 0,
+    endpointCount: endpoints.length,
   }));
 
   return success(summaries);
@@ -148,14 +151,21 @@ export async function POST(request: NextRequest) {
   const ctx = await getAdminContext(request);
   if (isErrorResponse(ctx)) return ctx;
 
-  let body: { templateId: string; upstreamBaseUrl: string; slug?: string };
+  let rawBody: unknown;
   try {
-    body = await request.json();
+    rawBody = await request.json();
   } catch {
     return errors.badRequest('Invalid JSON body');
   }
 
-  const { templateId, upstreamBaseUrl, slug: customSlug } = body;
+  if (!rawBody || typeof rawBody !== 'object') {
+    return errors.badRequest('Request body must be a JSON object');
+  }
+
+  const body = rawBody as Record<string, unknown>;
+  const templateId = typeof body.templateId === 'string' ? body.templateId : '';
+  const upstreamBaseUrl = typeof body.upstreamBaseUrl === 'string' ? body.upstreamBaseUrl : '';
+  const customSlug = typeof body.slug === 'string' ? body.slug : undefined;
 
   if (!templateId || !upstreamBaseUrl) {
     return errors.badRequest('templateId and upstreamBaseUrl are required');
@@ -168,15 +178,10 @@ export async function POST(request: NextRequest) {
 
   const slug = customSlug || template.connector.slug;
 
-  // Check for duplicate slug
-  const existing = await prisma.serviceConnector.findUnique({
-    where: { teamId_slug: { teamId: ctx.teamId, slug } },
-  });
-  if (existing) {
-    return errors.conflict(`Connector with slug "${slug}" already exists. Use a custom slug.`);
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
+    return errors.badRequest('Slug must be lowercase alphanumeric with hyphens');
   }
 
-  // Extract hostname for allowedHosts
   let allowedHosts: string[] = [];
   try {
     const url = new URL(upstreamBaseUrl);
@@ -185,32 +190,37 @@ export async function POST(request: NextRequest) {
     return errors.badRequest('Invalid upstreamBaseUrl');
   }
 
-  // Create connector from template
-  const connector = await prisma.serviceConnector.create({
-    data: {
-      teamId: ctx.teamId,
-      createdBy: ctx.userId,
-      slug,
-      displayName: template.connector.displayName,
-      description: template.connector.description || '',
-      upstreamBaseUrl,
-      allowedHosts,
-      authType: template.connector.authType,
-      authConfig: template.connector.authConfig,
-      secretRefs: template.connector.secretRefs,
-      streamingEnabled: template.connector.streamingEnabled ?? false,
-      responseWrapper: template.connector.responseWrapper ?? true,
-      healthCheckPath: template.connector.healthCheckPath || null,
-      defaultTimeout: template.connector.defaultTimeout ?? 30000,
-      tags: template.connector.tags || [],
-      status: 'draft',
-    },
-  });
+  const created = await prisma.$transaction(async (tx) => {
+    const existing = await tx.serviceConnector.findUnique({
+      where: { teamId_slug: { teamId: ctx.teamId, slug } },
+    });
+    if (existing) {
+      throw new Error(`CONFLICT:Connector with slug "${slug}" already exists. Use a custom slug.`);
+    }
 
-  // Create endpoints from template
-  for (const ep of template.endpoints) {
-    await prisma.connectorEndpoint.create({
+    const connector = await tx.serviceConnector.create({
       data: {
+        teamId: ctx.teamId,
+        createdBy: ctx.userId,
+        slug,
+        displayName: template.connector.displayName,
+        description: template.connector.description || '',
+        upstreamBaseUrl,
+        allowedHosts,
+        authType: template.connector.authType,
+        authConfig: template.connector.authConfig,
+        secretRefs: template.connector.secretRefs,
+        streamingEnabled: template.connector.streamingEnabled ?? false,
+        responseWrapper: template.connector.responseWrapper ?? true,
+        healthCheckPath: template.connector.healthCheckPath || null,
+        defaultTimeout: template.connector.defaultTimeout ?? 30000,
+        tags: template.connector.tags || [],
+        status: 'draft',
+      },
+    });
+
+    await tx.connectorEndpoint.createMany({
+      data: template.endpoints.map((ep) => ({
         connectorId: connector.id,
         name: ep.name,
         method: ep.method,
@@ -220,19 +230,27 @@ export async function POST(request: NextRequest) {
         bodyTransform: ep.bodyTransform || 'passthrough',
         bodyBlacklist: ep.bodyBlacklist || [],
         bodyPattern: ep.bodyPattern || null,
-        bodySchema: ep.bodySchema || null,
-        cacheTtl: ep.cacheTtl || null,
-        timeout: ep.timeout || null,
-        retries: ep.retries || 0,
-      },
+        bodySchema: ep.bodySchema ?? undefined,
+        cacheTtl: ep.cacheTtl ?? null,
+        timeout: ep.timeout ?? null,
+        retries: ep.retries ?? 0,
+      })),
     });
-  }
 
-  // Reload with endpoints
-  const created = await prisma.serviceConnector.findUnique({
-    where: { id: connector.id },
-    include: { endpoints: true },
+    return tx.serviceConnector.findUnique({
+      where: { id: connector.id },
+      include: { endpoints: true },
+    });
+  }).catch((err) => {
+    if (err instanceof Error && err.message.startsWith('CONFLICT:')) {
+      return err.message.slice('CONFLICT:'.length);
+    }
+    throw err;
   });
+
+  if (typeof created === 'string') {
+    return errors.conflict(created);
+  }
 
   return success({
     connector: created,
