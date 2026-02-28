@@ -215,7 +215,7 @@ function KPIRow({ data }: { data: DashboardKPI }) {
     <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
       <KPICard
         icon={CheckCircle2}
-        iconColor="bg-muted text-emerald-400"
+        iconColor="bg-muted text-muted-foreground"
         label="Success Rate (1h)"
         value={`${data.successRate.value}%`}
         delta={data.successRate.delta}
@@ -223,7 +223,7 @@ function KPIRow({ data }: { data: DashboardKPI }) {
       />
       <KPICard
         icon={Server}
-        iconColor="bg-muted text-blue-400"
+        iconColor="bg-muted text-muted-foreground"
         label="Orchestrators Online"
         value={data.orchestratorsOnline.value}
         delta={data.orchestratorsOnline.delta}
@@ -279,7 +279,7 @@ function ProtocolCard({ data }: { data: DashboardProtocol }) {
             </div>
             <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div
-                className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                className="h-full bg-emerald-500 rounded-full transition-all duration-500"
                 style={{ width: `${progressPct}%` }}
               />
             </div>
@@ -315,7 +315,7 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
           <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
             <div className="w-full relative">
               <div
-                className="w-full bg-amber-500/20 rounded-t-sm hover:bg-amber-500/40 transition-colors"
+                className="w-full bg-emerald-500 rounded-t-sm hover:bg-emerald-400 transition-colors"
                 style={{ height: `${(d.eth / maxFee) * 80}px` }}
                 title={`${d.eth} ETH`}
               />
@@ -382,7 +382,7 @@ function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
             <circle
               cx="50" cy="50" r={radius} fill="none"
               stroke="currentColor"
-              className="text-cyan-400"
+              className="text-emerald-500"
               strokeWidth="8"
               strokeLinecap="round"
               strokeDasharray={circumference}
@@ -402,7 +402,7 @@ function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
           </div>
           <div className="text-xs text-muted-foreground space-y-0.5">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-cyan-400 inline-block" />
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
               <span>Used: {usedPct}% ({Math.round(data.totalGPUs * usedPct / 100)})</span>
             </div>
             <div className="flex items-center gap-2">
