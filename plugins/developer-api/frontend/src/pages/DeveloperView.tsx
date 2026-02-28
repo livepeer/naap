@@ -461,11 +461,9 @@ export const DeveloperView: React.FC = () => {
         <nav className="flex gap-1">
           {tabs.map((tab) => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`relative flex items-center gap-2 px-3 py-2 text-xs font-medium transition-all ${activeTab === tab.id ? 'text-accent-emerald' : 'text-text-secondary hover:text-text-primary'}`}>
+              className={`flex items-center gap-2 px-3 py-2 text-xs font-medium transition-all border-b-2 ${activeTab === tab.id ? 'text-accent-emerald' : 'text-text-secondary hover:text-text-primary border-transparent'}`}
+              style={{ marginBottom: '-1px', borderBottomColor: activeTab === tab.id ? 'var(--accent-emerald)' : 'transparent' }}>
               {tab.icon}{tab.label}
-              {activeTab === tab.id && (
-                <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent-emerald" transition={{ type: 'spring', stiffness: 500, damping: 30 }} />
-              )}
             </button>
           ))}
         </nav>
