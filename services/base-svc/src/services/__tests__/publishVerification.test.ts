@@ -24,7 +24,7 @@ describe('verifyUrlAccessible', () => {
   it('should return accessible true for 200 response', async () => {
     mockFetch.mockResolvedValueOnce({ ok: true });
 
-    const result = await verifyUrlAccessible('http://localhost:3000/cdn/plugins/my-plugin/1.0.0/my-plugin.js');
+    const result = await verifyUrlAccessible('https://cdn.example.com/plugins/my-plugin/1.0.0/my-plugin.js');
 
     expect(result.accessible).toBe(true);
     expect(result.responseTime).toBeDefined();
@@ -33,7 +33,7 @@ describe('verifyUrlAccessible', () => {
   it('should return accessible false for 404 response', async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 404, statusText: 'Not Found' });
 
-    const result = await verifyUrlAccessible('http://localhost:3100/missing.js');
+    const result = await verifyUrlAccessible('https://cdn.example.com/missing.js');
 
     expect(result.accessible).toBe(false);
     expect(result.error).toContain('404');
@@ -42,7 +42,7 @@ describe('verifyUrlAccessible', () => {
   it('should return accessible false for 500 response', async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' });
 
-    const result = await verifyUrlAccessible('http://localhost:3100/error.js');
+    const result = await verifyUrlAccessible('https://cdn.example.com/error.js');
 
     expect(result.accessible).toBe(false);
     expect(result.error).toContain('500');
@@ -51,7 +51,7 @@ describe('verifyUrlAccessible', () => {
   it('should handle network errors', async () => {
     mockFetch.mockRejectedValueOnce(new Error('Network error'));
 
-    const result = await verifyUrlAccessible('http://localhost:3000/cdn/plugins/my-plugin/1.0.0/my-plugin.js');
+    const result = await verifyUrlAccessible('https://cdn.example.com/plugins/my-plugin/1.0.0/my-plugin.js');
 
     expect(result.accessible).toBe(false);
     expect(result.error).toBe('Network error');
@@ -62,7 +62,7 @@ describe('verifyUrlAccessible', () => {
     abortError.name = 'AbortError';
     mockFetch.mockRejectedValueOnce(abortError);
 
-    const result = await verifyUrlAccessible('http://localhost:3000/cdn/plugins/my-plugin/1.0.0/my-plugin.js', 100);
+    const result = await verifyUrlAccessible('https://cdn.example.com/plugins/my-plugin/1.0.0/my-plugin.js', 100);
 
     expect(result.accessible).toBe(false);
     expect(result.error).toContain('timed out');
@@ -282,6 +282,22 @@ describe('validatePublishManifest', () => {
       const result = validatePublishManifest(manifest);
       expect(result.valid).toBe(true);
     });
+
+    it('should reject bare /plugins/ route', () => {
+      const result = validatePublishManifest(
+        validManifest(['/plugins/'])
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.code === 'ROUTE_NAMESPACE_VIOLATION')).toBe(true);
+    });
+
+    it('should reject routes under another plugin namespace', () => {
+      const result = validatePublishManifest(
+        validManifest(['/plugins/other-plugin'])
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.code === 'ROUTE_NAMESPACE_VIOLATION')).toBe(true);
+    });
   });
 });
 
@@ -302,7 +318,7 @@ describe('verifyPublish', () => {
         description: 'Test',
         frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/my-plugin'] },
       },
-      frontendUrl: 'http://localhost:3000/cdn/plugins/my-plugin/1.0.0/my-plugin.js',
+      frontendUrl: 'https://cdn.example.com/plugins/my-plugin/1.0.0/my-plugin.js',
     });
 
     expect(result.valid).toBe(true);
@@ -320,7 +336,7 @@ describe('verifyPublish', () => {
         version: '1.0.0',
         frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/my-plugin'] },
       },
-      frontendUrl: 'http://localhost:3100/missing.js',
+      frontendUrl: 'https://cdn.example.com/missing.js',
     });
 
     expect(result.valid).toBe(false);
@@ -351,7 +367,7 @@ describe('verifyPublish', () => {
         name: 'MyPlugin', // Invalid
         version: 'v1', // Invalid
       },
-      frontendUrl: 'http://localhost:3100/missing.js',
+      frontendUrl: 'https://cdn.example.com/missing.js',
     });
 
     expect(result.valid).toBe(false);
@@ -367,7 +383,7 @@ describe('verifyPublish', () => {
         version: '1.0.0',
         frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/my-plugin'] },
       },
-      frontendUrl: 'http://localhost:3000/cdn/plugins/my-plugin/1.0.0/my-plugin.js',
+      frontendUrl: 'https://cdn.example.com/plugins/my-plugin/1.0.0/my-plugin.js',
       skipUrlCheck: true,
     });
 

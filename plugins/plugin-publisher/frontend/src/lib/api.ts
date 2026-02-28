@@ -510,5 +510,6 @@ export async function publishExamplePlugin(name: string): Promise<{
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.error || 'Failed to publish example plugin');
   }
-  return res.json();
+  const json = await res.json();
+  return { package: json.package, version: json.version };
 }

@@ -563,9 +563,12 @@ export const MarketplacePage: React.FC = () => {
             });
         }
         setInstallations(map);
+      } else {
+        setInstallations(new Map());
       }
     } catch (err) {
       console.error('Failed to load installations:', err);
+      setInstallations(new Map());
     }
   }, []);
 
@@ -647,7 +650,7 @@ export const MarketplacePage: React.FC = () => {
         });
       } else {
         // Personal uninstall via same-origin route (Next.js handles UserPluginPreference removal)
-        response = await fetch(`/api/v1/installations/${pkg.name}`, { method: 'DELETE', credentials: 'include' });
+        response = await fetch(`/api/v1/installations/${encodeURIComponent(pkg.name)}`, { method: 'DELETE', credentials: 'include' });
       }
 
       if (response.ok) {

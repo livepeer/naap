@@ -723,7 +723,7 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
   });
 
   /** POST /registry/examples/:name/publish - publish an example plugin to marketplace */
-  router.post('/registry/examples/:name/publish', async (req: Request, res: Response) => {
+  router.post('/registry/examples/:name/publish', apiLimiter, async (req: Request, res: Response) => {
     try {
       if (!(await isExamplePublishingEnabled())) {
         return res.status(403).json({ error: 'Example plugin publishing is not enabled' });
