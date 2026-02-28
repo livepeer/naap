@@ -258,21 +258,21 @@ export const ForumPage: React.FC = () => {
               />
             </div>
 
-            {/* Sort */}
-            <div className="flex bg-bg-secondary border border-white/10 rounded-lg p-0.5">
+            {/* Sort — segmented control */}
+            <div className="flex items-center gap-0.5 rounded-md p-0.5" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}>
               {[
-                { value: 'recent', label: 'Recent', icon: <Clock size={14} /> },
-                { value: 'popular', label: 'Popular', icon: <TrendingUp size={14} /> },
-                { value: 'unanswered', label: 'Unanswered', icon: <HelpCircle size={14} /> },
+                { value: 'recent', label: 'Recent', icon: <Clock size={13} /> },
+                { value: 'popular', label: 'Popular', icon: <TrendingUp size={13} /> },
+                { value: 'unanswered', label: 'Unanswered', icon: <HelpCircle size={13} /> },
               ].map((sort) => (
                 <button
                   key={sort.value}
                   onClick={() => setSortBy(sort.value as 'recent' | 'popular' | 'unanswered')}
-                  className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium transition-all ${
-                    sortBy === sort.value
-                      ? 'bg-accent-blue text-white'
-                      : 'text-text-secondary hover:text-text-primary'
-                  }`}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors"
+                  style={{
+                    backgroundColor: sortBy === sort.value ? 'rgba(255,255,255,0.1)' : 'transparent',
+                    color: sortBy === sort.value ? '#ffffff' : 'rgba(255,255,255,0.3)',
+                  }}
                 >
                   {sort.icon} {sort.label}
                 </button>
@@ -280,17 +280,17 @@ export const ForumPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Category Tabs */}
-          <div className="flex flex-wrap gap-2">
+          {/* Category filters — inline text pills */}
+          <div className="flex flex-wrap items-center gap-1">
             {CATEGORIES.map((cat) => (
               <button
                 key={cat.value}
                 onClick={() => setCategoryFilter(cat.value)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                  categoryFilter === cat.value
-                    ? 'bg-accent-blue text-white'
-                    : 'bg-bg-secondary text-text-secondary hover:text-text-primary border border-white/10'
-                }`}
+                className="px-2 py-0.5 rounded text-xs font-medium transition-colors"
+                style={{
+                  backgroundColor: categoryFilter === cat.value ? 'rgba(255,255,255,0.1)' : 'transparent',
+                  color: categoryFilter === cat.value ? '#ffffff' : 'rgba(255,255,255,0.3)',
+                }}
               >
                 {cat.label}
               </button>
@@ -432,7 +432,7 @@ export const ForumPage: React.FC = () => {
                 <div ref={loadMoreRef} className="h-4" aria-hidden="true" />
                 <div className="text-center py-4">
                   {loadingMore ? (
-                    <Loader2 className="animate-spin text-accent-blue mx-auto" size={16} />
+                    <Loader2 className="animate-spin text-text-secondary mx-auto" size={16} />
                   ) : (
                     <span className="text-text-secondary text-sm">
                       Showing {posts.length} of {total} posts — scroll for more
