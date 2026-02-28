@@ -267,12 +267,20 @@ export function validatePublishManifest(manifest: DeepPartial<PluginManifest>): 
   if (Array.isArray(routes) && routes.length > 0) {
     for (const route of routes) {
       if (typeof route !== 'string') continue;
-      const basePath = route.replace(/\/?\*$/, '');
+      const basePath = route.replace(/\/?\*$/, '').replace(/\/+$/, '') || '/';
+      const pluginName = typeof manifest.name === 'string' ? manifest.name : '';
+      const expectedPrefix = pluginName ? `/plugins/${pluginName}` : null;
 
-      if (!basePath.startsWith('/plugins/')) {
+      if (!basePath.startsWith('/plugins/') || basePath === '/plugins') {
         errors.push({
           code: 'ROUTE_NAMESPACE_VIOLATION',
           message: `Route "${route}" must be under /plugins/ namespace (e.g., /plugins/${manifest.name}/*). Top-level routes are reserved for core platform plugins.`,
+          field: 'frontend.routes',
+        });
+      } else if (expectedPrefix && basePath !== expectedPrefix && !basePath.startsWith(`${expectedPrefix}/`)) {
+        errors.push({
+          code: 'ROUTE_NAMESPACE_VIOLATION',
+          message: `Route "${route}" must be under /plugins/${pluginName}. Plugins cannot claim another plugin's namespace.`,
           field: 'frontend.routes',
         });
       }

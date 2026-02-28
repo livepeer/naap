@@ -28,6 +28,7 @@ import {
   toPluginPackageData,
   toPluginVersionData,
   getBundleUrl,
+  toKebabCase,
 } from '../packages/database/src/plugin-discovery.js';
 import { BILLING_PROVIDERS } from '@naap/database';
 import * as path from 'path';
@@ -192,7 +193,7 @@ async function main(): Promise<void> {
         const routes = wp.routes as string[];
         const hasStaleRoutes = routes.some((r) => !r.startsWith('/plugins/'));
         if (hasStaleRoutes) {
-          const kebabName = wp.name.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '');
+          const kebabName = toKebabCase(wp.name);
           const meta = (wp.metadata as Record<string, unknown>) || {};
           await prisma.workflowPlugin.update({
             where: { name: wp.name },
