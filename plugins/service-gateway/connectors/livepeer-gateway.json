@@ -15,7 +15,7 @@
     "defaultTimeout": 60000,
     "healthCheckPath": "/health",
     "authType": "header",
-    "authConfig": { "headerName": "x-api-key", "tokenRef": "api-key" },
+    "authConfig": { "headers": { "x-api-key": "{{secrets.api-key}}" } },
     "secretRefs": ["api-key"],
     "streamingEnabled": true,
     "responseWrapper": false,

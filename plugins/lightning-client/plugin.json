@@ -1,0 +1,37 @@
+{
+  "$schema": "../../packages/plugin-sdk/plugin.schema.json",
+  "name": "lightning-client",
+  "displayName": "Lightning Client",
+  "version": "1.0.0",
+  "description": "End-to-end test harness for the Livepeer Lightweight Gateway connector — webcam capture, job management, and transformed video playback",
+  "category": "example",
+  "author": {
+    "name": "NAAP Examples",
+    "email": "examples@naap.dev"
+  },
+  "icon": "Zap",
+  "frontend": {
+    "entry": "./frontend/dist/production/lightning-client.js",
+    "entryPoint": "./frontend/src/App.tsx",
+    "devPort": 3112,
+    "routes": ["/lightning-client", "/lightning-client/*"],
+    "navigation": { "label": "Lightning Client", "icon": "Zap" }
+  },
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme", "auth"],
+    "browser": ["camera"]
+  },
+  "rbac": {
+    "roles": [
+      {
+        "name": "lightning-client:user",
+        "displayName": "Lightning Client User",
+        "description": "Can use the Lightning Client gateway test harness",
+        "permissions": [
+          { "resource": "lightning-client", "action": "read" }
+        ]
+      }
+    ],
+    "defaultRole": "lightning-client:user"
+  }
+}
