@@ -39,6 +39,9 @@
     "react-router-dom": "^7.0.0",
     "recharts": "^2.15.0"
   },
+  "optionalDependencies": {
+    "@rollup/rollup-darwin-arm64": "^4.59.0"
+  },
   "devDependencies": {
     "@nx/js": "22.5.0",
     "@nx/node": "22.5.0",

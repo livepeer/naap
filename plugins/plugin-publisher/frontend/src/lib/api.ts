@@ -469,3 +469,47 @@ export interface PluginVersionWithCDN extends PluginVersion {
   bundleSize?: number;
   deploymentType?: 'cdn' | 'container';
 }
+
+// ============================================
+// Example Plugin Publishing API
+// ============================================
+
+export interface ExamplePlugin {
+  name: string;
+  dirName: string;
+  displayName: string;
+  description: string;
+  category: string;
+  author: string;
+  version: string;
+  icon: string;
+  alreadyPublished: boolean;
+}
+
+export async function listExamplePlugins(): Promise<ExamplePlugin[]> {
+  const res = await fetch(`${BASE_SVC_URL}/api/v1/registry/examples`, {
+    headers: authHeaders(),
+  });
+  if (res.status === 403) {
+    throw Object.assign(new Error('Feature not enabled'), { status: 403 });
+  }
+  if (!res.ok) throw new Error('Failed to list example plugins');
+  const json = await res.json();
+  return json.examples || [];
+}
+
+export async function publishExamplePlugin(name: string): Promise<{
+  package: PluginPackage;
+  version: PluginVersion;
+}> {
+  const res = await fetch(`${BASE_SVC_URL}/api/v1/registry/examples/${encodeURIComponent(name)}/publish`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Failed to publish example plugin');
+  }
+  const json = await res.json();
+  return { package: json.package, version: json.version };
+}

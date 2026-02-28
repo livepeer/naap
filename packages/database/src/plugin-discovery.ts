@@ -30,6 +30,31 @@ export function toPascalCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/**
+ * Convert camelCase to kebab-case.
+ * @param s - Input string in camelCase (e.g. "myWallet")
+ * @returns Kebab-case string (e.g. "my-wallet")
+ */
+export function toKebabCase(s: string): string {
+  return s.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '');
+}
+
+/**
+ * Normalize plugin routes based on core status.
+ * Core plugins keep their original top-level routes (e.g. /marketplace).
+ * Non-core plugins are namespaced under /plugins/{dirName} to prevent
+ * route conflicts with shell pages.
+ */
+export function normalizePluginRoutes(
+  originalRoutes: string[],
+  dirName: string,
+  isCore: boolean,
+): string[] {
+  if (isCore) return originalRoutes;
+  if (originalRoutes.length === 0) return [];
+  return [`/plugins/${dirName}`, `/plugins/${dirName}/*`];
+}
+
 // ─── CDN URL Helpers ─────────────────────────────────────────────────────────
 
 /**
@@ -65,8 +90,10 @@ export interface DiscoveredPlugin {
   displayName: string;
   /** Semver version (always "1.0.0" for local builds) */
   version: string;
-  /** Frontend route paths from plugin.json */
+  /** Frontend route paths (normalized: non-core → /plugins/{dir}) */
   routes: string[];
+  /** Original routes from plugin.json before normalization */
+  originalRoutes: string[];
   /** Navigation icon name */
   icon: string;
   /** Navigation order */
@@ -95,15 +122,16 @@ export interface DiscoveredPlugin {
 }
 
 /**
- * Scan the `plugins/` directory and read each `plugin.json` manifest.
+ * Scan a named subdirectory for `plugin.json` manifests.
  *
- * @param rootDir - Monorepo root directory (must contain a `plugins/` folder)
- * @returns Array of discovered plugins sorted by navigation order; empty if plugins dir not found
+ * @param rootDir - Monorepo root directory
+ * @param subDir  - Subdirectory name relative to rootDir (e.g. "plugins" or "examples")
+ * @returns Array of discovered plugins sorted by navigation order; empty if dir not found
  */
-export function discoverPlugins(rootDir: string): DiscoveredPlugin[] {
-  const pluginsDir = path.join(rootDir, 'plugins');
+export function discoverFromDir(rootDir: string, subDir: string): DiscoveredPlugin[] {
+  const pluginsDir = path.join(rootDir, subDir);
   if (!fs.existsSync(pluginsDir)) {
-    console.warn(`[plugin-discovery] plugins directory not found at ${pluginsDir}`);
+    console.warn(`[plugin-discovery] directory not found at ${pluginsDir}`);
     return [];
   }
 
@@ -116,21 +144,23 @@ export function discoverPlugins(rootDir: string): DiscoveredPlugin[] {
       );
       const camelName = toCamelCase(dir);
 
-      // Extract author — supports both string and { name, email } forms
       const rawAuthor = manifest.author;
       const authorName = typeof rawAuthor === 'string' ? rawAuthor : rawAuthor?.name;
       const authorEmail = typeof rawAuthor === 'object' ? rawAuthor?.email : undefined;
+
+      const rawRoutes: string[] = manifest.frontend?.routes || [];
+      const isCore = manifest.isCore === true;
 
       return {
         dirName: dir,
         name: camelName,
         displayName: manifest.displayName || dir,
         version: '1.0.0',
-        routes: manifest.frontend?.routes || [],
+        originalRoutes: rawRoutes,
+        routes: normalizePluginRoutes(rawRoutes, dir, isCore),
         icon: manifest.frontend?.navigation?.icon || 'Box',
         order: manifest.frontend?.navigation?.order ?? 99,
         globalName: `NaapPlugin${toPascalCase(camelName)}`,
-        // Marketplace metadata
         description: manifest.description,
         author: authorName,
         authorEmail,
@@ -142,6 +172,17 @@ export function discoverPlugins(rootDir: string): DiscoveredPlugin[] {
       };
     })
     .sort((a, b) => a.order - b.order);
+}
+
+/**
+ * Scan the `plugins/` directory and read each `plugin.json` manifest.
+ * Delegates to {@link discoverFromDir} with subDir = "plugins".
+ *
+ * @param rootDir - Monorepo root directory (must contain a `plugins/` folder)
+ * @returns Array of discovered plugins sorted by navigation order; empty if plugins dir not found
+ */
+export function discoverPlugins(rootDir: string): DiscoveredPlugin[] {
+  return discoverFromDir(rootDir, 'plugins');
 }
 
 /**

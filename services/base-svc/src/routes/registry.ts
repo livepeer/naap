@@ -6,7 +6,17 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
+import * as path from 'path';
+import * as fs from 'fs';
 import type { AuditLogInput } from '../services/lifecycle';
+import {
+  discoverFromDir,
+  toPluginPackageData,
+  toPluginVersionData,
+  toWorkflowPluginData,
+  getBundleUrl,
+  type DiscoveredPlugin,
+} from '@naap/database/plugin-discovery';
 
 /** Sanitize a value for safe log output (prevents log injection) */
 function sanitizeForLog(value: unknown): string {
@@ -613,6 +623,42 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
         throw createErr;
       }
 
+      // Auto-install for the publisher: ensure a deployment + TenantPluginInstall
+      // exist so the plugin is immediately visible in their sidebar and settings.
+      try {
+        let deployment = await db.pluginDeployment.findUnique({ where: { packageId: pkg.id } });
+        if (!deployment) {
+          deployment = await db.pluginDeployment.create({
+            data: {
+              packageId: pkg.id, versionId: version.id, status: 'running',
+              frontendUrl: frontendUrl || '', deployedAt: new Date(),
+              healthStatus: 'healthy', activeInstalls: 0,
+            },
+          });
+        }
+
+        const existingInstall = await db.tenantPluginInstall.findFirst({
+          where: { userId, deploymentId: deployment.id, status: { not: 'uninstalled' } },
+        });
+        if (!existingInstall) {
+          await db.tenantPluginInstall.create({
+            data: { userId, deploymentId: deployment.id, status: 'active', enabled: true },
+          });
+          await db.pluginDeployment.update({
+            where: { id: deployment.id },
+            data: { activeInstalls: { increment: 1 } },
+          });
+        }
+
+        await db.userPluginPreference.upsert({
+          where: { userId_pluginName: { userId, pluginName: manifest.name } },
+          update: { enabled: true },
+          create: { userId, pluginName: manifest.name, enabled: true, order: 0, pinned: false },
+        });
+      } catch (installErr) {
+        console.warn('Auto-install after publish failed (non-fatal):', installErr);
+      }
+
       await lifecycleService.audit({
         action: 'plugin.publish', resource: 'plugin', resourceId: manifest.name, userId,
         details: { version: manifest.version, frontendUrl, backendImage, publisherId: publisher.id },
@@ -624,6 +670,200 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
       res.status(500).json({ error: 'Internal server error' });
     }
   });
+
+  // ==========================================================================
+  // Example Plugin Publishing (feature-flagged)
+  // ==========================================================================
+
+  const MONOREPO_ROOT = path.resolve(process.cwd(), process.env.MONOREPO_ROOT || '../..');
+  const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || '/cdn/plugins';
+
+  async function isExamplePublishingEnabled(): Promise<boolean> {
+    const flag = await db.featureFlag.findUnique({ where: { key: 'enableExamplePublishing' } });
+    return flag?.enabled === true;
+  }
+
+  /** GET /registry/examples - list available example plugins */
+  router.get('/registry/examples', async (_req: Request, res: Response) => {
+    try {
+      if (!(await isExamplePublishingEnabled())) {
+        return res.status(403).json({ error: 'Example plugin publishing is not enabled' });
+      }
+
+      const examples = discoverFromDir(MONOREPO_ROOT, 'examples');
+
+      const publishedPkgs = examples.length > 0
+        ? await db.pluginPackage.findMany({
+            where: {
+              name: { in: examples.map((e: DiscoveredPlugin) => e.name) },
+              publishStatus: 'published',
+            },
+            select: { name: true },
+          })
+        : [];
+      const publishedSet = new Set(publishedPkgs.map((p: { name: string }) => p.name));
+
+      const result = examples.map((e: DiscoveredPlugin) => ({
+        name: e.name,
+        dirName: e.dirName,
+        displayName: e.displayName,
+        description: e.description || '',
+        category: e.category || 'example',
+        author: e.author || 'NAAP Examples',
+        version: e.version,
+        icon: e.icon,
+        alreadyPublished: publishedSet.has(e.name),
+      }));
+
+      res.json({ success: true, examples: result });
+    } catch (error) {
+      console.error('List examples error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** POST /registry/examples/:name/publish - publish an example plugin to marketplace */
+  router.post('/registry/examples/:name/publish', apiLimiter, async (req: Request, res: Response) => {
+    try {
+      if (!(await isExamplePublishingEnabled())) {
+        return res.status(403).json({ error: 'Example plugin publishing is not enabled' });
+      }
+
+      const userId = await getUserIdFromRequest(req);
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
+
+      const { name: pluginName } = req.params;
+
+      // Discover examples and validate the requested name exists (path traversal safe)
+      const examples = discoverFromDir(MONOREPO_ROOT, 'examples');
+      const example = examples.find((e: DiscoveredPlugin) => e.name === pluginName);
+      if (!example) {
+        return res.status(404).json({
+          error: 'Example plugin not found',
+          available: examples.map((e: DiscoveredPlugin) => e.name),
+        });
+      }
+
+      // Verify the plugin has been built
+      const bundlePath = path.join(
+        MONOREPO_ROOT, 'dist', 'plugins', example.dirName,
+        example.version, `${example.dirName}.js`,
+      );
+      if (!fs.existsSync(bundlePath)) {
+        return res.status(400).json({
+          error: `Plugin "${example.dirName}" must be built first`,
+          hint: `Run: bin/build-plugins.sh --plugin ${example.dirName}`,
+        });
+      }
+
+      // Atomic publish: package + version + workflow + deployment + install in a transaction
+      const result = await db.$transaction(async (tx: any) => {
+        const pkgData = toPluginPackageData(example, PLUGIN_CDN_URL);
+        const pkg = await tx.pluginPackage.upsert({
+          where: { name: example.name },
+          update: { ...pkgData, publishStatus: 'published' },
+          create: pkgData,
+        });
+
+        const versionData = toPluginVersionData(example, pkg.id, PLUGIN_CDN_URL);
+        const version = await tx.pluginVersion.upsert({
+          where: { packageId_version: { packageId: pkg.id, version: example.version } },
+          update: { frontendUrl: versionData.frontendUrl, manifest: versionData.manifest as any },
+          create: versionData,
+        });
+
+        const workflowData = toWorkflowPluginData(example, PLUGIN_CDN_URL, MONOREPO_ROOT);
+        const existingWP = await tx.workflowPlugin.findUnique({
+          where: { name: example.name },
+          select: { metadata: true },
+        });
+        const mergedMetadata = {
+          ...((existingWP?.metadata as Record<string, unknown>) || {}),
+          originalRoutes: example.originalRoutes,
+        };
+        await tx.workflowPlugin.upsert({
+          where: { name: example.name },
+          update: { ...workflowData, metadata: mergedMetadata },
+          create: { ...workflowData, metadata: mergedMetadata },
+        });
+
+        const deployment = await tx.pluginDeployment.upsert({
+          where: { packageId: pkg.id },
+          update: {
+            versionId: version.id,
+            status: 'running',
+            frontendUrl: getBundleUrl(PLUGIN_CDN_URL, example.dirName, example.version),
+            deployedAt: new Date(),
+            healthStatus: 'healthy',
+          },
+          create: {
+            packageId: pkg.id,
+            versionId: version.id,
+            status: 'running',
+            frontendUrl: getBundleUrl(PLUGIN_CDN_URL, example.dirName, example.version),
+            deployedAt: new Date(),
+            healthStatus: 'healthy',
+            activeInstalls: 0,
+          },
+        });
+
+        // Auto-install for the publishing user so the plugin appears in their
+        // sidebar, settings, and marketplace as "Installed".
+        const existingInstall = await tx.tenantPluginInstall.findFirst({
+          where: { userId, deploymentId: deployment.id, status: { not: 'uninstalled' } },
+        });
+        if (!existingInstall) {
+          await tx.tenantPluginInstall.create({
+            data: {
+              userId,
+              deploymentId: deployment.id,
+              status: 'active',
+              enabled: true,
+            },
+          });
+          await tx.pluginDeployment.update({
+            where: { id: deployment.id },
+            data: { activeInstalls: { increment: 1 } },
+          });
+        }
+
+        await tx.userPluginPreference.upsert({
+          where: { userId_pluginName: { userId, pluginName: example.name } },
+          update: { enabled: true },
+          create: { userId, pluginName: example.name, enabled: true, order: 0, pinned: false },
+        });
+
+        return { package: pkg, version };
+      });
+
+      // Symlink examples/{name} → plugins/{name} so start.sh and
+      // sync-plugin-registry discover it like any regular plugin.
+      const symlinkTarget = path.join(MONOREPO_ROOT, 'plugins', example.dirName);
+      const symlinkSource = path.join(MONOREPO_ROOT, 'examples', example.dirName);
+      if (!fs.existsSync(symlinkTarget) && fs.existsSync(symlinkSource)) {
+        try {
+          fs.symlinkSync(symlinkSource, symlinkTarget, 'dir');
+          console.log(`[registry] Symlinked plugins/${example.dirName} → examples/${example.dirName}`);
+        } catch (linkErr) {
+          console.warn(`[registry] Could not create symlink for ${example.dirName}:`, linkErr);
+        }
+      }
+
+      await lifecycleService.audit({
+        action: 'plugin.publish', resource: 'plugin', resourceId: example.name,
+        userId, details: { version: example.version, source: 'example' },
+      });
+
+      res.status(201).json({ success: true, ...result });
+    } catch (error) {
+      console.error('Publish example error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // ==========================================================================
+  // Token-authenticated Publish
+  // ==========================================================================
 
   /** POST /registry/publish/token - API token authenticated publish */
   router.post('/registry/publish/token', apiLimiter, requireToken('publish'), async (req: any, res: Response) => { // lgtm[js/missing-rate-limiting] apiLimiter applied

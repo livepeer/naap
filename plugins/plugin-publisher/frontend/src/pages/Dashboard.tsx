@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, Package, Key, Settings, TrendingUp, Download } from 'lucide-react';
+import { Upload, Package, Key, Settings, TrendingUp, Download, Blocks } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { LucideIcon } from '../components/LucideIcon';
 import { listMyPackages, type PluginPackage } from '../lib/api';
@@ -36,6 +36,7 @@ export const Dashboard: React.FC = () => {
     { icon: Package, label: 'My Plugins', path: '/plugins', color: 'bg-accent-blue' },
     { icon: Key, label: 'API Tokens', path: '/tokens', color: 'bg-accent-purple' },
     { icon: Settings, label: 'Settings', path: '/settings', color: 'bg-accent-amber' },
+    { icon: Blocks, label: 'Example Plugins', path: '/examples', color: 'bg-accent-rose' },
   ];
 
   return (
@@ -106,7 +107,7 @@ export const Dashboard: React.FC = () => {
       {/* Quick Actions */}
       <div>
         <h2 className="text-lg font-semibold text-text-primary mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-5 gap-4">
           {quickActions.map((action) => (
             <button
               key={action.path}
