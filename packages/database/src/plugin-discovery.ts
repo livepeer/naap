@@ -51,6 +51,7 @@ export function normalizePluginRoutes(
   isCore: boolean,
 ): string[] {
   if (isCore) return originalRoutes;
+  if (originalRoutes.length === 0) return [];
   return [`/plugins/${dirName}`, `/plugins/${dirName}/*`];
 }
 
