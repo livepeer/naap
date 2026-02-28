@@ -836,6 +836,19 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
         return { package: pkg, version };
       });
 
+      // Symlink examples/{name} → plugins/{name} so start.sh and
+      // sync-plugin-registry discover it like any regular plugin.
+      const symlinkTarget = path.join(MONOREPO_ROOT, 'plugins', example.dirName);
+      const symlinkSource = path.join(MONOREPO_ROOT, 'examples', example.dirName);
+      if (!fs.existsSync(symlinkTarget) && fs.existsSync(symlinkSource)) {
+        try {
+          fs.symlinkSync(symlinkSource, symlinkTarget, 'dir');
+          console.log(`[registry] Symlinked plugins/${example.dirName} → examples/${example.dirName}`);
+        } catch (linkErr) {
+          console.warn(`[registry] Could not create symlink for ${example.dirName}:`, linkErr);
+        }
+      }
+
       await lifecycleService.audit({
         action: 'plugin.publish', resource: 'plugin', resourceId: example.name,
         userId, details: { version: example.version, source: 'example' },
