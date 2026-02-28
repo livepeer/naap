@@ -77,6 +77,18 @@ apps/web-next/public/cdn/
 tsconfig.tsbuildinfo
 **/tsconfig.tsbuildinfo
 
+# Example plugin symlinks (created when publishing examples to plugins/)
+plugins/hello-world
+plugins/todo-list
+plugins/my-wallet
+plugins/my-dashboard
+plugins/daydream-video
+plugins/gateway-manager
+plugins/intelligent-dashboard
+plugins/leaderboard
+plugins/network-analytics
+plugins/orchestrator-manager
+
 # Migration phase markers
 .phase-*
 .architecture-mode
