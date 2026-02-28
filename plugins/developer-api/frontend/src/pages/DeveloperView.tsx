@@ -732,7 +732,7 @@ export const DeveloperView: React.FC = () => {
               <p className="text-xs text-text-secondary mb-2">You will be redirected to authenticate with the selected provider.</p>
               {modalDataLoading ? (
                 <div className="flex items-center gap-3 p-4 bg-bg-tertiary border border-white/10 rounded-lg">
-                  <Loader2 size={18} className="text-accent-emerald animate-spin flex-shrink-0" />
+                  <Loader2 size={18} className="text-text-secondary animate-spin flex-shrink-0" />
                   <span className="text-sm text-text-secondary">Loading billing providers...</span>
                 </div>
               ) : billingProviders.length === 0 ? (
@@ -777,7 +777,7 @@ export const DeveloperView: React.FC = () => {
         )}
         {createStep === 'oauth' && (
           <div className="flex flex-col items-center justify-center py-6 space-y-4">
-            <Loader2 size={20} className="animate-spin text-accent-emerald" />
+            <Loader2 size={20} className="animate-spin text-text-secondary" />
             <div className="text-center">
               <p className="text-text-primary font-medium">Waiting for authentication...</p>
               <p className="text-sm text-text-secondary mt-1">Complete the sign-in in the new tab that opened. This page will update automatically.</p>

@@ -443,7 +443,7 @@ export const PublishWizard: React.FC = () => {
             {/* API Token Requirement */}
             {checkingTokens ? (
               <div className="glass-card p-4 flex items-center gap-3">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent-emerald"></div>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-current text-text-secondary"></div>
                 <span className="text-text-secondary">Checking API token...</span>
               </div>
             ) : hasTokens === false ? (

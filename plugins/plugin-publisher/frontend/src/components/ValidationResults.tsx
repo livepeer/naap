@@ -80,7 +80,7 @@ export const ValidationResults: React.FC<ValidationResultsProps> = ({ result, lo
     return (
       <div className="glass-card p-4">
         <div className="flex items-center gap-3">
-          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent-emerald"></div>
+          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-current text-text-secondary"></div>
           <span className="text-text-secondary">Validating manifest...</span>
         </div>
       </div>

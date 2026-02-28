@@ -19,8 +19,8 @@
   --text-tertiary: #94a3b8;
 
   /* Accents - Darker for light backgrounds */
-  --accent-emerald: #059669;
-  --accent-blue: #2563eb;
+  --accent-emerald: #18794E;
+  --accent-blue: #18794E;
   --accent-amber: #d97706;
   --accent-rose: #dc2626;
 
@@ -38,8 +38,8 @@
   --text-primary: #f9fafb;
   --text-secondary: #9ca3af;
   --text-tertiary: #6b7280;
-  --accent-emerald: #10b981;
-  --accent-blue: #3b82f6;
+  --accent-emerald: #1E9960;
+  --accent-blue: #1E9960;
   --accent-amber: #f59e0b;
   --accent-rose: #f43f5e;
   --border-color: rgba(255, 255, 255, 0.1);

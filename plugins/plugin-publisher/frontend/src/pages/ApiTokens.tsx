@@ -203,7 +203,7 @@ export const ApiTokens: React.FC = () => {
       {/* Token List */}
       {loading ? (
         <div className="glass-card p-8 text-center">
-          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent-emerald mx-auto"></div>
+          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-current text-text-secondary mx-auto"></div>
           <p className="mt-4 text-text-secondary">Loading tokens...</p>
         </div>
       ) : (

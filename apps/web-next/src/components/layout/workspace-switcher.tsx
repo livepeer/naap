@@ -154,7 +154,7 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
         {/* Workspace icon */}
         <div className="w-6 h-6 flex-shrink-0 rounded-md bg-primary/20 flex items-center justify-center">
           {switching ? (
-            <Loader2 size={12} className="animate-spin text-primary" />
+            <Loader2 size={12} className="animate-spin text-muted-foreground" />
           ) : currentTeam ? (
             currentTeam.avatarUrl ? (
               <img src={currentTeam.avatarUrl} alt="" className="w-6 h-6 rounded-md object-cover" />
