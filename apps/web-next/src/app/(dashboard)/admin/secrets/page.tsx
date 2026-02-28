@@ -12,11 +12,11 @@ import {
   Plus,
   Trash2,
   RefreshCw,
-  Loader2,
   AlertTriangle,
   Copy,
   CheckCircle2
 } from 'lucide-react';
+import { Button, Input, Textarea, Select, Label, Modal, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
 
@@ -126,13 +126,13 @@ export default function AdminSecretsPage() {
     setTimeout(() => setCopiedKey(null), 2000);
   }
 
-  const getCategoryColor = (category: string) => {
+  const getCategoryBadgeVariant = (category: string): 'blue' | 'emerald' | 'secondary' | 'amber' => {
     switch (category) {
-      case 'api': return 'bg-blue-500/10 text-blue-500';
-      case 'database': return 'bg-green-500/10 text-green-500';
-      case 'encryption': return 'bg-purple-500/10 text-purple-500';
-      case 'integration': return 'bg-orange-500/10 text-orange-500';
-      default: return 'bg-gray-500/10 text-gray-500';
+      case 'api': return 'blue';
+      case 'database': return 'emerald';
+      case 'encryption': return 'secondary';
+      case 'integration': return 'amber';
+      default: return 'secondary';
     }
   };
 
@@ -143,70 +143,70 @@ export default function AdminSecretsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="h-5 w-5 animate-spin text-muted-foreground border-2 border-current border-t-transparent rounded-full" />
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-4 max-w-4xl mx-auto">
       <AdminNav />
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Key className="w-6 h-6" />
+          <h1 className="text-lg font-semibold flex items-center gap-2">
+            <Key className="w-5 h-5" />
             Secrets Management
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-muted-foreground mt-1 text-sm">
             Manage system secrets and API keys
           </p>
         </div>
-        <button
+        <Button
+          variant="primary"
+          icon={<Plus className="w-4 h-4" />}
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
         >
-          <Plus className="w-4 h-4" />
           Add Secret
-        </button>
+        </Button>
       </div>
 
       {error && (
-        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg mb-6 flex items-center gap-2">
+        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg mb-4 flex items-center gap-2">
           <AlertTriangle className="w-4 h-4" />
           {error}
-          <button onClick={() => setError(null)} className="ml-auto">×</button>
+          <button onClick={() => setError(null)} className="ml-auto">x</button>
         </div>
       )}
 
       {secrets.length === 0 ? (
-        <div className="text-center py-12 bg-muted/50 rounded-xl">
-          <Key className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-lg font-medium mb-2">No secrets configured</h3>
-          <p className="text-muted-foreground mb-4">
+        <div className="text-center py-8 bg-muted/50 rounded-lg">
+          <Key className="w-8 h-8 mx-auto text-muted-foreground mb-4" />
+          <h3 className="text-sm font-semibold mb-2">No secrets configured</h3>
+          <p className="text-muted-foreground mb-4 text-sm">
             Add your first secret to get started
           </p>
-          <button
+          <Button
+            variant="primary"
+            icon={<Plus className="w-4 h-4" />}
             onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
           >
-            <Plus className="w-4 h-4" />
             Add Your First Secret
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="space-y-4">
           {secrets.map(secret => (
             <div
               key={secret.key}
-              className="bg-card border border-border rounded-xl p-4"
+              className="bg-card border border-border rounded-lg p-4"
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
                     <h3 className="font-mono font-medium">{secret.key}</h3>
-                    <span className={`px-2 py-0.5 text-xs rounded-full ${getCategoryColor(secret.category)}`}>
+                    <Badge variant={getCategoryBadgeVariant(secret.category)}>
                       {secret.category}
-                    </span>
+                    </Badge>
                     <button
                       onClick={() => copyToClipboard(secret.key)}
                       className="p-1 hover:bg-muted rounded transition-colors"
@@ -222,7 +222,7 @@ export default function AdminSecretsPage() {
                   {secret.description && (
                     <p className="text-sm text-muted-foreground mb-2">{secret.description}</p>
                   )}
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     <span>Created: {new Date(secret.createdAt).toLocaleDateString()}</span>
                     {secret.rotatedAt && (
                       <span>Last rotated: {new Date(secret.rotatedAt).toLocaleDateString()}</span>
@@ -230,20 +230,21 @@ export default function AdminSecretsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<RefreshCw className="w-4 h-4" />}
                     onClick={() => handleRotateSecret(secret.key)}
-                    className="p-2 hover:bg-muted rounded-lg transition-colors"
                     title="Rotate secret"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                  </button>
-                  <button
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:bg-destructive/10"
+                    icon={<Trash2 className="w-4 h-4" />}
                     onClick={() => handleDeleteSecret(secret.key)}
-                    className="p-2 text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
                     title="Delete secret"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  />
                 </div>
               </div>
             </div>
@@ -252,85 +253,78 @@ export default function AdminSecretsPage() {
       )}
 
       {/* Add Secret Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md m-4 shadow-xl">
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <Key className="w-5 h-5 text-primary" />
-              Add New Secret
-            </h2>
-
-            <form onSubmit={handleAddSecret} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Secret Key</label>
-                <input
-                  type="text"
-                  value={newSecret.key}
-                  onChange={(e) => setNewSecret({ ...newSecret, key: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') })}
-                  placeholder="API_KEY_NAME"
-                  className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 font-mono"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Secret Value</label>
-                <input
-                  type="password"
-                  value={newSecret.value}
-                  onChange={(e) => setNewSecret({ ...newSecret, value: e.target.value })}
-                  placeholder="••••••••••••"
-                  className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Category</label>
-                <select
-                  value={newSecret.category}
-                  onChange={(e) => setNewSecret({ ...newSecret, category: e.target.value })}
-                  className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-                >
-                  <option value="api">API Key</option>
-                  <option value="database">Database</option>
-                  <option value="encryption">Encryption</option>
-                  <option value="integration">Integration</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Description (optional)</label>
-                <textarea
-                  value={newSecret.description}
-                  onChange={(e) => setNewSecret({ ...newSecret, description: e.target.value })}
-                  rows={2}
-                  placeholder="What is this secret used for?"
-                  className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={adding}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
-                >
-                  {adding && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Add Secret
-                </button>
-              </div>
-            </form>
+      <Modal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        title="Add New Secret"
+        size="md"
+      >
+        <form onSubmit={handleAddSecret} className="space-y-4">
+          <div>
+            <Label className="mb-1.5 block">Secret Key</Label>
+            <Input
+              type="text"
+              value={newSecret.key}
+              onChange={(e) => setNewSecret({ ...newSecret, key: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') })}
+              placeholder="API_KEY_NAME"
+              className="font-mono"
+              required
+            />
           </div>
-        </div>
-      )}
+
+          <div>
+            <Label className="mb-1.5 block">Secret Value</Label>
+            <Input
+              type="password"
+              value={newSecret.value}
+              onChange={(e) => setNewSecret({ ...newSecret, value: e.target.value })}
+              placeholder="••••••••••••"
+              required
+            />
+          </div>
+
+          <div>
+            <Label className="mb-1.5 block">Category</Label>
+            <Select
+              value={newSecret.category}
+              onChange={(e) => setNewSecret({ ...newSecret, category: e.target.value })}
+            >
+              <option value="api">API Key</option>
+              <option value="database">Database</option>
+              <option value="encryption">Encryption</option>
+              <option value="integration">Integration</option>
+            </Select>
+          </div>
+
+          <div>
+            <Label className="mb-1.5 block">Description (optional)</Label>
+            <Textarea
+              value={newSecret.description}
+              onChange={(e) => setNewSecret({ ...newSecret, description: e.target.value })}
+              rows={2}
+              placeholder="What is this secret used for?"
+              className="resize-none"
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowAddModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              loading={adding}
+            >
+              Add Secret
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

@@ -9,7 +9,6 @@ import {
   Bug,
   Lightbulb,
   ThumbsUp,
-  Loader2,
   ExternalLink,
   Clock,
   Search as SearchIcon,
@@ -19,6 +18,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
+import { Button, Input, Textarea, Label, Badge } from '@naap/ui';
 
 type FeedbackType = 'bug' | 'feature' | 'general';
 type FeedbackStatus = 'open' | 'investigating' | 'roadmap' | 'released' | 'closed';
@@ -48,12 +48,12 @@ interface FeedbackConfig {
   discordUrl: string;
 }
 
-const statusConfig: Record<FeedbackStatus, { label: string; icon: React.ComponentType<{ size?: number; className?: string }>; color: string }> = {
-  open: { label: 'Open', icon: Clock, color: 'text-blue-500 bg-blue-500/10' },
-  investigating: { label: 'Investigating', icon: SearchIcon, color: 'text-amber-500 bg-amber-500/10' },
-  roadmap: { label: 'On Roadmap', icon: Map, color: 'text-purple-500 bg-purple-500/10' },
-  released: { label: 'Released', icon: Rocket, color: 'text-green-500 bg-green-500/10' },
-  closed: { label: 'Closed', icon: XCircle, color: 'text-muted-foreground bg-muted' },
+const statusConfig: Record<FeedbackStatus, { label: string; icon: React.ComponentType<{ size?: number; className?: string }>; badgeVariant: 'blue' | 'amber' | 'secondary' | 'emerald' | 'rose' }> = {
+  open: { label: 'Open', icon: Clock, badgeVariant: 'blue' },
+  investigating: { label: 'Investigating', icon: SearchIcon, badgeVariant: 'amber' },
+  roadmap: { label: 'On Roadmap', icon: Map, badgeVariant: 'secondary' },
+  released: { label: 'Released', icon: Rocket, badgeVariant: 'emerald' },
+  closed: { label: 'Closed', icon: XCircle, badgeVariant: 'secondary' },
 };
 
 const feedbackTypeConfig = [
@@ -135,32 +135,43 @@ export default function FeedbackPage() {
     }
   };
 
-  // ── Stats summary cards ───────────────────────────────────────────
+  // -- Stats summary cards
 
   const statCards = [
     { label: 'Total', value: stats.total, color: 'text-foreground bg-muted' },
-    { label: 'Open', value: stats.open, color: statusConfig.open.color },
-    { label: 'Investigating', value: stats.investigating, color: statusConfig.investigating.color },
-    { label: 'Roadmap', value: stats.roadmap, color: statusConfig.roadmap.color },
-    { label: 'Released', value: stats.released, color: statusConfig.released.color },
-    { label: 'Closed', value: stats.closed, color: statusConfig.closed.color },
+    { label: 'Open', value: stats.open, color: statusConfig.open.badgeVariant },
+    { label: 'Investigating', value: stats.investigating, color: statusConfig.investigating.badgeVariant },
+    { label: 'Roadmap', value: stats.roadmap, color: statusConfig.roadmap.badgeVariant },
+    { label: 'Released', value: stats.released, color: statusConfig.released.badgeVariant },
+    { label: 'Closed', value: stats.closed, color: statusConfig.closed.badgeVariant },
   ];
 
-  // ── Render ─────────────────────────────────────────────────────────
+  const getStatColor = (label: string) => {
+    switch (label) {
+      case 'Open': return 'text-blue-500';
+      case 'Investigating': return 'text-amber-500';
+      case 'Roadmap': return 'text-purple-500';
+      case 'Released': return 'text-green-500';
+      case 'Closed': return 'text-muted-foreground';
+      default: return 'text-foreground';
+    }
+  };
+
+  // -- Render
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">Feedback</h1>
-        <p className="text-muted-foreground mt-1">
+        <h1 className="text-lg font-semibold">Feedback</h1>
+        <p className="text-muted-foreground mt-1 text-sm">
           Help us improve NaaP by sharing your thoughts
         </p>
       </div>
 
       {/* External Links */}
       {(config.githubIssueUrl || config.discordUrl) && (
-        <div className="flex flex-wrap gap-4">
+        <div className="flex flex-wrap gap-3">
           {config.githubIssueUrl && (
             <a
               href={config.githubIssueUrl}
@@ -191,10 +202,10 @@ export default function FeedbackPage() {
         {statCards.map((card) => (
           <div
             key={card.label}
-            className="flex flex-col items-center p-3 rounded-xl border border-border bg-card"
+            className="flex flex-col items-center p-3 rounded-lg border border-border bg-card"
           >
-            <span className={`text-2xl font-bold ${card.color.split(' ')[0]}`}>
-              {loading ? '–' : card.value}
+            <span className={`text-xl font-bold ${getStatColor(card.label)}`}>
+              {loading ? '-' : card.value}
             </span>
             <span className="text-xs text-muted-foreground mt-1">{card.label}</span>
           </div>
@@ -203,26 +214,26 @@ export default function FeedbackPage() {
 
       {/* Submit Form */}
       {submitted ? (
-        <div className="text-center py-12 px-6 bg-card border border-border rounded-xl">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-primary/10 flex items-center justify-center">
-            <ThumbsUp size={32} className="text-primary" />
+        <div className="text-center py-8 px-4 bg-card border border-border rounded-lg">
+          <div className="w-8 h-8 mx-auto mb-4 rounded-md bg-muted flex items-center justify-center">
+            <ThumbsUp size={20} className="text-muted-foreground" />
           </div>
-          <h2 className="text-xl font-bold mb-2">Thank You!</h2>
-          <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+          <h2 className="text-base font-semibold mb-2">Thank You!</h2>
+          <p className="text-muted-foreground mb-4 max-w-md mx-auto text-sm">
             Your feedback has been submitted. We appreciate you helping us improve.
           </p>
-          <button
+          <Button
+            variant="primary"
             onClick={() => setSubmitted(false)}
-            className="px-6 py-3 bg-primary text-primary-foreground rounded-xl font-bold hover:bg-primary/90 transition-all"
           >
             Submit Another
-          </button>
+          </Button>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="bg-card border border-border rounded-xl p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="bg-card border border-border rounded-lg p-4 space-y-4">
           {/* Feedback Type */}
           <div>
-            <label className="block text-sm font-medium mb-3">Feedback Type</label>
+            <Label className="mb-1.5 block">Feedback Type</Label>
             <div className="grid grid-cols-3 gap-3">
               {feedbackTypeConfig.map((type) => {
                 const Icon = type.icon;
@@ -231,13 +242,13 @@ export default function FeedbackPage() {
                     key={type.id}
                     type="button"
                     onClick={() => setFeedbackType(type.id)}
-                    className={`p-4 rounded-xl border transition-all text-left ${
+                    className={`p-4 rounded-lg border transition-all text-left ${
                       feedbackType === type.id
                         ? 'border-primary bg-primary/10'
                         : 'border-border bg-muted/50 hover:border-muted-foreground/30'
                     }`}
                   >
-                    <Icon size={24} className={feedbackType === type.id ? 'text-primary' : 'text-muted-foreground'} />
+                    <Icon size={20} className={feedbackType === type.id ? 'text-primary' : 'text-muted-foreground'} />
                     <p className="font-medium mt-2 text-sm">{type.label}</p>
                     <p className="text-xs text-muted-foreground mt-1">{type.desc}</p>
                   </button>
@@ -248,21 +259,20 @@ export default function FeedbackPage() {
 
           {/* Title */}
           <div>
-            <label className="block text-sm font-medium mb-2">Title *</label>
-            <input
+            <Label required className="mb-1.5 block">Title</Label>
+            <Input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Brief summary of your feedback"
-              className="w-full bg-background border border-border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors"
               required
             />
           </div>
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium mb-2">Description *</label>
-            <textarea
+            <Label required className="mb-1.5 block">Description</Label>
+            <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder={
@@ -273,14 +283,14 @@ export default function FeedbackPage() {
                   : 'Share your thoughts, suggestions, or general feedback...'
               }
               rows={6}
-              className="w-full bg-background border border-border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors resize-none"
+              className="resize-none"
               required
             />
           </div>
 
           {/* User Info */}
           {isAuthenticated && user?.email && (
-            <div className="p-4 bg-muted/50 rounded-xl">
+            <div className="p-4 bg-muted/50 rounded-lg">
               <p className="text-sm text-muted-foreground">
                 Submitting as: <span className="text-foreground font-medium">{user.email}</span>
               </p>
@@ -288,33 +298,27 @@ export default function FeedbackPage() {
           )}
 
           {/* Submit */}
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            size="lg"
             disabled={submitting || !title.trim() || !description.trim()}
-            className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-primary text-primary-foreground rounded-xl font-bold hover:bg-primary/90 transition-all disabled:opacity-50"
+            loading={submitting}
+            icon={!submitting ? <Send size={16} /> : undefined}
+            className="w-full"
           >
-            {submitting ? (
-              <>
-                <Loader2 size={20} className="animate-spin" />
-                Submitting...
-              </>
-            ) : (
-              <>
-                <Send size={20} />
-                Submit Feedback
-              </>
-            )}
-          </button>
+            {submitting ? 'Submitting...' : 'Submit Feedback'}
+          </Button>
         </form>
       )}
 
       {/* Feedback History */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="bg-card border border-border rounded-lg overflow-hidden">
         <button
           onClick={() => setShowHistory(!showHistory)}
-          className="w-full flex items-center justify-between px-6 py-4 hover:bg-muted/30 transition-all"
+          className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/30 transition-all"
         >
-          <h2 className="text-lg font-semibold">Your Feedback History</h2>
+          <h2 className="text-sm font-semibold">Your Feedback History</h2>
           <span className="flex items-center gap-2 text-sm text-muted-foreground">
             {stats.total} item{stats.total !== 1 ? 's' : ''}
             {showHistory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -324,13 +328,13 @@ export default function FeedbackPage() {
         {showHistory && (
           <div className="border-t border-border">
             {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <div className="flex items-center justify-center py-8">
+                <div className="h-5 w-5 animate-spin text-muted-foreground border-2 border-current border-t-transparent rounded-full" />
               </div>
             ) : feedbacks.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                <p>No feedback submitted yet</p>
+              <div className="text-center py-8 text-muted-foreground">
+                <MessageSquare className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                <p className="text-sm">No feedback submitted yet</p>
               </div>
             ) : (
               <div className="divide-y divide-border">
@@ -338,22 +342,24 @@ export default function FeedbackPage() {
                   const statusCfg = statusConfig[fb.status] || statusConfig.open;
                   const StatusIcon = statusCfg.icon;
                   return (
-                    <div key={fb.id} className="px-6 py-4 hover:bg-muted/20 transition-all">
-                      <div className="flex items-start justify-between gap-4">
+                    <div key={fb.id} className="px-4 py-2.5 hover:bg-muted/20 transition-all">
+                      <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusCfg.color}`}>
-                              <StatusIcon size={12} />
-                              {statusCfg.label}
-                              {fb.status === 'released' && fb.releaseTag && (
-                                <span className="ml-1">{fb.releaseTag}</span>
-                              )}
-                            </span>
-                            <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground capitalize">
+                            <Badge variant={statusCfg.badgeVariant}>
+                              <span className="inline-flex items-center gap-1">
+                                <StatusIcon size={12} />
+                                {statusCfg.label}
+                                {fb.status === 'released' && fb.releaseTag && (
+                                  <span className="ml-1">{fb.releaseTag}</span>
+                                )}
+                              </span>
+                            </Badge>
+                            <Badge variant="secondary">
                               {fb.type}
-                            </span>
+                            </Badge>
                           </div>
-                          <h3 className="font-medium truncate">{fb.title}</h3>
+                          <h3 className="font-medium truncate text-sm">{fb.title}</h3>
                           <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{fb.description}</p>
                         </div>
                         <span className="text-xs text-muted-foreground whitespace-nowrap">

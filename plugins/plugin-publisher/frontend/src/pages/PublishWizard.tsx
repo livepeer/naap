@@ -200,11 +200,11 @@ export const PublishWizard: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader title="Publish New Plugin" subtitle="Step-by-step wizard to publish your plugin" />
 
       {/* Progress Steps */}
-      <div className="glass-card p-4">
+      <div className="glass-card p-3">
         <div className="flex items-center justify-between">
           {STEPS.map((s, i) => (
             <React.Fragment key={s.id}>
@@ -214,7 +214,7 @@ export const PublishWizard: React.FC = () => {
                 }`}
               >
                 <div
-                  className={`p-2 rounded-lg ${
+                  className={`p-1.5 rounded-md ${
                     i < currentStepIndex
                       ? 'bg-accent-emerald text-white'
                       : i === currentStepIndex
@@ -223,9 +223,9 @@ export const PublishWizard: React.FC = () => {
                   }`}
                 >
                   {i < currentStepIndex ? (
-                    <CheckCircle className="w-5 h-5" />
+                    <CheckCircle className="w-4 h-4" />
                   ) : (
-                    <s.icon className="w-5 h-5" />
+                    <s.icon className="w-4 h-4" />
                   )}
                 </div>
                 <span className="font-medium hidden sm:block">{s.label}</span>
@@ -243,12 +243,12 @@ export const PublishWizard: React.FC = () => {
       </div>
 
       {/* Step Content */}
-      <div className="glass-card p-6">
+      <div className="glass-card p-4">
         {/* Step 1: Source Selection */}
         {step === 'source' && (
-          <div className="space-y-6">
-            <h2 className="text-xl font-semibold text-text-primary">Select Plugin Source</h2>
-            <div className="grid grid-cols-3 gap-4">
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold text-text-primary">Select Plugin Source</h2>
+            <div className="grid grid-cols-3 gap-3">
               {[
                 { id: 'local' as const, label: 'Local Upload', icon: Upload, desc: 'Upload a built plugin.zip' },
                 { id: 'github' as const, label: 'GitHub', icon: Github, desc: 'Import from GitHub release' },
@@ -256,13 +256,13 @@ export const PublishWizard: React.FC = () => {
                 <button
                   key={source.id}
                   onClick={() => setSourceType(source.id)}
-                  className={`p-6 rounded-xl border-2 text-left transition-all ${
+                  className={`p-4 rounded-lg border text-left transition-all ${
                     sourceType === source.id
                       ? 'border-accent-emerald bg-accent-emerald/10'
                       : 'border-white/10 hover:border-white/20 bg-bg-tertiary'
                   }`}
                 >
-                  <source.icon className={`w-8 h-8 mb-3 ${sourceType === source.id ? 'text-accent-emerald' : 'text-text-secondary'}`} />
+                  <source.icon className={`w-5 h-5 mb-2 ${sourceType === source.id ? 'text-accent-emerald' : 'text-text-secondary'}`} />
                   <h3 className="font-medium text-text-primary">{source.label}</h3>
                   <p className="text-sm text-text-secondary mt-1">{source.desc}</p>
                 </button>
@@ -273,13 +273,13 @@ export const PublishWizard: React.FC = () => {
 
         {/* Step 2: Upload/Configure */}
         {step === 'upload' && sourceType === 'local' && (
-          <div className="space-y-6">
-            <h2 className="text-xl font-semibold text-text-primary">Upload Plugin</h2>
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold text-text-primary">Upload Plugin</h2>
             <p className="text-sm text-text-secondary">
               Upload a .zip file containing your built UMD production plugin bundle.
             </p>
             <div
-              className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center hover:border-accent-emerald/50 transition-colors"
+              className="border-2 border-dashed border-white/20 rounded-lg p-6 text-center hover:border-accent-emerald/50 transition-colors"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
@@ -289,7 +289,7 @@ export const PublishWizard: React.FC = () => {
             >
               {file ? (
                 <div>
-                  <CheckCircle className="w-12 h-12 text-accent-emerald mx-auto mb-4" />
+                  <CheckCircle className="w-8 h-8 text-accent-emerald mx-auto mb-4" />
                   <p className="font-medium text-text-primary">{file.name}</p>
                   <p className="text-sm text-text-secondary mt-1">
                     {(file.size / 1024 / 1024).toFixed(2)} MB
@@ -303,7 +303,7 @@ export const PublishWizard: React.FC = () => {
                 </div>
               ) : (
                 <div>
-                  <Upload className="w-12 h-12 text-text-secondary mx-auto mb-4" />
+                  <Upload className="w-8 h-8 text-text-secondary mx-auto mb-4" />
                   <p className="text-text-primary mb-2">Drag and drop your plugin.zip here</p>
                   <p className="text-sm text-text-secondary mb-4">or</p>
                   <label className="btn-primary cursor-pointer">
@@ -330,8 +330,8 @@ export const PublishWizard: React.FC = () => {
         )}
 
         {step === 'upload' && sourceType === 'github' && (
-          <div className="space-y-6">
-            <h2 className="text-xl font-semibold text-text-primary">GitHub Repository</h2>
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold text-text-primary">GitHub Repository</h2>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-1">
@@ -363,8 +363,8 @@ export const PublishWizard: React.FC = () => {
 
         {/* Step 3: Validate */}
         {step === 'validate' && (
-          <div className="space-y-6">
-            <h2 className="text-xl font-semibold text-text-primary">Validate Manifest</h2>
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold text-text-primary">Validate Manifest</h2>
             
             {/* Deployment type info */}
             {uploadResult?.deploymentType && (
@@ -393,14 +393,14 @@ export const PublishWizard: React.FC = () => {
 
         {/* Step 4: Test */}
         {step === 'test' && (
-          <div className="space-y-6">
-            <h2 className="text-xl font-semibold text-text-primary">Test Plugin Loading</h2>
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold text-text-primary">Test Plugin Loading</h2>
             {testResult ? (
-              <div className={`glass-card p-6 ${testResult.success ? 'border-accent-emerald/50' : 'border-accent-rose/50'}`}>
+              <div className={`glass-card p-4 ${testResult.success ? 'border-accent-emerald/50' : 'border-accent-rose/50'}`}>
                 <div className="flex items-center gap-3">
                   {testResult.success ? (
                     <>
-                      <CheckCircle className="w-8 h-8 text-accent-emerald" />
+                      <CheckCircle className="w-6 h-6 text-accent-emerald" />
                       <div>
                         <h3 className="font-medium text-accent-emerald">Test Passed</h3>
                         <p className="text-sm text-text-secondary">
@@ -410,7 +410,7 @@ export const PublishWizard: React.FC = () => {
                     </>
                   ) : (
                     <>
-                      <div className="w-8 h-8 rounded-full bg-accent-rose/20 flex items-center justify-center">
+                      <div className="w-6 h-6 rounded-full bg-accent-rose/20 flex items-center justify-center">
                         <span className="text-accent-rose">✕</span>
                       </div>
                       <div>
@@ -423,7 +423,7 @@ export const PublishWizard: React.FC = () => {
               </div>
             ) : (
               <div className="text-center py-8">
-                <Play className="w-12 h-12 text-text-secondary mx-auto mb-4" />
+                <Play className="w-8 h-8 text-text-secondary mx-auto mb-4" />
                 <p className="text-text-secondary mb-4">
                   Test that your plugin can be loaded by the shell application.
                 </p>
@@ -437,17 +437,17 @@ export const PublishWizard: React.FC = () => {
 
         {/* Step 5: Publish */}
         {step === 'publish' && (
-          <div className="space-y-6">
-            <h2 className="text-xl font-semibold text-text-primary">Publish to Marketplace</h2>
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold text-text-primary">Publish to Marketplace</h2>
 
             {/* API Token Requirement */}
             {checkingTokens ? (
               <div className="glass-card p-4 flex items-center gap-3">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent-emerald"></div>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-current text-text-secondary"></div>
                 <span className="text-text-secondary">Checking API token...</span>
               </div>
             ) : hasTokens === false ? (
-              <div className="glass-card p-6 border-accent-amber/50">
+              <div className="glass-card p-4 border-accent-amber/50">
                 <div className="flex items-start gap-4">
                   <div className="p-2 bg-accent-amber/20 rounded-lg">
                     <Key className="w-6 h-6 text-accent-amber" />
@@ -492,7 +492,7 @@ export const PublishWizard: React.FC = () => {
               <div className="flex gap-4">
                 <button
                   onClick={() => setPricing('free')}
-                  className={`flex-1 p-4 rounded-xl border-2 ${
+                  className={`flex-1 p-3 rounded-lg border ${
                     pricing === 'free' ? 'border-accent-emerald bg-accent-emerald/10' : 'border-white/10'
                   }`}
                 >
@@ -500,7 +500,7 @@ export const PublishWizard: React.FC = () => {
                 </button>
                 <button
                   onClick={() => setPricing('paid')}
-                  className={`flex-1 p-4 rounded-xl border-2 ${
+                  className={`flex-1 p-3 rounded-lg border ${
                     pricing === 'paid' ? 'border-accent-emerald bg-accent-emerald/10' : 'border-white/10'
                   }`}
                   disabled

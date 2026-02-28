@@ -290,7 +290,7 @@ export function PluginLoader({
     return (
       <div className="absolute inset-0 z-10 flex items-center justify-center bg-bg-primary/80 backdrop-blur-sm">
         <div className="text-center space-y-4">
-          <Loader2 className="w-8 h-8 animate-spin text-accent-blue mx-auto" />
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mx-auto" />
           <div className="space-y-1">
             <p className="text-text-secondary text-sm">
               Loading {plugin.displayName || plugin.name}...

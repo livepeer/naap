@@ -34,11 +34,11 @@ export default function EmbeddedPage() {
   if (!config) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
-        <div className="w-20 h-20 rounded-2xl bg-muted flex items-center justify-center mb-6">
-          <ExternalLink size={40} className="text-muted-foreground" />
+        <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center mb-4">
+          <ExternalLink size={24} className="text-muted-foreground" />
         </div>
-        <h1 className="text-2xl font-bold mb-2">Page Not Found</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-base font-semibold mb-1">Page Not Found</h1>
+        <p className="text-sm text-muted-foreground">
           The embedded view &quot;{type}&quot; does not exist.
         </p>
       </div>
@@ -48,42 +48,42 @@ export default function EmbeddedPage() {
   const Icon = config.icon;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-            <Icon size={24} className="text-primary" />
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+            <Icon size={20} className="text-muted-foreground" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">{config.title}</h1>
-            <p className="text-muted-foreground">{config.description}</p>
+            <h1 className="text-lg font-semibold">{config.title}</h1>
+            <p className="text-[13px] text-muted-foreground">{config.description}</p>
           </div>
         </div>
         <a
           href={config.urls.mainnet}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 px-4 py-2 bg-muted rounded-lg hover:bg-muted/80 transition-all text-sm"
+          className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-md hover:bg-muted/80 transition-all text-xs font-medium"
         >
           Open in New Tab
-          <ExternalLink size={14} />
+          <ExternalLink size={12} />
         </a>
       </div>
 
       {/* Embedded Content */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="bg-card border border-border rounded-lg overflow-hidden">
         <div className="relative w-full" style={{ height: 'calc(100vh - 240px)', minHeight: '500px' }}>
           {/* Loading state */}
           <div className="absolute inset-0 flex items-center justify-center bg-muted/50 z-10 pointer-events-none opacity-0 transition-opacity" id="embed-loading">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
           </div>
 
           {/* Placeholder for actual embed */}
-          <div className="w-full h-full flex flex-col items-center justify-center text-center p-8 bg-muted/30">
-            <Icon size={64} className="text-muted-foreground/50 mb-6" />
-            <h2 className="text-xl font-bold mb-2">{config.title} View</h2>
-            <p className="text-muted-foreground mb-6 max-w-md">
+          <div className="w-full h-full flex flex-col items-center justify-center text-center p-6 bg-muted/30">
+            <Icon size={40} className="text-muted-foreground/50 mb-4" />
+            <h2 className="text-sm font-semibold mb-1">{config.title} View</h2>
+            <p className="text-xs text-muted-foreground mb-4 max-w-md">
               This is a placeholder for the embedded {config.title.toLowerCase()} view.
               In production, this would display the actual content from:
             </p>
@@ -92,25 +92,25 @@ export default function EmbeddedPage() {
                 href={config.urls.mainnet}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-between w-full p-4 bg-card border border-border rounded-xl hover:border-primary/50 transition-all"
+                className="flex items-center justify-between w-full p-3 bg-card border border-border rounded-lg hover:border-border/80 transition-all"
               >
                 <div>
-                  <p className="font-medium">Mainnet</p>
-                  <p className="text-sm text-muted-foreground truncate">{config.urls.mainnet}</p>
+                  <p className="text-sm font-medium">Mainnet</p>
+                  <p className="text-xs text-muted-foreground truncate">{config.urls.mainnet}</p>
                 </div>
-                <ExternalLink size={18} className="text-muted-foreground" />
+                <ExternalLink size={14} className="text-muted-foreground" />
               </a>
               <a
                 href={config.urls.testnet}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-between w-full p-4 bg-card border border-border rounded-xl hover:border-primary/50 transition-all"
+                className="flex items-center justify-between w-full p-3 bg-card border border-border rounded-lg hover:border-border/80 transition-all"
               >
                 <div>
-                  <p className="font-medium">Testnet / Alternative</p>
-                  <p className="text-sm text-muted-foreground truncate">{config.urls.testnet}</p>
+                  <p className="text-sm font-medium">Testnet / Alternative</p>
+                  <p className="text-xs text-muted-foreground truncate">{config.urls.testnet}</p>
                 </div>
-                <ExternalLink size={18} className="text-muted-foreground" />
+                <ExternalLink size={14} className="text-muted-foreground" />
               </a>
             </div>
           </div>
@@ -130,33 +130,33 @@ export default function EmbeddedPage() {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         <a
           href={config.urls.mainnet}
           target="_blank"
           rel="noopener noreferrer"
-          className="p-4 bg-card border border-border rounded-xl hover:border-primary/50 transition-all flex items-center gap-3"
+          className="p-3 bg-card border border-border rounded-lg hover:border-border/80 transition-all flex items-center gap-3"
         >
-          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-            <Icon size={20} className="text-primary" />
+          <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center">
+            <Icon size={16} className="text-muted-foreground" />
           </div>
           <div>
-            <p className="font-medium">View on Explorer</p>
-            <p className="text-sm text-muted-foreground">Open in a new tab</p>
+            <p className="text-sm font-medium">View on Explorer</p>
+            <p className="text-xs text-muted-foreground">Open in a new tab</p>
           </div>
         </a>
         <a
           href="https://docs.livepeer.org"
           target="_blank"
           rel="noopener noreferrer"
-          className="p-4 bg-card border border-border rounded-xl hover:border-primary/50 transition-all flex items-center gap-3"
+          className="p-3 bg-card border border-border rounded-lg hover:border-border/80 transition-all flex items-center gap-3"
         >
-          <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-            <ExternalLink size={20} className="text-blue-500" />
+          <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center">
+            <ExternalLink size={16} className="text-muted-foreground" />
           </div>
           <div>
-            <p className="font-medium">Documentation</p>
-            <p className="text-sm text-muted-foreground">Learn more</p>
+            <p className="text-sm font-medium">Documentation</p>
+            <p className="text-xs text-muted-foreground">Learn more</p>
           </div>
         </a>
       </div>

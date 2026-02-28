@@ -327,7 +327,7 @@ export const CapacityPage: React.FC = () => {
   if (loading && requests.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24">
-        <Loader2 size={48} className="animate-spin text-accent-blue mb-4" />
+        <Loader2 size={24} className="animate-spin text-text-secondary mb-4" />
         <p className="text-text-secondary">Loading capacity requests...</p>
       </div>
     );

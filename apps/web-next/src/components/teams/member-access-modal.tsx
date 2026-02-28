@@ -341,7 +341,7 @@ export function MemberAccessModal({
         <div className="flex-1 overflow-auto p-6">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
           ) : error && members.length === 0 ? (
             <div className="flex items-center gap-3 p-4 bg-destructive/10 text-destructive rounded-lg">

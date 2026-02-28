@@ -53,7 +53,7 @@ export const PrePublishChecklist: React.FC<PrePublishChecklistProps> = ({
     return (
       <div className="glass-card p-6">
         <div className="flex items-center gap-3">
-          <Loader2 className="w-5 h-5 animate-spin text-accent-blue" />
+          <Loader2 className="w-5 h-5 animate-spin text-text-secondary" />
           <span className="text-text-secondary">Running pre-publish checks...</span>
         </div>
       </div>

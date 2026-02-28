@@ -146,7 +146,7 @@ export function TeamSwitcher() {
       >
         {switching ? (
           <>
-            <Loader2 size={16} className="animate-spin text-primary" />
+            <Loader2 size={16} className="animate-spin text-muted-foreground" />
             <span className="text-muted-foreground hidden sm:inline">Switching...</span>
           </>
         ) : currentTeam ? (

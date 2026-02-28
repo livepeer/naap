@@ -117,14 +117,14 @@ function formatTime(iso: string): string {
 
 function WidgetSkeleton({ className = '' }: { className?: string }) {
   return (
-    <div className={`p-5 rounded-2xl bg-card border border-border animate-pulse ${className}`}>
-      <div className="flex items-center gap-2 mb-4">
-        <div className="w-7 h-7 rounded-lg bg-muted" />
+    <div className={`p-4 rounded-lg bg-card border border-border animate-pulse ${className}`}>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-6 h-6 rounded-md bg-muted" />
         <div className="w-24 h-3 rounded bg-muted" />
       </div>
-      <div className="space-y-3">
-        <div className="w-32 h-8 rounded bg-muted" />
-        <div className="w-20 h-4 rounded bg-muted" />
+      <div className="space-y-2">
+        <div className="w-28 h-7 rounded bg-muted" />
+        <div className="w-16 h-3 rounded bg-muted" />
       </div>
     </div>
   );
@@ -132,10 +132,10 @@ function WidgetSkeleton({ className = '' }: { className?: string }) {
 
 function WidgetUnavailable({ label }: { label: string }) {
   return (
-    <div className="p-5 rounded-2xl bg-card border border-border/50">
-      <div className="flex flex-col items-center justify-center h-24 text-muted-foreground">
-        <AlertCircle className="w-5 h-5 mb-2 opacity-50" />
-        <span className="text-xs">{label} unavailable</span>
+    <div className="p-4 rounded-lg bg-card border border-border">
+      <div className="flex flex-col items-center justify-center h-20 text-muted-foreground">
+        <AlertCircle className="w-4 h-4 mb-1.5 opacity-40" />
+        <span className="text-[11px]">{label} unavailable</span>
       </div>
     </div>
   );
@@ -143,15 +143,15 @@ function WidgetUnavailable({ label }: { label: string }) {
 
 function DashboardLoading() {
   return (
-    <div className="space-y-6 max-w-[1440px] mx-auto">
+    <div className="space-y-5 max-w-[1440px] mx-auto">
       <div className="flex items-center gap-3">
         <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
         <span className="text-sm text-muted-foreground">Loading dashboard data...</span>
       </div>
-      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
         <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
       </div>
-      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
         <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
       </div>
     </div>
@@ -192,17 +192,17 @@ function KPICard({
   suffix?: string;
 }) {
   return (
-    <div className="p-5 rounded-2xl bg-card border border-border hover:border-primary/30 transition-colors">
+    <div className="p-4 rounded-lg bg-card border border-border hover:border-border/80 transition-colors">
       <div className="flex items-center gap-2 mb-3">
-        <div className={`p-1.5 rounded-lg ${iconColor}`}>
-          <Icon className="w-4 h-4" />
+        <div className={`p-1 rounded-md ${iconColor}`}>
+          <Icon className="w-3.5 h-3.5" />
         </div>
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
+        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
       </div>
       <div className="flex items-end justify-between">
         <div className="flex items-baseline gap-1">
-          <span className="text-3xl font-bold text-foreground tracking-tight">{value}</span>
-          {suffix && <span className="text-sm text-muted-foreground">{suffix}</span>}
+          <span className="text-2xl font-semibold text-foreground tracking-tight font-mono">{value}</span>
+          {suffix && <span className="text-xs text-muted-foreground">{suffix}</span>}
         </div>
         <DeltaBadge value={delta} unit={deltaUnit} invert={deltaInvert} />
       </div>
@@ -212,10 +212,10 @@ function KPICard({
 
 function KPIRow({ data }: { data: DashboardKPI }) {
   return (
-    <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
       <KPICard
         icon={CheckCircle2}
-        iconColor="bg-emerald-500/15 text-emerald-400"
+        iconColor="bg-muted text-muted-foreground"
         label="Success Rate (1h)"
         value={`${data.successRate.value}%`}
         delta={data.successRate.delta}
@@ -223,7 +223,7 @@ function KPIRow({ data }: { data: DashboardKPI }) {
       />
       <KPICard
         icon={Server}
-        iconColor="bg-blue-500/15 text-blue-400"
+        iconColor="bg-muted text-muted-foreground"
         label="Orchestrators Online"
         value={data.orchestratorsOnline.value}
         delta={data.orchestratorsOnline.delta}
@@ -231,7 +231,7 @@ function KPIRow({ data }: { data: DashboardKPI }) {
       />
       <KPICard
         icon={Clock}
-        iconColor="bg-violet-500/15 text-violet-400"
+        iconColor="bg-muted text-muted-foreground"
         label="Daily Usage"
         value={formatNumber(data.dailyUsageMins.value)}
         delta={data.dailyUsageMins.delta}
@@ -240,7 +240,7 @@ function KPIRow({ data }: { data: DashboardKPI }) {
       />
       <KPICard
         icon={Radio}
-        iconColor="bg-amber-500/15 text-amber-400"
+        iconColor="bg-muted text-muted-foreground"
         label="Daily Streams"
         value={data.dailyStreamCount.value.toLocaleString()}
         delta={data.dailyStreamCount.delta}
@@ -260,17 +260,17 @@ function ProtocolCard({ data }: { data: DashboardProtocol }) {
     : 0;
 
   return (
-    <div className="p-5 rounded-2xl bg-card border border-border">
+    <div className="p-4 rounded-lg bg-card border border-border">
       <div className="flex items-center gap-2 mb-4">
-        <div className="p-1.5 rounded-lg bg-indigo-500/15 text-indigo-400">
-          <Layers className="w-4 h-4" />
+        <div className="p-1 rounded-md bg-muted text-muted-foreground">
+          <Layers className="w-3.5 h-3.5" />
         </div>
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Protocol</span>
+        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Protocol</span>
       </div>
       <div className="space-y-4">
         <div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-foreground">Round {data.currentRound.toLocaleString()}</span>
+            <span className="text-xl font-semibold text-foreground font-mono">Round {data.currentRound.toLocaleString()}</span>
           </div>
           <div className="mt-2">
             <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
@@ -279,7 +279,7 @@ function ProtocolCard({ data }: { data: DashboardProtocol }) {
             </div>
             <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div
-                className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                className="h-full bg-emerald-500 rounded-full transition-all duration-500"
                 style={{ width: `${progressPct}%` }}
               />
             </div>
@@ -300,22 +300,22 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
   const maxFee = Math.max(...data.entries.map(d => d.eth), 1);
 
   return (
-    <div className="p-5 rounded-2xl bg-card border border-border">
+    <div className="p-4 rounded-lg bg-card border border-border">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-amber-500/15 text-amber-400">
-            <Coins className="w-4 h-4" />
+          <div className="p-1 rounded-md bg-muted text-muted-foreground">
+            <Coins className="w-3.5 h-3.5" />
           </div>
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Fees (7d)</span>
+          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Fees (7d)</span>
         </div>
-        <span className="text-sm font-semibold text-foreground">{data.totalEth.toFixed(1)} ETH</span>
+        <span className="text-sm font-semibold font-mono text-foreground">{data.totalEth.toFixed(1)} ETH</span>
       </div>
       <div className="flex items-end gap-1.5 h-24">
         {data.entries.map((d) => (
           <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
             <div className="w-full relative">
               <div
-                className="w-full bg-amber-500/20 rounded-t-sm hover:bg-amber-500/40 transition-colors"
+                className="w-full bg-emerald-500 rounded-t-sm hover:bg-emerald-400 transition-colors"
                 style={{ height: `${(d.eth / maxFee) * 80}px` }}
                 title={`${d.eth} ETH`}
               />
@@ -332,12 +332,12 @@ function PipelinesCard({ data }: { data: DashboardPipelineUsage[] }) {
   const maxMins = Math.max(...data.map(p => p.mins), 1);
 
   return (
-    <div className="p-5 rounded-2xl bg-card border border-border">
+    <div className="p-4 rounded-lg bg-card border border-border">
       <div className="flex items-center gap-2 mb-4">
-        <div className="p-1.5 rounded-lg bg-violet-500/15 text-violet-400">
-          <Activity className="w-4 h-4" />
+        <div className="p-1 rounded-md bg-muted text-muted-foreground">
+          <Activity className="w-3.5 h-3.5" />
         </div>
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Top Pipelines (Daily)</span>
+        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Top Pipelines (Daily)</span>
       </div>
       <div className="space-y-2.5">
         {data.map((p) => (
@@ -368,12 +368,12 @@ function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
   const dashOffset = circumference - (usedPct / 100) * circumference;
 
   return (
-    <div className="p-5 rounded-2xl bg-card border border-border">
+    <div className="p-4 rounded-lg bg-card border border-border">
       <div className="flex items-center gap-2 mb-4">
-        <div className="p-1.5 rounded-lg bg-cyan-500/15 text-cyan-400">
-          <Cpu className="w-4 h-4" />
+        <div className="p-1 rounded-md bg-muted text-muted-foreground">
+          <Cpu className="w-3.5 h-3.5" />
         </div>
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">GPU Capacity</span>
+        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">GPU Capacity</span>
       </div>
       <div className="flex items-center gap-5">
         <div className="relative w-24 h-24 flex-shrink-0">
@@ -382,7 +382,7 @@ function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
             <circle
               cx="50" cy="50" r={radius} fill="none"
               stroke="currentColor"
-              className="text-cyan-400"
+              className="text-emerald-500"
               strokeWidth="8"
               strokeLinecap="round"
               strokeDasharray={circumference}
@@ -397,12 +397,12 @@ function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
         </div>
         <div className="space-y-2">
           <div>
-            <span className="text-2xl font-bold text-foreground">{data.totalGPUs}</span>
-            <span className="text-sm text-muted-foreground ml-1">GPUs</span>
+            <span className="text-xl font-semibold font-mono text-foreground">{data.totalGPUs}</span>
+            <span className="text-xs text-muted-foreground ml-1">GPUs</span>
           </div>
           <div className="text-xs text-muted-foreground space-y-0.5">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-cyan-400 inline-block" />
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
               <span>Used: {usedPct}% ({Math.round(data.totalGPUs * usedPct / 100)})</span>
             </div>
             <div className="flex items-center gap-2">
@@ -428,13 +428,13 @@ function JobFeedCard({ jobs, connected }: { jobs: JobFeedEntry[]; connected: boo
   };
 
   return (
-    <div className="p-5 rounded-2xl bg-card border border-border">
+    <div className="p-4 rounded-lg bg-card border border-border">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-emerald-500/15 text-emerald-400">
-            <Zap className="w-4 h-4" />
+          <div className="p-1 rounded-md bg-muted text-emerald-400">
+            <Zap className="w-3.5 h-3.5" />
           </div>
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Live Job Feed</span>
+          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Live Job Feed</span>
         </div>
         {connected && (
           <div className="flex items-center gap-1.5">
@@ -484,12 +484,12 @@ function JobFeedCard({ jobs, connected }: { jobs: JobFeedEntry[]; connected: boo
 
 function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
   return (
-    <div className="p-5 rounded-2xl bg-card border border-border">
+    <div className="p-4 rounded-lg bg-card border border-border">
       <div className="flex items-center gap-2 mb-4">
-        <div className="p-1.5 rounded-lg bg-pink-500/15 text-pink-400">
-          <Coins className="w-4 h-4" />
+        <div className="p-1 rounded-md bg-muted text-muted-foreground">
+          <Coins className="w-3.5 h-3.5" />
         </div>
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Pipeline Unit Cost</span>
+        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Pipeline Unit Cost</span>
       </div>
       <div className="overflow-hidden">
         <table className="w-full text-xs">
@@ -541,15 +541,15 @@ function getStoredPollInterval(): number {
 
 function PollIntervalSelector({ value, onChange }: { value: number; onChange: (ms: number) => void }) {
   return (
-    <div className="flex items-center gap-1 px-1 py-0.5 rounded-full bg-muted/50 border border-border/50">
-      <Timer className="w-3 h-3 text-muted-foreground ml-1.5" />
+    <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-md bg-muted/30 border border-border">
+      <Timer className="w-3 h-3 text-muted-foreground ml-1" />
       {POLL_OPTIONS.map((opt) => (
         <button
           key={opt.value}
           onClick={() => onChange(opt.value)}
-          className={`px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${
+          className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors duration-100 ${
             value === opt.value
-              ? 'bg-foreground/10 text-foreground'
+              ? 'bg-muted text-foreground'
               : 'text-muted-foreground hover:text-foreground'
           }`}
         >
@@ -590,7 +590,7 @@ export default function DashboardPage() {
   // No provider installed
   if (error?.type === 'no-provider') {
     return (
-      <div className="space-y-6 max-w-[1440px] mx-auto">
+      <div className="space-y-5 max-w-[1440px] mx-auto">
         <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
         <NoProviderMessage />
       </div>
@@ -598,20 +598,20 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-[1440px] mx-auto">
+    <div className="space-y-5 max-w-[1440px] mx-auto">
       <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
 
       {/* Row 1: Key Performance Indicators */}
       {data?.kpi ? (
         <KPIRow data={data.kpi} />
       ) : (
-        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
           <WidgetUnavailable label="KPI" />
         </div>
       )}
 
       {/* Row 2: Protocol, Fees, Pipelines, GPU */}
-      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
         {data?.protocol ? <ProtocolCard data={data.protocol} /> : <WidgetUnavailable label="Protocol" />}
         {data?.fees ? <FeesCard data={data.fees} /> : <WidgetUnavailable label="Fees" />}
         {data?.pipelines ? <PipelinesCard data={data.pipelines} /> : <WidgetUnavailable label="Pipelines" />}
@@ -619,7 +619,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Row 3: Live Feed & Pricing */}
-      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))' }}>
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
         <JobFeedCard jobs={jobs} connected={jobFeedConnected} />
         {data?.pricing ? <PricingCard data={data.pricing} /> : <WidgetUnavailable label="Pricing" />}
       </div>
@@ -636,17 +636,17 @@ function DashboardHeader({
 }) {
   return (
     <div className="flex items-end justify-between">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-bold text-foreground">Network Overview</h1>
-        <p className="text-sm text-muted-foreground">
+      <div className="space-y-0.5">
+        <h1 className="text-lg font-semibold text-foreground">Network Overview</h1>
+        <p className="text-[13px] text-muted-foreground">
           Livepeer network health, performance, and cost at a glance
         </p>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <PollIntervalSelector value={pollInterval} onChange={onPollIntervalChange} />
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-xs font-medium text-emerald-400">Network Online</span>
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/50 border border-border">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-[11px] font-medium text-muted-foreground">Online</span>
         </div>
       </div>
     </div>

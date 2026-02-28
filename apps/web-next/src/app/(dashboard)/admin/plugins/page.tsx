@@ -3,7 +3,7 @@
 /**
  * Admin Plugin Configuration Page
  *
- * Allows system admins to designate which plugins are "core" —
+ * Allows system admins to designate which plugins are "core" --
  * core plugins are auto-installed for all users and cannot be uninstalled.
  * Users can still hide (disable) them, but they remain installed.
  */
@@ -14,15 +14,16 @@ import * as LucideIcons from 'lucide-react';
 import {
   Blocks,
   Shield,
-  Search,
   Loader2,
   AlertTriangle,
   CheckCircle2,
   Star,
   StarOff,
 } from 'lucide-react';
+import { Button, Input, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
+import { Search } from 'lucide-react';
 
 /** Resolve a Lucide icon name (e.g. "ShoppingBag") to a React component, with fallback. */
 function getPluginIcon(iconName?: string | null): React.ReactNode {
@@ -146,29 +147,26 @@ export default function AdminPluginsPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-primary/10">
-            <Blocks className="w-6 h-6 text-primary" />
+          <div className="p-2 rounded-md bg-muted">
+            <Blocks className="w-5 h-5 text-muted-foreground" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">Plugin Configuration</h1>
+            <h1 className="text-lg font-semibold">Plugin Configuration</h1>
             <p className="text-sm text-muted-foreground">
               Designate core plugins that are auto-installed and cannot be uninstalled by users.
             </p>
           </div>
         </div>
 
-        <button
+        <Button
+          variant={pendingChanges ? 'primary' : 'secondary'}
           onClick={handleSave}
           disabled={!pendingChanges || saving}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-            pendingChanges
-              ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20'
-              : 'bg-muted text-muted-foreground cursor-not-allowed'
-          }`}
+          loading={saving}
+          icon={!saving ? <Shield size={16} /> : undefined}
         >
-          {saving ? <Loader2 size={16} className="animate-spin" /> : <Shield size={16} />}
-          {saving ? 'Saving...' : 'Save Changes'}
-        </button>
+          Save Changes
+        </Button>
       </div>
 
       {/* Status messages */}
@@ -186,9 +184,9 @@ export default function AdminPluginsPage() {
       )}
 
       {/* Info banner */}
-      <div className="p-4 rounded-xl bg-muted/50 border border-border/50">
+      <div className="p-4 rounded-lg bg-muted/50 border border-border/50">
         <div className="flex items-start gap-3">
-          <Shield size={18} className="text-primary mt-0.5 flex-shrink-0" />
+          <Shield size={18} className="text-muted-foreground mt-0.5 flex-shrink-0" />
           <div className="text-sm text-muted-foreground space-y-1">
             <p className="font-medium text-foreground">How core plugins work</p>
             <ul className="list-disc list-inside space-y-0.5">
@@ -202,20 +200,16 @@ export default function AdminPluginsPage() {
       </div>
 
       {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search plugins..."
-          className="w-full rounded-xl border border-border bg-card py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-        />
-      </div>
+      <Input
+        icon={<Search size={16} />}
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        placeholder="Search plugins..."
+      />
 
       {loading ? (
         <div className="flex flex-col items-center justify-center py-16">
-          <Loader2 size={32} className="animate-spin text-primary mb-3" />
+          <div className="h-5 w-5 animate-spin text-muted-foreground border-2 border-current border-t-transparent rounded-full mb-3" />
           <p className="text-sm text-muted-foreground">Loading plugins...</p>
         </div>
       ) : (
@@ -223,7 +217,7 @@ export default function AdminPluginsPage() {
           {/* Core plugins section */}
           {corePlugins.length > 0 && (
             <section>
-              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
+              <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
                 <Star size={14} className="text-amber-500" />
                 Core Plugins ({corePlugins.length})
               </h2>
@@ -242,7 +236,7 @@ export default function AdminPluginsPage() {
           {/* Available plugins section */}
           {nonCorePlugins.length > 0 && (
             <section>
-              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
+              <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
                 <Blocks size={14} />
                 Available Plugins ({nonCorePlugins.length})
               </h2>
@@ -259,8 +253,8 @@ export default function AdminPluginsPage() {
           )}
 
           {filteredPlugins.length === 0 && !loading && (
-            <div className="text-center py-12 text-muted-foreground">
-              <Blocks size={40} className="mx-auto mb-3 opacity-30" />
+            <div className="text-center py-8 text-muted-foreground">
+              <Blocks size={32} className="mx-auto mb-3 opacity-30" />
               <p className="text-sm">
                 {searchQuery ? 'No plugins match your search' : 'No plugins found'}
               </p>
@@ -279,26 +273,29 @@ function PluginRow({
   plugin: PluginEntry;
   onToggle: (name: string) => void;
 }) {
-  const categoryColors: Record<string, string> = {
-    platform: 'bg-purple-500/10 text-purple-500',
-    monitoring: 'bg-blue-500/10 text-blue-500',
-    analytics: 'bg-green-500/10 text-green-500',
-    developer: 'bg-orange-500/10 text-orange-500',
-    finance: 'bg-yellow-500/10 text-yellow-500',
-    social: 'bg-pink-500/10 text-pink-500',
-    media: 'bg-red-500/10 text-red-500',
+  const getCategoryBadgeVariant = (category: string): 'secondary' | 'blue' | 'emerald' | 'amber' | 'rose' => {
+    const map: Record<string, 'secondary' | 'blue' | 'emerald' | 'amber' | 'rose'> = {
+      platform: 'secondary',
+      monitoring: 'blue',
+      analytics: 'emerald',
+      developer: 'amber',
+      finance: 'amber',
+      social: 'rose',
+      media: 'rose',
+    };
+    return map[plugin.category] || 'secondary';
   };
 
   return (
     <div
-      className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${
+      className={`flex items-center gap-3 p-4 rounded-lg border transition-all ${
         plugin.isCore
           ? 'bg-primary/5 border-primary/20'
           : 'bg-card border-border hover:border-border/80'
       }`}
     >
       {/* Icon */}
-      <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-muted-foreground flex-shrink-0">
+      <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center text-muted-foreground flex-shrink-0">
         {getPluginIcon(plugin.icon)}
       </div>
 
@@ -306,13 +303,11 @@ function PluginRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium text-foreground">{plugin.displayName}</span>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${categoryColors[plugin.category] || 'bg-muted text-muted-foreground'}`}>
+          <Badge variant={getCategoryBadgeVariant(plugin.category)}>
             {plugin.category}
-          </span>
+          </Badge>
           {plugin.isCore && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-500">
-              CORE
-            </span>
+            <Badge variant="amber">CORE</Badge>
           )}
         </div>
         <p className="text-xs text-muted-foreground truncate mt-0.5">
@@ -321,26 +316,15 @@ function PluginRow({
       </div>
 
       {/* Toggle */}
-      <button
+      <Button
+        variant={plugin.isCore ? 'ghost' : 'secondary'}
+        size="sm"
         onClick={() => onToggle(plugin.name)}
-        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-          plugin.isCore
-            ? 'bg-amber-500/10 text-amber-500 hover:bg-amber-500/20'
-            : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground'
-        }`}
+        icon={plugin.isCore ? <StarOff size={14} /> : <Star size={14} />}
+        className={plugin.isCore ? 'text-amber-500 hover:bg-amber-500/10' : ''}
       >
-        {plugin.isCore ? (
-          <>
-            <StarOff size={14} />
-            Remove Core
-          </>
-        ) : (
-          <>
-            <Star size={14} />
-            Make Core
-          </>
-        )}
-      </button>
+        {plugin.isCore ? 'Remove Core' : 'Make Core'}
+      </Button>
     </div>
   );
 }

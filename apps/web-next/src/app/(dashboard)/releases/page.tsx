@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { History, Tag, Calendar, GitBranch, ExternalLink, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { History, Tag, Calendar, GitBranch, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
+import { Badge, Button } from '@naap/ui';
 
 interface Release {
   id: string;
@@ -132,14 +133,11 @@ export default function ReleasesPage() {
     },
   ];
 
-  const getTypeColor = (type: Release['type']) => {
+  const getTypeBadgeVariant = (type: Release['type']): 'rose' | 'blue' | 'emerald' => {
     switch (type) {
-      case 'major':
-        return 'bg-red-500/10 text-red-500 border-red-500/20';
-      case 'minor':
-        return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
-      case 'patch':
-        return 'bg-green-500/10 text-green-500 border-green-500/20';
+      case 'major': return 'rose';
+      case 'minor': return 'blue';
+      case 'patch': return 'emerald';
     }
   };
 
@@ -154,20 +152,20 @@ export default function ReleasesPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <div className="h-5 w-5 animate-spin text-muted-foreground border-2 border-current border-t-transparent rounded-full" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-3">
-            <History className="h-8 w-8 text-primary" />
+          <h1 className="text-lg font-semibold flex items-center gap-3">
+            <History className="h-5 w-5 text-muted-foreground" />
             Release Notes
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-muted-foreground mt-1 text-sm">
             Track changes and updates to NaaP
           </p>
         </div>
@@ -185,39 +183,39 @@ export default function ReleasesPage() {
 
       {/* Current Version */}
       {releases.length > 0 && (
-        <div className="p-6 bg-primary/5 border border-primary/20 rounded-xl">
+        <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
           <div className="flex items-center gap-3 mb-2">
-            <Tag className="text-primary" size={20} />
+            <Tag className="text-primary" size={18} />
             <span className="text-sm font-medium text-primary">Current Version</span>
           </div>
-          <h2 className="text-3xl font-bold">{releases[0].version}</h2>
-          <p className="text-muted-foreground mt-1">{releases[0].name}</p>
+          <h2 className="text-2xl font-bold font-mono">{releases[0].version}</h2>
+          <p className="text-muted-foreground mt-1 text-sm">{releases[0].name}</p>
         </div>
       )}
 
       {/* Release List */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         {releases.map((release) => {
           const isExpanded = expandedRelease === release.id;
-          
+
           return (
             <div
               key={release.id}
-              className="bg-card border border-border rounded-xl overflow-hidden"
+              className="bg-card border border-border rounded-lg overflow-hidden"
             >
               <button
                 onClick={() => setExpandedRelease(isExpanded ? null : release.id)}
-                className="w-full p-6 text-left hover:bg-muted/50 transition-colors"
+                className="w-full p-4 text-left hover:bg-muted/50 transition-colors"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
-                      <span className="text-xl font-bold">{release.version}</span>
-                      <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${getTypeColor(release.type)}`}>
+                      <span className="text-base font-semibold font-mono">{release.version}</span>
+                      <Badge variant={getTypeBadgeVariant(release.type)}>
                         {release.type}
-                      </span>
+                      </Badge>
                     </div>
-                    <h3 className="font-medium mb-1">{release.name}</h3>
+                    <h3 className="font-medium mb-1 text-sm">{release.name}</h3>
                     <p className="text-sm text-muted-foreground">{release.description}</p>
                     <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground">
                       <Calendar size={14} />
@@ -231,14 +229,14 @@ export default function ReleasesPage() {
               </button>
 
               {isExpanded && (
-                <div className="px-6 pb-6 border-t border-border pt-4 space-y-4">
+                <div className="px-4 pb-4 border-t border-border pt-4 space-y-4">
                   {/* Changelog */}
                   <div>
-                    <h4 className="font-medium mb-2">Changes</h4>
+                    <h4 className="font-medium mb-2 text-sm">Changes</h4>
                     <ul className="space-y-1">
                       {release.changelog.map((item, idx) => (
                         <li key={idx} className="flex items-start gap-2 text-sm text-muted-foreground">
-                          <span className="text-primary mt-1">•</span>
+                          <span className="text-primary mt-1">*</span>
                           {item}
                         </li>
                       ))}
@@ -248,11 +246,11 @@ export default function ReleasesPage() {
                   {/* Breaking Changes */}
                   {release.breaking && release.breaking.length > 0 && (
                     <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
-                      <h4 className="font-medium text-red-500 mb-2">Breaking Changes</h4>
+                      <h4 className="text-sm font-semibold text-red-500 mb-2">Breaking Changes</h4>
                       <ul className="space-y-1">
                         {release.breaking.map((item, idx) => (
                           <li key={idx} className="flex items-start gap-2 text-sm text-red-400">
-                            <span className="mt-1">⚠️</span>
+                            <span className="mt-0.5">!</span>
                             {item}
                           </li>
                         ))}
@@ -263,11 +261,11 @@ export default function ReleasesPage() {
                   {/* Deprecated */}
                   {release.deprecated && release.deprecated.length > 0 && (
                     <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                      <h4 className="font-medium text-amber-500 mb-2">Deprecated</h4>
+                      <h4 className="text-sm font-semibold text-amber-500 mb-2">Deprecated</h4>
                       <ul className="space-y-1">
                         {release.deprecated.map((item, idx) => (
                           <li key={idx} className="flex items-start gap-2 text-sm text-amber-400">
-                            <span className="mt-1">📦</span>
+                            <span className="mt-0.5">~</span>
                             {item}
                           </li>
                         ))}

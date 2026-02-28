@@ -15,6 +15,7 @@ import {
   Loader2,
   Crown
 } from 'lucide-react';
+import { Button, Input, Textarea, Label, Select, Modal } from '@naap/ui';
 
 interface Team {
   id: string;
@@ -72,10 +73,10 @@ export default function TeamSettingsPage() {
         fetch(`/api/v1/teams/${teamId}`, { credentials: 'include' }),
         fetch(`/api/v1/teams/${teamId}/members`, { credentials: 'include' }),
       ]);
-      
+
       const teamData = await teamRes.json();
       const membersData = await membersRes.json();
-      
+
       if (teamData.success) {
         setTeam(teamData.data.team);
         // membership is at data level, not inside team
@@ -85,7 +86,7 @@ export default function TeamSettingsPage() {
       } else {
         setError(teamData.error?.message || 'Failed to load team');
       }
-      
+
       if (membersData.success) {
         setMembers((membersData.data.members || []).filter((m: TeamMember) => m.role !== 'owner'));
       }
@@ -167,22 +168,24 @@ export default function TeamSettingsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   if (!team || myRole === 'member' || myRole === 'viewer') {
     return (
-      <div className="p-6 max-w-4xl mx-auto">
-        <button
+      <div className="max-w-2xl mx-auto">
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<ArrowLeft className="w-4 h-4" />}
           onClick={() => router.push('/teams')}
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors"
+          className="mb-4"
         >
-          <ArrowLeft className="w-4 h-4" />
           Back to Teams
-        </button>
-        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg">
+        </Button>
+        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg text-sm">
           {error || 'You do not have permission to access team settings'}
         </div>
       </div>
@@ -190,213 +193,208 @@ export default function TeamSettingsPage() {
   }
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
-      <button
+    <div className="max-w-2xl mx-auto">
+      <Button
+        variant="ghost"
+        size="sm"
+        icon={<ArrowLeft className="w-4 h-4" />}
         onClick={() => router.push(`/teams/${teamId}`)}
-        className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors"
+        className="mb-4"
       >
-        <ArrowLeft className="w-4 h-4" />
         Back to {team.name}
-      </button>
+      </Button>
 
       {error && (
-        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg mb-6">
+        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg mb-4 text-sm">
           {error}
         </div>
       )}
 
       {successMessage && (
-        <div className="bg-green-500/10 text-green-500 px-4 py-3 rounded-lg mb-6">
+        <div className="bg-green-500/10 text-green-500 px-4 py-3 rounded-lg mb-4 text-sm">
           {successMessage}
         </div>
       )}
 
       {/* General Settings */}
-      <div className="bg-card border border-border rounded-xl p-6 mb-6">
-        <h2 className="text-lg font-bold flex items-center gap-2 mb-4">
-          <Settings className="w-5 h-5" />
+      <div className="bg-card border border-border rounded-lg p-4 mb-4">
+        <h2 className="text-sm font-semibold flex items-center gap-2 mb-4">
+          <Settings className="w-4 h-4" />
           General Settings
         </h2>
 
         <form onSubmit={handleSave} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-2">Team Name</label>
-            <input
+            <Label className="mb-1.5 block">Team Name</Label>
+            <Input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2">Description</label>
-            <textarea
+            <Label className="mb-1.5 block">Description</Label>
+            <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+              className="resize-none"
             />
           </div>
 
           <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
-            >
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            <Button type="submit" variant="primary" loading={saving}>
               Save Changes
-            </button>
+            </Button>
           </div>
         </form>
       </div>
 
       {/* Danger Zone - Owner Only */}
       {isOwner && (
-        <div className="bg-card border border-destructive/50 rounded-xl p-6">
-          <h2 className="text-lg font-bold flex items-center gap-2 text-destructive mb-4">
-            <AlertTriangle className="w-5 h-5" />
+        <div className="bg-card border border-destructive/30 rounded-lg p-4">
+          <h2 className="text-sm font-semibold flex items-center gap-2 text-destructive mb-4">
+            <AlertTriangle className="w-4 h-4" />
             Danger Zone
           </h2>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             {/* Transfer Ownership */}
-            <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+            <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
               <div>
-                <h3 className="font-medium">Transfer Ownership</h3>
-                <p className="text-sm text-muted-foreground">
+                <h3 className="text-sm font-medium">Transfer Ownership</h3>
+                <p className="text-xs text-muted-foreground">
                   Transfer this team to another member
                 </p>
               </div>
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => setShowTransferModal(true)}
-                className="px-4 py-2 border border-border rounded-lg hover:bg-muted transition-colors"
               >
                 Transfer
-              </button>
+              </Button>
             </div>
 
             {/* Delete Team */}
-            <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+            <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
               <div>
-                <h3 className="font-medium">Delete Team</h3>
-                <p className="text-sm text-muted-foreground">
+                <h3 className="text-sm font-medium">Delete Team</h3>
+                <p className="text-xs text-muted-foreground">
                   Permanently delete this team and all its data
                 </p>
               </div>
-              <button
+              <Button
+                variant="destructive"
+                size="sm"
                 onClick={() => setShowDeleteConfirm(true)}
-                className="px-4 py-2 bg-destructive text-destructive-foreground rounded-lg hover:bg-destructive/90 transition-colors"
               >
                 Delete Team
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       )}
 
       {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md m-4 shadow-xl">
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-destructive">
-              <Trash2 className="w-5 h-5" />
-              Delete Team
-            </h2>
+      <Modal
+        isOpen={showDeleteConfirm}
+        onClose={() => {
+          setShowDeleteConfirm(false);
+          setDeleteConfirmText('');
+        }}
+        title="Delete Team"
+        size="sm"
+      >
+        <p className="text-sm text-muted-foreground mb-4">
+          This action cannot be undone. This will permanently delete the team
+          <strong className="text-foreground"> {team.name}</strong>.
+        </p>
 
-            <p className="text-muted-foreground mb-4">
-              This action cannot be undone. This will permanently delete the team
-              <strong className="text-foreground"> {team.name}</strong>.
-            </p>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-2">
-                Type <strong>{team.name}</strong> to confirm
-              </label>
-              <input
-                type="text"
-                value={deleteConfirmText}
-                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-destructive/50"
-              />
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowDeleteConfirm(false);
-                  setDeleteConfirmText('');
-                }}
-                className="px-4 py-2 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={deleteConfirmText !== team.name || deleting}
-                className="flex items-center gap-2 px-4 py-2 bg-destructive text-destructive-foreground rounded-lg hover:bg-destructive/90 transition-colors disabled:opacity-50"
-              >
-                {deleting && <Loader2 className="w-4 h-4 animate-spin" />}
-                Delete Team
-              </button>
-            </div>
-          </div>
+        <div className="mb-4">
+          <Label className="mb-1.5 block">
+            Type <strong>{team.name}</strong> to confirm
+          </Label>
+          <Input
+            type="text"
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            error={false}
+          />
         </div>
-      )}
+
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setShowDeleteConfirm(false);
+              setDeleteConfirmText('');
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleDelete}
+            disabled={deleteConfirmText !== team.name}
+            loading={deleting}
+          >
+            Delete Team
+          </Button>
+        </div>
+      </Modal>
 
       {/* Transfer Ownership Modal */}
-      {showTransferModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md m-4 shadow-xl">
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <Crown className="w-5 h-5 text-yellow-500" />
-              Transfer Ownership
-            </h2>
+      <Modal
+        isOpen={showTransferModal}
+        onClose={() => {
+          setShowTransferModal(false);
+          setNewOwnerId('');
+        }}
+        title="Transfer Ownership"
+        size="sm"
+      >
+        <p className="text-sm text-muted-foreground mb-4">
+          Select a member to become the new owner of this team. You will become an admin.
+        </p>
 
-            <p className="text-muted-foreground mb-4">
-              Select a member to become the new owner of this team. You will become an admin.
-            </p>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-2">New Owner</label>
-              <select
-                value={newOwnerId}
-                onChange={(e) => setNewOwnerId(e.target.value)}
-                className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                <option value="">Select a member</option>
-                {members.map(member => (
-                  <option key={member.id} value={member.userId}>
-                    {member.user.displayName || member.user.email}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowTransferModal(false);
-                  setNewOwnerId('');
-                }}
-                className="px-4 py-2 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleTransferOwnership}
-                disabled={!newOwnerId || transferring}
-                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
-              >
-                {transferring && <Loader2 className="w-4 h-4 animate-spin" />}
-                Transfer Ownership
-              </button>
-            </div>
-          </div>
+        <div className="mb-4">
+          <Label className="mb-1.5 block">New Owner</Label>
+          <Select
+            value={newOwnerId}
+            onChange={(e) => setNewOwnerId(e.target.value)}
+          >
+            <option value="">Select a member</option>
+            {members.map(member => (
+              <option key={member.id} value={member.userId}>
+                {member.user.displayName || member.user.email}
+              </option>
+            ))}
+          </Select>
         </div>
-      )}
+
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setShowTransferModal(false);
+              setNewOwnerId('');
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleTransferOwnership}
+            disabled={!newOwnerId}
+            loading={transferring}
+          >
+            Transfer Ownership
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

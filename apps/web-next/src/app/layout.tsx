@@ -1,12 +1,11 @@
 import type { Metadata, Viewport } from 'next';
-import { Outfit, JetBrains_Mono } from 'next/font/google';
+import { Inter, JetBrains_Mono } from 'next/font/google';
 import { Providers } from '@/components/providers';
 import './globals.css';
 
-const outfit = Outfit({
+const inter = Inter({
   subsets: ['latin'],
-  variable: '--font-outfit',
-  weight: ['300', '400', '500', '600', '700', '800'],
+  variable: '--font-inter',
 });
 
 const jetbrainsMono = JetBrains_Mono({
@@ -16,13 +15,13 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: 'NaaP Platform',
-    template: '%s | NaaP Platform',
+    default: 'Livepeer Dashboard',
+    template: '%s | Livepeer Dashboard',
   },
   description: 'Network as a Platform - Decentralized Infrastructure Management',
   keywords: ['NaaP', 'decentralized', 'infrastructure', 'Livepeer', 'AI', 'video'],
   authors: [{ name: 'NaaP Team' }],
-  creator: 'NaaP Platform',
+  creator: 'Livepeer Dashboard',
   icons: {
     icon: '/icon.svg',
   },
@@ -30,7 +29,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    siteName: 'NaaP Platform',
+    siteName: 'Livepeer Dashboard',
   },
   robots: {
     index: true,
@@ -43,7 +42,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#ffffff' },
-    { media: '(prefers-color-scheme: dark)', color: '#0a0f1a' },
+    { media: '(prefers-color-scheme: dark)', color: '#181818' },
   ],
 };
 
@@ -55,9 +54,16 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${outfit.variable} ${jetbrainsMono.variable}`}
+      className={`${inter.variable} ${jetbrainsMono.variable}`}
       suppressHydrationWarning
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('theme');var d=t==='light'?false:true;document.documentElement.classList.toggle('dark',d);document.documentElement.style.colorScheme=d?'dark':'light'}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body className="min-h-screen bg-background font-sans antialiased">
         <Providers>
           {children}

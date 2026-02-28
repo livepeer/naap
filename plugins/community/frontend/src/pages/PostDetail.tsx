@@ -214,7 +214,7 @@ export const PostDetailPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="animate-spin text-accent-blue" size={32} />
+        <Loader2 className="animate-spin text-text-secondary" size={20} />
       </div>
     );
   }
@@ -222,7 +222,7 @@ export const PostDetailPage: React.FC = () => {
   if (!post) {
     return (
       <div className="text-center py-20">
-        <h2 className="text-xl font-bold text-text-primary mb-2">Post not found</h2>
+        <h2 className="text-sm font-semibold text-text-primary mb-2">Post not found</h2>
         <button onClick={() => navigate('/')} className="text-accent-blue hover:underline">
           Back to forum
         </button>
@@ -231,31 +231,31 @@ export const PostDetailPage: React.FC = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-4">
       {/* Back button */}
       <button
         onClick={() => navigate('/')}
-        className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"
+        className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors text-sm"
       >
         <ArrowLeft size={18} /> Back to Forum
       </button>
 
       {/* Post */}
       <Card className="overflow-hidden">
-        <div className="flex gap-6">
+        <div className="flex gap-4">
           {/* Vote column */}
           <div className="flex flex-col items-center gap-2 pt-2">
             <button
               onClick={handleVote}
-              className={`p-3 rounded-xl transition-all ${
+              className={`p-2 rounded-md transition-all ${
                 voted
                   ? 'bg-accent-emerald/20 text-accent-emerald'
                   : 'hover:bg-accent-emerald/10 text-text-secondary hover:text-accent-emerald'
               }`}
             >
-              <ThumbsUp size={24} />
+              <ThumbsUp size={16} />
             </button>
-            <span className="text-2xl font-bold font-mono text-text-primary">{post.upvotes}</span>
+            <span className="text-lg font-semibold font-mono text-text-primary">{post.upvotes}</span>
           </div>
 
           {/* Content */}
@@ -276,11 +276,11 @@ export const PostDetailPage: React.FC = () => {
             </div>
 
             {/* Title */}
-            <h1 className="text-2xl font-bold text-text-primary mb-4">{post.title}</h1>
+            <h1 className="text-lg font-semibold text-text-primary mb-4">{post.title}</h1>
 
             {/* Author info */}
-            <div className="flex items-center gap-3 mb-6 pb-6 border-b border-white/10">
-              <div className="w-10 h-10 rounded-full bg-bg-tertiary flex items-center justify-center">
+            <div className="flex items-center gap-2 mb-4 pb-4 border-b border-white/10">
+              <div className="w-8 h-8 rounded-full bg-bg-tertiary flex items-center justify-center">
                 <span className="text-lg">@</span>
               </div>
               <div>
@@ -317,7 +317,7 @@ export const PostDetailPage: React.FC = () => {
 
             {/* Content */}
             <div
-              className="prose prose-invert max-w-none mb-6"
+              className="prose prose-invert max-w-none mb-4"
               dangerouslySetInnerHTML={{ __html: renderMarkdown(post.content) }}
             />
 
@@ -326,7 +326,7 @@ export const PostDetailPage: React.FC = () => {
               {post.tags.map((tag) => (
                 <span
                   key={tag.id}
-                  className="px-3 py-1 rounded-lg text-sm"
+                  className="px-2 py-0.5 rounded text-xs"
                   style={{
                     backgroundColor: `${tag.color}20`,
                     color: tag.color,
@@ -342,8 +342,8 @@ export const PostDetailPage: React.FC = () => {
 
       {/* Answers */}
       <div>
-        <h2 className="text-xl font-bold text-text-primary mb-4 flex items-center gap-2">
-          <MessageSquare size={20} /> {post.comments?.length || 0} Answers
+        <h2 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+          <MessageSquare size={14} /> {post.comments?.length || 0} Answers
         </h2>
 
         <div className="space-y-4">
@@ -360,13 +360,13 @@ export const PostDetailPage: React.FC = () => {
                   <button
                     onClick={() => handleVoteComment(comment.id)}
                     disabled={votedComments.has(comment.id)}
-                    className={`p-2 rounded-lg transition-all ${
+                    className={`p-1.5 rounded-md transition-all ${
                       votedComments.has(comment.id)
                         ? 'bg-accent-emerald/20 text-accent-emerald'
                         : 'hover:bg-accent-emerald/10 text-text-secondary hover:text-accent-emerald'
                     }`}
                   >
-                    <ThumbsUp size={16} />
+                    <ThumbsUp size={14} />
                   </button>
                   <span className="font-mono font-bold text-sm text-text-primary">
                     {comment.upvotes}
@@ -405,7 +405,7 @@ export const PostDetailPage: React.FC = () => {
                     {isAuthor && post.postType === 'QUESTION' && !comment.isAccepted && !post.isSolved && (
                       <button
                         onClick={() => handleAcceptAnswer(comment.id)}
-                        className="flex items-center gap-1 px-3 py-1.5 bg-accent-emerald/20 text-accent-emerald rounded-lg text-sm font-medium hover:bg-accent-emerald/30 transition-all"
+                        className="flex items-center gap-1 px-2 py-1 bg-accent-emerald/20 text-accent-emerald rounded-md text-xs font-medium hover:bg-accent-emerald/30 transition-all"
                       >
                         <CheckCircle size={14} /> Accept Answer
                       </button>
@@ -417,8 +417,8 @@ export const PostDetailPage: React.FC = () => {
           ))}
 
           {(!post.comments || post.comments.length === 0) && (
-            <Card className="text-center py-8">
-              <MessageSquare size={32} className="mx-auto mb-2 text-text-secondary opacity-30" />
+            <Card className="text-center py-6">
+              <MessageSquare size={20} className="mx-auto mb-2 text-text-secondary opacity-30" />
               <p className="text-text-secondary">No answers yet. Be the first to help!</p>
             </Card>
           )}
@@ -433,7 +433,7 @@ export const PostDetailPage: React.FC = () => {
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
             placeholder="Write your answer... You can use Markdown for formatting and code blocks."
-            className="w-full h-40 bg-bg-secondary border border-white/10 rounded-xl p-4 text-sm resize-none focus:outline-none focus:border-accent-blue"
+            className="w-full h-28 bg-bg-secondary border border-white/10 rounded-lg p-3 text-sm resize-none focus:outline-none focus:border-accent-blue"
           />
           <div className="flex items-center justify-between mt-4">
             <p className="text-xs text-text-secondary">
@@ -442,12 +442,12 @@ export const PostDetailPage: React.FC = () => {
             <button
               type="submit"
               disabled={submitting || !commentText.trim()}
-              className="flex items-center gap-2 px-6 py-2.5 bg-accent-blue text-white rounded-xl font-medium hover:bg-accent-blue/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-3 py-1.5 bg-accent-blue text-white rounded-md text-xs font-medium hover:bg-accent-blue/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? (
                 <Loader2 size={16} className="animate-spin" />
               ) : (
-                <Send size={16} />
+                <Send size={12} />
               )}
               Post Answer
             </button>

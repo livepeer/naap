@@ -18,6 +18,7 @@ import {
   Trash2,
   Loader2
 } from 'lucide-react';
+import { Button, Input, Select, Label, Modal } from '@naap/ui';
 
 interface Team {
   id: string;
@@ -60,7 +61,7 @@ export default function TeamMembersPage() {
   const [myRole, setMyRole] = useState<string>('member');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Invite modal
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -84,10 +85,10 @@ export default function TeamMembersPage() {
         fetch(`/api/v1/teams/${teamId}`, { credentials: 'include' }),
         fetch(`/api/v1/teams/${teamId}/members`, { credentials: 'include' }),
       ]);
-      
+
       const teamData = await teamRes.json();
       const membersData = await membersRes.json();
-      
+
       if (teamData.success) {
         setTeam(teamData.data.team);
         // membership is at data level, not inside team
@@ -95,7 +96,7 @@ export default function TeamMembersPage() {
       } else {
         setError(teamData.error?.message || 'Failed to load team');
       }
-      
+
       if (membersData.success) {
         setMembers(membersData.data.members || []);
       }
@@ -171,22 +172,24 @@ export default function TeamMembersPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   if (error || !team) {
     return (
-      <div className="p-6 max-w-4xl mx-auto">
-        <button
+      <div className="max-w-4xl mx-auto">
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<ArrowLeft className="w-4 h-4" />}
           onClick={() => router.push('/teams')}
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors"
+          className="mb-4"
         >
-          <ArrowLeft className="w-4 h-4" />
           Back to Teams
-        </button>
-        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg">
+        </Button>
+        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg text-sm">
           {error || 'Team not found'}
         </div>
       </div>
@@ -194,82 +197,87 @@ export default function TeamMembersPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <button
+    <div className="max-w-4xl mx-auto">
+      <Button
+        variant="ghost"
+        size="sm"
+        icon={<ArrowLeft className="w-4 h-4" />}
         onClick={() => router.push(`/teams/${teamId}`)}
-        className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors"
+        className="mb-4"
       >
-        <ArrowLeft className="w-4 h-4" />
         Back to {team.name}
-      </button>
+      </Button>
 
-      <div className="bg-card border border-border rounded-xl p-6">
-        <div className="flex items-center justify-between mb-6">
+      <div className="bg-card border border-border rounded-lg p-4">
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-xl font-bold flex items-center gap-2">
-              <Users className="w-5 h-5" />
+            <h1 className="text-base font-semibold flex items-center gap-2">
+              <Users className="w-4 h-4" />
               Team Members
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="text-xs text-muted-foreground mt-0.5">
               {members.length} {members.length === 1 ? 'member' : 'members'}
             </p>
           </div>
           {canInviteMembers && (
-            <button
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<UserPlus className="w-4 h-4" />}
               onClick={() => setShowInviteModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
             >
-              <UserPlus className="w-4 h-4" />
               Invite Member
-            </button>
+            </Button>
           )}
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-2">
           {members.map(member => (
             <div
               key={member.id}
-              className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
+              className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
             >
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
                   {member.user.avatarUrl ? (
-                    <img src={member.user.avatarUrl} alt="" className="w-10 h-10 rounded-full" />
+                    <img src={member.user.avatarUrl} alt="" className="w-8 h-8 rounded-full" />
                   ) : (
-                    <User className="w-5 h-5 text-primary" />
+                    <User className="w-4 h-4 text-muted-foreground" />
                   )}
                 </div>
                 <div>
-                  <h3 className="font-medium">
+                  <h3 className="text-sm font-medium">
                     {member.user.displayName || member.user.email || 'Unknown User'}
                   </h3>
-                  <p className="text-sm text-muted-foreground">{member.user.email}</p>
+                  <p className="text-xs text-muted-foreground">{member.user.email}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <div className="flex items-center gap-2">
                   {ROLE_ICONS[member.role]}
                   {canManageMembers && member.role !== 'owner' ? (
-                    <select
+                    <Select
                       value={member.role}
                       onChange={(e) => handleUpdateRole(member.id, e.target.value)}
-                      className="bg-transparent border border-border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      className="h-8 text-xs w-auto"
                     >
                       <option value="admin">Admin</option>
                       <option value="member">Member</option>
                       <option value="viewer">Viewer</option>
-                    </select>
+                    </Select>
                   ) : (
-                    <span className="text-sm">{ROLE_LABELS[member.role]}</span>
+                    <span className="text-xs">{ROLE_LABELS[member.role]}</span>
                   )}
                 </div>
                 {canManageMembers && member.role !== 'owner' && (
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => handleRemoveMember(member.id)}
-                    className="p-2 text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                    className="text-destructive hover:bg-destructive/10"
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
                 )}
               </div>
             </div>
@@ -278,67 +286,60 @@ export default function TeamMembersPage() {
       </div>
 
       {/* Invite Modal */}
-      {showInviteModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md m-4 shadow-xl">
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <UserPlus className="w-5 h-5 text-primary" />
-              Invite Team Member
-            </h2>
-
-            {inviteError && (
-              <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg mb-4 text-sm">
-                {inviteError}
-              </div>
-            )}
-
-            <form onSubmit={handleInvite} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Email Address</label>
-                <input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="member@example.com"
-                  className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Role</label>
-                <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value as 'admin' | 'member' | 'viewer')}
-                  className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-                >
-                  <option value="admin">Admin - Can manage members and configure plugins</option>
-                  <option value="member">Member - Can use plugins</option>
-                  <option value="viewer">Viewer - Read-only access</option>
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowInviteModal(false)}
-                  className="px-4 py-2 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={inviting}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
-                >
-                  {inviting && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Send Invite
-                </button>
-              </div>
-            </form>
+      <Modal
+        isOpen={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        title="Invite Team Member"
+        size="md"
+      >
+        {inviteError && (
+          <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg mb-4 text-sm">
+            {inviteError}
           </div>
-        </div>
-      )}
+        )}
+
+        <form onSubmit={handleInvite} className="space-y-4">
+          <div>
+            <Label className="mb-1.5 block">Email Address</Label>
+            <Input
+              type="email"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              placeholder="member@example.com"
+              required
+            />
+          </div>
+
+          <div>
+            <Label className="mb-1.5 block">Role</Label>
+            <Select
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value as 'admin' | 'member' | 'viewer')}
+            >
+              <option value="admin">Admin - Can manage members and configure plugins</option>
+              <option value="member">Member - Can use plugins</option>
+              <option value="viewer">Viewer - Read-only access</option>
+            </Select>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowInviteModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              loading={inviting}
+            >
+              Send Invite
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

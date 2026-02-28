@@ -78,9 +78,9 @@ function getFixSuggestion(error: ValidationError): string | null {
 export const ValidationResults: React.FC<ValidationResultsProps> = ({ result, loading }) => {
   if (loading) {
     return (
-      <div className="glass-card p-6">
+      <div className="glass-card p-4">
         <div className="flex items-center gap-3">
-          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent-emerald"></div>
+          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-current text-text-secondary"></div>
           <span className="text-text-secondary">Validating manifest...</span>
         </div>
       </div>
@@ -92,18 +92,18 @@ export const ValidationResults: React.FC<ValidationResultsProps> = ({ result, lo
   }
 
   return (
-    <div className="glass-card p-6 space-y-4">
+    <div className="glass-card p-4 space-y-3">
       {/* Header */}
       <div className="flex items-center gap-3">
         {result.valid ? (
           <>
-            <CheckCircle className="w-6 h-6 text-accent-emerald" />
-            <span className="text-lg font-medium text-accent-emerald">Validation Passed</span>
+            <CheckCircle className="w-5 h-5 text-accent-emerald" />
+            <span className="text-sm font-semibold text-accent-emerald">Validation Passed</span>
           </>
         ) : (
           <>
-            <XCircle className="w-6 h-6 text-accent-rose" />
-            <span className="text-lg font-medium text-accent-rose">Validation Failed</span>
+            <XCircle className="w-5 h-5 text-accent-rose" />
+            <span className="text-sm font-semibold text-accent-rose">Validation Failed</span>
           </>
         )}
       </div>
@@ -117,7 +117,7 @@ export const ValidationResults: React.FC<ValidationResultsProps> = ({ result, lo
           </h4>
           <ul className="space-y-2">
             {result.errors.map((error, i) => (
-              <li key={i} className="p-3 bg-accent-rose/10 border border-accent-rose/30 rounded-lg">
+              <li key={i} className="p-2.5 bg-accent-rose/10 border border-accent-rose/30 rounded-md">
                 <div className="font-mono text-sm text-accent-rose">{error.path || 'root'}</div>
                 <div className="text-sm text-text-primary mt-1">{error.message}</div>
                 {error.value !== undefined && (
@@ -147,7 +147,7 @@ export const ValidationResults: React.FC<ValidationResultsProps> = ({ result, lo
           </h4>
           <ul className="space-y-2">
             {result.warnings.map((warning, i) => (
-              <li key={i} className="p-3 bg-accent-amber/10 border border-accent-amber/30 rounded-lg">
+              <li key={i} className="p-2.5 bg-accent-amber/10 border border-accent-amber/30 rounded-md">
                 <div className="font-mono text-sm text-accent-amber">{warning.path}</div>
                 <div className="text-sm text-text-primary mt-1">{warning.message}</div>
                 {warning.suggestion && (
