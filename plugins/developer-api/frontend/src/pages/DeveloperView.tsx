@@ -504,13 +504,13 @@ export const DeveloperView: React.FC = () => {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-3">
-                  <p className="text-text-secondary">{displayedKeys.length} API key{displayedKeys.length !== 1 ? 's' : ''}</p>
+                  <span className="text-sm font-medium text-text-primary">{displayedKeys.length} API key{displayedKeys.length !== 1 ? 's' : ''}</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-text-secondary">Project</span>
+                    <span className="text-xs text-text-secondary">Project</span>
                     <select
                       value={projectFilterId}
                       onChange={(e) => setProjectFilterId(e.target.value)}
-                      className="bg-bg-tertiary border border-white/10 rounded-lg py-1.5 px-2 text-xs text-text-primary focus:outline-none focus:border-accent-blue appearance-none cursor-pointer"
+                      className="bg-bg-tertiary border border-white/10 rounded-md py-1.5 px-2 text-xs text-text-primary focus:outline-none focus:border-accent-blue appearance-none cursor-pointer"
                     >
                       <option value="__all__">All projects</option>
                       {projects
@@ -529,11 +529,11 @@ export const DeveloperView: React.FC = () => {
                     </select>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-text-secondary">Provider</span>
+                    <span className="text-xs text-text-secondary">Provider</span>
                     <select
                       value={providerFilterId}
                       onChange={(e) => setProviderFilterId(e.target.value)}
-                      className="bg-bg-tertiary border border-white/10 rounded-xl py-2 px-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue appearance-none cursor-pointer"
+                      className="bg-bg-tertiary border border-white/10 rounded-md py-1.5 px-2 text-xs text-text-primary focus:outline-none focus:border-accent-blue appearance-none cursor-pointer"
                     >
                       <option value="__all__">All providers</option>
                       {providerOptions.map((provider) => (
