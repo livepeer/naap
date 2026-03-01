@@ -25,7 +25,7 @@
     "test": "vitest"
   },
   "devDependencies": {
-    "@types/node": "^20.19.33",
+    "@types/node": "^20.19.35",
     "typescript": "~5.9.3"
   },
   "peerDependencies": {
