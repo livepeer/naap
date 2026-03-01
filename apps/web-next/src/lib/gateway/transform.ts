@@ -52,6 +52,7 @@ export function buildUpstreamRequest(
     headers,
     authConfig: connector.authConfig,
     secrets,
+    connectorSlug: connector.slug,
     method,
     url,
     body,
@@ -89,7 +90,7 @@ function buildUpstreamUrl(
 
   if (consumerSearchParams) {
     consumerSearchParams.forEach((value, key) => {
-      url.searchParams.set(key, value);
+      url.searchParams.append(key, value);
     });
   }
 

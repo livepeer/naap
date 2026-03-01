@@ -275,10 +275,10 @@ async function main(): Promise<void> {
     // ------------------------------------------------------------------
     // Sync Gateway Connector Templates (JSON → DB)
     // ------------------------------------------------------------------
-    const templatesDir = path.join(MONOREPO_ROOT, 'plugins', 'service-gateway', 'templates');
+    const templatesDir = path.join(MONOREPO_ROOT, 'plugins', 'service-gateway', 'connectors');
     if (fs.existsSync(templatesDir)) {
       console.log('[sync-plugin-registry] Syncing gateway connector templates...');
-      const jsonFiles = fs.readdirSync(templatesDir).filter((f) => f.endsWith('.json'));
+      const jsonFiles = fs.readdirSync(templatesDir).filter((f) => f.endsWith('.json') && !f.includes('schema'));
       let tplCreated = 0;
       let tplUpdated = 0;
 
@@ -329,6 +329,31 @@ async function main(): Promise<void> {
         `[sync-plugin-registry] ConnectorTemplates: ${tplCreated} created, ${tplUpdated} updated`,
       );
     }
+
+    // ------------------------------------------------------------------
+    // Auto-generate plugin-routes.json for middleware consumption
+    // ------------------------------------------------------------------
+    // Routes that already have dedicated page.tsx files and should NOT
+    // be rewritten by the middleware to the generic plugin loader.
+    const ROUTES_WITH_DEDICATED_PAGES = new Set(['/marketplace', '/dashboard']);
+
+    const routeMap: Record<string, string> = {};
+    for (const p of discovered) {
+      if (!p.routes || p.routes.length === 0) continue;
+      const primaryRoute = p.routes[0]; // e.g. "/gateway"
+      if (ROUTES_WITH_DEDICATED_PAGES.has(primaryRoute)) continue;
+      routeMap[primaryRoute] = p.name;
+    }
+
+    const generatedDir = path.join(MONOREPO_ROOT, 'apps', 'web-next', 'src', 'generated');
+    if (!fs.existsSync(generatedDir)) {
+      fs.mkdirSync(generatedDir, { recursive: true });
+    }
+    const routesPath = path.join(generatedDir, 'plugin-routes.json');
+    fs.writeFileSync(routesPath, JSON.stringify(routeMap, null, 2) + '\n', 'utf-8');
+    console.log(
+      `[sync-plugin-registry] Generated ${routesPath} with ${Object.keys(routeMap).length} route(s): ${Object.keys(routeMap).join(', ')}`,
+    );
 
     console.log('[sync-plugin-registry] Done.');
   } finally {

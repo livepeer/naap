@@ -8,6 +8,9 @@ export const queryAuth: AuthStrategy = {
     const secretValue = ctx.secrets[secretRef];
     if (secretValue) {
       ctx.url.searchParams.set(paramName, secretValue);
+    } else {
+      console.warn(`[gateway] auth: secret "${secretRef}" not resolved for connector "${ctx.connectorSlug}"`);
+      ctx.headers.set('X-Gateway-Warning', 'missing-auth-secret');
     }
   },
 };

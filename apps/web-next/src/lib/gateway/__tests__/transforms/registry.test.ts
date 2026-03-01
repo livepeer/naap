@@ -69,8 +69,9 @@ describe('TransformRegistry', () => {
       expect(s.name).toBe('envelope');
     });
 
-    it('throws for unknown response transform', () => {
-      expect(() => registry.getResponse('unknown-response')).toThrow();
+    it('falls back to raw for unknown response transform', () => {
+      const s = registry.getResponse('unknown-response');
+      expect(s.name).toBe('raw');
     });
   });
 });

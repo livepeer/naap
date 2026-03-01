@@ -6,7 +6,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
-import { TeamGuard } from '../components/TeamGuard';
+import { HealthDot } from '../components/HealthDot';
 
 interface Connector {
   id: string;
@@ -21,6 +21,9 @@ interface Connector {
   endpointCount: number;
   updatedAt: string;
   tags: string[];
+  healthStatus?: string;
+  healthLatencyMs?: number | null;
+  lastCheckedAt?: string | null;
 }
 
 interface ConnectorsResponse {
@@ -99,8 +102,7 @@ export const ConnectorListPage: React.FC = () => {
   });
 
   return (
-    <TeamGuard>
-      <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -244,10 +246,15 @@ export const ConnectorListPage: React.FC = () => {
                 className="bg-gray-800/50 hover:bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-lg p-5 text-left transition-colors"
               >
                 <div className="flex items-start justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-gray-200 truncate">
-                    {connector.displayName}
-                  </h3>
-                  <span className={`px-2 py-0.5 text-xs font-medium rounded border ${STATUS_COLORS[connector.status] || STATUS_COLORS.draft}`}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    {connector.healthStatus && connector.healthStatus !== 'unknown' && (
+                      <HealthDot status={connector.healthStatus} size="md" />
+                    )}
+                    <h3 className="text-sm font-semibold text-gray-200 truncate">
+                      {connector.displayName}
+                    </h3>
+                  </div>
+                  <span className={`px-2 py-0.5 text-xs font-medium rounded border shrink-0 ml-2 ${STATUS_COLORS[connector.status] || STATUS_COLORS.draft}`}>
                     {connector.status}
                   </span>
                 </div>
@@ -277,6 +284,5 @@ export const ConnectorListPage: React.FC = () => {
           </div>
         )}
       </div>
-    </TeamGuard>
   );
 };

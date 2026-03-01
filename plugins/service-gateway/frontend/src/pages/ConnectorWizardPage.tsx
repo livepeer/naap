@@ -10,7 +10,6 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
 import { SecretField } from '../components/SecretField';
-import { TeamGuard } from '../components/TeamGuard';
 
 const WIZARD_STEPS = ['Template', 'Connect', 'Endpoints', 'Review'];
 const AUTH_TYPES = ['none', 'bearer', 'header', 'basic', 'query'] as const;
@@ -116,6 +115,8 @@ export const ConnectorWizardPage: React.FC = () => {
   const [streamingEnabled, setStreamingEnabled] = useState(false);
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [secretRefs, setSecretRefs] = useState<string[]>([]);
+  const [testResult, setTestResult] = useState<{ ok: boolean; latencyMs?: number; error?: string } | null>(null);
+  const [testing, setTesting] = useState(false);
 
   // Step 2: Endpoints
   const [endpoints, setEndpoints] = useState<EndpointForm[]>([]);
@@ -167,6 +168,26 @@ export const ConnectorWizardPage: React.FC = () => {
         bodyTransform: ep.bodyTransform || 'passthrough',
       })),
     );
+  };
+
+  const handleTestConnection = async () => {
+    if (!upstreamBaseUrl || !isUrlValid(upstreamBaseUrl)) return;
+    setTesting(true);
+    setTestResult(null);
+    const start = Date.now();
+    try {
+      const target = healthCheckPath
+        ? new URL(healthCheckPath, upstreamBaseUrl).toString()
+        : upstreamBaseUrl;
+      const res = await fetch(target, { method: 'HEAD', mode: 'no-cors', signal: AbortSignal.timeout(10_000) });
+      const latencyMs = Date.now() - start;
+      setTestResult({ ok: true, latencyMs });
+    } catch (err) {
+      const latencyMs = Date.now() - start;
+      setTestResult({ ok: false, latencyMs, error: err instanceof Error ? err.message : 'Connection failed' });
+    } finally {
+      setTesting(false);
+    }
   };
 
   const handleAuthTypeChange = useCallback((newAuthType: string) => {
@@ -294,8 +315,7 @@ export const ConnectorWizardPage: React.FC = () => {
     : WIZARD_STEPS;
 
   return (
-    <TeamGuard>
-      <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 max-w-4xl mx-auto">
         {/* Stepper */}
         <div className="flex items-center gap-2 mb-8">
           {displayedSteps.map((s, i) => (
@@ -514,6 +534,12 @@ export const ConnectorWizardPage: React.FC = () => {
                   </span>
                 )}
               </div>
+              {upstreamBaseUrl && /YOUR_/i.test(upstreamBaseUrl) && (
+                <div className="flex items-center gap-1.5 mt-1 text-amber-400 text-xs">
+                  <span className="px-1.5 py-0.5 bg-amber-500/20 border border-amber-500/30 rounded font-medium">Placeholder</span>
+                  Replace YOUR_* values with real configuration before publishing.
+                </div>
+              )}
             </div>
 
             <div className="space-y-1">
@@ -552,6 +578,27 @@ export const ConnectorWizardPage: React.FC = () => {
                 Enable SSE streaming
               </label>
             </div>
+
+            {/* Test Connection */}
+            {upstreamBaseUrl && isUrlValid(upstreamBaseUrl) && (
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={testing}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {testing ? 'Testing...' : 'Test Connection'}
+                </button>
+                {testResult && (
+                  <span className={`text-sm font-medium ${testResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+                    {testResult.ok
+                      ? `Connected (${testResult.latencyMs}ms)`
+                      : `Failed: ${testResult.error}`}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -709,6 +756,5 @@ export const ConnectorWizardPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </TeamGuard>
   );
 };

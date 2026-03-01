@@ -20,10 +20,11 @@ export async function buildResponse(
   traceId: string | null
 ): Response | Promise<Response> {
   const { response, upstreamLatencyMs, cached } = proxyResult;
-  const { connector } = config;
+  const { connector, endpoint } = config;
 
   const responseContentType = response.headers.get('content-type') || '';
-  const mode = resolveResponseMode(connector, responseContentType);
+  const rbt = endpoint.responseBodyTransform || 'none';
+  const mode = resolveResponseMode(connector, responseContentType, rbt);
 
   const strategy = registry.getResponse(mode);
   return strategy.transform({
@@ -32,6 +33,7 @@ export async function buildResponse(
     responseWrapper: connector.responseWrapper,
     streamingEnabled: connector.streamingEnabled,
     errorMapping: connector.errorMapping,
+    responseBodyTransform: rbt,
     upstreamLatencyMs,
     cached,
     requestId,
@@ -40,15 +42,20 @@ export async function buildResponse(
 }
 
 /**
- * Determine which response strategy to use based on connector config
- * and the upstream response content type.
+ * Determine which response strategy to use based on connector config,
+ * the upstream response content type, and any endpoint-level response
+ * body transform.
  */
 function resolveResponseMode(
   connector: ResolvedConfig['connector'],
   responseContentType: string,
+  responseBodyTransform: string,
 ): string {
   if (connector.streamingEnabled && responseContentType.includes('text/event-stream')) {
     return 'streaming';
+  }
+  if (responseBodyTransform.startsWith('field-map')) {
+    return 'field-map';
   }
   if (connector.responseWrapper) {
     return 'envelope';

@@ -4,13 +4,19 @@
  * ENCRYPTION_KEY env var is REQUIRED in production (Vercel).
  * In development, falls back to a stable default key so secrets persist
  * across Next.js hot reloads and server restarts.
+ *
+ * Key derivation uses scrypt with a fixed application-specific salt to
+ * produce a proper 256-bit key from an arbitrary-length passphrase.
  */
 
 import * as crypto from 'crypto';
 
 const DEV_FALLBACK_KEY = 'naap-local-dev-gateway-encryption-key-32ch';
 
+const KDF_SALT = Buffer.from('naap-gateway-kdf-v1', 'utf8');
+
 let _key: string | null = null;
+let _derivedKey: Buffer | null = null;
 let _warned = false;
 
 function getEncryptionKey(): string {
@@ -36,7 +42,9 @@ function getEncryptionKey(): string {
 }
 
 function deriveKey(): Buffer {
-  return Buffer.from(getEncryptionKey().slice(0, 32).padEnd(32, '0'));
+  if (_derivedKey) return _derivedKey;
+  _derivedKey = crypto.scryptSync(getEncryptionKey(), KDF_SALT, 32);
+  return _derivedKey;
 }
 
 export function encrypt(text: string): { encryptedValue: string; iv: string } {

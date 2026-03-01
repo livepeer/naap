@@ -132,6 +132,28 @@ export interface ResolvedSecrets {
   [key: string]: string;
 }
 
+// ── IP / CIDR Matching ──
+
+function ipToLong(ip: string): number {
+  const parts = ip.split('.').map(Number);
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+function cidrContains(cidr: string, ip: string): boolean {
+  const [network, prefixStr] = cidr.split('/');
+  const prefix = parseInt(prefixStr, 10);
+  if (isNaN(prefix) || prefix < 0 || prefix > 32) return false;
+  const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+  return (ipToLong(network) & mask) === (ipToLong(ip) & mask);
+}
+
+export function matchIPAllowlist(clientIP: string, allowedIPs: string[]): boolean {
+  return allowedIPs.some((entry) => {
+    if (entry.includes('/')) return cidrContains(entry, clientIP);
+    return entry === clientIP;
+  });
+}
+
 // ── SSRF ──
 
 const PRIVATE_IP_RANGES = [
@@ -156,7 +178,8 @@ export function validateHost(hostname: string, allowedHosts: string[]): boolean 
   if (allowedHosts.length === 0) return true;
   return allowedHosts.some((allowed) => {
     if (allowed.startsWith('*.')) {
-      return hostname.endsWith(allowed.slice(1)) || hostname === allowed.slice(2);
+      const baseDomain = allowed.slice(2);
+      return hostname === baseDomain || hostname.endsWith('.' + baseDomain);
     }
     return hostname === allowed;
   });

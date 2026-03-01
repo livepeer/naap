@@ -1,0 +1,14 @@
+{
+  "/wallet": "myWallet",
+  "/plugins/my-dashboard": "myDashboard",
+  "/gateway": "serviceGateway",
+  "/gateways": "gatewayManager",
+  "/orchestrators": "orchestratorManager",
+  "/capacity": "capacityPlanner",
+  "/analytics": "networkAnalytics",
+  "/daydream": "daydreamVideo",
+  "/forum": "community",
+  "/developers": "developerApi",
+  "/publish": "pluginPublisher",
+  "/lightning-client": "lightningClient"
+}

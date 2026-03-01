@@ -1,28 +1,44 @@
 /**
- * Service Gateway — Team Guard
+ * Service Gateway — Admin Context Guard
  *
- * Reusable auth + team extraction for admin API routes.
- * - Extracts and validates JWT auth
- * - Resolves teamId from x-team-id header
- * - Provides team-scoped resource loading helpers
+ * Reusable auth + scope extraction for admin API routes.
  *
- * Returns 404 (not 403) for other teams' resources to prevent enumeration.
+ * Uses the shell's own `validateSession()` to verify tokens directly
+ * against the database — no HTTP round-trip to base-svc. This ensures:
+ *   - Correct API path (no /api/auth/me vs /api/v1/auth/me mismatch)
+ *   - Correct response shape (typed AuthUser, not ad-hoc JSON parsing)
+ *   - Lower latency (DB query vs HTTP call)
+ *
+ * Supports two modes:
+ *   - Team scope:     x-team-id header present → data scoped to team.
+ *   - Personal scope: no x-team-id header     → data scoped to personal:{userId}.
+ *
+ * Team membership is verified before granting team-scoped access.
+ * Returns 404 (not 403) for other scopes' resources to prevent enumeration.
  */
 
 import { prisma } from '@/lib/db';
-import { getAuthToken } from '@/lib/api/response';
-import { errors } from '@/lib/api/response';
-
-const BASE_SVC_URL = process.env.BASE_SVC_URL || process.env.NEXT_PUBLIC_BASE_SVC_URL || 'http://localhost:4000';
+import { validateSession } from '@/lib/api/auth';
+import { getAuthToken, errors } from '@/lib/api/response';
+import { personalScopeId, scopeFilter as buildScopeFilter } from '@/lib/gateway/scope';
 
 export interface AdminContext {
   userId: string;
+  /** teamId when in team scope, or `personal:{userId}` in personal scope */
   teamId: string;
   token: string;
+  /** Whether the user is in personal scope (no team selected) */
+  isPersonal: boolean;
 }
 
 /**
  * Extract and validate admin context from request.
+ *
+ * Supports two modes:
+ * - **Team scope**: `x-team-id` header is present → data scoped to the team.
+ *   The user's membership in the team is verified before granting access.
+ * - **Personal scope**: no `x-team-id` header → data scoped to `personal:{userId}`.
+ *
  * Returns AdminContext or a NextResponse error.
  */
 export async function getAdminContext(
@@ -33,36 +49,33 @@ export async function getAdminContext(
     return errors.unauthorized('Authentication required');
   }
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5_000);
+  const user = await validateSession(token);
+  if (!user) {
+    return errors.unauthorized('Invalid or expired token');
+  }
 
-    const meResponse = await fetch(`${BASE_SVC_URL}/api/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal,
+  const headerTeamId = request.headers.get('x-team-id');
+
+  if (headerTeamId) {
+    const membership = await prisma.teamMember.findFirst({
+      where: { teamId: headerTeamId, userId: user.id },
+      select: { id: true },
     });
 
-    clearTimeout(timeoutId);
-
-    if (!meResponse.ok) {
-      return errors.unauthorized('Invalid or expired token');
+    if (!membership) {
+      const team = await prisma.team.findFirst({
+        where: { id: headerTeamId, ownerId: user.id },
+        select: { id: true },
+      });
+      if (!team) {
+        return errors.forbidden('You are not a member of this team');
+      }
     }
 
-    const me = await meResponse.json();
-    const userId = me.data?.id || me.id;
-    if (!userId) {
-      return errors.unauthorized('Invalid token payload');
-    }
-
-    const teamId = request.headers.get('x-team-id');
-    if (!teamId) {
-      return errors.badRequest('x-team-id header is required');
-    }
-
-    return { userId, teamId, token };
-  } catch {
-    return errors.internal('Auth service unavailable');
+    return { userId: user.id, teamId: headerTeamId, token, isPersonal: false };
   }
+
+  return { userId: user.id, teamId: personalScopeId(user.id), token, isPersonal: true };
 }
 
 /**
@@ -72,16 +85,8 @@ export function isErrorResponse(result: AdminContext | Response): result is Resp
   return result instanceof Response;
 }
 
-/**
- * Build a Prisma `where` clause that scopes a connector to the caller's
- * ownership: team-scoped uses `teamId`, personal uses `ownerUserId`.
- */
 function scopeFilter(connectorId: string, scopeId: string) {
-  if (scopeId.startsWith('personal:')) {
-    const userId = scopeId.slice('personal:'.length);
-    return { id: connectorId, ownerUserId: userId };
-  }
-  return { id: connectorId, teamId: scopeId };
+  return buildScopeFilter(connectorId, scopeId);
 }
 
 function visibleFilter(connectorId: string, scopeId: string) {

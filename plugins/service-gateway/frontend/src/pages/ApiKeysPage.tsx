@@ -4,7 +4,6 @@
 
 import React, { useEffect, useCallback, useState } from 'react';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
-import { TeamGuard } from '../components/TeamGuard';
 
 interface ApiKey {
   id: string;
@@ -63,8 +62,7 @@ export const ApiKeysPage: React.FC = () => {
   const keys = data?.data || [];
 
   return (
-    <TeamGuard>
-      <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-6 max-w-5xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-100 mb-6">API Keys</h1>
 
         {/* Create */}
@@ -150,6 +148,5 @@ export const ApiKeysPage: React.FC = () => {
           </table>
         </div>
       </div>
-    </TeamGuard>
   );
 };

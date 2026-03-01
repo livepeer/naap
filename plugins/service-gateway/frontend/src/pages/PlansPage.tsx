@@ -4,7 +4,6 @@
 
 import React, { useEffect, useCallback, useState } from 'react';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
-import { TeamGuard } from '../components/TeamGuard';
 
 interface Plan {
   id: string;
@@ -70,8 +69,7 @@ export const PlansPage: React.FC = () => {
   const plans = data?.data || [];
 
   return (
-    <TeamGuard>
-      <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-6 max-w-5xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-100">Plans</h1>
           <button
@@ -121,6 +119,16 @@ export const PlansPage: React.FC = () => {
                   type="number"
                   value={dailyQuota}
                   onChange={(e) => setDailyQuota(e.target.value)}
+                  placeholder="Unlimited"
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-xs text-gray-400">Monthly Quota (optional)</label>
+                <input
+                  type="number"
+                  value={monthlyQuota}
+                  onChange={(e) => setMonthlyQuota(e.target.value)}
                   placeholder="Unlimited"
                   className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-sm"
                 />
@@ -184,6 +192,5 @@ export const PlansPage: React.FC = () => {
           </table>
         </div>
       </div>
-    </TeamGuard>
   );
 };

@@ -44,11 +44,8 @@ export const envelopeResponse: ResponseTransformStrategy = {
           status: ctx.upstreamResponse.status,
           headers: responseHeaders,
         });
-      } catch {
-        return new Response(null, {
-          status: ctx.upstreamResponse.status,
-          headers: responseHeaders,
-        });
+      } catch (err) {
+        console.warn('[gateway] envelope response: failed to construct envelope, falling back to raw:', err);
       }
     }
 

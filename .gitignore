@@ -54,6 +54,10 @@ logs/
 
 # Prisma generated clients
 **/generated/
+# Keep auto-generated plugin routes (needed at build time for middleware)
+!apps/web-next/src/generated/
+apps/web-next/src/generated/*
+!apps/web-next/src/generated/plugin-routes.json
 
 # Test coverage
 **/coverage/

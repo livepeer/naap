@@ -26,7 +26,19 @@ export const createConnectorSchema = z.object({
   defaultTimeout: z.number().int().min(1000).max(120_000).default(30_000),
   healthCheckPath: z.string().max(256).regex(/^\//, 'Health check path must start with /').optional(),
   authType: authTypeEnum.default('none'),
-  authConfig: z.record(z.unknown()).default({}),
+  authConfig: z.union([
+    z.object({ tokenRef: z.string().optional() }),
+    z.object({ usernameRef: z.string().optional(), passwordRef: z.string().optional() }),
+    z.object({ headers: z.record(z.string()).optional() }),
+    z.object({ paramName: z.string().optional(), secretRef: z.string().optional() }),
+    z.object({
+      region: z.string(),
+      service: z.string(),
+      accessKeyRef: z.string(),
+      secretKeyRef: z.string(),
+    }),
+    z.object({}),
+  ]).default({}),
   secretRefs: z.array(z.string().max(64)).default([]),
   responseWrapper: z.boolean().default(true),
   streamingEnabled: z.boolean().default(false),
@@ -67,7 +79,7 @@ export const createEndpointSchema = z.object({
   retries: z.number().int().min(0).max(5).default(0),
   bodyPattern: z.string().max(1024).optional(),
   bodyBlacklist: z.array(z.string().max(128)).default([]),
-  bodySchema: z.unknown().optional(),
+  bodySchema: z.record(z.unknown()).optional(),
   requiredHeaders: z.array(z.string().max(128)).default([]),
 });
 

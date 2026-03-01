@@ -23,6 +23,16 @@ vi.mock('@/lib/api/auth', () => ({
 
 vi.mock('@/lib/api/response', () => ({
   getAuthToken: vi.fn(),
+  getClientIP: vi.fn().mockReturnValue('127.0.0.1'),
+}));
+
+vi.mock('@naap/cache/rateLimiter', () => ({
+  createRateLimiter: () => ({
+    consume: vi.fn().mockResolvedValue({ allowed: true, remaining: 10, limit: 10, resetIn: 60 }),
+    get: vi.fn().mockResolvedValue({ allowed: true, remaining: 10, limit: 10, resetIn: 60 }),
+    reset: vi.fn(),
+    config: { points: 10, duration: 60, blockDuration: 300, keyPrefix: 'gw:auth:fail' },
+  }),
 }));
 
 import { prisma } from '@/lib/db';
