@@ -46,6 +46,7 @@ export async function testUpstreamConnectivity(
     // Resolve secrets for auth
     const secrets = await resolveSecrets(teamId, secretRefs, authToken, connectorSlug);
 
+    const hasExplicitHealthPath = !!healthCheckPath;
     const headers: Record<string, string> = {};
     const testUrl = new URL(healthCheckPath || '/', upstreamBaseUrl);
 
@@ -81,11 +82,15 @@ export async function testUpstreamConnectivity(
       redirect: 'manual',
     }).finally(() => clearTimeout(timeoutId));
 
+    // When no explicit health path is set, any HTTP response (even 4xx) proves
+    // the server is reachable — only treat 5xx or connection failures as "down".
+    const reachable = hasExplicitHealthPath ? response.ok : response.status < 500;
+
     return {
-      success: response.ok,
+      success: reachable,
       statusCode: response.status,
       latencyMs: Date.now() - startMs,
-      error: response.ok ? null : `Upstream returned ${response.status} ${response.statusText}`,
+      error: reachable ? null : `Upstream returned ${response.status} ${response.statusText}`,
     };
   } catch (err) {
     return {

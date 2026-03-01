@@ -27,7 +27,18 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return errors.notFound('Connector');
   }
 
-  return success(connector);
+  const lastCheck = await prisma.gatewayHealthCheck.findFirst({
+    where: { connectorId: id },
+    orderBy: { checkedAt: 'desc' },
+    select: { status: true, latencyMs: true, checkedAt: true },
+  });
+
+  return success({
+    ...connector,
+    healthStatus: lastCheck?.status || 'unknown',
+    healthLatencyMs: lastCheck?.latencyMs ?? null,
+    lastCheckedAt: lastCheck?.checkedAt?.toISOString() ?? null,
+  });
 }
 
 export async function PUT(request: NextRequest, context: RouteContext) {

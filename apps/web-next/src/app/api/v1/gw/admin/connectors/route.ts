@@ -51,7 +51,14 @@ export async function GET(request: NextRequest) {
   const [connectors, total] = await Promise.all([
     prisma.serviceConnector.findMany({
       where,
-      include: { endpoints: { select: { id: true } } },
+      include: {
+        endpoints: { select: { id: true } },
+        healthChecks: {
+          orderBy: { checkedAt: 'desc' },
+          take: 1,
+          select: { status: true, latencyMs: true, checkedAt: true },
+        },
+      },
       orderBy: { updatedAt: 'desc' },
       skip,
       take: pageSize,
@@ -59,11 +66,18 @@ export async function GET(request: NextRequest) {
     prisma.serviceConnector.count({ where }),
   ]);
 
-  const data = connectors.map((c) => ({
-    ...c,
-    endpointCount: c.endpoints.length,
-    endpoints: undefined,
-  }));
+  const data = connectors.map((c) => {
+    const lastCheck = c.healthChecks[0] || null;
+    return {
+      ...c,
+      endpointCount: c.endpoints.length,
+      endpoints: undefined,
+      healthChecks: undefined,
+      healthStatus: lastCheck?.status || 'unknown',
+      healthLatencyMs: lastCheck?.latencyMs ?? null,
+      lastCheckedAt: lastCheck?.checkedAt?.toISOString() ?? null,
+    };
+  });
 
   return successPaginated(data, { page, pageSize, total });
 }

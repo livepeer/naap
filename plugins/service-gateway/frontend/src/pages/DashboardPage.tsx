@@ -5,6 +5,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
+import { HealthDot } from '../components/HealthDot';
 
 // ── Types ──
 
@@ -100,18 +101,6 @@ const MiniChart: React.FC<{ points: TimeseriesPoint[]; field: 'requests' | 'avgL
       })}
     </div>
   );
-};
-
-// ── Health Dot ──
-
-const HealthDot: React.FC<{ status: string }> = ({ status }) => {
-  const colors: Record<string, string> = {
-    up: 'bg-green-400',
-    down: 'bg-red-400',
-    degraded: 'bg-yellow-400',
-    unknown: 'bg-gray-500',
-  };
-  return <div className={`w-2 h-2 rounded-full ${colors[status] || colors.unknown}`} />;
 };
 
 // ── Main Dashboard ──
