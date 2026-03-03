@@ -52,6 +52,7 @@ const CATEGORY_META: Record<string, { label: string; icon: string; color: string
   payments:  { label: 'Payments',    icon: '💳', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' },
   messaging: { label: 'Messaging',   icon: '📡', color: 'bg-orange-500/10 text-orange-400 border-orange-500/30' },
   email:     { label: 'Email',       icon: '✉️', color: 'bg-sky-500/10 text-sky-400 border-sky-500/30' },
+  infrastructure: { label: 'Infrastructure', icon: '🖥️', color: 'bg-slate-500/10 text-slate-400 border-slate-500/30' },
 };
 
 const TEMPLATES = [

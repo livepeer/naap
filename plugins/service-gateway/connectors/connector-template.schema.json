@@ -36,7 +36,7 @@
     },
     "category": {
       "type": "string",
-      "enum": ["ai", "video", "database", "storage", "payments", "messaging", "email"],
+      "enum": ["ai", "video", "database", "storage", "payments", "messaging", "email", "infrastructure"],
       "description": "Primary classification for filtering"
     },
     "connector": {
@@ -62,7 +62,7 @@
         },
         "category": {
           "type": "string",
-          "enum": ["ai", "video", "database", "storage", "payments", "messaging", "email"]
+          "enum": ["ai", "video", "database", "storage", "payments", "messaging", "email", "infrastructure"]
         },
         "upstreamBaseUrl": {
           "type": "string",
