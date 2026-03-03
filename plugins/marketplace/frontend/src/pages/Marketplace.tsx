@@ -846,7 +846,7 @@ export const MarketplacePage: React.FC = () => {
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 text-accent-blue animate-spin" />
+          <Loader2 className="w-8 h-8 text-text-secondary animate-spin" />
         </div>
       ) : (
         <>

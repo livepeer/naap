@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -19,8 +19,8 @@
   --text-tertiary: #94a3b8;
 
   /* Accents - Darker for light backgrounds */
-  --accent-emerald: #059669;
-  --accent-blue: #2563eb;
+  --accent-emerald: #18794E;
+  --accent-blue: #18794E;
   --accent-amber: #d97706;
   --accent-rose: #dc2626;
 
@@ -32,21 +32,21 @@
    Dark Mode
    ============================================ */
 .dark {
-  --bg-primary: #0a0f1a;
-  --bg-secondary: #111827;
-  --bg-tertiary: #1f2937;
+  --bg-primary: #121212;
+  --bg-secondary: #1a1a1a;
+  --bg-tertiary: #262626;
   --text-primary: #f9fafb;
   --text-secondary: #9ca3af;
   --text-tertiary: #6b7280;
-  --accent-emerald: #10b981;
-  --accent-blue: #3b82f6;
+  --accent-emerald: #1E9960;
+  --accent-blue: #1E9960;
   --accent-amber: #f59e0b;
   --accent-rose: #f43f5e;
   --border-color: rgba(255, 255, 255, 0.1);
 }
 
 body {
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Inter', system-ui, sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
 }
@@ -56,9 +56,9 @@ body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-color);
-  @apply rounded-2xl;
+  @apply rounded-lg;
 }
 
 .dark .glass-card {
-  background-color: rgba(17, 24, 39, 0.8);
+  background-color: rgba(26, 26, 26, 0.8);
 }
