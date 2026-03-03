@@ -6,17 +6,14 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useShell, useEvents } from '@/contexts/shell-context';
 import { usePlugins, type PluginManifest } from '@/contexts/plugin-context';
+import { WorkspaceSwitcher } from './workspace-switcher';
 import {
   Activity,
-  Settings,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
   ChevronUp,
   Shield,
-  LogOut,
-  Moon,
-  Sun,
   Users,
   ShoppingBag,
   MessageSquare,
@@ -24,6 +21,8 @@ import {
   MoreHorizontal,
   BookOpen,
   GripVertical,
+  Search,
+  Command,
   // Plugin icons - referenced by name in plugin.json manifests
   Wallet,
   Radio,
@@ -100,16 +99,16 @@ function resolveIcon(iconName?: string): LucideIcon {
   return ICON_MAP[iconName] || Box;
 }
 
-// Sidebar width constants
+// Sidebar width constants — tighter default for Linear-style density
 const SIDEBAR_MIN_WIDTH = 200;
-const SIDEBAR_MAX_WIDTH = 320;
-const SIDEBAR_DEFAULT_WIDTH = 256;
-const SIDEBAR_COLLAPSED_WIDTH = 68;
+const SIDEBAR_MAX_WIDTH = 280;
+const SIDEBAR_DEFAULT_WIDTH = 240;
+const SIDEBAR_COLLAPSED_WIDTH = 52;
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { hasRole, logout } = useAuth();
-  const { isSidebarOpen, toggleSidebar, theme } = useShell();
+  const { hasRole } = useAuth();
+  const { isSidebarOpen, toggleSidebar } = useShell();
   const { plugins, isLoading, version, refreshPlugins } = usePlugins();
   const eventBus = useEvents();
 
@@ -313,35 +312,48 @@ export function Sidebar() {
     <aside
       ref={sidebarRef}
       style={{ width: actualWidth }}
-      className={`fixed left-0 top-0 z-40 h-screen bg-card/95 backdrop-blur-sm border-r border-border/50 transition-all duration-300 flex flex-col ${
+      className={`fixed left-0 top-0 z-40 h-screen bg-background transition-all duration-200 flex flex-col ${
         isResizing ? 'select-none' : ''
       }`}
     >
-      {/* Logo - Fixed */}
-      <div className="flex h-14 items-center justify-between px-3 border-b border-border/50 shrink-0">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 flex-shrink-0 bg-gradient-to-br from-primary to-primary/70 rounded-xl flex items-center justify-center text-primary-foreground font-bold shadow-lg shadow-primary/20">
-            <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
-              <path d="M4 8h2v2H4V8zm4 4h2v2H8v-2zm4 4h2v2h-2v-2zm-8 4h2v2H4v-2zm12-8h2v2h-2v-2zm4 4h2v2h-2v-2z" />
-            </svg>
-          </div>
-          {isSidebarOpen && (
-            <span className="font-bold text-lg tracking-tight text-foreground truncate">
-              NaaP
-            </span>
-          )}
+      {/* Workspace Identity — Linear-style unified control */}
+      <div className="shrink-0 px-3 pt-3 pb-1 space-y-1">
+        <div className="flex items-center justify-between">
+          <WorkspaceSwitcher isOpen={isSidebarOpen} />
+          <button
+            onClick={toggleSidebar}
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0"
+            title={isSidebarOpen ? 'Collapse' : 'Expand'}
+          >
+            {isSidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+          </button>
         </div>
-        <button
-          onClick={toggleSidebar}
-          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-all shrink-0"
-          title={isSidebarOpen ? 'Collapse' : 'Expand'}
-        >
-          {isSidebarOpen ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
-        </button>
+
+        {/* Search trigger — compact row */}
+        {isSidebarOpen && (
+          <button
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors duration-100 group"
+            title="Search (⌘K)"
+          >
+            <Search size={14} className="shrink-0" />
+            <span className="text-[13px]">Search...</span>
+            <kbd className="ml-auto hidden lg:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-background/50 border border-border/50 rounded opacity-50 group-hover:opacity-80 transition-opacity">
+              <Command size={9} />K
+            </kbd>
+          </button>
+        )}
+        {!isSidebarOpen && (
+          <button
+            className="w-full flex items-center justify-center py-1.5 rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors duration-100"
+            title="Search (⌘K)"
+          >
+            <Search size={16} />
+          </button>
+        )}
       </div>
 
       {/* Scrollable Navigation */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-muted/50 scrollbar-track-transparent px-2 py-3">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-muted/50 scrollbar-track-transparent px-2 py-2">
         {/* Main Section */}
         <nav className="mb-2">
           <SectionHeader
@@ -436,39 +448,16 @@ export function Sidebar() {
         </nav>
       </div>
 
-      {/* Bottom Section - Fixed */}
-      <div className="shrink-0 p-2 border-t border-border/50 space-y-0.5 bg-card/80">
-        {/* Theme toggle */}
-        <button
-          onClick={theme.toggle}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-muted-foreground hover:bg-muted/80 hover:text-foreground transition-all"
-        >
-          {theme.mode === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-          {isSidebarOpen && <span className="text-sm">{theme.mode === 'dark' ? 'Light' : 'Dark'}</span>}
-        </button>
-
-        <NavLink
-          item={{ name: 'Settings', href: '/settings', icon: Settings }}
-          isActive={isActive('/settings')}
-          isOpen={isSidebarOpen}
-        />
-
-        {isAdmin && (
+      {/* Bottom Section - Fixed (only role-gated items) */}
+      {isAdmin && (
+        <div className="shrink-0 p-2 border-t border-border/50">
           <NavLink
             item={{ name: 'Admin', href: '/admin/users', icon: Shield }}
             isActive={isActive('/admin')}
             isOpen={isSidebarOpen}
           />
-        )}
-
-        <button
-          onClick={() => logout()}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-all"
-        >
-          <LogOut size={18} />
-          {isSidebarOpen && <span className="text-sm">Sign out</span>}
-        </button>
-      </div>
+        </div>
+      )}
 
       {/* Resize Handle - Only show when sidebar is open */}
       {isSidebarOpen && (
@@ -521,7 +510,7 @@ function SectionHeader({
   return (
     <button
       onClick={onToggle}
-      className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-all group rounded-md hover:bg-muted/50"
+      className="w-full flex items-center justify-between px-2 py-1 text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider hover:text-muted-foreground transition-colors duration-100 group"
     >
       <span className="flex items-center gap-2">
         {Icon && <Icon size={12} />}
@@ -548,15 +537,15 @@ function NavLink({
   return (
     <Link
       href={item.href}
-      className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
+      className={`relative flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors duration-100 ${
         isActive
-          ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
-          : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
+          ? 'bg-muted/80 text-foreground'
+          : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
       }`}
       title={!isOpen ? item.name : undefined}
     >
-      <span className="shrink-0"><Icon size={18} /></span>
-      {isOpen && <span className="text-sm font-medium truncate">{item.name}</span>}
+      <span className="shrink-0"><Icon size={16} /></span>
+      {isOpen && <span className="text-[13px] font-medium truncate">{item.name}</span>}
     </Link>
   );
 }

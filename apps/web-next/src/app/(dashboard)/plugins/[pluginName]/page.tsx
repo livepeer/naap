@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { usePlugins } from '@/contexts/plugin-context';
 import { Loader2, AlertCircle, RefreshCw, Cloud } from 'lucide-react';
+import { Button } from '@naap/ui';
 import { PluginLoader, type PluginInfo } from '@/components/plugin/PluginLoader';
 import { PluginInfoButton, type PluginMetadata } from '@/components/plugin/PluginInfoButton';
 
@@ -122,8 +123,8 @@ export default function PluginPage() {
   if (pluginsLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-muted-foreground mt-4">Loading plugins...</p>
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground mt-3">Loading plugins...</p>
       </div>
     );
   }
@@ -132,9 +133,9 @@ export default function PluginPage() {
     const displayError = error || validationError;
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
-        <AlertCircle className="h-12 w-12 text-destructive" />
-        <h2 className="text-xl font-semibold mt-4">Plugin Error</h2>
-        <p className="text-muted-foreground mt-2">{displayError}</p>
+        <AlertCircle className="h-8 w-8 text-destructive" />
+        <h2 className="text-base font-semibold mt-3">Plugin Error</h2>
+        <p className="text-sm text-muted-foreground mt-1">{displayError}</p>
         <p className="text-xs text-muted-foreground mt-1 max-w-md text-center">
           Plugin: {pluginName} (CDN)
           {cdnPluginInfo?.bundleUrl && (
@@ -144,14 +145,15 @@ export default function PluginPage() {
             </>
           )}
         </p>
-        <div className="flex gap-2 mt-4">
-          <button
+        <div className="flex gap-2 mt-3">
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<RefreshCw className="h-3.5 w-3.5" />}
             onClick={handleRetry}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity"
           >
-            <RefreshCw className="h-4 w-4" />
             Retry
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -160,8 +162,8 @@ export default function PluginPage() {
   if (!cdnPluginInfo) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-muted-foreground mt-4">Detecting plugin...</p>
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground mt-3">Detecting plugin...</p>
       </div>
     );
   }
@@ -170,7 +172,7 @@ export default function PluginPage() {
   return (
     <div className="relative h-[calc(100vh-8rem)] min-h-[calc(100vh-8rem)]">
       <div className="absolute top-2 right-2 z-10">
-        <div className="flex items-center gap-1 px-2 py-1 bg-accent-blue/20 text-accent-blue rounded-lg text-xs font-medium">
+        <div className="flex items-center gap-1 px-2 py-0.5 bg-muted text-muted-foreground rounded-md text-[11px] font-medium">
           <Cloud className="w-3 h-3" /> CDN
         </div>
       </div>

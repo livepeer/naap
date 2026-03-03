@@ -29,7 +29,7 @@ export const LoadingSpinner: React.FC<LoadingStateProps> = ({
   return (
     <div className={`flex flex-col items-center justify-center gap-4 ${className}`}>
       <div 
-        className={`${sizeClasses[size]} border-accent-blue border-t-transparent rounded-full animate-spin`}
+        className={`${sizeClasses[size]} border-text-secondary border-t-transparent rounded-full animate-spin`}
       />
       {message && (
         <p className="text-text-secondary text-sm">{message}</p>

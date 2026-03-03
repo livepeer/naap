@@ -103,17 +103,17 @@ function delayWithAbort(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 const tabs = [
-  { id: 'api-keys' as TabId, label: 'API Keys', icon: <Key size={18} /> },
-  { id: 'usage' as TabId, label: 'Usage & Billing', icon: <BarChart3 size={18} /> },
-  { id: 'models' as TabId, label: 'Models', icon: <Box size={18} /> },
-  { id: 'docs' as TabId, label: 'Docs', icon: <BookOpen size={18} /> },
+  { id: 'api-keys' as TabId, label: 'API Keys', icon: <Key size={14} /> },
+  { id: 'usage' as TabId, label: 'Usage & Billing', icon: <BarChart3 size={14} /> },
+  { id: 'models' as TabId, label: 'Models', icon: <Box size={14} /> },
+  { id: 'docs' as TabId, label: 'Docs', icon: <BookOpen size={14} /> },
 ];
 
 const selectClassName =
-  'w-full bg-bg-tertiary border border-white/10 rounded-xl py-3 px-4 text-sm text-text-primary focus:outline-none focus:border-accent-blue appearance-none cursor-pointer';
+  'w-full bg-bg-tertiary border border-white/10 rounded-lg py-2 px-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue appearance-none cursor-pointer';
 
 const inputClassName =
-  'w-full bg-bg-tertiary border border-white/10 rounded-xl py-3 px-4 text-sm text-text-primary focus:outline-none focus:border-accent-blue';
+  'w-full bg-bg-tertiary border border-white/10 rounded-lg py-2 px-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue';
 
 export const DeveloperView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>('api-keys');
@@ -452,20 +452,18 @@ export const DeveloperView: React.FC = () => {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
-        <h1 className="text-3xl font-outfit font-bold text-text-primary">Developer API Manager</h1>
-        <p className="text-text-secondary mt-1">Explore models, manage API keys, and track usage</p>
+        <h1 className="text-lg font-semibold text-text-primary">Developer API Manager</h1>
+        <p className="text-[13px] text-text-secondary mt-1">Explore models, manage API keys, and track usage</p>
       </div>
       <div className="border-b border-white/10">
         <nav className="flex gap-1">
           {tabs.map((tab) => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`relative flex items-center gap-2 px-5 py-3 text-sm font-medium transition-all ${activeTab === tab.id ? 'text-accent-emerald' : 'text-text-secondary hover:text-text-primary'}`}>
+              className={`flex items-center gap-2 px-3 py-2 text-xs font-medium transition-all border-b-2 ${activeTab === tab.id ? 'text-accent-emerald' : 'text-text-secondary hover:text-text-primary border-transparent'}`}
+              style={{ marginBottom: '-1px', borderBottomColor: activeTab === tab.id ? 'var(--accent-emerald)' : 'transparent' }}>
               {tab.icon}{tab.label}
-              {activeTab === tab.id && (
-                <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent-emerald" transition={{ type: 'spring', stiffness: 500, damping: 30 }} />
-              )}
             </button>
           ))}
         </nav>
@@ -475,23 +473,23 @@ export const DeveloperView: React.FC = () => {
         <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.15 }}>
 
           {activeTab === 'models' && (
-            <div className="space-y-6">
+            <div className="space-y-4">
               <div className="relative max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={18} />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={14} />
                 <input type="text" placeholder="Search models..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-bg-secondary border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-accent-blue" />
+                  className="w-full bg-bg-secondary border border-white/10 rounded-lg py-2 pl-9 pr-3 text-xs focus:outline-none focus:border-accent-blue" />
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {filteredModels.map((model) => (
                   <Card key={model.id} className="hover:border-accent-blue/30 transition-all cursor-pointer">
                     <div className="flex items-start justify-between mb-3">
                       <div>
-                        <h3 className="font-bold text-text-primary">{model.name}</h3>
+                        <h3 className="text-sm font-semibold text-text-primary">{model.name}</h3>
                         <p className="text-xs text-text-secondary">{model.type}</p>
                       </div>
                       {model.featured && <Badge variant="emerald">Featured</Badge>}
                     </div>
-                    <p className="text-sm text-text-secondary mb-4 line-clamp-2">{model.tagline}</p>
+                    <p className="text-xs text-text-secondary mb-3 line-clamp-2">{model.tagline}</p>
                     <div className="flex items-center justify-between text-xs text-text-secondary">
                       <span>${model.costPerMin.min.toFixed(2)} - ${model.costPerMin.max.toFixed(2)}/min</span>
                       <span>{model.latencyP50}ms p50 latency</span>
@@ -505,14 +503,14 @@ export const DeveloperView: React.FC = () => {
           {activeTab === 'api-keys' && (
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <div className="flex items-center gap-4">
-                  <p className="text-text-secondary">{displayedKeys.length} API key{displayedKeys.length !== 1 ? 's' : ''}</p>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium text-text-primary">{displayedKeys.length} API key{displayedKeys.length !== 1 ? 's' : ''}</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-text-secondary">Project</span>
+                    <span className="text-xs text-text-secondary">Project</span>
                     <select
                       value={projectFilterId}
                       onChange={(e) => setProjectFilterId(e.target.value)}
-                      className="bg-bg-tertiary border border-white/10 rounded-xl py-2 px-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue appearance-none cursor-pointer"
+                      className="bg-bg-tertiary border border-white/10 rounded-md py-1.5 px-2 text-xs text-text-primary focus:outline-none focus:border-accent-blue appearance-none cursor-pointer"
                     >
                       <option value="__all__">All projects</option>
                       {projects
@@ -531,11 +529,11 @@ export const DeveloperView: React.FC = () => {
                     </select>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-text-secondary">Provider</span>
+                    <span className="text-xs text-text-secondary">Provider</span>
                     <select
                       value={providerFilterId}
                       onChange={(e) => setProviderFilterId(e.target.value)}
-                      className="bg-bg-tertiary border border-white/10 rounded-xl py-2 px-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue appearance-none cursor-pointer"
+                      className="bg-bg-tertiary border border-white/10 rounded-md py-1.5 px-2 text-xs text-text-primary focus:outline-none focus:border-accent-blue appearance-none cursor-pointer"
                     >
                       <option value="__all__">All providers</option>
                       {providerOptions.map((provider) => (
@@ -552,8 +550,8 @@ export const DeveloperView: React.FC = () => {
                     </button>
                   )}
                 </div>
-                <button onClick={openCreateModal} className="flex items-center gap-2 px-4 py-2 bg-accent-emerald text-white rounded-xl font-medium hover:bg-accent-emerald/90 transition-all">
-                  <Plus size={16} /> Create Key
+                <button onClick={openCreateModal} className="flex items-center gap-2 px-3 py-1.5 bg-accent-emerald text-white rounded-md text-xs font-medium hover:bg-accent-emerald/90 transition-all">
+                  <Plus size={14} /> Create Key
                 </button>
               </div>
               {displayedKeys.length > 0 ? (
@@ -573,10 +571,10 @@ export const DeveloperView: React.FC = () => {
                       <tbody className="divide-y divide-white/5">
                         {displayedKeys.map((key) => (
                           <tr key={key.id}>
-                            <td className="py-4 pr-6">
+                            <td className="py-3 pr-4">
                               <span className="text-sm font-medium text-text-primary">{key.label || key.keyPrefix}</span>
                             </td>
-                            <td className="py-4 pr-6">
+                            <td className="py-3 pr-4">
                               {key.project ? (
                                 <div className="flex items-center gap-2">
                                   <span className="text-sm text-text-secondary">{key.project.name}</span>
@@ -588,25 +586,25 @@ export const DeveloperView: React.FC = () => {
                                 <span className="text-sm text-text-secondary">—</span>
                               )}
                             </td>
-                            <td className="py-4 pr-6">
+                            <td className="py-3 pr-4">
                               <span className="text-sm text-text-secondary">
                                 {key.billingProvider?.displayName || '—'}
                               </span>
                             </td>
-                            <td className="py-4 pr-6">
+                            <td className="py-3 pr-4">
                               <span className="text-sm text-text-secondary font-mono">{key.keyPrefix}</span>
                             </td>
-                            <td className="py-4 pr-6">
+                            <td className="py-3 pr-4">
                               <span className="text-sm text-text-secondary">
                                 {new Date(key.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                               </span>
                             </td>
-                            <td className="py-4">
+                            <td className="py-3">
                               <div className="flex items-center justify-end gap-2">
                                 <Badge variant={key.status === 'ACTIVE' || key.status === 'active' ? 'emerald' : 'rose'}>{key.status}</Badge>
                                 {(key.status || '').toUpperCase() !== 'REVOKED' && (
                                   <button onClick={() => setRevokeKeyId(key.id)}
-                                    className="p-2 hover:bg-white/5 rounded-lg text-accent-rose">
+                                    className="p-1.5 hover:bg-white/5 rounded-md text-accent-rose">
                                     <Trash2 size={16} />
                                   </button>
                                 )}
@@ -620,7 +618,7 @@ export const DeveloperView: React.FC = () => {
                 </Card>
               ) : (
                 <Card>
-                  <div className="text-center py-8 text-text-secondary">
+                  <div className="text-center py-6 text-text-secondary">
                     No API keys yet. Create one to get started.
                   </div>
                 </Card>
@@ -629,26 +627,26 @@ export const DeveloperView: React.FC = () => {
           )}
 
           {activeTab === 'usage' && (
-            <div className="space-y-6">
+            <div className="space-y-4">
               <Card>
-                <div className="flex items-center gap-3 mb-4">
-                  <CreditCard size={20} className="text-accent-emerald" />
+                <div className="flex items-center gap-3 mb-3">
+                  <CreditCard size={16} className="text-accent-emerald" />
                   <div>
-                    <h3 className="text-lg font-bold text-text-primary">Billing Providers</h3>
+                    <h3 className="text-sm font-semibold text-text-primary">Billing Providers</h3>
                     <p className="text-sm text-text-secondary">Available billing providers for API key creation</p>
                   </div>
                 </div>
                 <div className="space-y-3">
                   {billingProviders.length === 0 ? (
-                    <div className="text-center py-8 text-text-secondary">
-                      <CreditCard size={40} className="mx-auto mb-3 opacity-30" />
+                    <div className="text-center py-6 text-text-secondary">
+                      <CreditCard size={24} className="mx-auto mb-3 opacity-30" />
                       <p>No billing providers available</p>
                     </div>
                   ) : billingProviders.map((bp) => (
-                    <div key={bp.id} className="flex items-center justify-between p-4 rounded-xl border bg-bg-tertiary/50 border-white/10">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-white/5 text-text-secondary">
-                          <Cloud size={20} />
+                    <div key={bp.id} className="flex items-center justify-between p-3 rounded-lg border bg-bg-tertiary/50 border-white/10">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-md flex items-center justify-center bg-white/5 text-text-secondary">
+                          <Cloud size={16} />
                         </div>
                         <div>
                           <p className="font-medium text-text-primary">{bp.displayName}</p>
@@ -658,10 +656,10 @@ export const DeveloperView: React.FC = () => {
                       <span className="text-xs text-text-secondary capitalize">{bp.authType}</span>
                     </div>
                   ))}
-                  <div className="flex items-center justify-between p-4 rounded-xl border border-dashed border-white/20 bg-bg-tertiary/30">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-white/5 text-text-secondary">
-                        <Plus size={20} />
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-dashed border-white/20 bg-bg-tertiary/30">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-md flex items-center justify-center bg-white/5 text-text-secondary">
+                        <Plus size={16} />
                       </div>
                       <div>
                         <p className="font-medium text-text-primary">Add your own Billing Provider</p>
@@ -673,9 +671,9 @@ export const DeveloperView: React.FC = () => {
                 </div>
               </Card>
               <Card>
-                <div className="text-center py-10">
-                  <BarChart3 size={40} className="mx-auto mb-3 text-text-secondary opacity-30" />
-                  <h3 className="text-base font-bold text-text-primary mb-1">Usage Dashboard</h3>
+                <div className="text-center py-6">
+                  <BarChart3 size={24} className="mx-auto mb-3 text-text-secondary opacity-30" />
+                  <h3 className="text-sm font-semibold text-text-primary mb-1">Usage Dashboard</h3>
                   <p className="text-sm text-text-secondary">Usage tracking and cost breakdown coming soon</p>
                 </div>
               </Card>
@@ -685,8 +683,8 @@ export const DeveloperView: React.FC = () => {
           {activeTab === 'docs' && (
             <Card>
               <div className="prose prose-invert max-w-none">
-                <h2 className="text-xl font-bold text-text-primary mb-4">Getting Started</h2>
-                <p className="text-text-secondary mb-4">
+                <h2 className="text-sm font-semibold text-text-primary mb-3">Getting Started</h2>
+                <p className="text-text-secondary mb-3">
                   Welcome to the NAAP Developer API. Follow these steps to integrate:
                 </p>
                 <ol className="list-decimal list-inside space-y-2 text-text-secondary">
@@ -706,9 +704,9 @@ export const DeveloperView: React.FC = () => {
         title={createStep === 'form' ? 'Create API Key' : createStep === 'oauth' ? 'Authenticating...' : 'API Key Created'}
         description={createStep === 'form' ? 'Configure your new API key' : undefined} size="lg">
         {createStep === 'form' && (
-          <div className="space-y-5">
+          <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-2">Project</label>
+              <label className="block text-xs font-medium text-text-primary mb-1.5">Project</label>
               <select value={selectedProjectId}
                 onChange={(e) => { setSelectedProjectId(e.target.value); if (e.target.value !== '__new__') setNewProjectName(''); }}
                 className={selectClassName}>
@@ -724,21 +722,21 @@ export const DeveloperView: React.FC = () => {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-2">Key Label <span className="text-text-secondary font-normal">(optional)</span></label>
+              <label className="block text-xs font-medium text-text-primary mb-1.5">Key Label <span className="text-text-secondary font-normal">(optional)</span></label>
               <input type="text" placeholder="e.g. Production API Key" value={newKeyLabel}
                 onChange={(e) => setNewKeyLabel(e.target.value)} className={inputClassName} />
               <p className="text-xs text-text-secondary mt-1.5">A friendly name for this key. If left empty, the key prefix will be shown.</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-2">Billing Provider</label>
+              <label className="block text-xs font-medium text-text-primary mb-1.5">Billing Provider</label>
               <p className="text-xs text-text-secondary mb-2">You will be redirected to authenticate with the selected provider.</p>
               {modalDataLoading ? (
-                <div className="flex items-center gap-3 p-4 bg-bg-tertiary border border-white/10 rounded-xl">
-                  <Loader2 size={18} className="text-accent-emerald animate-spin flex-shrink-0" />
+                <div className="flex items-center gap-3 p-4 bg-bg-tertiary border border-white/10 rounded-lg">
+                  <Loader2 size={18} className="text-text-secondary animate-spin flex-shrink-0" />
                   <span className="text-sm text-text-secondary">Loading billing providers...</span>
                 </div>
               ) : billingProviders.length === 0 ? (
-                <div className="flex items-center gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                <div className="flex items-center gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
                   <AlertTriangle size={18} className="text-amber-400 flex-shrink-0" />
                   <div className="text-sm">
                     <p className="text-amber-200 font-medium">No billing providers available</p>
@@ -756,7 +754,7 @@ export const DeveloperView: React.FC = () => {
               )}
             </div>
             {createError && (
-              <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-300">
+              <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-300">
                 <AlertTriangle size={16} className="flex-shrink-0" />{createError}
               </div>
             )}
@@ -764,13 +762,13 @@ export const DeveloperView: React.FC = () => {
               <button
                 onClick={handleCreateKey}
                 disabled={creating || modalDataLoading || billingProviders.length === 0 || !selectedBillingProviderId}
-                className="order-2 flex items-center gap-2 px-5 py-2.5 bg-accent-emerald text-white rounded-xl font-medium hover:bg-accent-emerald/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="order-2 flex items-center gap-2 px-3 py-1.5 bg-accent-emerald text-white rounded-md text-xs font-medium hover:bg-accent-emerald/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Key size={16} /> Create API Key
               </button>
               <button
                 onClick={closeCreateModal}
-                className="order-1 px-4 py-2.5 text-sm text-text-secondary hover:text-text-primary transition-colors rounded-xl hover:bg-white/5"
+                className="order-1 px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors rounded-md hover:bg-white/5"
               >
                 Cancel
               </button>
@@ -778,8 +776,8 @@ export const DeveloperView: React.FC = () => {
           </div>
         )}
         {createStep === 'oauth' && (
-          <div className="flex flex-col items-center justify-center py-10 space-y-4">
-            <Loader2 size={32} className="animate-spin text-accent-emerald" />
+          <div className="flex flex-col items-center justify-center py-6 space-y-4">
+            <Loader2 size={20} className="animate-spin text-text-secondary" />
             <div className="text-center">
               <p className="text-text-primary font-medium">Waiting for authentication...</p>
               <p className="text-sm text-text-secondary mt-1">Complete the sign-in in the new tab that opened. This page will update automatically.</p>
@@ -787,8 +785,8 @@ export const DeveloperView: React.FC = () => {
           </div>
         )}
         {createStep === 'success' && (
-          <div className="space-y-5">
-            <div className="flex items-center gap-3 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
               <Shield size={20} className="text-emerald-400 flex-shrink-0" />
               <div className="text-sm">
                 <p className="text-emerald-200 font-medium">Store this key securely</p>
@@ -796,20 +794,20 @@ export const DeveloperView: React.FC = () => {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-2">Your API Key</label>
+              <label className="block text-xs font-medium text-text-primary mb-1.5">Your API Key</label>
               <div className="flex items-center gap-2">
-                <code className="flex-1 bg-bg-tertiary border border-white/10 rounded-xl py-3 px-4 font-mono text-sm text-accent-emerald break-all select-all">
+                <code className="flex-1 bg-bg-tertiary border border-white/10 rounded-lg py-2 px-3 font-mono text-sm text-accent-emerald break-all select-all">
                   {createdRawKey}
                 </code>
                 <button onClick={handleCopyKey}
-                  className="flex-shrink-0 p-3 bg-bg-tertiary border border-white/10 rounded-xl hover:bg-white/5 transition-colors" title="Copy to clipboard">
+                  className="flex-shrink-0 p-2 bg-bg-tertiary border border-white/10 rounded-lg hover:bg-white/5 transition-colors" title="Copy to clipboard">
                   {keyCopied ? <Check size={18} className="text-emerald-400" /> : <Copy size={18} className="text-text-secondary" />}
                 </button>
               </div>
             </div>
             <div className="flex justify-end pt-2">
               <button onClick={closeCreateModal}
-                className="px-5 py-2.5 bg-accent-emerald text-white rounded-xl font-medium hover:bg-accent-emerald/90 transition-all">Done</button>
+                className="px-3 py-1.5 bg-accent-emerald text-white rounded-md text-xs font-medium hover:bg-accent-emerald/90 transition-all">Done</button>
             </div>
           </div>
         )}
@@ -823,9 +821,9 @@ export const DeveloperView: React.FC = () => {
           </p>
           <div className="flex justify-end gap-3">
             <button onClick={() => setRevokeKeyId(null)} disabled={revoking}
-              className="px-4 py-2.5 text-sm text-text-secondary hover:text-text-primary transition-colors rounded-xl hover:bg-white/5">Cancel</button>
+              className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors rounded-md hover:bg-white/5">Cancel</button>
             <button onClick={handleRevokeKey} disabled={revoking}
-              className="flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 transition-all disabled:opacity-50">
+              className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-md text-xs font-medium hover:bg-red-700 transition-all disabled:opacity-50">
               {revoking ? (<><Loader2 size={16} className="animate-spin" /> Revoking...</>) : (<><Trash2 size={16} /> Revoke Key</>)}
             </button>
           </div>

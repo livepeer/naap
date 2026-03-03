@@ -1,38 +1,47 @@
-/* Fonts are loaded via next/font/google in layout.tsx (self-hosted at build time) */
+/* Fonts are loaded via next/font/google in layout.tsx (Inter Variable + JetBrains Mono) */
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /*
- * NAAP Brand Theme - Professional Light/Dark Mode
+ * NAAP Brand Theme — Aligned with Livepeer Brand System
  * Light mode (default) with .dark class for dark mode
- * WCAG AA compliant color contrasts
+ * Surface hierarchy: 4 levels (base / elevated / card / border)
+ * Text hierarchy: 6 opacity levels
  */
 
 /* ============================================
-   Light Mode (Default) - Professional Palette
+   Light Mode (Default)
    ============================================ */
 :root {
-  /* Backgrounds - Clean whites/grays */
-  --bg-primary: #ffffff;           /* Pure white */
-  --bg-secondary: #f8fafc;         /* Slate-50: Cards */
-  --bg-tertiary: #f1f5f9;          /* Slate-100: Inputs */
+  /* Surfaces */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --bg-tertiary: #f1f5f9;
+  --border-color: #e2e8f0;
 
-  /* Text - High contrast (WCAG AA compliant) */
-  --text-primary: #0f172a;         /* Slate-900 (7:1 contrast) */
-  --text-secondary: #475569;       /* Slate-600 (4.5:1) */
-  --text-tertiary: #94a3b8;        /* Slate-400: Muted */
+  /* Text — 6-level hierarchy */
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-body: #475569;
+  --text-supporting: #64748b;
+  --text-muted: #94a3b8;
+  --text-disabled: #cbd5e1;
 
-  /* Accents - Darker for light backgrounds */
-  --accent-emerald: #059669;       /* Emerald-600 */
-  --accent-blue: #2563eb;          /* Blue-600 */
-  --accent-amber: #d97706;         /* Amber-600 */
-  --accent-rose: #dc2626;          /* Rose-600 */
-  --accent-purple: #7c3aed;        /* Violet-600 */
+  /* Brand accent — Livepeer green */
+  --accent-green: #18794E;
+  --accent-green-light: #1E9960;
+  --accent-green-bright: #40BF86;
 
-  /* Borders */
-  --border-color: #e2e8f0;         /* Slate-200 */
+  /* Secondary accents */
+  --accent-blue: #18794E;
+  --accent-amber: #d97706;
+  --accent-rose: #dc2626;
+  --accent-purple: #7c3aed;
+
+  /* Legacy accent aliases (for existing component compat) */
+  --accent-emerald: #18794E;
 
   /* Semantic mappings for UI components (HSL for Tailwind) */
   --background: 0 0% 100%;
@@ -41,81 +50,104 @@
   --card-foreground: 222 47% 11%;
   --popover: 0 0% 100%;
   --popover-foreground: 222 47% 11%;
-  --primary: 160 84% 39%;          /* Emerald as primary */
+  --primary: 153 66% 28%;             /* Livepeer green #18794E */
   --primary-foreground: 0 0% 100%;
   --secondary: 210 40% 96%;
   --secondary-foreground: 222 47% 11%;
   --muted: 210 40% 96%;
   --muted-foreground: 215 16% 47%;
-  --accent: 217 91% 60%;           /* Blue as accent */
+  --accent: 217 91% 60%;
   --accent-foreground: 0 0% 100%;
-  --destructive: 0 84% 60%;        /* Red-500 */
+  --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
   --border: 214 32% 91%;
   --input: 214 32% 91%;
-  --ring: 160 84% 39%;             /* Emerald ring */
+  --ring: 153 66% 28%;                /* Livepeer green ring */
   --radius: 0.5rem;
 
   /* Status Colors */
-  --success: 160 84% 39%;          /* Emerald */
-  --warning: 38 92% 50%;           /* Amber */
-  --error: 0 84% 60%;              /* Red */
-  --info: 217 91% 60%;             /* Blue */
+  --success: 153 66% 28%;
+  --warning: 38 92% 50%;
+  --error: 350 89% 60%;
+  --info: 217 91% 60%;
 }
 
 /* ============================================
-   Dark Mode - NAAP Brand Theme
+   Dark Mode — Livepeer Brand
    ============================================ */
 .dark {
-  /* Backgrounds - Deep navy brand colors */
-  --bg-primary: #0a0f1a;           /* Deep navy */
-  --bg-secondary: #111827;         /* Dark gray-blue */
-  --bg-tertiary: #1f2937;          /* Medium gray-blue */
+  /* Surfaces — Livepeer neutral dark scale
+     Frame (#121212) → Surface (#1F1F1F) → Elevated (#242424)
+     Sidebar + topbar + content share the surface level, creating
+     a cohesive panel that "floats" on the darker frame. */
+  --bg-primary: #121212;
+  --bg-secondary: #1A1A1A;
+  --bg-tertiary: #222222;
+  --border-color: #2A2A2A;
 
-  /* Text */
-  --text-primary: #f9fafb;         /* Gray-50 */
-  --text-secondary: #9ca3af;       /* Gray-400 */
-  --text-tertiary: #6b7280;        /* Gray-500 */
+  /* Text — 6-level opacity hierarchy */
+  --text-primary: rgba(255, 255, 255, 1);
+  --text-secondary: rgba(255, 255, 255, 0.7);
+  --text-body: rgba(255, 255, 255, 0.6);
+  --text-supporting: rgba(255, 255, 255, 0.5);
+  --text-muted: rgba(255, 255, 255, 0.4);
+  --text-disabled: rgba(255, 255, 255, 0.25);
 
-  /* Accents - Brighter for dark backgrounds */
-  --accent-emerald: #10b981;       /* Emerald-500 */
-  --accent-blue: #3b82f6;          /* Blue-500 */
-  --accent-amber: #f59e0b;         /* Amber-500 */
-  --accent-rose: #f43f5e;          /* Rose-500 */
-  --accent-purple: #8b5cf6;        /* Violet-500 */
+  /* Brand accent — Livepeer green (brighter on dark) */
+  --accent-green: #1E9960;
+  --accent-green-light: #40BF86;
+  --accent-green-bright: #6DB09C;
 
-  /* Borders */
-  --border-color: rgba(255, 255, 255, 0.1);
+  /* Secondary accents */
+  --accent-blue: #1E9960;
+  --accent-amber: #f59e0b;
+  --accent-rose: #f43f5e;
+  --accent-purple: #8b5cf6;
 
-  /* Semantic mappings (HSL) */
-  --background: 220 47% 7%;        /* #0a0f1a */
-  --foreground: 210 20% 98%;       /* #f9fafb */
-  --card: 222 47% 11%;             /* #111827 */
-  --card-foreground: 210 20% 98%;
-  --popover: 222 47% 11%;
-  --popover-foreground: 210 20% 98%;
-  --primary: 160 84% 39%;          /* #10b981 */
+  /* Legacy accent alias */
+  --accent-emerald: #1E9960;
+
+  /* Semantic mappings (HSL)
+     --background = dark frame (body, loading states)
+     --card = app surface (sidebar, topbar, content area, cards)
+     Cards within the surface use borders for structure, not bg differences. */
+  --background: 0 0% 7%;              /* #121212 — dark frame + sidebar */
+  --foreground: 0 0% 100%;
+  --card: 0 0% 10%;                   /* #1A1A1A — elevated content surface (subtle lift) */
+  --card-foreground: 0 0% 100%;
+  --popover: 0 0% 14%;                /* #242424 */
+  --popover-foreground: 0 0% 100%;
+  --primary: 153 66% 35%;             /* #1E9960 */
   --primary-foreground: 0 0% 100%;
-  --secondary: 217 33% 17%;        /* #1f2937 */
-  --secondary-foreground: 210 20% 98%;
-  --muted: 217 33% 17%;
-  --muted-foreground: 218 11% 65%;
-  --accent: 217 91% 60%;           /* #3b82f6 */
+  --secondary: 0 0% 14%;              /* #242424 */
+  --secondary-foreground: 0 0% 100%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 64%;
+  --accent: 217 91% 60%;
   --accent-foreground: 0 0% 100%;
-  --destructive: 350 89% 60%;      /* #f43f5e */
+  --destructive: 350 89% 60%;
   --destructive-foreground: 0 0% 98%;
-  --border: 217 33% 20%;
-  --input: 217 33% 17%;
-  --ring: 160 84% 39%;
+  --border: 0 0% 17%;                 /* slightly lighter for contrast against darker surface */
+  --input: 0 0% 15%;
+  --ring: 153 66% 35%;
+
+  /* Status Colors */
+  --success: 153 66% 35%;
+  --warning: 43 96% 56%;
+  --error: 350 89% 60%;
+  --info: 217 91% 60%;
 }
 
+/* ============================================
+   Base Layer
+   ============================================ */
 @layer base {
   * {
     @apply border-border;
   }
 
   html {
-    /* Let color-scheme be set by JS based on theme */
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
 
   html.dark {
@@ -128,7 +160,7 @@
 
   body {
     @apply bg-background text-foreground;
-    font-family: 'Outfit', system-ui, sans-serif;
+    font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -139,7 +171,63 @@
 }
 
 /* ============================================
-   Glass Card Effect - Theme Aware
+   Typography Utilities
+   ============================================ */
+@layer utilities {
+  .text-display {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  .text-heading {
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.4;
+  }
+
+  .text-subhead {
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    line-height: 1.5;
+  }
+
+  .text-body {
+    font-size: 0.875rem;
+    font-weight: 400;
+    letter-spacing: 0;
+    line-height: 1.5;
+  }
+
+  .text-caption {
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    line-height: 1.5;
+  }
+
+  .text-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+
+  .text-mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    line-height: 1.5;
+  }
+}
+
+/* ============================================
+   Glass Card Effect — Theme Aware
    ============================================ */
 .glass-card {
   @apply backdrop-blur-md rounded-2xl;
@@ -148,12 +236,12 @@
 }
 
 .dark .glass-card {
-  background-color: rgba(17, 24, 39, 0.8);
-  border-color: rgba(255, 255, 255, 0.1);
+  background-color: #1A1A1A;
+  border-color: #2A2A2A;
 }
 
 /* ============================================
-   Custom Scrollbar - Theme Aware
+   Custom Scrollbar — Theme Aware
    ============================================ */
 @layer utilities {
   .scrollbar-thin {
@@ -250,14 +338,129 @@
       transform: translateY(4px);
     }
   }
+
+  /* VHS / analog glitch — logo entrance (3-color: green + magenta + cyan) */
+  .animate-vhs {
+    animation: vhs-glitch 2.8s ease-out forwards;
+  }
+
+  @keyframes vhs-glitch {
+    /* fade in with heavy chromatic split */
+    0% {
+      opacity: 0;
+      filter:
+        drop-shadow(-5px 0 rgba(0, 235, 136, 0.9))
+        drop-shadow(5px 0 rgba(255, 0, 80, 0.8))
+        drop-shadow(0 3px rgba(0, 200, 255, 0.7));
+      transform: translateX(-4px) scaleY(1.04);
+    }
+    5% {
+      opacity: 1;
+      filter:
+        drop-shadow(6px 0 rgba(0, 235, 136, 0.8))
+        drop-shadow(-5px 0 rgba(255, 0, 80, 0.7))
+        drop-shadow(0 -3px rgba(0, 200, 255, 0.6));
+      transform: translateX(5px) scaleY(0.96);
+    }
+    /* hold the split visible — jitter between offsets */
+    10% {
+      filter:
+        drop-shadow(-4px 0 rgba(0, 235, 136, 0.7))
+        drop-shadow(4px 0 rgba(255, 0, 80, 0.6))
+        drop-shadow(0 2px rgba(0, 200, 255, 0.5));
+      transform: translateX(-3px) scaleY(1.02);
+    }
+    16% {
+      filter:
+        drop-shadow(3px 0 rgba(0, 235, 136, 0.65))
+        drop-shadow(-3px 0 rgba(255, 0, 80, 0.55))
+        drop-shadow(0 -2px rgba(0, 200, 255, 0.45));
+      transform: translateX(2px) scaleY(0.99);
+    }
+    22% {
+      filter:
+        drop-shadow(-3px 0 rgba(0, 235, 136, 0.55))
+        drop-shadow(3px 0 rgba(255, 0, 80, 0.45))
+        drop-shadow(0 1px rgba(0, 200, 255, 0.35));
+      transform: translateX(-2px) scaleY(1.01);
+    }
+    /* begin resolving */
+    32% {
+      filter:
+        drop-shadow(2px 0 rgba(0, 235, 136, 0.35))
+        drop-shadow(-2px 0 rgba(255, 0, 80, 0.3))
+        drop-shadow(0 -1px rgba(0, 200, 255, 0.2));
+      transform: translateX(1px) scaleY(1);
+    }
+    45% {
+      filter:
+        drop-shadow(1px 0 rgba(0, 235, 136, 0.15))
+        drop-shadow(-1px 0 rgba(255, 0, 80, 0.1));
+      transform: none;
+    }
+    60% {
+      filter: none;
+      transform: none;
+    }
+    100% {
+      filter: none;
+      transform: none;
+      opacity: 1;
+    }
+  }
+
+  /* Hover re-trigger — replays the same entrance glitch, only after entrance finishes */
+  .vhs-scanlines:hover > svg:not(.animate-vhs) {
+    animation: vhs-glitch 2.8s ease-out forwards;
+  }
+
+  /* Scanline overlay for VHS logo container */
+  .vhs-scanlines {
+    position: relative;
+  }
+
+  .vhs-scanlines::after {
+    content: '';
+    position: absolute;
+    inset: -4px -8px;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(255, 255, 255, 0.03) 2px,
+      rgba(255, 255, 255, 0.03) 4px
+    );
+    pointer-events: none;
+    opacity: 0;
+    animation: scanline-entrance 2.8s ease-out forwards;
+  }
+
+  /* Scanline re-trigger on hover — separate name guarantees restart */
+  .vhs-scanlines:hover::after {
+    animation: scanline-hover 2.8s ease-out forwards;
+  }
+
+  @keyframes scanline-entrance {
+    0% { opacity: 1; }
+    25% { opacity: 0.6; }
+    50% { opacity: 0.2; }
+    100% { opacity: 0; }
+  }
+
+  @keyframes scanline-hover {
+    0% { opacity: 1; }
+    25% { opacity: 0.6; }
+    50% { opacity: 0.2; }
+    100% { opacity: 0; }
+  }
 }
 
 /* ============================================
    Brand Accent Utility Classes
    ============================================ */
 @layer utilities {
-  .text-accent-emerald {
-    color: var(--accent-emerald);
+  .text-accent-green {
+    color: var(--accent-green);
   }
   .text-accent-blue {
     color: var(--accent-blue);
@@ -272,8 +475,13 @@
     color: var(--accent-purple);
   }
 
-  .bg-accent-emerald {
-    background-color: var(--accent-emerald);
+  /* Legacy aliases */
+  .text-accent-emerald {
+    color: var(--accent-emerald);
+  }
+
+  .bg-accent-green {
+    background-color: var(--accent-green);
   }
   .bg-accent-blue {
     background-color: var(--accent-blue);
@@ -288,8 +496,13 @@
     background-color: var(--accent-purple);
   }
 
-  .border-accent-emerald {
-    border-color: var(--accent-emerald);
+  /* Legacy aliases */
+  .bg-accent-emerald {
+    background-color: var(--accent-emerald);
+  }
+
+  .border-accent-green {
+    border-color: var(--accent-green);
   }
   .border-accent-blue {
     border-color: var(--accent-blue);
@@ -302,5 +515,10 @@
   }
   .border-accent-purple {
     border-color: var(--accent-purple);
+  }
+
+  /* Legacy aliases */
+  .border-accent-emerald {
+    border-color: var(--accent-emerald);
   }
 }
