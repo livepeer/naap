@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ThumbsUp, Clock, CheckCircle, MessageSquare, Send, Loader2, Eye } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import { Card, Badge } from '@naap/ui';
 import {
   fetchPost,
@@ -64,7 +65,7 @@ function renderMarkdown(content: string | undefined | null): string {
   html = html.replace(/<li>/g, '<ul><li>').replace(/<\/li>(?!<li>)/g, '</li></ul>');
   html = html.replace(/<\/ul><ul>/g, '');
 
-  return html;
+  return DOMPurify.sanitize(html);
 }
 
 export const PostDetailPage: React.FC = () => {

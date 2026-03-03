@@ -52,7 +52,8 @@ export default function RegisterForm() {
         const data = await response.json();
         throw new Error(data.message || 'Registration failed');
       }
-      router.push(`/verify-email?email=${encodeURIComponent(formData.email)}`);
+      sessionStorage.setItem('pendingVerificationEmail', formData.email);
+      router.push('/verify-email');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
     } finally {

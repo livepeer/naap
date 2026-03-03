@@ -206,7 +206,7 @@ export default function SettingsPage() {
           setProfileName(u.displayName || '');
           setProfileBio(u.bio || '');
           setProfileAvatarUrl(u.avatarUrl || '');
-          setProfileAvatarPreview(u.avatarUrl || null);
+          setProfileAvatarPreview(getSafeImageUrl(u.avatarUrl));
         }
       }
     } catch {
@@ -214,7 +214,7 @@ export default function SettingsPage() {
       setProfileName(user?.displayName || '');
       setProfileBio('');
       setProfileAvatarUrl(user?.avatarUrl || '');
-      setProfileAvatarPreview(user?.avatarUrl || null);
+      setProfileAvatarPreview(getSafeImageUrl(user?.avatarUrl));
     }
   }, [isAuthenticated, user]);
 
@@ -251,7 +251,7 @@ export default function SettingsPage() {
       if (res.ok) {
         notifications.success('Profile updated successfully');
         setEditingProfile(false);
-        setProfileAvatarPreview(profileAvatarUrl || null);
+        setProfileAvatarPreview(getSafeImageUrl(profileAvatarUrl));
       } else {
         const data = await res.json();
         notifications.error(data.error?.message || 'Failed to update profile');
@@ -629,9 +629,8 @@ export default function SettingsPage() {
             {/* Avatar */}
             <div className="flex items-start gap-4">
               <div className="relative group">
-                {getSafeImageUrl(profileAvatarPreview) ? (
-                  /* lgtm[js/xss-through-dom] URL sanitized by getSafeImageUrl (http/https only) */
-                  <img src={getSafeImageUrl(profileAvatarPreview)!} alt="" className="w-20 h-20 rounded-xl object-cover" />
+                {profileAvatarPreview ? (
+                  <img src={profileAvatarPreview} alt="" className="w-20 h-20 rounded-xl object-cover" />
                 ) : (
                   <div className="w-20 h-20 rounded-xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">
                     {(profileName || user?.email || 'U')[0].toUpperCase()}
@@ -648,7 +647,7 @@ export default function SettingsPage() {
                   value={profileAvatarUrl}
                   onChange={(e) => {
                     setProfileAvatarUrl(e.target.value);
-                    setProfileAvatarPreview(e.target.value || null);
+                    setProfileAvatarPreview(getSafeImageUrl(e.target.value));
                   }}
                   placeholder="https://example.com/avatar.jpg"
                 />
@@ -729,9 +728,8 @@ export default function SettingsPage() {
           /* -- View mode --------------------------------------------------- */
           <div className="space-y-4">
             <div className="flex items-center gap-4">
-              {getSafeImageUrl(profileAvatarPreview) ? (
-                /* lgtm[js/xss-through-dom] URL sanitized by getSafeImageUrl (http/https only) */
-                <img src={getSafeImageUrl(profileAvatarPreview)!} alt="" className="w-20 h-20 rounded-xl object-cover" />
+              {profileAvatarPreview ? (
+                <img src={profileAvatarPreview} alt="" className="w-20 h-20 rounded-xl object-cover" />
               ) : (
                 <div className="w-20 h-20 rounded-xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">
                   {(profileName || user?.email || 'U')[0].toUpperCase()}

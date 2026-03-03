@@ -11,7 +11,15 @@ function VerifyEmailInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
-  const email = searchParams.get('email');
+  const [email, setEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    const stored = sessionStorage.getItem('pendingVerificationEmail');
+    if (stored) {
+      setEmail(stored);
+      sessionStorage.removeItem('pendingVerificationEmail');
+    }
+  }, []);
 
   const [status, setStatus] = useState<'verifying' | 'success' | 'error' | 'pending'>('pending');
   const [error, setError] = useState<string | null>(null);

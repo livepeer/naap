@@ -36,6 +36,20 @@ interface Team {
   _count?: { members: number };
 }
 
+/** Only allow http/https URLs for image sources to prevent XSS via javascript: URIs */
+function getSafeImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      return url;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
   const router = useRouter();
   const { isAuthenticated, user, logout } = useAuth();
@@ -156,13 +170,13 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
           {switching ? (
             <Loader2 size={12} className="animate-spin text-muted-foreground" />
           ) : currentTeam ? (
-            currentTeam.avatarUrl ? (
-              <img src={currentTeam.avatarUrl} alt="" className="w-6 h-6 rounded-md object-cover" />
+            getSafeImageUrl(currentTeam.avatarUrl) ? (
+              <img src={getSafeImageUrl(currentTeam.avatarUrl)!} alt="" className="w-6 h-6 rounded-md object-cover" />
             ) : (
               <Users size={12} className="text-primary" />
             )
-          ) : user?.avatarUrl ? (
-            <img src={user.avatarUrl} alt="" className="w-6 h-6 rounded-md object-cover" />
+          ) : getSafeImageUrl(user?.avatarUrl) ? (
+            <img src={getSafeImageUrl(user?.avatarUrl)!} alt="" className="w-6 h-6 rounded-md object-cover" />
           ) : (
             <span className="text-[10px] font-bold text-primary">{initials}</span>
           )}
@@ -233,8 +247,8 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="w-5 h-5 rounded-md bg-muted flex items-center justify-center shrink-0 overflow-hidden">
-                      {team.avatarUrl ? (
-                        <img src={team.avatarUrl} alt="" className="w-5 h-5 object-cover" />
+                      {getSafeImageUrl(team.avatarUrl) ? (
+                        <img src={getSafeImageUrl(team.avatarUrl)!} alt="" className="w-5 h-5 object-cover" />
                       ) : (
                         <Users size={11} className="text-muted-foreground" />
                       )}
