@@ -70,6 +70,21 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
       totalBlocks
       totalStakedLPT
     }
+    pipelines(limit: 5) {
+      name mins color
+    }
+    gpuCapacity {
+      totalGPUs
+      availableCapacity
+    }
+    pricing {
+      pipeline unit price outputPerDollar
+    }
+  }
+`;
+
+const FEES_OVERVIEW_QUERY = /* GraphQL */ `
+  query FeesOverview {
     fees(days: 180) {
       totalEth
       totalUsd
@@ -83,16 +98,6 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
       weeklyVolumeChangeEth
       dayData { dateS volumeEth volumeUsd }
       weeklyData { date weeklyVolumeUsd weeklyVolumeEth }
-    }
-    pipelines(limit: 5) {
-      name mins color
-    }
-    gpuCapacity {
-      totalGPUs
-      availableCapacity
-    }
-    pricing {
-      pipeline unit price outputPerDollar
     }
   }
 `;
@@ -738,6 +743,11 @@ export default function DashboardPage() {
     undefined,
     { pollInterval, timeout: 8000 }
   );
+  const { data: feesData } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
+    FEES_OVERVIEW_QUERY,
+    undefined,
+    { timeout: 8000 }
+  );
 
   const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8 });
 
@@ -772,7 +782,7 @@ export default function DashboardPage() {
       {/* Row 2: Protocol, Fees, Pipelines, GPU */}
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
         {data?.protocol ? <ProtocolCard data={data.protocol} /> : <WidgetUnavailable label="Protocol" />}
-        {data?.fees ? <FeesCard data={data.fees} /> : <WidgetUnavailable label="Fees" />}
+        {feesData?.fees ? <FeesCard data={feesData.fees} /> : <WidgetUnavailable label="Fees" />}
         {data?.pipelines ? <PipelinesCard data={data.pipelines} /> : <WidgetUnavailable label="Pipelines" />}
         {data?.gpuCapacity ? <GPUCapacityCard data={data.gpuCapacity} /> : <WidgetUnavailable label="GPU Capacity" />}
       </div>

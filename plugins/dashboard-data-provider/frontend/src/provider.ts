@@ -36,13 +36,16 @@ async function fetchCurrentProtocolBlock(): Promise<number> {
 }
 
 async function resolveProtocol(): Promise<DashboardProtocol> {
-  const [protocol, currentProtocolBlock] = await Promise.all([
-    fetchSubgraphProtocol(),
-    fetchCurrentProtocolBlock(),
-  ]);
+  const protocol = await fetchSubgraphProtocol();
+  let currentProtocolBlock: number | null = null;
+  try {
+    currentProtocolBlock = await fetchCurrentProtocolBlock();
+  } catch (err) {
+    console.warn('[dashboard-data-provider] protocol-block unavailable:', err);
+  }
 
-  const rawProgress = protocol.initialized
-    ? currentProtocolBlock - protocol.startBlock
+  const rawProgress = protocol.initialized && Number.isFinite(currentProtocolBlock)
+    ? Number(currentProtocolBlock) - protocol.startBlock
     : 0;
   const blockProgress = Math.max(0, Math.min(rawProgress, protocol.totalBlocks));
 

@@ -136,6 +136,8 @@ PLUGIN_SERVER_URL=http://localhost:3100
 SUBGRAPH_API_KEY=<your-key>
 # optional
 SUBGRAPH_ID=<your-subgraph-id>
+# Required for /api/v1/protocol-block (Livepeer round progress)
+L1_RPC_URL=<your-l1-rpc-url>
 ```
 
 ### Plugin Backends (`plugins/<name>/backend/.env`)
