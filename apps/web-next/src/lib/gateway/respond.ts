@@ -17,7 +17,12 @@ const STRIP_HEADERS = new Set([
   'x-aspnet-version',
   'x-aspnetmvc-version',
   'via',
-  'set-cookie', // don't forward upstream cookies
+  'set-cookie',
+  'content-length',
+  'transfer-encoding',
+  'content-encoding',
+  'etag',
+  'last-modified',
 ]);
 
 /**
@@ -35,7 +40,7 @@ export function buildResponse(
   const responseContentType = response.headers.get('content-type') || '';
 
   // ── SSE Streaming — passthrough without wrapping ──
-  if (connector.streamingEnabled && responseContentType.includes('text/event-stream')) {
+  if (connector.streamingEnabled && responseContentType.toLowerCase().includes('text/event-stream')) {
     return buildStreamingResponse(response, requestId, traceId, upstreamLatencyMs, cached);
   }
 
@@ -91,21 +96,21 @@ async function buildStandardResponse(
   const { connector } = config;
   const contentType = upstreamResponse.headers.get('content-type') || 'application/json';
 
-  // Build response headers
+  // Copy safe upstream headers first
   const responseHeaders = new Headers();
+  upstreamResponse.headers.forEach((value, key) => {
+    if (!STRIP_HEADERS.has(key.toLowerCase()) && !key.startsWith('x-gateway-')) {
+      responseHeaders.set(key, value);
+    }
+  });
+
+  // Set gateway headers AFTER upstream to prevent spoofing
   responseHeaders.set('Content-Type', contentType);
   responseHeaders.set('X-Gateway-Latency', String(upstreamLatencyMs));
   responseHeaders.set('X-Gateway-Cache', cached ? 'HIT' : 'MISS');
 
   if (requestId) responseHeaders.set('x-request-id', requestId);
   if (traceId) responseHeaders.set('x-trace-id', traceId);
-
-  // Copy safe upstream headers
-  upstreamResponse.headers.forEach((value, key) => {
-    if (!STRIP_HEADERS.has(key.toLowerCase()) && !key.startsWith('x-gateway-')) {
-      responseHeaders.set(key, value);
-    }
-  });
 
   // ── Envelope wrapping ──
   if (connector.responseWrapper && contentType.includes('application/json')) {

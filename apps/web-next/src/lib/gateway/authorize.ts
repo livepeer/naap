@@ -116,6 +116,7 @@ async function authorizeApiKey(rawKey: string): Promise<AuthenticatedAuthResult 
     callerId: apiKey.createdBy,
     teamId: apiKey.teamId,
     apiKeyId: apiKey.id,
+    connectorId: apiKey.connectorId || undefined,
     planId: apiKey.planId || undefined,
     allowedEndpoints: apiKey.allowedEndpoints.length > 0 ? apiKey.allowedEndpoints : undefined,
     allowedIPs: apiKey.allowedIPs.length > 0 ? apiKey.allowedIPs : undefined,
@@ -128,24 +129,36 @@ async function authorizeApiKey(rawKey: string): Promise<AuthenticatedAuthResult 
 
 /**
  * Verify connector belongs to the caller's team.
- * If the API key is scoped to a specific connector, verify it matches.
+ *
+ * When the caller is in personal context (personal:<userId>), the resolver
+ * may have found the connector via team membership. We verify membership
+ * here and return the connector's owning teamId for downstream use.
  */
-export function verifyConnectorAccess(
+export async function verifyConnectorAccess(
   auth: AuthResult,
   connectorId: string,
   connectorTeamId: string
-): boolean {
-  if (!auth.authenticated) return false;
-  // Team isolation — the connector must belong to the caller's team
-  if (auth.teamId !== connectorTeamId) return false;
+): Promise<{ allowed: boolean; resolvedTeamId: string }> {
+  if (!auth.authenticated) return { allowed: false, resolvedTeamId: '' };
 
-  // If API key is scoped to a specific connector, verify it matches
-  if (auth.callerType === 'apiKey') {
-    // Check connector scoping on the key record (connectorId field)
-    // This is done by looking up the key's connector association
-    // If allowedEndpoints is set, the caller must be accessing an allowed endpoint
-    // (checked separately in the pipeline)
+  if (auth.callerType === 'apiKey' && auth.connectorId && auth.connectorId !== connectorId) {
+    return { allowed: false, resolvedTeamId: auth.teamId };
   }
 
-  return true;
+  if (auth.teamId === connectorTeamId) {
+    return { allowed: true, resolvedTeamId: connectorTeamId };
+  }
+
+  if (auth.callerType === 'jwt' && auth.teamId.startsWith('personal:')) {
+    const userId = auth.callerId;
+    const membership = await prisma.teamMember.findFirst({
+      where: { userId, teamId: connectorTeamId },
+      select: { id: true },
+    });
+    if (membership) {
+      return { allowed: true, resolvedTeamId: connectorTeamId };
+    }
+  }
+
+  return { allowed: false, resolvedTeamId: auth.teamId };
 }

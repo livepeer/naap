@@ -67,6 +67,7 @@ export type AuthResult =
       callerId: string;
       teamId: string;
       apiKeyId?: string;
+      connectorId?: string;
       planId?: string;
       allowedEndpoints?: string[];
       allowedIPs?: string[];
