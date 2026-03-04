@@ -1,0 +1,133 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "ssh-bridge",
+  "name": "SSH Bridge",
+  "description": "Execute remote commands and transfer files over SSH/SFTP on remote machines. Supports sync execution, async long-running jobs (model downloads, Docker builds), and multi-line deployment scripts. Designed as a CD deployment target for GitHub Actions.",
+  "icon": "🖥️",
+  "category": "infrastructure",
+  "connector": {
+    "slug": "ssh-bridge",
+    "displayName": "SSH Bridge",
+    "description": "Execute remote commands and transfer files over SSH/SFTP on remote machines. Supports sync execution, async long-running jobs, and multi-line deployment scripts.",
+    "category": "infrastructure",
+    "upstreamBaseUrl": "http://localhost:4116",
+    "allowedHosts": ["localhost"],
+    "defaultTimeout": 60000,
+    "healthCheckPath": "/healthz",
+    "authType": "header",
+    "authConfig": {
+      "headers": {
+        "x-bridge-key": "{{secrets.bridge-key}}",
+        "x-ssh-private-key": "{{secrets.ssh-private-key}}",
+        "x-ssh-passphrase": "{{secrets.ssh-passphrase}}"
+      }
+    },
+    "secretRefs": ["bridge-key", "ssh-private-key", "ssh-passphrase"],
+    "streamingEnabled": false,
+    "responseWrapper": true,
+    "tags": ["ssh", "remote", "infrastructure", "deploy", "sftp", "cd", "devops"]
+  },
+  "endpoints": [
+    {
+      "name": "health",
+      "description": "Bridge health check — pool stats, job counts, uptime",
+      "method": "GET",
+      "path": "/healthz",
+      "upstreamPath": "/healthz",
+      "rateLimit": 600,
+      "timeout": 5000,
+      "cacheTtl": 10
+    },
+    {
+      "name": "exec-command",
+      "description": "Execute a command synchronously (max 5 min). Returns stdout, stderr, exitCode.",
+      "method": "POST",
+      "path": "/exec",
+      "upstreamPath": "/exec",
+      "rateLimit": 30,
+      "timeout": 300000
+    },
+    {
+      "name": "exec-async",
+      "description": "Execute a long-running command asynchronously. Returns jobId for polling.",
+      "method": "POST",
+      "path": "/exec/async",
+      "upstreamPath": "/exec/async",
+      "rateLimit": 10,
+      "timeout": 15000
+    },
+    {
+      "name": "exec-script",
+      "description": "Upload and execute a multi-line deployment script. Always async, returns jobId.",
+      "method": "POST",
+      "path": "/exec/script",
+      "upstreamPath": "/exec/script",
+      "rateLimit": 5,
+      "timeout": 30000
+    },
+    {
+      "name": "get-job",
+      "description": "Get async job status, output, and exit code",
+      "method": "GET",
+      "path": "/jobs/:jobId",
+      "upstreamPath": "/jobs/:jobId",
+      "rateLimit": 120,
+      "timeout": 5000
+    },
+    {
+      "name": "get-job-logs",
+      "description": "Tail logs of a running async job with offset pagination",
+      "method": "GET",
+      "path": "/jobs/:jobId/logs",
+      "upstreamPath": "/jobs/:jobId/logs",
+      "rateLimit": 120,
+      "timeout": 5000
+    },
+    {
+      "name": "cancel-job",
+      "description": "Cancel a running async job",
+      "method": "DELETE",
+      "path": "/jobs/:jobId",
+      "upstreamPath": "/jobs/:jobId",
+      "rateLimit": 10,
+      "timeout": 15000
+    },
+    {
+      "name": "upload-file",
+      "description": "Upload a file to a remote machine via SFTP (max 50MB, base64 encoded)",
+      "method": "POST",
+      "path": "/upload",
+      "upstreamPath": "/upload",
+      "rateLimit": 10,
+      "timeout": 120000
+    },
+    {
+      "name": "download-file",
+      "description": "Download a file from a remote machine via SFTP (max 50MB, base64 encoded)",
+      "method": "POST",
+      "path": "/download",
+      "upstreamPath": "/download",
+      "rateLimit": 20,
+      "timeout": 60000
+    },
+    {
+      "name": "list-directory",
+      "description": "List remote directory contents with file metadata",
+      "method": "POST",
+      "path": "/ls",
+      "upstreamPath": "/ls",
+      "rateLimit": 60,
+      "timeout": 10000
+    },
+    {
+      "name": "test-connection",
+      "description": "Test SSH connectivity to a remote host",
+      "method": "POST",
+      "path": "/connect",
+      "upstreamPath": "/connect",
+      "rateLimit": 20,
+      "timeout": 15000
+    }
+  ],
+  "envKey": "SSH_BRIDGE_KEY"
+}

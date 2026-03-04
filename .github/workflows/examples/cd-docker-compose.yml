@@ -1,0 +1,79 @@
+# Example: Deploy a Docker Compose stack to a remote machine via SSH Bridge
+name: Deploy Compose Stack
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker-compose.prod.yml'
+      - 'services/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy compose stack
+        uses: ./.github/actions/ssh-bridge-deploy
+        with:
+          naap-url: ${{ vars.NAAP_URL }}
+          api-key: ${{ secrets.NAAP_GW_API_KEY }}
+          host: ${{ vars.DEPLOY_HOST }}
+          username: deploy
+          environment: production
+          timeout: '900000'
+          env: |
+            {
+              "DEPLOY_REF": "${{ github.sha }}",
+              "REPO_URL": "https://github.com/${{ github.repository }}.git"
+            }
+          script: |
+            #!/bin/bash
+            set -euo pipefail
+            APP_DIR="/opt/app"
+
+            echo "=== Ensure app directory ==="
+            mkdir -p "$APP_DIR"
+            cd "$APP_DIR"
+
+            echo "=== Sync code ==="
+            if [ -d .git ]; then
+              git fetch origin main
+              git reset --hard "${DEPLOY_REF}"
+            else
+              git clone "${REPO_URL}" .
+              git checkout "${DEPLOY_REF}"
+            fi
+
+            echo "=== Pull new images ==="
+            docker compose -f docker-compose.prod.yml pull
+
+            echo "=== Rolling update ==="
+            docker compose -f docker-compose.prod.yml up -d \
+              --remove-orphans \
+              --wait \
+              --wait-timeout 120
+
+            echo "=== Verify services ==="
+            docker compose -f docker-compose.prod.yml ps
+
+            UNHEALTHY=$(docker compose -f docker-compose.prod.yml ps --format json | jq -r 'select(.State != "running") | .Name' 2>/dev/null || true)
+            if [ -n "$UNHEALTHY" ]; then
+              echo "FAILED: Unhealthy services: $UNHEALTHY"
+              exit 1
+            fi
+
+            echo "=== Health check ==="
+            curl -sf http://localhost:8080/health || {
+              echo "Health check endpoint not responding"
+              exit 1
+            }
+
+            echo "=== Stack deployed successfully ==="
+            echo "Ref: ${DEPLOY_REF}"
+            docker compose -f docker-compose.prod.yml ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
