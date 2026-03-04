@@ -2,7 +2,7 @@
 
 The Service Gateway plugin models are defined in the unified NaaP schema at:
 
-```
+```text
 packages/database/prisma/schema.prisma
 ```
 

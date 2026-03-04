@@ -3,31 +3,14 @@
  * 
  * Handles WebRTC WHIP connection to Daydream ingest endpoint.
  *
- * IMPORTANT: The WHIP SDP handshake is proxied through the daydream-video
- * backend (`/api/v1/daydream/whip-proxy`) to avoid CORS issues.
- * The external WHIP server (ai.livepeer.com) does not set
- * Access-Control-Allow-Origin, so direct browser fetch() would fail.
+ * The WHIP SDP handshake is proxied through the shell's dedicated route
+ * at `/api/v1/gw/daydream-whip` to avoid CORS issues. The external WHIP
+ * server (ai.livepeer.com) doesn't set CORS headers for arbitrary origins.
  * The actual WebRTC media stream still goes peer-to-peer.
  */
 
 import { useState, useCallback, useRef } from 'react';
-import {
-  getPluginBackendUrl,
-  getCsrfToken,
-  generateCorrelationId,
-} from '@naap/plugin-sdk';
-import { HEADER_CSRF_TOKEN, HEADER_CORRELATION, HEADER_PLUGIN_NAME } from '@naap/types';
-
-// Auth token storage key (must match shell's STORAGE_KEYS.AUTH_TOKEN)
-const AUTH_TOKEN_KEY = 'naap_auth_token';
-
-function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  const shellContext = (window as any).__SHELL_CONTEXT__;
-  if (shellContext?.authToken) return shellContext.authToken;
-  if (typeof localStorage !== 'undefined') return localStorage.getItem(AUTH_TOKEN_KEY);
-  return null;
-}
+import { getAuthToken } from '../lib/api';
 
 export interface WHIPConnectionState {
   status: 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -82,31 +65,18 @@ export function useWHIP(): UseWHIPResult {
         throw new Error('Failed to get local SDP');
       }
 
-      // ─── Send offer via backend proxy (avoids CORS) ──────────────
-      const proxyUrl = getPluginBackendUrl('daydream-video', {
-        apiPath: '/api/v1/daydream/whip-proxy',
-      });
+      // ─── Send offer via shell WHIP proxy (avoids CORS) ──────────────
+      const proxyUrl = `${window.location.origin}/api/v1/gw/daydream-whip`;
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/sdp',
         'X-WHIP-URL': whipUrl,
-        [HEADER_PLUGIN_NAME]: 'daydream-video',
       };
 
-      // Add auth token
       const token = getAuthToken();
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-
-      // Add CSRF token
-      const csrfToken = getCsrfToken();
-      if (csrfToken) {
-        headers[HEADER_CSRF_TOKEN] = csrfToken;
-      }
-
-      // Add correlation ID
-      headers[HEADER_CORRELATION] = generateCorrelationId();
 
       const response = await fetch(proxyUrl, {
         method: 'POST',
