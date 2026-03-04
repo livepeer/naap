@@ -11,7 +11,7 @@
 import { createHash } from 'crypto';
 import { prisma } from '@/lib/db';
 import { getAuthToken } from '@/lib/api/response';
-import type { AuthResult, TeamContext } from './types';
+import type { AuthResult, AuthenticatedAuthResult, TeamContext } from './types';
 
 const BASE_SVC_URL = process.env.BASE_SVC_URL || process.env.NEXT_PUBLIC_BASE_SVC_URL || 'http://localhost:4000';
 
@@ -19,7 +19,7 @@ const BASE_SVC_URL = process.env.BASE_SVC_URL || process.env.NEXT_PUBLIC_BASE_SV
  * Extract team context from the request.
  * Returns null if no valid auth is found.
  */
-export async function authorize(request: Request): Promise<AuthResult | null> {
+export async function authorize(request: Request): Promise<AuthenticatedAuthResult | null> {
   const authHeader = request.headers.get('authorization') || '';
 
   // Path 1: API Key auth (gw_ prefix)
@@ -50,12 +50,16 @@ export function extractTeamContext(request: Request): TeamContext | null {
 
 // ── JWT Auth ──
 
-async function authorizeJwt(token: string, request: Request): Promise<AuthResult | null> {
+async function authorizeJwt(token: string, request: Request): Promise<AuthenticatedAuthResult | null> {
   try {
-    // Validate JWT via base-svc /api/auth/me
-    const meResponse = await fetch(`${BASE_SVC_URL}/api/auth/me`, {
+    // Validate JWT via base-svc /api/v1/auth/me
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const meResponse = await fetch(`${BASE_SVC_URL}/api/v1/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (!meResponse.ok) return null;
 
@@ -80,7 +84,7 @@ async function authorizeJwt(token: string, request: Request): Promise<AuthResult
 
 // ── API Key Auth ──
 
-async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
+async function authorizeApiKey(rawKey: string): Promise<AuthenticatedAuthResult | null> {
   const keyHash = createHash('sha256').update(rawKey).digest('hex');
 
   const apiKey = await prisma.gatewayApiKey.findUnique({
@@ -131,6 +135,7 @@ export function verifyConnectorAccess(
   connectorId: string,
   connectorTeamId: string
 ): boolean {
+  if (!auth.authenticated) return false;
   // Team isolation — the connector must belong to the caller's team
   if (auth.teamId !== connectorTeamId) return false;
 

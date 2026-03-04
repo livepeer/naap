@@ -5,8 +5,11 @@
  * Handles: timeouts, retries, SSE streaming, SSRF protection.
  */
 
+import dns from 'node:dns/promises';
 import type { UpstreamRequest, ProxyResult } from './types';
-import { validateHost } from './types';
+import { validateHost, isPrivateIp } from './types';
+
+const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 
 /**
  * Proxy a request to the upstream service.
@@ -15,21 +18,38 @@ import { validateHost } from './types';
  * @param timeout   - Timeout in milliseconds
  * @param retries   - Number of retry attempts on failure
  * @param allowedHosts - Allowed upstream hostnames (SSRF protection)
- * @param streaming - Whether SSE streaming is enabled for this connector
  */
 export async function proxyToUpstream(
   upstream: UpstreamRequest,
   timeout: number,
   retries: number,
-  allowedHosts: string[],
-  streaming: boolean
+  allowedHosts: string[]
 ): Promise<ProxyResult> {
-  // ── SSRF Protection ──
+  // ── SSRF Protection (hostname) ──
   const url = new URL(upstream.url);
   if (!validateHost(url.hostname, allowedHosts)) {
     throw new ProxyError(
       'SSRF_BLOCKED',
       `Host "${url.hostname}" is not allowed`,
+      403
+    );
+  }
+
+  // ── SSRF Protection (DNS resolution) ──
+  try {
+    const resolved = await dns.lookup(url.hostname, { all: true });
+    if (resolved.some((r) => isPrivateIp(r.address))) {
+      throw new ProxyError(
+        'SSRF_BLOCKED',
+        `Resolved private IP for "${url.hostname}"`,
+        403
+      );
+    }
+  } catch (err) {
+    if (err instanceof ProxyError) throw err;
+    throw new ProxyError(
+      'SSRF_BLOCKED',
+      `DNS resolution failed for "${url.hostname}"`,
       403
     );
   }
@@ -73,9 +93,9 @@ export async function proxyToUpstream(
         );
       }
 
-      // Retry on network errors only
-      if (attempt < attempts - 1) {
-        // Exponential backoff: 100ms, 200ms, 400ms...
+      // Retry only for idempotent methods
+      const isIdempotent = IDEMPOTENT_METHODS.has(upstream.method.toUpperCase());
+      if (attempt < attempts - 1 && isIdempotent) {
         await sleep(100 * Math.pow(2, attempt));
         continue;
       }

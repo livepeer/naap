@@ -55,7 +55,7 @@ function buildUpstreamUrl(
   // Replace :param placeholders with actual values from consumer path
   patternParts.forEach((part, i) => {
     if (part.startsWith(':') && consumerParts[i]) {
-      upstreamPath = upstreamPath.replace(part, consumerParts[i]);
+      upstreamPath = upstreamPath.replaceAll(part, consumerParts[i]);
     }
   });
 
@@ -142,8 +142,10 @@ function injectAuth(
       const passRef = (config.passwordRef as string) || 'password';
       const username = secrets[userRef] || '';
       const password = secrets[passRef] || '';
-      const encoded = Buffer.from(`${username}:${password}`).toString('base64');
-      headers.set('Authorization', `Basic ${encoded}`);
+      if (username || password) {
+        const encoded = Buffer.from(`${username}:${password}`).toString('base64');
+        headers.set('Authorization', `Basic ${encoded}`);
+      }
       break;
     }
 
@@ -208,7 +210,7 @@ function transformBody(
  * Replace {{secrets.name}} placeholders with actual secret values.
  */
 function interpolateSecrets(template: string, secrets: ResolvedSecrets): string {
-  return template.replace(/\{\{secrets\.(\w+)\}\}/g, (_, name) => secrets[name] || '');
+  return template.replace(/\{\{secrets\.([^}]+?)\}\}/g, (_, name) => secrets[name.trim()] ?? '');
 }
 
 /**

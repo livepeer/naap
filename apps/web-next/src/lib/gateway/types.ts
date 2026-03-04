@@ -59,20 +59,24 @@ export interface ResolvedConfig {
 
 export type CallerType = 'jwt' | 'apiKey';
 
-export interface AuthResult {
-  authenticated: boolean;
-  callerType: CallerType;
-  callerId: string;
-  teamId: string;
-  apiKeyId?: string;
-  planId?: string;
-  allowedEndpoints?: string[];
-  allowedIPs?: string[];
-  rateLimit?: number;
-  dailyQuota?: number | null;
-  monthlyQuota?: number | null;
-  maxRequestSize?: number;
-}
+export type AuthResult =
+  | { authenticated: false }
+  | {
+      authenticated: true;
+      callerType: CallerType;
+      callerId: string;
+      teamId: string;
+      apiKeyId?: string;
+      planId?: string;
+      allowedEndpoints?: string[];
+      allowedIPs?: string[];
+      rateLimit?: number;
+      dailyQuota?: number | null;
+      monthlyQuota?: number | null;
+      maxRequestSize?: number;
+    };
+
+export type AuthenticatedAuthResult = Extract<AuthResult, { authenticated: true }>;
 
 // ── Team Context ──
 
@@ -134,7 +138,7 @@ const PRIVATE_IP_RANGES = [
   /^192\.168\./,
   /^0\./,
   /^169\.254\./,
-  /^fc00:/,
+  /^f[cd][0-9a-f]{2}:/i,  // IPv6 ULA fc00::/7
   /^fe80:/,
   /^::1$/,
   /^localhost$/i,
@@ -142,6 +146,11 @@ const PRIVATE_IP_RANGES = [
 
 export function isPrivateHost(hostname: string): boolean {
   return PRIVATE_IP_RANGES.some((pattern) => pattern.test(hostname));
+}
+
+/** Check if an IP address is in a private/reserved range (for DNS SSRF protection). */
+export function isPrivateIp(ip: string): boolean {
+  return PRIVATE_IP_RANGES.some((pattern) => pattern.test(ip));
 }
 
 export function validateHost(hostname: string, allowedHosts: string[]): boolean {

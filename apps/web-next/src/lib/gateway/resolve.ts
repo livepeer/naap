@@ -16,6 +16,7 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+// Process-local cache. Not consistent across serverless instances; use Redis for production.
 const CONFIG_CACHE = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 60_000; // 60 seconds
 

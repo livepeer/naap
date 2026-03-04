@@ -41,22 +41,29 @@ export async function resolveSecrets(
       }
 
       try {
-        const response = await fetch(`${BASE_SVC_URL}/api/secrets/${encodeURIComponent(key)}`, {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const response = await fetch(`${BASE_SVC_URL}/api/v1/secrets/${encodeURIComponent(key)}`, {
+          signal: controller.signal,
           headers: {
             ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
             'x-internal-service': 'service-gateway',
           },
         });
 
+        clearTimeout(timeoutId);
         if (response.ok) {
           const data = await response.json();
           const value = data.data?.value || data.value || '';
           secrets[ref] = value;
           SECRET_CACHE.set(key, { value, expiresAt: Date.now() + SECRET_CACHE_TTL_MS });
+        } else {
+          secrets[ref] = '';
+          SECRET_CACHE.set(key, { value: '', expiresAt: Date.now() + 30_000 });
         }
       } catch {
-        // Secret not found — leave as empty string
         secrets[ref] = '';
+        SECRET_CACHE.set(key, { value: '', expiresAt: Date.now() + 30_000 });
       }
     })
   );
@@ -76,7 +83,7 @@ export async function storeSecret(
   const key = `gw:${teamId}:${name}`;
 
   try {
-    const response = await fetch(`${BASE_SVC_URL}/api/secrets`, {
+    const response = await fetch(`${BASE_SVC_URL}/api/v1/secrets`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -108,7 +115,7 @@ export async function deleteSecret(
   const key = `gw:${teamId}:${name}`;
 
   try {
-    const response = await fetch(`${BASE_SVC_URL}/api/secrets/${encodeURIComponent(key)}`, {
+    const response = await fetch(`${BASE_SVC_URL}/api/v1/secrets/${encodeURIComponent(key)}`, {
       method: 'DELETE',
       headers: {
         Authorization: `Bearer ${authToken}`,
@@ -116,7 +123,9 @@ export async function deleteSecret(
       },
     });
 
-    SECRET_CACHE.delete(key);
+    if (response.ok) {
+      SECRET_CACHE.delete(key);
+    }
     return response.ok;
   } catch {
     return false;
