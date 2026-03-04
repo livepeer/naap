@@ -8,7 +8,7 @@
  *
  * Real data sources (Phase 1):
  *   kpi.successRate        ← /api/network/demand  (weighted success_ratio, delta vs prev window)
- *   kpi.orchestratorsOnline← /api/sla/compliance  (distinct addresses, latest vs prev hour)
+ *   kpi.orchestratorsOnline← /api/sla/compliance  (distinct addresses seen in last 72 h)
  *   kpi.dailyUsageMins     ← /api/network/demand  (sum total_inference_minutes, 24 h)
  *   kpi.dailyStreamCount   ← /api/network/demand  (sum total_streams, 24 h)
  *   pipelines              ← /api/network/demand  (grouped by pipeline, 24 h)
@@ -26,6 +26,7 @@ import {
   type DashboardKPI,
   type DashboardPipelineUsage,
   type DashboardGPUCapacity,
+  type DashboardOrchestrator,
 } from '@naap/plugin-sdk';
 
 import {
@@ -35,6 +36,7 @@ import {
   type NetworkDemandRow,
   type SLAComplianceRow,
 } from './api/leaderboard.js';
+import { fetchSubgraphFees } from './api/subgraph.js';
 import { mockProtocol } from './data/mock-protocol.js';
 import { mockFees }    from './data/mock-fees.js';
 import { mockPricing } from './data/mock-pricing.js';
@@ -97,7 +99,7 @@ async function resolveKPI(): Promise<DashboardKPI> {
     fetchNetworkDemand('1h'),
     fetchNetworkDemand('2h'),
     fetchGPUMetrics('1h'),
-    fetchSLACompliance('24h'),
+    fetchSLACompliance('72h'),
   ]);
 
   // --- Success Rate: compare latest 1 h window vs the previous one ---
@@ -110,16 +112,10 @@ async function resolveKPI(): Promise<DashboardKPI> {
   const currentSR = weightedSuccessRatio(latestDemand) * 100;
   const prevSR    = weightedSuccessRatio(prevDemand)   * 100;
 
-  // --- Orchestrators Online: distinct addresses in latest SLA hour vs previous ---
-  const slaWindows = byWindow<SLAComplianceRow>(slaRows);
-  const slaKeys    = sortedKeys(slaWindows);
-
-  const latestSLA = slaWindows.get(slaKeys.at(-1) ?? '') ?? [];
-  const prevSLA   = slaWindows.get(slaKeys.at(-2) ?? '') ?? [];
-
-  // Fall back to GPU metric row count if SLA has no data yet
-  const orchCount = countOrchestrators(latestSLA) || gpuRows.length;
-  const orchDelta = countOrchestrators(latestSLA) - countOrchestrators(prevSLA);
+  // --- Orchestrators Seen (72h): distinct addresses across the full 72 h period ---
+  // Fall back to GPU metric row count if SLA has no data yet.
+  const orchCount = countOrchestrators(slaRows) || gpuRows.length;
+  const orchDelta = 0;
 
   // --- Daily Usage & Streams: sum over the last 24 h window ---
   const dailyMins    = demand24h.reduce((s, r) => s + r.total_inference_minutes, 0);
@@ -162,21 +158,111 @@ async function resolvePipelines({ limit = 5 }: { limit?: number }): Promise<Dash
 // ---------------------------------------------------------------------------
 
 async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
-  const metrics = await fetchGPUMetrics('1h');
+  // Use a wider window for GPU count so intermittently-active GPUs aren't missed,
+  // but derive availability from the most recent hour only (current health signal).
+  const [metricsWide, metricsRecent] = await Promise.all([
+    fetchGPUMetrics('24h'),
+    fetchGPUMetrics('1h'),
+  ]);
 
-  // Total = distinct GPU IDs reporting in the last hour
-  const gpuIds   = new Set(metrics.map(m => m.gpu_id).filter(Boolean));
-  const totalGPUs = gpuIds.size || metrics.length;
+  // Total = distinct GPU IDs seen over the last 24 hours
+  const gpuIds    = new Set(metricsWide.map(m => m.gpu_id).filter(Boolean));
+  const totalGPUs = gpuIds.size || metricsWide.length;
 
-  // Available capacity proxy: avg(1 - failure_rate) across all active GPU rows.
-  // When failure_rate = 0 the GPU is fully healthy / available for work.
-  const avgAvailable = metrics.length > 0
+  // Available capacity proxy: avg(1 - failure_rate) over the last hour.
+  // Fall back to the wider window if the recent window has no data.
+  const sample = metricsRecent.length > 0 ? metricsRecent : metricsWide;
+  const avgAvailable = sample.length > 0
     ? Math.round(
-        (1 - metrics.reduce((s, m) => s + m.failure_rate, 0) / metrics.length) * 100
+        (1 - sample.reduce((s, m) => s + m.failure_rate, 0) / sample.length) * 100
       )
     : 100;
 
   return { totalGPUs, availableCapacity: avgAvailable };
+}
+
+// ---------------------------------------------------------------------------
+// Orchestrators resolver
+// ---------------------------------------------------------------------------
+
+async function resolveOrchestrators({ period = '72h' }: { period?: string }): Promise<DashboardOrchestrator[]> {
+  const rows = await fetchSLACompliance(period);
+
+  type Accum = {
+    knownSessions: number;
+    successSessions: number;
+    srSum: number;
+    srSessions: number;
+    slaSum: number;
+    slaSessions: number;
+    noSwapSum: number;
+    noSwapSessions: number;
+    pipelines: Set<string>;
+    gpuIds: Set<string>;
+  };
+
+  const byAddress = new Map<string, Accum>();
+
+  for (const row of rows) {
+    if (!row.orchestrator_address?.startsWith('0x')) continue;
+
+    if (!byAddress.has(row.orchestrator_address)) {
+      byAddress.set(row.orchestrator_address, {
+        knownSessions: 0, successSessions: 0,
+        srSum: 0, srSessions: 0,
+        slaSum: 0, slaSessions: 0,
+        noSwapSum: 0, noSwapSessions: 0,
+        pipelines: new Set(), gpuIds: new Set(),
+      });
+    }
+
+    const d = byAddress.get(row.orchestrator_address)!;
+    d.knownSessions += row.known_sessions ?? 0;
+    d.successSessions += row.success_sessions ?? 0;
+
+    if (row.success_ratio != null) {
+      d.srSum += row.success_ratio * row.known_sessions;
+      d.srSessions += row.known_sessions;
+    }
+    if (row.sla_score != null) {
+      d.slaSum += row.sla_score * row.known_sessions;
+      d.slaSessions += row.known_sessions;
+    }
+    if (row.no_swap_ratio != null) {
+      d.noSwapSum += row.no_swap_ratio * row.known_sessions;
+      d.noSwapSessions += row.known_sessions;
+    }
+    if (row.pipeline) d.pipelines.add(row.pipeline);
+    if (row.gpu_id) d.gpuIds.add(row.gpu_id);
+  }
+
+  return [...byAddress.entries()]
+    .map(([address, d]) => ({
+      address,
+      knownSessions: d.knownSessions,
+      successSessions: d.successSessions,
+      successRatio: d.srSessions > 0
+        ? Math.round((d.srSum / d.srSessions) * 1000) / 10
+        : 0,
+      noSwapRatio: d.noSwapSessions > 0
+        ? Math.round((d.noSwapSum / d.noSwapSessions) * 1000) / 10
+        : null,
+      slaScore: d.slaSessions > 0
+        ? Math.round(d.slaSum / d.slaSessions)
+        : null,
+      pipelines: [...d.pipelines].sort(),
+      gpuCount: d.gpuIds.size,
+    }))
+    .sort((a, b) => b.knownSessions - a.knownSessions);
+}
+
+async function resolveFees({ days }: { days?: number }) {
+  try {
+    return await fetchSubgraphFees(days);
+  } catch (error) {
+    console.warn('[dashboard-provider] subgraph fee fetch failed, falling back to mock fees', error);
+    return mockFees;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -192,13 +278,14 @@ async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
 export function registerMockDashboardProvider(eventBus: IEventBus): () => void {
   return createDashboardProvider(eventBus, {
     // --- Real data ---
-    kpi:         () => resolveKPI(),
-    pipelines:   ({ limit }) => resolvePipelines({ limit }),
-    gpuCapacity: () => resolveGPUCapacity(),
+    kpi:           () => resolveKPI(),
+    pipelines:     ({ limit }: { limit?: number }) => resolvePipelines({ limit }),
+    gpuCapacity:   () => resolveGPUCapacity(),
+    orchestrators: ({ period }: { period?: string }) => resolveOrchestrators({ period }),
 
     // --- Static fallbacks (no source yet) ---
     protocol: async () => mockProtocol,  // needs Livepeer protocol subgraph
-    fees:     async () => mockFees,      // fee_payment_eth is 0 on test network
+    fees:     ({ days }: { days?: number }) => resolveFees({ days }),
     pricing:  async () => mockPricing,   // no pricing endpoint exists
   });
 }

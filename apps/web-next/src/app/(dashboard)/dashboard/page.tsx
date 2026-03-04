@@ -11,7 +11,7 @@
  * describes what it needs (the query) and renders what it receives.
  */
 
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useDashboardQuery } from '@/hooks/useDashboardQuery';
 import { useJobFeedStream } from '@/hooks/useJobFeedStream';
@@ -23,6 +23,7 @@ import type {
   DashboardPipelineUsage,
   DashboardGPUCapacity,
   DashboardPipelinePricing,
+  DashboardOrchestrator,
   JobFeedEntry,
 } from '@naap/plugin-sdk'; // type-only import — erased at compile time
 import {
@@ -41,7 +42,20 @@ import {
   AlertCircle,
   Loader2,
   Timer,
+  List,
+  X,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
 } from 'lucide-react';
+import {
+  Bar,
+  BarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 // ============================================================================
 // GraphQL Query — the ONLY place data requirements are declared
@@ -61,9 +75,19 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
       totalBlocks
       totalStakedLPT
     }
-    fees(days: 7) {
+    fees(days: 180) {
       totalEth
-      entries { day eth }
+      totalUsd
+      oneDayVolumeUsd
+      oneDayVolumeEth
+      oneWeekVolumeUsd
+      oneWeekVolumeEth
+      volumeChangeUsd
+      volumeChangeEth
+      weeklyVolumeChangeUsd
+      weeklyVolumeChangeEth
+      dayData { dateS volumeEth volumeUsd }
+      weeklyData { date weeklyVolumeUsd weeklyVolumeEth }
     }
     pipelines(limit: 5) {
       name mins color
@@ -74,6 +98,9 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
     }
     pricing {
       pipeline unit price outputPerDollar
+    }
+    orchestrators {
+      address knownSessions successSessions successRatio noSwapRatio slaScore pipelines gpuCount
     }
   }
 `;
@@ -104,6 +131,23 @@ function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString();
+}
+
+function formatUsdCompact(n: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(n);
+}
+
+function formatUsd(n: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(n);
 }
 
 function formatTime(iso: string): string {
@@ -181,6 +225,7 @@ function KPICard({
   deltaUnit,
   deltaInvert,
   suffix,
+  actions,
 }: {
   icon: React.ElementType;
   iconColor: string;
@@ -190,6 +235,7 @@ function KPICard({
   deltaUnit?: string;
   deltaInvert?: boolean;
   suffix?: string;
+  actions?: React.ReactNode;
 }) {
   return (
     <div className="p-4 rounded-lg bg-card border border-border hover:border-border/80 transition-colors">
@@ -198,6 +244,7 @@ function KPICard({
           <Icon className="w-3.5 h-3.5" />
         </div>
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
+        {actions && <div className="ml-auto">{actions}</div>}
       </div>
       <div className="flex items-end justify-between">
         <div className="flex items-baseline gap-1">
@@ -210,7 +257,15 @@ function KPICard({
   );
 }
 
-function KPIRow({ data }: { data: DashboardKPI }) {
+function KPIRow({
+  data,
+  orchestratorsOpen,
+  onToggleOrchestrators,
+}: {
+  data: DashboardKPI;
+  orchestratorsOpen: boolean;
+  onToggleOrchestrators: () => void;
+}) {
   return (
     <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
       <KPICard
@@ -224,10 +279,23 @@ function KPIRow({ data }: { data: DashboardKPI }) {
       <KPICard
         icon={Server}
         iconColor="bg-muted text-muted-foreground"
-        label="Orchestrators Online"
+        label="Orchestrators seen in last 72 hours"
         value={data.orchestratorsOnline.value}
         delta={data.orchestratorsOnline.delta}
         deltaUnit=""
+        actions={
+          <button
+            onClick={onToggleOrchestrators}
+            title={orchestratorsOpen ? 'Hide raw data' : 'View raw orchestrator data'}
+            className={`p-0.5 rounded transition-colors ${
+              orchestratorsOpen
+                ? 'text-foreground bg-muted'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <List className="w-3 h-3" />
+          </button>
+        }
       />
       <KPICard
         icon={Clock}
@@ -297,38 +365,96 @@ function ProtocolCard({ data }: { data: DashboardProtocol }) {
 }
 
 function FeesCard({ data }: { data: DashboardFeesInfo }) {
-  const maxFee = Math.max(...data.entries.map(d => d.eth), 1);
+  const [grouping, setGrouping] = useState<'day' | 'week'>('week');
+  const [hovered, setHovered] = useState<{ x: number; y: number } | null>(null);
+
+  const chartData = useMemo(
+    () =>
+      grouping === 'day'
+        ? data.dayData.map((d) => ({ x: d.dateS, y: d.volumeUsd }))
+        : data.weeklyData.map((w) => ({ x: w.date, y: w.weeklyVolumeUsd })),
+    [data.dayData, data.weeklyData, grouping]
+  );
+
+  const baseValue = grouping === 'day' ? data.oneDayVolumeUsd : data.oneWeekVolumeUsd;
+  const pctChange = grouping === 'day' ? data.volumeChangeUsd : data.weeklyVolumeChangeUsd;
+  const displayValue = hovered?.y ?? baseValue;
+  const displayDate = hovered
+    ? new Date(hovered.x * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : null;
 
   return (
     <div className="p-4 rounded-lg bg-card border border-border">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <div className="p-1 rounded-md bg-muted text-muted-foreground">
-            <Coins className="w-3.5 h-3.5" />
-          </div>
-          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Fees (7d)</span>
-        </div>
-        <span className="text-sm font-semibold font-mono text-foreground">{data.totalEth.toFixed(1)} ETH</span>
-      </div>
-      <div className="relative">
-        <div className="flex items-end gap-1.5 h-24">
-          {data.entries.map((d) => (
-            <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
-              <div className="w-full relative">
-                <div
-                  className="w-full bg-emerald-500 rounded-t-sm hover:bg-emerald-400 transition-colors"
-                  style={{ height: `${(d.eth / maxFee) * 80}px` }}
-                  title={`${d.eth} ETH`}
-                />
-              </div>
-              <span className="text-[10px] text-muted-foreground">{d.day}</span>
+      <div className="flex items-start justify-between mb-3">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <div className="p-1 rounded-md bg-muted text-muted-foreground">
+              <Coins className="w-3.5 h-3.5" />
             </div>
-          ))}
+            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Fees Paid</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-semibold text-foreground font-mono">{formatUsd(displayValue)}</span>
+            {!hovered ? <DeltaBadge value={pctChange} unit="%" /> : null}
+          </div>
+          <div className="text-[10px] text-muted-foreground">
+            {displayDate ?? (grouping === 'day' ? 'Latest day' : 'Latest full week')} • Total {formatUsdCompact(data.totalUsd)} ({data.totalEth.toFixed(2)} ETH)
+          </div>
         </div>
-        <div className="absolute inset-0 rounded-lg backdrop-blur-[2px] bg-card/60 flex flex-col items-center justify-center gap-1.5">
-          <span className="text-xs font-semibold text-foreground/70 uppercase tracking-widest">Coming Soon</span>
-          <span className="text-[10px] text-muted-foreground">Fee data not yet available</span>
+        <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-md bg-muted/30 border border-border">
+          <button
+            onClick={() => setGrouping('day')}
+            className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
+              grouping === 'day' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            D
+          </button>
+          <button
+            onClick={() => setGrouping('week')}
+            className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
+              grouping === 'week' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            W
+          </button>
         </div>
+      </div>
+      <div className="h-28">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={chartData}
+            onMouseMove={(e) => {
+              const point = e?.activePayload?.[0]?.payload;
+              if (point) {
+                setHovered({ x: Number(point.x), y: Number(point.y) });
+              } else {
+                setHovered(null);
+              }
+            }}
+            onMouseLeave={() => setHovered(null)}
+          >
+            <XAxis
+              dataKey="x"
+              tickLine={false}
+              axisLine={false}
+              minTickGap={18}
+              tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+              tickFormatter={(x) =>
+                new Date(Number(x) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              }
+            />
+            <YAxis
+              width={40}
+              tickLine={false}
+              axisLine={false}
+              tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+              tickFormatter={(v) => formatUsdCompact(Number(v))}
+            />
+            <Tooltip cursor={{ fill: 'rgba(34, 197, 94, 0.08)' }} content={() => null} />
+            <Bar dataKey="y" radius={[4, 4, 0, 0]} fill="hsl(142 71% 45%)" />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
@@ -532,6 +658,170 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
 }
 
 // ============================================================================
+// Orchestrator Raw Data Table
+// ============================================================================
+
+type OrchestratorSortCol = keyof Pick<
+  DashboardOrchestrator,
+  'address' | 'knownSessions' | 'successRatio' | 'noSwapRatio' | 'slaScore' | 'gpuCount'
+>;
+
+function OrchestratorTableCard({
+  data,
+  onClose,
+}: {
+  data: DashboardOrchestrator[];
+  onClose: () => void;
+}) {
+  const filterInputRef = useRef<HTMLInputElement>(null);
+  const [filter, setFilter] = useState('');
+  const [sort, setSort] = useState<{ col: OrchestratorSortCol; dir: 'asc' | 'desc' }>({
+    col: 'knownSessions',
+    dir: 'desc',
+  });
+
+  useEffect(() => {
+    filterInputRef.current?.focus();
+  }, []);
+
+  function toggleSort(col: OrchestratorSortCol) {
+    setSort((prev) =>
+      prev.col === col
+        ? { col, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { col, dir: 'desc' }
+    );
+  }
+
+  const filtered = useMemo(() => {
+    const q = filter.toLowerCase().trim();
+    return q ? data.filter((o) => o.address.toLowerCase().includes(q)) : data;
+  }, [data, filter]);
+
+  const sorted = useMemo(() => {
+    const { col, dir } = sort;
+    return [...filtered].sort((a, b) => {
+      const av = a[col] ?? -Infinity;
+      const bv = b[col] ?? -Infinity;
+      const cmp = typeof av === 'string'
+        ? (av as string).localeCompare(bv as string)
+        : (av as number) - (bv as number);
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }, [filtered, sort]);
+
+  function SortIcon({ col }: { col: OrchestratorSortCol }) {
+    if (sort.col !== col) return <ChevronsUpDown className="w-2.5 h-2.5 opacity-30" />;
+    return sort.dir === 'asc'
+      ? <ChevronUp className="w-2.5 h-2.5" />
+      : <ChevronDown className="w-2.5 h-2.5" />;
+  }
+
+  function Th({ col, label, right }: { col: OrchestratorSortCol; label: string; right?: boolean }) {
+    return (
+      <th
+        className={`pb-2 font-medium cursor-pointer select-none hover:text-foreground transition-colors ${right ? 'text-right' : 'text-left'}`}
+        onClick={() => toggleSort(col)}
+      >
+        <span className={`inline-flex items-center gap-1 ${right ? 'flex-row-reverse' : ''}`}>
+          {label}
+          <SortIcon col={col} />
+        </span>
+      </th>
+    );
+  }
+
+  function ScoreBadge({ value, good = 95, warn = 80 }: { value: number | null; good?: number; warn?: number }) {
+    if (value == null) return <span className="text-muted-foreground">—</span>;
+    const color = value >= good ? 'text-emerald-400' : value >= warn ? 'text-yellow-400' : 'text-red-400';
+    return <span className={`font-mono ${color}`}>{value.toFixed(1)}</span>;
+  }
+
+  return (
+    <div className="p-4 rounded-lg bg-card border border-border">
+      <div className="sticky top-0 z-10 -mx-4 px-4 py-1 mb-3 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 border-b border-border/60 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="p-1 rounded-md bg-muted text-muted-foreground">
+            <Server className="w-3.5 h-3.5" />
+          </div>
+          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+            Orchestrators — 72h Raw Data
+          </span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono">
+            {sorted.length}/{data.length}
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-0.5 text-muted-foreground hover:text-foreground transition-colors rounded"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <div className="mb-3">
+        <input
+          ref={filterInputRef}
+          type="text"
+          placeholder="Filter by address…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="w-full text-xs bg-muted/40 border border-border rounded px-2.5 py-1.5 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-border"
+        />
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-muted-foreground border-b border-border">
+              <Th col="address" label="Address" />
+              <Th col="knownSessions" label="Sessions" right />
+              <Th col="successRatio" label="Success %" right />
+              <Th col="noSwapRatio" label="No-Swap %" right />
+              <Th col="slaScore" label="SLA" right />
+              <Th col="gpuCount" label="GPUs" right />
+              <th className="text-left pb-2 font-medium">Pipelines</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((o) => (
+              <tr key={o.address} className="border-b border-border/50 last:border-0 hover:bg-muted/10 transition-colors">
+                <td className="py-1.5 font-mono text-foreground" title={o.address}>
+                  {o.address.slice(0, 6)}…{o.address.slice(-4)}
+                </td>
+                <td className="py-1.5 text-right font-mono text-foreground">
+                  {o.knownSessions.toLocaleString()}
+                </td>
+                <td className="py-1.5 text-right">
+                  <ScoreBadge value={o.successRatio} good={95} warn={80} />
+                  <span className="text-muted-foreground">%</span>
+                </td>
+                <td className="py-1.5 text-right">
+                  {o.noSwapRatio != null
+                    ? <><ScoreBadge value={o.noSwapRatio} good={95} warn={80} /><span className="text-muted-foreground">%</span></>
+                    : <span className="text-muted-foreground">—</span>}
+                </td>
+                <td className="py-1.5 text-right">
+                  <ScoreBadge value={o.slaScore} good={90} warn={70} />
+                </td>
+                <td className="py-1.5 text-right font-mono text-foreground">{o.gpuCount}</td>
+                <td className="py-1.5 text-muted-foreground max-w-[220px] truncate" title={o.pipelines.join(', ')}>
+                  {o.pipelines.join(', ')}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {sorted.length === 0 && (
+          <div className="flex items-center justify-center h-10 text-xs text-muted-foreground">
+            No orchestrators match the filter
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // Polling Interval Selector
 // ============================================================================
 
@@ -582,6 +872,8 @@ export default function DashboardPage() {
   useAuth();
 
   const [pollInterval, setPollInterval] = useState(getStoredPollInterval);
+  const [orchestratorsOpen, setOrchestratorsOpen] = useState(false);
+  const orchestratorsPanelRef = useRef<HTMLDivElement>(null);
 
   const handlePollIntervalChange = (ms: number) => {
     setPollInterval(ms);
@@ -595,6 +887,12 @@ export default function DashboardPage() {
   );
 
   const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8 });
+
+  useEffect(() => {
+    if (orchestratorsOpen && data?.orchestrators && data.orchestrators.length > 0) {
+      orchestratorsPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [orchestratorsOpen, data?.orchestrators]);
 
   // Loading state
   if (loading && !data) {
@@ -617,7 +915,11 @@ export default function DashboardPage() {
 
       {/* Row 1: Key Performance Indicators */}
       {data?.kpi ? (
-        <KPIRow data={data.kpi} />
+        <KPIRow
+          data={data.kpi}
+          orchestratorsOpen={orchestratorsOpen}
+          onToggleOrchestrators={() => setOrchestratorsOpen((v) => !v)}
+        />
       ) : (
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
           <WidgetUnavailable label="KPI" />
@@ -637,6 +939,16 @@ export default function DashboardPage() {
         <JobFeedCard jobs={jobs} connected={jobFeedConnected} />
         {data?.pricing ? <PricingCard data={data.pricing} /> : <WidgetUnavailable label="Pricing" />}
       </div>
+
+      {/* Orchestrator raw data table (below all tiles, shown when toggled) */}
+      {orchestratorsOpen && data?.orchestrators && data.orchestrators.length > 0 && (
+        <div ref={orchestratorsPanelRef}>
+          <OrchestratorTableCard
+            data={data.orchestrators}
+            onClose={() => setOrchestratorsOpen(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }

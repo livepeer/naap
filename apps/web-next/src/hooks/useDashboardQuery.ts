@@ -111,7 +111,7 @@ export function useDashboardQuery<T = Record<string, unknown>>(
         setData((response.data as T) ?? null);
         // Partial errors: data is present but some fields had errors
         if (response.errors && response.errors.length > 0) {
-          console.warn('[useDashboardQuery] Partial errors:', response.errors);
+          console.warn('[useDashboardQuery] Partial errors:', JSON.stringify(response.errors, null, 2));
         }
         setError(null);
       }

@@ -57,6 +57,7 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     pipelines(limit: Int): [PipelineUsage!]
     gpuCapacity: GPUCapacity
     pricing: [PipelinePricing!]
+    orchestrators(period: String): [OrchestratorRow!]
   }
 
   type KPI {
@@ -80,12 +81,29 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
 
   type FeesInfo {
     totalEth: Float!
-    entries: [FeeEntry!]!
+    totalUsd: Float!
+    oneDayVolumeUsd: Float!
+    oneDayVolumeEth: Float!
+    oneWeekVolumeUsd: Float!
+    oneWeekVolumeEth: Float!
+    volumeChangeUsd: Float!
+    volumeChangeEth: Float!
+    weeklyVolumeChangeUsd: Float!
+    weeklyVolumeChangeEth: Float!
+    dayData: [FeeDayData!]!
+    weeklyData: [FeeWeeklyData!]!
   }
 
-  type FeeEntry {
-    day: String!
-    eth: Float!
+  type FeeDayData {
+    dateS: Int!
+    volumeEth: Float!
+    volumeUsd: Float!
+  }
+
+  type FeeWeeklyData {
+    date: Int!
+    weeklyVolumeUsd: Float!
+    weeklyVolumeEth: Float!
   }
 
   type PipelineUsage {
@@ -104,6 +122,17 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     unit: String!
     price: Float!
     outputPerDollar: String!
+  }
+
+  type OrchestratorRow {
+    address: String!
+    knownSessions: Int!
+    successSessions: Int!
+    successRatio: Float!
+    noSwapRatio: Float
+    slaScore: Float
+    pipelines: [String!]!
+    gpuCount: Int!
   }
 `;
 
@@ -133,16 +162,34 @@ export interface DashboardProtocol {
   totalStakedLPT: number;
 }
 
-/** Single fee entry for a day */
-export interface DashboardFeeEntry {
-  day: string;
-  eth: number;
+/** Single daily fee datapoint */
+export interface DashboardFeeDayData {
+  dateS: number;
+  volumeEth: number;
+  volumeUsd: number;
+}
+
+/** Single weekly fee datapoint */
+export interface DashboardFeeWeeklyData {
+  date: number;
+  weeklyVolumeUsd: number;
+  weeklyVolumeEth: number;
 }
 
 /** Fees widget data */
 export interface DashboardFeesInfo {
   totalEth: number;
-  entries: DashboardFeeEntry[];
+  totalUsd: number;
+  oneDayVolumeUsd: number;
+  oneDayVolumeEth: number;
+  oneWeekVolumeUsd: number;
+  oneWeekVolumeEth: number;
+  volumeChangeUsd: number;
+  volumeChangeEth: number;
+  weeklyVolumeChangeUsd: number;
+  weeklyVolumeChangeEth: number;
+  dayData: DashboardFeeDayData[];
+  weeklyData: DashboardFeeWeeklyData[];
 }
 
 /** Pipeline usage entry */
@@ -166,6 +213,21 @@ export interface DashboardPipelinePricing {
   outputPerDollar: string;
 }
 
+/** Single orchestrator row aggregated over a time window */
+export interface DashboardOrchestrator {
+  address: string;
+  knownSessions: number;
+  successSessions: number;
+  /** Weighted success rate as a percentage (0–100) */
+  successRatio: number;
+  /** Weighted no-swap ratio as a percentage (0–100), null if unavailable */
+  noSwapRatio: number | null;
+  /** Weighted SLA score (0–100), null if unavailable */
+  slaScore: number | null;
+  pipelines: string[];
+  gpuCount: number;
+}
+
 /** Full dashboard query response shape (all fields optional for partial providers) */
 export interface DashboardData {
   kpi?: DashboardKPI | null;
@@ -174,6 +236,7 @@ export interface DashboardData {
   pipelines?: DashboardPipelineUsage[] | null;
   gpuCapacity?: DashboardGPUCapacity | null;
   pricing?: DashboardPipelinePricing[] | null;
+  orchestrators?: DashboardOrchestrator[] | null;
 }
 
 // ============================================================================
@@ -229,4 +292,5 @@ export interface DashboardResolvers {
   pipelines?: (args: { limit?: number }) => DashboardPipelineUsage[] | Promise<DashboardPipelineUsage[]>;
   gpuCapacity?: () => DashboardGPUCapacity | Promise<DashboardGPUCapacity>;
   pricing?: () => DashboardPipelinePricing[] | Promise<DashboardPipelinePricing[]>;
+  orchestrators?: (args: { period?: string }) => DashboardOrchestrator[] | Promise<DashboardOrchestrator[]>;
 }

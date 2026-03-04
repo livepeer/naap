@@ -102,6 +102,24 @@ function makeFetchMock() {
       body = { metrics: STUB_GPU };
     } else if (url.includes('/api/sla/compliance')) {
       body = { compliance: STUB_SLA };
+    } else if (url.includes('thegraph.com')) {
+      body = {
+        data: {
+          days: [
+            { date: 1761523200, volumeETH: '12.4', volumeUSD: '31200' },
+            { date: 1761609600, volumeETH: '15.1', volumeUSD: '37800' },
+            { date: 1761696000, volumeETH: '14.8', volumeUSD: '35900' },
+            { date: 1761782400, volumeETH: '18.3', volumeUSD: '45600' },
+            { date: 1761868800, volumeETH: '16.9', volumeUSD: '42100' },
+            { date: 1761955200, volumeETH: '11.2', volumeUSD: '28700' },
+            { date: 1762041600, volumeETH: '13.7', volumeUSD: '36200' },
+          ],
+          protocol: {
+            totalVolumeETH: '102.4',
+            totalVolumeUSD: '244890',
+          },
+        },
+      };
     } else {
       body = {};
     }
@@ -190,7 +208,15 @@ describe('registerMockDashboardProvider', () => {
       query: `{
         kpi { successRate { value delta } orchestratorsOnline { value delta } dailyUsageMins { value delta } dailyStreamCount { value delta } }
         protocol { currentRound blockProgress totalBlocks totalStakedLPT }
-        fees { totalEth entries { day eth } }
+        fees {
+          totalEth totalUsd
+          oneDayVolumeUsd oneDayVolumeEth
+          oneWeekVolumeUsd oneWeekVolumeEth
+          volumeChangeUsd volumeChangeEth
+          weeklyVolumeChangeUsd weeklyVolumeChangeEth
+          dayData { dateS volumeEth volumeUsd }
+          weeklyData { date weeklyVolumeUsd weeklyVolumeEth }
+        }
         pipelines { name mins color }
         gpuCapacity { totalGPUs availableCapacity }
         pricing { pipeline unit price outputPerDollar }
@@ -219,10 +245,12 @@ describe('registerMockDashboardProvider', () => {
     expect(response.data!.protocol).toBeDefined();
     expect(response.data!.protocol!.currentRound).toBe(4127);
 
-    // Fees: static fallback
+    // Fees: returned by subgraph-backed resolver
     expect(response.data!.fees).toBeDefined();
     expect(response.data!.fees!.totalEth).toBe(102.4);
-    expect(response.data!.fees!.entries).toHaveLength(7);
+    expect(response.data!.fees!.totalUsd).toBe(244890);
+    expect(response.data!.fees!.dayData).toHaveLength(7);
+    expect(response.data!.fees!.weeklyData.length).toBeGreaterThan(0);
 
     // Pipelines: from API, only non-null display names
     expect(response.data!.pipelines).toBeDefined();
@@ -284,6 +312,31 @@ describe('registerMockDashboardProvider', () => {
     expect(pipelines.length).toBe(2);
     // streamdiffusion-sdxl-v2v has 8.5 mins > streamdiffusion-sdxl's 5.0 mins
     expect(pipelines[0].mins).toBeGreaterThanOrEqual(pipelines[1].mins);
+  });
+
+  it('returns orchestrators aggregated from SLA compliance data', async () => {
+    registerMockDashboardProvider(mockEventBus as any);
+
+    const response = (await mockEventBus._invoke(DASHBOARD_QUERY_EVENT, {
+      query: '{ orchestrators { address knownSessions successSessions successRatio noSwapRatio slaScore pipelines gpuCount } }',
+    })) as DashboardQueryResponse;
+
+    expect(response.errors).toBeUndefined();
+    const orchs = response.data!.orchestrators!;
+    expect(orchs.length).toBe(2); // 0xaaa and 0xbbb from STUB_SLA
+
+    // 0xaaa has more sessions (3 + 4 = 7) so it sorts first
+    expect(orchs[0].address).toBe('0xaaa');
+    expect(orchs[0].knownSessions).toBe(7);
+    expect(orchs[0].successSessions).toBe(7);
+    expect(orchs[0].successRatio).toBe(100);
+    expect(orchs[0].noSwapRatio).toBe(100);
+    expect(orchs[0].slaScore).toBe(100);
+    expect(orchs[0].gpuCount).toBe(1);
+    expect(orchs[0].pipelines).toContain('streamdiffusion-sdxl');
+
+    expect(orchs[1].address).toBe('0xbbb');
+    expect(orchs[1].knownSessions).toBe(2);
   });
 
   it('cleanup unregisters the handler', () => {
