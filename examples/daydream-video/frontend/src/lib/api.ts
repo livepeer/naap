@@ -38,7 +38,7 @@ const AUTH_TOKEN_KEY = 'naap_auth_token';
 
 // Get auth token from available sources
 // Priority: 1) shell context (iframe mode), 2) localStorage (UMD mode)
-function getAuthToken(): string | null {
+export function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null;
 
   // 1. Try shell context (set in iframe mode via main.tsx)
