@@ -406,6 +406,8 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
           <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-md bg-muted/30 border border-border">
             <button
               onClick={() => setGrouping('day')}
+              aria-label="Show daily fees"
+              aria-pressed={grouping === 'day'}
               className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
                 grouping === 'day' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
               }`}
@@ -414,6 +416,8 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
             </button>
             <button
               onClick={() => setGrouping('week')}
+              aria-label="Show weekly fees"
+              aria-pressed={grouping === 'week'}
               className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
                 grouping === 'week' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
               }`}
