@@ -219,17 +219,17 @@ export const ForumPage: React.FC = () => {
   const currentUser = getCurrentUser();
 
   return (
-    <div className="flex gap-6 h-full min-h-0">
+    <div className="flex gap-4 h-full min-h-0">
       {/* Layout: h-full min-h-0 requires parent height (plugin shell h-[calc(100vh-8rem)]). */}
       {/* Main Content - flex column with sticky header and scrollable posts */}
       <div className="flex-1 flex flex-col min-h-0">
         {/* Sticky Header - filters, new post, summary stay fixed while posts scroll */}
-        <div className="flex-shrink-0 space-y-6 pb-6">
+        <div className="flex-shrink-0 space-y-3 pb-3">
           {/* Title + New Post */}
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-outfit font-bold text-text-primary">Community Hub</h1>
-              <p className="text-text-secondary mt-1">Ask questions, share knowledge, help others</p>
+              <h1 className="text-lg font-semibold text-text-primary">Community Hub</h1>
+              <p className="text-text-secondary mt-1 text-[13px]">Ask questions, share knowledge, help others</p>
             </div>
             <button
               onClick={() => {
@@ -239,7 +239,7 @@ export const ForumPage: React.FC = () => {
                 }
                 setShowCreateModal(true);
               }}
-              className="flex items-center gap-2 px-6 py-3 bg-accent-emerald text-white rounded-xl font-bold shadow-lg shadow-accent-emerald/20 hover:bg-accent-emerald/90 transition-all"
+              className="flex items-center gap-2 px-3 py-1.5 bg-accent-emerald text-white rounded-md text-xs font-medium hover:bg-accent-emerald/90 transition-all"
             >
               <Plus size={18} /> New Post
             </button>
@@ -248,31 +248,31 @@ export const ForumPage: React.FC = () => {
           {/* Search and Filters */}
           <div className="flex items-center gap-4">
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary opacity-40" size={12} />
               <input
                 type="text"
                 placeholder="Search discussions..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-bg-secondary border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-accent-blue"
+                className="w-full bg-bg-secondary border border-white/10 rounded-lg py-1.5 pl-9 pr-3 text-xs focus:outline-none focus:border-accent-blue"
               />
             </div>
 
-            {/* Sort */}
-            <div className="flex bg-bg-secondary border border-white/10 rounded-xl p-1">
+            {/* Sort — segmented control */}
+            <div className="flex items-center gap-0.5 rounded-md p-0.5" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}>
               {[
-                { value: 'recent', label: 'Recent', icon: <Clock size={14} /> },
-                { value: 'popular', label: 'Popular', icon: <TrendingUp size={14} /> },
-                { value: 'unanswered', label: 'Unanswered', icon: <HelpCircle size={14} /> },
+                { value: 'recent', label: 'Recent', icon: <Clock size={13} /> },
+                { value: 'popular', label: 'Popular', icon: <TrendingUp size={13} /> },
+                { value: 'unanswered', label: 'Unanswered', icon: <HelpCircle size={13} /> },
               ].map((sort) => (
                 <button
                   key={sort.value}
                   onClick={() => setSortBy(sort.value as 'recent' | 'popular' | 'unanswered')}
-                  className={`flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                    sortBy === sort.value
-                      ? 'bg-accent-blue text-white'
-                      : 'text-text-secondary hover:text-text-primary'
-                  }`}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors"
+                  style={{
+                    backgroundColor: sortBy === sort.value ? 'rgba(255,255,255,0.1)' : 'transparent',
+                    color: sortBy === sort.value ? '#ffffff' : 'rgba(255,255,255,0.3)',
+                  }}
                 >
                   {sort.icon} {sort.label}
                 </button>
@@ -280,17 +280,17 @@ export const ForumPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Category Tabs */}
-          <div className="flex flex-wrap gap-2">
+          {/* Category filters — inline text pills */}
+          <div className="flex flex-wrap items-center gap-1">
             {CATEGORIES.map((cat) => (
               <button
                 key={cat.value}
                 onClick={() => setCategoryFilter(cat.value)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  categoryFilter === cat.value
-                    ? 'bg-accent-blue text-white'
-                    : 'bg-bg-secondary text-text-secondary hover:text-text-primary border border-white/10'
-                }`}
+                className="px-2 py-0.5 rounded text-xs font-medium transition-colors"
+                style={{
+                  backgroundColor: categoryFilter === cat.value ? 'rgba(255,255,255,0.1)' : 'transparent',
+                  color: categoryFilter === cat.value ? '#ffffff' : 'rgba(255,255,255,0.3)',
+                }}
               >
                 {cat.label}
               </button>
@@ -298,7 +298,7 @@ export const ForumPage: React.FC = () => {
           </div>
 
           {/* Summary Card - stays with header */}
-          <Card className="!p-4">
+          <Card className="!p-3">
             <div className="flex items-center gap-4 text-sm">
               <span className="font-bold text-text-primary">
                 {loading ? '…' : total}
@@ -315,7 +315,7 @@ export const ForumPage: React.FC = () => {
         <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="animate-spin text-accent-blue" size={32} />
+            <Loader2 className="animate-spin text-text-secondary" size={20} />
           </div>
         ) : (
           <div className="space-y-4 pr-2">
@@ -327,23 +327,23 @@ export const ForumPage: React.FC = () => {
               >
                 <div className="flex items-start gap-4">
                   {/* Vote Column */}
-                  <div className="flex flex-col items-center gap-1 min-w-[60px]">
+                  <div className="flex flex-col items-center gap-1 min-w-[48px]">
                     <button
                       onClick={(e) => handleVote(post.id, e)}
-                      className={`p-2 rounded-lg transition-all ${
+                      className={`p-1.5 rounded-md transition-all ${
                         votedPosts.has(post.id)
                           ? 'bg-accent-emerald/20 text-accent-emerald'
                           : 'hover:bg-accent-emerald/10 text-text-secondary hover:text-accent-emerald'
                       }`}
                     >
-                      <ThumbsUp size={18} />
+                      <ThumbsUp size={14} />
                     </button>
                     <span className="font-mono font-bold text-text-primary">{post.upvotes}</span>
                   </div>
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       {post.isPinned && (
                         <Badge variant="amber">Pinned</Badge>
                       )}
@@ -384,19 +384,19 @@ export const ForumPage: React.FC = () => {
                       </span>
                     </div>
 
-                    <h3 className="text-lg font-bold text-text-primary hover:text-accent-blue transition-colors mb-2 line-clamp-1">
+                    <h3 className="text-sm font-semibold text-text-primary hover:text-accent-blue transition-colors mb-1 line-clamp-1">
                       {post.title}
                     </h3>
 
-                    <p className="text-sm text-text-secondary line-clamp-2 mb-3">
+                    <p className="text-xs text-text-secondary line-clamp-2 mb-2">
                       {post.content.replace(/[#*`]/g, '').slice(0, 200)}...
                     </p>
 
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-1 text-text-secondary text-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1 text-text-secondary text-xs">
                         <MessageSquare size={14} /> {post.commentCount} answers
                       </div>
-                      <div className="flex items-center gap-1 text-text-secondary text-sm">
+                      <div className="flex items-center gap-1 text-text-secondary text-xs">
                         {post.viewCount} views
                       </div>
                       <div className="flex gap-1 flex-wrap">
@@ -420,9 +420,9 @@ export const ForumPage: React.FC = () => {
             ))}
 
             {posts.length === 0 && (
-              <Card className="text-center py-16">
-                <Users size={48} className="mx-auto mb-4 text-text-secondary opacity-30" />
-                <h3 className="text-lg font-bold text-text-primary mb-2">No posts found</h3>
+              <Card className="text-center py-10">
+                <Users size={32} className="mx-auto mb-4 text-text-secondary opacity-30" />
+                <h3 className="text-sm font-semibold text-text-primary mb-2">No posts found</h3>
                 <p className="text-text-secondary">Start a new discussion or try a different search</p>
               </Card>
             )}
@@ -432,7 +432,7 @@ export const ForumPage: React.FC = () => {
                 <div ref={loadMoreRef} className="h-4" aria-hidden="true" />
                 <div className="text-center py-4">
                   {loadingMore ? (
-                    <Loader2 className="animate-spin text-accent-blue mx-auto" size={24} />
+                    <Loader2 className="animate-spin text-text-secondary mx-auto" size={16} />
                   ) : (
                     <span className="text-text-secondary text-sm">
                       Showing {posts.length} of {total} posts — scroll for more
@@ -447,11 +447,11 @@ export const ForumPage: React.FC = () => {
       </div>
 
       {/* Sidebar */}
-      <div className="w-72 space-y-6 hidden lg:block">
+      <div className="w-64 space-y-4 hidden lg:block">
         {/* Your Stats */}
         {currentUser && (
           <Card>
-            <h3 className="font-bold text-text-primary mb-3 flex items-center gap-2">
+            <h3 className="text-xs font-semibold text-text-primary mb-3 flex items-center gap-2">
               <Trophy size={16} className="text-accent-amber" /> Welcome
             </h3>
             <div className="text-sm text-text-primary">
@@ -462,7 +462,7 @@ export const ForumPage: React.FC = () => {
 
         {/* Leaderboard */}
         <Card>
-          <h3 className="font-bold text-text-primary mb-3 flex items-center gap-2">
+          <h3 className="text-xs font-semibold text-text-primary mb-3 flex items-center gap-2">
             <Trophy size={16} className="text-accent-amber" /> Top Contributors
           </h3>
           <div className="space-y-3">
@@ -489,7 +489,7 @@ export const ForumPage: React.FC = () => {
 
         {/* Popular Tags */}
         <Card>
-          <h3 className="font-bold text-text-primary mb-3 flex items-center gap-2">
+          <h3 className="text-xs font-semibold text-text-primary mb-3 flex items-center gap-2">
             <Tag size={16} className="text-accent-blue" /> Popular Tags
           </h3>
           <div className="flex flex-wrap gap-2">
