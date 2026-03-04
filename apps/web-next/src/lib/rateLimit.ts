@@ -147,6 +147,17 @@ export const rateLimiters = {
     }),
 
   /**
+   * Rate limit for password reset requests
+   * 3 requests per 15 minutes per IP
+   */
+  forgotPassword: (ip: string) =>
+    rateLimit(ip, {
+      limit: 3,
+      window: 900,
+      identifier: 'forgot-password',
+    }),
+
+  /**
    * Strict rate limit for registration
    * 5 requests per hour per IP
    */
