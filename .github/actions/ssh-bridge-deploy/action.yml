@@ -1,0 +1,194 @@
+name: 'SSH Bridge Deploy'
+description: 'Deploy to a remote machine via NaaP SSH Bridge connector. Submits a deployment script, polls for completion, streams logs, and updates GitHub Deployment status.'
+branding:
+  icon: 'terminal'
+  color: 'gray-dark'
+
+inputs:
+  naap-url:
+    description: 'NaaP gateway base URL (e.g., https://naap.dev)'
+    required: true
+  api-key:
+    description: 'Gateway API key (gw_xxx) for the ssh-bridge connector'
+    required: true
+  host:
+    description: 'Target SSH host (IP or hostname)'
+    required: true
+  port:
+    description: 'Target SSH port'
+    default: '22'
+  username:
+    description: 'SSH username on the remote host'
+    required: true
+  script:
+    description: 'Deployment script content (multi-line bash)'
+    required: true
+  env:
+    description: 'JSON object of environment variables to inject into the script'
+    default: '{}'
+  timeout:
+    description: 'Script execution timeout in milliseconds'
+    default: '1800000'
+  poll-interval:
+    description: 'Job status poll interval in seconds'
+    default: '15'
+  working-directory:
+    description: 'Remote working directory for the script'
+    default: '/tmp'
+  environment:
+    description: 'GitHub Deployment environment name'
+    default: 'production'
+  create-deployment:
+    description: 'Create a GitHub Deployment and update its status (true/false)'
+    default: 'true'
+
+outputs:
+  job-id:
+    description: 'SSH Bridge async job ID'
+    value: ${{ steps.submit.outputs.job-id }}
+  exit-code:
+    description: 'Remote script exit code'
+    value: ${{ steps.poll.outputs.exit-code }}
+  duration:
+    description: 'Total execution time in seconds'
+    value: ${{ steps.poll.outputs.duration }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create GitHub Deployment
+      id: deployment
+      if: inputs.create-deployment == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        DEPLOY_ID=$(gh api repos/${{ github.repository }}/deployments \
+          -f ref="${{ github.sha }}" \
+          -f environment="${{ inputs.environment }}" \
+          -f description="SSH Bridge deploy to ${{ inputs.host }}" \
+          -F auto_merge=false \
+          -f required_contexts='[]' \
+          --jq '.id' 2>/dev/null || echo "")
+
+        if [ -n "$DEPLOY_ID" ]; then
+          echo "deployment-id=$DEPLOY_ID" >> $GITHUB_OUTPUT
+          gh api repos/${{ github.repository }}/deployments/$DEPLOY_ID/statuses \
+            -f state=pending \
+            -f description="Submitting deployment script..." \
+            -f log_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            2>/dev/null || true
+          echo "::notice::GitHub Deployment #$DEPLOY_ID created (environment: ${{ inputs.environment }})"
+        fi
+
+    - name: Submit deployment script
+      id: submit
+      shell: bash
+      run: |
+        RESPONSE=$(curl -sf -w "\n%{http_code}" -X POST \
+          "${{ inputs.naap-url }}/api/v1/gw/ssh-bridge/exec/script" \
+          -H "Authorization: Bearer ${{ inputs.api-key }}" \
+          -H "Content-Type: application/json" \
+          -d "$(jq -n \
+            --arg host "${{ inputs.host }}" \
+            --argjson port ${{ inputs.port }} \
+            --arg username "${{ inputs.username }}" \
+            --arg script "${{ inputs.script }}" \
+            --argjson env '${{ inputs.env }}' \
+            --argjson timeout ${{ inputs.timeout }} \
+            --arg workingDirectory "${{ inputs.working-directory }}" \
+            '{host: $host, port: $port, username: $username, script: $script, env: $env, timeout: $timeout, workingDirectory: $workingDirectory}'
+          )")
+
+        HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+        BODY=$(echo "$RESPONSE" | head -n -1)
+
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "::error::Failed to submit script (HTTP $HTTP_CODE): $BODY"
+          exit 1
+        fi
+
+        JOB_ID=$(echo "$BODY" | jq -r '.data.jobId')
+        echo "job-id=$JOB_ID" >> $GITHUB_OUTPUT
+        echo "::notice::Job submitted: $JOB_ID"
+
+    - name: Poll for completion
+      id: poll
+      shell: bash
+      run: |
+        JOB_ID="${{ steps.submit.outputs.job-id }}"
+        LAST_OFFSET=0
+        START_TIME=$(date +%s)
+
+        while true; do
+          STATUS_RESPONSE=$(curl -sf \
+            "${{ inputs.naap-url }}/api/v1/gw/ssh-bridge/jobs/$JOB_ID" \
+            -H "Authorization: Bearer ${{ inputs.api-key }}" 2>/dev/null || echo '{"data":{"status":"unknown"}}')
+
+          STATUS=$(echo "$STATUS_RESPONSE" | jq -r '.data.status')
+          DURATION=$(echo "$STATUS_RESPONSE" | jq -r '.data.durationMs // 0')
+
+          # Fetch new logs
+          LOGS_RESPONSE=$(curl -sf \
+            "${{ inputs.naap-url }}/api/v1/gw/ssh-bridge/jobs/$JOB_ID/logs?offset=$LAST_OFFSET&limit=65536" \
+            -H "Authorization: Bearer ${{ inputs.api-key }}" 2>/dev/null || echo '{"data":{"stdout":"","totalBytes":0}}')
+
+          NEW_LOGS=$(echo "$LOGS_RESPONSE" | jq -r '.data.stdout // ""')
+          TOTAL_BYTES=$(echo "$LOGS_RESPONSE" | jq -r '.data.totalBytes // 0')
+
+          if [ -n "$NEW_LOGS" ] && [ "$NEW_LOGS" != "" ]; then
+            echo "$NEW_LOGS"
+            LAST_OFFSET=$TOTAL_BYTES
+          fi
+
+          case "$STATUS" in
+            completed)
+              EXIT_CODE=$(echo "$STATUS_RESPONSE" | jq -r '.data.exitCode // 0')
+              ELAPSED=$(( $(date +%s) - START_TIME ))
+              echo "exit-code=$EXIT_CODE" >> $GITHUB_OUTPUT
+              echo "duration=$ELAPSED" >> $GITHUB_OUTPUT
+              echo "::notice::Job $JOB_ID completed (exit=$EXIT_CODE, ${ELAPSED}s)"
+              exit 0
+              ;;
+            failed|timeout|cancelled)
+              EXIT_CODE=$(echo "$STATUS_RESPONSE" | jq -r '.data.exitCode // 1')
+              ELAPSED=$(( $(date +%s) - START_TIME ))
+              echo "exit-code=$EXIT_CODE" >> $GITHUB_OUTPUT
+              echo "duration=$ELAPSED" >> $GITHUB_OUTPUT
+              echo "::error::Job $JOB_ID $STATUS (exit=$EXIT_CODE, ${ELAPSED}s)"
+              exit 1
+              ;;
+            running|pending)
+              ELAPSED=$(( $(date +%s) - START_TIME ))
+              echo "::debug::Job $JOB_ID status=$STATUS (${ELAPSED}s elapsed)"
+              sleep ${{ inputs.poll-interval }}
+              ;;
+            *)
+              echo "::warning::Unknown job status: $STATUS"
+              sleep ${{ inputs.poll-interval }}
+              ;;
+          esac
+        done
+
+    - name: Update GitHub Deployment status
+      if: always() && inputs.create-deployment == 'true' && steps.deployment.outputs.deployment-id
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        DEPLOY_ID="${{ steps.deployment.outputs.deployment-id }}"
+        EXIT_CODE="${{ steps.poll.outputs.exit-code }}"
+
+        if [ "$EXIT_CODE" = "0" ]; then
+          STATE="success"
+          DESC="Deployed successfully to ${{ inputs.host }} (${{ steps.poll.outputs.duration }}s)"
+        else
+          STATE="failure"
+          DESC="Deployment failed (exit code $EXIT_CODE)"
+        fi
+
+        gh api repos/${{ github.repository }}/deployments/$DEPLOY_ID/statuses \
+          -f state="$STATE" \
+          -f description="$DESC" \
+          -f log_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          2>/dev/null || true

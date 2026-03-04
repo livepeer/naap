@@ -35,6 +35,15 @@
     }
   },
 
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devEntry": "./backend/src/server.ts",
+    "devPort": 4116,
+    "port": 4216,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/ssh-bridge"
+  },
+
   "database": {
     "type": "postgresql",
     "schema": "plugin_service_gateway"

@@ -25,6 +25,7 @@ Reference table for all Service Gateway connectors, their transform configuratio
 | 15 | twilio | Twilio SMS & Voice | messaging | basic | form-encode | raw | no |
 | 16 | resend | Resend Email API | email | bearer | passthrough | envelope | no |
 | 17 | confluent-kafka | Confluent Kafka Cloud | messaging | basic | passthrough | envelope | no |
+| 18 | ssh-bridge | SSH Bridge | infrastructure | header | passthrough | envelope | no |
 
 ---
 
@@ -174,7 +175,7 @@ Reference table for all Service Gateway connectors, their transform configuratio
 
 | Strategy | Connectors using it |
 |----------|-------------------|
-| passthrough | openai, gemini, daydream, livepeer-studio, livepeer-leaderboard, cloudflare-ai, clickhouse, neon, pinecone, supabase (JSON), upstash-redis, resend, confluent-kafka |
+| passthrough | openai, gemini, daydream, livepeer-studio, livepeer-leaderboard, cloudflare-ai, clickhouse, neon, pinecone, supabase (JSON), upstash-redis, resend, confluent-kafka, ssh-bridge |
 | binary | storj-s3, supabase (storage), vercel-blob |
 | form-encode | stripe (POST), twilio (POST) |
 | static | (available, not used by default connectors) |
@@ -187,7 +188,7 @@ Reference table for all Service Gateway connectors, their transform configuratio
 |----------|-------------------|
 | bearer | openai, daydream, livepeer-studio, cloudflare-ai, neon, upstash-redis, vercel-blob, stripe, resend |
 | basic | clickhouse, twilio, confluent-kafka |
-| header | supabase, pinecone |
+| header | supabase, pinecone, ssh-bridge |
 | query | gemini |
 | aws-s3 | storj-s3 |
 | none | livepeer-leaderboard |
@@ -197,7 +198,7 @@ Reference table for all Service Gateway connectors, their transform configuratio
 | Mode | Connectors using it |
 |------|-------------------|
 | none | Default — no response transform applied |
-| envelope | openai, gemini, daydream, livepeer-studio, livepeer-leaderboard, cloudflare-ai, clickhouse, neon, pinecone, supabase, resend, confluent-kafka, storj-s3 |
+| envelope | openai, gemini, daydream, livepeer-studio, livepeer-leaderboard, cloudflare-ai, clickhouse, neon, pinecone, supabase, resend, confluent-kafka, storj-s3, ssh-bridge |
 | raw | upstash-redis, vercel-blob, stripe, twilio |
 | streaming | openai (chat), gemini (stream), daydream, cloudflare-ai |
 | field-map | Custom field restructuring via mapping config |

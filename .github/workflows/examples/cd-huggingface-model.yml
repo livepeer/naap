@@ -1,0 +1,102 @@
+# Example: Deploy a HuggingFace model to a GPU machine via SSH Bridge
+# Deploys StreamDiffusion SDXL as a Docker inference server.
+name: Deploy HuggingFace Model
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_id:
+        description: 'HuggingFace model ID'
+        default: 'stabilityai/stable-diffusion-xl-base-1.0'
+        type: string
+      gpu_host:
+        description: 'Target GPU server hostname or IP'
+        required: true
+        type: string
+      container_name:
+        description: 'Docker container name for the inference server'
+        default: 'inference'
+        type: string
+
+jobs:
+  deploy-model:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy model to GPU server
+        uses: ./.github/actions/ssh-bridge-deploy
+        with:
+          naap-url: ${{ vars.NAAP_URL }}
+          api-key: ${{ secrets.NAAP_GW_API_KEY }}
+          host: ${{ inputs.gpu_host }}
+          username: deploy
+          environment: gpu-inference
+          timeout: '2700000'
+          poll-interval: '30'
+          env: |
+            {
+              "HF_TOKEN": "${{ secrets.HF_TOKEN }}",
+              "MODEL_ID": "${{ inputs.model_id }}",
+              "CONTAINER_NAME": "${{ inputs.container_name }}"
+            }
+          script: |
+            #!/bin/bash
+            set -euo pipefail
+
+            echo "=== Preflight checks ==="
+            echo "GPU:"
+            nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader
+            echo "Disk:"
+            df -h / --output=avail | tail -1
+            echo "Docker:"
+            docker --version
+
+            MODEL_DIR="/opt/models/$(echo "${MODEL_ID}" | tr '/' '-')"
+            echo "=== Download ${MODEL_ID} from HuggingFace ==="
+            echo "Target: ${MODEL_DIR}"
+
+            if [ ! -d "${MODEL_DIR}" ] || [ -z "$(ls -A "${MODEL_DIR}" 2>/dev/null)" ]; then
+              pip install -q huggingface_hub 2>/dev/null || pip3 install -q huggingface_hub
+              python3 -c "
+            from huggingface_hub import snapshot_download
+            snapshot_download('${MODEL_ID}', local_dir='${MODEL_DIR}', token='${HF_TOKEN}')
+            print('Download complete')
+            "
+            else
+              echo "Model already downloaded at ${MODEL_DIR}"
+            fi
+
+            echo "=== Start inference server ==="
+            docker stop "${CONTAINER_NAME}" 2>/dev/null || true
+            docker rm "${CONTAINER_NAME}" 2>/dev/null || true
+
+            docker run -d \
+              --name "${CONTAINER_NAME}" \
+              --gpus all \
+              --restart unless-stopped \
+              -p 8080:8080 \
+              -v /opt/models:/models \
+              -e MODEL_PATH="${MODEL_DIR}" \
+              ghcr.io/${{ github.repository }}/inference-server:latest
+
+            echo "=== Waiting for server to be ready ==="
+            for i in $(seq 1 30); do
+              if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+                echo "Server healthy after $((i * 10))s"
+                echo "=== Deployment complete ==="
+                echo "Model: ${MODEL_ID}"
+                echo "Container: ${CONTAINER_NAME}"
+                echo "Endpoint: http://${{ inputs.gpu_host }}:8080"
+                exit 0
+              fi
+              echo "Waiting... (${i}/30)"
+              sleep 10
+            done
+
+            echo "=== FAILED: Server not healthy after 300s ==="
+            docker logs "${CONTAINER_NAME}" --tail 50
+            exit 1
