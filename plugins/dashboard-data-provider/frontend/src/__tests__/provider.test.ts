@@ -3,9 +3,9 @@
  *
  * Tests that the provider correctly:
  * 1. Registers as a dashboard:query handler
- * 2. Transforms leaderboard API responses into the dashboard contract shape
+ * 2. Transforms leaderboard API + subgraph responses into the dashboard contract shape
  * 3. Handles partial queries
- * 4. Returns static fallbacks for protocol / fees / pricing
+ * 4. Resolves protocol and fees from subgraph/L1, KPI/pipelines/GPU from leaderboard
  * 5. Cleans up handlers on unmount
  *
  * The leaderboard API (fetch) is stubbed so tests run offline and
@@ -86,25 +86,7 @@ const STUB_GPU = [
 // Fetch stub
 // ============================================================================
 
-function createFetchStub() {
-  return vi.fn((url: string) => {
-    let body: unknown;
-    if (url.includes('/api/network/demand')) {
-      const interval = new URL(url).searchParams.get('interval') ?? '1h';
-      body = { demand: interval === '2h' ? STUB_DEMAND_2H : STUB_DEMAND_1H };
-    } else if (url.includes('/api/gpu/metrics')) {
-      body = { metrics: STUB_GPU };
-    } else if (url.includes('/api/sla/compliance')) {
-      body = { compliance: STUB_SLA };
-    } else {
-      body = {};
-    }
-    return Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(body),
-    } as Response);
-  });
-}
+// (fetch stub merged into stubFetch below)
 
 // ============================================================================
 // Test Event Bus
@@ -157,6 +139,85 @@ function createTestEventBus() {
 }
 
 // ============================================================================
+// Fetch stubs for subgraph + protocol-block
+// ============================================================================
+
+function stubFetch() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+
+      // Leaderboard API endpoints
+      if (urlStr.includes('/api/network/demand')) {
+        const interval = new URL(urlStr).searchParams.get('interval') ?? '1h';
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ demand: interval === '2h' ? STUB_DEMAND_2H : STUB_DEMAND_1H }),
+        } as Response);
+      }
+
+      if (urlStr.includes('/api/gpu/metrics')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ metrics: STUB_GPU }),
+        } as Response);
+      }
+
+      if (urlStr.includes('/api/sla/compliance')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ compliance: STUB_SLA }),
+        } as Response);
+      }
+
+      // Subgraph endpoint
+      if (urlStr.includes('/api/v1/subgraph')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              data: {
+                days: [
+                  { date: 1709078400, volumeETH: '0.45', volumeUSD: '1080' },
+                  { date: 1709164800, volumeETH: '0.52', volumeUSD: '1248' },
+                ],
+                protocol: {
+                  totalVolumeETH: '102.4',
+                  totalVolumeUSD: '250000',
+                  roundLength: '5760',
+                  totalActiveStake: '30000000',
+                  currentRound: {
+                    id: '4127',
+                    startBlock: '21000000',
+                    initialized: true,
+                  },
+                },
+              },
+            }),
+        } as Response);
+      }
+
+      // Protocol block endpoint
+      if (urlStr.includes('/api/v1/protocol-block')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              blockNumber: 21002880,
+              meta: { timestamp: new Date().toISOString() },
+            }),
+        } as Response);
+      }
+
+      return Promise.resolve({ ok: false, status: 404 } as Response);
+    })
+  );
+}
+
+// ============================================================================
 // Tests: Dashboard Query Provider
 // ============================================================================
 
@@ -165,7 +226,7 @@ describe('registerDashboardProvider', () => {
 
   beforeEach(() => {
     testEventBus = createTestEventBus();
-    vi.stubGlobal('fetch', createFetchStub());
+    stubFetch();
   });
 
   afterEach(() => {
@@ -184,7 +245,7 @@ describe('registerDashboardProvider', () => {
       query: `{
         kpi { successRate { value delta } orchestratorsOnline { value delta } dailyUsageMins { value delta } dailyStreamCount { value delta } }
         protocol { currentRound blockProgress totalBlocks totalStakedLPT }
-        fees { totalEth entries { day eth } }
+        fees(days: 7) { totalEth totalUsd oneDayVolumeUsd dayData { dateS volumeEth volumeUsd } weeklyData { date weeklyVolumeUsd weeklyVolumeEth } }
         pipelines { name mins color }
         gpuCapacity { totalGPUs availableCapacity }
         pricing { pipeline unit price outputPerDollar }
@@ -209,13 +270,17 @@ describe('registerDashboardProvider', () => {
     expect(response.data!.kpi!.dailyUsageMins.value).toBeGreaterThanOrEqual(0);
     expect(response.data!.kpi!.dailyStreamCount.value).toBeGreaterThanOrEqual(0);
 
-    // Protocol: static fallback
+    // Protocol (live from subgraph + protocol-block)
     expect(response.data!.protocol).toBeDefined();
+    expect(response.data!.protocol!.currentRound).toBe(4127);
     expect(response.data!.protocol!.totalBlocks).toBe(5760);
+    expect(response.data!.protocol!.blockProgress).toBeGreaterThanOrEqual(0);
 
-    // Fees: static fallback
+    // Fees (live from subgraph)
     expect(response.data!.fees).toBeDefined();
-    expect(response.data!.fees!.totalEth).toBe(0);
+    expect(response.data!.fees!.totalEth).toBe(102.4);
+    expect(response.data!.fees!.totalUsd).toBe(250000);
+    expect(response.data!.fees!.dayData.length).toBeGreaterThan(0);
 
     // Pipelines: from API, only non-null display names
     expect(response.data!.pipelines).toBeDefined();
@@ -231,6 +296,22 @@ describe('registerDashboardProvider', () => {
 
     // Pricing: static fallback
     expect(response.data!.pricing).toBeDefined();
+  });
+
+  it('returns protocol null and errors when subgraph or protocol-block fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve({ ok: false, status: 503 } as Response))
+    );
+    registerDashboardProvider(testEventBus as any);
+
+    const response = (await testEventBus._invoke(DASHBOARD_QUERY_EVENT, {
+      query: '{ protocol { currentRound blockProgress totalBlocks totalStakedLPT } }',
+    })) as DashboardQueryResponse;
+
+    expect(response.data?.protocol).toBeNull();
+    expect(response.errors).toBeDefined();
+    expect(response.errors!.length).toBeGreaterThan(0);
   });
 
   it('returns only requested fields for partial queries', async () => {

@@ -102,7 +102,8 @@ describe('DASHBOARD_SCHEMA', () => {
       'MetricDelta',
       'Protocol',
       'FeesInfo',
-      'FeeEntry',
+      'FeeDayData',
+      'FeeWeeklyData',
       'PipelineUsage',
       'GPUCapacity',
       'PipelinePricing',
@@ -271,14 +272,27 @@ describe('createDashboardProvider', () => {
     const resolvers: DashboardResolvers = {
       fees: async (args) => {
         receivedArgs = args;
-        return { totalEth: 100, entries: [] };
+        return {
+          totalEth: 100,
+          totalUsd: 250000,
+          oneDayVolumeUsd: 1200,
+          oneDayVolumeEth: 0.5,
+          oneWeekVolumeUsd: 8400,
+          oneWeekVolumeEth: 3.5,
+          volumeChangeUsd: 5,
+          volumeChangeEth: 4,
+          weeklyVolumeChangeUsd: 3,
+          weeklyVolumeChangeEth: 2,
+          dayData: [],
+          weeklyData: [],
+        };
       },
     };
 
     createDashboardProvider(mockEventBus as any, resolvers);
 
     const request: DashboardQueryRequest = {
-      query: 'query GetFees($d: Int) { fees(days: $d) { totalEth entries { day eth } } }',
+      query: 'query GetFees($d: Int) { fees(days: $d) { totalEth totalUsd dayData { dateS volumeEth volumeUsd } } }',
       variables: { d: 14 },
     };
 

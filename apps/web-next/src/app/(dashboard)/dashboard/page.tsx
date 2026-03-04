@@ -25,7 +25,7 @@ import type {
   DashboardPipelinePricing,
   DashboardOrchestrator,
   JobFeedEntry,
-} from '@naap/plugin-sdk'; // type-only import — erased at compile time
+} from '@naap/plugin-sdk';
 import {
   Activity,
   CheckCircle2,
@@ -48,6 +48,14 @@ import {
   ChevronDown,
   ChevronsUpDown,
 } from 'lucide-react';
+import {
+  Bar,
+  BarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 // ============================================================================
 // GraphQL Query — the ONLY place data requirements are declared
@@ -67,10 +75,6 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
       totalBlocks
       totalStakedLPT
     }
-    fees(days: 7) {
-      totalEth
-      entries { day eth }
-    }
     pipelines(limit: 5) {
       name mins color
     }
@@ -83,6 +87,25 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
     }
     orchestrators {
       address knownSessions successSessions successRatio noSwapRatio slaScore pipelines gpuCount
+    }
+  }
+`;
+
+const FEES_OVERVIEW_QUERY = /* GraphQL */ `
+  query FeesOverview {
+    fees(days: 180) {
+      totalEth
+      totalUsd
+      oneDayVolumeUsd
+      oneDayVolumeEth
+      oneWeekVolumeUsd
+      oneWeekVolumeEth
+      volumeChangeUsd
+      volumeChangeEth
+      weeklyVolumeChangeUsd
+      weeklyVolumeChangeEth
+      dayData { dateS volumeEth volumeUsd }
+      weeklyData { date weeklyVolumeUsd weeklyVolumeEth }
     }
   }
 `;
@@ -113,6 +136,23 @@ function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString();
+}
+
+function formatUsdCompact(n: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(n);
+}
+
+function formatUsd(n: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(n);
 }
 
 function formatTime(iso: string): string {
@@ -333,33 +373,160 @@ function ProtocolCard({ data }: { data: DashboardProtocol }) {
 }
 
 function FeesCard({ data }: { data: DashboardFeesInfo }) {
-  const maxFee = Math.max(...data.entries.map(d => d.eth), 1);
+  const [grouping, setGrouping] = useState<'day' | 'week'>('week');
+  const [hovered, setHovered] = useState<{ x: number; y: number } | null>(null);
+  const [rawOpen, setRawOpen] = useState(false);
+
+  const chartData = useMemo(
+    () =>
+      grouping === 'day'
+        ? data.dayData.map((d) => ({ x: d.dateS, y: d.volumeUsd }))
+        : data.weeklyData.map((w) => ({ x: w.date, y: w.weeklyVolumeUsd })),
+    [data.dayData, data.weeklyData, grouping]
+  );
+
+  const baseValue = grouping === 'day' ? data.oneDayVolumeUsd : data.oneWeekVolumeUsd;
+  const pctChange = grouping === 'day' ? data.volumeChangeUsd : data.weeklyVolumeChangeUsd;
+  const displayValue = hovered?.y ?? baseValue;
+  const displayDate = hovered
+    ? new Date(hovered.x * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : null;
+  const rawRows = useMemo(() => {
+    const rows =
+      grouping === 'day'
+        ? data.dayData.map((d) => ({
+            ts: d.dateS,
+            volumeUsd: d.volumeUsd,
+            volumeEth: d.volumeEth,
+          }))
+        : data.weeklyData.map((w) => ({
+            ts: w.date,
+            volumeUsd: w.weeklyVolumeUsd,
+            volumeEth: w.weeklyVolumeEth,
+          }));
+    return [...rows].sort((a, b) => b.ts - a.ts);
+  }, [data.dayData, data.weeklyData, grouping]);
 
   return (
     <div className="p-4 rounded-lg bg-card border border-border">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <div className="p-1 rounded-md bg-muted text-muted-foreground">
-            <Coins className="w-3.5 h-3.5" />
-          </div>
-          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Fees (7d)</span>
-        </div>
-        <span className="text-sm font-semibold font-mono text-foreground">{data.totalEth.toFixed(1)} ETH</span>
-      </div>
-      <div className="flex items-end gap-1.5 h-24">
-        {data.entries.map((d) => (
-          <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
-            <div className="w-full relative">
-              <div
-                className="w-full bg-emerald-500 rounded-t-sm hover:bg-emerald-400 transition-colors"
-                style={{ height: `${(d.eth / maxFee) * 80}px` }}
-                title={`${d.eth} ETH`}
-              />
+      <div className="flex items-start justify-between mb-3">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <div className="p-1 rounded-md bg-muted text-muted-foreground">
+              <Coins className="w-3.5 h-3.5" />
             </div>
-            <span className="text-[10px] text-muted-foreground">{d.day}</span>
+            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Fees Paid</span>
           </div>
-        ))}
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-semibold text-foreground font-mono">{formatUsd(displayValue)}</span>
+            {!hovered ? <DeltaBadge value={pctChange} unit="%" /> : null}
+          </div>
+          <div className="text-[10px] text-muted-foreground">
+            {displayDate ?? (grouping === 'day' ? 'Latest day' : 'Latest full week')} • Total {formatUsdCompact(data.totalUsd)} ({data.totalEth.toFixed(2)} ETH)
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setRawOpen((v) => !v)}
+            className={`p-1 rounded transition-colors ${
+              rawOpen
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+            }`}
+            title={rawOpen ? 'Hide raw fees data' : 'View raw fees data'}
+            aria-label={rawOpen ? 'Hide raw fees data' : 'View raw fees data'}
+          >
+            <List className="w-3.5 h-3.5" />
+          </button>
+          <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-md bg-muted/30 border border-border">
+            <button
+              onClick={() => setGrouping('day')}
+              aria-label="Show daily fees"
+              aria-pressed={grouping === 'day'}
+              className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                grouping === 'day' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              D
+            </button>
+            <button
+              onClick={() => setGrouping('week')}
+              aria-label="Show weekly fees"
+              aria-pressed={grouping === 'week'}
+              className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                grouping === 'week' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              W
+            </button>
+          </div>
+        </div>
       </div>
+      <div className="h-28">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={chartData}
+            onMouseMove={(e) => {
+              const point = e?.activePayload?.[0]?.payload;
+              if (point) {
+                setHovered({ x: Number(point.x), y: Number(point.y) });
+              } else {
+                setHovered(null);
+              }
+            }}
+            onMouseLeave={() => setHovered(null)}
+          >
+            <XAxis
+              dataKey="x"
+              tickLine={false}
+              axisLine={false}
+              minTickGap={18}
+              tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+              tickFormatter={(x) =>
+                new Date(Number(x) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              }
+            />
+            <YAxis
+              width={40}
+              tickLine={false}
+              axisLine={false}
+              tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+              tickFormatter={(v) => formatUsdCompact(Number(v))}
+            />
+            <Tooltip cursor={{ fill: 'rgba(34, 197, 94, 0.08)' }} content={() => null} />
+            <Bar dataKey="y" radius={[4, 4, 0, 0]} fill="hsl(142 71% 45%)" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      {rawOpen && (
+        <div className="mt-3 pt-3 border-t border-border">
+          <div className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wider">
+            Raw {grouping === 'day' ? 'Daily' : 'Weekly'} Fees Data ({rawRows.length} rows)
+          </div>
+          <div className="max-h-44 overflow-auto rounded border border-border/70">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-card z-10">
+                <tr className="text-muted-foreground border-b border-border">
+                  <th className="text-left px-2.5 py-1.5 font-medium">Date</th>
+                  <th className="text-right px-2.5 py-1.5 font-medium">Volume (USD)</th>
+                  <th className="text-right px-2.5 py-1.5 font-medium">Volume (ETH)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rawRows.map((row) => (
+                  <tr key={`${grouping}-${row.ts}`} className="border-b border-border/40 last:border-0">
+                    <td className="px-2.5 py-1.5 text-foreground font-mono">
+                      {new Date(row.ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </td>
+                    <td className="px-2.5 py-1.5 text-right text-foreground font-mono">{formatUsd(row.volumeUsd)}</td>
+                    <td className="px-2.5 py-1.5 text-right text-muted-foreground font-mono">{row.volumeEth.toFixed(4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -753,6 +920,11 @@ export default function DashboardPage() {
     undefined,
     { pollInterval, timeout: 8000 }
   );
+  const { data: feesData, loading: feesLoading } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
+    FEES_OVERVIEW_QUERY,
+    undefined,
+    { timeout: 8000 }
+  );
 
   const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8 });
 
@@ -793,6 +965,10 @@ export default function DashboardPage() {
           orchestratorsOpen={orchestratorsOpen}
           onToggleOrchestrators={() => setOrchestratorsOpen(v => !v)}
         />
+      ) : loading ? (
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+          <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
+        </div>
       ) : (
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
           <WidgetUnavailable label="KPI" />
@@ -801,8 +977,12 @@ export default function DashboardPage() {
 
       {/* Row 2: Protocol, Fees, Pipelines, GPU */}
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
-        {data?.protocol ? <ProtocolCard data={data.protocol} /> : <WidgetUnavailable label="Protocol" />}
-        {data?.fees ? <FeesCard data={data.fees} /> : <WidgetUnavailable label="Fees" />}
+        {data?.protocol
+          ? <ProtocolCard data={data.protocol} />
+          : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
+        {feesData?.fees
+          ? <FeesCard data={feesData.fees} />
+          : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
         {data?.pipelines ? <PipelinesCard data={data.pipelines} /> : <WidgetUnavailable label="Pipelines" />}
         {data?.gpuCapacity ? <GPUCapacityCard data={data.gpuCapacity} /> : <WidgetUnavailable label="GPU Capacity" />}
       </div>

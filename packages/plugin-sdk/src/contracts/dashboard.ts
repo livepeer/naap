@@ -81,12 +81,29 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
 
   type FeesInfo {
     totalEth: Float!
-    entries: [FeeEntry!]!
+    totalUsd: Float!
+    oneDayVolumeUsd: Float!
+    oneDayVolumeEth: Float!
+    oneWeekVolumeUsd: Float!
+    oneWeekVolumeEth: Float!
+    volumeChangeUsd: Float!
+    volumeChangeEth: Float!
+    weeklyVolumeChangeUsd: Float!
+    weeklyVolumeChangeEth: Float!
+    dayData: [FeeDayData!]!
+    weeklyData: [FeeWeeklyData!]!
   }
 
-  type FeeEntry {
-    day: String!
-    eth: Float!
+  type FeeDayData {
+    dateS: Int!
+    volumeEth: Float!
+    volumeUsd: Float!
+  }
+
+  type FeeWeeklyData {
+    date: Int!
+    weeklyVolumeUsd: Float!
+    weeklyVolumeEth: Float!
   }
 
   type PipelineUsage {
@@ -145,16 +162,34 @@ export interface DashboardProtocol {
   totalStakedLPT: number;
 }
 
-/** Single fee entry for a day */
-export interface DashboardFeeEntry {
-  day: string;
-  eth: number;
+/** Single daily fee datapoint */
+export interface DashboardFeeDayData {
+  dateS: number;
+  volumeEth: number;
+  volumeUsd: number;
+}
+
+/** Single weekly fee datapoint */
+export interface DashboardFeeWeeklyData {
+  date: number;
+  weeklyVolumeUsd: number;
+  weeklyVolumeEth: number;
 }
 
 /** Fees widget data */
 export interface DashboardFeesInfo {
   totalEth: number;
-  entries: DashboardFeeEntry[];
+  totalUsd: number;
+  oneDayVolumeUsd: number;
+  oneDayVolumeEth: number;
+  oneWeekVolumeUsd: number;
+  oneWeekVolumeEth: number;
+  volumeChangeUsd: number;
+  volumeChangeEth: number;
+  weeklyVolumeChangeUsd: number;
+  weeklyVolumeChangeEth: number;
+  dayData: DashboardFeeDayData[];
+  weeklyData: DashboardFeeWeeklyData[];
 }
 
 /** Pipeline usage entry */

@@ -2,21 +2,20 @@
  * Dashboard Provider — Livepeer Leaderboard
  *
  * Registers as the dashboard data provider via createDashboardProvider().
- * Resolvers with a real data source call the Leaderboard API directly;
- * resolvers without one (protocol, fees, pricing) fall back to static
- * values until the appropriate endpoints exist.
  *
- * Real data sources:
- *   kpi.successRate         ← /api/network/demand  (weighted success_ratio)
- *   kpi.orchestratorsOnline ← /api/sla/compliance  (distinct addresses, 72 h)
- *   kpi.dailyUsageMins      ← /api/network/demand  (sum total_inference_minutes, 24 h)
- *   kpi.dailyStreamCount    ← /api/network/demand  (sum total_streams, 24 h)
- *   pipelines               ← /api/network/demand  (grouped by pipeline, 24 h)
- *   gpuCapacity.totalGPUs   ← /api/gpu/metrics     (distinct gpu_id, 24 h)
- *   orchestrators            ← /api/sla/compliance  (per-address aggregation)
+ * Live data sources:
+ *   kpi.successRate         ← Leaderboard /api/network/demand  (weighted success_ratio)
+ *   kpi.orchestratorsOnline ← Leaderboard /api/sla/compliance  (distinct addresses, 72 h)
+ *   kpi.dailyUsageMins      ← Leaderboard /api/network/demand  (sum total_inference_minutes, 24 h)
+ *   kpi.dailyStreamCount    ← Leaderboard /api/network/demand  (sum total_streams, 24 h)
+ *   pipelines               ← Leaderboard /api/network/demand  (grouped by pipeline, 24 h)
+ *   gpuCapacity.totalGPUs   ← Leaderboard /api/gpu/metrics     (distinct gpu_id, 24 h)
+ *   orchestrators            ← Leaderboard /api/sla/compliance  (per-address aggregation)
+ *   protocol                ← Livepeer subgraph + L1 RPC (via server-side proxy routes)
+ *   fees                    ← Livepeer subgraph (via server-side proxy route)
  *
- * Static fallbacks (no source yet):
- *   protocol, fees, pricing
+ * Static fallback (no source yet):
+ *   pricing
  */
 
 import {
@@ -26,6 +25,7 @@ import {
   type DashboardPipelineUsage,
   type DashboardGPUCapacity,
   type DashboardOrchestrator,
+  type DashboardProtocol,
 } from '@naap/plugin-sdk';
 
 import {
@@ -40,6 +40,51 @@ import {
   PIPELINE_COLOR,
   DEFAULT_PIPELINE_COLOR,
 } from './data/pipeline-config.js';
+import { fetchSubgraphFees, fetchSubgraphProtocol } from './api/subgraph.js';
+
+// ---------------------------------------------------------------------------
+// Subgraph resolvers (protocol & fees)
+// ---------------------------------------------------------------------------
+
+async function fetchCurrentProtocolBlock(): Promise<number> {
+  const response = await fetch('/api/v1/protocol-block');
+  if (!response.ok) {
+    throw new Error(`protocol-block HTTP ${response.status}`);
+  }
+
+  const body = (await response.json()) as { blockNumber?: number };
+  if (!Number.isFinite(body.blockNumber)) {
+    throw new Error('protocol-block returned invalid blockNumber');
+  }
+
+  return Number(body.blockNumber);
+}
+
+async function resolveProtocol(): Promise<DashboardProtocol> {
+  const protocol = await fetchSubgraphProtocol();
+  let currentProtocolBlock: number | null = null;
+  try {
+    currentProtocolBlock = await fetchCurrentProtocolBlock();
+  } catch (err) {
+    console.warn('[dashboard-data-provider] protocol-block unavailable:', err);
+  }
+
+  const rawProgress = protocol.initialized && Number.isFinite(currentProtocolBlock)
+    ? Number(currentProtocolBlock) - protocol.startBlock
+    : 0;
+  const blockProgress = Math.max(0, Math.min(rawProgress, protocol.totalBlocks));
+
+  return {
+    currentRound: protocol.currentRound,
+    blockProgress,
+    totalBlocks: protocol.totalBlocks,
+    totalStakedLPT: protocol.totalStakedLPT,
+  };
+}
+
+async function resolveFees({ days }: { days?: number }) {
+  return fetchSubgraphFees(days);
+}
 
 // ---------------------------------------------------------------------------
 // Shared aggregation helpers
@@ -255,20 +300,11 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
 export function registerDashboardProvider(eventBus: IEventBus): () => void {
   return createDashboardProvider(eventBus, {
     kpi:           () => resolveKPI(),
+    protocol:      () => resolveProtocol(),
+    fees:          ({ days }: { days?: number }) => resolveFees({ days }),
     pipelines:     ({ limit }: { limit?: number }) => resolvePipelines({ limit }),
     gpuCapacity:   () => resolveGPUCapacity(),
+    pricing:       async () => [],
     orchestrators: ({ period }: { period?: string }) => resolveOrchestrators({ period }),
-
-    protocol: async () => ({
-      currentRound: 0,
-      blockProgress: 0,
-      totalBlocks: 5760,
-      totalStakedLPT: 0,
-    }),
-    fees: async () => ({
-      totalEth: 0,
-      entries: [],
-    }),
-    pricing: async () => [],
   });
 }
