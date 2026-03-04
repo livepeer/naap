@@ -192,8 +192,8 @@ async function main(): Promise<void> {
       let normalized = 0;
       for (const wp of allWPs) {
         if (coreNames.has(wp.name) || discoveredNames.has(wp.name)) continue;
-        const routes = wp.routes as string[];
-        const hasStaleRoutes = routes.some((r) => !r.startsWith('/plugins/'));
+        const routes = Array.isArray(wp.routes) ? wp.routes.filter((r): r is string => typeof r === 'string') : [];
+        const hasStaleRoutes = routes.length > 0 && routes.some((r) => !r.startsWith('/plugins/'));
         if (hasStaleRoutes) {
           const kebabName = toKebabCase(wp.name);
           const meta = (wp.metadata as Record<string, unknown>) || {};

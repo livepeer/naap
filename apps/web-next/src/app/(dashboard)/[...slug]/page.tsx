@@ -19,10 +19,6 @@ import Link from 'next/link';
 import { PluginLoader, type PluginInfo } from '@/components/plugin/PluginLoader';
 import { PluginInfoButton, type PluginMetadata } from '@/components/plugin/PluginInfoButton';
 
-function normalizeName(name: string) {
-  return name.toLowerCase().replace(/[-_]/g, '');
-}
-
 export default function CatchAllPluginPage() {
   const pathname = usePathname();
   const { plugins, isLoading: pluginsLoading } = usePlugins();

@@ -625,35 +625,38 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
 
       // Auto-install for the publisher: ensure a deployment + TenantPluginInstall
       // exist so the plugin is immediately visible in their sidebar and settings.
+      // Wrapped in a transaction to prevent TOCTOU races on concurrent publishes.
       try {
-        let deployment = await db.pluginDeployment.findUnique({ where: { packageId: pkg.id } });
-        if (!deployment) {
-          deployment = await db.pluginDeployment.create({
-            data: {
-              packageId: pkg.id, versionId: version.id, status: 'running',
-              frontendUrl: frontendUrl || '', deployedAt: new Date(),
-              healthStatus: 'healthy', activeInstalls: 0,
-            },
-          });
-        }
+        await db.$transaction(async (tx: any) => {
+          let deployment = await tx.pluginDeployment.findUnique({ where: { packageId: pkg.id } });
+          if (!deployment) {
+            deployment = await tx.pluginDeployment.create({
+              data: {
+                packageId: pkg.id, versionId: version.id, status: 'running',
+                frontendUrl: frontendUrl || '', deployedAt: new Date(),
+                healthStatus: 'healthy', activeInstalls: 0,
+              },
+            });
+          }
 
-        const existingInstall = await db.tenantPluginInstall.findFirst({
-          where: { userId, deploymentId: deployment.id, status: { not: 'uninstalled' } },
-        });
-        if (!existingInstall) {
-          await db.tenantPluginInstall.create({
-            data: { userId, deploymentId: deployment.id, status: 'active', enabled: true },
+          const existingInstall = await tx.tenantPluginInstall.findFirst({
+            where: { userId, deploymentId: deployment.id, status: { not: 'uninstalled' } },
           });
-          await db.pluginDeployment.update({
-            where: { id: deployment.id },
-            data: { activeInstalls: { increment: 1 } },
-          });
-        }
+          if (!existingInstall) {
+            await tx.tenantPluginInstall.create({
+              data: { userId, deploymentId: deployment.id, status: 'active', enabled: true },
+            });
+            await tx.pluginDeployment.update({
+              where: { id: deployment.id },
+              data: { activeInstalls: { increment: 1 } },
+            });
+          }
 
-        await db.userPluginPreference.upsert({
-          where: { userId_pluginName: { userId, pluginName: manifest.name } },
-          update: { enabled: true },
-          create: { userId, pluginName: manifest.name, enabled: true, order: 0, pinned: false },
+          await tx.userPluginPreference.upsert({
+            where: { userId_pluginName: { userId, pluginName: manifest.name } },
+            update: { enabled: true },
+            create: { userId, pluginName: manifest.name, enabled: true, order: 0, pinned: false },
+          });
         });
       } catch (installErr) {
         console.warn('Auto-install after publish failed (non-fatal):', installErr);
@@ -684,8 +687,11 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
   }
 
   /** GET /registry/examples - list available example plugins */
-  router.get('/registry/examples', async (_req: Request, res: Response) => {
+  router.get('/registry/examples', async (req: Request, res: Response) => {
     try {
+      const userId = await getUserIdFromRequest(req);
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
+
       if (!(await isExamplePublishingEnabled())) {
         return res.status(403).json({ error: 'Example plugin publishing is not enabled' });
       }
@@ -838,6 +844,9 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
 
       // Symlink examples/{name} → plugins/{name} so start.sh and
       // sync-plugin-registry discover it like any regular plugin.
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(example.dirName)) {
+        return res.status(400).json({ error: 'Invalid plugin directory name' });
+      }
       const symlinkTarget = path.join(MONOREPO_ROOT, 'plugins', example.dirName);
       const symlinkSource = path.join(MONOREPO_ROOT, 'examples', example.dirName);
       if (!fs.existsSync(symlinkTarget) && fs.existsSync(symlinkSource)) {
