@@ -10,6 +10,9 @@ import type { ResolvedConfig, ProxyResult } from './types';
 
 /**
  * Headers to strip from upstream responses (security + noise).
+ * content-length and transfer-encoding are stripped because the gateway
+ * may wrap the body in an envelope, changing its size. The runtime
+ * will set the correct content-length on the final response.
  */
 const STRIP_HEADERS = new Set([
   'server',
@@ -21,31 +24,29 @@ const STRIP_HEADERS = new Set([
   'content-length',
   'transfer-encoding',
   'content-encoding',
-  'etag',
-  'last-modified',
 ]);
 
 /**
  * Build the consumer-facing response from upstream response.
  */
-export function buildResponse(
+export async function buildResponse(
   config: ResolvedConfig,
   proxyResult: ProxyResult,
   requestId: string | null,
   traceId: string | null
-): Response {
+): Promise<Response> {
   const { response, upstreamLatencyMs, cached } = proxyResult;
   const { connector } = config;
 
-  const responseContentType = response.headers.get('content-type') || '';
+  const responseContentType = (response.headers.get('content-type') || '').toLowerCase();
 
   // ── SSE Streaming — passthrough without wrapping ──
-  if (connector.streamingEnabled && responseContentType.toLowerCase().includes('text/event-stream')) {
+  if (connector.streamingEnabled && responseContentType.includes('text/event-stream')) {
     return buildStreamingResponse(response, requestId, traceId, upstreamLatencyMs, cached);
   }
 
   // ── Standard Response ──
-  return buildStandardResponse(
+  return await buildStandardResponse(
     config,
     response,
     requestId,
@@ -96,21 +97,21 @@ async function buildStandardResponse(
   const { connector } = config;
   const contentType = upstreamResponse.headers.get('content-type') || 'application/json';
 
-  // Copy safe upstream headers first
+  // Build response headers
   const responseHeaders = new Headers();
-  upstreamResponse.headers.forEach((value, key) => {
-    if (!STRIP_HEADERS.has(key.toLowerCase()) && !key.startsWith('x-gateway-')) {
-      responseHeaders.set(key, value);
-    }
-  });
-
-  // Set gateway headers AFTER upstream to prevent spoofing
   responseHeaders.set('Content-Type', contentType);
   responseHeaders.set('X-Gateway-Latency', String(upstreamLatencyMs));
   responseHeaders.set('X-Gateway-Cache', cached ? 'HIT' : 'MISS');
 
   if (requestId) responseHeaders.set('x-request-id', requestId);
   if (traceId) responseHeaders.set('x-trace-id', traceId);
+
+  // Copy safe upstream headers
+  upstreamResponse.headers.forEach((value, key) => {
+    if (!STRIP_HEADERS.has(key.toLowerCase()) && !key.startsWith('x-gateway-')) {
+      responseHeaders.set(key, value);
+    }
+  });
 
   // ── Envelope wrapping ──
   if (connector.responseWrapper && contentType.includes('application/json')) {
@@ -173,20 +174,21 @@ export function buildErrorResponse(
   statusCode: number,
   requestId: string | null,
   traceId: string | null,
-  extraHeaders?: Record<string, string>
+  details?: unknown
 ): NextResponse {
   const body = {
     success: false,
     error: {
       code,
       message,
+      ...(details ? { details } : {}),
     },
     meta: {
       timestamp: new Date().toISOString(),
     },
   };
 
-  const headers: Record<string, string> = { ...extraHeaders };
+  const headers: Record<string, string> = {};
   if (requestId) headers['x-request-id'] = requestId;
   if (traceId) headers['x-trace-id'] = traceId;
 

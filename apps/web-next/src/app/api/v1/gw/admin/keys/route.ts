@@ -1,6 +1,6 @@
 /**
  * Service Gateway — Admin: API Key List / Create
- * GET  /api/v1/gw/admin/keys   — List API keys (team-scoped)
+ * GET  /api/v1/gw/admin/keys   — List API keys (scope-aware)
  * POST /api/v1/gw/admin/keys   — Create new API key (returns raw key ONCE)
  */
 
@@ -21,6 +21,11 @@ const createKeySchema = z.object({
   allowedIPs: z.array(z.string()).default([]),
   expiresAt: z.string().datetime().optional(),
 });
+
+function ownerWhere(ctx: { teamId: string; userId: string; isPersonal: boolean }) {
+  if (ctx.isPersonal) return { ownerUserId: ctx.userId };
+  return { teamId: ctx.teamId };
+}
 
 export async function GET(request: NextRequest) {
   const ctx = await getAdminContext(request);
@@ -48,7 +53,7 @@ export async function GET(request: NextRequest) {
   const { connectorId, status } = queryParsed.data;
 
   const where = {
-    teamId: ctx.teamId,
+    ...ownerWhere(ctx),
     ...(connectorId ? { connectorId } : {}),
     ...(status ? { status } : {}),
   };
@@ -67,7 +72,6 @@ export async function GET(request: NextRequest) {
     prisma.gatewayApiKey.count({ where }),
   ]);
 
-  // Never return keyHash in list — only keyPrefix for display
   const data = keys.map(({ keyHash, ...rest }) => rest);
 
   return successPaginated(data, { page, pageSize, total });
@@ -93,32 +97,38 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // If connectorId specified, verify it belongs to this team
   if (parsed.data.connectorId) {
     const connector = await loadConnector(parsed.data.connectorId, ctx.teamId);
     if (!connector) {
-      return errors.notFound('Connector');
+      const publicConn = await prisma.serviceConnector.findFirst({
+        where: { id: parsed.data.connectorId, visibility: 'public', status: 'published' },
+      });
+      if (!publicConn) {
+        return errors.notFound('Connector');
+      }
     }
   }
 
-  // If planId specified, verify it belongs to this team
   if (parsed.data.planId) {
     const plan = await prisma.gatewayPlan.findFirst({
-      where: { id: parsed.data.planId, teamId: ctx.teamId },
+      where: { id: parsed.data.planId, ...ownerWhere(ctx) },
     });
     if (!plan) {
       return errors.notFound('Plan');
     }
   }
 
-  // Generate key: gw_ + 32 random bytes hex = gw_<64 chars>
   const rawKey = `gw_${randomBytes(32).toString('hex')}`;
   const keyHash = createHash('sha256').update(rawKey).digest('hex');
-  const keyPrefix = rawKey.slice(0, 11); // "gw_" + first 8 hex chars
+  const keyPrefix = rawKey.slice(0, 11);
+
+  const ownerData = ctx.isPersonal
+    ? { ownerUserId: ctx.userId }
+    : { teamId: ctx.teamId };
 
   const apiKey = await prisma.gatewayApiKey.create({
     data: {
-      teamId: ctx.teamId,
+      ...ownerData,
       createdBy: ctx.userId,
       name: parsed.data.name,
       keyHash,
@@ -135,10 +145,9 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  // Return the raw key ONCE — it cannot be retrieved again
   const { keyHash: _, ...safeKey } = apiKey;
   return success({
     ...safeKey,
-    rawKey, // ⚠️ Only returned on creation — never again
+    rawKey,
   });
 }

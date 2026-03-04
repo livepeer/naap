@@ -16,9 +16,12 @@ export async function GET(request: NextRequest) {
   const ctx = await getAdminContext(request);
   if (isErrorResponse(ctx)) return ctx;
 
-  // Get all published connectors for this team
+  const ownerFilter = ctx.isPersonal
+    ? { ownerUserId: ctx.userId }
+    : { teamId: ctx.teamId };
+
   const connectors = await prisma.serviceConnector.findMany({
-    where: { teamId: ctx.teamId, status: 'published' },
+    where: { ...ownerFilter, status: 'published' },
     select: {
       id: true,
       slug: true,

@@ -5,7 +5,7 @@
  * The core serverless function that proxies consumer requests to upstream
  * services. Implements the full pipeline:
  *
- *   Authorize → Resolve → Policy → Validate → Transform → Proxy → Respond → Log
+ *   Resolve → Authorize → Policy → Validate → Transform → Proxy → Respond → Log
  *
  * Supports: GET, POST, PUT, PATCH, DELETE
  * Auth: JWT (NaaP plugins) or API Key (external consumers)
@@ -14,11 +14,9 @@
 
 export const runtime = 'nodejs';
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { resolveConfig } from '@/lib/gateway/resolve';
-import { authorize, extractTeamContext, verifyConnectorAccess } from '@/lib/gateway/authorize';
-import { enforcePolicy } from '@/lib/gateway/policy';
-import { validateRequest } from '@/lib/gateway/validate';
+import { authorize, verifyConnectorAccess } from '@/lib/gateway/authorize';
 import { buildUpstreamRequest } from '@/lib/gateway/transform';
 import { proxyToUpstream, ProxyError } from '@/lib/gateway/proxy';
 import { buildResponse, buildErrorResponse } from '@/lib/gateway/respond';
@@ -52,21 +50,22 @@ async function handleRequest(
     );
   }
 
+  const scopeId = auth.teamId;
+
   // ── 2. Resolve Connector + Endpoint Config ──
-  const config = await resolveConfig(auth.teamId, slug, method, consumerPath);
+  const config = await resolveConfig(scopeId, slug, method, consumerPath);
   if (!config) {
     return buildErrorResponse(
       'NOT_FOUND',
-      `No published connector "${slug}" with ${method} ${consumerPath} found for your team.`,
+      `No published connector "${slug}" with ${method} ${consumerPath} found for your scope.`,
       404,
       requestId,
       traceId
     );
   }
 
-  // ── 3. Verify Team Isolation ──
-  const access = await verifyConnectorAccess(auth, config.connector.id, config.connector.teamId);
-  if (!access.allowed) {
+  // ── 3. Verify Ownership Isolation ──
+  if (!verifyConnectorAccess(auth, config.connector.id, config.connector.teamId, config.connector.ownerUserId, config.connector.visibility)) {
     return buildErrorResponse(
       'NOT_FOUND',
       `Connector not found.`,
@@ -75,7 +74,6 @@ async function handleRequest(
       traceId
     );
   }
-  const teamId = access.resolvedTeamId;
 
   // ── 4. Endpoint Access Check (API key scoping) ──
   if (auth.allowedEndpoints && auth.allowedEndpoints.length > 0) {
@@ -97,7 +95,9 @@ async function handleRequest(
     if (!clientIP || !auth.allowedIPs.includes(clientIP)) {
       return buildErrorResponse(
         'FORBIDDEN',
-        clientIP ? 'Request from this IP address is not allowed.' : 'Unable to determine client IP.',
+        clientIP
+          ? 'Request from this IP address is not allowed.'
+          : 'Unable to determine client IP for allowlist check.',
         403,
         requestId,
         traceId
@@ -117,39 +117,28 @@ async function handleRequest(
     }
   }
 
-  // ── 7. Enforce Policy (rate limits, quotas, request size) ──
-  const policy = await enforcePolicy(auth, config.endpoint, requestBytes);
-  if (!policy.allowed) {
+  // ── 7. Request Size Check ──
+  const maxRequestSize = config.endpoint.maxRequestSize || auth.maxRequestSize;
+  if (maxRequestSize && requestBytes > maxRequestSize) {
     return buildErrorResponse(
-      policy.statusCode === 429 ? 'RATE_LIMITED' : 'PAYLOAD_TOO_LARGE',
-      policy.reason || 'Request blocked by policy',
-      policy.statusCode || 429,
-      requestId,
-      traceId,
-      policy.headers
-    );
-  }
-
-  // ── 8. Validate Request (headers, body pattern, blacklist, schema) ──
-  const validation = validateRequest(request, config.endpoint, consumerBody);
-  if (!validation.valid) {
-    return buildErrorResponse(
-      'VALIDATION_ERROR',
-      validation.error || 'Request validation failed',
-      400,
+      'PAYLOAD_TOO_LARGE',
+      `Request body exceeds maximum size of ${maxRequestSize} bytes.`,
+      413,
       requestId,
       traceId
     );
   }
 
-  // ── 9. Resolve Secrets ──
+  // ── 8. Resolve Secrets (use connector owner's scope, not caller's) ──
   const token = getAuthToken(request);
-  const secrets = await resolveSecrets(teamId, config.connector.secretRefs, token);
+  const ownerScope = config.connector.teamId
+    ?? (config.connector.ownerUserId ? `personal:${config.connector.ownerUserId}` : scopeId);
+  const secrets = await resolveSecrets(ownerScope, config.connector.secretRefs, token);
 
-  // ── 10. Transform Request ──
+  // ── 9. Transform Request ──
   const upstream = buildUpstreamRequest(request, config, secrets, consumerBody, consumerPath);
 
-  // ── 11. Proxy to Upstream ──
+  // ── 10. Proxy to Upstream ──
   const timeout = config.endpoint.timeout || config.connector.defaultTimeout;
 
   let proxyResult;
@@ -163,9 +152,9 @@ async function handleRequest(
   } catch (err) {
     const proxyError = err instanceof ProxyError ? err : new ProxyError('UPSTREAM_ERROR', String(err), 502);
 
-    // Log error usage
     logUsage({
-      teamId,
+      teamId: scopeId,
+      ownerScope,
       connectorId: config.connector.id,
       endpointName: config.endpoint.name,
       apiKeyId: auth.apiKeyId || null,
@@ -192,19 +181,14 @@ async function handleRequest(
     );
   }
 
-  // ── 12. Build Response ──
+  // ── 11. Build Response ──
   const response = await buildResponse(config, proxyResult, requestId, traceId);
 
-  if (policy.headers) {
-    for (const [key, value] of Object.entries(policy.headers)) {
-      response.headers.set(key, value);
-    }
-  }
-
-  // ── 13. Log Usage (non-blocking via waitUntil) ──
+  // ── 12. Log Usage (non-blocking via waitUntil) ──
   const responseBytes = parseInt(response.headers.get('content-length') || '0', 10);
   logUsage({
-    teamId,
+    teamId: scopeId,
+    ownerScope,
     connectorId: config.connector.id,
     endpointName: config.endpoint.name,
     apiKeyId: auth.apiKeyId || null,
@@ -230,36 +214,33 @@ async function handleRequest(
  * For now, fire-and-forget the DB write.
  */
 function logUsage(data: UsageData): void {
-  import('@/lib/db')
-    .then(({ prisma }) =>
-      prisma.gatewayUsageRecord
-        .create({
-          data: {
-            teamId: data.teamId,
-            connectorId: data.connectorId,
-            endpointName: data.endpointName,
-            apiKeyId: data.apiKeyId,
-            callerType: data.callerType,
-            callerId: data.callerId,
-            method: data.method,
-            path: data.path,
-            statusCode: data.statusCode,
-            latencyMs: data.latencyMs,
-            upstreamLatencyMs: data.upstreamLatencyMs,
-            requestBytes: data.requestBytes,
-            responseBytes: data.responseBytes,
-            cached: data.cached,
-            error: data.error,
-            region: data.region,
-          },
-        })
-        .catch((err) => {
-          console.error('[gateway] usage log failed:', err);
-        })
-    )
-    .catch((err) => {
-      console.error('[gateway] failed to load db module:', err);
-    });
+  // Dynamically import to avoid loading Prisma on every request path
+  import('@/lib/db').then(({ prisma }) => {
+    prisma.gatewayUsageRecord
+      .create({
+        data: {
+          teamId: data.teamId,
+          connectorId: data.connectorId,
+          endpointName: data.endpointName,
+          apiKeyId: data.apiKeyId,
+          callerType: data.callerType,
+          callerId: data.callerId,
+          method: data.method,
+          path: data.path,
+          statusCode: data.statusCode,
+          latencyMs: data.latencyMs,
+          upstreamLatencyMs: data.upstreamLatencyMs,
+          requestBytes: data.requestBytes,
+          responseBytes: data.responseBytes,
+          cached: data.cached,
+          error: data.error,
+          region: data.region,
+        },
+      })
+      .catch((err) => {
+        console.error('[gateway] usage log failed:', err);
+      });
+  }).catch(() => {});
 }
 
 // ── HTTP Method Handlers ──

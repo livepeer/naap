@@ -42,16 +42,18 @@ export async function resolveSecrets(
 
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const timeoutId = setTimeout(() => controller.abort(), 3_000);
+
         const response = await fetch(`${BASE_SVC_URL}/api/v1/secrets/${encodeURIComponent(key)}`, {
-          signal: controller.signal,
           headers: {
             ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
             'x-internal-service': 'service-gateway',
           },
+          signal: controller.signal,
         });
 
         clearTimeout(timeoutId);
+
         if (response.ok) {
           const data = await response.json();
           const value = data.data?.value || data.value || '';
@@ -125,8 +127,9 @@ export async function deleteSecret(
 
     if (response.ok) {
       SECRET_CACHE.delete(key);
+      return true;
     }
-    return response.ok;
+    return false;
   } catch {
     return false;
   }

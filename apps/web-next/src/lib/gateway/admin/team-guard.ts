@@ -4,7 +4,6 @@
  * Reusable auth + team extraction for admin API routes.
  * - Extracts and validates JWT auth
  * - Resolves teamId from x-team-id header
- * - Verifies user is a member of the claimed team
  * - Provides team-scoped resource loading helpers
  *
  * Returns 404 (not 403) for other teams' resources to prevent enumeration.
@@ -20,12 +19,12 @@ const BASE_SVC_URL = process.env.BASE_SVC_URL || process.env.NEXT_PUBLIC_BASE_SV
 export interface AdminContext {
   userId: string;
   teamId: string;
+  isPersonal: boolean;
   token: string;
 }
 
 /**
  * Extract and validate admin context from request.
- * Verifies the user is authenticated and is a member of the claimed team.
  * Returns AdminContext or a NextResponse error.
  */
 export async function getAdminContext(
@@ -62,13 +61,17 @@ export async function getAdminContext(
       return errors.badRequest('x-team-id header is required');
     }
 
-    try {
-      await validateTeamAccess(userId, teamId, 'viewer');
-    } catch {
-      return errors.notFound('Team');
+    const isPersonal = teamId.startsWith('personal:');
+
+    if (!isPersonal) {
+      try {
+        await validateTeamAccess(userId, teamId, 'viewer');
+      } catch {
+        return errors.notFound('Team');
+      }
     }
 
-    return { userId, teamId, token };
+    return { userId, teamId, isPersonal, token };
   } catch {
     return errors.internal('Auth service unavailable');
   }
@@ -82,23 +85,53 @@ export function isErrorResponse(result: AdminContext | Response): result is Resp
 }
 
 /**
- * Load a connector by ID, verifying it belongs to the caller's team.
- * Returns 404 for other teams' connectors (prevents enumeration).
+ * Build a Prisma `where` clause that scopes a connector to the caller's
+ * ownership: team-scoped uses `teamId`, personal uses `ownerUserId`.
  */
-export async function loadConnector(connectorId: string, teamId: string) {
-  const connector = await prisma.serviceConnector.findFirst({
-    where: { id: connectorId, teamId },
+function scopeFilter(connectorId: string, scopeId: string) {
+  if (scopeId.startsWith('personal:')) {
+    const userId = scopeId.slice('personal:'.length);
+    return { id: connectorId, ownerUserId: userId };
+  }
+  return { id: connectorId, teamId: scopeId };
+}
+
+function visibleFilter(connectorId: string, scopeId: string) {
+  return {
+    OR: [
+      scopeFilter(connectorId, scopeId),
+      { id: connectorId, visibility: 'public', status: 'published' },
+    ],
+  };
+}
+
+/**
+ * Load a connector by ID, verifying it belongs to the caller's scope
+ * OR is a published public connector (visible to all authenticated users).
+ */
+export async function loadConnector(connectorId: string, scopeId: string) {
+  return prisma.serviceConnector.findFirst({
+    where: visibleFilter(connectorId, scopeId),
   });
-  return connector;
+}
+
+/**
+ * Load a connector by ID, strictly within the caller's own scope.
+ * Use for write operations (update/delete) where public fallback is NOT allowed.
+ */
+export async function loadOwnedConnector(connectorId: string, scopeId: string) {
+  return prisma.serviceConnector.findFirst({
+    where: scopeFilter(connectorId, scopeId),
+  });
 }
 
 /**
  * Load a connector by ID with its endpoints.
+ * Same visibility rules as loadConnector.
  */
-export async function loadConnectorWithEndpoints(connectorId: string, teamId: string) {
-  const connector = await prisma.serviceConnector.findFirst({
-    where: { id: connectorId, teamId },
+export async function loadConnectorWithEndpoints(connectorId: string, scopeId: string) {
+  return prisma.serviceConnector.findFirst({
+    where: visibleFilter(connectorId, scopeId),
     include: { endpoints: true },
   });
-  return connector;
 }

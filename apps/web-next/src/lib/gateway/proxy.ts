@@ -5,11 +5,8 @@
  * Handles: timeouts, retries, SSE streaming, SSRF protection.
  */
 
-import dns from 'node:dns/promises';
 import type { UpstreamRequest, ProxyResult } from './types';
-import { validateHost, isPrivateIp } from './types';
-
-const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
+import { validateHost } from './types';
 
 /**
  * Proxy a request to the upstream service.
@@ -25,31 +22,12 @@ export async function proxyToUpstream(
   retries: number,
   allowedHosts: string[]
 ): Promise<ProxyResult> {
-  // ── SSRF Protection (hostname) ──
+  // ── SSRF Protection ──
   const url = new URL(upstream.url);
   if (!validateHost(url.hostname, allowedHosts)) {
     throw new ProxyError(
       'SSRF_BLOCKED',
       `Host "${url.hostname}" is not allowed`,
-      403
-    );
-  }
-
-  // ── SSRF Protection (DNS resolution) ──
-  try {
-    const resolved = await dns.lookup(url.hostname, { all: true });
-    if (resolved.some((r) => isPrivateIp(r.address))) {
-      throw new ProxyError(
-        'SSRF_BLOCKED',
-        `Resolved private IP for "${url.hostname}"`,
-        403
-      );
-    }
-  } catch (err) {
-    if (err instanceof ProxyError) throw err;
-    throw new ProxyError(
-      'SSRF_BLOCKED',
-      `DNS resolution failed for "${url.hostname}"`,
       403
     );
   }
@@ -93,9 +71,9 @@ export async function proxyToUpstream(
         );
       }
 
-      // Retry only for idempotent methods
-      const isIdempotent = IDEMPOTENT_METHODS.has(upstream.method.toUpperCase());
-      if (attempt < attempts - 1 && isIdempotent) {
+      // Retry on network errors only
+      if (attempt < attempts - 1) {
+        // Exponential backoff: 100ms, 200ms, 400ms...
         await sleep(100 * Math.pow(2, attempt));
         continue;
       }

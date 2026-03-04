@@ -50,8 +50,18 @@ export async function GET(request: NextRequest) {
 
   // Enrich with connector names
   const connectorIds = byConnector.map((c) => c.connectorId);
+  const ownerFilter = ctx.isPersonal
+    ? { ownerUserId: ctx.userId }
+    : { teamId: ctx.teamId };
+
   const connectors = await prisma.serviceConnector.findMany({
-    where: { id: { in: connectorIds }, teamId: ctx.teamId },
+    where: {
+      id: { in: connectorIds },
+      OR: [
+        ownerFilter,
+        { visibility: 'public', status: 'published' },
+      ],
+    },
     select: { id: true, slug: true, displayName: true },
   });
   const connectorMap = new Map(connectors.map((c) => [c.id, c]));
