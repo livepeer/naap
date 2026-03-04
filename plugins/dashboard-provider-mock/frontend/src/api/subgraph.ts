@@ -135,8 +135,9 @@ export async function fetchSubgraphFees(days?: number): Promise<DashboardFeesInf
       weeklyVolumeUsd: round2(w.weeklyVolumeUsd),
     }));
 
-  const currentDay = dayData.at(-1);
+  const latestDay = dayData.at(-1);
   const previousDay = dayData.at(-2);
+  const dayBeforePrevious = dayData.at(-3);
   const currentWeek = weeklyData.at(-1);
   const previousWeek = weeklyData.at(-2);
   const twoWeeksBack = weeklyData.at(-3);
@@ -144,20 +145,32 @@ export async function fetchSubgraphFees(days?: number): Promise<DashboardFeesInf
   const fallbackTotalEth = round2(dayData.reduce((sum, d) => sum + d.volumeEth, 0));
   const fallbackTotalUsd = round2(dayData.reduce((sum, d) => sum + d.volumeUsd, 0));
 
+  const now = new Date();
+  const startOfTodayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0) / 1000;
+  const weekStartOfToday = getWeekStartTimestamp(startOfTodayUtc);
+  const isLatestDayIncomplete = latestDay != null && latestDay.dateS >= startOfTodayUtc;
+  const isLatestWeekIncomplete =
+    currentWeek != null && currentWeek.date >= weekStartOfToday;
+
+  const dayForDisplay = isLatestDayIncomplete ? previousDay : latestDay;
+  const dayForDeltaBase = isLatestDayIncomplete ? dayBeforePrevious : previousDay;
+  const weekForDisplay = isLatestWeekIncomplete ? previousWeek : currentWeek;
+  const weekForDeltaBase = isLatestWeekIncomplete ? twoWeeksBack : previousWeek;
+
   return {
     totalEth: round2(toNumber(data?.protocol?.totalVolumeETH) || fallbackTotalEth),
     totalUsd: round2(toNumber(data?.protocol?.totalVolumeUSD) || fallbackTotalUsd),
-    oneDayVolumeUsd: round2(currentDay?.volumeUsd ?? 0),
-    oneDayVolumeEth: round2(currentDay?.volumeEth ?? 0),
-    oneWeekVolumeUsd: round2(previousWeek?.weeklyVolumeUsd ?? currentWeek?.weeklyVolumeUsd ?? 0),
-    oneWeekVolumeEth: round2(previousWeek?.weeklyVolumeEth ?? currentWeek?.weeklyVolumeEth ?? 0),
-    volumeChangeUsd: round2(percentChange(currentDay?.volumeUsd ?? 0, previousDay?.volumeUsd ?? 0)),
-    volumeChangeEth: round2(percentChange(currentDay?.volumeEth ?? 0, previousDay?.volumeEth ?? 0)),
+    oneDayVolumeUsd: round2(dayForDisplay?.volumeUsd ?? 0),
+    oneDayVolumeEth: round2(dayForDisplay?.volumeEth ?? 0),
+    oneWeekVolumeUsd: round2(weekForDisplay?.weeklyVolumeUsd ?? 0),
+    oneWeekVolumeEth: round2(weekForDisplay?.weeklyVolumeEth ?? 0),
+    volumeChangeUsd: round2(percentChange(dayForDisplay?.volumeUsd ?? 0, dayForDeltaBase?.volumeUsd ?? 0)),
+    volumeChangeEth: round2(percentChange(dayForDisplay?.volumeEth ?? 0, dayForDeltaBase?.volumeEth ?? 0)),
     weeklyVolumeChangeUsd: round2(
-      percentChange(previousWeek?.weeklyVolumeUsd ?? 0, twoWeeksBack?.weeklyVolumeUsd ?? 0)
+      percentChange(weekForDisplay?.weeklyVolumeUsd ?? 0, weekForDeltaBase?.weeklyVolumeUsd ?? 0)
     ),
     weeklyVolumeChangeEth: round2(
-      percentChange(previousWeek?.weeklyVolumeEth ?? 0, twoWeeksBack?.weeklyVolumeEth ?? 0)
+      percentChange(weekForDisplay?.weeklyVolumeEth ?? 0, weekForDeltaBase?.weeklyVolumeEth ?? 0)
     ),
     dayData,
     weeklyData,
