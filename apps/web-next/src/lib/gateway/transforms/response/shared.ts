@@ -26,7 +26,8 @@ export function buildSafeResponseHeaders(
 
   // Copy safe upstream headers first
   ctx.upstreamResponse.headers.forEach((value, key) => {
-    if (!STRIP_HEADERS.has(key.toLowerCase()) && !key.startsWith('x-gateway-')) {
+    const lower = key.toLowerCase();
+    if (!STRIP_HEADERS.has(lower) && !key.startsWith('x-gateway-') && lower !== 'x-request-id' && lower !== 'x-trace-id') {
       headers.set(key, value);
     }
   });
