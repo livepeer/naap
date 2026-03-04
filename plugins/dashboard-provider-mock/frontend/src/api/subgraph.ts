@@ -1,7 +1,5 @@
 import type { DashboardFeesInfo, DashboardFeeWeeklyData } from '@naap/plugin-sdk';
 
-const DEFAULT_SUBGRAPH_ID = 'FE63YgkzcpVocxdCEyEYbvjYqEf2kb1A6daMYRxmejYC';
-
 type SubgraphDay = {
   date: number;
   volumeETH: string;
@@ -51,21 +49,17 @@ function getWeekStartTimestamp(dateS: number): number {
 }
 
 /**
- * Resolve subgraph URL using the same convention as explorer (lib/chains.ts):
- * - Prefer VITE_SUBGRAPH_ENDPOINT if set
- * - Else build: https://gateway.thegraph.com/api/${key}/subgraphs/id/${id}
+ * Resolve subgraph URL.
+ *
+ * Default path proxies through the shell server so the API key stays server-side.
+ * VITE_SUBGRAPH_ENDPOINT is kept as an override for standalone plugin development.
  */
 function getSubgraphUrl(): string {
   const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
   const endpoint = env.VITE_SUBGRAPH_ENDPOINT;
-  const apiKey = env.VITE_SUBGRAPH_API_KEY;
-  const subgraphId = env.VITE_SUBGRAPH_ID || DEFAULT_SUBGRAPH_ID;
 
   if (endpoint) return endpoint;
-  if (apiKey) return `https://gateway.thegraph.com/api/${apiKey}/subgraphs/id/${subgraphId}`;
-  throw new Error(
-    'VITE_SUBGRAPH_ENDPOINT or VITE_SUBGRAPH_API_KEY must be set (see .env.example)'
-  );
+  return '/api/v1/subgraph';
 }
 
 async function fetchFromSubgraph(days: number): Promise<SubgraphResponse['data']> {

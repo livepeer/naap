@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const hasSubgraphApiKey = !!process.env.VITE_SUBGRAPH_API_KEY;
+const hasSubgraphApiKey = !!process.env.SUBGRAPH_API_KEY;
 import { buildSchema, printSchema, parse } from 'graphql';
 import {
   DASHBOARD_SCHEMA,

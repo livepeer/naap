@@ -133,6 +133,9 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/naap
 NEXTAUTH_SECRET=dev-secret-change-me-in-production-min-32-chars
 BASE_SVC_URL=http://localhost:4000
 PLUGIN_SERVER_URL=http://localhost:3100
+SUBGRAPH_API_KEY=<your-key>
+# optional
+SUBGRAPH_ID=<your-subgraph-id>
 ```
 
 ### Plugin Backends (`plugins/<name>/backend/.env`)

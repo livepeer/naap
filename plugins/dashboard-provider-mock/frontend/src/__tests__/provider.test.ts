@@ -102,7 +102,7 @@ function makeFetchMock() {
       body = { metrics: STUB_GPU };
     } else if (url.includes('/api/sla/compliance')) {
       body = { compliance: STUB_SLA };
-    } else if (url.includes('thegraph.com')) {
+    } else if (url.includes('/api/v1/subgraph') || url.includes('thegraph.com')) {
       body = {
         data: {
           days: [

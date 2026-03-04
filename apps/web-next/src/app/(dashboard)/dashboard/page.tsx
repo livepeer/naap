@@ -383,8 +383,8 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
   const displayDate = hovered
     ? new Date(hovered.x * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     : null;
-  const rawRows = useMemo(
-    () =>
+  const rawRows = useMemo(() => {
+    const rows =
       grouping === 'day'
         ? data.dayData.map((d) => ({
             ts: d.dateS,
@@ -395,9 +395,9 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
             ts: w.date,
             volumeUsd: w.weeklyVolumeUsd,
             volumeEth: w.weeklyVolumeEth,
-          })),
-    [data.dayData, data.weeklyData, grouping]
-  );
+          }));
+    return [...rows].sort((a, b) => b.ts - a.ts);
+  }, [data.dayData, data.weeklyData, grouping]);
 
   return (
     <div className="p-4 rounded-lg bg-card border border-border">

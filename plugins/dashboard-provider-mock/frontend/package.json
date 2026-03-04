@@ -7,8 +7,8 @@
     "dev": "vite --port 3020",
     "build": "vite build --mode production",
     "preview": "vite preview --port 3020 --host 0.0.0.0 --strictPort",
-    "test": "VITE_SUBGRAPH_API_KEY=test-key vitest run",
-    "test:watch": "VITE_SUBGRAPH_API_KEY=test-key vitest"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@naap/plugin-sdk": "*",
