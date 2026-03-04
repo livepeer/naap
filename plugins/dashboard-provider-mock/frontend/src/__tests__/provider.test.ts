@@ -117,9 +117,14 @@ function makeFetchMock() {
           protocol: {
             totalVolumeETH: '102.4',
             totalVolumeUSD: '244890',
+            roundLength: '6377',
+            totalActiveStake: '31245890',
+            currentRound: { id: '4118', startBlock: '21234500', initialized: true },
           },
         },
       };
+    } else if (url.includes('/api/v1/protocol-block')) {
+      body = { blockNumber: 21236634 };
     } else {
       body = {};
     }
@@ -241,9 +246,11 @@ describe('registerMockDashboardProvider', () => {
     expect(response.data!.kpi!.dailyUsageMins.value).toBeGreaterThanOrEqual(0);
     expect(response.data!.kpi!.dailyStreamCount.value).toBeGreaterThanOrEqual(0);
 
-    // Protocol: static fallback
+    // Protocol: from subgraph + L1 block (no fallback — fails if credentials missing)
     expect(response.data!.protocol).toBeDefined();
-    expect(response.data!.protocol!.currentRound).toBe(4127);
+    expect(response.data!.protocol!.currentRound).toBe(4118);
+    expect(response.data!.protocol!.totalBlocks).toBe(6377);
+    expect(response.data!.protocol!.blockProgress).toBe(2134); // 21236634 - 21234500
 
     // Fees: returned by subgraph-backed resolver
     expect(response.data!.fees).toBeDefined();
@@ -268,6 +275,23 @@ describe('registerMockDashboardProvider', () => {
     // Pricing: static fallback
     expect(response.data!.pricing).toBeDefined();
     expect(response.data!.pricing!.length).toBeGreaterThan(0);
+  });
+
+  it('returns protocol null and errors when subgraph or protocol-block fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve({ ok: false, status: 503 } as Response))
+    );
+    registerMockDashboardProvider(mockEventBus as any);
+
+    const response = (await mockEventBus._invoke(DASHBOARD_QUERY_EVENT, {
+      query: '{ protocol { currentRound blockProgress totalBlocks totalStakedLPT } }',
+    })) as DashboardQueryResponse;
+
+    expect(response.data?.protocol).toBeNull();
+    expect(response.errors).toBeDefined();
+    expect(response.errors!.length).toBeGreaterThan(0);
+    expect(response.errors!.some((e) => e.message?.includes('protocol-block') || e.message?.includes('subgraph'))).toBe(true);
   });
 
   it('returns only requested fields for partial queries', async () => {

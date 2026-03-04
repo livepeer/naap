@@ -11,10 +11,29 @@ type SubgraphProtocol = {
   totalVolumeUSD: string;
 };
 
+type SubgraphRound = {
+  id: string;
+  startBlock: string;
+  initialized: boolean;
+};
+
+type SubgraphProtocolOverview = {
+  roundLength: string;
+  totalActiveStake: string;
+  currentRound: SubgraphRound | null;
+};
+
 type SubgraphResponse = {
   data?: {
     days?: SubgraphDay[];
     protocol?: SubgraphProtocol | null;
+  };
+  errors?: Array<{ message: string }>;
+};
+
+type SubgraphProtocolResponse = {
+  data?: {
+    protocol?: SubgraphProtocolOverview | null;
   };
   errors?: Array<{ message: string }>;
 };
@@ -174,5 +193,56 @@ export async function fetchSubgraphFees(days?: number): Promise<DashboardFeesInf
     ),
     dayData,
     weeklyData,
+  };
+}
+
+export async function fetchSubgraphProtocol(): Promise<{
+  currentRound: number;
+  startBlock: number;
+  initialized: boolean;
+  totalBlocks: number;
+  totalStakedLPT: number;
+}> {
+  const query = /* GraphQL */ `
+    query ProtocolOverview {
+      protocol(id: "0") {
+        roundLength
+        totalActiveStake
+        currentRound {
+          id
+          startBlock
+          initialized
+        }
+      }
+    }
+  `;
+
+  const url = getSubgraphUrl();
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`subgraph HTTP ${res.status}: ${url}`);
+  }
+
+  const body = (await res.json()) as SubgraphProtocolResponse;
+  if (body.errors?.length) {
+    throw new Error(body.errors.map((e) => e.message).join('; '));
+  }
+
+  const protocol = body.data?.protocol;
+  if (!protocol || !protocol.currentRound) {
+    throw new Error('subgraph returned no protocol currentRound data');
+  }
+
+  return {
+    currentRound: Math.floor(toNumber(protocol.currentRound.id)),
+    startBlock: Math.floor(toNumber(protocol.currentRound.startBlock)),
+    initialized: Boolean(protocol.currentRound.initialized),
+    totalBlocks: Math.floor(toNumber(protocol.roundLength)),
+    totalStakedLPT: toNumber(protocol.totalActiveStake),
   };
 }

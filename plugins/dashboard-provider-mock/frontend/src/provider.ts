@@ -14,11 +14,11 @@
  *   pipelines              ← /api/network/demand  (grouped by pipeline, 24 h)
  *   gpuCapacity.totalGPUs  ← /api/gpu/metrics     (distinct gpu_id, last 1 h)
  *
- * Real data (subgraph):
+ * Real data (subgraph/RPC):
+ *   protocol   — Livepeer protocol subgraph + protocol chain RPC block number
  *   fees       — VITE_SUBGRAPH_* env (same convention as explorer)
  *
  * Static fallbacks (no source yet):
- *   protocol   — Livepeer protocol subgraph not wired up
  *   pricing    — no pricing endpoint exists
  */
 
@@ -29,6 +29,7 @@ import {
   type DashboardPipelineUsage,
   type DashboardGPUCapacity,
   type DashboardOrchestrator,
+  type DashboardProtocol,
 } from '@naap/plugin-sdk';
 
 import {
@@ -38,8 +39,7 @@ import {
   type NetworkDemandRow,
   type SLAComplianceRow,
 } from './api/leaderboard.js';
-import { fetchSubgraphFees } from './api/subgraph.js';
-import { mockProtocol } from './data/mock-protocol.js';
+import { fetchSubgraphFees, fetchSubgraphProtocol } from './api/subgraph.js';
 import { mockPricing } from './data/mock-pricing.js';
 import {
   PIPELINE_DISPLAY,
@@ -261,6 +261,39 @@ async function resolveFees({ days }: { days?: number }) {
   return fetchSubgraphFees(days);
 }
 
+async function fetchCurrentProtocolBlock(): Promise<number> {
+  const response = await fetch('/api/v1/protocol-block');
+  if (!response.ok) {
+    throw new Error(`protocol-block HTTP ${response.status}`);
+  }
+
+  const body = (await response.json()) as { blockNumber?: number };
+  if (!Number.isFinite(body.blockNumber)) {
+    throw new Error('protocol-block returned invalid blockNumber');
+  }
+
+  return Number(body.blockNumber);
+}
+
+async function resolveProtocol(): Promise<DashboardProtocol> {
+  const [protocol, currentProtocolBlock] = await Promise.all([
+    fetchSubgraphProtocol(),
+    fetchCurrentProtocolBlock(),
+  ]);
+
+  const rawProgress = protocol.initialized
+    ? currentProtocolBlock - protocol.startBlock
+    : 0;
+  const blockProgress = Math.max(0, Math.min(rawProgress, protocol.totalBlocks));
+
+  return {
+    currentRound: protocol.currentRound,
+    blockProgress,
+    totalBlocks: protocol.totalBlocks,
+    totalStakedLPT: protocol.totalStakedLPT,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Provider registration
 // ---------------------------------------------------------------------------
@@ -279,8 +312,7 @@ export function registerMockDashboardProvider(eventBus: IEventBus): () => void {
     gpuCapacity:   () => resolveGPUCapacity(),
     orchestrators: ({ period }: { period?: string }) => resolveOrchestrators({ period }),
 
-    // --- Static fallbacks (no source yet) ---
-    protocol: async () => mockProtocol,  // needs Livepeer protocol subgraph
+    protocol:   () => resolveProtocol(),
     fees:     ({ days }: { days?: number }) => resolveFees({ days }),
     pricing:  async () => mockPricing,   // no pricing endpoint exists
   });
