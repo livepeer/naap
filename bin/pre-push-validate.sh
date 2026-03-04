@@ -38,7 +38,7 @@ cd "$ROOT_DIR" || { log_error "Failed to cd to $ROOT_DIR"; exit 1; }
 log_info "Pre-push validation (quick checks)..."
 
 # 1. plugin-build must compile — plugins import from dist/, not src/
-log_info "[1/2] Building @naap/plugin-build..."
+log_info "[1/3] Building @naap/plugin-build..."
 if ! (cd "$ROOT_DIR" && npm run build --workspace=@naap/plugin-build 2>&1); then
   log_error "plugin-build failed to compile. Run 'npm install' and retry."
   exit 1
@@ -46,15 +46,25 @@ fi
 log_success "plugin-build OK"
 
 # 2. SDK tests — catches codeGenerator/impl drift
-log_info "[2/2] Running plugin-sdk tests..."
+log_info "[2/3] Running plugin-sdk tests..."
 if ! (cd packages/plugin-sdk && npm run test:run 2>&1); then
   log_error "SDK tests failed. Fix before pushing."
   exit 1
 fi
 log_success "SDK tests OK"
 
+# 3. Vercel safety — plugin-discovery must never be imported in Next.js runtime
+log_info "[3/3] Checking Vercel safety (no fs/path in Next.js runtime)..."
+if grep -r "plugin-discovery" apps/web-next/src/ --include="*.ts" --include="*.tsx" -l 2>/dev/null | grep -v ".mdx"; then
+  log_error "plugin-discovery.ts imported in Next.js runtime code!"
+  log_error "This file uses Node.js fs/path and will break Vercel serverless builds."
+  log_error "Use inline utilities instead of importing from plugin-discovery."
+  exit 1
+fi
+log_success "Vercel safety OK (no plugin-discovery imports in Next.js runtime)"
+
 if [ "$FULL" = "1" ]; then
-  log_info "[3/3] Full Vercel build..."
+  log_info "[FULL] Full Vercel build..."
   export DATABASE_URL="${DATABASE_URL:-postgresql://test:test@localhost:5432/test}"
   export NEXTAUTH_SECRET="${NEXTAUTH_SECRET:-test-secret-at-least-32-characters-long}"
   if ! ./bin/vercel-build.sh 2>&1; then

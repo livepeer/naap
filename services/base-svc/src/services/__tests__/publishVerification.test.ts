@@ -1,7 +1,7 @@
 /**
  * Publish Verification Service Tests
  * 
- * Tests for URL accessibility and Docker image verification.
+ * Tests for URL accessibility, Docker image verification, and route validation.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -24,7 +24,7 @@ describe('verifyUrlAccessible', () => {
   it('should return accessible true for 200 response', async () => {
     mockFetch.mockResolvedValueOnce({ ok: true });
 
-    const result = await verifyUrlAccessible('http://localhost:3000/cdn/plugins/my-plugin/1.0.0/my-plugin.js');
+    const result = await verifyUrlAccessible('https://cdn.example.com/plugins/my-plugin/1.0.0/my-plugin.js');
 
     expect(result.accessible).toBe(true);
     expect(result.responseTime).toBeDefined();
@@ -33,7 +33,7 @@ describe('verifyUrlAccessible', () => {
   it('should return accessible false for 404 response', async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 404, statusText: 'Not Found' });
 
-    const result = await verifyUrlAccessible('http://localhost:3100/missing.js');
+    const result = await verifyUrlAccessible('https://cdn.example.com/missing.js');
 
     expect(result.accessible).toBe(false);
     expect(result.error).toContain('404');
@@ -42,7 +42,7 @@ describe('verifyUrlAccessible', () => {
   it('should return accessible false for 500 response', async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' });
 
-    const result = await verifyUrlAccessible('http://localhost:3100/error.js');
+    const result = await verifyUrlAccessible('https://cdn.example.com/error.js');
 
     expect(result.accessible).toBe(false);
     expect(result.error).toContain('500');
@@ -51,7 +51,7 @@ describe('verifyUrlAccessible', () => {
   it('should handle network errors', async () => {
     mockFetch.mockRejectedValueOnce(new Error('Network error'));
 
-    const result = await verifyUrlAccessible('http://localhost:3000/cdn/plugins/my-plugin/1.0.0/my-plugin.js');
+    const result = await verifyUrlAccessible('https://cdn.example.com/plugins/my-plugin/1.0.0/my-plugin.js');
 
     expect(result.accessible).toBe(false);
     expect(result.error).toBe('Network error');
@@ -62,7 +62,7 @@ describe('verifyUrlAccessible', () => {
     abortError.name = 'AbortError';
     mockFetch.mockRejectedValueOnce(abortError);
 
-    const result = await verifyUrlAccessible('http://localhost:3000/cdn/plugins/my-plugin/1.0.0/my-plugin.js', 100);
+    const result = await verifyUrlAccessible('https://cdn.example.com/plugins/my-plugin/1.0.0/my-plugin.js', 100);
 
     expect(result.accessible).toBe(false);
     expect(result.error).toContain('timed out');
@@ -133,7 +133,7 @@ describe('validatePublishManifest', () => {
       description: 'A test plugin',
       frontend: {
         entry: './frontend/dist/production/my-plugin.js',
-        routes: ['/my-plugin'],
+        routes: ['/plugins/my-plugin', '/plugins/my-plugin/*'],
       },
     };
 
@@ -146,7 +146,7 @@ describe('validatePublishManifest', () => {
   it('should fail for missing name', () => {
     const manifest = {
       version: '1.0.0',
-      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/plugin'] },
     };
 
     // @ts-ignore - testing invalid input
@@ -160,7 +160,7 @@ describe('validatePublishManifest', () => {
     const manifest = {
       name: 'MyPlugin', // Should be kebab-case
       version: '1.0.0',
-      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/plugin'] },
     };
 
     const result = validatePublishManifest(manifest);
@@ -172,7 +172,7 @@ describe('validatePublishManifest', () => {
   it('should fail for missing version', () => {
     const manifest = {
       name: 'my-plugin',
-      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/plugin'] },
     };
 
     // @ts-ignore - testing invalid input
@@ -186,7 +186,7 @@ describe('validatePublishManifest', () => {
     const manifest = {
       name: 'my-plugin',
       version: 'v1', // Should be semver
-      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/plugin'] },
     };
 
     const result = validatePublishManifest(manifest);
@@ -211,12 +211,93 @@ describe('validatePublishManifest', () => {
     const manifest = {
       name: 'my-plugin',
       version: '1.0.0',
-      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+      frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/plugin'] },
     };
 
     const result = validatePublishManifest(manifest);
 
     expect(result.warnings.some(w => w.code === 'MISSING_DESCRIPTION')).toBe(true);
+  });
+
+  describe('route validation', () => {
+    const validManifest = (routes: string[]) => ({
+      name: 'my-plugin',
+      version: '1.0.0',
+      displayName: 'My Plugin',
+      description: 'Test',
+      frontend: {
+        entry: './frontend/dist/production/my-plugin.js',
+        routes,
+      },
+    });
+
+    it('should accept routes under /plugins/{name}', () => {
+      const result = validatePublishManifest(
+        validManifest(['/plugins/my-plugin', '/plugins/my-plugin/*'])
+      );
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should reject top-level routes with ROUTE_NAMESPACE_VIOLATION', () => {
+      const result = validatePublishManifest(
+        validManifest(['/wallet', '/wallet/*'])
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.code === 'ROUTE_NAMESPACE_VIOLATION')).toBe(true);
+    });
+
+    it('should reject reserved paths with ROUTE_RESERVED_PATH', () => {
+      const result = validatePublishManifest(
+        validManifest(['/settings'])
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.code === 'ROUTE_RESERVED_PATH')).toBe(true);
+    });
+
+    it('should reject /admin as reserved', () => {
+      const result = validatePublishManifest(
+        validManifest(['/admin'])
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.code === 'ROUTE_RESERVED_PATH')).toBe(true);
+    });
+
+    it('should accept plugins with no routes (headless)', () => {
+      const manifest = {
+        name: 'my-provider',
+        version: '1.0.0',
+        frontend: { entry: './frontend/dist/production/provider.js', routes: [] as string[] },
+      };
+      const result = validatePublishManifest(manifest);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should accept plugins with no frontend at all', () => {
+      const manifest = {
+        name: 'my-backend',
+        version: '1.0.0',
+        backend: { entry: './server.js', port: 4001 },
+      };
+      const result = validatePublishManifest(manifest);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should reject bare /plugins/ route', () => {
+      const result = validatePublishManifest(
+        validManifest(['/plugins/'])
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.code === 'ROUTE_NAMESPACE_VIOLATION')).toBe(true);
+    });
+
+    it('should reject routes under another plugin namespace', () => {
+      const result = validatePublishManifest(
+        validManifest(['/plugins/other-plugin'])
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.code === 'ROUTE_NAMESPACE_VIOLATION')).toBe(true);
+    });
   });
 });
 
@@ -235,9 +316,9 @@ describe('verifyPublish', () => {
         version: '1.0.0',
         displayName: 'My Plugin',
         description: 'Test',
-        frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+        frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/my-plugin'] },
       },
-      frontendUrl: 'http://localhost:3000/cdn/plugins/my-plugin/1.0.0/my-plugin.js',
+      frontendUrl: 'https://cdn.example.com/plugins/my-plugin/1.0.0/my-plugin.js',
     });
 
     expect(result.valid).toBe(true);
@@ -253,9 +334,9 @@ describe('verifyPublish', () => {
       manifest: {
         name: 'my-plugin',
         version: '1.0.0',
-        frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+        frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/my-plugin'] },
       },
-      frontendUrl: 'http://localhost:3100/missing.js',
+      frontendUrl: 'https://cdn.example.com/missing.js',
     });
 
     expect(result.valid).toBe(false);
@@ -286,7 +367,7 @@ describe('verifyPublish', () => {
         name: 'MyPlugin', // Invalid
         version: 'v1', // Invalid
       },
-      frontendUrl: 'http://localhost:3100/missing.js',
+      frontendUrl: 'https://cdn.example.com/missing.js',
     });
 
     expect(result.valid).toBe(false);
@@ -300,9 +381,9 @@ describe('verifyPublish', () => {
       manifest: {
         name: 'my-plugin',
         version: '1.0.0',
-        frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugin'] },
+        frontend: { entry: './frontend/dist/production/plugin.js', routes: ['/plugins/my-plugin'] },
       },
-      frontendUrl: 'http://localhost:3000/cdn/plugins/my-plugin/1.0.0/my-plugin.js',
+      frontendUrl: 'https://cdn.example.com/plugins/my-plugin/1.0.0/my-plugin.js',
       skipUrlCheck: true,
     });
 

@@ -14,6 +14,7 @@ import { PublishWizard } from './pages/PublishWizard';
 import { PluginDetail } from './pages/PluginDetail';
 import { ApiTokens } from './pages/ApiTokens';
 import { Settings } from './pages/Settings';
+import { ExamplePlugins } from './pages/ExamplePlugins';
 
 // Import shared shell context module (backward compat)
 import {
@@ -34,6 +35,7 @@ const PluginRoutes: React.FC = () => (
         <Route path="/new" element={<PublishWizard />} />
         <Route path="/tokens" element={<ApiTokens />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/examples" element={<ExamplePlugins />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </MemoryRouter>
