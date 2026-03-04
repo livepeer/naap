@@ -456,18 +456,18 @@ async function main() {
       isCore: true,
     },
     {
-      name: 'dashboardProviderMock',
-      displayName: 'Dashboard Provider (Mock)',
-      description: 'Reference implementation of a dashboard data provider. Serves mock data via the GraphQL-over-event-bus contract. Use as a starter template.',
+      name: 'dashboardDataProvider',
+      displayName: 'Dashboard Data Provider',
+      description: 'Dashboard data provider plugin. Serves data via the GraphQL-over-event-bus contract defined in @naap/plugin-sdk.',
       category: 'analytics',
       author: 'NAAP Team',
       authorEmail: 'team@naap.io',
-      repository: 'https://github.com/livepeer/naap/tree/main/plugins/dashboard-provider-mock',
+      repository: 'https://github.com/livepeer/naap/tree/main/plugins/dashboard-data-provider',
       license: 'MIT',
-      keywords: ['dashboard', 'provider', 'mock', 'reference', 'graphql'],
+      keywords: ['dashboard', 'provider', 'data', 'graphql'],
       icon: 'Box',
       version: '1.0.0',
-      frontendUrl: getPluginUrl('dashboardProviderMock'),
+      frontendUrl: getPluginUrl('dashboardDataProvider'),
     },
   ];
 
@@ -624,7 +624,7 @@ async function main() {
     'developerApi',
     'community',
     'capacityPlanner',
-    'dashboardProviderMock',
+    'dashboardDataProvider',
   ];
   
   const allUsersForPrefs = await prisma.user.findMany({ select: { id: true } });

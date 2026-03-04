@@ -1,8 +1,8 @@
-# Dashboard Provider (Mock)
+# Dashboard Data Provider
 
-Reference implementation of a **dashboard data provider** plugin.
+Dashboard data provider plugin for NAAP.
 
-This plugin provides mock data to the core dashboard via the GraphQL-over-event-bus pattern defined in `@naap/plugin-sdk`. It serves as both:
+This plugin provides data to the core dashboard via the GraphQL-over-event-bus pattern defined in `@naap/plugin-sdk`. It serves as both:
 
 1. **A working example** — install it and the dashboard renders data immediately
 2. **A starter template** — clone it, replace mock data with real API calls, deploy
@@ -11,7 +11,7 @@ This plugin provides mock data to the core dashboard via the GraphQL-over-event-
 
 ```bash
 # 1. Clone as your own plugin
-cp -r plugins/dashboard-provider-mock plugins/my-dashboard-provider
+cp -r plugins/dashboard-data-provider plugins/my-dashboard-provider
 
 # 2. Update plugin.json (name, displayName, etc.)
 

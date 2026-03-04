@@ -1,5 +1,5 @@
 /**
- * Mock Dashboard Provider
+ * Dashboard Data Provider
  *
  * Registers as the dashboard data provider using createDashboardProvider()
  * from the SDK. Serves mock data for all widget types.
@@ -22,12 +22,12 @@ import {
 } from './data/index.js';
 
 /**
- * Register the mock dashboard data provider on the event bus.
+ * Register the dashboard data provider on the event bus.
  *
  * @param eventBus - The shell event bus instance
  * @returns Cleanup function to call on plugin unmount
  */
-export function registerMockDashboardProvider(eventBus: IEventBus): () => void {
+export function registerDashboardProvider(eventBus: IEventBus): () => void {
   return createDashboardProvider(eventBus, {
     kpi: async () => mockKPI,
     protocol: async () => mockProtocol,

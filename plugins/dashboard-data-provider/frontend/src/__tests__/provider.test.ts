@@ -1,9 +1,9 @@
 /**
- * Mock Dashboard Provider Tests
+ * Dashboard Data Provider Tests
  *
- * Tests that the mock plugin correctly:
+ * Tests that the plugin correctly:
  * 1. Registers as a dashboard:query handler
- * 2. Responds with correct mock data shapes
+ * 2. Responds with correct data shapes
  * 3. Handles partial queries
  * 4. Registers as a job-feed:subscribe handler
  * 5. Cleans up handlers on unmount
@@ -18,7 +18,7 @@ import {
   type DashboardQueryResponse,
   type JobFeedSubscribeResponse,
 } from '@naap/plugin-sdk';
-import { registerMockDashboardProvider } from '../provider.js';
+import { registerDashboardProvider } from '../provider.js';
 import { registerMockJobFeedEmitter } from '../job-feed-emitter.js';
 
 // ============================================================================
@@ -75,7 +75,7 @@ function createMockEventBus() {
 // Tests: Dashboard Query Provider
 // ============================================================================
 
-describe('registerMockDashboardProvider', () => {
+describe('registerDashboardProvider', () => {
   let mockEventBus: ReturnType<typeof createMockEventBus>;
 
   beforeEach(() => {
@@ -83,12 +83,12 @@ describe('registerMockDashboardProvider', () => {
   });
 
   it('registers a handler for dashboard:query', () => {
-    registerMockDashboardProvider(mockEventBus as any);
+    registerDashboardProvider(mockEventBus as any);
     expect(mockEventBus._hasHandler(DASHBOARD_QUERY_EVENT)).toBe(true);
   });
 
   it('returns all mock data for a full query', async () => {
-    registerMockDashboardProvider(mockEventBus as any);
+    registerDashboardProvider(mockEventBus as any);
 
     const request: DashboardQueryRequest = {
       query: `{
@@ -136,7 +136,7 @@ describe('registerMockDashboardProvider', () => {
   });
 
   it('returns only requested fields for partial queries', async () => {
-    registerMockDashboardProvider(mockEventBus as any);
+    registerDashboardProvider(mockEventBus as any);
 
     const request: DashboardQueryRequest = {
       query: '{ kpi { successRate { value } } }',
@@ -154,7 +154,7 @@ describe('registerMockDashboardProvider', () => {
   });
 
   it('cleanup unregisters the handler', () => {
-    const cleanup = registerMockDashboardProvider(mockEventBus as any);
+    const cleanup = registerDashboardProvider(mockEventBus as any);
     expect(mockEventBus._hasHandler(DASHBOARD_QUERY_EVENT)).toBe(true);
 
     cleanup();

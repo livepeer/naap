@@ -1,0 +1,29 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "dashboard-data-provider",
+  "displayName": "Dashboard Data Provider",
+  "version": "1.0.0",
+  "description": "Dashboard data provider plugin. Serves data via the GraphQL-over-event-bus contract defined in @naap/plugin-sdk.",
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io"
+  },
+  "license": "MIT",
+  "keywords": ["dashboard", "provider", "data", "graphql"],
+  "category": "analytics",
+
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+
+  "frontend": {
+    "entry": "./frontend/dist/production/dashboard-data-provider.js",
+    "devPort": 3020,
+    "routes": []
+  },
+
+  "permissions": {
+    "shell": ["notifications"]
+  }
+}

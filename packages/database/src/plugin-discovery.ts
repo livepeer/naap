@@ -159,7 +159,7 @@ export function toWorkflowPluginData(
   rootDir?: string,
 ) {
   // Only set stylesUrl if the plugin's build output actually contains a CSS file.
-  // Headless plugins (like dashboard-provider-mock) produce no CSS, and a 404
+  // Headless plugins (like dashboard-data-provider) produce no CSS, and a 404
   // stylesheet URL causes MIME-type errors in the browser.
   let stylesUrl: string | undefined;
   const root = rootDir || process.cwd();

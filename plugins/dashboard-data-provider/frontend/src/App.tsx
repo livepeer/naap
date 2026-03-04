@@ -1,5 +1,5 @@
 /**
- * Dashboard Provider Mock — Plugin Entry
+ * Dashboard Data Provider — Plugin Entry
  *
  * This is a headless plugin (no UI routes, no navigation).
  * It registers as a dashboard data provider on mount and
@@ -8,7 +8,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { createPlugin, useShell } from '@naap/plugin-sdk';
-import { registerMockDashboardProvider } from './provider.js';
+import { registerDashboardProvider } from './provider.js';
 import { registerMockJobFeedEmitter } from './job-feed-emitter.js';
 
 /**
@@ -20,8 +20,7 @@ const DashboardProviderApp: React.FC = () => {
   const cleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    // Register both providers
-    const cleanupProvider = registerMockDashboardProvider(shell.eventBus);
+    const cleanupProvider = registerDashboardProvider(shell.eventBus);
     const cleanupJobFeed = registerMockJobFeedEmitter(shell.eventBus);
 
     cleanupRef.current = () => {
@@ -37,14 +36,13 @@ const DashboardProviderApp: React.FC = () => {
     };
   }, [shell.eventBus]);
 
-  // Headless — render nothing
   return null;
 };
 
 const plugin = createPlugin({
-  name: 'dashboard-provider-mock',
+  name: 'dashboard-data-provider',
   version: '1.0.0',
-  routes: [], // No UI routes — headless provider
+  routes: [],
   App: DashboardProviderApp,
 });
 
