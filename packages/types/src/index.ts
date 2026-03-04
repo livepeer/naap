@@ -216,6 +216,33 @@ export interface ThemeTokens {
 // Developer API Manager types
 export type AIModelType = 'text-to-video' | 'image-to-video' | 'video-to-video';
 
+export interface GPUHardwareSummary {
+  name: string;
+  count: number;
+  memoryGB: number;
+  avgFPS: number;
+  p95FPS: number;
+  avgLatencyMs: number | null;
+  failureRate: number;
+}
+
+export interface NetworkModel {
+  id: string;
+  pipelineId: string;
+  pipelineType: string;
+  modelId: string;
+  displayName: string;
+  regions: string[];
+  regionCodes: string[];
+  gpuHardware: GPUHardwareSummary[];
+  orchestratorCount: number;
+  avgFPS: number;
+  e2eLatencyMs: number | null;
+  slaScore: number | null;
+  isRealtime: boolean;
+  gatewayOffers?: GatewayOffer[];
+}
+
 export interface AIModel {
   id: string;
   name: string;
@@ -229,6 +256,34 @@ export interface AIModel {
   fps: number;
   useCases: string[];
   badges: string[];
+}
+
+export type SLATier = 'bronze' | 'silver' | 'gold';
+export type CapacityLevel = 'low' | 'medium' | 'high';
+
+export interface NetworkDemandSummary {
+  gatewayId: string;
+  gatewayName: string;
+  pipeline: string;
+  regions: string[];
+  totalSessions: number;
+  servedSessions: number;
+  missingCapacityCount: number;
+  successRatio: number;
+  totalInferenceMinutes: number;
+  feePaymentEth: number;
+  demandLevel: CapacityLevel;
+}
+
+export interface GatewayOffer {
+  gatewayId: string;
+  gatewayName: string;
+  slaTier: SLATier;
+  uptimeGuarantee: number;
+  latencyGuarantee: number;
+  unitPrice: number;
+  regions: string[];
+  capacity: CapacityLevel;
 }
 
 export type ApiKeyStatus = 'active' | 'revoked';

@@ -3,7 +3,7 @@
   "name": "dashboard-data-provider",
   "displayName": "Dashboard Data Provider",
   "version": "1.0.0",
-  "description": "Dashboard data provider plugin. Serves data via the GraphQL-over-event-bus contract defined in @naap/plugin-sdk.",
+  "description": "Dashboard data provider backed by the Livepeer Leaderboard API. Serves live KPI, pipeline, GPU capacity, and orchestrator data via the GraphQL-over-event-bus contract.",
   "author": {
     "name": "NAAP Team",
     "email": "team@naap.io"

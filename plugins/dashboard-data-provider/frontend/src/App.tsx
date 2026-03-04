@@ -9,7 +9,7 @@
 import React, { useEffect, useRef } from 'react';
 import { createPlugin, useShell } from '@naap/plugin-sdk';
 import { registerDashboardProvider } from './provider.js';
-import { registerMockJobFeedEmitter } from './job-feed-emitter.js';
+import { registerJobFeedEmitter } from './job-feed-emitter.js';
 
 /**
  * Headless provider component that registers event bus handlers.
@@ -21,7 +21,7 @@ const DashboardProviderApp: React.FC = () => {
 
   useEffect(() => {
     const cleanupProvider = registerDashboardProvider(shell.eventBus);
-    const cleanupJobFeed = registerMockJobFeedEmitter(shell.eventBus);
+    const cleanupJobFeed = registerJobFeedEmitter(shell.eventBus);
 
     cleanupRef.current = () => {
       cleanupProvider();

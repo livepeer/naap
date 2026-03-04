@@ -1,14 +1,15 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Star, ChevronUp } from 'lucide-react';
+import { X, ChevronUp } from 'lucide-react';
 import { Badge } from '@naap/ui';
-import type { AIModel } from '@naap/types';
+import type { NetworkModel } from '@naap/types';
+import { shortGPUName } from '../../utils/gpu';
 
 interface CompareDrawerProps {
-  models: AIModel[];
+  models: NetworkModel[];
   onRemove: (modelId: string) => void;
   onClear: () => void;
-  onSelect: (model: AIModel) => void;
+  onSelect: (model: NetworkModel) => void;
 }
 
 export const CompareDrawer: React.FC<CompareDrawerProps> = ({
@@ -67,90 +68,112 @@ export const CompareDrawer: React.FC<CompareDrawerProps> = ({
             className="overflow-hidden"
           >
             <div className="px-6 pb-6 overflow-x-auto">
-              <table className="w-full min-w-[600px]">
+              <table className="w-full min-w-[640px]">
                 <thead>
                   <tr className="text-left text-xs text-text-secondary uppercase tracking-widest">
-                    <th className="pb-3 pr-4 w-40">Model</th>
-                    <th className="pb-3 px-4">Type</th>
-                    <th className="pb-3 px-4">Cost/min</th>
-                    <th className="pb-3 px-4">P50 Latency</th>
-                    <th className="pb-3 px-4">Cold Start</th>
-                    <th className="pb-3 px-4">FPS</th>
-                    <th className="pb-3 pl-4 w-20"></th>
+                    <th className="pb-3 pr-4 w-48">Model</th>
+                    <th className="pb-3 px-4">Pipeline</th>
+                    <th className="pb-3 px-4">Avg FPS</th>
+                    <th className="pb-3 px-4">E2E Latency</th>
+                    <th className="pb-3 px-4">SLA Score</th>
+                    <th className="pb-3 px-4">GPU Hardware</th>
+                    <th className="pb-3 px-4">Regions</th>
+                    <th className="pb-3 pl-4 w-10"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {models.map((model) => (
-                    <tr
-                      key={model.id}
-                      className="border-t border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
-                      onClick={() => onSelect(model)}
-                    >
-                      <td className="py-3 pr-4">
-                        <div className="flex items-center gap-2">
-                          {model.featured && (
-                            <Star size={14} className="text-accent-amber fill-accent-amber" />
-                          )}
-                          <span className="font-medium text-text-primary">{model.name}</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <Badge variant="secondary">{model.type}</Badge>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-mono text-accent-emerald">
-                          ${model.costPerMin.min.toFixed(2)} - ${model.costPerMin.max.toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-mono text-text-primary">{model.latencyP50}ms</span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-mono text-text-primary">
-                          {(model.coldStart / 1000).toFixed(1)}s
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-mono text-text-primary">{model.fps}</span>
-                      </td>
-                      <td className="py-3 pl-4">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onRemove(model.id);
-                          }}
-                          className="p-1.5 hover:bg-white/10 rounded transition-colors"
-                        >
-                          <X size={16} className="text-text-secondary" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {models.map((model) => {
+                    const uniqueGPUs = [...new Set(model.gpuHardware.map((g) => shortGPUName(g.name)))];
+                    return (
+                      <tr
+                        key={model.id}
+                        className="border-t border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
+                        onClick={() => onSelect(model)}
+                      >
+                        <td className="py-3 pr-4">
+                          <span className="font-medium text-text-primary">{model.displayName}</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <Badge variant="secondary">{model.pipelineType}</Badge>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-mono text-text-primary">
+                            {model.avgFPS > 0 ? `${model.avgFPS}` : '—'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-mono text-text-primary">
+                            {model.e2eLatencyMs != null ? `${model.e2eLatencyMs}ms` : '—'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`font-mono ${model.slaScore != null ? 'text-accent-emerald' : 'text-text-primary'}`}>
+                            {model.slaScore != null ? `${(model.slaScore * 100).toFixed(1)}%` : '—'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="text-text-secondary text-xs">
+                            {uniqueGPUs.length > 0 ? uniqueGPUs.join(', ') : '—'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-mono text-text-secondary text-xs">
+                            {model.regionCodes.join(' ') || '—'}
+                          </span>
+                        </td>
+                        <td className="py-3 pl-4">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRemove(model.id);
+                            }}
+                            className="p-1.5 hover:bg-white/10 rounded transition-colors"
+                          >
+                            <X size={16} className="text-text-secondary" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
 
-              {/* Best For Notes */}
+              {/* Recommendations */}
               <div className="mt-4 pt-4 border-t border-white/5">
                 <h4 className="text-xs text-text-secondary uppercase tracking-widest mb-2">
                   Recommendations
                 </h4>
-                <div className="flex flex-wrap gap-3 text-sm">
-                  {models.some((m) => m.realtime) && (
+                <div className="flex flex-wrap gap-4 text-sm">
+                  {models.some((m) => m.isRealtime) && (
                     <span className="text-text-secondary">
-                      <span className="text-accent-blue font-medium">For real-time:</span>{' '}
-                      {models.filter((m) => m.realtime).map((m) => m.name).join(', ')}
+                      <span className="text-accent-blue font-medium">For real-time: </span>
+                      {models.filter((m) => m.isRealtime).map((m) => m.displayName).join(', ')}
+                    </span>
+                  )}
+                  {models.length > 1 && models.some((m) => m.e2eLatencyMs != null) && (
+                    <span className="text-text-secondary">
+                      <span className="text-accent-amber font-medium">Fastest: </span>
+                      {models
+                        .filter((m) => m.e2eLatencyMs != null)
+                        .reduce((a, b) => (a.e2eLatencyMs! < b.e2eLatencyMs! ? a : b))
+                        .displayName}
+                    </span>
+                  )}
+                  {models.length > 1 && models.some((m) => m.slaScore != null) && (
+                    <span className="text-text-secondary">
+                      <span className="text-accent-emerald font-medium">Best SLA: </span>
+                      {models
+                        .filter((m) => m.slaScore != null)
+                        .reduce((a, b) => (a.slaScore! > b.slaScore! ? a : b))
+                        .displayName}
                     </span>
                   )}
                   {models.length > 1 && (
                     <span className="text-text-secondary">
-                      <span className="text-accent-emerald font-medium">Lowest cost:</span>{' '}
-                      {models.reduce((a, b) => (a.costPerMin.min < b.costPerMin.min ? a : b)).name}
-                    </span>
-                  )}
-                  {models.length > 1 && (
-                    <span className="text-text-secondary">
-                      <span className="text-accent-amber font-medium">Fastest:</span>{' '}
-                      {models.reduce((a, b) => (a.latencyP50 < b.latencyP50 ? a : b)).name}
+                      <span className="text-accent-emerald font-medium">Widest coverage: </span>
+                      {models.reduce((a, b) =>
+                        a.regionCodes.length >= b.regionCodes.length ? a : b
+                      ).displayName}
                     </span>
                   )}
                 </div>

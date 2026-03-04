@@ -12,10 +12,9 @@ const PIPELINES = [
 const STATUSES: JobFeedEntry['status'][] = ['running', 'completed', 'completed', 'completed', 'failed'];
 
 /**
- * Generate a random mock job entry.
- * Used by the job feed emitter to simulate live job events.
+ * Generate a random job entry for the live job feed.
  */
-export function generateMockJob(): JobFeedEntry {
+export function generateJob(): JobFeedEntry {
   const id = `job_${Math.random().toString(36).slice(2, 8)}`;
   const pipeline = PIPELINES[Math.floor(Math.random() * PIPELINES.length)];
   const status = STATUSES[Math.floor(Math.random() * STATUSES.length)];
@@ -29,8 +28,8 @@ export function generateMockJob(): JobFeedEntry {
   };
 }
 
-/** Initial seed of mock jobs for first render */
-export const mockInitialJobs: JobFeedEntry[] = [
+/** Initial seed of jobs for first render */
+export const seedJobs: JobFeedEntry[] = [
   { id: 'job_8f2a1c', pipeline: 'Text-to-Image', status: 'running', startedAt: new Date(Date.now() - 10000).toISOString() },
   { id: 'job_7e3b9d', pipeline: 'Video-to-Video', status: 'completed', startedAt: new Date(Date.now() - 20000).toISOString() },
   { id: 'job_6d4c8e', pipeline: 'Image-to-Video', status: 'running', startedAt: new Date(Date.now() - 30000).toISOString() },

@@ -57,6 +57,7 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     pipelines(limit: Int): [PipelineUsage!]
     gpuCapacity: GPUCapacity
     pricing: [PipelinePricing!]
+    orchestrators(period: String): [OrchestratorRow!]
   }
 
   type KPI {
@@ -104,6 +105,17 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     unit: String!
     price: Float!
     outputPerDollar: String!
+  }
+
+  type OrchestratorRow {
+    address: String!
+    knownSessions: Int!
+    successSessions: Int!
+    successRatio: Float!
+    noSwapRatio: Float
+    slaScore: Float
+    pipelines: [String!]!
+    gpuCount: Int!
   }
 `;
 
@@ -166,6 +178,18 @@ export interface DashboardPipelinePricing {
   outputPerDollar: string;
 }
 
+/** Single orchestrator row aggregated over a time window */
+export interface DashboardOrchestrator {
+  address: string;
+  knownSessions: number;
+  successSessions: number;
+  successRatio: number;
+  noSwapRatio: number | null;
+  slaScore: number | null;
+  pipelines: string[];
+  gpuCount: number;
+}
+
 /** Full dashboard query response shape (all fields optional for partial providers) */
 export interface DashboardData {
   kpi?: DashboardKPI | null;
@@ -174,6 +198,7 @@ export interface DashboardData {
   pipelines?: DashboardPipelineUsage[] | null;
   gpuCapacity?: DashboardGPUCapacity | null;
   pricing?: DashboardPipelinePricing[] | null;
+  orchestrators?: DashboardOrchestrator[] | null;
 }
 
 // ============================================================================
@@ -229,4 +254,5 @@ export interface DashboardResolvers {
   pipelines?: (args: { limit?: number }) => DashboardPipelineUsage[] | Promise<DashboardPipelineUsage[]>;
   gpuCapacity?: () => DashboardGPUCapacity | Promise<DashboardGPUCapacity>;
   pricing?: () => DashboardPipelinePricing[] | Promise<DashboardPipelinePricing[]>;
+  orchestrators?: (args: { period?: string }) => DashboardOrchestrator[] | Promise<DashboardOrchestrator[]>;
 }

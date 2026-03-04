@@ -11,7 +11,7 @@
  * describes what it needs (the query) and renders what it receives.
  */
 
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useDashboardQuery } from '@/hooks/useDashboardQuery';
 import { useJobFeedStream } from '@/hooks/useJobFeedStream';
@@ -23,6 +23,7 @@ import type {
   DashboardPipelineUsage,
   DashboardGPUCapacity,
   DashboardPipelinePricing,
+  DashboardOrchestrator,
   JobFeedEntry,
 } from '@naap/plugin-sdk'; // type-only import — erased at compile time
 import {
@@ -41,6 +42,11 @@ import {
   AlertCircle,
   Loader2,
   Timer,
+  List,
+  X,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
 } from 'lucide-react';
 
 // ============================================================================
@@ -74,6 +80,9 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
     }
     pricing {
       pipeline unit price outputPerDollar
+    }
+    orchestrators {
+      address knownSessions successSessions successRatio noSwapRatio slaScore pipelines gpuCount
     }
   }
 `;
@@ -181,6 +190,7 @@ function KPICard({
   deltaUnit,
   deltaInvert,
   suffix,
+  action,
 }: {
   icon: React.ElementType;
   iconColor: string;
@@ -190,6 +200,7 @@ function KPICard({
   deltaUnit?: string;
   deltaInvert?: boolean;
   suffix?: string;
+  action?: React.ReactNode;
 }) {
   return (
     <div className="p-4 rounded-lg bg-card border border-border hover:border-border/80 transition-colors">
@@ -198,6 +209,7 @@ function KPICard({
           <Icon className="w-3.5 h-3.5" />
         </div>
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
+        {action && <div className="ml-auto">{action}</div>}
       </div>
       <div className="flex items-end justify-between">
         <div className="flex items-baseline gap-1">
@@ -210,7 +222,15 @@ function KPICard({
   );
 }
 
-function KPIRow({ data }: { data: DashboardKPI }) {
+function KPIRow({
+  data,
+  orchestratorsOpen,
+  onToggleOrchestrators,
+}: {
+  data: DashboardKPI;
+  orchestratorsOpen?: boolean;
+  onToggleOrchestrators?: () => void;
+}) {
   return (
     <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
       <KPICard
@@ -228,6 +248,22 @@ function KPIRow({ data }: { data: DashboardKPI }) {
         value={data.orchestratorsOnline.value}
         delta={data.orchestratorsOnline.delta}
         deltaUnit=""
+        action={
+          onToggleOrchestrators && (
+            <button
+              onClick={onToggleOrchestrators}
+              aria-label={orchestratorsOpen ? 'Hide orchestrator data' : 'View orchestrator data'}
+              title={orchestratorsOpen ? 'Hide raw data' : 'View raw orchestrator data'}
+              className={`p-0.5 rounded transition-colors ${
+                orchestratorsOpen
+                  ? 'text-foreground bg-muted'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <List className="w-3 h-3" />
+            </button>
+          )
+        }
       />
       <KPICard
         icon={Clock}
@@ -518,6 +554,141 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
 }
 
 // ============================================================================
+// Orchestrator Table Card
+// ============================================================================
+
+type OrchestratorSortCol = 'address' | 'knownSessions' | 'successRatio' | 'slaScore' | 'gpuCount';
+type SortDir = 'asc' | 'desc';
+
+function OrchestratorTableCard({
+  data,
+  onClose,
+}: {
+  data: DashboardOrchestrator[];
+  onClose: () => void;
+}) {
+  const [sortCol, setSortCol] = useState<OrchestratorSortCol>('knownSessions');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [filter, setFilter] = useState('');
+
+  const toggleSort = (col: OrchestratorSortCol) => {
+    if (sortCol === col) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortCol(col);
+      setSortDir('desc');
+    }
+  };
+
+  const SortIcon = ({ col }: { col: OrchestratorSortCol }) => {
+    if (sortCol !== col) return <ChevronsUpDown className="w-3 h-3 opacity-30" />;
+    return sortDir === 'asc'
+      ? <ChevronUp className="w-3 h-3" />
+      : <ChevronDown className="w-3 h-3" />;
+  };
+
+  const sorted = useMemo(() => {
+    let rows = [...data];
+    if (filter) {
+      const q = filter.toLowerCase();
+      rows = rows.filter(r =>
+        r.address.toLowerCase().includes(q) ||
+        r.pipelines.some(p => p.toLowerCase().includes(q))
+      );
+    }
+    rows.sort((a, b) => {
+      const av = a[sortCol] ?? 0;
+      const bv = b[sortCol] ?? 0;
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      }
+      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
+    });
+    return rows;
+  }, [data, sortCol, sortDir, filter]);
+
+  const TH = ({ col, label, right }: { col: OrchestratorSortCol; label: string; right?: boolean }) => (
+    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'}`}>
+      <button
+        type="button"
+        onClick={() => toggleSort(col)}
+        className={`inline-flex items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'flex-row-reverse' : ''}`}
+        aria-label={`Sort by ${label}`}
+      >
+        {label}
+        <SortIcon col={col} />
+      </button>
+    </th>
+  );
+
+  return (
+    <div className="p-4 rounded-lg bg-card border border-border">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="p-1 rounded-md bg-muted text-muted-foreground">
+            <Server className="w-3.5 h-3.5" />
+          </div>
+          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+            Orchestrators ({data.length})
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            placeholder="Filter address / pipeline…"
+            className="px-2 py-0.5 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground w-48"
+          />
+          <button
+            onClick={onClose}
+            aria-label="Close orchestrator data panel"
+            className="p-0.5 text-muted-foreground hover:text-foreground transition-colors rounded"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto max-h-80 overflow-y-auto">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-card text-muted-foreground border-b border-border">
+            <tr>
+              <TH col="address" label="Address" />
+              <TH col="knownSessions" label="Sessions" right />
+              <TH col="successRatio" label="Success %" right />
+              <TH col="slaScore" label="SLA" right />
+              <TH col="gpuCount" label="GPUs" right />
+              <th className="pb-2 font-medium text-left">Pipelines</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map(row => (
+              <tr key={row.address} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors">
+                <td className="py-1.5 font-mono text-foreground">{row.address.slice(0, 8)}…{row.address.slice(-4)}</td>
+                <td className="py-1.5 text-right font-mono">{row.knownSessions.toLocaleString()}</td>
+                <td className="py-1.5 text-right font-mono">{row.successRatio}%</td>
+                <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
+                <td className="py-1.5 text-right font-mono">{row.gpuCount}</td>
+                <td className="py-1.5 text-muted-foreground truncate max-w-[200px]" title={row.pipelines.join(', ')}>
+                  {row.pipelines.join(', ') || '—'}
+                </td>
+              </tr>
+            ))}
+            {sorted.length === 0 && (
+              <tr>
+                <td colSpan={6} className="py-4 text-center text-muted-foreground">
+                  {filter ? 'No orchestrators match the filter' : 'No orchestrator data'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // Polling Interval Selector
 // ============================================================================
 
@@ -568,6 +739,9 @@ export default function DashboardPage() {
   useAuth();
 
   const [pollInterval, setPollInterval] = useState(getStoredPollInterval);
+  const [orchestratorsOpen, setOrchestratorsOpen] = useState(false);
+  const orchestratorsPanelRef = useRef<HTMLDivElement>(null);
+  const didAutoScrollRef = useRef(false);
 
   const handlePollIntervalChange = (ms: number) => {
     setPollInterval(ms);
@@ -581,6 +755,17 @@ export default function DashboardPage() {
   );
 
   const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8 });
+
+  useEffect(() => {
+    if (!orchestratorsOpen) {
+      didAutoScrollRef.current = false;
+      return;
+    }
+    if (!didAutoScrollRef.current && data?.orchestrators && data.orchestrators.length > 0) {
+      orchestratorsPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      didAutoScrollRef.current = true;
+    }
+  }, [orchestratorsOpen, data?.orchestrators?.length]);
 
   // Loading state
   if (loading && !data) {
@@ -603,7 +788,11 @@ export default function DashboardPage() {
 
       {/* Row 1: Key Performance Indicators */}
       {data?.kpi ? (
-        <KPIRow data={data.kpi} />
+        <KPIRow
+          data={data.kpi}
+          orchestratorsOpen={orchestratorsOpen}
+          onToggleOrchestrators={() => setOrchestratorsOpen(v => !v)}
+        />
       ) : (
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
           <WidgetUnavailable label="KPI" />
@@ -617,6 +806,16 @@ export default function DashboardPage() {
         {data?.pipelines ? <PipelinesCard data={data.pipelines} /> : <WidgetUnavailable label="Pipelines" />}
         {data?.gpuCapacity ? <GPUCapacityCard data={data.gpuCapacity} /> : <WidgetUnavailable label="GPU Capacity" />}
       </div>
+
+      {/* Orchestrator table (expandable from KPI row) */}
+      {orchestratorsOpen && data?.orchestrators && data.orchestrators.length > 0 && (
+        <div ref={orchestratorsPanelRef}>
+          <OrchestratorTableCard
+            data={data.orchestrators}
+            onClose={() => setOrchestratorsOpen(false)}
+          />
+        </div>
+      )}
 
       {/* Row 3: Live Feed & Pricing */}
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
