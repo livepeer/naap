@@ -1,15 +1,15 @@
 /**
  * Dashboard Data Provider Tests
  *
- * Tests that the plugin correctly:
+ * Tests that the provider correctly:
  * 1. Registers as a dashboard:query handler
- * 2. Responds with correct data shapes
+ * 2. Transforms live API responses into the dashboard contract shape
  * 3. Handles partial queries
- * 4. Registers as a job-feed:subscribe handler
+ * 4. Resolves protocol and fees from subgraph/L1 paths, with pricing fallback
  * 5. Cleans up handlers on unmount
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   DASHBOARD_QUERY_EVENT,
   DASHBOARD_JOB_FEED_EVENT,
@@ -72,6 +72,60 @@ function createMockEventBus() {
 }
 
 // ============================================================================
+// Fetch stubs for subgraph + protocol-block
+// ============================================================================
+
+function stubFetch() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+
+      if (urlStr.includes('/api/v1/subgraph')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              data: {
+                days: [
+                  { date: 1709078400, volumeETH: '0.45', volumeUSD: '1080' },
+                  { date: 1709164800, volumeETH: '0.52', volumeUSD: '1248' },
+                ],
+                protocol: {
+                  totalVolumeETH: '102.4',
+                  totalVolumeUSD: '250000',
+                  roundLength: '5760',
+                  totalActiveStake: '30000000',
+                  currentRound: {
+                    id: '4127',
+                    startBlock: '21000000',
+                    initialized: true,
+                  },
+                },
+              },
+            }),
+        } as Response);
+      }
+
+      if (urlStr.includes('/api/v1/protocol-block')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              blockNumber: 21002880,
+              meta: { timestamp: new Date().toISOString() },
+            }),
+        } as Response);
+      }
+
+      return Promise.resolve({ ok: false, status: 404 } as Response);
+    })
+  );
+}
+
+// ============================================================================
 // Tests: Dashboard Query Provider
 // ============================================================================
 
@@ -80,6 +134,11 @@ describe('registerDashboardProvider', () => {
 
   beforeEach(() => {
     mockEventBus = createMockEventBus();
+    stubFetch();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('registers a handler for dashboard:query', () => {
@@ -94,7 +153,7 @@ describe('registerDashboardProvider', () => {
       query: `{
         kpi { successRate { value delta } orchestratorsOnline { value delta } dailyUsageMins { value delta } dailyStreamCount { value delta } }
         protocol { currentRound blockProgress totalBlocks totalStakedLPT }
-        fees { totalEth entries { day eth } }
+        fees(days: 7) { totalEth totalUsd oneDayVolumeUsd dayData { dateS volumeEth volumeUsd } weeklyData { date weeklyVolumeUsd weeklyVolumeEth } }
         pipelines { name mins color }
         gpuCapacity { totalGPUs availableCapacity }
         pricing { pipeline unit price outputPerDollar }
@@ -113,14 +172,17 @@ describe('registerDashboardProvider', () => {
     expect(response.data!.kpi).toBeDefined();
     expect(response.data!.kpi!.successRate.value).toBe(97.3);
 
-    // Protocol
+    // Protocol (live from subgraph + protocol-block)
     expect(response.data!.protocol).toBeDefined();
     expect(response.data!.protocol!.currentRound).toBe(4127);
+    expect(response.data!.protocol!.totalBlocks).toBe(5760);
+    expect(response.data!.protocol!.blockProgress).toBeGreaterThanOrEqual(0);
 
-    // Fees
+    // Fees (live from subgraph)
     expect(response.data!.fees).toBeDefined();
     expect(response.data!.fees!.totalEth).toBe(102.4);
-    expect(response.data!.fees!.entries).toHaveLength(7);
+    expect(response.data!.fees!.totalUsd).toBe(250000);
+    expect(response.data!.fees!.dayData.length).toBeGreaterThan(0);
 
     // Pipelines
     expect(response.data!.pipelines).toBeDefined();
@@ -133,6 +195,22 @@ describe('registerDashboardProvider', () => {
     // Pricing
     expect(response.data!.pricing).toBeDefined();
     expect(response.data!.pricing!.length).toBeGreaterThan(0);
+  });
+
+  it('returns protocol null and errors when subgraph or protocol-block fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve({ ok: false, status: 503 } as Response))
+    );
+    registerDashboardProvider(mockEventBus as any);
+
+    const response = (await mockEventBus._invoke(DASHBOARD_QUERY_EVENT, {
+      query: '{ protocol { currentRound blockProgress totalBlocks totalStakedLPT } }',
+    })) as DashboardQueryResponse;
+
+    expect(response.data?.protocol).toBeNull();
+    expect(response.errors).toBeDefined();
+    expect(response.errors!.length).toBeGreaterThan(0);
   });
 
   it('returns only requested fields for partial queries', async () => {
@@ -148,7 +226,6 @@ describe('registerDashboardProvider', () => {
     )) as DashboardQueryResponse;
 
     expect(response.data!.kpi!.successRate.value).toBe(97.3);
-    // Other fields not requested
     expect(response.data!.protocol).toBeUndefined();
     expect(response.data!.fees).toBeUndefined();
   });
@@ -199,7 +276,6 @@ describe('registerMockJobFeedEmitter', () => {
   it('emits initial seed jobs on registration', () => {
     registerMockJobFeedEmitter(mockEventBus as any);
 
-    // Should have emitted seed jobs immediately
     expect(mockEventBus.emit).toHaveBeenCalled();
     const emitCalls = mockEventBus.emit.mock.calls.filter(
       (call: any[]) => call[0] === DASHBOARD_JOB_FEED_EMIT_EVENT
@@ -214,7 +290,6 @@ describe('registerMockJobFeedEmitter', () => {
       (call: any[]) => call[0] === DASHBOARD_JOB_FEED_EMIT_EVENT
     ).length;
 
-    // Advance time by one interval
     vi.advanceTimersByTime(3500);
 
     const newEmitCount = mockEventBus.emit.mock.calls.filter(
@@ -231,16 +306,10 @@ describe('registerMockJobFeedEmitter', () => {
 
     expect(mockEventBus._hasHandler(DASHBOARD_JOB_FEED_EVENT)).toBe(false);
 
-    // No more emissions after cleanup
     const countBefore = mockEventBus.emit.mock.calls.length;
     vi.advanceTimersByTime(10000);
     const countAfter = mockEventBus.emit.mock.calls.length;
 
     expect(countAfter).toBe(countBefore);
   });
-});
-
-// Need afterEach at module level for fake timer cleanup
-afterEach(() => {
-  vi.useRealTimers();
 });
