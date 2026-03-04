@@ -2,10 +2,13 @@
  * Dashboard Data Provider
  *
  * Registers as the dashboard data provider using createDashboardProvider()
- * from the SDK. Serves mock data for most widget types.
+ * from the SDK.
  *
  * Protocol and fees resolvers fetch live data from the Livepeer subgraph
- * and L1 RPC via server-side proxy routes. Other resolvers still use mock data.
+ * and L1 RPC via server-side proxy routes and never fall back to mock data —
+ * if unavailable their tiles show "unavailable".
+ *
+ * KPI, pipelines, GPU capacity, and pricing use seed data pending live endpoints.
  */
 
 import {

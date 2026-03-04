@@ -743,7 +743,7 @@ export default function DashboardPage() {
     undefined,
     { pollInterval, timeout: 8000 }
   );
-  const { data: feesData } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
+  const { data: feesData, loading: feesLoading } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
     { timeout: 8000 }
@@ -773,6 +773,10 @@ export default function DashboardPage() {
       {/* Row 1: Key Performance Indicators */}
       {data?.kpi ? (
         <KPIRow data={data.kpi} />
+      ) : loading ? (
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+          <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
+        </div>
       ) : (
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
           <WidgetUnavailable label="KPI" />
@@ -781,8 +785,12 @@ export default function DashboardPage() {
 
       {/* Row 2: Protocol, Fees, Pipelines, GPU */}
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
-        {data?.protocol ? <ProtocolCard data={data.protocol} /> : <WidgetUnavailable label="Protocol" />}
-        {feesData?.fees ? <FeesCard data={feesData.fees} /> : <WidgetUnavailable label="Fees" />}
+        {data?.protocol
+          ? <ProtocolCard data={data.protocol} />
+          : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
+        {feesData?.fees
+          ? <FeesCard data={feesData.fees} />
+          : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
         {data?.pipelines ? <PipelinesCard data={data.pipelines} /> : <WidgetUnavailable label="Pipelines" />}
         {data?.gpuCapacity ? <GPUCapacityCard data={data.gpuCapacity} /> : <WidgetUnavailable label="GPU Capacity" />}
       </div>
