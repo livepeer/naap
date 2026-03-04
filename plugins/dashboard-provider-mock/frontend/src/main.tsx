@@ -8,7 +8,7 @@ import ReactDOM from 'react-dom/client';
 
 const DevApp: React.FC = () => (
   <div style={{ padding: 40, fontFamily: 'sans-serif' }}>
-    <h1>Dashboard Provider Mock</h1>
+    <h1>Dashboard Provider</h1>
     <p>This is a headless plugin — it provides data to the dashboard via the event bus.</p>
     <p>No UI to display here. Run the main app and navigate to <code>/dashboard</code> to see the data.</p>
   </div>

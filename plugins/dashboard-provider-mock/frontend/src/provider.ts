@@ -40,7 +40,6 @@ import {
   type SLAComplianceRow,
 } from './api/leaderboard.js';
 import { fetchSubgraphFees, fetchSubgraphProtocol } from './api/subgraph.js';
-import { mockPricing } from './data/mock-pricing.js';
 import {
   PIPELINE_DISPLAY,
   PIPELINE_COLOR,
@@ -304,7 +303,7 @@ async function resolveProtocol(): Promise<DashboardProtocol> {
  * @param eventBus - The shell event bus instance
  * @returns Cleanup function to call on plugin unmount
  */
-export function registerMockDashboardProvider(eventBus: IEventBus): () => void {
+export function registerDashboardProvider(eventBus: IEventBus): () => void {
   return createDashboardProvider(eventBus, {
     // --- Real data ---
     kpi:           () => resolveKPI(),
@@ -314,6 +313,6 @@ export function registerMockDashboardProvider(eventBus: IEventBus): () => void {
 
     protocol:   () => resolveProtocol(),
     fees:     ({ days }: { days?: number }) => resolveFees({ days }),
-    pricing:  async () => mockPricing,   // no pricing endpoint exists
+    pricing:  async () => [],   // no pricing endpoint exists
   });
 }

@@ -8,7 +8,7 @@
  * 4. Returns static fallbacks for protocol / fees / pricing
  * 5. Cleans up handlers on unmount
  *
- * The leaderboard API (fetch) is fully mocked so tests run offline and
+ * The leaderboard API (fetch) is stubbed so tests run offline and
  * deterministically without hitting the real endpoint.
  */
 
@@ -21,8 +21,8 @@ import {
   type DashboardQueryResponse,
   type JobFeedSubscribeResponse,
 } from '@naap/plugin-sdk';
-import { registerMockDashboardProvider } from '../provider.js';
-import { registerMockJobFeedEmitter } from '../job-feed-emitter.js';
+import { registerDashboardProvider } from '../provider.js';
+import { registerJobFeedEmitter } from '../job-feed-emitter.js';
 
 // ============================================================================
 // Leaderboard API stub data
@@ -89,10 +89,10 @@ const STUB_GPU = [
 ];
 
 // ============================================================================
-// Fetch mock
+// Fetch stub
 // ============================================================================
 
-function makeFetchMock() {
+function createFetchStub() {
   return vi.fn((url: string) => {
     let body: unknown;
     if (url.includes('/api/network/demand')) {
@@ -136,10 +136,10 @@ function makeFetchMock() {
 }
 
 // ============================================================================
-// Mock Event Bus
+// Test Event Bus
 // ============================================================================
 
-function createMockEventBus() {
+function createTestEventBus() {
   const handlers = new Map<string, (data: unknown) => unknown>();
   const listeners = new Map<string, Set<(data: unknown) => void>>();
 
@@ -189,12 +189,12 @@ function createMockEventBus() {
 // Tests: Dashboard Query Provider
 // ============================================================================
 
-describe('registerMockDashboardProvider', () => {
-  let mockEventBus: ReturnType<typeof createMockEventBus>;
+describe('registerDashboardProvider', () => {
+  let testEventBus: ReturnType<typeof createTestEventBus>;
 
   beforeEach(() => {
-    mockEventBus = createMockEventBus();
-    vi.stubGlobal('fetch', makeFetchMock());
+    testEventBus = createTestEventBus();
+    vi.stubGlobal('fetch', createFetchStub());
   });
 
   afterEach(() => {
@@ -202,12 +202,12 @@ describe('registerMockDashboardProvider', () => {
   });
 
   it('registers a handler for dashboard:query', () => {
-    registerMockDashboardProvider(mockEventBus as any);
-    expect(mockEventBus._hasHandler(DASHBOARD_QUERY_EVENT)).toBe(true);
+    registerDashboardProvider(testEventBus as any);
+    expect(testEventBus._hasHandler(DASHBOARD_QUERY_EVENT)).toBe(true);
   });
 
   it('returns the correct shape for a full query', async () => {
-    registerMockDashboardProvider(mockEventBus as any);
+    registerDashboardProvider(testEventBus as any);
 
     const request: DashboardQueryRequest = {
       query: `{
@@ -228,7 +228,7 @@ describe('registerMockDashboardProvider', () => {
       }`,
     };
 
-    const response = (await mockEventBus._invoke(
+    const response = (await testEventBus._invoke(
       DASHBOARD_QUERY_EVENT,
       request
     )) as DashboardQueryResponse;
@@ -282,9 +282,9 @@ describe('registerMockDashboardProvider', () => {
       'fetch',
       vi.fn(() => Promise.resolve({ ok: false, status: 503 } as Response))
     );
-    registerMockDashboardProvider(mockEventBus as any);
+    registerDashboardProvider(testEventBus as any);
 
-    const response = (await mockEventBus._invoke(DASHBOARD_QUERY_EVENT, {
+    const response = (await testEventBus._invoke(DASHBOARD_QUERY_EVENT, {
       query: '{ protocol { currentRound blockProgress totalBlocks totalStakedLPT } }',
     })) as DashboardQueryResponse;
 
@@ -295,13 +295,13 @@ describe('registerMockDashboardProvider', () => {
   });
 
   it('returns only requested fields for partial queries', async () => {
-    registerMockDashboardProvider(mockEventBus as any);
+    registerDashboardProvider(testEventBus as any);
 
     const request: DashboardQueryRequest = {
       query: '{ kpi { successRate { value } } }',
     };
 
-    const response = (await mockEventBus._invoke(
+    const response = (await testEventBus._invoke(
       DASHBOARD_QUERY_EVENT,
       request
     )) as DashboardQueryResponse;
@@ -313,9 +313,9 @@ describe('registerMockDashboardProvider', () => {
   });
 
   it('success rate is 100 when all sessions succeed', async () => {
-    registerMockDashboardProvider(mockEventBus as any);
+    registerDashboardProvider(testEventBus as any);
 
-    const response = (await mockEventBus._invoke(DASHBOARD_QUERY_EVENT, {
+    const response = (await testEventBus._invoke(DASHBOARD_QUERY_EVENT, {
       query: '{ kpi { successRate { value delta } } }',
     })) as DashboardQueryResponse;
 
@@ -326,9 +326,9 @@ describe('registerMockDashboardProvider', () => {
   });
 
   it('pipelines are sorted by inference minutes descending', async () => {
-    registerMockDashboardProvider(mockEventBus as any);
+    registerDashboardProvider(testEventBus as any);
 
-    const response = (await mockEventBus._invoke(DASHBOARD_QUERY_EVENT, {
+    const response = (await testEventBus._invoke(DASHBOARD_QUERY_EVENT, {
       query: '{ pipelines { name mins } }',
     })) as DashboardQueryResponse;
 
@@ -339,9 +339,9 @@ describe('registerMockDashboardProvider', () => {
   });
 
   it('returns orchestrators aggregated from SLA compliance data', async () => {
-    registerMockDashboardProvider(mockEventBus as any);
+    registerDashboardProvider(testEventBus as any);
 
-    const response = (await mockEventBus._invoke(DASHBOARD_QUERY_EVENT, {
+    const response = (await testEventBus._invoke(DASHBOARD_QUERY_EVENT, {
       query: '{ orchestrators { address knownSessions successSessions successRatio noSwapRatio slaScore pipelines gpuCount } }',
     })) as DashboardQueryResponse;
 
@@ -364,11 +364,11 @@ describe('registerMockDashboardProvider', () => {
   });
 
   it('cleanup unregisters the handler', () => {
-    const cleanup = registerMockDashboardProvider(mockEventBus as any);
-    expect(mockEventBus._hasHandler(DASHBOARD_QUERY_EVENT)).toBe(true);
+    const cleanup = registerDashboardProvider(testEventBus as any);
+    expect(testEventBus._hasHandler(DASHBOARD_QUERY_EVENT)).toBe(true);
 
     cleanup();
-    expect(mockEventBus._hasHandler(DASHBOARD_QUERY_EVENT)).toBe(false);
+    expect(testEventBus._hasHandler(DASHBOARD_QUERY_EVENT)).toBe(false);
   });
 });
 
@@ -376,12 +376,12 @@ describe('registerMockDashboardProvider', () => {
 // Tests: Job Feed Emitter
 // ============================================================================
 
-describe('registerMockJobFeedEmitter', () => {
-  let mockEventBus: ReturnType<typeof createMockEventBus>;
+describe('registerJobFeedEmitter', () => {
+  let testEventBus: ReturnType<typeof createTestEventBus>;
 
   beforeEach(() => {
     vi.useFakeTimers();
-    mockEventBus = createMockEventBus();
+    testEventBus = createTestEventBus();
   });
 
   afterEach(() => {
@@ -389,14 +389,14 @@ describe('registerMockJobFeedEmitter', () => {
   });
 
   it('registers a handler for dashboard:job-feed:subscribe', () => {
-    registerMockJobFeedEmitter(mockEventBus as any);
-    expect(mockEventBus._hasHandler(DASHBOARD_JOB_FEED_EVENT)).toBe(true);
+    registerJobFeedEmitter(testEventBus as any);
+    expect(testEventBus._hasHandler(DASHBOARD_JOB_FEED_EVENT)).toBe(true);
   });
 
   it('returns event bus fallback mode on subscribe', async () => {
-    registerMockJobFeedEmitter(mockEventBus as any);
+    registerJobFeedEmitter(testEventBus as any);
 
-    const response = (await mockEventBus._invoke(
+    const response = (await testEventBus._invoke(
       DASHBOARD_JOB_FEED_EVENT,
       undefined
     )) as JobFeedSubscribeResponse;
@@ -407,25 +407,25 @@ describe('registerMockJobFeedEmitter', () => {
   });
 
   it('emits initial seed jobs on registration', () => {
-    registerMockJobFeedEmitter(mockEventBus as any);
+    registerJobFeedEmitter(testEventBus as any);
 
-    expect(mockEventBus.emit).toHaveBeenCalled();
-    const emitCalls = mockEventBus.emit.mock.calls.filter(
+    expect(testEventBus.emit).toHaveBeenCalled();
+    const emitCalls = testEventBus.emit.mock.calls.filter(
       (call: any[]) => call[0] === DASHBOARD_JOB_FEED_EMIT_EVENT
     );
     expect(emitCalls.length).toBeGreaterThan(0);
   });
 
   it('emits new jobs at regular intervals', () => {
-    registerMockJobFeedEmitter(mockEventBus as any);
+    registerJobFeedEmitter(testEventBus as any);
 
-    const initialEmitCount = mockEventBus.emit.mock.calls.filter(
+    const initialEmitCount = testEventBus.emit.mock.calls.filter(
       (call: any[]) => call[0] === DASHBOARD_JOB_FEED_EMIT_EVENT
     ).length;
 
     vi.advanceTimersByTime(3500);
 
-    const newEmitCount = mockEventBus.emit.mock.calls.filter(
+    const newEmitCount = testEventBus.emit.mock.calls.filter(
       (call: any[]) => call[0] === DASHBOARD_JOB_FEED_EMIT_EVENT
     ).length;
 
@@ -433,15 +433,15 @@ describe('registerMockJobFeedEmitter', () => {
   });
 
   it('cleanup stops interval and unregisters handler', () => {
-    const cleanup = registerMockJobFeedEmitter(mockEventBus as any);
+    const cleanup = registerJobFeedEmitter(testEventBus as any);
 
     cleanup();
 
-    expect(mockEventBus._hasHandler(DASHBOARD_JOB_FEED_EVENT)).toBe(false);
+    expect(testEventBus._hasHandler(DASHBOARD_JOB_FEED_EVENT)).toBe(false);
 
-    const countBefore = mockEventBus.emit.mock.calls.length;
+    const countBefore = testEventBus.emit.mock.calls.length;
     vi.advanceTimersByTime(10000);
-    const countAfter = mockEventBus.emit.mock.calls.length;
+    const countAfter = testEventBus.emit.mock.calls.length;
 
     expect(countAfter).toBe(countBefore);
   });

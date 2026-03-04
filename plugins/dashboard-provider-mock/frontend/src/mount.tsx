@@ -1,5 +1,5 @@
 /**
- * UMD Mount Entry for Dashboard Provider Mock Plugin
+ * UMD Mount Entry for Dashboard Provider Plugin
  */
 
 import plugin from './App.js';
