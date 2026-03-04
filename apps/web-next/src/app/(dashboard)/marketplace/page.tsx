@@ -14,6 +14,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useShell, useEvents } from '@/contexts/shell-context';
 import { getCsrfToken } from '@/lib/api/csrf';
+import { Button, Input, Select, Textarea, Modal } from '@naap/ui';
 import {
   Search,
   Package,
@@ -149,15 +150,6 @@ function PluginDetailModal({
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'reviews'>('overview');
 
-  // Escape key to close modal
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
   const encodedName = encodeURIComponent(plugin.name);
 
   const loadReviews = useCallback(async (): Promise<RatingAggregate | null> => {
@@ -225,25 +217,18 @@ function PluginDetailModal({
   const canUninstall = isInstalled && !isCore;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div role="dialog" aria-modal="true" className="relative w-full max-w-2xl max-h-[85vh] bg-card border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+    <Modal isOpen={true} onClose={onClose} size="xl" showCloseButton={false}>
+      <div className="-m-6 flex flex-col max-h-[calc(85vh-2rem)] overflow-hidden">
         {/* Header */}
-        <div className="flex items-start gap-4 p-6 border-b border-border">
-          <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-            <Package className="w-7 h-7 text-primary" />
+        <div className="flex items-start gap-3 p-4 border-b border-border">
+          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+            <Package className="w-5 h-5 text-muted-foreground" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <h2 className="text-xl font-bold truncate">{plugin.displayName}</h2>
+              <h2 className="text-base font-semibold truncate">{plugin.displayName}</h2>
               {plugin.isCore && (
-                <span className="px-2 py-0.5 text-xs bg-primary/10 text-primary rounded-full">Core</span>
+                <span className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded-full">Core</span>
               )}
             </div>
             <p className="text-sm text-muted-foreground">by {plugin.author}</p>
@@ -263,21 +248,21 @@ function PluginDetailModal({
               </div>
             </div>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+            icon={<X className="w-4 h-4" />}
+          />
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-border px-6">
+        <div className="flex border-b border-border px-4">
           <button
             onClick={() => setActiveTab('overview')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               activeTab === 'overview'
-                ? 'border-primary text-primary'
+                ? 'border-primary text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
@@ -285,9 +270,9 @@ function PluginDetailModal({
           </button>
           <button
             onClick={() => setActiveTab('reviews')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
               activeTab === 'reviews'
-                ? 'border-primary text-primary'
+                ? 'border-primary text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
@@ -300,7 +285,7 @@ function PluginDetailModal({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4">
           {activeTab === 'overview' ? (
             <div className="space-y-4">
               <div>
@@ -309,14 +294,14 @@ function PluginDetailModal({
                   {plugin.description || 'No description available.'}
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <h3 className="text-sm font-semibold mb-1">Category</h3>
                   <p className="text-sm text-muted-foreground capitalize">{plugin.category}</p>
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold mb-1">Latest Version</h3>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground font-mono">
                     {plugin.versions[0]?.version || 'N/A'}
                   </p>
                 </div>
@@ -349,9 +334,9 @@ function PluginDetailModal({
               )}
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-4">
               {/* Submit Review Form */}
-              <div className="bg-muted/50 rounded-xl p-4 space-y-3">
+              <div className="bg-muted/50 rounded-lg p-4 space-y-3">
                 <h3 className="text-sm font-semibold">Write a Review</h3>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Your rating:</span>
@@ -365,12 +350,12 @@ function PluginDetailModal({
                     <span className="text-sm text-muted-foreground">{myRating}/5</span>
                   )}
                 </div>
-                <textarea
+                <Textarea
                   value={myComment}
                   onChange={(e) => setMyComment(e.target.value)}
                   placeholder="Share your experience with this plugin (optional)..."
                   rows={3}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className="resize-none"
                 />
                 {reviewError && (
                   <div className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
@@ -378,29 +363,27 @@ function PluginDetailModal({
                   </div>
                 )}
                 <div className="flex justify-end">
-                  <button
+                  <Button
+                    variant="primary"
+                    size="sm"
                     onClick={handleSubmitReview}
-                    disabled={myRating === 0 || submittingReview}
-                    className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    disabled={myRating === 0}
+                    loading={submittingReview}
+                    icon={!submittingReview ? <Send className="w-3.5 h-3.5" /> : undefined}
                   >
-                    {submittingReview ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Send className="w-4 h-4" />
-                    )}
                     Submit Review
-                  </button>
+                  </Button>
                 </div>
               </div>
 
               {/* Reviews List */}
               {loadingReviews ? (
                 <div className="flex justify-center py-8">
-                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
                 </div>
               ) : reviews.length === 0 ? (
                 <div className="text-center py-8">
-                  <MessageSquare className="w-10 h-10 mx-auto text-muted-foreground/40 mb-2" />
+                  <MessageSquare className="w-8 h-8 mx-auto text-muted-foreground/40 mb-2" />
                   <p className="text-sm text-muted-foreground">
                     No reviews yet. Be the first to review this plugin!
                   </p>
@@ -414,8 +397,8 @@ function PluginDetailModal({
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
-                            <UserIcon className="w-4 h-4 text-primary" />
+                          <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center">
+                            <UserIcon className="w-4 h-4 text-muted-foreground" />
                           </div>
                           <span className="text-sm font-medium">{review.displayName}</span>
                         </div>
@@ -441,39 +424,38 @@ function PluginDetailModal({
 
         {/* Footer - Install/Uninstall action */}
         <div className="border-t border-border p-4 flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
-          >
+          <Button variant="secondary" size="sm" onClick={onClose}>
             Close
-          </button>
+          </Button>
           {canUninstall ? (
-            <button
+            <Button
+              variant="destructive"
+              size="sm"
               onClick={() => onUninstall(plugin)}
-              disabled={isUninstalling}
-              className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-50 transition-colors"
+              loading={isUninstalling}
+              icon={!isUninstalling ? <Trash2 className="w-3.5 h-3.5" /> : undefined}
             >
-              {isUninstalling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
               {isUninstalling ? 'Uninstalling...' : 'Uninstall'}
-            </button>
+            </Button>
           ) : isInstalled && isCore ? (
-            <div className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-muted text-muted-foreground">
+            <div className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-muted text-muted-foreground">
               <Check className="w-4 h-4" />
               Core Plugin
             </div>
           ) : (
-            <button
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => onInstall(plugin)}
-              disabled={isInstalling}
-              className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              loading={isInstalling}
+              icon={!isInstalling ? <Download className="w-3.5 h-3.5" /> : undefined}
             >
-              {isInstalling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               {isInstalling ? 'Installing...' : 'Install'}
-            </button>
+            </Button>
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -717,9 +699,9 @@ export default function MarketplacePage() {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Package className="w-6 h-6" />
+      <div className="mb-4">
+        <h1 className="text-lg font-semibold flex items-center gap-2">
+          <Package className="w-5 h-5" />
           Plugin Marketplace
         </h1>
         <p className="text-muted-foreground mt-1">
@@ -732,51 +714,49 @@ export default function MarketplacePage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="flex-1">
+          <Input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search plugins..."
-            className="w-full pl-10 pr-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+            icon={<Search className="w-4 h-4" />}
           />
         </div>
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-muted-foreground" />
-          <select
+          <Select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
           >
             {CATEGORIES.map(cat => (
               <option key={cat.value} value={cat.value}>{cat.label}</option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
 
       {error && (
-        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg mb-6">
+        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg mb-4">
           {error}
         </div>
       )}
 
       {loading ? (
         <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       ) : packages.length === 0 ? (
-        <div className="text-center py-12 bg-muted/50 rounded-xl">
-          <Package className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-lg font-medium mb-2">No plugins found</h3>
+        <div className="text-center py-8 bg-muted/50 rounded-lg">
+          <Package className="w-10 h-10 mx-auto text-muted-foreground mb-4" />
+          <h3 className="text-sm font-semibold mb-2">No plugins found</h3>
           <p className="text-muted-foreground">
             Try adjusting your search or filter criteria
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {packages.map(pkg => {
             const isInstalled = installedIds.has(pkg.name);
             const isInstalling = installingId === pkg.id;
@@ -785,18 +765,18 @@ export default function MarketplacePage() {
             return (
               <div
                 key={pkg.id}
-                className="bg-card border border-border rounded-xl p-4 hover:border-primary/50 transition-colors cursor-pointer"
+                className="bg-card border border-border rounded-lg p-4 hover:border-border/80 transition-colors cursor-pointer"
                 onClick={() => setSelectedPlugin(pkg)}
               >
                 <div className="flex items-start gap-3 mb-3">
-                  <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <Package className="w-6 h-6 text-primary" />
+                  <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                    <Package className="w-5 h-5 text-muted-foreground" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold truncate">{pkg.displayName}</h3>
                       {pkg.isCore && (
-                        <span className="px-1.5 py-0.5 text-xs bg-primary/10 text-primary rounded">
+                        <span className="px-1.5 py-0.5 text-xs bg-muted text-muted-foreground rounded">
                           Core
                         </span>
                       )}
@@ -819,7 +799,7 @@ export default function MarketplacePage() {
                     {pkg.category}
                   </span>
                   {pkg.versions[0] && (
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-xs text-muted-foreground font-mono">
                       v{pkg.versions[0].version}
                     </span>
                   )}
@@ -847,46 +827,32 @@ export default function MarketplacePage() {
                 {/* Action Buttons */}
                 <div onClick={(e) => e.stopPropagation()}>
                   {canUninstall ? (
-                    <button
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="w-full"
                       onClick={() => handleUninstall(pkg)}
-                      disabled={isUninstalling}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-colors bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-50"
+                      loading={isUninstalling}
+                      icon={!isUninstalling ? <Trash2 className="w-3.5 h-3.5" /> : undefined}
                     >
-                      {isUninstalling ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Uninstalling...
-                        </>
-                      ) : (
-                        <>
-                          <Trash2 className="w-4 h-4" />
-                          Uninstall
-                        </>
-                      )}
-                    </button>
+                      {isUninstalling ? 'Uninstalling...' : 'Uninstall'}
+                    </Button>
                   ) : isInstalled && pkg.isCore ? (
-                    <div className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-muted text-muted-foreground cursor-not-allowed">
+                    <div className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-muted text-muted-foreground cursor-not-allowed text-sm">
                       <Check className="w-4 h-4" />
                       Core Plugin
                     </div>
                   ) : (
-                    <button
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="w-full"
                       onClick={() => handleInstall(pkg)}
-                      disabled={isInstalling}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-colors bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                      loading={isInstalling}
+                      icon={!isInstalling ? <Download className="w-3.5 h-3.5" /> : undefined}
                     >
-                      {isInstalling ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Installing...
-                        </>
-                      ) : (
-                        <>
-                          <Download className="w-4 h-4" />
-                          Install
-                        </>
-                      )}
-                    </button>
+                      {isInstalling ? 'Installing...' : 'Install'}
+                    </Button>
                   )}
                 </div>
               </div>

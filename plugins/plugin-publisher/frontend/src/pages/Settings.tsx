@@ -46,22 +46,22 @@ export const Settings: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Publisher Settings"
         subtitle="Configure your publisher profile and integrations"
       />
 
       {/* Publisher Profile */}
-      <div className="glass-card p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 bg-accent-blue/20 rounded-lg">
-            <User className="w-5 h-5 text-accent-blue" />
+      <div className="glass-card p-4">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-1.5 bg-accent-blue/20 rounded-md">
+            <User className="w-4 h-4 text-accent-blue" />
           </div>
-          <h2 className="text-lg font-semibold text-text-primary">Publisher Profile</h2>
+          <h2 className="text-sm font-semibold text-text-primary">Publisher Profile</h2>
         </div>
 
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1">
               Publisher Name
@@ -102,7 +102,7 @@ export const Settings: React.FC = () => {
           </div>
         </div>
 
-        <div className="mt-6">
+        <div className="mt-3">
           <button
             onClick={handleSaveProfile}
             className="btn-primary flex items-center gap-2"
@@ -115,13 +115,13 @@ export const Settings: React.FC = () => {
       </div>
 
       {/* GitHub Integration */}
-      <div className="glass-card p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 bg-bg-tertiary rounded-lg">
-            <Github className="w-5 h-5 text-text-primary" />
+      <div className="glass-card p-4">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-1.5 bg-bg-tertiary rounded-md">
+            <Github className="w-4 h-4 text-text-primary" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-text-primary">GitHub Integration</h2>
+            <h2 className="text-sm font-semibold text-text-primary">GitHub Integration</h2>
             <p className="text-sm text-text-secondary">
               Auto-publish plugins when you create GitHub releases
             </p>
@@ -154,7 +154,7 @@ export const Settings: React.FC = () => {
             </button>
           )}
 
-          <div className="p-4 bg-bg-tertiary rounded-lg">
+          <div className="p-3 bg-bg-tertiary rounded-md">
             <h4 className="font-medium text-text-primary mb-2">Setup Instructions</h4>
             <ol className="text-sm text-text-secondary space-y-2 list-decimal list-inside">
               <li>Go to your GitHub repository settings</li>
@@ -169,15 +169,15 @@ export const Settings: React.FC = () => {
       </div>
 
       {/* DockerHub Integration (Future) */}
-      <div className="glass-card p-6 opacity-60">
+      <div className="glass-card p-4 opacity-60">
         <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 bg-accent-blue/20 rounded-lg">
-            <svg className="w-5 h-5 text-accent-blue" viewBox="0 0 24 24" fill="currentColor">
+          <div className="p-1.5 bg-accent-blue/20 rounded-md">
+            <svg className="w-4 h-4 text-accent-blue" viewBox="0 0 24 24" fill="currentColor">
               <path d="M13.983 11.078h2.119a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.119a.185.185 0 00-.185.185v1.888c0 .102.083.185.185.185zm-2.954-5.43h2.118a.186.186 0 00.186-.186V3.574a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.186zm0 2.716h2.118a.187.187 0 00.186-.186V6.29a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.887c0 .102.082.185.185.186zm-2.93 0h2.12a.186.186 0 00.184-.186V6.29a.185.185 0 00-.185-.185H8.1a.185.185 0 00-.185.185v1.887c0 .102.083.185.185.186zm-2.964 0h2.119a.186.186 0 00.185-.186V6.29a.185.185 0 00-.185-.185H5.136a.186.186 0 00-.186.185v1.887c0 .102.084.185.186.186zm5.893 2.715h2.118a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185zm-2.93 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.083.185.185.185zm-2.964 0h2.119a.185.185 0 00.185-.185V9.006a.185.185 0 00-.185-.186H5.136a.186.186 0 00-.186.185v1.888c0 .102.084.185.186.185zm-2.92 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.082.185.185.185zM23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 00-.75.748 11.376 11.376 0 00.692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 003.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288z"/>
             </svg>
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-text-primary">DockerHub Integration</h2>
+            <h2 className="text-sm font-semibold text-text-primary">DockerHub Integration</h2>
             <p className="text-sm text-text-secondary">Coming soon</p>
           </div>
         </div>
