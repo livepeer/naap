@@ -29,16 +29,18 @@ import {
 } from './dashboard.js';
 import type { IEventBus } from '../types/services.js';
 
-// Cached schema instance — built once, reused across all calls
+// Cached schema instance — built once per schema version, reused across all calls
 let cachedSchema: GraphQLSchema | null = null;
+let cachedSchemaSource: string | null = null;
 
 /**
  * Get or build the dashboard GraphQL schema.
  * The schema is built once and cached for the lifetime of the process.
  */
 export function getDashboardSchema(): GraphQLSchema {
-  if (!cachedSchema) {
+  if (!cachedSchema || cachedSchemaSource !== DASHBOARD_SCHEMA) {
     cachedSchema = buildSchema(DASHBOARD_SCHEMA);
+    cachedSchemaSource = DASHBOARD_SCHEMA;
   }
   return cachedSchema;
 }
