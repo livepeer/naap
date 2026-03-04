@@ -1,0 +1,33 @@
+{
+  "$schema": "../../packages/plugin-sdk/plugin.schema.json",
+  "name": "intelligent-dashboard",
+  "displayName": "Intelligent Dashboard",
+  "version": "1.0.0",
+  "description": "AI-powered analytics dashboard — ask questions in natural language and get interactive visualizations powered by Gemini and the Livepeer Leaderboard",
+  "category": "example",
+  "author": {
+    "name": "NAAP Examples",
+    "email": "examples@naap.dev"
+  },
+  "icon": "BrainCircuit",
+  "frontend": {
+    "entry": "./frontend/dist/production/intelligent-dashboard.js",
+    "entryPoint": "./frontend/src/App.tsx",
+    "devPort": 3025,
+    "routes": ["/intelligent-dashboard", "/intelligent-dashboard/*"],
+    "navigation": { "label": "Intelligent Dashboard", "icon": "BrainCircuit" }
+  },
+  "rbac": {
+    "roles": [
+      {
+        "name": "intelligent-dashboard:user",
+        "displayName": "Intelligent Dashboard User",
+        "description": "Can use the AI-powered analytics dashboard",
+        "permissions": [
+          { "resource": "intelligent-dashboard", "action": "read" }
+        ]
+      }
+    ],
+    "defaultRole": "intelligent-dashboard:user"
+  }
+}

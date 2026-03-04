@@ -1,0 +1,31 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "openai",
+  "name": "OpenAI API",
+  "description": "OpenAI — ChatGPT, GPT-4o, DALL-E, Whisper, TTS, and embeddings",
+  "icon": "🧠",
+  "category": "ai",
+  "connector": {
+    "slug": "openai",
+    "displayName": "OpenAI API",
+    "description": "OpenAI — ChatGPT, GPT-4o, DALL-E, Whisper, TTS, and embeddings",
+    "category": "ai",
+    "upstreamBaseUrl": "https://api.openai.com",
+    "allowedHosts": ["api.openai.com"],
+    "defaultTimeout": 120000,
+    "authType": "bearer",
+    "authConfig": { "tokenRef": "token" },
+    "secretRefs": ["token"],
+    "streamingEnabled": true,
+    "tags": ["openai", "ai", "llm", "chatgpt", "gpt", "dall-e", "whisper"]
+  },
+  "endpoints": [
+    { "name": "chat-completions", "description": "Create a chat completion (GPT-4o, o4-mini, etc.)", "method": "POST", "path": "/chat/completions", "upstreamPath": "/v1/chat/completions", "rateLimit": 30, "timeout": 120000 },
+    { "name": "embeddings", "description": "Create text embeddings", "method": "POST", "path": "/embeddings", "upstreamPath": "/v1/embeddings", "rateLimit": 50, "timeout": 30000 },
+    { "name": "images-generate", "description": "Generate images with DALL-E", "method": "POST", "path": "/images/generations", "upstreamPath": "/v1/images/generations", "rateLimit": 10, "timeout": 60000 },
+    { "name": "list-models", "description": "List available models", "method": "GET", "path": "/models", "upstreamPath": "/v1/models", "rateLimit": 100, "timeout": 5000, "cacheTtl": 300 },
+    { "name": "audio-transcriptions", "description": "Transcribe audio with Whisper", "method": "POST", "path": "/audio/transcriptions", "upstreamPath": "/v1/audio/transcriptions", "rateLimit": 10, "timeout": 60000 },
+    { "name": "audio-speech", "description": "Generate speech from text (TTS)", "method": "POST", "path": "/audio/speech", "upstreamPath": "/v1/audio/speech", "rateLimit": 10, "timeout": 30000 }
+  ],
+  "envKey": "OPENAI_API_KEY"
+}

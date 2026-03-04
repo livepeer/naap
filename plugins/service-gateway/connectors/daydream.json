@@ -1,0 +1,31 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "daydream",
+  "name": "Daydream API",
+  "description": "Daydream.live streaming API — create and manage AI-powered live streams",
+  "icon": "🎥",
+  "category": "video",
+  "connector": {
+    "slug": "daydream",
+    "displayName": "Daydream API",
+    "description": "Daydream.live streaming API — create and manage AI-powered live streams",
+    "category": "video",
+    "upstreamBaseUrl": "https://api.daydream.live",
+    "allowedHosts": ["api.daydream.live"],
+    "defaultTimeout": 30000,
+    "authType": "bearer",
+    "authConfig": { "tokenRef": "token" },
+    "secretRefs": ["token"],
+    "streamingEnabled": true,
+    "tags": ["daydream", "streaming", "ai", "live"]
+  },
+  "endpoints": [
+    { "name": "create-stream", "description": "Create a new live stream", "method": "POST", "path": "/streams", "upstreamPath": "/v1/streams", "rateLimit": 20, "timeout": 10000 },
+    { "name": "get-stream", "description": "Get stream details", "method": "GET", "path": "/streams/:id", "upstreamPath": "/v1/streams/:id", "rateLimit": 100, "timeout": 5000, "cacheTtl": 30 },
+    { "name": "update-stream", "description": "Update stream parameters", "method": "PATCH", "path": "/streams/:id", "upstreamPath": "/v1/streams/:id", "rateLimit": 50, "timeout": 10000 },
+    { "name": "update-prompt", "description": "Update stream AI prompt", "method": "PUT", "path": "/streams/:id/prompt", "upstreamPath": "/v1/streams/:id/prompt", "rateLimit": 30, "timeout": 10000 },
+    { "name": "delete-stream", "description": "Delete a stream", "method": "DELETE", "path": "/streams/:id", "upstreamPath": "/v1/streams/:id", "rateLimit": 20, "timeout": 5000 },
+    { "name": "list-models", "description": "List available AI models", "method": "GET", "path": "/models", "upstreamPath": "/v1/models", "rateLimit": 100, "timeout": 5000, "cacheTtl": 300 }
+  ],
+  "envKey": "DAYDREAM_API_KEY"
+}

@@ -188,7 +188,7 @@ async function handleRequest(
 
       logUsage({
         teamId: scopeId,
-        ownerScope: ownerScopeFor(config),
+        ownerScope: scopeId,
         connectorId: config.connector.id,
         endpointName: config.endpoint.name,
         apiKeyId: auth.apiKeyId || null,
@@ -211,9 +211,14 @@ async function handleRequest(
   }
 
   // ── 11. Resolve Secrets ──
+  // For public connectors, resolve upstream secrets from the connector owner's
+  // scope (the admin who configured the key), not the caller's scope.
   const token = getAuthToken(request);
-  const ownerScope = ownerScopeFor(config);
-  const secrets = await resolveSecrets(ownerScope, config.connector.secretRefs, token, config.connector.slug);
+  let secretScopeId = scopeId;
+  if (config.connector.visibility === 'public' && config.connector.ownerUserId) {
+    secretScopeId = `personal:${config.connector.ownerUserId}`;
+  }
+  const secrets = await resolveSecrets(secretScopeId, config.connector.secretRefs, token, config.connector.slug);
 
   // ── 12. Transform Request ──
   const upstream = buildUpstreamRequest(request, config, secrets, consumerBody, consumerPath, consumerBodyRaw);
@@ -234,7 +239,7 @@ async function handleRequest(
 
     logUsage({
       teamId: scopeId,
-      ownerScope,
+      ownerScope: scopeId,
       connectorId: config.connector.id,
       endpointName: config.endpoint.name,
       apiKeyId: auth.apiKeyId || null,
@@ -284,7 +289,7 @@ async function handleRequest(
   const responseBytes = parseInt(response.headers.get('content-length') || '0', 10);
   logUsage({
     teamId: scopeId,
-    ownerScope,
+    ownerScope: scopeId,
     connectorId: config.connector.id,
     endpointName: config.endpoint.name,
     apiKeyId: auth.apiKeyId || null,
@@ -303,11 +308,6 @@ async function handleRequest(
   });
 
   return response;
-}
-
-function ownerScopeFor(config: { connector: { teamId: string | null; ownerUserId: string | null } }): string {
-  return config.connector.teamId
-    ?? (config.connector.ownerUserId ? `personal:${config.connector.ownerUserId}` : '');
 }
 
 function logUsage(data: UsageData): void {
