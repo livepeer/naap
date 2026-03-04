@@ -3,7 +3,7 @@
  *
  * Maps internal leaderboard API identifiers to dashboard-friendly labels.
  * A null MODEL_DISPLAY entry means "exclude from the model catalog".
- * Keep in sync with pipeline-config.ts in dashboard-provider-mock when adding new entries.
+ * Keep in sync with pipeline-config.ts in dashboard-data-provider when adding new entries.
  */
 
 /** Parent pipeline ID → display category name */

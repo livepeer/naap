@@ -4,8 +4,8 @@
 import { createPluginConfig } from '@naap/plugin-build/vite';
 
 export default createPluginConfig({
-  name: 'dashboard-provider-mock',
-  displayName: 'Dashboard Provider',
-  globalName: 'NaapPluginDashboardProviderMock',
+  name: 'dashboard-data-provider',
+  displayName: 'Dashboard Data Provider',
+  globalName: 'NaapPluginDashboardDataProvider',
   defaultCategory: 'analytics',
 });

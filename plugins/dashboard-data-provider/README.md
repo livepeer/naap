@@ -1,4 +1,4 @@
-# Dashboard Provider
+# Dashboard Network Data
 
 Reference implementation of a **dashboard data provider** plugin.
 
@@ -7,13 +7,13 @@ This plugin provides live data to the core dashboard via the GraphQL-over-event-
 - **Livepeer Leaderboard API** — KPI, pipelines, GPU capacity, orchestrators
 - **Livepeer subgraph** — protocol round info and fee volume
 - **L1 RPC** — Ethereum block number for round progress
-- **Fallback data** — pricing (until an endpoint exists) and job feed (simulated)
+- **Job feed** — simulated job events
 
 ## Quick Start
 
 ```bash
 # 1. Clone as your own plugin
-cp -r plugins/dashboard-provider-mock plugins/my-dashboard-provider
+cp -r plugins/dashboard-data-provider plugins/my-dashboard-provider
 
 # 2. Update plugin.json (name, displayName, etc.)
 

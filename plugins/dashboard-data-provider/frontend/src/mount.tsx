@@ -4,12 +4,12 @@
 
 import plugin from './App.js';
 
-const PLUGIN_GLOBAL_NAME = 'NaapPluginDashboardProviderMock';
+const PLUGIN_GLOBAL_NAME = 'NaapPluginDashboardDataProvider';
 
 export const mount = plugin.mount;
 export const unmount = (plugin as any).unmount;
 export const metadata = (plugin as any).metadata || {
-  name: 'dashboard-provider-mock',
+  name: 'dashboard-data-provider',
   version: '1.0.0',
 };
 

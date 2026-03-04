@@ -42,7 +42,7 @@ const DashboardProviderApp: React.FC = () => {
 };
 
 const plugin = createPlugin({
-  name: 'dashboard-provider-mock',
+  name: 'dashboard-data-provider',
   version: '1.0.0',
   routes: [], // No UI routes — headless provider
   App: DashboardProviderApp,

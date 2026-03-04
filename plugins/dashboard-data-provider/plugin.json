@@ -1,7 +1,7 @@
 {
   "$schema": "https://plugins.naap.io/schema/plugin.json",
-  "name": "dashboard-provider-mock",
-  "displayName": "Dashboard Provider",
+  "name": "dashboard-data-provider",
+  "displayName": "Dashboard Data Provider",
   "version": "1.0.0",
   "description": "Dashboard data provider backed by the Livepeer Leaderboard API, subgraph, and L1 RPC. Serves live KPI, pipelines, GPU capacity, orchestrators, protocol, and fees via the GraphQL-over-event-bus contract.",
   "author": {
@@ -9,7 +9,7 @@
     "email": "team@naap.io"
   },
   "license": "MIT",
-  "keywords": ["dashboard", "provider", "leaderboard", "reference"],
+  "keywords": ["dashboard", "provider", "leaderboard", "network", "data"],
   "category": "analytics",
 
   "shell": {
@@ -18,7 +18,7 @@
   },
 
   "frontend": {
-    "entry": "./frontend/dist/production/dashboard-provider-mock.js",
+    "entry": "./frontend/dist/production/dashboard-data-provider.js",
     "devPort": 3020,
     "routes": []
   },

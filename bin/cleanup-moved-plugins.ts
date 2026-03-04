@@ -11,7 +11,7 @@
  *   - my-wallet, daydream-video, my-dashboard
  *
  * Remaining plugins (6 in plugins/):
- *   - capacity-planner, community, dashboard-provider-mock
+ *   - capacity-planner, community, dashboard-data-provider
  *   - developer-api, marketplace, plugin-publisher
  *
  * Usage:

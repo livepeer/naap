@@ -2,7 +2,7 @@
  * Leaderboard API — typed fetch wrappers for the Developer API Manager
  *
  * Calls https://leaderboard-api.livepeer.cloud directly from the browser,
- * following the same pattern as plugins/dashboard-provider-mock/frontend/src/api/leaderboard.ts
+ * following the same pattern as plugins/dashboard-data-provider/frontend/src/api/leaderboard.ts
  */
 
 const BASE_URL = 'https://leaderboard-api.livepeer.cloud';

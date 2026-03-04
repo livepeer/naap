@@ -1,5 +1,5 @@
 {
-  "name": "@naap/plugin-dashboard-provider-mock-frontend",
+  "name": "@naap/plugin-dashboard-data-provider-frontend",
   "version": "1.0.0",
   "private": true,
   "type": "module",
