@@ -11,6 +11,7 @@ import { NextRequest } from 'next/server';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse, loadOwnedConnector } from '@/lib/gateway/admin/team-guard';
 import { prisma } from '@/lib/db';
+import { logAudit } from '@/lib/gateway/admin/audit';
 
 type RouteContext = { params: Promise<{ id: string; name: string }> };
 
@@ -37,6 +38,8 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
   const key = secretKey(ctx.teamId, connector.slug, name);
   await prisma.secretVault.deleteMany({ where: { key } });
+
+  await logAudit(ctx, { action: 'secret.delete', resourceId: id, details: { ref: name, slug: connector.slug }, request });
 
   return success({ name, deleted: true });
 }

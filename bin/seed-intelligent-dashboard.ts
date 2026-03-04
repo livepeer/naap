@@ -30,10 +30,10 @@ function step(n: number, msg: string) {
   console.log(`[${'='.repeat(60)}]`);
 }
 
-const prisma = new PrismaClient();
-
 async function main() {
   console.log('\n  Intelligent Dashboard Plugin — Seed Script\n');
+
+  const prisma = new PrismaClient();
 
   // ── Step 1: Authenticate ────────────────────────────────────────────────
 
@@ -81,7 +81,7 @@ async function main() {
 
   const GEMINI_KEY = process.env.GEMINI_API_KEY;
   if (!GEMINI_KEY) {
-    throw new Error('GEMINI_API_KEY environment variable is required');
+    throw new Error('GEMINI_API_KEY environment variable is required. Set it before running this script.');
   }
 
   const secretScope = `personal:${userId}`;
@@ -107,7 +107,7 @@ async function main() {
         createdBy: userId,
       },
     });
-    console.log(`  Gemini API key stored in SecretVault (key prefix: ${GEMINI_KEY.slice(0, 4)}…)`);
+    console.log('  Gemini API key stored in SecretVault');
   }
 
   // ── Step 4: Register WorkflowPlugin ─────────────────────────────────────
@@ -298,9 +298,7 @@ async function main() {
   console.log();
 }
 
-main()
-  .catch((err) => {
-    console.error('\n  Seed failed:', err.message || err);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+main().catch((err) => {
+  console.error('\n  Seed failed:', err.message || err);
+  process.exit(1);
+});

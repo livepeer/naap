@@ -5,7 +5,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
-import { TeamGuard } from '../components/TeamGuard';
+import { HealthDot } from '../components/HealthDot';
 
 // ── Types ──
 
@@ -103,18 +103,6 @@ const MiniChart: React.FC<{ points: TimeseriesPoint[]; field: 'requests' | 'avgL
   );
 };
 
-// ── Health Dot ──
-
-const HealthDot: React.FC<{ status: string }> = ({ status }) => {
-  const colors: Record<string, string> = {
-    up: 'bg-green-400',
-    down: 'bg-red-400',
-    degraded: 'bg-yellow-400',
-    unknown: 'bg-gray-500',
-  };
-  return <div className={`w-2 h-2 rounded-full ${colors[status] || colors.unknown}`} />;
-};
-
 // ── Main Dashboard ──
 
 export const DashboardPage: React.FC = () => {
@@ -154,8 +142,7 @@ export const DashboardPage: React.FC = () => {
   const health = healthRes?.data;
 
   return (
-    <TeamGuard>
-      <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-100">Dashboard</h1>
@@ -290,6 +277,5 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </TeamGuard>
   );
 };

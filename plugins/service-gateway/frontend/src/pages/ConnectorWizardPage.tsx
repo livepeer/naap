@@ -9,7 +9,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
-import { TeamGuard } from '../components/TeamGuard';
+import { SecretField } from '../components/SecretField';
 
 const WIZARD_STEPS = ['Template', 'Connect', 'Endpoints', 'Review'];
 const AUTH_TYPES = ['none', 'bearer', 'header', 'basic', 'query'] as const;
@@ -113,7 +113,10 @@ export const ConnectorWizardPage: React.FC = () => {
   const [authType, setAuthType] = useState<string>('none');
   const [healthCheckPath, setHealthCheckPath] = useState('');
   const [streamingEnabled, setStreamingEnabled] = useState(false);
+  const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [secretRefs, setSecretRefs] = useState<string[]>([]);
+  const [testResult, setTestResult] = useState<{ ok: boolean; latencyMs?: number; error?: string } | null>(null);
+  const [testing, setTesting] = useState(false);
 
   // Step 2: Endpoints
   const [endpoints, setEndpoints] = useState<EndpointForm[]>([]);
@@ -123,6 +126,10 @@ export const ConnectorWizardPage: React.FC = () => {
     loadTemplates(() => apiGet('/templates'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    setTestResult(null);
+  }, [upstreamBaseUrl, authType]);
 
   const templates = templatesData?.data || [];
 
@@ -167,11 +174,36 @@ export const ConnectorWizardPage: React.FC = () => {
     );
   };
 
+  const handleTestConnection = async () => {
+    if (!upstreamBaseUrl || !isUrlValid(upstreamBaseUrl)) return;
+    setTesting(true);
+    setTestResult(null);
+    const start = Date.now();
+    try {
+      const target = healthCheckPath
+        ? new URL(healthCheckPath, upstreamBaseUrl).toString()
+        : upstreamBaseUrl;
+      const res = await fetch(target, { method: 'HEAD', mode: 'no-cors', signal: AbortSignal.timeout(10_000) });
+      const latencyMs = Date.now() - start;
+      setTestResult({ ok: true, latencyMs });
+    } catch (err) {
+      const latencyMs = Date.now() - start;
+      setTestResult({ ok: false, latencyMs, error: err instanceof Error ? err.message : 'Connection failed' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const handleAuthTypeChange = useCallback((newAuthType: string) => {
     setAuthType(newAuthType);
-    setSecretRefs(DEFAULT_SECRET_REFS[newAuthType] || []);
-  }, []);
+    if (selectedTemplateIds.size === 0) {
+      setSecretRefs(DEFAULT_SECRET_REFS[newAuthType] || []);
+    }
+  }, [selectedTemplateIds]);
 
+  const handleSecretChange = useCallback((name: string, value: string) => {
+    setSecrets((prev) => ({ ...prev, [name]: value }));
+  }, []);
 
   const addEndpoint = () => {
     setEndpoints((prev) => [
@@ -211,11 +243,10 @@ export const ConnectorWizardPage: React.FC = () => {
         if (data.failed > 0) {
           const errs = data.results.filter((r) => r.error).map((r) => `${r.name}: ${r.error}`);
           setBatchError(errs.join('; '));
-        } else if (data.created > 0) {
+        }
+        if (data.created > 0) {
           navigate('/');
         }
-      } else {
-        setBatchError((res as unknown as { message?: string }).message || 'Batch create failed');
       }
     } catch (err) {
       setBatchError(err instanceof Error ? err.message : 'Batch create failed');
@@ -240,10 +271,7 @@ export const ConnectorWizardPage: React.FC = () => {
         secretRefs,
       });
 
-      if (!connRes.success) {
-        setSaveError((connRes as unknown as { message?: string }).message || 'Failed to create connector');
-        return;
-      }
+      if (!connRes.success) return;
       const connectorId = connRes.data.id;
 
       for (const ep of endpoints) {
@@ -291,8 +319,7 @@ export const ConnectorWizardPage: React.FC = () => {
     : WIZARD_STEPS;
 
   return (
-    <TeamGuard>
-      <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 max-w-4xl mx-auto">
         {/* Stepper */}
         <div className="flex items-center gap-2 mb-8">
           {displayedSteps.map((s, i) => (
@@ -511,6 +538,12 @@ export const ConnectorWizardPage: React.FC = () => {
                   </span>
                 )}
               </div>
+              {upstreamBaseUrl && /YOUR_/i.test(upstreamBaseUrl) && (
+                <div className="flex items-center gap-1.5 mt-1 text-amber-400 text-xs">
+                  <span className="px-1.5 py-0.5 bg-amber-500/20 border border-amber-500/30 rounded font-medium">Placeholder</span>
+                  Replace YOUR_* values with real configuration before publishing.
+                </div>
+              )}
             </div>
 
             <div className="space-y-1">
@@ -528,14 +561,14 @@ export const ConnectorWizardPage: React.FC = () => {
               </select>
             </div>
 
-            {secretRefs.length > 0 && (
-              <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 text-amber-400 text-sm flex items-start gap-2">
-                <span className="mt-0.5">🔑</span>
-                <span>
-                  This auth type requires credentials ({secretRefs.join(', ')}).
-                  You can configure them in Settings after creation.
-                </span>
-              </div>
+            {authType === 'bearer' && (
+              <SecretField label="API Token" name="token" onChange={handleSecretChange} />
+            )}
+            {authType === 'basic' && (
+              <>
+                <SecretField label="Username" name="username" onChange={handleSecretChange} />
+                <SecretField label="Password" name="password" onChange={handleSecretChange} />
+              </>
             )}
 
             <div className="flex items-center gap-3">
@@ -549,6 +582,27 @@ export const ConnectorWizardPage: React.FC = () => {
                 Enable SSE streaming
               </label>
             </div>
+
+            {/* Test Connection */}
+            {upstreamBaseUrl && isUrlValid(upstreamBaseUrl) && !/YOUR_/i.test(upstreamBaseUrl) && (
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={testing}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {testing ? 'Testing...' : 'Test Connection'}
+                </button>
+                {testResult && (
+                  <span className={`text-sm font-medium ${testResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+                    {testResult.ok
+                      ? `Connected (${testResult.latencyMs}ms)`
+                      : `Failed: ${testResult.error}`}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -706,6 +760,5 @@ export const ConnectorWizardPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </TeamGuard>
   );
 };

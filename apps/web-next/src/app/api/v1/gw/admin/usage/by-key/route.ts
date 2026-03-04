@@ -40,14 +40,12 @@ export async function GET(request: NextRequest) {
     orderBy: { _count: { apiKeyId: 'desc' } },
   });
 
+  // Enrich with key names and plan info
   const keyIds = byKey.map((k) => k.apiKeyId).filter(Boolean) as string[];
   if (keyIds.length === 0) return success([]);
-  const ownerFilter = ctx.isPersonal
-    ? { ownerUserId: ctx.userId }
-    : { teamId: ctx.teamId };
 
   const keys = await prisma.gatewayApiKey.findMany({
-    where: { id: { in: keyIds }, ...ownerFilter },
+    where: { id: { in: keyIds } },
     select: {
       id: true,
       name: true,

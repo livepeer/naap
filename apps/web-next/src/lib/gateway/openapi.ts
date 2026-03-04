@@ -225,8 +225,7 @@ export function generateOpenApiSpec(connector: ConnectorForSpec, baseUrl: string
     }
 
     // Request body for non-GET methods
-    const upperMethod = ep.method.toUpperCase();
-    if (upperMethod !== 'GET' && upperMethod !== 'HEAD' && upperMethod !== 'DELETE') {
+    if (ep.method !== 'GET' && ep.method !== 'HEAD' && ep.method !== 'DELETE') {
       const bodySchema = ep.bodySchema || { type: 'object' };
       operation.requestBody = {
         required: true,

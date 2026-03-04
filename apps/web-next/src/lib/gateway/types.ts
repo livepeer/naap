@@ -39,6 +39,7 @@ export interface ResolvedEndpoint {
   upstreamQueryParams: Record<string, string>;
   upstreamStaticBody: string | null;
   bodyTransform: string;
+  responseBodyTransform: string;
   headerMapping: Record<string, string>;
   rateLimit: number | null;
   timeout: number | null;
@@ -131,6 +132,28 @@ export interface ResolvedSecrets {
   [key: string]: string;
 }
 
+// ── IP / CIDR Matching ──
+
+function ipToLong(ip: string): number {
+  const parts = ip.split('.').map(Number);
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+function cidrContains(cidr: string, ip: string): boolean {
+  const [network, prefixStr] = cidr.split('/');
+  const prefix = parseInt(prefixStr, 10);
+  if (isNaN(prefix) || prefix < 0 || prefix > 32) return false;
+  const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+  return (ipToLong(network) & mask) === (ipToLong(ip) & mask);
+}
+
+export function matchIPAllowlist(clientIP: string, allowedIPs: string[]): boolean {
+  return allowedIPs.some((entry) => {
+    if (entry.includes('/')) return cidrContains(entry, clientIP);
+    return entry === clientIP;
+  });
+}
+
 // ── SSRF ──
 
 const PRIVATE_IP_RANGES = [
@@ -140,9 +163,12 @@ const PRIVATE_IP_RANGES = [
   /^192\.168\./,
   /^0\./,
   /^169\.254\./,
-  /^f[cd][0-9a-f]{2}:/i,  // IPv6 ULA fc00::/7
-  /^fe80:/,
+  /^f[cd]00:/i,
+  /^fe80:/i,
   /^::1$/,
+  /^::ffff:(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|169\.254\.)/i,
+  /^::ffff:0:(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/i,
+  /^0{0,4}(::0{0,4}){0,4}:?0{0,3}1$/i,
   /^localhost$/i,
 ];
 
@@ -150,16 +176,13 @@ export function isPrivateHost(hostname: string): boolean {
   return PRIVATE_IP_RANGES.some((pattern) => pattern.test(hostname));
 }
 
-export function isPrivateIp(ip: string): boolean {
-  return PRIVATE_IP_RANGES.some((pattern) => pattern.test(ip));
-}
-
 export function validateHost(hostname: string, allowedHosts: string[]): boolean {
   if (isPrivateHost(hostname)) return false;
   if (allowedHosts.length === 0) return true;
   return allowedHosts.some((allowed) => {
     if (allowed.startsWith('*.')) {
-      return hostname.endsWith(allowed.slice(1)) || hostname === allowed.slice(2);
+      const baseDomain = allowed.slice(2);
+      return hostname === baseDomain || hostname.endsWith('.' + baseDomain);
     }
     return hostname === allowed;
   });

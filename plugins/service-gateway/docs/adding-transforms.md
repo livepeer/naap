@@ -40,9 +40,9 @@ import { yamlToJsonTransform } from './body/yaml-to-json';
 registry.registerBody(yamlToJsonTransform);
 ```
 
-### Step 3: Update admin validation (required if validation is enforced)
+### Step 3: Update validation (optional)
 
-Update the admin validation schema to allow the new `bodyTransform` value in `apps/web-next/src/lib/gateway/admin/validation.ts`.
+If you want the admin API to validate the new value, update the `bodyTransform` comment in the Prisma schema at `packages/database/prisma/schema.prisma`.
 
 ### Step 4: Write tests
 

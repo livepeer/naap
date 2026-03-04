@@ -10,7 +10,8 @@ export const templateTransform: BodyTransformStrategy = {
     try {
       const body = JSON.parse(ctx.consumerBody);
       return interpolateTemplate(ctx.upstreamStaticBody, body);
-    } catch {
+    } catch (err) {
+      console.warn('[gateway] template transform: failed to parse consumer body as JSON, passing through:', err);
       return ctx.consumerBody;
     }
   },

@@ -7,7 +7,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
 import { QuickStart } from '../components/QuickStart';
-import { TeamGuard } from '../components/TeamGuard';
+import { HealthDot } from '../components/HealthDot';
 
 interface Connector {
   id: string;
@@ -23,6 +23,9 @@ interface Connector {
   authType: string;
   streamingEnabled: boolean;
   publishedAt: string | null;
+  healthStatus?: string;
+  healthLatencyMs?: number | null;
+  lastCheckedAt?: string | null;
   endpoints: Array<{
     id: string;
     name: string;
@@ -94,6 +97,26 @@ export const ConnectorDetailPage: React.FC = () => {
   const [usageByKey, setUsageByKey] = useState<UsageByKey[]>([]);
   const [usageTimeseries, setUsageTimeseries] = useState<TimeseriesPoint[]>([]);
   const [usageLoading, setUsageLoading] = useState(false);
+
+  // Test connection state
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; latencyMs?: number; error?: string; healthStatus?: string } | null>(null);
+
+  const handleTestConnection = async () => {
+    if (!id) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await api.post<{ success: boolean; data: { success: boolean; latencyMs: number; error?: string; healthStatus: string } }>(`/connectors/${id}/test`);
+      const data = (res as unknown as { data: { success: boolean; latencyMs: number; error?: string; healthStatus: string } }).data;
+      setTestResult(data);
+      fetchConnector();
+    } catch (err) {
+      setTestResult({ success: false, error: err instanceof Error ? err.message : 'Test failed' });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const fetchConnector = useCallback(() => {
     if (!id) return;
@@ -211,8 +234,7 @@ export const ConnectorDetailPage: React.FC = () => {
   }
 
   return (
-    <TeamGuard>
-      <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-6 max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div>
@@ -223,6 +245,7 @@ export const ConnectorDetailPage: React.FC = () => {
             </div>
             <h1 className="text-2xl font-bold text-gray-100">{connector.displayName}</h1>
             <div className="flex items-center gap-3 mt-2">
+              <HealthDot status={connector.healthStatus || 'unknown'} size="md" showLabel />
               <span className={`px-2 py-0.5 text-xs font-medium rounded ${STATUS_COLORS[connector.status]}`}>
                 {connector.status}
               </span>
@@ -235,7 +258,28 @@ export const ConnectorDetailPage: React.FC = () => {
               <span className="text-xs text-gray-500">v{connector.version}</span>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <button
+              onClick={handleTestConnection}
+              disabled={testing}
+              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {testing ? (
+                <>
+                  <span className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                  Testing...
+                </>
+              ) : (
+                'Test Connection'
+              )}
+            </button>
+            {testResult && (
+              <span className={`text-xs font-medium ${testResult.success ? 'text-green-400' : 'text-red-400'}`}>
+                {testResult.success
+                  ? `Connected (${testResult.latencyMs}ms)`
+                  : `Failed: ${testResult.error || 'Unknown error'}`}
+              </span>
+            )}
             {connector.status === 'draft' && (
               <button
                 onClick={handlePublish}
@@ -612,7 +656,13 @@ export const ConnectorDetailPage: React.FC = () => {
                     <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
                       <p className="text-xs text-gray-400">Data Transferred</p>
                       <p className="text-2xl font-bold text-gray-100 mt-1">
-                        {((usageSummary.totalRequestBytes + usageSummary.totalResponseBytes) / 1024).toFixed(1)}<span className="text-sm text-gray-400 ml-1">KB</span>
+                        {(() => {
+                          const bytes = usageSummary.totalRequestBytes + usageSummary.totalResponseBytes;
+                          if (bytes >= 1024 * 1024 * 1024) return <>{(bytes / (1024 * 1024 * 1024)).toFixed(1)}<span className="text-sm text-gray-400 ml-1">GB</span></>;
+                          if (bytes >= 1024 * 1024) return <>{(bytes / (1024 * 1024)).toFixed(1)}<span className="text-sm text-gray-400 ml-1">MB</span></>;
+                          if (bytes >= 1024) return <>{(bytes / 1024).toFixed(1)}<span className="text-sm text-gray-400 ml-1">KB</span></>;
+                          return <>{bytes}<span className="text-sm text-gray-400 ml-1">B</span></>;
+                        })()}
                       </p>
                     </div>
                   </div>
@@ -720,6 +770,27 @@ export const ConnectorDetailPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Upstream Auth Status Summary */}
+            {secretsLoaded && secrets.length > 0 && (() => {
+              const configured = secrets.filter((s) => s.configured).length;
+              const total = secrets.length;
+              const allDone = configured === total;
+              return (
+                <div className={`flex items-center gap-3 px-4 py-3 rounded-lg border text-sm ${
+                  allDone
+                    ? 'bg-green-500/10 border-green-500/30'
+                    : 'bg-amber-500/10 border-amber-500/30'
+                }`}>
+                  <span className={`w-2.5 h-2.5 rounded-full ${allDone ? 'bg-green-400' : 'bg-amber-400'}`} />
+                  <span className={allDone ? 'text-green-400' : 'text-amber-400'}>
+                    Upstream Authentication: {allDone
+                      ? 'All secrets configured'
+                      : `${total - configured} of ${total} secret${total !== 1 ? 's' : ''} not configured`}
+                  </span>
+                </div>
+              );
+            })()}
+
             {/* Upstream Secrets (owner-only) */}
             {secretsLoaded && secrets.length > 0 && (
               <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
@@ -791,6 +862,5 @@ export const ConnectorDetailPage: React.FC = () => {
           </div>
         )}
       </div>
-    </TeamGuard>
   );
 };

@@ -16,6 +16,7 @@
     "authType": "bearer",
     "authConfig": { "tokenRef": "token" },
     "secretRefs": ["token"],
+    "healthCheckPath": "/v1/models",
     "streamingEnabled": true,
     "tags": ["daydream", "streaming", "ai", "live"]
   },

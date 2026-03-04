@@ -534,7 +534,7 @@ async function main() {
 
   if (rawKey) {
     console.log(`  Test API Key (save this — shown only once):`);
-    console.log(`    ${rawKey}`);
+    console.log(`    ${rawKey.slice(0, 11)}${'*'.repeat(rawKey.length - 11)}`);
     console.log();
     console.log('  Quick test:');
     console.log(

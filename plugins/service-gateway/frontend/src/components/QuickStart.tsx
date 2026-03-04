@@ -46,8 +46,7 @@ export const QuickStart: React.FC<QuickStartProps> = ({
   }
 });
 
-const data = await response.json();
-console.log(data);`,
+const data = await response.json();`,
     python: `import requests
 
 response = requests.${endpoint.method.toLowerCase()}(

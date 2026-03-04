@@ -33,19 +33,16 @@ export async function GET(request: NextRequest) {
   const connectorId = searchParams.get('connectorId');
 
   const intervalMs = INTERVAL_MS[interval] || INTERVAL_MS['5m'];
-  const fromDate = from ? new Date(from) : new Date(Date.now() - 60 * 60 * 1000);
-  const toDate = to ? new Date(to) : new Date();
+  const fromDateRaw = from ? new Date(from) : new Date(Date.now() - 60 * 60 * 1000);
+  const toDateRaw = to ? new Date(to) : new Date();
 
-  const maxRangeMs = 7 * 86_400_000;
-  const clampedFrom = toDate.getTime() - fromDate.getTime() > maxRangeMs
-    ? new Date(toDate.getTime() - maxRangeMs)
-    : fromDate;
+  const fromDate = isNaN(fromDateRaw.getTime()) ? new Date(Date.now() - 60 * 60 * 1000) : fromDateRaw;
+  const toDate = isNaN(toDateRaw.getTime()) ? new Date() : toDateRaw;
 
-  const MAX_RECORDS = 50_000;
   const records = await prisma.gatewayUsageRecord.findMany({
     where: {
       teamId: ctx.teamId,
-      timestamp: { gte: clampedFrom, lte: toDate },
+      timestamp: { gte: fromDate, lte: toDate },
       ...(connectorId ? { connectorId } : {}),
     },
     select: {
@@ -54,7 +51,6 @@ export async function GET(request: NextRequest) {
       latencyMs: true,
     },
     orderBy: { timestamp: 'asc' },
-    take: MAX_RECORDS,
   });
 
   // Bucket records by interval
@@ -78,7 +74,7 @@ export async function GET(request: NextRequest) {
     avgLatencyMs: number;
   }> = [];
 
-  let current = Math.floor(clampedFrom.getTime() / intervalMs) * intervalMs;
+  let current = Math.floor(fromDate.getTime() / intervalMs) * intervalMs;
   while (current <= toDate.getTime()) {
     const bucket = buckets.get(current);
     data.push({
@@ -97,7 +93,7 @@ export async function GET(request: NextRequest) {
 
   return success({
     interval,
-    from: clampedFrom.toISOString(),
+    from: fromDate.toISOString(),
     to: toDate.toISOString(),
     points: data,
   });

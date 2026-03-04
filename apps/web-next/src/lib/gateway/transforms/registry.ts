@@ -55,6 +55,8 @@ class TransformRegistry {
   getResponse(name: string): ResponseTransformStrategy {
     const strategy = this.responseTransforms.get(name);
     if (!strategy) {
+      const fallback = this.responseTransforms.get('raw');
+      if (fallback) return fallback;
       throw new Error(`No response transform strategy registered for "${name}"`);
     }
     return strategy;

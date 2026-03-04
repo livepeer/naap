@@ -17,10 +17,7 @@ import {
 } from '@/lib/gateway/connector-templates';
 import { invalidateConnectorCache } from '@/lib/gateway/resolve';
 
-export async function GET(request: NextRequest) {
-  const ctx = await getAdminContext(request);
-  if (isErrorResponse(ctx)) return ctx;
-
+export async function GET() {
   const templates = await loadConnectorTemplates();
 
   const summaries = templates.map((t) => ({
@@ -57,7 +54,7 @@ async function createConnectorFromTemplate(
   const upstreamBaseUrl = overrides?.upstreamBaseUrl || conn.upstreamBaseUrl;
 
   if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
-    return { error: 'Slug must be lowercase alphanumeric with hyphens' };
+    return errors.badRequest('Slug must be lowercase alphanumeric with hyphens');
   }
 
   const existing = ctx.isPersonal
@@ -85,8 +82,8 @@ async function createConnectorFromTemplate(
     ? { ownerUserId: ctx.userId }
     : { teamId: ctx.teamId };
 
-  const connector = await prisma.$transaction(async (tx) => {
-    const conn_ = await tx.serviceConnector.create({
+  const created = await prisma.$transaction(async (tx) => {
+    const connector = await tx.serviceConnector.create({
       data: {
         ...ownerData,
         createdBy: ctx.userId,
@@ -94,7 +91,7 @@ async function createConnectorFromTemplate(
         displayName: conn.displayName,
         description: conn.description || template.description,
         category: template.category,
-        upstreamBaseUrl: upstreamBaseUrl || '',
+        upstreamBaseUrl,
         allowedHosts,
         authType: conn.authType,
         authConfig: conn.authConfig || {},
@@ -108,35 +105,33 @@ async function createConnectorFromTemplate(
       },
     });
 
-    for (const ep of template.endpoints) {
-      await tx.connectorEndpoint.create({
-        data: {
-          connectorId: conn_.id,
-          name: ep.name,
-          description: ep.description,
-          method: ep.method,
-          path: ep.path,
-          upstreamPath: ep.upstreamPath,
-          upstreamContentType: ep.upstreamContentType || 'application/json',
-          bodyTransform: ep.bodyTransform || 'passthrough',
-          bodyBlacklist: ep.bodyBlacklist || [],
-          bodyPattern: ep.bodyPattern || null,
-          cacheTtl: ep.cacheTtl || null,
-          timeout: ep.timeout || null,
-          retries: ep.retries || 0,
-        },
-      });
-    }
+    await tx.connectorEndpoint.createMany({
+      data: template.endpoints.map((ep) => ({
+        connectorId: connector.id,
+        name: ep.name,
+        description: ep.description,
+        method: ep.method,
+        path: ep.path,
+        upstreamPath: ep.upstreamPath,
+        upstreamContentType: ep.upstreamContentType || 'application/json',
+        bodyTransform: ep.bodyTransform || 'passthrough',
+        bodyBlacklist: ep.bodyBlacklist || [],
+        bodyPattern: ep.bodyPattern || null,
+        cacheTtl: ep.cacheTtl || null,
+        timeout: ep.timeout || null,
+        retries: ep.retries || 0,
+      })),
+    });
 
     return tx.serviceConnector.findUnique({
-      where: { id: conn_.id },
+      where: { id: connector.id },
       include: { endpoints: true },
     });
   });
 
-  invalidateConnectorCache(ctx.teamId, connector?.slug || slug);
+  invalidateConnectorCache(ctx.teamId, slug);
 
-  return { connector };
+  return { connector: created };
 }
 
 export async function POST(request: NextRequest) {

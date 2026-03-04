@@ -22,9 +22,12 @@ export async function GET(request: NextRequest) {
   const to = searchParams.get('to');
   const connectorId = searchParams.get('connectorId');
 
+  const fromDate = from ? new Date(from) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const toDate = to ? new Date(to) : new Date();
+
   const timeFilter = {
-    ...(from ? { gte: new Date(from) } : { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }),
-    ...(to ? { lte: new Date(to) } : {}),
+    gte: isNaN(fromDate.getTime()) ? new Date(Date.now() - 24 * 60 * 60 * 1000) : fromDate,
+    lte: isNaN(toDate.getTime()) ? new Date() : toDate,
   };
 
   const where = {
@@ -33,7 +36,7 @@ export async function GET(request: NextRequest) {
     ...(connectorId ? { connectorId } : {}),
   };
 
-  const [aggregate, errorCount, total] = await Promise.all([
+  const [aggregate, errorCount] = await Promise.all([
     prisma.gatewayUsageRecord.aggregate({
       where,
       _avg: { latencyMs: true, upstreamLatencyMs: true },
@@ -43,8 +46,9 @@ export async function GET(request: NextRequest) {
     prisma.gatewayUsageRecord.count({
       where: { ...where, statusCode: { gte: 400 } },
     }),
-    prisma.gatewayUsageRecord.count({ where }),
   ]);
+
+  const total = aggregate._count;
 
   // Top connectors by request count
   const topConnectors = await prisma.gatewayUsageRecord.groupBy({

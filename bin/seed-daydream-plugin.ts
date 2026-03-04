@@ -248,7 +248,7 @@ async function main() {
   if (existingKey) {
     console.log(`  API key already exists: ${existingKey.keyPrefix}...`);
   } else {
-    rawKey = `gw_${randomBytes(24).toString('hex')}`;
+    rawKey = `gk_${randomBytes(24).toString('hex')}`;
     const hash = createHash('sha256').update(rawKey).digest('hex');
     await prisma.gatewayApiKey.create({
       data: {
@@ -289,10 +289,10 @@ async function main() {
 
   if (rawKey) {
     console.log('  Gateway API Key (save this — shown only once):');
-    console.log(`    ${rawKey}`);
+    console.log(`    ${rawKey.slice(0, 11)}${'*'.repeat(rawKey.length - 11)}`);
     console.log();
     console.log('  Quick test:');
-    console.log(`    curl -H "Authorization: Bearer ${rawKey}" \\`);
+    console.log(`    curl -H "Authorization: Bearer <YOUR_API_KEY>" \\`);
     console.log(`         ${SHELL_URL}/api/v1/gw/daydream/models`);
   } else {
     console.log('  API key was created in a previous run (raw key not available).');
@@ -300,7 +300,7 @@ async function main() {
   }
 
   console.log();
-  console.log(`  To test: log in as ${DEV_EMAIL}`);
+  console.log(`  To test: log in as ${DEV_EMAIL} (password: livepeer)`);
   console.log('  Navigate to /daydream in the NaaP UI');
   console.log();
 }

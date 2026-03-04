@@ -5,7 +5,7 @@
  * signature generation, and UNSIGNED-PAYLOAD mode.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   signAwsV4,
   toAmzDate,
@@ -153,30 +153,24 @@ describe('signAwsV4', () => {
   });
 
   it('produces deterministic signatures for identical inputs', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-02-23T12:00:00.000Z'));
-    try {
-      const opts = {
-        method: 'GET',
-        url: new URL('https://s3.amazonaws.com/my-bucket'),
-        headers: new Headers(),
-        accessKey: 'AKID',
-        secretKey: 'SECRET',
-        region: 'us-east-1',
-        service: 's3',
-      };
+    const opts = {
+      method: 'GET',
+      url: new URL('https://s3.amazonaws.com/my-bucket'),
+      headers: new Headers(),
+      accessKey: 'AKID',
+      secretKey: 'SECRET',
+      region: 'us-east-1',
+      service: 's3',
+    };
 
-      signAwsV4(opts);
-      const sig1 = opts.headers.get('authorization')!;
+    signAwsV4(opts);
+    const sig1 = opts.headers.get('authorization')!;
 
-      const opts2 = { ...opts, headers: new Headers() };
-      signAwsV4(opts2);
-      const sig2 = opts2.headers.get('authorization')!;
+    const opts2 = { ...opts, headers: new Headers() };
+    signAwsV4(opts2);
+    const sig2 = opts2.headers.get('authorization')!;
 
-      expect(sig1).toBe(sig2);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(sig1).toBe(sig2);
   });
 
   it('encodes path segments in canonical URI', () => {

@@ -79,6 +79,10 @@ export function loadConnectorTemplates(): ConnectorTemplate[] {
         continue;
       }
 
+      if (data.connector.upstreamBaseUrl && /YOUR_/i.test(data.connector.upstreamBaseUrl)) {
+        console.warn(`[gateway] connector template "${data.connector.slug}" has placeholder URL — configure before use`);
+      }
+
       templates.push(data);
     } catch (err) {
       console.warn(`[loader] Failed to parse ${file}:`, (err as Error).message);

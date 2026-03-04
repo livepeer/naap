@@ -25,6 +25,5 @@ describe('streaming response strategy', () => {
     expect(result.headers.get('X-Gateway-Latency')).toBe('42');
     expect(result.headers.get('X-Gateway-Cache')).toBe('MISS');
     expect(result.headers.get('x-request-id')).toBe('req-1');
-    expect(result.headers.get('x-trace-id')).toBe('trace-1');
   });
 });

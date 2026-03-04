@@ -3,9 +3,14 @@
  *
  * Enforces rate limits, quotas, and request size constraints.
  * Uses @naap/cache createRateLimiter for distributed rate limiting.
+ *
+ * Quota enforcement uses Redis INCR with TTL-based expiry for O(1)
+ * per-request checks instead of DB COUNT queries. Falls back to
+ * DB queries when Redis is unavailable.
  */
 
-import { createRateLimiter } from '@naap/cache/rateLimiter';
+import { createRateLimiter } from '@naap/cache';
+import { getRedis } from '@naap/cache';
 import { prisma } from '@/lib/db';
 import type { AuthResult, ResolvedEndpoint } from './types';
 
@@ -16,12 +21,16 @@ export interface PolicyResult {
   headers?: Record<string, string>;
 }
 
-// Dynamic rate limiter cache (one per unique rate limit value)
+const MAX_LIMITER_ENTRIES = 256;
 const LIMITER_CACHE = new Map<number, ReturnType<typeof createRateLimiter>>();
 
 function getLimiter(rateLimit: number) {
   let limiter = LIMITER_CACHE.get(rateLimit);
   if (!limiter) {
+    if (LIMITER_CACHE.size >= MAX_LIMITER_ENTRIES) {
+      const oldest = LIMITER_CACHE.keys().next().value;
+      if (oldest !== undefined) LIMITER_CACHE.delete(oldest);
+    }
     limiter = createRateLimiter({
       points: rateLimit,
       duration: 60,
@@ -30,6 +39,62 @@ function getLimiter(rateLimit: number) {
     LIMITER_CACHE.set(rateLimit, limiter);
   }
   return limiter;
+}
+
+function quotaCallerSuffix(auth: AuthResult): string {
+  return auth.apiKeyId || `jwt:${auth.callerId}`;
+}
+
+function dailyQuotaKey(auth: AuthResult): string {
+  const now = new Date();
+  const day = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}${String(now.getUTCDate()).padStart(2, '0')}`;
+  return `gw:quota:d:${auth.teamId}:${quotaCallerSuffix(auth)}:${day}`;
+}
+
+function monthlyQuotaKey(auth: AuthResult): string {
+  const now = new Date();
+  const month = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  return `gw:quota:m:${auth.teamId}:${quotaCallerSuffix(auth)}:${month}`;
+}
+
+function secondsUntilEndOfDay(): number {
+  const now = new Date();
+  const endOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  return Math.ceil((endOfDay.getTime() - now.getTime()) / 1000);
+}
+
+function secondsUntilEndOfMonth(): number {
+  const now = new Date();
+  const endOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  return Math.ceil((endOfMonth.getTime() - now.getTime()) / 1000);
+}
+
+async function incrQuota(key: string, ttlSeconds: number): Promise<number> {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const count = await redis.eval(
+        `local c = redis.call('INCR', KEYS[1])
+         if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+         return c`,
+        1, key, String(ttlSeconds)
+      ) as number;
+      return count;
+    } catch {
+      return -1;
+    }
+  }
+  return -1;
+}
+
+async function getQuotaCountFallback(auth: AuthResult, since: Date): Promise<number> {
+  return prisma.gatewayUsageRecord.count({
+    where: {
+      teamId: auth.teamId,
+      ...(auth.apiKeyId ? { apiKeyId: auth.apiKeyId } : { callerId: auth.callerId }),
+      timestamp: { gte: since },
+    },
+  });
 }
 
 /**
@@ -62,18 +127,15 @@ export async function enforcePolicy(
 
   // ── Daily Quota ──
   if (auth.dailyQuota) {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    let dailyCount = await incrQuota(dailyQuotaKey(auth), secondsUntilEndOfDay());
+    if (dailyCount < 0) {
+      const now = new Date();
+      const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      // +1 because the DB count doesn't include the current in-flight request
+      dailyCount = (await getQuotaCountFallback(auth, todayStart)) + 1;
+    }
 
-    const dailyCount = await prisma.gatewayUsageRecord.count({
-      where: {
-        teamId: auth.teamId,
-        ...(auth.apiKeyId ? { apiKeyId: auth.apiKeyId } : { callerId: auth.callerId }),
-        timestamp: { gte: todayStart },
-      },
-    });
-
-    if (dailyCount >= auth.dailyQuota) {
+    if (dailyCount > auth.dailyQuota) {
       return {
         allowed: false,
         reason: `Daily quota exceeded (${auth.dailyQuota} requests/day)`,
@@ -88,19 +150,15 @@ export async function enforcePolicy(
 
   // ── Monthly Quota ──
   if (auth.monthlyQuota) {
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
+    let monthlyCount = await incrQuota(monthlyQuotaKey(auth), secondsUntilEndOfMonth());
+    if (monthlyCount < 0) {
+      const now = new Date();
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      // +1 because the DB count doesn't include the current in-flight request
+      monthlyCount = (await getQuotaCountFallback(auth, monthStart)) + 1;
+    }
 
-    const monthlyCount = await prisma.gatewayUsageRecord.count({
-      where: {
-        teamId: auth.teamId,
-        ...(auth.apiKeyId ? { apiKeyId: auth.apiKeyId } : { callerId: auth.callerId }),
-        timestamp: { gte: monthStart },
-      },
-    });
-
-    if (monthlyCount >= auth.monthlyQuota) {
+    if (monthlyCount > auth.monthlyQuota) {
       return {
         allowed: false,
         reason: `Monthly quota exceeded (${auth.monthlyQuota} requests/month)`,

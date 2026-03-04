@@ -16,6 +16,7 @@ const SECRET_CACHE_TTL_MS = 300_000; // 5 minutes
 /**
  * Resolve all secrets referenced by a connector.
  *
+ * Reads directly from SecretVault via Prisma and decrypts using AES-256-GCM.
  * Secret keys are namespaced per connector slug to prevent collisions when
  * multiple connectors in the same scope share the same secretRef name.
  */
@@ -63,6 +64,9 @@ export async function resolveSecrets(
   return secrets;
 }
 
+/**
+ * Store a secret in SecretVault.
+ */
 export async function storeSecret(
   teamId: string,
   name: string,
@@ -93,6 +97,9 @@ export async function storeSecret(
   }
 }
 
+/**
+ * Delete a secret from SecretVault.
+ */
 export async function deleteSecret(
   teamId: string,
   name: string,

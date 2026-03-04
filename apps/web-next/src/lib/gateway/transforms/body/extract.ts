@@ -12,7 +12,8 @@ export const extractTransform: BodyTransformStrategy = {
       const body = JSON.parse(ctx.consumerBody);
       const extracted = getNestedValue(body, fieldPath);
       return extracted !== undefined ? JSON.stringify(extracted) : ctx.consumerBody;
-    } catch {
+    } catch (err) {
+      console.warn('[gateway] extract transform: failed to parse consumer body as JSON, passing through:', err);
       return ctx.consumerBody;
     }
   },

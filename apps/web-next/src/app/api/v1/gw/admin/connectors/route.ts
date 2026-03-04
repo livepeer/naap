@@ -12,6 +12,7 @@ import { success, successPaginated, errors, parsePagination } from '@/lib/api/re
 import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard';
 import { createConnectorSchema } from '@/lib/gateway/admin/validation';
 import { invalidateConnectorCache } from '@/lib/gateway/resolve';
+import { logAudit } from '@/lib/gateway/admin/audit';
 
 function ownerWhere(ctx: { teamId: string; userId: string; isPersonal: boolean }) {
   if (ctx.isPersonal) return { ownerUserId: ctx.userId };
@@ -27,11 +28,7 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get('status');
   const category = searchParams.get('category');
 
-  const scope = searchParams.get('scope') || 'all';
-  const validScopes = ['own', 'public', 'all'];
-  if (!validScopes.includes(scope)) {
-    return errors.badRequest(`Invalid scope "${scope}". Must be one of: ${validScopes.join(', ')}`);
-  }
+  const scope = searchParams.get('scope') || 'all'; // own | public | all
 
   const scopeCondition =
     scope === 'own'
@@ -54,7 +51,14 @@ export async function GET(request: NextRequest) {
   const [connectors, total] = await Promise.all([
     prisma.serviceConnector.findMany({
       where,
-      include: { endpoints: { select: { id: true } } },
+      include: {
+        endpoints: { select: { id: true } },
+        healthChecks: {
+          orderBy: { checkedAt: 'desc' },
+          take: 1,
+          select: { status: true, latencyMs: true, checkedAt: true },
+        },
+      },
       orderBy: { updatedAt: 'desc' },
       skip,
       take: pageSize,
@@ -62,11 +66,18 @@ export async function GET(request: NextRequest) {
     prisma.serviceConnector.count({ where }),
   ]);
 
-  const data = connectors.map((c) => ({
-    ...c,
-    endpointCount: c.endpoints.length,
-    endpoints: undefined,
-  }));
+  const data = connectors.map((c) => {
+    const lastCheck = c.healthChecks[0] || null;
+    return {
+      ...c,
+      endpointCount: c.endpoints.length,
+      endpoints: undefined,
+      healthChecks: undefined,
+      healthStatus: lastCheck?.status || 'unknown',
+      healthLatencyMs: lastCheck?.latencyMs ?? null,
+      lastCheckedAt: lastCheck?.checkedAt?.toISOString() ?? null,
+    };
+  });
 
   return successPaginated(data, { page, pageSize, total });
 }
@@ -128,6 +139,8 @@ export async function POST(request: NextRequest) {
   });
 
   invalidateConnectorCache(ctx.teamId, connector.slug);
+
+  await logAudit(ctx, { action: 'connector.create', resourceId: connector.id, details: { slug: connector.slug }, request });
 
   return success(connector);
 }

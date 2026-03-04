@@ -320,29 +320,14 @@ Confirm connector is published (not draft) and route mapping exists.
 
 ## File structure
 
-```text
+```
 plugins/service-gateway/
 ├── plugin.json
 ├── README.md
-├── connectors/
-│   ├── connector-template.schema.json
-│   ├── cloudflare-ai.json
-│   ├── confluent-kafka.json
-│   ├── daydream.json
-│   ├── gemini.json
-│   ├── livepeer-leaderboard.json
-│   ├── livepeer-studio.json
-│   ├── neon.json
-│   ├── openai.json
-│   ├── pinecone.json
-│   ├── resend.json
-│   ├── storj-s3.json
-│   ├── stripe.json
-│   ├── supabase.json
-│   ├── twilio.json
-│   ├── upstash-redis.json
-│   ├── vercel-blob.json
-│   └── loader.ts
+├── templates/
+│   ├── ai-llm.json
+│   ├── clickhouse.json
+│   └── daydream.json
 ├── database/
 │   └── README.md
 └── frontend/

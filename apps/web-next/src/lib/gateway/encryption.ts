@@ -1,29 +1,49 @@
 /**
  * Shared encryption key and AES-256-GCM utilities for gateway secrets.
  *
- * ENCRYPTION_KEY must be set in production. In development only, a
- * deterministic fallback key is used (so secrets survive process restarts).
+ * ENCRYPTION_KEY env var is REQUIRED in production (Vercel).
+ * In development, falls back to a stable default key so secrets persist
+ * across Next.js hot reloads and server restarts.
+ *
+ * Key derivation uses scrypt with a fixed application-specific salt to
+ * produce a proper 256-bit key from an arbitrary-length passphrase.
  */
 
 import * as crypto from 'crypto';
 
-const DEV_FALLBACK_KEY = 'naap-dev-encryption-key-do-not-use-in-production!!';
+const DEV_FALLBACK_KEY = 'naap-local-dev-gateway-encryption-key-32ch';
 
+const KDF_SALT = Buffer.from('naap-gateway-kdf-v1', 'utf8');
+
+let _key: string | null = null;
 let _derivedKey: Buffer | null = null;
+let _warned = false;
+
+function getEncryptionKey(): string {
+  if (_key) return _key;
+
+  const envKey = process.env.ENCRYPTION_KEY;
+  if (envKey) {
+    _key = envKey;
+  } else if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+    throw new Error(
+      'ENCRYPTION_KEY environment variable is required in production. ' +
+      'Set it in Vercel project settings to a stable 32+ character string.'
+    );
+  } else {
+    if (!_warned) {
+      console.warn('[gateway] ENCRYPTION_KEY not set — using dev fallback. Set it in .env.local for production-like behavior.');
+      _warned = true;
+    }
+    _key = DEV_FALLBACK_KEY;
+  }
+
+  return _key;
+}
 
 function deriveKey(): Buffer {
   if (_derivedKey) return _derivedKey;
-
-  const rawKey = process.env.ENCRYPTION_KEY;
-  if (rawKey && rawKey.length < 16) {
-    throw new Error('ENCRYPTION_KEY must be at least 16 characters');
-  }
-  if (!rawKey && process.env.NODE_ENV === 'production') {
-    throw new Error('ENCRYPTION_KEY environment variable is required in production');
-  }
-
-  const source = rawKey || DEV_FALLBACK_KEY;
-  _derivedKey = crypto.createHash('sha256').update(source).digest();
+  _derivedKey = crypto.scryptSync(getEncryptionKey(), KDF_SALT, 32);
   return _derivedKey;
 }
 

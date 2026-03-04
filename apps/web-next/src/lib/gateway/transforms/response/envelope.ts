@@ -8,8 +8,8 @@ export const envelopeResponse: ResponseTransformStrategy = {
     const responseHeaders = buildSafeResponseHeaders(ctx, contentType);
 
     if (contentType.includes('application/json')) {
-      const rawBody = await ctx.upstreamResponse.text();
       try {
+        const rawBody = await ctx.upstreamResponse.text();
         let parsedBody: unknown;
         try {
           parsedBody = JSON.parse(rawBody);
@@ -44,11 +44,8 @@ export const envelopeResponse: ResponseTransformStrategy = {
           status: ctx.upstreamResponse.status,
           headers: responseHeaders,
         });
-      } catch {
-        return new Response(rawBody, {
-          status: ctx.upstreamResponse.status,
-          headers: responseHeaders,
-        });
+      } catch (err) {
+        console.warn('[gateway] envelope response: failed to construct envelope, falling back to raw:', err);
       }
     }
 

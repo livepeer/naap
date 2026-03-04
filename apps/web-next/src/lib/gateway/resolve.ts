@@ -10,6 +10,8 @@
  */
 
 import { prisma } from '@/lib/db';
+import { cacheGet, cacheSet, cacheDel } from '@naap/cache';
+import { parseScope } from './scope';
 import type { ResolvedConfig, ResolvedConnector, ResolvedEndpoint } from './types';
 
 // ── In-Memory Cache ──
@@ -23,8 +25,10 @@ interface CacheEntry {
 // Stale data may be served for up to TTL after config changes.
 // For stricter consistency, layer a distributed cache (Redis L2) in front.
 const CONFIG_CACHE = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 60_000; // 60 seconds
-const NEGATIVE_CACHE_TTL_MS = 5_000; // 5 seconds for not-found results
+const CACHE_TTL_MS = 60_000; // 60s L1
+const REDIS_CACHE_TTL_S = 120; // 120s L2
+const NEGATIVE_CACHE_TTL_MS = 5_000;
+const REDIS_PREFIX = 'gw:resolve';
 
 function getCacheKey(scopeId: string, slug: string, method: string, path: string): string {
   return `gw:config:${scopeId}:${slug}:${method}:${path}`;
@@ -40,6 +44,7 @@ export function invalidateConnectorCache(scopeId: string, slug: string): void {
   for (const key of CONFIG_CACHE.keys()) {
     if (key.startsWith(prefix) || key.startsWith(publicPrefix)) {
       CONFIG_CACHE.delete(key);
+      cacheDel(key, { prefix: REDIS_PREFIX }).catch(() => {});
     }
   }
 }
@@ -49,15 +54,15 @@ export function invalidateConnectorCache(scopeId: string, slug: string): void {
  * Personal scope queries by `ownerUserId`; team scope queries by `teamId`.
  */
 async function findConnectorByOwner(scopeId: string, slug: string) {
-  if (scopeId.startsWith('personal:')) {
-    const ownerUserId = scopeId.slice('personal:'.length);
+  const scope = parseScope(scopeId);
+  if (scope.type === 'personal') {
     return prisma.serviceConnector.findUnique({
-      where: { ownerUserId_slug: { ownerUserId, slug } },
+      where: { ownerUserId_slug: { ownerUserId: scope.userId, slug } },
       include: { endpoints: true },
     });
   }
   return prisma.serviceConnector.findUnique({
-    where: { teamId_slug: { teamId: scopeId, slug } },
+    where: { teamId_slug: { teamId: scope.teamId, slug } },
     include: { endpoints: true },
   });
 }
@@ -89,9 +94,21 @@ export async function resolveConfig(
 ): Promise<ResolvedConfig | null> {
   const cacheKey = getCacheKey(scopeId, slug, method, path);
 
+  // L1: in-memory
   const cached = CONFIG_CACHE.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.config;
+  }
+
+  // L2: Redis
+  try {
+    const redisHit = await cacheGet<ResolvedConfig | null>(cacheKey, { prefix: REDIS_PREFIX });
+    if (redisHit !== null) {
+      CONFIG_CACHE.set(cacheKey, { config: redisHit, expiresAt: Date.now() + CACHE_TTL_MS });
+      return redisHit;
+    }
+  } catch {
+    // Redis unavailable — continue to DB
   }
 
   let connector = await findConnectorByOwner(scopeId, slug);
@@ -173,27 +190,21 @@ export async function resolveConfig(
     endpoint: resolvedEndpoint,
   };
 
-  const expiry = Date.now() + CACHE_TTL_MS;
-  CONFIG_CACHE.set(cacheKey, { config, expiresAt: expiry });
-
-  if (connector.visibility === 'public') {
-    const publicKey = getCacheKey('public', slug, method, path);
-    CONFIG_CACHE.set(publicKey, { config, expiresAt: expiry });
-  }
-
+  CONFIG_CACHE.set(cacheKey, { config, expiresAt: Date.now() + CACHE_TTL_MS });
+  cacheSet(cacheKey, config, { prefix: REDIS_PREFIX, ttl: REDIS_CACHE_TTL_S }).catch(() => {});
   return config;
 }
 
 /**
  * Match consumer path against endpoint path pattern.
- * Supports simple wildcard segments: /tables/:name -> /tables/foo
+ * Supports parameterized segments (:param) and catch-all (:param*).
  */
 function matchPath(pattern: string, actual: string): boolean {
   const patternParts = pattern.split('/').filter(Boolean);
   const actualParts = actual.split('/').filter(Boolean);
 
   const lastPattern = patternParts[patternParts.length - 1];
-  const isCatchAll = !!lastPattern && lastPattern.startsWith(':') && lastPattern.endsWith('*');
+  const isCatchAll = lastPattern?.endsWith('*');
 
   if (isCatchAll) {
     if (actualParts.length < patternParts.length) return false;
@@ -210,11 +221,15 @@ function matchPath(pattern: string, actual: string): boolean {
   });
 }
 
+/**
+ * Score a path pattern for specificity sorting.
+ * Higher = more specific. Exact segments > params > catch-all.
+ */
 function pathSpecificity(pattern: string): number {
   const parts = pattern.split('/').filter(Boolean);
   let score = 0;
   for (const part of parts) {
-    if (part.startsWith(':') && part.endsWith('*')) {
+    if (part.endsWith('*')) {
       score += 1;
     } else if (part.startsWith(':')) {
       score += 10;
