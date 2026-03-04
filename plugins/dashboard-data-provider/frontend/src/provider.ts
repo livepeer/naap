@@ -133,7 +133,7 @@ function round1(n: number): number {
 async function resolveKPI(): Promise<DashboardKPI> {
   const [demand1h, demand24h, gpuRows, slaRows] = await Promise.all([
     fetchNetworkDemand('1h'),
-    fetchNetworkDemand('2h'),
+    fetchNetworkDemand('24h'),
     fetchGPUMetrics('1h'),
     fetchSLACompliance('72h'),
   ]);
@@ -170,7 +170,7 @@ async function resolveKPI(): Promise<DashboardKPI> {
 
 async function resolvePipelines({ limit = 5 }: { limit?: number }): Promise<DashboardPipelineUsage[]> {
   const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 5;
-  const demand = await fetchNetworkDemand('2h');
+  const demand = await fetchNetworkDemand('24h');
 
   const totals = new Map<string, number>();
   for (const row of demand) {

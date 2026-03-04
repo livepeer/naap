@@ -149,11 +149,14 @@ export const ModelDetailPanel: React.FC<ModelDetailPanelProps> = ({
       {/* CTA */}
       <div className="mt-4 pt-4 border-t border-white/10">
         <button
+          type="button"
           onClick={() => {
             const gateway = model.gatewayOffers?.[0];
             if (gateway) onCreateKey(model, gateway);
           }}
-          className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-accent-emerald text-white rounded-xl font-bold hover:bg-accent-emerald/90 transition-all"
+          disabled={!model.gatewayOffers?.length}
+          className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-accent-emerald text-white rounded-xl font-bold hover:bg-accent-emerald/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-accent-emerald"
+          title={!model.gatewayOffers?.length ? 'No gateway available for this model' : undefined}
         >
           <Key size={18} />
           Create API Key for {model.displayName}

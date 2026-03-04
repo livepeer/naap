@@ -87,8 +87,17 @@ export const CompareDrawer: React.FC<CompareDrawerProps> = ({
                     return (
                       <tr
                         key={model.id}
+                        role="button"
+                        tabIndex={0}
                         className="border-t border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
                         onClick={() => onSelect(model)}
+                        onKeyDown={(e) => {
+                          if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('button')) return;
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onSelect(model);
+                          }
+                        }}
                       >
                         <td className="py-3 pr-4">
                           <span className="font-medium text-text-primary">{model.displayName}</span>
@@ -123,11 +132,13 @@ export const CompareDrawer: React.FC<CompareDrawerProps> = ({
                         </td>
                         <td className="py-3 pl-4">
                           <button
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               onRemove(model.id);
                             }}
                             className="p-1.5 hover:bg-white/10 rounded transition-colors"
+                            aria-label={`Remove ${model.displayName} from comparison`}
                           >
                             <X size={16} className="text-text-secondary" />
                           </button>

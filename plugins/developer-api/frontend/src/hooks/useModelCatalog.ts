@@ -34,10 +34,12 @@ interface ModelCatalogResult {
   error: string | null;
 }
 
+/** Match by model_id when provided, otherwise by pipeline (parent pipeline id). */
 function matchesModel(row: GPUMetricRow | SLAComplianceRow, pipelineId: string, modelId: string): boolean {
-  const m = row.model_id ?? row.pipeline;
-  const p = row.pipeline;
-  return m === modelId || p === modelId || (p === pipelineId && m === modelId);
+  if (modelId != null && modelId !== '') {
+    return row.model_id === modelId;
+  }
+  return row.pipeline === pipelineId;
 }
 
 function shortGPUName(name: string): string {
@@ -102,9 +104,15 @@ export function useModelCatalog(): ModelCatalogResult {
 
             const latencies = modelGPURows
               .map((row) => row.e2e_latency_ms)
-              .filter((value): value is number => value != null);
+              .filter((value): value is number => value != null)
+              .sort((a, b) => a - b);
             const latencyP50 = latencies.length
-              ? Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length)
+              ? (() => {
+                  const mid = latencies.length >> 1;
+                  return latencies.length % 2 === 1
+                    ? latencies[mid]!
+                    : Math.round((latencies[mid - 1]! + latencies[mid]!) / 2);
+                })()
               : null;
 
             const slaScore = weightedSLAScore(modelSLARows);

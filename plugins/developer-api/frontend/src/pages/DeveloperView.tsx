@@ -209,10 +209,17 @@ export const DeveloperView: React.FC = () => {
 
   const loadBillingProviders = useCallback(async () => {
     try {
-      const json = await fetch('/api/v1/billing-providers').then(r => r.json());
+      const response = await fetch('/api/v1/billing-providers', { credentials: 'include' });
+      if (!response.ok) {
+        console.error('Failed to load billing providers:', response.status, response.statusText);
+        setBillingProviders([]);
+        return;
+      }
+      const json = await response.json();
       setBillingProviders((json.data ?? json).providers || []);
     } catch (err) {
       console.error('Failed to load billing providers:', err);
+      setBillingProviders([]);
     }
   }, []);
 
@@ -223,12 +230,22 @@ export const DeveloperView: React.FC = () => {
   const loadModalData = useCallback(async () => {
     setModalDataLoading(true);
     try {
-      const [projectsJson, bpJson] = await Promise.all([
-        fetch('/api/v1/developer/projects').then(r => r.json()),
-        fetch('/api/v1/billing-providers').then(r => r.json()),
+      const [projectsRes, bpRes] = await Promise.all([
+        fetch('/api/v1/developer/projects', { credentials: 'include' }),
+        fetch('/api/v1/billing-providers', { credentials: 'include' }),
       ]);
-      const projectList: ProjectInfo[] = (projectsJson.data ?? projectsJson).projects || [];
-      const providerList: BillingProviderInfo[] = (bpJson.data ?? bpJson).providers || [];
+      if (!projectsRes.ok) {
+        console.error('Failed to load projects:', projectsRes.status, projectsRes.statusText);
+      }
+      if (!bpRes.ok) {
+        console.error('Failed to load billing providers:', bpRes.status, bpRes.statusText);
+      }
+      const [projectsJson, bpJson] = await Promise.all([
+        projectsRes.json(),
+        bpRes.json(),
+      ]);
+      const projectList: ProjectInfo[] = projectsRes.ok ? ((projectsJson.data ?? projectsJson).projects || []) : [];
+      const providerList: BillingProviderInfo[] = bpRes.ok ? ((bpJson.data ?? bpJson).providers || []) : [];
       setProjects(projectList);
       setBillingProviders(providerList);
       if (projectList.length > 0) {

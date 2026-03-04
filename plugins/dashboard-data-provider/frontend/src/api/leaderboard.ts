@@ -11,7 +11,8 @@
  *   interval=14h → 7 d  lookback at 14 h resolution (weekly fees)
  */
 
-const BASE_URL = 'https://leaderboard-api.livepeer.cloud';
+/** Use server proxy so requests use LEADERBOARD_API_URL, timeout, and path validation. */
+const BASE_URL = '/api/v1/leaderboard';
 
 // ---------------------------------------------------------------------------
 // Response shapes (mirror models/metrics.go JSON tags)
@@ -77,7 +78,7 @@ async function apiFetch<T>(path: string): Promise<T> {
 export async function fetchNetworkDemand(interval: string): Promise<NetworkDemandRow[]> {
   const query = new URLSearchParams({ interval });
   const data = await apiFetch<{ demand: NetworkDemandRow[] }>(
-    `/api/network/demand?${query.toString()}`
+    `/network/demand?${query.toString()}`
   );
   return data.demand ?? [];
 }
@@ -85,7 +86,7 @@ export async function fetchNetworkDemand(interval: string): Promise<NetworkDeman
 export async function fetchGPUMetrics(timeRange: string): Promise<GPUMetricRow[]> {
   const query = new URLSearchParams({ time_range: timeRange });
   const data = await apiFetch<{ metrics: GPUMetricRow[] }>(
-    `/api/gpu/metrics?${query.toString()}`
+    `/gpu/metrics?${query.toString()}`
   );
   return data.metrics ?? [];
 }
@@ -93,7 +94,7 @@ export async function fetchGPUMetrics(timeRange: string): Promise<GPUMetricRow[]
 export async function fetchSLACompliance(period: string): Promise<SLAComplianceRow[]> {
   const query = new URLSearchParams({ period });
   const data = await apiFetch<{ compliance: SLAComplianceRow[] }>(
-    `/api/sla/compliance?${query.toString()}`
+    `/sla/compliance?${query.toString()}`
   );
   return data.compliance ?? [];
 }

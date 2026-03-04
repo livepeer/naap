@@ -774,8 +774,11 @@ function OrchestratorTableCard({
     return rows;
   }, [data, sortCol, sortDir, filter]);
 
+  const ariaSortValue = (col: OrchestratorSortCol): 'ascending' | 'descending' | 'none' =>
+    sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
+
   const TH = ({ col, label, right }: { col: OrchestratorSortCol; label: string; right?: boolean }) => (
-    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'}`}>
+    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'}`} aria-sort={ariaSortValue(col)}>
       <button
         type="button"
         onClick={() => toggleSort(col)}
@@ -801,9 +804,11 @@ function OrchestratorTableCard({
         </div>
         <div className="flex items-center gap-2">
           <input
+            id="orchestrator-filter"
             value={filter}
             onChange={e => setFilter(e.target.value)}
             placeholder="Filter address / pipeline…"
+            aria-label="Filter orchestrators by address or pipeline"
             className="px-2 py-0.5 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground w-48"
           />
           <button

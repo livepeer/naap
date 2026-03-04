@@ -44,24 +44,29 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * In the leaderboard GPU metrics, the `pipeline` field corresponds to the
- * model/sub-pipeline identifier (e.g. "streamdiffusion-sdxl"), not the parent
- * pipeline ID (e.g. "live-video-to-video"). This function tries both.
+ * Match by model when modelId is provided, otherwise by pipeline.
+ * In leaderboard data, pipeline is the parent (e.g. "live-video-to-video");
+ * model_id is the sub-pipeline/model (e.g. "streamdiffusion-sdxl").
  */
 function matchesModel(row: GPUMetricRow, pipelineId: string, modelId: string): boolean {
-  const m = row.model_id ?? row.pipeline;
-  const p = row.pipeline;
-  return m === modelId || p === modelId || (p === pipelineId && m === modelId);
+  if (modelId != null && modelId !== '') {
+    return row.model_id === modelId;
+  }
+  return row.pipeline === pipelineId;
 }
 
 function matchesSLA(row: SLAComplianceRow, pipelineId: string, modelId: string): boolean {
-  const m = row.model_id ?? row.pipeline;
-  const p = row.pipeline;
-  return m === modelId || p === modelId || (p === pipelineId && m === modelId);
+  if (modelId != null && modelId !== '') {
+    return row.model_id === modelId;
+  }
+  return row.pipeline === pipelineId;
 }
 
 function matchesDemand(row: NetworkDemandRow, pipelineId: string, modelId: string): boolean {
-  return row.pipeline === modelId || row.pipeline === pipelineId;
+  if (modelId != null && modelId !== '') {
+    return row.pipeline === modelId;
+  }
+  return row.pipeline === pipelineId;
 }
 
 /** Aggregate GPU metric rows by gpu_name */

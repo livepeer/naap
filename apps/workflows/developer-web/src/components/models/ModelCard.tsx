@@ -32,7 +32,16 @@ export const ModelCard: React.FC<ModelCardProps> = ({
   return (
     <motion.div
       layout
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      aria-pressed={isSelected}
       className={`glass-card p-4 cursor-pointer transition-all group ${
         isSelected ? 'border-accent-emerald/50 bg-accent-emerald/5' : 'hover:border-white/20'
       }`}

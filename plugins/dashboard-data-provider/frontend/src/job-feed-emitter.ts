@@ -1,13 +1,11 @@
 /**
- * Mock Job Feed Emitter
+ * Job Feed Emitter — registerJobFeedEmitter
  *
- * Simulates a live job feed by:
- * 1. Registering as the job-feed:subscribe handler (returns fallback mode)
- * 2. Emitting mock job events via the event bus at regular intervals
+ * Registers the job-feed:subscribe handler on the event bus and emits mock job
+ * events at regular intervals. Simulates a live job feed for dashboard testing.
  *
- * In a real provider plugin, this would be replaced by:
- * - An Ably channel publisher in the backend
- * - The subscribe handler returning the Ably channel name
+ * In a real provider plugin, this would be replaced by an Ably channel
+ * publisher in the backend and the subscribe handler returning the channel name.
  */
 
 import {

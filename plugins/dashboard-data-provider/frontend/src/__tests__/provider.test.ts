@@ -148,23 +148,25 @@ function stubFetch() {
     vi.fn((url: string | URL | Request) => {
       const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
 
-      // Leaderboard API endpoints
-      if (urlStr.includes('/api/network/demand')) {
-        const interval = new URL(urlStr).searchParams.get('interval') ?? '1h';
+      // Leaderboard API endpoints (proxy path: /api/v1/leaderboard/network/demand)
+      if (urlStr.includes('/network/demand') || urlStr.includes('/api/network/demand')) {
+        const url = new URL(urlStr, 'http://test');
+        const interval = url.searchParams.get('interval') ?? '1h';
+        const demand = interval === '24h' || interval === '2h' ? STUB_DEMAND_2H : STUB_DEMAND_1H;
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ demand: interval === '2h' ? STUB_DEMAND_2H : STUB_DEMAND_1H }),
+          json: () => Promise.resolve({ demand }),
         } as Response);
       }
 
-      if (urlStr.includes('/api/gpu/metrics')) {
+      if (urlStr.includes('/gpu/metrics')) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ metrics: STUB_GPU }),
         } as Response);
       }
 
-      if (urlStr.includes('/api/sla/compliance')) {
+      if (urlStr.includes('/sla/compliance')) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ compliance: STUB_SLA }),

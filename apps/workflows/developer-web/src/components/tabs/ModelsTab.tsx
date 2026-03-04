@@ -204,36 +204,39 @@ export const ModelsTab: React.FC = () => {
           ))}
         </div>
 
-        {/* GPU filter */}
-        {!loading && gpuTypes.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            <button
-              onClick={() => setGpuFilter('all')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                gpuFilter === 'all'
-                  ? 'bg-accent-amber/80 text-white'
-                  : 'bg-bg-tertiary text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              <Cpu size={12} />
-              All GPUs
-            </button>
-            {gpuTypes.map((g) => (
+        {/* GPU filter — dedupe by short label so chips are unique */}
+        {!loading && gpuTypes.length > 0 && (() => {
+          const uniqueShortGPU = Array.from(new Set(gpuTypes.map(shortGPUName)));
+          return (
+            <div className="flex flex-wrap gap-1.5 mb-2">
               <button
-                key={g}
-                onClick={() => setGpuFilter(shortGPUName(g) === gpuFilter ? 'all' : shortGPUName(g))}
+                onClick={() => setGpuFilter('all')}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                  gpuFilter === shortGPUName(g)
+                  gpuFilter === 'all'
                     ? 'bg-accent-amber/80 text-white'
                     : 'bg-bg-tertiary text-text-secondary hover:text-text-primary'
                 }`}
               >
                 <Cpu size={12} />
-                {shortGPUName(g)}
+                All GPUs
               </button>
-            ))}
-          </div>
-        )}
+              {uniqueShortGPU.map((shortLabel) => (
+                <button
+                  key={shortLabel}
+                  onClick={() => setGpuFilter(shortLabel === gpuFilter ? 'all' : shortLabel)}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                    gpuFilter === shortLabel
+                      ? 'bg-accent-amber/80 text-white'
+                      : 'bg-bg-tertiary text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  <Cpu size={12} />
+                  {shortLabel}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Region filter */}
         {!loading && regions.length > 0 && (

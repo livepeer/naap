@@ -7,7 +7,9 @@ This plugin provides live data to the core dashboard via the GraphQL-over-event-
 - **Livepeer Leaderboard API** — KPI, pipelines, GPU capacity, orchestrators
 - **Job feed** — simulated job events (seed data)
 
-Protocol, fees, and pricing resolvers return static fallback values until their respective data sources are wired in a follow-up.
+- **Protocol** — live data from the Livepeer subgraph and L1 RPC (via server routes `/api/v1/protocol-block` and subgraph proxy). Requires `L1_RPC_URL` and subgraph config for full accuracy.
+- **Fees** — live data from the Livepeer subgraph (via server-side proxy). Requires subgraph configuration.
+- **Pricing** — currently returns static fallback values; no live pricing source is wired yet.
 
 ## Quick Start
 
