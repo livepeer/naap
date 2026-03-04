@@ -34,12 +34,13 @@ interface ModelCatalogResult {
   error: string | null;
 }
 
-/** Match by model_id when provided, otherwise by pipeline (parent pipeline id). */
+/** Match row to pipeline and model: require same pipeline; when row has model_id, compare to modelId; when row has no model_id, do not attribute to any model. */
 function matchesModel(row: GPUMetricRow | SLAComplianceRow, pipelineId: string, modelId: string): boolean {
-  if (modelId != null && modelId !== '') {
+  if (row.pipeline !== pipelineId) return false;
+  if (row.model_id != null && row.model_id !== '') {
     return row.model_id === modelId;
   }
-  return row.pipeline === pipelineId;
+  return false;
 }
 
 function shortGPUName(name: string): string {
