@@ -28,6 +28,7 @@ import {
   toPluginPackageData,
   toPluginVersionData,
   getBundleUrl,
+  toCamelCase,
 } from '../packages/database/src/plugin-discovery.js';
 import { BILLING_PROVIDERS } from '@naap/database';
 import * as path from 'path';
@@ -331,18 +332,26 @@ async function main(): Promise<void> {
     }
 
     // ------------------------------------------------------------------
-    // Auto-generate plugin-routes.json for middleware consumption
+    // Generate plugin-routes.json for middleware consumption
     // ------------------------------------------------------------------
-    // Routes that already have dedicated page.tsx files and should NOT
-    // be rewritten by the middleware to the generic plugin loader.
-    const ROUTES_WITH_DEDICATED_PAGES = new Set(['/marketplace', '/dashboard']);
-
+    const routesWithOwnPage = new Set(['/marketplace', '/dashboard', '/plugins/my-dashboard']);
     const routeMap: Record<string, string> = {};
+
     for (const p of discovered) {
-      if (!p.routes || p.routes.length === 0) continue;
-      const primaryRoute = p.routes[0]; // e.g. "/gateway"
-      if (ROUTES_WITH_DEDICATED_PAGES.has(primaryRoute)) continue;
-      routeMap[primaryRoute] = p.name;
+      const camelName = toCamelCase(p.dirName);
+      const routes: string[] = p.routes || [];
+      for (const route of routes) {
+        const baseRoute = route.replace(/\/?\*$/, '');
+        if (!baseRoute || routesWithOwnPage.has(baseRoute)) continue;
+        const existing = routeMap[baseRoute];
+        if (existing && existing !== camelName) {
+          console.warn(
+            `[sync-plugin-registry] Route collision: "${baseRoute}" claimed by both "${existing}" and "${camelName}" — keeping "${existing}"`,
+          );
+          continue;
+        }
+        routeMap[baseRoute] = camelName;
+      }
     }
 
     const generatedDir = path.join(MONOREPO_ROOT, 'apps', 'web-next', 'src', 'generated');
@@ -352,7 +361,7 @@ async function main(): Promise<void> {
     const routesPath = path.join(generatedDir, 'plugin-routes.json');
     fs.writeFileSync(routesPath, JSON.stringify(routeMap, null, 2) + '\n', 'utf-8');
     console.log(
-      `[sync-plugin-registry] Generated ${routesPath} with ${Object.keys(routeMap).length} route(s): ${Object.keys(routeMap).join(', ')}`,
+      `[sync-plugin-registry] Generated plugin-routes.json with ${Object.keys(routeMap).length} route(s): ${Object.keys(routeMap).join(', ')}`,
     );
 
     console.log('[sync-plugin-registry] Done.');
