@@ -17,16 +17,18 @@ describe('Secrets Admin Logic', () => {
   describe('secret key construction', () => {
     it('builds correct key format for team scope', () => {
       const scopeId = 'team-123';
+      const connectorSlug = 'my-api';
       const name = 'token';
-      const key = `gw:${scopeId}:${name}`;
-      expect(key).toBe('gw:team-123:token');
+      const key = `gw:${scopeId}:${connectorSlug}:${name}`;
+      expect(key).toBe('gw:team-123:my-api:token');
     });
 
     it('builds correct key format for personal scope', () => {
       const scopeId = 'personal:user-456';
+      const connectorSlug = 'my-api';
       const name = 'token';
-      const key = `gw:${scopeId}:${name}`;
-      expect(key).toBe('gw:personal:user-456:token');
+      const key = `gw:${scopeId}:${connectorSlug}:${name}`;
+      expect(key).toBe('gw:personal:user-456:my-api:token');
     });
   });
 

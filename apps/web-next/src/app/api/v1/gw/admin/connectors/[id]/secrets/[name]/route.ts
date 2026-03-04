@@ -16,8 +16,8 @@ type RouteContext = { params: Promise<{ id: string; name: string }> };
 
 const SECRET_KEY_PREFIX = 'gw';
 
-function secretKey(scopeId: string, connectorId: string, name: string): string {
-  return `${SECRET_KEY_PREFIX}:${scopeId}:${connectorId}:${name}`;
+function secretKey(scopeId: string, connectorSlug: string, name: string): string {
+  return `${SECRET_KEY_PREFIX}:${scopeId}:${connectorSlug}:${name}`;
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
@@ -35,7 +35,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return errors.notFound('Secret ref');
   }
 
-  const key = secretKey(ctx.teamId, id, name);
+  const key = secretKey(ctx.teamId, connector.slug, name);
   await prisma.secretVault.deleteMany({ where: { key } });
 
   return success({ name, deleted: true });

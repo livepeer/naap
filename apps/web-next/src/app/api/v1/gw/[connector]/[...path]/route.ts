@@ -5,9 +5,10 @@
  * The core serverless function that proxies consumer requests to upstream
  * services. Implements the full pipeline:
  *
- *   Resolve → Authorize → Policy → Validate → Transform → Proxy → Respond → Log
+ *   Authorize → Resolve → Access → IP → Body → Size → Policy → Validate →
+ *   Cache → Secrets → Transform → Proxy → Respond → Log
  *
- * Supports: GET, POST, PUT, PATCH, DELETE
+ * Supports: GET, POST, PUT, PATCH, DELETE, HEAD
  * Auth: JWT (NaaP plugins) or API Key (external consumers)
  * Streaming: SSE passthrough for LLM-style endpoints
  */
@@ -17,10 +18,13 @@ export const runtime = 'nodejs';
 import { NextRequest } from 'next/server';
 import { resolveConfig } from '@/lib/gateway/resolve';
 import { authorize, verifyConnectorAccess } from '@/lib/gateway/authorize';
+import { enforcePolicy } from '@/lib/gateway/policy';
+import { validateRequest } from '@/lib/gateway/validate';
 import { buildUpstreamRequest } from '@/lib/gateway/transform';
 import { proxyToUpstream, ProxyError } from '@/lib/gateway/proxy';
 import { buildResponse, buildErrorResponse } from '@/lib/gateway/respond';
 import { resolveSecrets } from '@/lib/gateway/secrets';
+import { getCachedResponse, setCachedResponse, buildCacheKey } from '@/lib/gateway/cache';
 import { getAuthToken, getClientIP } from '@/lib/api/response';
 import type { UsageData } from '@/lib/gateway/types';
 
@@ -64,7 +68,25 @@ async function handleRequest(
     );
   }
 
-  // ── 3. Verify Ownership Isolation ──
+  // ── 3. Read Consumer Body (after config, so we know bodyTransform) ──
+  let consumerBody: string | null = null;
+  let consumerBodyRaw: ArrayBuffer | null = null;
+  let requestBytes = 0;
+  if (method !== 'GET' && method !== 'HEAD') {
+    try {
+      if (config.endpoint.bodyTransform === 'binary') {
+        consumerBodyRaw = await request.arrayBuffer();
+        requestBytes = consumerBodyRaw.byteLength;
+      } else {
+        consumerBody = await request.text();
+        requestBytes = new TextEncoder().encode(consumerBody).length;
+      }
+    } catch {
+      // No body
+    }
+  }
+
+  // ── 4. Verify Ownership Isolation ──
   if (!verifyConnectorAccess(auth, config.connector.id, config.connector.teamId, config.connector.ownerUserId, config.connector.visibility)) {
     return buildErrorResponse(
       'NOT_FOUND',
@@ -75,7 +97,7 @@ async function handleRequest(
     );
   }
 
-  // ── 4. Endpoint Access Check (API key scoping) ──
+  // ── 5. Endpoint Access Check (API key scoping) ──
   if (auth.allowedEndpoints && auth.allowedEndpoints.length > 0) {
     if (!auth.allowedEndpoints.includes(config.endpoint.id) &&
         !auth.allowedEndpoints.includes(config.endpoint.name)) {
@@ -89,7 +111,7 @@ async function handleRequest(
     }
   }
 
-  // ── 5. IP Allowlist Check ──
+  // ── 6. IP Allowlist Check ──
   if (auth.allowedIPs && auth.allowedIPs.length > 0) {
     const clientIP = getClientIP(request);
     if (!clientIP || !auth.allowedIPs.includes(clientIP)) {
@@ -105,18 +127,6 @@ async function handleRequest(
     }
   }
 
-  // ── 6. Read Consumer Body ──
-  let consumerBody: string | null = null;
-  let requestBytes = 0;
-  if (method !== 'GET' && method !== 'HEAD') {
-    try {
-      consumerBody = await request.text();
-      requestBytes = new TextEncoder().encode(consumerBody).length;
-    } catch {
-      // No body
-    }
-  }
-
   // ── 7. Request Size Check ──
   const maxRequestSize = config.endpoint.maxRequestSize || auth.maxRequestSize;
   if (maxRequestSize && requestBytes > maxRequestSize) {
@@ -129,16 +139,86 @@ async function handleRequest(
     );
   }
 
-  // ── 8. Resolve Secrets (use connector owner's scope, not caller's) ──
+  // ── 8. Enforce Policy (rate limits, quotas) ──
+  const policy = await enforcePolicy(auth, config.endpoint, requestBytes);
+  if (!policy.allowed) {
+    const errorResponse = buildErrorResponse(
+      'RATE_LIMITED',
+      policy.reason || 'Request blocked by policy',
+      policy.statusCode || 429,
+      requestId,
+      traceId
+    );
+    if (policy.headers) {
+      for (const [k, v] of Object.entries(policy.headers)) {
+        errorResponse.headers.set(k, v);
+      }
+    }
+    return errorResponse;
+  }
+
+  // ── 9. Validate Request (headers, body pattern, schema) ──
+  const validation = validateRequest(request, config.endpoint, consumerBody);
+  if (!validation.valid) {
+    return buildErrorResponse(
+      'VALIDATION_ERROR',
+      validation.error || 'Request validation failed',
+      400,
+      requestId,
+      traceId
+    );
+  }
+
+  // ── 10. Response Cache Check (GET only) ──
+  const queryString = request.nextUrl.search || '';
+  const cacheKey = buildCacheKey(scopeId, slug, method, consumerPath + queryString, consumerBody);
+  const cacheTtl = config.endpoint.cacheTtl;
+  if (method === 'GET' && cacheTtl && cacheTtl > 0) {
+    const cached = getCachedResponse(cacheKey);
+    if (cached) {
+      const headers = new Headers(cached.headers);
+      headers.set('X-Gateway-Cache', 'HIT');
+      if (requestId) headers.set('x-request-id', requestId);
+      if (traceId) headers.set('x-trace-id', traceId);
+      if (policy.headers) {
+        for (const [k, v] of Object.entries(policy.headers)) {
+          headers.set(k, v);
+        }
+      }
+
+      logUsage({
+        teamId: scopeId,
+        ownerScope: ownerScopeFor(config),
+        connectorId: config.connector.id,
+        endpointName: config.endpoint.name,
+        apiKeyId: auth.apiKeyId || null,
+        callerType: auth.callerType,
+        callerId: auth.callerId,
+        method,
+        path: consumerPath,
+        statusCode: cached.status,
+        latencyMs: Date.now() - startMs,
+        upstreamLatencyMs: 0,
+        requestBytes,
+        responseBytes: cached.body.byteLength,
+        cached: true,
+        error: null,
+        region: process.env.VERCEL_REGION || null,
+      });
+
+      return new Response(cached.body, { status: cached.status, headers });
+    }
+  }
+
+  // ── 11. Resolve Secrets ──
   const token = getAuthToken(request);
-  const ownerScope = config.connector.teamId
-    ?? (config.connector.ownerUserId ? `personal:${config.connector.ownerUserId}` : scopeId);
-  const secrets = await resolveSecrets(ownerScope, config.connector.secretRefs, token);
+  const ownerScope = ownerScopeFor(config);
+  const secrets = await resolveSecrets(ownerScope, config.connector.secretRefs, token, config.connector.slug);
 
-  // ── 9. Transform Request ──
-  const upstream = buildUpstreamRequest(request, config, secrets, consumerBody, consumerPath);
+  // ── 12. Transform Request ──
+  const upstream = buildUpstreamRequest(request, config, secrets, consumerBody, consumerPath, consumerBodyRaw);
 
-  // ── 10. Proxy to Upstream ──
+  // ── 13. Proxy to Upstream ──
   const timeout = config.endpoint.timeout || config.connector.defaultTimeout;
 
   let proxyResult;
@@ -181,10 +261,26 @@ async function handleRequest(
     );
   }
 
-  // ── 11. Build Response ──
+  // ── 14. Build Response ──
   const response = await buildResponse(config, proxyResult, requestId, traceId);
 
-  // ── 12. Log Usage (non-blocking via waitUntil) ──
+  if (policy.headers) {
+    for (const [k, v] of Object.entries(policy.headers)) {
+      response.headers.set(k, v);
+    }
+  }
+
+  // ── 15. Cache Store (GET + 2xx + cacheTtl) ──
+  if (method === 'GET' && cacheTtl && cacheTtl > 0 && proxyResult.response.status >= 200 && proxyResult.response.status < 300) {
+    const cloned = response.clone();
+    cloned.arrayBuffer().then((body) => {
+      const hdrs: Record<string, string> = {};
+      cloned.headers.forEach((v, k) => { hdrs[k] = v; });
+      setCachedResponse(cacheKey, { body, status: cloned.status, headers: hdrs }, cacheTtl);
+    }).catch(() => {});
+  }
+
+  // ── 16. Log Usage (non-blocking) ──
   const responseBytes = parseInt(response.headers.get('content-length') || '0', 10);
   logUsage({
     teamId: scopeId,
@@ -209,12 +305,12 @@ async function handleRequest(
   return response;
 }
 
-/**
- * Non-blocking usage logging. In production this would use waitUntil().
- * For now, fire-and-forget the DB write.
- */
+function ownerScopeFor(config: { connector: { teamId: string | null; ownerUserId: string | null } }): string {
+  return config.connector.teamId
+    ?? (config.connector.ownerUserId ? `personal:${config.connector.ownerUserId}` : '');
+}
+
 function logUsage(data: UsageData): void {
-  // Dynamically import to avoid loading Prisma on every request path
   import('@/lib/db').then(({ prisma }) => {
     prisma.gatewayUsageRecord
       .create({
@@ -262,5 +358,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
+  return handleRequest(request, context);
+}
+
+export async function HEAD(request: NextRequest, context: RouteContext) {
   return handleRequest(request, context);
 }

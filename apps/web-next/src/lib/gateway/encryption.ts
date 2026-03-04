@@ -15,6 +15,9 @@ function deriveKey(): Buffer {
   if (_derivedKey) return _derivedKey;
 
   const rawKey = process.env.ENCRYPTION_KEY;
+  if (rawKey && rawKey.length < 16) {
+    throw new Error('ENCRYPTION_KEY must be at least 16 characters');
+  }
   if (!rawKey && process.env.NODE_ENV === 'production') {
     throw new Error('ENCRYPTION_KEY environment variable is required in production');
   }
