@@ -5,9 +5,9 @@
  * Uses @naap/cache createRateLimiter for distributed rate limiting.
  */
 
-import { createRateLimiter } from '@naap/cache/rateLimiter';
+import { createRateLimiter } from '@naap/cache';
 import { prisma } from '@/lib/db';
-import type { AuthResult, ResolvedEndpoint } from './types';
+import type { AuthenticatedAuthResult, ResolvedEndpoint } from './types';
 
 export interface PolicyResult {
   allowed: boolean;
@@ -36,7 +36,7 @@ function getLimiter(rateLimit: number) {
  * Enforce all policies for a gateway request.
  */
 export async function enforcePolicy(
-  auth: AuthResult,
+  auth: AuthenticatedAuthResult,
   endpoint: ResolvedEndpoint,
   requestBytes: number
 ): Promise<PolicyResult> {
@@ -61,6 +61,9 @@ export async function enforcePolicy(
   }
 
   // ── Daily Quota ──
+  // NOTE: Quota checks are non-atomic (count-then-compare). Under high concurrency,
+  // parallel requests can overshoot by the number of concurrent in-flight requests.
+  // For strict enforcement, migrate to Redis INCR-based counters.
   if (auth.dailyQuota) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);

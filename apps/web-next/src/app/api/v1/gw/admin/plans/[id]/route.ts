@@ -103,7 +103,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     );
   }
 
-  await prisma.gatewayPlan.delete({ where: { id } });
+  await prisma.gatewayPlan.delete({ where: { id, teamId: ctx.teamId } });
 
   return success({ id, deleted: true });
 }

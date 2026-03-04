@@ -4,6 +4,7 @@
  * Reusable auth + team extraction for admin API routes.
  * - Extracts and validates JWT auth
  * - Resolves teamId from x-team-id header
+ * - Verifies user is a member of the claimed team
  * - Provides team-scoped resource loading helpers
  *
  * Returns 404 (not 403) for other teams' resources to prevent enumeration.
@@ -12,6 +13,7 @@
 import { prisma } from '@/lib/db';
 import { getAuthToken } from '@/lib/api/response';
 import { errors } from '@/lib/api/response';
+import { validateTeamAccess } from '@/lib/api/teams';
 
 const BASE_SVC_URL = process.env.BASE_SVC_URL || process.env.NEXT_PUBLIC_BASE_SVC_URL || 'http://localhost:4000';
 
@@ -23,6 +25,7 @@ export interface AdminContext {
 
 /**
  * Extract and validate admin context from request.
+ * Verifies the user is authenticated and is a member of the claimed team.
  * Returns AdminContext or a NextResponse error.
  */
 export async function getAdminContext(
@@ -37,7 +40,7 @@ export async function getAdminContext(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5_000);
 
-    const meResponse = await fetch(`${BASE_SVC_URL}/api/auth/me`, {
+    const meResponse = await fetch(`${BASE_SVC_URL}/api/v1/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,
     });
@@ -57,6 +60,12 @@ export async function getAdminContext(
     const teamId = request.headers.get('x-team-id');
     if (!teamId) {
       return errors.badRequest('x-team-id header is required');
+    }
+
+    try {
+      await validateTeamAccess(userId, teamId, 'viewer');
+    } catch {
+      return errors.notFound('Team');
     }
 
     return { userId, teamId, token };

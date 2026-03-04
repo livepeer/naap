@@ -81,7 +81,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
   }
 
   const endpoint = await prisma.connectorEndpoint.update({
-    where: { id: endpointId },
+    where: { id: endpointId, connectorId: id },
     data: parsed.data,
   });
 
@@ -108,7 +108,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   }
 
   await prisma.connectorEndpoint.delete({
-    where: { id: endpointId },
+    where: { id: endpointId, connectorId: id },
   });
 
   invalidateConnectorCache(ctx.teamId, connector.slug);

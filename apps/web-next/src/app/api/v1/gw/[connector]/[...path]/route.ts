@@ -5,7 +5,7 @@
  * The core serverless function that proxies consumer requests to upstream
  * services. Implements the full pipeline:
  *
- *   Resolve → Authorize → Policy → Validate → Transform → Proxy → Respond → Log
+ *   Authorize → Resolve → Policy → Validate → Transform → Proxy → Respond → Log
  *
  * Supports: GET, POST, PUT, PATCH, DELETE
  * Auth: JWT (NaaP plugins) or API Key (external consumers)
@@ -17,6 +17,8 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveConfig } from '@/lib/gateway/resolve';
 import { authorize, extractTeamContext, verifyConnectorAccess } from '@/lib/gateway/authorize';
+import { enforcePolicy } from '@/lib/gateway/policy';
+import { validateRequest } from '@/lib/gateway/validate';
 import { buildUpstreamRequest } from '@/lib/gateway/transform';
 import { proxyToUpstream, ProxyError } from '@/lib/gateway/proxy';
 import { buildResponse, buildErrorResponse } from '@/lib/gateway/respond';
@@ -115,26 +117,39 @@ async function handleRequest(
     }
   }
 
-  // ── 7. Request Size Check ──
-  const maxRequestSize = config.endpoint.maxRequestSize || auth.maxRequestSize;
-  if (maxRequestSize && requestBytes > maxRequestSize) {
+  // ── 7. Enforce Policy (rate limits, quotas, request size) ──
+  const policy = await enforcePolicy(auth, config.endpoint, requestBytes);
+  if (!policy.allowed) {
     return buildErrorResponse(
-      'PAYLOAD_TOO_LARGE',
-      `Request body exceeds maximum size of ${maxRequestSize} bytes.`,
-      413,
+      policy.statusCode === 429 ? 'RATE_LIMITED' : 'PAYLOAD_TOO_LARGE',
+      policy.reason || 'Request blocked by policy',
+      policy.statusCode || 429,
+      requestId,
+      traceId,
+      policy.headers
+    );
+  }
+
+  // ── 8. Validate Request (headers, body pattern, blacklist, schema) ──
+  const validation = validateRequest(request, config.endpoint, consumerBody);
+  if (!validation.valid) {
+    return buildErrorResponse(
+      'VALIDATION_ERROR',
+      validation.error || 'Request validation failed',
+      400,
       requestId,
       traceId
     );
   }
 
-  // ── 8. Resolve Secrets ──
+  // ── 9. Resolve Secrets ──
   const token = getAuthToken(request);
   const secrets = await resolveSecrets(teamId, config.connector.secretRefs, token);
 
-  // ── 9. Transform Request ──
+  // ── 10. Transform Request ──
   const upstream = buildUpstreamRequest(request, config, secrets, consumerBody, consumerPath);
 
-  // ── 10. Proxy to Upstream ──
+  // ── 11. Proxy to Upstream ──
   const timeout = config.endpoint.timeout || config.connector.defaultTimeout;
 
   let proxyResult;
@@ -177,10 +192,16 @@ async function handleRequest(
     );
   }
 
-  // ── 11. Build Response ──
+  // ── 12. Build Response ──
   const response = await buildResponse(config, proxyResult, requestId, traceId);
 
-  // ── 12. Log Usage (non-blocking via waitUntil) ──
+  if (policy.headers) {
+    for (const [key, value] of Object.entries(policy.headers)) {
+      response.headers.set(key, value);
+    }
+  }
+
+  // ── 13. Log Usage (non-blocking via waitUntil) ──
   const responseBytes = parseInt(response.headers.get('content-length') || '0', 10);
   logUsage({
     teamId,

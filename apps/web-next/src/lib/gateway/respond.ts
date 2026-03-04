@@ -168,21 +168,20 @@ export function buildErrorResponse(
   statusCode: number,
   requestId: string | null,
   traceId: string | null,
-  details?: unknown
+  extraHeaders?: Record<string, string>
 ): NextResponse {
   const body = {
     success: false,
     error: {
       code,
       message,
-      ...(details ? { details } : {}),
     },
     meta: {
       timestamp: new Date().toISOString(),
     },
   };
 
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...extraHeaders };
   if (requestId) headers['x-request-id'] = requestId;
   if (traceId) headers['x-trace-id'] = traceId;
 

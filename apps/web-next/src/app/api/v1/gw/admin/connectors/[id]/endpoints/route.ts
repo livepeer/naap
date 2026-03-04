@@ -73,14 +73,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
     );
   }
 
-  const endpoint = await prisma.connectorEndpoint.create({
-    data: {
-      connectorId: id,
-      ...parsed.data,
-    },
-  });
+  try {
+    const endpoint = await prisma.connectorEndpoint.create({
+      data: {
+        connectorId: id,
+        ...parsed.data,
+      },
+    });
 
-  invalidateConnectorCache(ctx.teamId, connector.slug);
+    invalidateConnectorCache(ctx.teamId, connector.slug);
 
-  return success(endpoint);
+    return success(endpoint);
+  } catch (err) {
+    if ((err as { code?: string })?.code === 'P2002') {
+      return errors.conflict(
+        `Endpoint ${parsed.data.method} ${parsed.data.path} already exists on this connector`
+      );
+    }
+    throw err;
+  }
 }

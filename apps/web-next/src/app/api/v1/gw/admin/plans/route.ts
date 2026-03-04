@@ -71,12 +71,19 @@ export async function POST(request: NextRequest) {
     return errors.conflict(`Plan "${parsed.data.name}" already exists`);
   }
 
-  const plan = await prisma.gatewayPlan.create({
-    data: {
-      teamId: ctx.teamId,
-      ...parsed.data,
-    },
-  });
+  try {
+    const plan = await prisma.gatewayPlan.create({
+      data: {
+        teamId: ctx.teamId,
+        ...parsed.data,
+      },
+    });
 
-  return success(plan);
+    return success(plan);
+  } catch (err) {
+    if ((err as { code?: string })?.code === 'P2002') {
+      return errors.conflict(`Plan "${parsed.data.name}" already exists`);
+    }
+    throw err;
+  }
 }

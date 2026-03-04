@@ -84,15 +84,22 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const connector = await prisma.serviceConnector.create({
-    data: {
-      teamId: ctx.teamId,
-      createdBy: ctx.userId,
-      ...parsed.data,
-      allowedHosts,
-      status: 'draft',
-    },
-  });
+  try {
+    const connector = await prisma.serviceConnector.create({
+      data: {
+        teamId: ctx.teamId,
+        createdBy: ctx.userId,
+        ...parsed.data,
+        allowedHosts,
+        status: 'draft',
+      },
+    });
 
-  return success(connector);
+    return success(connector);
+  } catch (err) {
+    if ((err as { code?: string })?.code === 'P2002') {
+      return errors.conflict(`Connector with slug "${parsed.data.slug}" already exists`);
+    }
+    throw err;
+  }
 }
