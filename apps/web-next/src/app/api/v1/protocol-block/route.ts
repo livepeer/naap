@@ -37,13 +37,28 @@ export async function GET(): Promise<NextResponse> {
       transport: http(rpcUrl),
     });
 
+    const chainId = await client.getChainId();
+    if (chainId !== mainnet.id) {
+      console.error('[protocol-block] RPC returned wrong chainId:', chainId, 'expected:', mainnet.id);
+      return NextResponse.json(
+        {
+          error: {
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'L1 RPC chain ID mismatch — expected Ethereum mainnet',
+          },
+          meta: { timestamp: new Date().toISOString() },
+        },
+        { status: 503 }
+      );
+    }
+
     const blockNumber = await client.getBlockNumber();
     return NextResponse.json({
       blockNumber: Number(blockNumber),
       meta: { timestamp: new Date().toISOString() },
     });
-  } catch (err) {
-    console.error('protocol block proxy error:', err);
+  } catch {
+    console.error('[protocol-block] L1 RPC unavailable');
     return NextResponse.json(
       {
         error: {

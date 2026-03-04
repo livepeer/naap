@@ -280,7 +280,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    console.error('subgraph proxy error:', err);
+    let msg = err instanceof Error ? err.message : String(err);
+    msg = msg.replace(/https?:\/\/[^\s]+/g, '[REDACTED]');
+    console.error('[subgraph] proxy error:', msg);
     return NextResponse.json(
       {
         error: {
