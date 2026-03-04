@@ -1,0 +1,80 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "service-gateway",
+  "displayName": "Service Gateway",
+  "version": "1.0.0",
+  "description": "Zero-code serverless API gateway — expose any REST API (AI/LLM, ClickHouse, Daydream, etc.) as a managed, team-scoped API with auth, rate limiting, and usage tracking",
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io",
+    "url": "https://naap.io"
+  },
+  "repository": "https://github.com/naap/plugins/tree/main/service-gateway",
+  "license": "MIT",
+  "keywords": ["gateway", "api", "proxy", "serverless", "connector", "rest"],
+  "category": "platform",
+
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+
+  "frontend": {
+    "entry": "./frontend/dist/production/service-gateway.js",
+    "devEntry": "./frontend/src/App.tsx",
+    "devPort": 3116,
+    "routes": [
+      "/gateway",
+      "/gateway/*"
+    ],
+    "navigation": {
+      "label": "Service Gateway",
+      "icon": "Globe",
+      "order": 5,
+      "group": "platform"
+    }
+  },
+
+  "database": {
+    "type": "postgresql",
+    "schema": "plugin_service_gateway"
+  },
+
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme", "auth"],
+    "apis": ["base"],
+    "external": []
+  },
+
+  "rbac": {
+    "roles": [
+      {
+        "name": "service-gateway:admin",
+        "displayName": "Gateway Admin",
+        "description": "Full access: create/edit/delete connectors, manage API keys, manage plans, view dashboard",
+        "permissions": ["gateway:read", "gateway:write", "gateway:admin", "gateway:configure"]
+      },
+      {
+        "name": "service-gateway:user",
+        "displayName": "Gateway User",
+        "description": "View connectors and docs, create personal API keys for published connectors, view own usage",
+        "permissions": ["gateway:read", "gateway:use"]
+      }
+    ]
+  },
+
+  "config": {
+    "schema": {
+      "defaultRateLimit": {
+        "type": "number",
+        "default": 100,
+        "description": "Default rate limit (requests per minute) for new API keys"
+      },
+      "defaultTimeout": {
+        "type": "number",
+        "default": 30000,
+        "description": "Default upstream timeout in milliseconds"
+      }
+    }
+  }
+}
