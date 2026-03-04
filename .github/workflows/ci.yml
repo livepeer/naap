@@ -107,12 +107,32 @@ jobs:
           fi
 
   # ===========================================================================
+  # Lockfile Sync — Fail fast if package-lock.json is out of sync
+  # ===========================================================================
+  lockfile-sync:
+    name: Lockfile Sync
+    runs-on: ubuntu-latest
+    needs: paths-filter
+    if: needs.paths-filter.outputs.docs_only != 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Verify package-lock.json is in sync
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+  # ===========================================================================
   # Dependency Audit — Fail on critical CVEs (e.g. next-mdx-remote CVE-2026-0969)
   # ===========================================================================
   audit:
     name: Audit
     runs-on: ubuntu-latest
-    needs: paths-filter
+    needs: [paths-filter, lockfile-sync]
     if: needs.paths-filter.outputs.docs_only != 'true'
     steps:
       - name: Checkout
@@ -136,7 +156,7 @@ jobs:
   lint-typecheck:
     name: Lint & TypeCheck
     runs-on: ubuntu-latest
-    needs: paths-filter
+    needs: [paths-filter, lockfile-sync]
     if: needs.paths-filter.outputs.docs_only != 'true'
     steps:
       - name: Checkout
@@ -165,7 +185,7 @@ jobs:
   shell-tests:
     name: Shell Tests
     runs-on: ubuntu-latest
-    needs: paths-filter
+    needs: [paths-filter, lockfile-sync]
     if: needs.paths-filter.outputs.shell == 'true'
     steps:
       - name: Checkout
@@ -197,7 +217,7 @@ jobs:
   sdk-tests:
     name: SDK Tests
     runs-on: ubuntu-latest
-    needs: paths-filter
+    needs: [paths-filter, lockfile-sync]
     if: needs.paths-filter.outputs.packages == 'true'
     steps:
       - name: Checkout
@@ -233,7 +253,7 @@ jobs:
   sdk-compat-matrix:
     name: SDK Compat — ${{ matrix.plugin }}
     runs-on: ubuntu-latest
-    needs: paths-filter
+    needs: [paths-filter, lockfile-sync]
     if: needs.paths-filter.outputs.sdk == 'true'
     strategy:
       fail-fast: false
@@ -283,7 +303,7 @@ jobs:
   plugin-tests:
     name: Plugin Tests — ${{ matrix.plugin }}
     runs-on: ubuntu-latest
-    needs: paths-filter
+    needs: [paths-filter, lockfile-sync]
     if: needs.paths-filter.outputs.plugins == 'true'
     strategy:
       fail-fast: false
@@ -355,7 +375,7 @@ jobs:
   lifecycle-tests:
     name: Lifecycle BDD Tests
     runs-on: ubuntu-latest
-    needs: paths-filter
+    needs: [paths-filter, lockfile-sync]
     if: >-
       needs.paths-filter.outputs.sdk == 'true' ||
       needs.paths-filter.outputs.plugins == 'true' ||
@@ -406,7 +426,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: paths-filter
+    needs: [paths-filter, lockfile-sync]
     if: needs.paths-filter.outputs.docs_only != 'true' && needs.paths-filter.outputs.build_relevant == 'true'
     steps:
       - name: Checkout
@@ -470,7 +490,7 @@ jobs:
   quality-gates:
     name: Quality Gates
     runs-on: ubuntu-latest
-    needs: [audit, lint-typecheck, build, sdk-tests, sdk-compat-matrix, plugin-tests, shell-tests, lifecycle-tests]
+    needs: [lockfile-sync, audit, lint-typecheck, build, sdk-tests, sdk-compat-matrix, plugin-tests, shell-tests, lifecycle-tests]
     if: always() && !cancelled()
     steps:
       - name: Checkout
@@ -486,6 +506,7 @@ jobs:
       - name: Check upstream job results
         run: |
           echo "=== Upstream Job Results ==="
+          echo "lockfile-sync: ${{ needs.lockfile-sync.result }}"
           echo "audit: ${{ needs.audit.result }}"
           echo "lint-typecheck: ${{ needs.lint-typecheck.result }}"
           echo "build: ${{ needs.build.result }}"
@@ -497,6 +518,10 @@ jobs:
 
           FAILED=0
 
+          if [[ "${{ needs.lockfile-sync.result }}" == "failure" ]]; then
+            echo "::error::Lockfile sync failed — package-lock.json is out of sync with package.json"
+            FAILED=1
+          fi
           if [[ "${{ needs.audit.result }}" == "failure" ]]; then
             echo "::error::Audit failed (critical vulnerabilities)"
             FAILED=1
