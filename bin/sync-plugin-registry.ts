@@ -31,6 +31,7 @@ import {
 } from '../packages/database/src/plugin-discovery.js';
 import { BILLING_PROVIDERS } from '@naap/database';
 import * as path from 'path';
+import * as fs from 'fs';
 import { fileURLToPath } from 'url';
 
 // Resolve paths — works with both tsx/esm and cjs
@@ -270,6 +271,64 @@ async function main(): Promise<void> {
       });
     }
     console.log(`[sync-plugin-registry] BillingProviders: ${BILLING_PROVIDERS.length} ensured`);
+
+    // ------------------------------------------------------------------
+    // Sync Gateway Connector Templates (JSON → DB)
+    // ------------------------------------------------------------------
+    const templatesDir = path.join(MONOREPO_ROOT, 'plugins', 'service-gateway', 'templates');
+    if (fs.existsSync(templatesDir)) {
+      console.log('[sync-plugin-registry] Syncing gateway connector templates...');
+      const jsonFiles = fs.readdirSync(templatesDir).filter((f) => f.endsWith('.json'));
+      let tplCreated = 0;
+      let tplUpdated = 0;
+
+      for (const file of jsonFiles) {
+        try {
+          const raw = fs.readFileSync(path.join(templatesDir, file), 'utf-8');
+          const tpl = JSON.parse(raw);
+          if (!tpl.id || !tpl.name) {
+            console.warn(`  [SKIP] ${file}: missing id or name`);
+            continue;
+          }
+
+          const existing = await prisma.gatewayConnectorTemplate.findUnique({
+            where: { id: tpl.id },
+            select: { id: true },
+          });
+
+          await prisma.gatewayConnectorTemplate.upsert({
+            where: { id: tpl.id },
+            update: {
+              name: tpl.name,
+              description: tpl.description || '',
+              icon: tpl.icon || '',
+              category: tpl.category || '',
+              connector: tpl.connector || {},
+              endpoints: tpl.endpoints || [],
+            },
+            create: {
+              id: tpl.id,
+              name: tpl.name,
+              description: tpl.description || '',
+              icon: tpl.icon || '',
+              category: tpl.category || '',
+              connector: tpl.connector || {},
+              endpoints: tpl.endpoints || [],
+              source: 'builtin',
+            },
+          });
+
+          if (existing) tplUpdated++;
+          else tplCreated++;
+        } catch (err) {
+          console.warn(`  [ERROR] ${file}:`, err);
+        }
+      }
+
+      console.log(
+        `[sync-plugin-registry] ConnectorTemplates: ${tplCreated} created, ${tplUpdated} updated`,
+      );
+    }
 
     console.log('[sync-plugin-registry] Done.');
   } finally {

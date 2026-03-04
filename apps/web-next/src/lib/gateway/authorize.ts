@@ -11,7 +11,7 @@
 import { createHash } from 'crypto';
 import { prisma } from '@/lib/db';
 import { getAuthToken } from '@/lib/api/response';
-import type { AuthResult, AuthenticatedAuthResult, TeamContext } from './types';
+import type { AuthResult, TeamContext } from './types';
 
 const BASE_SVC_URL = process.env.BASE_SVC_URL || process.env.NEXT_PUBLIC_BASE_SVC_URL || 'http://localhost:4000';
 
@@ -19,7 +19,7 @@ const BASE_SVC_URL = process.env.BASE_SVC_URL || process.env.NEXT_PUBLIC_BASE_SV
  * Extract team context from the request.
  * Returns null if no valid auth is found.
  */
-export async function authorize(request: Request): Promise<AuthenticatedAuthResult | null> {
+export async function authorize(request: Request): Promise<AuthResult | null> {
   const authHeader = request.headers.get('authorization') || '';
 
   // Path 1: API Key auth (gw_ prefix)
@@ -50,15 +50,16 @@ export function extractTeamContext(request: Request): TeamContext | null {
 
 // ── JWT Auth ──
 
-async function authorizeJwt(token: string, request: Request): Promise<AuthenticatedAuthResult | null> {
+async function authorizeJwt(token: string, request: Request): Promise<AuthResult | null> {
   try {
-    // Validate JWT via base-svc /api/v1/auth/me
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 5_000);
+
     const meResponse = await fetch(`${BASE_SVC_URL}/api/v1/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,
     });
+
     clearTimeout(timeoutId);
 
     if (!meResponse.ok) return null;
@@ -67,7 +68,6 @@ async function authorizeJwt(token: string, request: Request): Promise<Authentica
     const userId = me.data?.id || me.id;
     if (!userId) return null;
 
-    // Team context from x-team-id header (set by NaaP shell)
     const teamId = request.headers.get('x-team-id');
     if (!teamId) return null;
 
@@ -84,7 +84,7 @@ async function authorizeJwt(token: string, request: Request): Promise<Authentica
 
 // ── API Key Auth ──
 
-async function authorizeApiKey(rawKey: string): Promise<AuthenticatedAuthResult | null> {
+async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
   const keyHash = createHash('sha256').update(rawKey).digest('hex');
 
   const apiKey = await prisma.gatewayApiKey.findUnique({
@@ -110,11 +110,16 @@ async function authorizeApiKey(rawKey: string): Promise<AuthenticatedAuthResult 
     })
     .catch(() => {});
 
+  const resolvedTeamId = apiKey.teamId
+    ?? (apiKey.ownerUserId ? `personal:${apiKey.ownerUserId}` : null);
+
+  if (!resolvedTeamId) return null;
+
   return {
     authenticated: true,
     callerType: 'apiKey',
     callerId: apiKey.createdBy,
-    teamId: apiKey.teamId,
+    teamId: resolvedTeamId,
     apiKeyId: apiKey.id,
     connectorId: apiKey.connectorId || undefined,
     planId: apiKey.planId || undefined,
@@ -128,37 +133,26 @@ async function authorizeApiKey(rawKey: string): Promise<AuthenticatedAuthResult 
 }
 
 /**
- * Verify connector belongs to the caller's team.
+ * Verify the caller has access to the resolved connector.
  *
- * When the caller is in personal context (personal:<userId>), the resolver
- * may have found the connector via team membership. We verify membership
- * here and return the connector's owning teamId for downstream use.
+ * Three visibility modes:
+ *   - **public**: any authenticated caller can access.
+ *   - **private / team** with ownerUserId: only the owning user may access.
+ *   - **private / team** with teamId: caller's auth.teamId must match.
  */
-export async function verifyConnectorAccess(
+export function verifyConnectorAccess(
   auth: AuthResult,
   connectorId: string,
-  connectorTeamId: string
-): Promise<{ allowed: boolean; resolvedTeamId: string }> {
-  if (!auth.authenticated) return { allowed: false, resolvedTeamId: '' };
-
-  if (auth.callerType === 'apiKey' && auth.connectorId && auth.connectorId !== connectorId) {
-    return { allowed: false, resolvedTeamId: auth.teamId };
+  connectorTeamId: string | null,
+  connectorOwnerUserId: string | null,
+  visibility: string
+): boolean {
+  if (visibility === 'public') return true;
+  if (connectorOwnerUserId) {
+    return auth.callerId === connectorOwnerUserId;
   }
-
-  if (auth.teamId === connectorTeamId) {
-    return { allowed: true, resolvedTeamId: connectorTeamId };
+  if (connectorTeamId) {
+    return auth.teamId === connectorTeamId;
   }
-
-  if (auth.callerType === 'jwt' && auth.teamId.startsWith('personal:')) {
-    const userId = auth.callerId;
-    const membership = await prisma.teamMember.findFirst({
-      where: { userId, teamId: connectorTeamId },
-      select: { id: true },
-    });
-    if (membership) {
-      return { allowed: true, resolvedTeamId: connectorTeamId };
-    }
-  }
-
-  return { allowed: false, resolvedTeamId: auth.teamId };
+  return false;
 }

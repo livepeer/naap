@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
-import { getAdminContext, isErrorResponse, loadConnectorWithEndpoints } from '@/lib/gateway/admin/team-guard';
+import { getAdminContext, isErrorResponse, loadOwnedConnector } from '@/lib/gateway/admin/team-guard';
 import { invalidateConnectorCache } from '@/lib/gateway/resolve';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (isErrorResponse(ctx)) return ctx;
 
   const { id } = await context.params;
-  const connector = await loadConnectorWithEndpoints(id, ctx.teamId);
+  const connector = await loadOwnedConnector(id, ctx.teamId);
   if (!connector) {
     return errors.notFound('Connector');
   }
@@ -34,14 +34,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return errors.badRequest('Cannot publish an archived connector. Create a new one instead.');
   }
 
-  // Must have at least one enabled endpoint
-  const enabledEndpoints = connector.endpoints.filter((ep) => ep.enabled);
-  if (enabledEndpoints.length === 0) {
+  const endpoints = await prisma.connectorEndpoint.findMany({
+    where: { connectorId: id, enabled: true },
+    select: { id: true },
+  });
+  if (endpoints.length === 0) {
     return errors.badRequest('Connector must have at least one enabled endpoint before publishing');
   }
 
   const updated = await prisma.serviceConnector.update({
-    where: { id, teamId: ctx.teamId },
+    where: { id: connector.id },
     data: {
       status: 'published',
       publishedAt: new Date(),

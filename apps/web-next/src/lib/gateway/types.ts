@@ -8,10 +8,12 @@
 
 export interface ResolvedConnector {
   id: string;
-  teamId: string;
+  teamId: string | null;
+  ownerUserId: string | null;
   slug: string;
   displayName: string;
   status: string;
+  visibility: string;
   upstreamBaseUrl: string;
   allowedHosts: string[];
   defaultTimeout: number;
@@ -59,25 +61,23 @@ export interface ResolvedConfig {
 
 export type CallerType = 'jwt' | 'apiKey';
 
-export type AuthResult =
-  | { authenticated: false }
-  | {
-      authenticated: true;
-      callerType: CallerType;
-      callerId: string;
-      teamId: string;
-      apiKeyId?: string;
-      connectorId?: string;
-      planId?: string;
-      allowedEndpoints?: string[];
-      allowedIPs?: string[];
-      rateLimit?: number;
-      dailyQuota?: number | null;
-      monthlyQuota?: number | null;
-      maxRequestSize?: number;
-    };
+export type AuthResult = AuthResultAuthenticated;
 
-export type AuthenticatedAuthResult = Extract<AuthResult, { authenticated: true }>;
+interface AuthResultAuthenticated {
+  authenticated: true;
+  callerType: CallerType;
+  callerId: string;
+  teamId: string;
+  apiKeyId?: string;
+  connectorId?: string;
+  planId?: string;
+  allowedEndpoints?: string[];
+  allowedIPs?: string[];
+  rateLimit?: number;
+  dailyQuota?: number | null;
+  monthlyQuota?: number | null;
+  maxRequestSize?: number;
+}
 
 // ── Team Context ──
 
@@ -107,6 +107,7 @@ export interface ProxyResult {
 
 export interface UsageData {
   teamId: string;
+  ownerScope: string;
   connectorId: string;
   endpointName: string;
   apiKeyId: string | null;
@@ -149,7 +150,6 @@ export function isPrivateHost(hostname: string): boolean {
   return PRIVATE_IP_RANGES.some((pattern) => pattern.test(hostname));
 }
 
-/** Check if an IP address is in a private/reserved range (for DNS SSRF protection). */
 export function isPrivateIp(ip: string): boolean {
   return PRIVATE_IP_RANGES.some((pattern) => pattern.test(ip));
 }

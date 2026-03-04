@@ -142,10 +142,8 @@ function injectAuth(
       const passRef = (config.passwordRef as string) || 'password';
       const username = secrets[userRef] || '';
       const password = secrets[passRef] || '';
-      if (username || password) {
-        const encoded = Buffer.from(`${username}:${password}`).toString('base64');
-        headers.set('Authorization', `Basic ${encoded}`);
-      }
+      const encoded = Buffer.from(`${username}:${password}`).toString('base64');
+      headers.set('Authorization', `Basic ${encoded}`);
       break;
     }
 
@@ -210,7 +208,7 @@ function transformBody(
  * Replace {{secrets.name}} placeholders with actual secret values.
  */
 function interpolateSecrets(template: string, secrets: ResolvedSecrets): string {
-  return template.replace(/\{\{secrets\.([^}]+?)\}\}/g, (_, name) => secrets[name.trim()] ?? '');
+  return template.replace(/\{\{secrets\.(\w+)\}\}/g, (_, name) => secrets[name] || '');
 }
 
 /**

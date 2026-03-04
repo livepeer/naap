@@ -10,6 +10,8 @@ import { z } from 'zod';
 
 export const authTypeEnum = z.enum(['none', 'bearer', 'header', 'basic', 'query']);
 
+export const visibilityEnum = z.enum(['private', 'team', 'public']);
+
 export const createConnectorSchema = z.object({
   slug: z
     .string()
@@ -18,6 +20,7 @@ export const createConnectorSchema = z.object({
     .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, 'Slug must be lowercase alphanumeric with hyphens'),
   displayName: z.string().min(1).max(128),
   description: z.string().max(1024).optional(),
+  visibility: visibilityEnum.default('private'),
   upstreamBaseUrl: z.string().url('Invalid upstream URL'),
   allowedHosts: z.array(z.string()).default([]),
   defaultTimeout: z.number().int().min(1000).max(120_000).default(30_000),
