@@ -14,6 +14,11 @@ import { TeamGuard } from '../components/TeamGuard';
 const STEPS = ['Connect', 'Endpoints', 'Review'];
 const AUTH_TYPES = ['none', 'bearer', 'header', 'basic', 'query'] as const;
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+const VISIBILITY_OPTIONS = [
+  { value: 'private', label: 'Private', icon: '🔒', desc: 'Only you can access this connector' },
+  { value: 'team', label: 'Team', icon: '👥', desc: 'All team members can access' },
+  { value: 'public', label: 'Public', icon: '🌐', desc: 'Anyone with an API key can access' },
+] as const;
 
 interface EndpointForm {
   name: string;
@@ -40,6 +45,7 @@ export const ConnectorWizardPage: React.FC = () => {
   const [displayName, setDisplayName] = useState('');
   const [description, setDescription] = useState('');
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState('');
+  const [visibility, setVisibility] = useState<string>('private');
   const [authType, setAuthType] = useState<string>('none');
   const [healthCheckPath, setHealthCheckPath] = useState('');
   const [streamingEnabled, setStreamingEnabled] = useState(false);
@@ -116,6 +122,7 @@ export const ConnectorWizardPage: React.FC = () => {
         slug,
         displayName,
         description,
+        visibility,
         upstreamBaseUrl,
         authType,
         healthCheckPath: healthCheckPath || undefined,
@@ -143,6 +150,7 @@ export const ConnectorWizardPage: React.FC = () => {
         slug,
         displayName,
         description,
+        visibility,
         upstreamBaseUrl,
         authType,
         healthCheckPath: healthCheckPath || undefined,
@@ -232,6 +240,30 @@ export const ConnectorWizardPage: React.FC = () => {
                 rows={2}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-sm font-medium text-gray-300">Visibility</label>
+              <div className="grid grid-cols-3 gap-3">
+                {VISIBILITY_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setVisibility(opt.value)}
+                    className={`p-3 rounded-lg border text-left transition-all ${
+                      visibility === opt.value
+                        ? 'border-blue-500 bg-blue-500/10 ring-1 ring-blue-500'
+                        : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-base">{opt.icon}</span>
+                      <span className="text-sm font-medium text-gray-200">{opt.label}</span>
+                    </div>
+                    <p className="text-xs text-gray-400">{opt.desc}</p>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="space-y-1">
@@ -392,6 +424,10 @@ export const ConnectorWizardPage: React.FC = () => {
                 <div>
                   <span className="text-gray-400">Auth:</span>
                   <span className="ml-2 text-gray-200">{authType}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Visibility:</span>
+                  <span className="ml-2 text-gray-200 capitalize">{visibility}</span>
                 </div>
               </div>
             </div>

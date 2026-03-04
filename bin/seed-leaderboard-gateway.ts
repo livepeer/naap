@@ -308,9 +308,6 @@ async function main() {
       where: { ownerUserId: userId, name: 'leaderboard-standard' },
     });
     planId = existing?.id;
-    if (!planId) {
-      throw new Error('Plan conflict (409) but could not resolve existing plan ID');
-    }
     console.log(`  ⏭️  Plan already exists: ${planId}`);
   } else {
     const body = await planRes.text();
@@ -343,9 +340,6 @@ async function main() {
         planId,
       },
     );
-    if (!res.success || !res.data?.rawKey) {
-      throw new Error(`API key creation returned unexpected response: ${JSON.stringify(res)}`);
-    }
     rawKey = res.data.rawKey;
     console.log(`  ✅ API key created: ${res.data.keyPrefix}...`);
   }

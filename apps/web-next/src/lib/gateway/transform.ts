@@ -24,7 +24,19 @@ export function buildUpstreamRequest(
   const { connector, endpoint } = config;
 
   // ── URL ──
-  const upstreamUrl = buildUpstreamUrl(connector.upstreamBaseUrl, endpoint, consumerPath);
+  let upstreamUrl = buildUpstreamUrl(connector.upstreamBaseUrl, endpoint, consumerPath);
+
+  // Query-param auth: append secret as a URL parameter (e.g. Gemini ?key=...)
+  if (connector.authType === 'query') {
+    const paramName = (connector.authConfig.paramName as string) || 'key';
+    const secretRef = (connector.authConfig.secretRef as string) || 'token';
+    const secretValue = secrets[secretRef];
+    if (secretValue) {
+      const url = new URL(upstreamUrl);
+      url.searchParams.set(paramName, secretValue);
+      upstreamUrl = url.toString();
+    }
+  }
 
   // ── Method ──
   const method = endpoint.upstreamMethod || endpoint.method;

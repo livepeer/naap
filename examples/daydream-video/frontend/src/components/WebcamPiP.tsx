@@ -157,17 +157,26 @@ export const WebcamPiP: React.FC<WebcamPiPProps> = ({
     }
   }, [selectedDevice]);
 
-  const pipSize = isExpanded 
-    ? 'w-80 h-60' 
-    : 'w-48 h-36';
+  const pipDims = isExpanded
+    ? { width: 256, height: 192 }
+    : { width: 160, height: 120 };
 
   return (
-    <div 
-      className={`absolute top-4 left-4 ${pipSize} z-20 transition-all duration-300 ease-out`}
+    <div
+      className={`transition-all duration-500 ease-in-out flex-shrink-0 group/pip ${stream ? 'shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'shadow-2xl'}`}
+      style={{
+        width: pipDims.width,
+        height: pipDims.height,
+        borderRadius: '24px',
+        padding: '3px',
+        background: stream 
+          ? 'linear-gradient(135deg, rgba(34,197,94,0.5), rgba(34,197,94,0.1))' 
+          : 'linear-gradient(135deg, rgba(255,255,255,0.2), rgba(255,255,255,0.05))'
+      }}
       onMouseEnter={() => setShowControls(true)}
       onMouseLeave={() => setShowControls(false)}
     >
-      <div className="relative w-full h-full rounded-xl overflow-hidden shadow-2xl border border-white/20">
+      <div className="relative w-full h-full rounded-[21px] overflow-hidden bg-gray-900 border border-black/20">
         {stream ? (
           <>
             <video
@@ -175,79 +184,71 @@ export const WebcamPiP: React.FC<WebcamPiPProps> = ({
               autoPlay
               playsInline
               muted
-              className="w-full h-full object-cover scale-x-[-1]"
+              className="w-full h-full object-cover scale-x-[-1] transition-transform duration-700 group-hover/pip:scale-105"
             />
-            
-            {/* Camera indicator */}
-            <div className="absolute top-2 left-2 flex items-center gap-1.5 px-2 py-1 bg-black/60 rounded-full">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-[10px] text-white font-medium">LIVE</span>
+
+            {/* Status Overlay */}
+            <div className="absolute top-3 left-3 flex items-center gap-2 px-2 py-1 bg-black/60 backdrop-blur-md rounded-full border border-white/10">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shadow-[0_0_8px_rgba(74,222,128,0.8)]" />
+              <span className="text-[10px] text-white font-bold tracking-tight">SOURCE</span>
             </div>
 
-            {/* Hover controls */}
-            {showControls && (
-              <div className="absolute inset-0 bg-black/40 flex items-center justify-center gap-2 transition-opacity">
-                <button
-                  onClick={() => setIsExpanded(!isExpanded)}
-                  className="p-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
-                  title={isExpanded ? 'Minimize' : 'Expand'}
-                >
-                  {isExpanded ? (
-                    <Minimize2 className="w-4 h-4 text-white" />
-                  ) : (
-                    <Maximize2 className="w-4 h-4 text-white" />
-                  )}
-                </button>
-                
-                {!disabled && (
-                  <button
-                    onClick={stopCamera}
-                    className="p-2 bg-red-500/80 hover:bg-red-500 rounded-lg transition-colors"
-                    title="Stop camera"
-                  >
-                    <CameraOff className="w-4 h-4 text-white" />
-                  </button>
-                )}
+            {/* Hover Controls — Refined */}
+            <div className={`absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center gap-2 transition-all duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+              <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="p-2 bg-white/10 hover:bg-white/20 rounded-xl transition-all active:scale-90"
+                title={isExpanded ? 'Minimize' : 'Expand'}
+              >
+                {isExpanded ? <Minimize2 className="w-4 h-4 text-white" /> : <Maximize2 className="w-4 h-4 text-white" />}
+              </button>
 
-                {/* Camera selector */}
-                {devices.length > 1 && !disabled && (
-                  <select
-                    value={selectedDevice}
-                    onChange={(e) => {
-                      setSelectedDevice(e.target.value);
-                      if (stream) startCamera();
-                    }}
-                    className="px-2 py-1 bg-white/20 text-white text-xs rounded-lg border-none focus:outline-none"
-                  >
-                    {devices.map((device, i) => (
-                      <option key={device.deviceId} value={device.deviceId} className="text-black">
-                        {device.label || `Camera ${i + 1}`}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            )}
+              {!disabled && (
+                <button
+                  onClick={stopCamera}
+                  className="p-2 bg-red-500/20 hover:bg-red-500/40 border border-red-500/50 rounded-xl transition-all active:scale-90"
+                  title="Stop Camera"
+                >
+                  <CameraOff className="w-4 h-4 text-white" />
+                </button>
+              )}
+
+              {devices.length > 1 && !disabled && (
+                <select
+                  value={selectedDevice}
+                  onChange={(e) => {
+                    setSelectedDevice(e.target.value);
+                    if (stream) startCamera();
+                  }}
+                  className="px-2 py-1 bg-black/40 text-white text-[10px] rounded-lg border border-white/10 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
+                >
+                  {devices.map((device, i) => (
+                    <option key={device.deviceId} value={device.deviceId} className="text-black">
+                      {device.label || `Camera ${i + 1}`}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
           </>
         ) : (
-          <div className="w-full h-full bg-gray-900 flex flex-col items-center justify-center gap-2">
+          <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-gray-800 to-gray-900">
+            <div className="p-3 bg-white/5 rounded-full">
+              <CameraOff className="w-6 h-6 text-gray-500" />
+            </div>
             {isLoading ? (
-              <RefreshCw className="w-6 h-6 text-gray-400 animate-spin" />
+              <RefreshCw className="w-5 h-5 text-purple-400 animate-spin" />
             ) : (
-              <>
-                <CameraOff className="w-8 h-8 text-gray-600" />
-                {permissionError && (
-                  <span className="text-[9px] text-red-400 text-center px-2 leading-tight">{permissionError}</span>
-                )}
-                <button
-                  onClick={startCamera}
-                  disabled={disabled}
-                  className="px-3 py-1.5 bg-primary-600 hover:bg-primary-500 text-white text-xs rounded-lg transition-colors disabled:opacity-50"
-                >
-                  <Camera className="w-3 h-3 inline mr-1" />
-                  {permissionError ? 'Retry' : 'Start Camera'}
-                </button>
-              </>
+              <button
+                onClick={startCamera}
+                disabled={disabled}
+                className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold rounded-full transition-all shadow-lg active:scale-95 disabled:opacity-50"
+              >
+                {permissionError ? 'Retry Access' : 'Enable Camera'}
+              </button>
+            )}
+            {permissionError && (
+              <span className="text-[8px] text-red-400 text-center px-4 leading-tight opacity-80">{permissionError}</span>
             )}
           </div>
         )}

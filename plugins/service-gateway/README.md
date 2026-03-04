@@ -136,7 +136,7 @@ Ensure the connector is **published** (not draft). Draft connectors are not acce
 
 ## File Structure
 
-```text
+```
 plugins/service-gateway/
 ├── plugin.json                    # Plugin manifest
 ├── README.md                      # This file
