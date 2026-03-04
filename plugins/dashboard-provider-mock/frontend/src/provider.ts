@@ -14,9 +14,11 @@
  *   pipelines              ← /api/network/demand  (grouped by pipeline, 24 h)
  *   gpuCapacity.totalGPUs  ← /api/gpu/metrics     (distinct gpu_id, last 1 h)
  *
+ * Real data (subgraph):
+ *   fees       — VITE_SUBGRAPH_* env (same convention as explorer)
+ *
  * Static fallbacks (no source yet):
  *   protocol   — Livepeer protocol subgraph not wired up
- *   fees       — fee_payment_eth is 0 in the current test network
  *   pricing    — no pricing endpoint exists
  */
 
@@ -38,7 +40,6 @@ import {
 } from './api/leaderboard.js';
 import { fetchSubgraphFees } from './api/subgraph.js';
 import { mockProtocol } from './data/mock-protocol.js';
-import { mockFees }    from './data/mock-fees.js';
 import { mockPricing } from './data/mock-pricing.js';
 import {
   PIPELINE_DISPLAY,
@@ -257,12 +258,7 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
 }
 
 async function resolveFees({ days }: { days?: number }) {
-  try {
-    return await fetchSubgraphFees(days);
-  } catch (error) {
-    console.warn('[dashboard-provider] subgraph fee fetch failed, falling back to mock fees', error);
-    return mockFees;
-  }
+  return fetchSubgraphFees(days);
 }
 
 // ---------------------------------------------------------------------------

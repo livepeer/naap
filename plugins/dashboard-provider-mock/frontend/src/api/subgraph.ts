@@ -50,20 +50,22 @@ function getWeekStartTimestamp(dateS: number): number {
   return Math.floor(date.getTime() / 1000);
 }
 
-function getSubgraphCandidates(): string[] {
+/**
+ * Resolve subgraph URL using the same convention as explorer (lib/chains.ts):
+ * - Prefer VITE_SUBGRAPH_ENDPOINT if set
+ * - Else build: https://gateway.thegraph.com/api/${key}/subgraphs/id/${id}
+ */
+function getSubgraphUrl(): string {
   const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
-  const apiKey = env.VITE_SUBGRAPH_API_KEY || env.NEXT_PUBLIC_SUBGRAPH_API_KEY;
-  const endpoint = env.VITE_SUBGRAPH_ENDPOINT || env.NEXT_PUBLIC_SUBGRAPH_ENDPOINT;
-  const subgraphId = env.VITE_SUBGRAPH_ID || env.NEXT_PUBLIC_SUBGRAPH_ID || DEFAULT_SUBGRAPH_ID;
+  const endpoint = env.VITE_SUBGRAPH_ENDPOINT;
+  const apiKey = env.VITE_SUBGRAPH_API_KEY;
+  const subgraphId = env.VITE_SUBGRAPH_ID || DEFAULT_SUBGRAPH_ID;
 
-  const urls = [
-    endpoint,
-    apiKey ? `https://gateway.thegraph.com/api/${apiKey}/subgraphs/id/${subgraphId}` : undefined,
-    `https://api.studio.thegraph.com/query/44092/livepeer-arbitrum-one/version/latest`,
-    `https://api.thegraph.com/subgraphs/name/livepeer/arbitrum-one`,
-  ].filter((u): u is string => Boolean(u));
-
-  return [...new Set(urls)];
+  if (endpoint) return endpoint;
+  if (apiKey) return `https://gateway.thegraph.com/api/${apiKey}/subgraphs/id/${subgraphId}`;
+  throw new Error(
+    'VITE_SUBGRAPH_ENDPOINT or VITE_SUBGRAPH_API_KEY must be set (see .env.example)'
+  );
 }
 
 async function fetchFromSubgraph(days: number): Promise<SubgraphResponse['data']> {
@@ -81,40 +83,25 @@ async function fetchFromSubgraph(days: number): Promise<SubgraphResponse['data']
     }
   `;
 
-  const candidates = getSubgraphCandidates();
-  let lastError: unknown;
+  const url = getSubgraphUrl();
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables: { first: days } }),
+  });
 
-  for (const url of candidates) {
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, variables: { first: days } }),
-      });
-
-      if (!res.ok) {
-        lastError = new Error(`subgraph HTTP ${res.status}`);
-        continue;
-      }
-
-      const body = (await res.json()) as SubgraphResponse;
-      if (body.errors?.length) {
-        lastError = new Error(body.errors.map((e) => e.message).join('; '));
-        continue;
-      }
-
-      if (!body.data) {
-        lastError = new Error('subgraph returned no data');
-        continue;
-      }
-
-      return body.data;
-    } catch (error) {
-      lastError = error;
-    }
+  if (!res.ok) {
+    throw new Error(`subgraph HTTP ${res.status}: ${url}`);
   }
 
-  throw lastError instanceof Error ? lastError : new Error('failed to fetch subgraph data');
+  const body = (await res.json()) as SubgraphResponse;
+  if (body.errors?.length) {
+    throw new Error(body.errors.map((e) => e.message).join('; '));
+  }
+  if (!body.data) {
+    throw new Error('subgraph returned no data');
+  }
+  return body.data;
 }
 
 export async function fetchSubgraphFees(days?: number): Promise<DashboardFeesInfo> {
