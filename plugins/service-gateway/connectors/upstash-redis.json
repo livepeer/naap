@@ -1,0 +1,31 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "upstash-redis",
+  "name": "Upstash Serverless Redis",
+  "description": "Upstash — serverless Redis with REST API for key-value operations",
+  "icon": "🔴",
+  "category": "database",
+  "connector": {
+    "slug": "upstash-redis",
+    "displayName": "Upstash Serverless Redis",
+    "description": "Upstash — serverless Redis with REST API for key-value operations",
+    "category": "database",
+    "upstreamBaseUrl": "https://YOUR_ENDPOINT.upstash.io",
+    "allowedHosts": ["upstash.io"],
+    "defaultTimeout": 10000,
+    "authType": "bearer",
+    "authConfig": { "tokenRef": "token" },
+    "secretRefs": ["token"],
+    "streamingEnabled": false,
+    "responseWrapper": false,
+    "tags": ["upstash", "redis", "serverless", "cache", "key-value"]
+  },
+  "endpoints": [
+    { "name": "execute-command", "description": "Execute any Redis command via POST body", "method": "POST", "path": "/command", "upstreamPath": "/", "rateLimit": 200, "timeout": 5000 },
+    { "name": "get-key", "description": "GET a key value", "method": "GET", "path": "/get/:key", "upstreamPath": "/get/:key", "rateLimit": 200, "timeout": 5000 },
+    { "name": "set-key", "description": "SET a key-value pair", "method": "GET", "path": "/set/:key/:value", "upstreamPath": "/set/:key/:value", "rateLimit": 100, "timeout": 5000 },
+    { "name": "del-key", "description": "DELETE a key", "method": "GET", "path": "/del/:key", "upstreamPath": "/del/:key", "rateLimit": 100, "timeout": 5000 },
+    { "name": "keys-pattern", "description": "Find keys matching a pattern", "method": "GET", "path": "/keys/:pattern", "upstreamPath": "/keys/:pattern", "rateLimit": 50, "timeout": 10000 }
+  ],
+  "envKey": "UPSTASH_REDIS_TOKEN"
+}

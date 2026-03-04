@@ -31,6 +31,7 @@ export const createConnectorSchema = z.object({
   responseWrapper: z.boolean().default(true),
   streamingEnabled: z.boolean().default(false),
   errorMapping: z.record(z.string()).default({}),
+  category: z.string().max(32).default(''),
   tags: z.array(z.string().max(32)).default([]),
 });
 

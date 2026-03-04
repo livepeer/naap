@@ -1,0 +1,31 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "confluent-kafka",
+  "name": "Confluent Kafka Cloud",
+  "description": "Confluent Cloud — managed Apache Kafka with REST API for cluster admin and record production",
+  "icon": "📡",
+  "category": "messaging",
+  "connector": {
+    "slug": "confluent-kafka",
+    "displayName": "Confluent Kafka Cloud",
+    "description": "Confluent Cloud — managed Apache Kafka with REST API for cluster admin and record production",
+    "category": "messaging",
+    "upstreamBaseUrl": "https://YOUR_CLUSTER.confluent.cloud",
+    "allowedHosts": ["confluent.cloud"],
+    "defaultTimeout": 30000,
+    "authType": "basic",
+    "authConfig": { "usernameRef": "username", "passwordRef": "password" },
+    "secretRefs": ["username", "password"],
+    "streamingEnabled": false,
+    "tags": ["confluent", "kafka", "streaming", "events", "messaging"]
+  },
+  "endpoints": [
+    { "name": "list-clusters", "description": "List Kafka clusters", "method": "GET", "path": "/clusters", "upstreamPath": "/kafka/v3/clusters", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 },
+    { "name": "list-topics", "description": "List topics in a cluster", "method": "GET", "path": "/clusters/:clusterId/topics", "upstreamPath": "/kafka/v3/clusters/:clusterId/topics", "rateLimit": 100, "timeout": 10000, "cacheTtl": 30 },
+    { "name": "create-topic", "description": "Create a new topic", "method": "POST", "path": "/clusters/:clusterId/topics", "upstreamPath": "/kafka/v3/clusters/:clusterId/topics", "rateLimit": 10, "timeout": 30000 },
+    { "name": "delete-topic", "description": "Delete a topic", "method": "DELETE", "path": "/clusters/:clusterId/topics/:topicName", "upstreamPath": "/kafka/v3/clusters/:clusterId/topics/:topicName", "rateLimit": 5, "timeout": 15000 },
+    { "name": "produce-records", "description": "Produce records to a topic", "method": "POST", "path": "/clusters/:clusterId/topics/:topicName/records", "upstreamPath": "/kafka/v3/clusters/:clusterId/topics/:topicName/records", "rateLimit": 50, "timeout": 30000 },
+    { "name": "list-consumer-groups", "description": "List consumer groups", "method": "GET", "path": "/clusters/:clusterId/consumer-groups", "upstreamPath": "/kafka/v3/clusters/:clusterId/consumer-groups", "rateLimit": 100, "timeout": 10000, "cacheTtl": 30 }
+  ],
+  "envKey": "CONFLUENT_KAFKA_API_KEY"
+}
