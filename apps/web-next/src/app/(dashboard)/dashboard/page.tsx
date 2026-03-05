@@ -195,19 +195,16 @@ function WidgetUnavailable({ label }: { label: string }) {
   );
 }
 
-function DashboardLoading() {
+/** Wraps a widget to show a subtle refreshing indicator over stale content. */
+function RefreshWrap({ refreshing, children }: { refreshing: boolean; children: React.ReactNode }) {
   return (
-    <div className="space-y-5 max-w-[1440px] mx-auto">
-      <div className="flex items-center gap-3">
-        <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
-        <span className="text-sm text-muted-foreground">Loading dashboard data...</span>
-      </div>
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-        <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
-      </div>
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
-        <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
-      </div>
+    <div className="relative">
+      {children}
+      {refreshing && (
+        <div className="absolute inset-0 rounded-lg bg-card/60 flex items-center justify-center pointer-events-none z-10 backdrop-blur-[1px] transition-opacity duration-200">
+          <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+        </div>
+      )}
     </div>
   );
 }
@@ -1218,12 +1215,12 @@ export default function DashboardPage() {
     localStorage.setItem(TIMEFRAME_KEY, tf);
   };
 
-  const { data, loading, error } = useDashboardQuery<DashboardData>(
+  const { data, loading, refreshing, error } = useDashboardQuery<DashboardData>(
     NETWORK_OVERVIEW_QUERY,
     { timeframe },
     { pollInterval, timeout: 8000 }
   );
-  const { data: feesData, loading: feesLoading } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
+  const { data: feesData, loading: feesLoading, refreshing: feesRefreshing } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
     { pollInterval, timeout: 8000 }
@@ -1231,13 +1228,8 @@ export default function DashboardPage() {
 
   const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8 });
 
-  // Loading state
-  if (loading && !data) {
-    return <DashboardLoading />;
-  }
-
-  // No provider installed
-  if (error?.type === 'no-provider') {
+  // No provider installed (only after retries exhausted)
+  if (error?.type === 'no-provider' && !data) {
     return (
       <div className="space-y-6 max-w-[1440px] mx-auto">
         <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
@@ -1257,14 +1249,14 @@ export default function DashboardPage() {
           <TimeframeSelector value={timeframe} onChange={handleTimeframeChange} />
         </div>
         {data?.kpi ? (
-          <KPIRow data={data.kpi} />
-        ) : loading ? (
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-            <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
-          </div>
+          <RefreshWrap refreshing={refreshing}>
+            <KPIRow data={data.kpi} />
+          </RefreshWrap>
         ) : (
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-            <WidgetUnavailable label="KPI" />
+            {loading
+              ? <><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /></>
+              : <WidgetUnavailable label="KPI" />}
           </div>
         )}
       </section>
@@ -1279,24 +1271,32 @@ export default function DashboardPage() {
             ? <FeesCard data={feesData.fees} />
             : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
           {data?.pipelines && data?.kpi
-            ? <PipelinesCard data={data.pipelines} catalog={data.pipelineCatalog} timeframeHours={data.kpi.timeframeHours} />
-            : <WidgetUnavailable label="Pipelines" />}
-          {data?.gpuCapacity ? <GPUCapacityCard data={data.gpuCapacity} /> : <WidgetUnavailable label="GPU Capacity" />}
+            ? <RefreshWrap refreshing={refreshing}><PipelinesCard data={data.pipelines} catalog={data.pipelineCatalog} timeframeHours={data.kpi.timeframeHours} /></RefreshWrap>
+            : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
+          {data?.gpuCapacity
+            ? <RefreshWrap refreshing={refreshing}><GPUCapacityCard data={data.gpuCapacity} /></RefreshWrap>
+            : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="GPU Capacity" />}
         </div>
       </section>
 
       {/* Row 3: Orchestrators table */}
-      {data && (
+      {data?.orchestrators ? (
         <section>
-          <OrchestratorTableCard data={data.orchestrators ?? []} catalog={data.pipelineCatalog} />
+          <RefreshWrap refreshing={refreshing}>
+            <OrchestratorTableCard data={data.orchestrators} catalog={data.pipelineCatalog} />
+          </RefreshWrap>
         </section>
-      )}
+      ) : loading ? (
+        <section><WidgetSkeleton className="h-40" /></section>
+      ) : null}
 
       {/* Row 4: Live Job Feed & Pipeline Pricing */}
       <section className="space-y-3">
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
           <JobFeedCard jobs={jobs} connected={jobFeedConnected} />
-          {data?.pricing ? <PricingCard data={data.pricing} /> : <WidgetUnavailable label="Pricing" />}
+          {data?.pricing
+            ? <RefreshWrap refreshing={refreshing}><PricingCard data={data.pricing} /></RefreshWrap>
+            : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pricing" />}
         </div>
       </section>
     </div>
