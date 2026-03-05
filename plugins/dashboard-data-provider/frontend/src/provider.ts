@@ -255,17 +255,31 @@ async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalogEntry[]
 // GPU Capacity resolver
 // ---------------------------------------------------------------------------
 
+/** Count total GPUs from SLA compliance (same source as orchestrators): distinct GPUs with sessions + rows with sessions but no gpu_id. */
+function countTotalGPUsFromSLA(rows: SLAComplianceRow[]): number {
+  const gpuIds = new Set<string>();
+  let rowsWithoutGpuIdWithSessions = 0;
+  for (const row of rows) {
+    const knownSessions = row.known_sessions ?? 0;
+    if (knownSessions <= 0) continue;
+    if (row.gpu_id) {
+      gpuIds.add(row.gpu_id);
+    } else {
+      rowsWithoutGpuIdWithSessions += 1;
+    }
+  }
+  return gpuIds.size + rowsWithoutGpuIdWithSessions;
+}
+
 async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
-  const [metricsWide, metricsRecent] = await Promise.all([
-    fetchGPUMetrics('2h'),
+  const [slaRows, metricsWide, metricsRecent] = await Promise.all([
+    fetchSLACompliance('72h'),
+    fetchGPUMetrics('24h'),
     fetchGPUMetrics('1h'),
   ]);
 
-  const gpuIds = new Set(metricsWide.map(m => m.gpu_id).filter(Boolean));
-  const derivedUniqueIdSet = new Set(
-    metricsWide.map(m => m.gpu_id ?? `${m.orchestrator_address}:${m.pipeline}:${m.gpu_name ?? 'unknown'}`)
-  );
-  const totalGPUs = gpuIds.size || derivedUniqueIdSet.size;
+  // Total GPUs from SLA (same logic as orchestrator table) so the tile matches the sum of orchestrator GPUs
+  const totalGPUs = countTotalGPUsFromSLA(slaRows);
 
   const sample = metricsRecent.length > 0 ? metricsRecent : metricsWide;
   const avgAvailable = sample.length > 0
@@ -307,7 +321,12 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
     unexcusedSessions: number;
     swappedSessions: number;
     pipelines: Set<string>;
+    /** Per-pipeline set of model_ids this orchestrator offered (from SLA rows with sessions). */
+    pipelineModels: Map<string, Set<string>>;
+    /** Distinct GPUs that had sessions in this period (only count rows with known_sessions > 0). */
     gpuIds: Set<string>;
+    /** Rows with no gpu_id but with sessions: treat each as one GPU. */
+    rowsWithoutGpuIdWithSessions: number;
   };
 
   const byAddress = new Map<string, Accum>();
@@ -319,7 +338,8 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
       byAddress.set(row.orchestrator_address, {
         knownSessions: 0, successSessions: 0,
         unexcusedSessions: 0, swappedSessions: 0,
-        pipelines: new Set(), gpuIds: new Set(),
+        pipelines: new Set(), pipelineModels: new Map(),
+        gpuIds: new Set(), rowsWithoutGpuIdWithSessions: 0,
       });
     }
 
@@ -330,8 +350,20 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
     d.unexcusedSessions += row.unexcused_sessions ?? 0;
     d.swappedSessions += row.swapped_sessions ?? 0;
 
-    if (row.pipeline) d.pipelines.add(row.pipeline);
-    if (row.gpu_id) d.gpuIds.add(row.gpu_id);
+    if (row.pipeline) {
+      d.pipelines.add(row.pipeline);
+      if (knownSessions > 0 && row.model_id?.trim()) {
+        if (!d.pipelineModels.has(row.pipeline)) d.pipelineModels.set(row.pipeline, new Set());
+        d.pipelineModels.get(row.pipeline)!.add(row.model_id.trim());
+      }
+    }
+    // Only count GPUs that had sessions so the number is associated with the session data
+    if (knownSessions <= 0) continue;
+    if (row.gpu_id) {
+      d.gpuIds.add(row.gpu_id);
+    } else {
+      d.rowsWithoutGpuIdWithSessions += 1;
+    }
   }
 
   return [...byAddress.entries()]
@@ -339,6 +371,13 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
       const successRatio = d.knownSessions > 0 ? 1 - (d.unexcusedSessions / d.knownSessions) : 0;
       const noSwapRatio = d.knownSessions > 0 ? 1 - (d.swappedSessions / d.knownSessions) : null;
       const slaScore = d.knownSessions > 0 ? (0.7 * successRatio + 0.3 * (noSwapRatio || 0)) * 100 : null;
+
+      // GPU count: distinct GPUs that had sessions in this period (+ rows with sessions but no gpu_id).
+      const gpuCount = d.gpuIds.size + d.rowsWithoutGpuIdWithSessions;
+
+      const pipelineModels = [...d.pipelineModels.entries()]
+        .map(([pipelineId, modelIds]) => ({ pipelineId, modelIds: [...modelIds].sort() }))
+        .sort((a, b) => a.pipelineId.localeCompare(b.pipelineId));
 
       return {
         address,
@@ -348,7 +387,8 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
         noSwapRatio: noSwapRatio !== null ? Math.round(noSwapRatio * 1000) / 10 : null,
         slaScore: slaScore !== null ? Math.round(slaScore) : null,
         pipelines: [...d.pipelines].sort(),
-        gpuCount: d.gpuIds.size,
+        pipelineModels,
+        gpuCount,
       };
     })
     .sort((a, b) => b.knownSessions - a.knownSessions);

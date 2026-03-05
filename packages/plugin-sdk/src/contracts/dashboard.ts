@@ -145,6 +145,11 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     outputPerDollar: String!
   }
 
+  type PipelineModelOffer {
+    pipelineId: String!
+    modelIds: [String!]!
+  }
+
   type OrchestratorRow {
     address: String!
     knownSessions: Int!
@@ -153,6 +158,7 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     noSwapRatio: Float
     slaScore: Float
     pipelines: [String!]!
+    pipelineModels: [PipelineModelOffer!]!
     gpuCount: Int!
   }
 `;
@@ -261,6 +267,12 @@ export interface DashboardPipelinePricing {
   outputPerDollar: string;
 }
 
+/** Per-pipeline model(s) offered by an orchestrator (from SLA rows). */
+export interface DashboardPipelineModelOffer {
+  pipelineId: string;
+  modelIds: string[];
+}
+
 /** Single orchestrator row aggregated over a time window */
 export interface DashboardOrchestrator {
   address: string;
@@ -270,6 +282,7 @@ export interface DashboardOrchestrator {
   noSwapRatio: number | null;
   slaScore: number | null;
   pipelines: string[];
+  pipelineModels: DashboardPipelineModelOffer[];
   gpuCount: number;
 }
 

@@ -60,6 +60,7 @@ export interface SLAComplianceRow {
   window_start: string;
   orchestrator_address: string;
   pipeline: string;
+  model_id: string | null;
   gpu_id: string | null;
   known_sessions: number;
   success_sessions: number;

@@ -44,7 +44,6 @@ import {
   Loader2,
   Timer,
   List,
-  X,
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
@@ -92,7 +91,7 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
       pipeline unit price outputPerDollar
     }
     orchestrators(period: $timeframe) {
-      address knownSessions successSessions successRatio noSwapRatio slaScore pipelines gpuCount
+      address knownSessions successSessions successRatio noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount
     }
   }
 `;
@@ -274,17 +273,9 @@ function formatTimeframeLabel(hours: number): string {
   return `${hours}h`;
 }
 
-function KPIRow({
-  data,
-  orchestratorsOpen,
-  onToggleOrchestrators,
-}: {
-  data: DashboardKPI;
-  orchestratorsOpen?: boolean;
-  onToggleOrchestrators?: () => void;
-}) {
+function KPIRow({ data }: { data: DashboardKPI }) {
   const tfLabel = formatTimeframeLabel(data.timeframeHours);
-  
+
   return (
     <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
       <KPICard
@@ -302,22 +293,6 @@ function KPIRow({
         value={data.orchestratorsOnline.value}
         delta={data.orchestratorsOnline.delta}
         deltaUnit=""
-        action={
-          onToggleOrchestrators && (
-            <button
-              onClick={onToggleOrchestrators}
-              aria-label={orchestratorsOpen ? 'Hide orchestrator data' : 'View orchestrator data'}
-              title={orchestratorsOpen ? 'Hide raw data' : 'View raw orchestrator data'}
-              className={`p-0.5 rounded transition-colors ${
-                orchestratorsOpen
-                  ? 'text-foreground bg-muted'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <List className="w-3 h-3" />
-            </button>
-          )
-        }
       />
       <KPICard
         icon={Clock}
@@ -703,10 +678,9 @@ const GPU_MODEL_COLORS = [
 ];
 
 function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
-  const usedPct = 100 - data.availableCapacity;
   const radius = 40;
   const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference - (usedPct / 100) * circumference;
+  const dashOffset = circumference - (data.availableCapacity / 100) * circumference;
   const totalGPUs = data.totalGPUs || 1;
 
   return (
@@ -741,16 +715,6 @@ function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
           <div>
             <span className="text-xl font-semibold font-mono text-foreground">{data.totalGPUs}</span>
             <span className="text-xs text-muted-foreground ml-1">GPUs</span>
-          </div>
-          <div className="text-xs text-muted-foreground space-y-0.5">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-              <span>Used: {usedPct}% ({Math.round(data.totalGPUs * usedPct / 100)})</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-muted inline-block" />
-              <span>Free: {data.availableCapacity}% ({Math.round(data.totalGPUs * data.availableCapacity / 100)})</span>
-            </div>
           </div>
         </div>
       </div>
@@ -911,12 +875,44 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
 type OrchestratorSortCol = 'address' | 'knownSessions' | 'successRatio' | 'slaScore' | 'gpuCount';
 type SortDir = 'asc' | 'desc';
 
+const LIVE_VIDEO_TO_VIDEO_PIPELINE_ID = 'live-video-to-video';
+
+/** Badge color classes (bg + text) for model badges — high contrast for readability */
+const MODEL_BADGE_COLORS = [
+  'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
+  'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+  'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+  'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
+  'bg-lime-100 text-lime-800 dark:bg-lime-900/40 dark:text-lime-200',
+  'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-200',
+  'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200',
+] as const;
+
+function modelBadgeColor(modelId: string): (typeof MODEL_BADGE_COLORS)[number] {
+  let n = 0;
+  for (let i = 0; i < modelId.length; i++) n += modelId.charCodeAt(i);
+  return MODEL_BADGE_COLORS[Math.abs(n) % MODEL_BADGE_COLORS.length];
+}
+
+/** Format pipeline + models for display: "Display name (model1, model2)" using the models this orchestrator offers. */
+function formatPipelineLabel(
+  pipelineId: string,
+  catalog: DashboardPipelineCatalogEntry[] | null | undefined,
+  modelIds?: string[] | null
+): string {
+  const entry = catalog?.find((p) => p.id === pipelineId);
+  const name = entry?.name ?? pipelineId;
+  if (modelIds?.length) return `${name} (${modelIds.join(', ')})`;
+  return name;
+}
+
 function OrchestratorTableCard({
   data,
-  onClose,
+  catalog,
 }: {
   data: DashboardOrchestrator[];
-  onClose: () => void;
+  catalog?: DashboardPipelineCatalogEntry[] | null;
 }) {
   const [sortCol, setSortCol] = useState<OrchestratorSortCol>('knownSessions');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -942,10 +938,14 @@ function OrchestratorTableCard({
     let rows = [...data];
     if (filter) {
       const q = filter.toLowerCase();
-      rows = rows.filter(r =>
-        r.address.toLowerCase().includes(q) ||
-        r.pipelines.some(p => p.toLowerCase().includes(q))
-      );
+      rows = rows.filter((r) => {
+        if (r.address.toLowerCase().includes(q)) return true;
+        return r.pipelines.some((p) => {
+          const offer = r.pipelineModels?.find((o) => o.pipelineId === p);
+          const label = formatPipelineLabel(p, catalog, offer?.modelIds);
+          return label.toLowerCase().includes(q) || p.toLowerCase().includes(q);
+        });
+      });
     }
     rows.sort((a, b) => {
       const av = a[sortCol] ?? 0;
@@ -956,7 +956,9 @@ function OrchestratorTableCard({
       return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
     });
     return rows;
-  }, [data, sortCol, sortDir, filter]);
+  }, [data, sortCol, sortDir, filter, catalog]);
+  const getPipelineLabel = (pipelineId: string, modelIds: string[] | undefined) =>
+    formatPipelineLabel(pipelineId, catalog, modelIds);
 
   const ariaSortValue = (col: OrchestratorSortCol): 'ascending' | 'descending' | 'none' =>
     sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
@@ -975,6 +977,8 @@ function OrchestratorTableCard({
     </th>
   );
 
+  const totalGPUsInList = useMemo(() => sorted.reduce((sum, r) => sum + (r.gpuCount ?? 0), 0), [sorted]);
+
   return (
     <div className="p-4 rounded-lg bg-card border border-border">
       <div className="flex items-center justify-between mb-3">
@@ -983,26 +987,17 @@ function OrchestratorTableCard({
             <Server className="w-3.5 h-3.5" />
           </div>
           <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-            Orchestrators ({data.length})
+            Orchestrators ({sorted.length}{filter ? ` of ${data.length}` : ''}) · {totalGPUsInList} GPUs
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <input
-            id="orchestrator-filter"
-            value={filter}
-            onChange={e => setFilter(e.target.value)}
-            placeholder="Filter address / pipeline…"
-            aria-label="Filter orchestrators by address or pipeline"
-            className="px-2 py-0.5 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground w-48"
-          />
-          <button
-            onClick={onClose}
-            aria-label="Close orchestrator data panel"
-            className="p-0.5 text-muted-foreground hover:text-foreground transition-colors rounded"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
+        <input
+          id="orchestrator-filter"
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+          placeholder="Filter address / pipeline…"
+          aria-label="Filter orchestrators by address or pipeline"
+          className="px-2 py-0.5 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground w-48"
+        />
       </div>
 
       <div className="overflow-x-auto max-h-80 overflow-y-auto">
@@ -1025,8 +1020,40 @@ function OrchestratorTableCard({
                 <td className="py-1.5 text-right font-mono">{row.successRatio}%</td>
                 <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
                 <td className="py-1.5 text-right font-mono">{row.gpuCount}</td>
-                <td className="py-1.5 text-muted-foreground truncate max-w-[200px]" title={row.pipelines.join(', ')}>
-                  {row.pipelines.join(', ') || '—'}
+                <td className="py-1.5 max-w-[280px]" title={row.pipelines.map((p) => getPipelineLabel(p, row.pipelineModels?.find((o) => o.pipelineId === p)?.modelIds)).join(', ')}>
+                  <div className="flex flex-wrap gap-1">
+                    {row.pipelines.length === 0 && '—'}
+                    {row.pipelines.map((p) => {
+                      const offer = row.pipelineModels?.find((o) => o.pipelineId === p);
+                      const modelIds = offer?.modelIds ?? [];
+                      const entry = catalog?.find((c) => c.id === p);
+                      const pipelineName = entry?.name ?? p;
+                      const isLiveV2V = p === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID;
+                      return (
+                        <span key={p} className="inline-flex flex-wrap gap-1 items-center">
+                          {!isLiveV2V && (
+                            <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">
+                              {pipelineName}
+                            </span>
+                          )}
+                          {modelIds.length > 0 ? (
+                            modelIds.map((modelId) => (
+                              <span
+                                key={modelId}
+                                className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId)}`}
+                              >
+                                {modelId}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">
+                              —
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -1178,9 +1205,6 @@ export default function DashboardPage() {
 
   const [pollInterval, setPollInterval] = useState(getStoredPollInterval);
   const [timeframe, setTimeframe] = useState(getStoredTimeframe);
-  const [orchestratorsOpen, setOrchestratorsOpen] = useState(false);
-  const orchestratorsPanelRef = useRef<HTMLDivElement>(null);
-  const didAutoScrollRef = useRef(false);
 
   const handlePollIntervalChange = (ms: number) => {
     setPollInterval(ms);
@@ -1204,17 +1228,6 @@ export default function DashboardPage() {
   );
 
   const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8 });
-
-  useEffect(() => {
-    if (!orchestratorsOpen) {
-      didAutoScrollRef.current = false;
-      return;
-    }
-    if (!didAutoScrollRef.current && data?.orchestrators && data.orchestrators.length > 0) {
-      orchestratorsPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      didAutoScrollRef.current = true;
-    }
-  }, [orchestratorsOpen, data?.orchestrators?.length]);
 
   // Loading state
   if (loading && !data) {
@@ -1257,11 +1270,7 @@ export default function DashboardPage() {
           <TimeframeSelector value={timeframe} onChange={handleTimeframeChange} />
         </div>
         {data?.kpi ? (
-          <KPIRow
-            data={data.kpi}
-            orchestratorsOpen={orchestratorsOpen}
-            onToggleOrchestrators={() => setOrchestratorsOpen(v => !v)}
-          />
+          <KPIRow data={data.kpi} />
         ) : loading ? (
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
             <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
@@ -1277,13 +1286,8 @@ export default function DashboardPage() {
             : <WidgetUnavailable label="Pipelines" />}
           {data?.gpuCapacity ? <GPUCapacityCard data={data.gpuCapacity} /> : <WidgetUnavailable label="GPU Capacity" />}
         </div>
-        {orchestratorsOpen && data?.orchestrators && data.orchestrators.length > 0 && (
-          <div ref={orchestratorsPanelRef}>
-            <OrchestratorTableCard
-              data={data.orchestrators}
-              onClose={() => setOrchestratorsOpen(false)}
-            />
-          </div>
+        {data && (
+          <OrchestratorTableCard data={data.orchestrators ?? []} catalog={data.pipelineCatalog} />
         )}
       </section>
 

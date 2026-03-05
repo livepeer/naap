@@ -60,13 +60,13 @@ const STUB_DEMAND_2H = [
 ];
 
 const STUB_SLA = [
-  { window_start: '2026-02-24T22:00:00Z', orchestrator_address: '0xaaa', pipeline: 'streamdiffusion-sdxl',
+  { window_start: '2026-02-24T22:00:00Z', orchestrator_address: '0xaaa', pipeline: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
     gpu_id: 'GPU-1', known_sessions: 3, success_sessions: 3,
     success_ratio: 1.0, no_swap_ratio: 1.0, sla_score: 100 },
-  { window_start: '2026-02-24T22:00:00Z', orchestrator_address: '0xbbb', pipeline: 'streamdiffusion-sdxl-v2v',
+  { window_start: '2026-02-24T22:00:00Z', orchestrator_address: '0xbbb', pipeline: 'streamdiffusion-sdxl-v2v', model_id: 'streamdiffusion-sdxl-v2v',
     gpu_id: 'GPU-2', known_sessions: 2, success_sessions: 2,
     success_ratio: 1.0, no_swap_ratio: 1.0, sla_score: 100 },
-  { window_start: '2026-02-24T21:00:00Z', orchestrator_address: '0xaaa', pipeline: 'streamdiffusion-sdxl',
+  { window_start: '2026-02-24T21:00:00Z', orchestrator_address: '0xaaa', pipeline: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
     gpu_id: 'GPU-1', known_sessions: 4, success_sessions: 4,
     success_ratio: 1.0, no_swap_ratio: 1.0, sla_score: 100 },
 ];
@@ -390,7 +390,7 @@ describe('registerDashboardProvider', () => {
     registerDashboardProvider(testEventBus as any);
 
     const response = (await testEventBus._invoke(DASHBOARD_QUERY_EVENT, {
-      query: '{ orchestrators { address knownSessions successSessions successRatio noSwapRatio slaScore pipelines gpuCount } }',
+      query: '{ orchestrators { address knownSessions successSessions successRatio noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount } }',
     })) as DashboardQueryResponse;
 
     expect(response.errors).toBeUndefined();
@@ -408,10 +408,12 @@ describe('registerDashboardProvider', () => {
     expect(orchA.slaScore).toBe(100);
     expect(orchA.gpuCount).toBe(1);
     expect(orchA.pipelines).toContain('streamdiffusion-sdxl');
+    expect(orchA.pipelineModels).toEqual([{ pipelineId: 'streamdiffusion-sdxl', modelIds: ['streamdiffusion-sdxl'] }]);
 
     const orchB = byAddr.get('0xbbb')!;
     expect(orchB).toBeDefined();
     expect(orchB.knownSessions).toBe(2);
+    expect(orchB.pipelineModels).toEqual([{ pipelineId: 'streamdiffusion-sdxl-v2v', modelIds: ['streamdiffusion-sdxl-v2v'] }]);
   });
 
   it('cleanup unregisters the handler', () => {
