@@ -91,7 +91,7 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
     pricing {
       pipeline unit price outputPerDollar
     }
-    orchestrators {
+    orchestrators(period: $timeframe) {
       address knownSessions successSessions successRatio noSwapRatio slaScore pipelines gpuCount
     }
   }
@@ -1200,7 +1200,7 @@ export default function DashboardPage() {
   const { data: feesData, loading: feesLoading } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
-    { timeout: 8000 }
+    { pollInterval, timeout: 8000 }
   );
 
   const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8 });

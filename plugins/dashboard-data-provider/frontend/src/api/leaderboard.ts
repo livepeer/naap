@@ -87,6 +87,9 @@ async function apiFetch<T>(path: string): Promise<T> {
 }
 
 export async function fetchNetworkDemand(lookbackHours: number): Promise<NetworkDemandRow[]> {
+  if (!Number.isFinite(lookbackHours) || lookbackHours <= 0) {
+    throw new Error(`fetchNetworkDemand: lookbackHours must be a finite number > 0, got ${lookbackHours}`);
+  }
   // The API uses a quirk where it multiplies the interval by 12 to get the total lookback window.
   // We abstract that away here so callers can just ask for the total hours they want.
   const intervalMinutes = (lookbackHours * 60) / 12;

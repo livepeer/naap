@@ -261,8 +261,11 @@ async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
     fetchGPUMetrics('1h'),
   ]);
 
-  const gpuIds    = new Set(metricsWide.map(m => m.gpu_id).filter(Boolean));
-  const totalGPUs = gpuIds.size || metricsWide.length;
+  const gpuIds = new Set(metricsWide.map(m => m.gpu_id).filter(Boolean));
+  const derivedUniqueIdSet = new Set(
+    metricsWide.map(m => m.gpu_id ?? `${m.orchestrator_address}:${m.pipeline}:${m.gpu_name ?? 'unknown'}`)
+  );
+  const totalGPUs = gpuIds.size || derivedUniqueIdSet.size;
 
   const sample = metricsRecent.length > 0 ? metricsRecent : metricsWide;
   const avgAvailable = sample.length > 0
@@ -293,7 +296,10 @@ async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
 // ---------------------------------------------------------------------------
 
 async function resolveOrchestrators({ period = '72h' }: { period?: string }): Promise<DashboardOrchestrator[]> {
-  const rows = await fetchSLACompliance(period);
+  // Normalize period from query variable (e.g. "24" from $timeframe) to API format "24h"
+  const periodHours = period && /^\d+$/.test(period) ? parseInt(period, 10) : NaN;
+  const resolvedPeriod = Number.isFinite(periodHours) ? `${Math.min(periodHours, 72)}h` : (period || '72h');
+  const rows = await fetchSLACompliance(resolvedPeriod);
 
   type Accum = {
     knownSessions: number;
