@@ -67,7 +67,7 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
       successRate { value delta }
       orchestratorsOnline { value delta }
       dailyUsageMins { value delta }
-      dailyStreamCount { value delta }
+      dailySessionCount { value delta }
       timeframeHours
     }
     protocol {
@@ -91,7 +91,7 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
       pipeline unit price outputPerDollar
     }
     orchestrators(period: $timeframe) {
-      address knownSessions successSessions successRatio noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount
+      address knownSessions successSessions successRatio effectiveSuccessRate noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount
     }
   }
 `;
@@ -306,9 +306,9 @@ function KPIRow({ data }: { data: DashboardKPI }) {
       <KPICard
         icon={Radio}
         iconColor="bg-muted text-muted-foreground"
-        label={`Streams (${tfLabel})`}
-        value={data.dailyStreamCount.value.toLocaleString()}
-        delta={data.dailyStreamCount.delta}
+        label={`Sessions (${tfLabel})`}
+        value={data.dailySessionCount.value.toLocaleString()}
+        delta={data.dailySessionCount.delta}
         deltaUnit=""
       />
     </div>

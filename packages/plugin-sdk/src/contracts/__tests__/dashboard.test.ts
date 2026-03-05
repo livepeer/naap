@@ -123,7 +123,7 @@ describe('DASHBOARD_SCHEMA', () => {
     expect(fields).toHaveProperty('successRate');
     expect(fields).toHaveProperty('orchestratorsOnline');
     expect(fields).toHaveProperty('dailyUsageMins');
-    expect(fields).toHaveProperty('dailyStreamCount');
+    expect(fields).toHaveProperty('dailySessionCount');
   });
 });
 
@@ -190,14 +190,14 @@ describe('createDashboardProvider', () => {
         successRate: { value: 97.3, delta: 1.2 },
         orchestratorsOnline: { value: 142, delta: 8 },
         dailyUsageMins: { value: 48720, delta: 3200 },
-        dailyStreamCount: { value: 1843, delta: -47 },
+        dailySessionCount: { value: 1843, delta: -47 },
       }),
     };
 
     createDashboardProvider(mockEventBus as any, resolvers);
 
     const request: DashboardQueryRequest = {
-      query: '{ kpi { successRate { value delta } orchestratorsOnline { value delta } dailyUsageMins { value delta } dailyStreamCount { value delta } } }',
+      query: '{ kpi { successRate { value delta } orchestratorsOnline { value delta } dailyUsageMins { value delta } dailySessionCount { value delta } } }',
     };
 
     const response = (await mockEventBus._invoke(
@@ -220,7 +220,7 @@ describe('createDashboardProvider', () => {
         successRate: { value: 97, delta: 1 },
         orchestratorsOnline: { value: 100, delta: 0 },
         dailyUsageMins: { value: 1000, delta: 50 },
-        dailyStreamCount: { value: 500, delta: -10 },
+        dailySessionCount: { value: 500, delta: -10 },
       }),
     };
 
@@ -323,7 +323,7 @@ describe('createDashboardProvider', () => {
         successRate: { value: 99, delta: 0.5 },
         orchestratorsOnline: { value: 150, delta: 10 },
         dailyUsageMins: { value: 50000, delta: 2000 },
-        dailyStreamCount: { value: 2000, delta: 100 },
+        dailySessionCount: { value: 2000, delta: 100 },
       }),
       protocol: async () => ({
         currentRound: 4127,
@@ -341,7 +341,7 @@ describe('createDashboardProvider', () => {
 
     const request: DashboardQueryRequest = {
       query: `{
-        kpi { successRate { value delta } orchestratorsOnline { value delta } dailyUsageMins { value delta } dailyStreamCount { value delta } }
+        kpi { successRate { value delta } orchestratorsOnline { value delta } dailyUsageMins { value delta } dailySessionCount { value delta } }
         protocol { currentRound blockProgress totalBlocks totalStakedLPT }
         gpuCapacity { totalGPUs availableCapacity }
       }`,
