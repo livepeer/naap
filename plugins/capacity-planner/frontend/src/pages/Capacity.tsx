@@ -25,51 +25,17 @@ import {
   commitCapacity as apiCommitCapacity,
   withdrawCommit as apiWithdrawCommit,
   addComment as apiAddComment,
+  fetchCurrentUser,
   type FetchRequestsParams,
+  type CurrentUser,
 } from '../lib/api';
-
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(atob(payload));
-  } catch {
-    return null;
-  }
-}
-
-function getCurrentUser(): { id: string; name: string } {
-  if (typeof window === 'undefined') return { id: 'anonymous', name: 'Anonymous' };
-
-  const shellContext = (window as any).__SHELL_CONTEXT__;
-  if (shellContext?.authToken) {
-    const payload = decodeJwtPayload(shellContext.authToken);
-    if (payload) {
-      const id = (payload.sub || payload.userId || payload.id || 'anonymous') as string;
-      const name = (payload.displayName || payload.name || payload.email || id) as string;
-      return { id, name };
-    }
-  }
-
-  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('naap_auth_token') : null;
-  if (token) {
-    const payload = decodeJwtPayload(token);
-    if (payload) {
-      const id = (payload.sub || payload.userId || payload.id || 'anonymous') as string;
-      const name = (payload.displayName || payload.name || payload.email || id) as string;
-      return { id, name };
-    }
-  }
-
-  return { id: 'anonymous', name: 'Anonymous' };
-}
 
 export const CapacityPage: React.FC = () => {
   const [requests, setRequests] = useState<CapacityRequest[]>([]);
   const [committedIds, setCommittedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser>({ id: '', name: '' });
 
   const [selectedRequest, setSelectedRequest] = useState<CapacityRequest | null>(null);
   const [showNewRequestModal, setShowNewRequestModal] = useState(false);
@@ -83,9 +49,7 @@ export const CapacityPage: React.FC = () => {
   });
   const [sortField, setSortField] = useState<SortField>('newest');
 
-  const currentUser = useMemo(() => getCurrentUser(), []);
-
-  const loadRequests = useCallback(async () => {
+  const loadRequests = useCallback(async (userId: string) => {
     setLoading(true);
     setError(null);
     try {
@@ -101,7 +65,7 @@ export const CapacityPage: React.FC = () => {
 
       const userCommits = new Set<string>();
       data.forEach(req => {
-        if (req.softCommits?.some(sc => sc.userId === currentUser.id)) {
+        if (req.softCommits?.some(sc => sc.userId === userId)) {
           userCommits.add(req.id);
         }
       });
@@ -112,10 +76,16 @@ export const CapacityPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [filters, sortField, currentUser.id]);
+  }, [filters, sortField]);
 
   useEffect(() => {
-    loadRequests();
+    let cancelled = false;
+    fetchCurrentUser().then(user => {
+      if (cancelled) return;
+      setCurrentUser(user);
+      loadRequests(user.id);
+    });
+    return () => { cancelled = true; };
   }, [loadRequests]);
 
   const filteredAndSorted = useMemo(() => {
@@ -237,10 +207,10 @@ export const CapacityPage: React.FC = () => {
         await apiAddComment(requestId, comment.author, comment.text);
       } catch (err) {
         console.error('[Capacity] Failed to add comment:', err);
-        loadRequests();
+        loadRequests(currentUser.id);
       }
     },
-    [selectedRequest, loadRequests]
+    [selectedRequest, loadRequests, currentUser.id]
   );
 
   const handleNewRequest = useCallback(
@@ -311,7 +281,7 @@ export const CapacityPage: React.FC = () => {
         <h3 className="text-lg font-bold text-text-primary mb-2">Failed to Load Requests</h3>
         <p className="text-text-secondary mb-4">{error}</p>
         <button
-          onClick={loadRequests}
+          onClick={() => loadRequests(currentUser.id)}
           className="flex items-center gap-2 px-4 py-2 bg-accent-blue text-white rounded-xl font-medium"
         >
           <RefreshCw size={16} />
