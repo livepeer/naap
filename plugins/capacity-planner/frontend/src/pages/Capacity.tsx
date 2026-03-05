@@ -138,8 +138,16 @@ export const CapacityPage: React.FC = () => {
     []
   );
 
+  const mutationSeq = useRef<Record<string, number>>({});
+  const nextMutationSeq = (requestId: string) => {
+    const next = (mutationSeq.current[requestId] ?? 0) + 1;
+    mutationSeq.current[requestId] = next;
+    return next;
+  };
+
   const handleCommit = useCallback(
     async (request: CapacityRequest, gpuCount: number) => {
+      const mutationId = nextMutationSeq(request.id);
       const existing = getUserCommit(request);
       const optimisticCommit = {
         id: existing?.id || `sc-${Date.now()}`,
@@ -157,6 +165,7 @@ export const CapacityPage: React.FC = () => {
 
       try {
         const result = await apiCommitCapacity(request.id, gpuCount, currentUser.name);
+        if (mutationSeq.current[request.id] !== mutationId) return;
         if (result.commit) {
           applyCommitUpdate(request.id, (commits) => {
             const filtered = commits.filter(sc => sc.userId !== currentUser.id);
@@ -164,6 +173,7 @@ export const CapacityPage: React.FC = () => {
           });
         }
       } catch (err) {
+        if (mutationSeq.current[request.id] !== mutationId) return;
         console.error('[Capacity] Failed to commit:', err);
         applyCommitUpdate(request.id, (commits) =>
           existing
@@ -184,6 +194,7 @@ export const CapacityPage: React.FC = () => {
 
   const handleWithdraw = useCallback(
     async (request: CapacityRequest) => {
+      const mutationId = nextMutationSeq(request.id);
       const existing = getUserCommit(request);
       if (!existing) return;
 
@@ -199,8 +210,12 @@ export const CapacityPage: React.FC = () => {
       try {
         await apiWithdrawCommit(request.id);
       } catch (err) {
+        if (mutationSeq.current[request.id] !== mutationId) return;
         console.error('[Capacity] Failed to withdraw:', err);
-        applyCommitUpdate(request.id, (commits) => [...commits, existing]);
+        applyCommitUpdate(request.id, (commits) => {
+          const filtered = commits.filter(sc => sc.userId !== currentUser.id);
+          return [...filtered, existing];
+        });
         setCommittedIds(prev => new Set(prev).add(request.id));
       }
     },
