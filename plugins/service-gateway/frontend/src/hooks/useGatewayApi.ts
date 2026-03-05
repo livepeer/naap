@@ -82,9 +82,14 @@ export function useAsync<T>() {
       setData(result);
       return result;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'An error occurred';
+      const msg =
+        err instanceof Error
+          ? err.message
+          : err && typeof err === 'object' && typeof (err as { message?: string }).message === 'string'
+            ? (err as { message: string }).message
+            : 'An error occurred';
       setError(msg);
-      throw err;
+      throw err instanceof Error ? err : new Error(msg);
     } finally {
       setLoading(false);
     }

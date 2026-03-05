@@ -150,7 +150,13 @@ export default function CatchAllPluginPage() {
         onLoad={() => setStatus('ready')}
         onError={(err) => {
           console.error(`[CatchAllPluginPage] CDN load failed for ${plugin.name}:`, err);
-          setError(err.message);
+          const msg =
+            err instanceof Error
+              ? err.message
+              : err && typeof err === 'object' && typeof (err as Record<string, unknown>).message === 'string'
+                ? ((err as Record<string, unknown>).message as string)
+                : String(err ?? 'Unknown error');
+          setError(msg);
           setStatus('error');
         }}
       />

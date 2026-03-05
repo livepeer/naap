@@ -230,7 +230,13 @@ export function PluginLoader({
       setStatus('loaded');
       onLoadRef.current?.(loaded);
     } catch (err) {
-      const loadError = err instanceof Error ? err : new Error(String(err));
+      const msg =
+        err instanceof Error
+          ? err.message
+          : err && typeof err === 'object' && typeof (err as Record<string, unknown>).message === 'string'
+            ? (err as Record<string, unknown>).message as string
+            : String(err ?? 'Unknown error');
+      const loadError = err instanceof Error ? err : new Error(msg);
       setError(loadError);
       setStatus('error');
       onErrorRef.current?.(loadError);
@@ -326,7 +332,9 @@ export function PluginLoader({
             <h3 className="font-semibold text-text-primary">
               Failed to load plugin
             </h3>
-            <p className="text-text-secondary text-sm">{error.message}</p>
+            <p className="text-text-secondary text-sm">
+              {typeof error?.message === 'string' ? error.message : String(error ?? 'Unknown error')}
+            </p>
           </div>
           <div className="flex items-center justify-center gap-3">
             <button
