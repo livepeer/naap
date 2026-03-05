@@ -145,7 +145,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Handle both wrapped ({ data: { user } }) and unwrapped ({ user }) responses
       const userData = data.data?.user || data.user;
-
+      if (!userData) {
+        clearAllAuthStorage();
+        return null;
+      }
+      
       // Ensure token is synced to localStorage if it's missing
       if (!localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN) && token) {
         localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
