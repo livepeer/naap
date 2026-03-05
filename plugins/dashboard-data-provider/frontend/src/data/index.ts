@@ -1,10 +1,12 @@
 /**
- * Data Index
+ * Mock Data Index
  *
- * Re-exports seed data used by the dashboard provider.
- * KPI, pipelines, GPU, and orchestrator data comes from the Leaderboard API.
- * Protocol and fees come from the Livepeer subgraph.
- * Job feed uses seed data for simulation.
+ * Re-exports seed data used for widgets that do not yet have live endpoints.
+ * Protocol and fees data are always fetched live; no mock fallbacks exist.
  */
 
-export { generateJob, seedJobs } from './jobs.js';
+export { mockKPI } from './mock-kpi.js';
+export { mockPipelines } from './mock-pipelines.js';
+export { mockGPU } from './mock-gpu.js';
+export { mockPricing } from './mock-pricing.js';
+export { generateMockJob, mockInitialJobs } from './mock-jobs.js';

@@ -72,12 +72,14 @@ export function useDashboardQuery<T = Record<string, unknown>>(
   const [error, setError] = useState<DashboardError | null>(null);
 
   // Stable refs to avoid re-triggering effects on every render
+  const queryRef = useRef(query);
+  const variablesRef = useRef(variables);
   const mountedRef = useRef(true);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Serialize variables for dependency comparison
-  const variablesKey = variables ? JSON.stringify(variables) : '';
+  queryRef.current = query;
+  variablesRef.current = variables;
 
   const fetchData = useCallback(async () => {
     if (!mountedRef.current) return;
@@ -85,8 +87,8 @@ export function useDashboardQuery<T = Record<string, unknown>>(
 
     try {
       const request: DashboardQueryRequest = {
-        query,
-        variables,
+        query: queryRef.current,
+        variables: variablesRef.current,
       };
 
       const response = await shell.eventBus.request<
@@ -147,7 +149,7 @@ export function useDashboardQuery<T = Record<string, unknown>>(
         setLoading(false);
       }
     }
-  }, [shell.eventBus, timeout, query, variablesKey]);
+  }, [shell.eventBus, timeout]);
 
   // Initial fetch
   useEffect(() => {

@@ -51,14 +51,12 @@ export const DASHBOARD_JOB_FEED_EMIT_EVENT = 'dashboard:job-feed:event' as const
  */
 export const DASHBOARD_SCHEMA = /* GraphQL */ `
   type Query {
-    kpi(window: String, timeframe: String): KPI
+    kpi(window: String): KPI
     protocol: Protocol
     fees(days: Int): FeesInfo
-    pipelines(limit: Int, timeframe: String): [PipelineUsage!]
-    pipelineCatalog: [PipelineCatalogEntry!]
+    pipelines(limit: Int): [PipelineUsage!]
     gpuCapacity: GPUCapacity
     pricing: [PipelinePricing!]
-    orchestrators(period: String): [OrchestratorRow!]
   }
 
   type KPI {
@@ -66,8 +64,6 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     orchestratorsOnline: MetricDelta!
     dailyUsageMins: MetricDelta!
     dailyStreamCount: MetricDelta!
-    dailyNetworkFeesEth: MetricDelta!
-    timeframeHours: Int!
   }
 
   type MetricDelta {
@@ -109,33 +105,15 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     weeklyVolumeEth: Float!
   }
 
-  type PipelineModelMins {
-    model: String!
-    mins: Int!
-  }
-
   type PipelineUsage {
     name: String!
     mins: Int!
     color: String
-    modelMins: [PipelineModelMins!]
-  }
-
-  type PipelineCatalogEntry {
-    id: String!
-    name: String!
-    models: [String!]!
-  }
-
-  type GPUModelCapacity {
-    model: String!
-    count: Int!
   }
 
   type GPUCapacity {
     totalGPUs: Int!
     availableCapacity: Float!
-    models: [GPUModelCapacity!]!
   }
 
   type PipelinePricing {
@@ -143,23 +121,6 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     unit: String!
     price: Float!
     outputPerDollar: String!
-  }
-
-  type PipelineModelOffer {
-    pipelineId: String!
-    modelIds: [String!]!
-  }
-
-  type OrchestratorRow {
-    address: String!
-    knownSessions: Int!
-    successSessions: Int!
-    successRatio: Float!
-    noSwapRatio: Float
-    slaScore: Float
-    pipelines: [String!]!
-    pipelineModels: [PipelineModelOffer!]!
-    gpuCount: Int!
   }
 `;
 
@@ -179,9 +140,6 @@ export interface DashboardKPI {
   orchestratorsOnline: MetricDelta;
   dailyUsageMins: MetricDelta;
   dailyStreamCount: MetricDelta;
-  dailyNetworkFeesEth: MetricDelta;
-  /** The timeframe in hours that this KPI data covers */
-  timeframeHours: number;
 }
 
 /** Protocol widget data */
@@ -223,40 +181,16 @@ export interface DashboardFeesInfo {
 }
 
 /** Pipeline usage entry */
-export interface DashboardPipelineModelMins {
-  model: string;
-  mins: number;
-}
-
 export interface DashboardPipelineUsage {
   name: string;
   mins: number;
   color?: string;
-  /** Per-model inference minutes (when available) */
-  modelMins?: DashboardPipelineModelMins[];
-}
-
-/** Pipeline catalog entry from /api/pipelines — all supported pipelines/models on the network */
-export interface DashboardPipelineCatalogEntry {
-  /** Pipeline identifier (e.g. "live-video-to-video") */
-  id: string;
-  /** Human-readable pipeline name */
-  name: string;
-  /** Models supported under this pipeline */
-  models: string[];
-}
-
-/** GPU model capacity entry */
-export interface DashboardGPUModelCapacity {
-  model: string;
-  count: number;
 }
 
 /** GPU capacity widget data */
 export interface DashboardGPUCapacity {
   totalGPUs: number;
   availableCapacity: number;
-  models: DashboardGPUModelCapacity[];
 }
 
 /** Pipeline pricing entry */
@@ -267,35 +201,14 @@ export interface DashboardPipelinePricing {
   outputPerDollar: string;
 }
 
-/** Per-pipeline model(s) offered by an orchestrator (from SLA rows). */
-export interface DashboardPipelineModelOffer {
-  pipelineId: string;
-  modelIds: string[];
-}
-
-/** Single orchestrator row aggregated over a time window */
-export interface DashboardOrchestrator {
-  address: string;
-  knownSessions: number;
-  successSessions: number;
-  successRatio: number;
-  noSwapRatio: number | null;
-  slaScore: number | null;
-  pipelines: string[];
-  pipelineModels: DashboardPipelineModelOffer[];
-  gpuCount: number;
-}
-
 /** Full dashboard query response shape (all fields optional for partial providers) */
 export interface DashboardData {
   kpi?: DashboardKPI | null;
   protocol?: DashboardProtocol | null;
   fees?: DashboardFeesInfo | null;
   pipelines?: DashboardPipelineUsage[] | null;
-  pipelineCatalog?: DashboardPipelineCatalogEntry[] | null;
   gpuCapacity?: DashboardGPUCapacity | null;
   pricing?: DashboardPipelinePricing[] | null;
-  orchestrators?: DashboardOrchestrator[] | null;
 }
 
 // ============================================================================
@@ -345,12 +258,10 @@ export interface JobFeedEntry {
  * Unimplemented resolvers return null (GraphQL handles this gracefully).
  */
 export interface DashboardResolvers {
-  kpi?: (args: { window?: string; timeframe?: string }) => DashboardKPI | Promise<DashboardKPI>;
+  kpi?: (args: { window?: string }) => DashboardKPI | Promise<DashboardKPI>;
   protocol?: () => DashboardProtocol | Promise<DashboardProtocol>;
   fees?: (args: { days?: number }) => DashboardFeesInfo | Promise<DashboardFeesInfo>;
-  pipelines?: (args: { limit?: number; timeframe?: string }) => DashboardPipelineUsage[] | Promise<DashboardPipelineUsage[]>;
-  pipelineCatalog?: () => DashboardPipelineCatalogEntry[] | Promise<DashboardPipelineCatalogEntry[]>;
+  pipelines?: (args: { limit?: number }) => DashboardPipelineUsage[] | Promise<DashboardPipelineUsage[]>;
   gpuCapacity?: () => DashboardGPUCapacity | Promise<DashboardGPUCapacity>;
   pricing?: () => DashboardPipelinePricing[] | Promise<DashboardPipelinePricing[]>;
-  orchestrators?: (args: { period?: string }) => DashboardOrchestrator[] | Promise<DashboardOrchestrator[]>;
 }
