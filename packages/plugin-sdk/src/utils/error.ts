@@ -11,13 +11,18 @@
  * @returns A non-empty string suitable for display to users
  */
 export function getSafeErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
+  if (err instanceof Error) {
+    const msg = err.message?.trim();
+    return msg || 'Unknown error';
+  }
   if (
     err &&
     typeof err === 'object' &&
     typeof (err as Record<string, unknown>).message === 'string'
   ) {
-    return (err as Record<string, unknown>).message as string;
+    const msg = ((err as Record<string, unknown>).message as string).trim();
+    return msg || 'Unknown error';
   }
-  return String(err ?? 'Unknown error');
+  const msg = String(err ?? '').trim();
+  return msg || 'Unknown error';
 }
