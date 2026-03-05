@@ -411,7 +411,7 @@ describe('registerDashboardProvider', () => {
     registerDashboardProvider(testEventBus as any);
 
     const response = (await testEventBus._invoke(DASHBOARD_QUERY_EVENT, {
-      query: '{ orchestrators { address knownSessions successSessions successRatio noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount } }',
+      query: '{ orchestrators { address knownSessions successSessions successRatio effectiveSuccessRate noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount } }',
     })) as DashboardQueryResponse;
 
     expect(response.errors).toBeUndefined();
@@ -425,6 +425,7 @@ describe('registerDashboardProvider', () => {
     expect(orchA.knownSessions).toBe(7);
     expect(orchA.successSessions).toBe(7);
     expect(orchA.successRatio).toBe(100);
+    expect(orchA.effectiveSuccessRate).toBe(100);
     expect(orchA.noSwapRatio).toBe(100);
     expect(orchA.slaScore).toBe(100);
     expect(orchA.gpuCount).toBe(1);
