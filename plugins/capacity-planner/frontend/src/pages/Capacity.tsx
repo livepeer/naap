@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Zap,
@@ -49,7 +49,10 @@ export const CapacityPage: React.FC = () => {
   });
   const [sortField, setSortField] = useState<SortField>('newest');
 
+  const requestSeq = useRef(0);
+
   const loadRequests = useCallback(async (userId: string) => {
+    const seq = ++requestSeq.current;
     setLoading(true);
     setError(null);
     try {
@@ -61,6 +64,7 @@ export const CapacityPage: React.FC = () => {
       if (sortField) params.sort = sortField;
 
       const data = await fetchRequests(params);
+      if (seq !== requestSeq.current) return;
       setRequests(data);
 
       const userCommits = new Set<string>();
@@ -71,19 +75,29 @@ export const CapacityPage: React.FC = () => {
       });
       setCommittedIds(userCommits);
     } catch (err) {
+      if (seq !== requestSeq.current) return;
       console.error('[Capacity] Failed to load requests:', err);
       setError(err instanceof Error ? err.message : 'Failed to load requests');
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) {
+        setLoading(false);
+      }
     }
   }, [filters, sortField]);
 
   useEffect(() => {
     let cancelled = false;
-    fetchCurrentUser().then(user => {
-      if (cancelled) return;
-      setCurrentUser(user);
-    });
+    fetchCurrentUser()
+      .then(user => {
+        if (cancelled) return;
+        setCurrentUser(user);
+      })
+      .catch(err => {
+        if (cancelled) return;
+        console.error('[Capacity] Failed to load current user:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load current user');
+        setLoading(false);
+      });
     return () => { cancelled = true; };
   }, []);
 

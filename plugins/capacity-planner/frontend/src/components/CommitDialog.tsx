@@ -76,37 +76,41 @@ export const CommitDialog: React.FC<CommitDialogProps> = ({
             <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
               {isUpdate ? 'Update Commitment' : 'GPUs to Provide'}
             </span>
-            <button
-              onClick={onClose}
-              className="p-1 rounded-md hover:bg-white/5 text-text-secondary"
-            >
+          <button
+            onClick={onClose}
+            aria-label="Close commit dialog"
+            className="p-1 rounded-md hover:bg-white/5 text-text-secondary"
+          >
               <X size={12} />
             </button>
           </div>
 
           <div className="flex items-center justify-center gap-3 mb-4">
-            <button
-              onClick={decrement}
-              disabled={count <= 1}
-              className="w-8 h-8 rounded-lg bg-bg-tertiary border border-[var(--border-color)] flex items-center justify-center text-text-secondary hover:text-text-primary hover:border-accent-blue disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-            >
+          <button
+            onClick={decrement}
+            disabled={count <= 1}
+            aria-label="Decrease GPU count"
+            className="w-8 h-8 rounded-lg bg-bg-tertiary border border-[var(--border-color)] flex items-center justify-center text-text-secondary hover:text-text-primary hover:border-accent-blue disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+          >
               <Minus size={14} />
             </button>
-            <input
-              type="number"
-              min={1}
-              max={maxGpus || 999}
-              value={count}
+          <input
+            type="number"
+            min={1}
+            max={maxGpus || 999}
+            value={count}
+            aria-label="GPU count"
               onChange={(e) => {
                 const v = parseInt(e.target.value, 10);
                 if (Number.isFinite(v) && v >= 1) setCount(Math.min(v, maxGpus || 999));
               }}
               className="w-16 h-10 text-center text-lg font-bold text-text-primary bg-bg-tertiary border border-[var(--border-color)] rounded-lg focus:outline-none focus:border-accent-emerald [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
-            <button
-              onClick={increment}
-              className="w-8 h-8 rounded-lg bg-bg-tertiary border border-[var(--border-color)] flex items-center justify-center text-text-secondary hover:text-text-primary hover:border-accent-blue transition-all"
-            >
+          <button
+            onClick={increment}
+            aria-label="Increase GPU count"
+            className="w-8 h-8 rounded-lg bg-bg-tertiary border border-[var(--border-color)] flex items-center justify-center text-text-secondary hover:text-text-primary hover:border-accent-blue transition-all"
+          >
               <Plus size={14} />
             </button>
           </div>

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
@@ -47,6 +47,10 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
   const [showCommitDialog, setShowCommitDialog] = useState(false);
   const commitBtnRef = useRef<HTMLButtonElement>(null);
 
+  useEffect(() => {
+    if (!isOpen) setShowCommitDialog(false);
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const handleSubmitComment = () => {
@@ -69,7 +73,7 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
   };
 
   const totalCommittedGpus = request.softCommits.reduce(
-    (sum, sc) => sum + (sc.gpuCount || 1),
+    (sum, sc) => sum + (sc.gpuCount ?? 1),
     0
   );
   const fillPct = Math.min(100, (totalCommittedGpus / request.count) * 100);
@@ -229,7 +233,7 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                         </span>
                       </div>
                       <Badge variant="emerald">
-                        {commit.gpuCount || 1} GPU{(commit.gpuCount || 1) > 1 ? 's' : ''}
+                        {commit.gpuCount ?? 1} GPU{(commit.gpuCount ?? 1) > 1 ? 's' : ''}
                       </Badge>
                     </div>
                   ))}

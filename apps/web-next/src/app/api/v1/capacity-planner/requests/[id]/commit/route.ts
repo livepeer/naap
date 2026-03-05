@@ -49,18 +49,24 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       },
     });
 
-    if (withdraw && existing) {
-      await prisma.capacitySoftCommit.delete({
-        where: { id: existing.id },
-      });
+    if (withdraw) {
+      if (existing) {
+        await prisma.capacitySoftCommit.delete({
+          where: { id: existing.id },
+        });
+      }
       return success({
         action: 'removed' as const,
         userId: user.id,
-        userName: existing.userName,
+        userName: existing?.userName ?? user.displayName ?? user.email ?? 'Anonymous',
       });
     }
 
-    const gpuCount = Math.max(1, Math.min(clientGpuCount || 1, 999));
+    const rawGpuCount = Number(clientGpuCount ?? 1);
+    if (!Number.isInteger(rawGpuCount) || rawGpuCount < 1 || rawGpuCount > 999) {
+      return errors.badRequest('gpuCount must be an integer between 1 and 999');
+    }
+    const gpuCount = rawGpuCount;
     const userName = user.displayName || user.email || clientUserName || 'Anonymous';
 
     if (existing) {

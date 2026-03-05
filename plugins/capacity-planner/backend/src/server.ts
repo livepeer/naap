@@ -259,6 +259,7 @@ app.get('/api/v1/capacity-planner/requests/:id', async (req, res) => {
             id: sc.id,
             userId: sc.userId,
             userName: sc.userName,
+            gpuCount: sc.gpuCount ?? 1,
             timestamp: sc.createdAt.toISOString(),
           })),
           comments: r.comments.map((c: any) => ({
@@ -360,8 +361,13 @@ app.post('/api/v1/capacity-planner/requests/:id/commit', async (req, res) => {
     }
     const userId = user.id;
     const userName = user.displayName || user.email || req.body?.userName || userId;
-    const gpuCount = Math.max(1, Math.min(req.body?.gpuCount || 1, 999));
     const withdraw = req.body?.withdraw === true;
+
+    const rawGpuCount = Number(req.body?.gpuCount ?? 1);
+    if (!withdraw && (!Number.isInteger(rawGpuCount) || rawGpuCount < 1 || rawGpuCount > 999)) {
+      return res.status(400).json({ success: false, error: 'gpuCount must be an integer between 1 and 999' });
+    }
+    const gpuCount = rawGpuCount;
 
     if (prisma) {
       const request = await prisma.capacityRequest.findUnique({
@@ -372,9 +378,11 @@ app.post('/api/v1/capacity-planner/requests/:id/commit', async (req, res) => {
 
       const existing = request.softCommits.find((sc: any) => sc.userId === userId);
 
-      if (withdraw && existing) {
-        await prisma.capacitySoftCommit.delete({ where: { id: existing.id } });
-        return res.json({ success: true, data: { action: 'removed', userId, userName: existing.userName } });
+      if (withdraw) {
+        if (existing) {
+          await prisma.capacitySoftCommit.delete({ where: { id: existing.id } });
+        }
+        return res.json({ success: true, data: { action: 'removed', userId, userName: existing?.userName ?? userName } });
       }
 
       if (existing) {
@@ -408,9 +416,11 @@ app.post('/api/v1/capacity-planner/requests/:id/commit', async (req, res) => {
     if (!r) return res.status(404).json({ success: false, error: 'Not found' });
 
     const existing = r.softCommits.find((sc) => sc.userId === userId);
-    if (withdraw && existing) {
-      r.softCommits = r.softCommits.filter((sc) => sc.userId !== userId);
-      return res.json({ success: true, data: { action: 'removed', userId, userName: existing.userName } });
+    if (withdraw) {
+      if (existing) {
+        r.softCommits = r.softCommits.filter((sc) => sc.userId !== userId);
+      }
+      return res.json({ success: true, data: { action: 'removed', userId, userName: existing?.userName ?? userName } });
     }
 
     if (existing) {

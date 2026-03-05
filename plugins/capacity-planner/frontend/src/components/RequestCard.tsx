@@ -39,7 +39,7 @@ export const RequestCard: React.FC<RequestCardProps> = ({
     new Date(request.validUntil).getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000;
 
   const totalCommittedGpus = request.softCommits.reduce(
-    (sum, sc) => sum + (sc.gpuCount || 1),
+    (sum, sc) => sum + (sc.gpuCount ?? 1),
     0
   );
   const providerCount = request.softCommits.length;
@@ -113,6 +113,11 @@ export const RequestCard: React.FC<RequestCardProps> = ({
           <div className="relative">
             <button
               ref={buttonRef}
+              aria-label={
+                hasCommitted
+                  ? `Update or withdraw commitment${userCommitCount ? ` (${userCommitCount} GPUs)` : ''}`
+                  : 'Commit GPUs'
+              }
               onClick={(e) => {
                 e.stopPropagation();
                 setShowCommitDialog(true);
