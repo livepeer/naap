@@ -872,7 +872,7 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
 // Orchestrator Table Card
 // ============================================================================
 
-type OrchestratorSortCol = 'address' | 'knownSessions' | 'successRatio' | 'slaScore' | 'gpuCount';
+type OrchestratorSortCol = 'address' | 'knownSessions' | 'successRatio' | 'effectiveSuccessRate' | 'slaScore' | 'gpuCount';
 type SortDir = 'asc' | 'desc';
 
 const LIVE_VIDEO_TO_VIDEO_PIPELINE_ID = 'live-video-to-video';
@@ -1006,7 +1006,8 @@ function OrchestratorTableCard({
             <tr>
               <TH col="address" label="Address" />
               <TH col="knownSessions" label="Sessions" right />
-              <TH col="successRatio" label="Success %" right />
+              <TH col="successRatio" label="Startup %" right />
+              <TH col="effectiveSuccessRate" label="Effective %" right />
               <TH col="slaScore" label="SLA" right />
               <TH col="gpuCount" label="GPUs" right />
               <th className="pb-2 font-medium text-left">Pipelines</th>
@@ -1018,6 +1019,7 @@ function OrchestratorTableCard({
                 <td className="py-1.5 font-mono text-foreground">{row.address.slice(0, 8)}…{row.address.slice(-4)}</td>
                 <td className="py-1.5 text-right font-mono">{row.knownSessions.toLocaleString()}</td>
                 <td className="py-1.5 text-right font-mono">{row.successRatio}%</td>
+                <td className="py-1.5 text-right font-mono">{row.effectiveSuccessRate != null ? `${row.effectiveSuccessRate}%` : '—'}</td>
                 <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
                 <td className="py-1.5 text-right font-mono">{row.gpuCount}</td>
                 <td className="py-1.5 max-w-[280px]" title={row.pipelines.map((p) => getPipelineLabel(p, row.pipelineModels?.find((o) => o.pipelineId === p)?.modelIds)).join(', ')}>
@@ -1059,7 +1061,7 @@ function OrchestratorTableCard({
             ))}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-4 text-center text-muted-foreground">
+                <td colSpan={7} className="py-4 text-center text-muted-foreground">
                   {filter ? 'No orchestrators match the filter' : 'No orchestrator data'}
                 </td>
               </tr>
@@ -1248,22 +1250,7 @@ export default function DashboardPage() {
     <div className="space-y-6 max-w-[1440px] mx-auto">
       <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
 
-      {/* Protocol & Fees — Subgraph data (timeframe does not apply) */}
-      <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-medium text-muted-foreground">Protocol & Fees</h2>
-        </div>
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
-          {data?.protocol
-            ? <ProtocolCard data={data.protocol} />
-            : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
-          {feesData?.fees
-            ? <FeesCard data={feesData.fees} />
-            : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
-        </div>
-      </section>
-
-      {/* Leaderboard Metrics — API data (timeframe applies) */}
+      {/* Row 1: KPI tiles */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-muted-foreground">Network Metrics</h2>
@@ -1280,18 +1267,32 @@ export default function DashboardPage() {
             <WidgetUnavailable label="KPI" />
           </div>
         )}
+      </section>
+
+      {/* Row 2: Protocol, Fees, Pipelines, GPU Capacity */}
+      <section className="space-y-3">
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+          {data?.protocol
+            ? <ProtocolCard data={data.protocol} />
+            : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
+          {feesData?.fees
+            ? <FeesCard data={feesData.fees} />
+            : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
           {data?.pipelines && data?.kpi
             ? <PipelinesCard data={data.pipelines} catalog={data.pipelineCatalog} timeframeHours={data.kpi.timeframeHours} />
             : <WidgetUnavailable label="Pipelines" />}
           {data?.gpuCapacity ? <GPUCapacityCard data={data.gpuCapacity} /> : <WidgetUnavailable label="GPU Capacity" />}
         </div>
-        {data && (
-          <OrchestratorTableCard data={data.orchestrators ?? []} catalog={data.pipelineCatalog} />
-        )}
       </section>
 
-      {/* Live Feed & Pricing */}
+      {/* Row 3: Orchestrators table */}
+      {data && (
+        <section>
+          <OrchestratorTableCard data={data.orchestrators ?? []} catalog={data.pipelineCatalog} />
+        </section>
+      )}
+
+      {/* Row 4: Live Job Feed & Pipeline Pricing */}
       <section className="space-y-3">
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
           <JobFeedCard jobs={jobs} connected={jobFeedConnected} />
