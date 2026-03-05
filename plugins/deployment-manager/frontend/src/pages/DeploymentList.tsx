@@ -6,15 +6,11 @@ import { VersionBadge } from '../components/VersionBadge';
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: '#9ca3af',
-  PROVISIONING: '#3b82f6',
   DEPLOYING: '#3b82f6',
   VALIDATING: '#8b5cf6',
   ONLINE: '#22c55e',
-  DEGRADED: '#f59e0b',
-  OFFLINE: '#ef4444',
   UPDATING: '#3b82f6',
   FAILED: '#ef4444',
-  DESTROYING: '#9ca3af',
   DESTROYED: '#6b7280',
 };
 
@@ -75,7 +71,7 @@ export const DeploymentList: React.FC = () => {
         }}>
           <Rocket size={48} style={{ marginBottom: '1rem', opacity: 0.3 }} />
           <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>No deployments yet</p>
-          <p style={{ fontSize: '0.875rem' }}>Deploy AI Runner or Scope to a GPU provider to get started.</p>
+          <p style={{ fontSize: '0.875rem' }}>Choose a template and deploy to a GPU provider to get started.</p>
         </div>
       )}
 

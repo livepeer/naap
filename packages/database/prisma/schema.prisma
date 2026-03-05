@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api", "plugin_service_gateway"]
+  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api", "plugin_service_gateway", "plugin_deployment_manager"]
 }
 
 // ============================================
@@ -1838,4 +1838,166 @@ model GatewayHealthCheck {
 
   @@index([connectorId, checkedAt])
   @@schema("plugin_service_gateway")
+}
+
+// ============================================
+// PLUGIN: DEPLOYMENT MANAGER
+// ============================================
+// GPU serverless deployment lifecycle management
+
+enum DmDeploymentStatus {
+  PENDING
+  DEPLOYING
+  VALIDATING
+  ONLINE
+  UPDATING
+  FAILED
+  DESTROYED
+
+  @@schema("plugin_deployment_manager")
+}
+
+enum DmHealthStatus {
+  GREEN
+  ORANGE
+  RED
+  UNKNOWN
+
+  @@schema("plugin_deployment_manager")
+}
+
+model ServerlessDeployment {
+  id                    String             @id @default(uuid())
+  name                  String
+  teamId                String?
+  ownerUserId           String
+  providerSlug          String
+  providerMode          String
+  providerConfig        Json?
+  connectorId           String?
+  gpuModel              String
+  gpuVramGb             Int
+  gpuCount              Int                @default(1)
+  cudaVersion           String?
+  artifactType          String
+  artifactVersion       String
+  dockerImage           String
+  healthPort            Int?
+  healthEndpoint        String?
+  templateId            String?
+  artifactConfig        Json?
+  status                DmDeploymentStatus @default(PENDING)
+  healthStatus          DmHealthStatus     @default(UNKNOWN)
+  providerDeploymentId  String?
+  endpointUrl           String?
+  sshHost               String?
+  sshPort               Int?
+  sshUsername            String?
+  containerName         String?
+  latestAvailableVersion String?
+  hasUpdate             Boolean            @default(false)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  lastHealthCheck       DateTime?
+  deployedAt            DateTime?
+
+  statusLogs  DmDeploymentStatusLog[]
+  auditLogs   DmDeploymentAuditLog[]
+  healthLogs  DmDeploymentHealthLog[]
+
+  @@index([ownerUserId])
+  @@index([teamId])
+  @@index([providerSlug])
+  @@index([status])
+  @@index([healthStatus])
+  @@index([createdAt])
+  @@schema("plugin_deployment_manager")
+}
+
+model DmDeploymentStatusLog {
+  id            String               @id @default(uuid())
+  deploymentId  String
+  deployment    ServerlessDeployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  fromStatus    String?
+  toStatus      String
+  reason        String?
+  initiatedBy   String?
+  metadata      Json?
+  createdAt     DateTime             @default(now())
+
+  @@index([deploymentId, createdAt])
+  @@schema("plugin_deployment_manager")
+}
+
+model DmDeploymentAuditLog {
+  id            String               @id @default(uuid())
+  deploymentId  String?
+  deployment    ServerlessDeployment? @relation(fields: [deploymentId], references: [id], onDelete: SetNull)
+  action        String
+  resource      String
+  resourceId    String?
+  userId        String?
+  details       Json?
+  status        String               @default("success")
+  errorMsg      String?
+  createdAt     DateTime             @default(now())
+
+  @@index([deploymentId, createdAt])
+  @@index([action, createdAt])
+  @@schema("plugin_deployment_manager")
+}
+
+model DmDeploymentHealthLog {
+  id              String               @id @default(uuid())
+  deploymentId    String
+  deployment      ServerlessDeployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  healthStatus    DmHealthStatus
+  responseTimeMs  Int?
+  statusCode      Int?
+  details         Json?
+  createdAt       DateTime             @default(now())
+
+  @@index([deploymentId, createdAt])
+  @@schema("plugin_deployment_manager")
+}
+
+model DmProviderAuthConfig {
+  id            String   @id @default(uuid())
+  teamId        String?
+  ownerUserId   String?
+  providerSlug  String
+  authType      String
+  credentials   Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([teamId, providerSlug])
+  @@unique([ownerUserId, providerSlug])
+  @@schema("plugin_deployment_manager")
+}
+
+model DmDeploymentTemplate {
+  id               String   @id @default(uuid())
+  name             String
+  description      String?
+  icon             String   @default("📦")
+  dockerImage      String
+  defaultVersion   String?
+  healthEndpoint   String   @default("/health")
+  healthPort       Int      @default(8080)
+  defaultGpuModel  String?
+  defaultGpuVramGb Int?
+  envVars          Json?
+  category         String   @default("custom")
+  githubOwner      String?
+  githubRepo       String?
+  teamId           String?
+  ownerUserId      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([category])
+  @@index([teamId])
+  @@index([ownerUserId])
+  @@schema("plugin_deployment_manager")
 }

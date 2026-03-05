@@ -1,5 +1,5 @@
 import type { DeploymentOrchestrator } from './DeploymentOrchestrator.js';
-import type { ArtifactRegistry } from './ArtifactRegistry.js';
+import type { TemplateRegistry } from './TemplateRegistry.js';
 
 export class VersionCheckerService {
   private intervalMs: number;
@@ -8,7 +8,7 @@ export class VersionCheckerService {
 
   constructor(
     private orchestrator: DeploymentOrchestrator,
-    private artifactRegistry: ArtifactRegistry,
+    private templateRegistry: TemplateRegistry,
     intervalMs?: number,
   ) {
     this.intervalMs = intervalMs ?? 1_800_000; // 30 min
@@ -19,7 +19,6 @@ export class VersionCheckerService {
     this.running = true;
     console.log(`[version-checker] Started (interval=${this.intervalMs}ms)`);
     this.timer = setInterval(() => this.checkAll(), this.intervalMs);
-    // Run initial check after a short delay
     setTimeout(() => this.checkAll(), 10_000);
   }
 
@@ -34,9 +33,7 @@ export class VersionCheckerService {
 
   async checkAll(): Promise<void> {
     const deployments = await this.orchestrator.list();
-    const active = deployments.filter((d) =>
-      ['ONLINE', 'DEGRADED', 'OFFLINE'].includes(d.status),
-    );
+    const active = deployments.filter((d) => d.status === 'ONLINE');
 
     const latestVersions = new Map<string, string>();
 
@@ -44,7 +41,7 @@ export class VersionCheckerService {
       const { artifactType, artifactVersion } = deployment;
 
       if (!latestVersions.has(artifactType)) {
-        const latest = await this.artifactRegistry.getLatestVersion(artifactType);
+        const latest = await this.templateRegistry.getLatestVersion(artifactType);
         if (latest) {
           latestVersions.set(artifactType, latest.version);
         }
@@ -68,7 +65,7 @@ export class VersionCheckerService {
     const deployment = await this.orchestrator.get(deploymentId);
     if (!deployment) throw new Error(`Deployment not found: ${deploymentId}`);
 
-    const latest = await this.artifactRegistry.getLatestVersion(deployment.artifactType);
+    const latest = await this.templateRegistry.getLatestVersion(deployment.artifactType);
     if (latest && latest.version !== deployment.artifactVersion) {
       deployment.latestAvailableVersion = latest.version;
       deployment.hasUpdate = true;

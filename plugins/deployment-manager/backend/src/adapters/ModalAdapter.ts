@@ -68,7 +68,7 @@ export class ModalAdapter implements IProviderAdapter {
 
     const data = await res.json();
     const statusMap: Record<string, ProviderStatus['status']> = {
-      deployed: 'ONLINE', deploying: 'DEPLOYING', stopped: 'OFFLINE', errored: 'FAILED',
+      deployed: 'ONLINE', deploying: 'DEPLOYING', stopped: 'FAILED', errored: 'FAILED',
     };
     return {
       status: statusMap[data.state || data.status] || 'DEPLOYING',

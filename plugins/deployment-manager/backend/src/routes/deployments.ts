@@ -4,8 +4,8 @@ import type { DeploymentStatus } from '../types/index.js';
 import { CreateDeploymentSchema, UpdateDeploymentSchema } from './validation.js';
 import { RateLimiter } from '../services/RateLimiter.js';
 
-const deployLimiter = new RateLimiter(10, 60_000); // 10 deploy operations per minute
-const writeLimiter = new RateLimiter(30, 60_000);   // 30 writes per minute
+const deployLimiter = new RateLimiter(10, 60_000);
+const writeLimiter = new RateLimiter(30, 60_000);
 
 export function createDeploymentsRouter(orchestrator: DeploymentOrchestrator): Router {
   const router = Router();
@@ -95,6 +95,16 @@ export function createDeploymentsRouter(orchestrator: DeploymentOrchestrator): R
     }
   });
 
+  router.post('/:id/retry', async (req, res) => {
+    try {
+      const userId = (req as any).user?.id || 'anonymous';
+      const result = await orchestrator.retry(req.params.id, userId);
+      res.json({ success: true, data: result });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   router.put('/:id', async (req, res) => {
     try {
       const userId = (req as any).user?.id || 'anonymous';
@@ -112,27 +122,6 @@ export function createDeploymentsRouter(orchestrator: DeploymentOrchestrator): R
 
       const deployment = await orchestrator.updateDeployment(req.params.id, parsed.data, userId);
       res.json({ success: true, data: deployment });
-    } catch (err: any) {
-      res.status(400).json({ success: false, error: err.message });
-    }
-  });
-
-  router.post('/:id/deploy-and-validate', async (req, res) => {
-    try {
-      const userId = (req as any).user?.id || 'anonymous';
-      const maxRetries = parseInt(req.query.retries as string, 10) || 0;
-      const result = await orchestrator.deployAndValidate(req.params.id, userId, maxRetries);
-      res.json({ success: true, data: result });
-    } catch (err: any) {
-      res.status(400).json({ success: false, error: err.message });
-    }
-  });
-
-  router.post('/:id/retry', async (req, res) => {
-    try {
-      const userId = (req as any).user?.id || 'anonymous';
-      const result = await orchestrator.retry(req.params.id, userId);
-      res.json({ success: true, data: result });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
     }

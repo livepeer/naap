@@ -2,15 +2,11 @@ export type ProviderMode = 'serverless' | 'ssh-bridge';
 
 export type DeploymentStatus =
   | 'PENDING'
-  | 'PROVISIONING'
   | 'DEPLOYING'
   | 'VALIDATING'
   | 'ONLINE'
-  | 'DEGRADED'
-  | 'OFFLINE'
   | 'UPDATING'
   | 'FAILED'
-  | 'DESTROYING'
   | 'DESTROYED';
 
 export type HealthStatus = 'GREEN' | 'ORANGE' | 'RED' | 'UNKNOWN';
@@ -31,14 +27,17 @@ export interface DeployConfig {
   gpuVramGb: number;
   gpuCount: number;
   cudaVersion?: string;
-  artifactType: 'ai-runner' | 'scope';
+  artifactType: string;
   artifactVersion: string;
   dockerImage: string;
+  healthPort?: number;
+  healthEndpoint?: string;
   artifactConfig?: Record<string, unknown>;
   sshHost?: string;
   sshPort?: number;
   sshUsername?: string;
   containerName?: string;
+  templateId?: string;
 }
 
 export interface UpdateConfig {
@@ -80,4 +79,21 @@ export interface ProviderInfo {
   connectorSlug: string;
   authMethod: string;
   gpuOptionsAvailable: boolean;
+}
+
+export interface DeploymentTemplate {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  dockerImage: string;
+  defaultVersion?: string;
+  healthEndpoint: string;
+  healthPort: number;
+  defaultGpuModel?: string;
+  defaultGpuVramGb?: number;
+  envVars?: Record<string, string>;
+  category: 'curated' | 'custom';
+  githubOwner?: string;
+  githubRepo?: string;
 }

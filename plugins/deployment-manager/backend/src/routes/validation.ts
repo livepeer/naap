@@ -7,14 +7,17 @@ export const CreateDeploymentSchema = z.object({
   gpuVramGb: z.number().int().min(1),
   gpuCount: z.number().int().min(1).max(8).default(1),
   cudaVersion: z.string().optional(),
-  artifactType: z.enum(['ai-runner', 'scope']),
+  artifactType: z.string().min(1),
   artifactVersion: z.string().min(1),
   dockerImage: z.string().min(1),
+  healthPort: z.number().int().min(1).max(65535).optional(),
+  healthEndpoint: z.string().optional(),
   artifactConfig: z.record(z.unknown()).optional(),
   sshHost: z.string().optional(),
   sshPort: z.number().int().min(1).max(65535).optional(),
   sshUsername: z.string().optional(),
   containerName: z.string().optional(),
+  templateId: z.string().optional(),
 });
 
 export const UpdateDeploymentSchema = z.object({

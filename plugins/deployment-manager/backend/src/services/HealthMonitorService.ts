@@ -53,9 +53,7 @@ export class HealthMonitorService {
 
   async checkAll(): Promise<void> {
     const deployments = await this.orchestrator.list();
-    const monitorable = deployments.filter((d) =>
-      ['ONLINE', 'DEGRADED', 'OFFLINE'].includes(d.status),
-    );
+    const monitorable = deployments.filter((d) => d.status === 'ONLINE');
 
     await Promise.allSettled(
       monitorable.map((d) => this.checkOne(d)),

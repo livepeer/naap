@@ -66,7 +66,7 @@ export class BasetenAdapter implements IProviderAdapter {
 
     const data = await res.json();
     const statusMap: Record<string, ProviderStatus['status']> = {
-      ACTIVE: 'ONLINE', BUILDING: 'DEPLOYING', SCALING: 'DEPLOYING', FAILED: 'FAILED', STOPPED: 'OFFLINE',
+      ACTIVE: 'ONLINE', BUILDING: 'DEPLOYING', SCALING: 'DEPLOYING', FAILED: 'FAILED', STOPPED: 'FAILED',
     };
     return {
       status: statusMap[data.status] || 'DEPLOYING',

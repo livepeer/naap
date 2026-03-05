@@ -97,12 +97,13 @@ describe('DeploymentOrchestrator', () => {
     expect(list[0].name).toBe('test-deployment');
   });
 
-  it('should transition from PENDING to DEPLOYING on deploy', async () => {
+  it('should run full deploy+validate flow and reach ONLINE', async () => {
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     const deployed = await orchestrator.deploy(deployment.id, 'user-1');
-    expect(deployed.status).toBe('DEPLOYING');
+    expect(deployed.status).toBe('ONLINE');
     expect(deployed.providerDeploymentId).toBe('mock-deploy-123');
     expect(deployed.endpointUrl).toBe('https://mock.provider/endpoint');
+    expect(deployed.healthStatus).toBe('GREEN');
   });
 
   it('should transition to FAILED when deploy throws', async () => {
@@ -115,17 +116,15 @@ describe('DeploymentOrchestrator', () => {
 
   it('should reject invalid state transitions', async () => {
     const deployment = await orchestrator.create(baseConfig, 'user-1');
-    await orchestrator.deploy(deployment.id, 'user-1');
-    // DEPLOYING -> DESTROYING is not valid
-    await expect(orchestrator.destroy(deployment.id, 'user-1')).rejects.toThrow('Invalid state transition');
+    // PENDING -> DESTROYED is valid, but PENDING -> UPDATING is not
+    await expect(orchestrator.updateDeployment(deployment.id, { artifactVersion: 'v2' }, 'user-1')).rejects.toThrow('Invalid state transition');
   });
 
-  it('should destroy a deployed deployment', async () => {
+  it('should destroy an ONLINE deployment', async () => {
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     await orchestrator.deploy(deployment.id, 'user-1');
-    // Manually set to ONLINE for destroy
     const record = await orchestrator.get(deployment.id);
-    (record as any).status = 'ONLINE';
+    expect(record?.status).toBe('ONLINE');
     const destroyed = await orchestrator.destroy(deployment.id, 'user-1');
     expect(destroyed.status).toBe('DESTROYED');
   });
@@ -134,7 +133,8 @@ describe('DeploymentOrchestrator', () => {
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     await orchestrator.deploy(deployment.id, 'user-1');
     const history = orchestrator.getStatusHistory(deployment.id);
-    expect(history.length).toBeGreaterThanOrEqual(3); // PENDING, PROVISIONING, DEPLOYING
+    // PENDING -> DEPLOYING -> VALIDATING -> ONLINE = 4 entries
+    expect(history.length).toBeGreaterThanOrEqual(4);
   });
 
   it('should create audit logs', async () => {
@@ -144,14 +144,27 @@ describe('DeploymentOrchestrator', () => {
     expect(logs.data[0].action).toBe('CREATE');
   });
 
-  it('should update health status', async () => {
+  it('should update health status without changing deployment state', async () => {
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     await orchestrator.deploy(deployment.id, 'user-1');
     const record = await orchestrator.get(deployment.id);
-    (record as any).status = 'ONLINE';
+    expect(record?.status).toBe('ONLINE');
+
     orchestrator.updateHealthStatus(deployment.id, 'RED');
     const updated = await orchestrator.get(deployment.id);
-    expect(updated?.status).toBe('OFFLINE');
+    expect(updated?.status).toBe('ONLINE');
     expect(updated?.healthStatus).toBe('RED');
+  });
+
+  it('should allow retry from FAILED state', async () => {
+    mockAdapter.shouldFail = true;
+    const deployment = await orchestrator.create(baseConfig, 'user-1');
+    await expect(orchestrator.deploy(deployment.id, 'user-1')).rejects.toThrow();
+    const failed = await orchestrator.get(deployment.id);
+    expect(failed?.status).toBe('FAILED');
+
+    mockAdapter.shouldFail = false;
+    const retried = await orchestrator.retry(deployment.id, 'user-1');
+    expect(retried.status).toBe('ONLINE');
   });
 });

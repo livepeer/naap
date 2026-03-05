@@ -9,8 +9,6 @@ import type {
 } from '../types/index.js';
 
 const GATEWAY_BASE = process.env.SHELL_URL || 'http://localhost:3000';
-const POLL_INTERVAL_MS = 10_000;
-const MAX_POLL_ATTEMPTS = 180; // 30 min max
 
 async function gwFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const url = `${GATEWAY_BASE}/api/v1/gw/ssh-bridge${path}`;
@@ -23,10 +21,6 @@ async function gwFetch(path: string, options: RequestInit = {}): Promise<Respons
   });
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export class SshBridgeAdapter implements IProviderAdapter {
   readonly slug = 'ssh-bridge';
   readonly displayName = 'SSH Bridge (Bare-Metal / VM)';
@@ -37,8 +31,6 @@ export class SshBridgeAdapter implements IProviderAdapter {
   readonly authMethod = 'ssh-key';
 
   async getGpuOptions(): Promise<GpuOption[]> {
-    // SSH Bridge doesn't query GPU inventory from a provider API.
-    // Users specify their own GPU details based on what's on the machine.
     return [
       { id: 'NVIDIA A100 80GB', name: 'NVIDIA A100 80GB', vramGb: 80, available: true },
       { id: 'NVIDIA A100 40GB', name: 'NVIDIA A100 40GB', vramGb: 40, available: true },
@@ -58,7 +50,6 @@ export class SshBridgeAdapter implements IProviderAdapter {
       throw new Error('SSH host and username are required for SSH Bridge deployments');
     }
 
-    // Test connectivity first
     const connectRes = await gwFetch('/connect', {
       method: 'POST',
       body: JSON.stringify({
@@ -74,7 +65,8 @@ export class SshBridgeAdapter implements IProviderAdapter {
     }
 
     const containerName = config.containerName || `naap-${config.artifactType}-${Date.now()}`;
-    const healthPort = config.artifactType === 'scope' ? 8188 : 8080;
+    const healthPort = config.healthPort || 8080;
+    const healthEndpoint = config.healthEndpoint || '/health';
 
     const deployScript = [
       '#!/bin/bash',
@@ -99,7 +91,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
       '',
       `echo "=== Waiting for health endpoint ==="`,
       'for i in $(seq 1 30); do',
-      `  if curl -sf http://localhost:${healthPort}/health > /dev/null 2>&1; then`,
+      `  if curl -sf http://localhost:${healthPort}${healthEndpoint} > /dev/null 2>&1; then`,
       '    echo "Healthy after $((i * 10))s"',
       '    exit 0',
       '  fi',
@@ -118,7 +110,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
         port: config.sshPort || 22,
         username: config.sshUsername,
         script: deployScript,
-        timeout: 1800000, // 30 min
+        timeout: 1800000,
         workingDirectory: '/tmp',
       }),
     });
@@ -132,15 +124,18 @@ export class SshBridgeAdapter implements IProviderAdapter {
     const jobId = scriptData.data?.jobId || scriptData.jobId;
 
     return {
-      providerDeploymentId: `${config.sshHost}:${containerName}:${jobId}`,
+      providerDeploymentId: `${config.sshHost}:${containerName}:${jobId}:${healthPort}:${healthEndpoint}`,
       endpointUrl: `http://${config.sshHost}:${healthPort}`,
       status: 'DEPLOYING',
-      metadata: { jobId, containerName, sshHost: config.sshHost },
+      metadata: { jobId, containerName, sshHost: config.sshHost, healthPort, healthEndpoint },
     };
   }
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
-    const [host, containerName, jobId] = providerDeploymentId.split(':');
+    const parts = providerDeploymentId.split(':');
+    const host = parts[0];
+    const jobId = parts[2];
+    const healthPort = parts[3] || '8080';
 
     if (jobId) {
       try {
@@ -152,7 +147,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
             const exitCode = data.data?.exitCode ?? data.exitCode;
             return {
               status: exitCode === 0 ? 'ONLINE' : 'FAILED',
-              endpointUrl: `http://${host}:8080`,
+              endpointUrl: `http://${host}:${healthPort}`,
               metadata: data.data || data,
             };
           }
@@ -162,15 +157,17 @@ export class SshBridgeAdapter implements IProviderAdapter {
           return { status: 'DEPLOYING', metadata: data.data || data };
         }
       } catch {
-        // Fall through to container check
+        // Fall through
       }
     }
 
-    return { status: 'ONLINE', endpointUrl: `http://${host}:8080` };
+    return { status: 'ONLINE', endpointUrl: `http://${host}:${healthPort}` };
   }
 
   async destroy(providerDeploymentId: string): Promise<void> {
-    const [host, containerName] = providerDeploymentId.split(':');
+    const parts = providerDeploymentId.split(':');
+    const host = parts[0];
+    const containerName = parts[1];
 
     const res = await gwFetch('/exec', {
       method: 'POST',
@@ -190,7 +187,11 @@ export class SshBridgeAdapter implements IProviderAdapter {
   }
 
   async update(providerDeploymentId: string, config: UpdateConfig): Promise<ProviderDeployment> {
-    const [host, containerName] = providerDeploymentId.split(':');
+    const parts = providerDeploymentId.split(':');
+    const host = parts[0];
+    const containerName = parts[1];
+    const healthPort = parts[3] || '8080';
+    const healthEndpoint = parts[4] || '/health';
     const newImage = config.dockerImage;
     if (!newImage) {
       throw new Error('dockerImage is required for SSH Bridge updates');
@@ -207,10 +208,10 @@ export class SshBridgeAdapter implements IProviderAdapter {
       `echo "=== Starting updated ${containerName} ==="`,
       `docker run -d --name ${containerName} \\`,
       '  --gpus all --restart unless-stopped \\',
-      '  -p 8080:8080 \\',
+      `  -p ${healthPort}:${healthPort} \\`,
       `  ${newImage}`,
       'for i in $(seq 1 30); do',
-      '  if curl -sf http://localhost:8080/health > /dev/null 2>&1; then',
+      `  if curl -sf http://localhost:${healthPort}${healthEndpoint} > /dev/null 2>&1; then`,
       '    echo "Updated and healthy after $((i * 10))s"',
       '    exit 0',
       '  fi',
@@ -239,8 +240,8 @@ export class SshBridgeAdapter implements IProviderAdapter {
     const data = await res.json();
     const jobId = data.data?.jobId || data.jobId;
     return {
-      providerDeploymentId: `${host}:${containerName}:${jobId}`,
-      endpointUrl: `http://${host}:8080`,
+      providerDeploymentId: `${host}:${containerName}:${jobId}:${healthPort}:${healthEndpoint}`,
+      endpointUrl: `http://${host}:${healthPort}`,
       status: 'UPDATING',
       metadata: { jobId },
     };
@@ -253,7 +254,10 @@ export class SshBridgeAdapter implements IProviderAdapter {
 
     const url = new URL(endpointUrl);
     const host = url.hostname;
-    const port = parseInt(url.port || '8080', 10);
+    const port = url.port || '8080';
+
+    const parts = _providerDeploymentId.split(':');
+    const healthEndpoint = parts[4] || '/health';
 
     try {
       const start = Date.now();
@@ -263,7 +267,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
           host,
           port: 22,
           username: 'deploy',
-          command: `curl -sf -o /dev/null -w "%{http_code}" http://localhost:${port}/health`,
+          command: `curl -sf -o /dev/null -w "%{http_code}" http://localhost:${port}${healthEndpoint}`,
           timeout: 15000,
         }),
       });

@@ -2,7 +2,7 @@ import express from 'express';
 import { ProviderAdapterRegistry } from './services/ProviderAdapterRegistry.js';
 import { DeploymentOrchestrator } from './services/DeploymentOrchestrator.js';
 import { AuditService } from './services/AuditService.js';
-import { ArtifactRegistry } from './services/ArtifactRegistry.js';
+import { TemplateRegistry } from './services/TemplateRegistry.js';
 import { HealthMonitorService } from './services/HealthMonitorService.js';
 import { VersionCheckerService } from './services/VersionCheckerService.js';
 import { RunPodAdapter } from './adapters/RunPodAdapter.js';
@@ -13,7 +13,7 @@ import { ModalAdapter } from './adapters/ModalAdapter.js';
 import { ReplicateAdapter } from './adapters/ReplicateAdapter.js';
 import { createProvidersRouter } from './routes/providers.js';
 import { createDeploymentsRouter } from './routes/deployments.js';
-import { createArtifactsRouter } from './routes/artifacts.js';
+import { createTemplatesRouter } from './routes/templates.js';
 import { createHealthRouter } from './routes/health.js';
 import { createAuditRouter } from './routes/audit.js';
 
@@ -29,7 +29,7 @@ registry.register(new ModalAdapter());
 registry.register(new ReplicateAdapter());
 
 const audit = new AuditService();
-const artifactRegistry = new ArtifactRegistry();
+const templateRegistry = new TemplateRegistry();
 const orchestrator = new DeploymentOrchestrator(registry, audit);
 const healthMonitor = new HealthMonitorService(registry, orchestrator, {
   intervalMs: parseInt(process.env.HEALTH_CHECK_INTERVAL || '60000', 10),
@@ -38,7 +38,7 @@ const healthMonitor = new HealthMonitorService(registry, orchestrator, {
 });
 const versionChecker = new VersionCheckerService(
   orchestrator,
-  artifactRegistry,
+  templateRegistry,
   parseInt(process.env.VERSION_CHECK_INTERVAL || '1800000', 10),
 );
 
@@ -49,7 +49,7 @@ app.get('/healthz', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'deployment-manager',
-    version: '1.0.0',
+    version: '2.0.0',
     uptime: process.uptime(),
     providers: registry.listSlugs(),
   });
@@ -57,7 +57,7 @@ app.get('/healthz', (_req, res) => {
 
 app.use(`${API_PREFIX}/providers`, createProvidersRouter(registry));
 app.use(`${API_PREFIX}/deployments`, createDeploymentsRouter(orchestrator));
-app.use(`${API_PREFIX}/artifacts`, createArtifactsRouter(artifactRegistry));
+app.use(`${API_PREFIX}/templates`, createTemplatesRouter(templateRegistry));
 app.use(`${API_PREFIX}/health`, createHealthRouter(healthMonitor, orchestrator));
 app.use(`${API_PREFIX}/audit`, createAuditRouter(audit));
 
@@ -66,10 +66,10 @@ app.get(`${API_PREFIX}/status`, async (_req, res) => {
   const counts = {
     total: all.length,
     online: all.filter((d) => d.status === 'ONLINE').length,
-    degraded: all.filter((d) => d.status === 'DEGRADED').length,
-    offline: all.filter((d) => d.status === 'OFFLINE').length,
     failed: all.filter((d) => d.status === 'FAILED').length,
-    deploying: all.filter((d) => ['PENDING', 'PROVISIONING', 'DEPLOYING', 'VALIDATING'].includes(d.status)).length,
+    deploying: all.filter((d) => ['PENDING', 'DEPLOYING', 'VALIDATING'].includes(d.status)).length,
+    updating: all.filter((d) => d.status === 'UPDATING').length,
+    destroyed: all.filter((d) => d.status === 'DESTROYED').length,
   };
   res.json({ status: 'ok', providers: registry.listSlugs(), deployments: counts });
 });

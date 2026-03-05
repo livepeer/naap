@@ -92,8 +92,8 @@ export class RunPodAdapter implements IProviderAdapter {
     const statusMap: Record<string, ProviderStatus['status']> = {
       READY: 'ONLINE',
       INITIALIZING: 'DEPLOYING',
-      UNHEALTHY: 'DEGRADED',
-      OFFLINE: 'OFFLINE',
+      UNHEALTHY: 'ONLINE',
+      OFFLINE: 'FAILED',
     };
     return {
       status: statusMap[data.status] || 'DEPLOYING',

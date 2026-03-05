@@ -1,6 +1,7 @@
 import type { DeploymentStatus, DeployConfig, UpdateConfig, HealthStatus } from '../types/index.js';
 import type { ProviderAdapterRegistry } from './ProviderAdapterRegistry.js';
 import type { AuditService } from './AuditService.js';
+import type { IProviderAdapter } from '../adapters/IProviderAdapter.js';
 
 export interface DeploymentRecord {
   id: string;
@@ -18,6 +19,8 @@ export interface DeploymentRecord {
   artifactType: string;
   artifactVersion: string;
   dockerImage: string;
+  healthPort?: number;
+  healthEndpoint?: string;
   artifactConfig?: Record<string, unknown>;
   status: DeploymentStatus;
   healthStatus: HealthStatus;
@@ -27,6 +30,7 @@ export interface DeploymentRecord {
   sshPort?: number;
   sshUsername?: string;
   containerName?: string;
+  templateId?: string;
   latestAvailableVersion?: string;
   hasUpdate: boolean;
   createdAt: Date;
@@ -47,16 +51,12 @@ interface StatusLogEntry {
 }
 
 const VALID_TRANSITIONS: Record<DeploymentStatus, DeploymentStatus[]> = {
-  PENDING: ['PROVISIONING', 'DESTROYING'],
-  PROVISIONING: ['DEPLOYING', 'FAILED'],
+  PENDING: ['DEPLOYING', 'DESTROYED'],
   DEPLOYING: ['VALIDATING', 'FAILED'],
   VALIDATING: ['ONLINE', 'FAILED'],
-  ONLINE: ['DEGRADED', 'OFFLINE', 'UPDATING', 'DESTROYING'],
-  DEGRADED: ['ONLINE', 'OFFLINE', 'DESTROYING'],
-  OFFLINE: ['ONLINE', 'DESTROYING'],
+  ONLINE: ['UPDATING', 'DESTROYED'],
   UPDATING: ['VALIDATING', 'FAILED'],
-  FAILED: ['PROVISIONING', 'DESTROYING'],
-  DESTROYING: ['DESTROYED'],
+  FAILED: ['DEPLOYING', 'DESTROYED'],
   DESTROYED: [],
 };
 
@@ -89,6 +89,8 @@ export class DeploymentOrchestrator {
       artifactType: config.artifactType,
       artifactVersion: config.artifactVersion,
       dockerImage: config.dockerImage,
+      healthPort: config.healthPort,
+      healthEndpoint: config.healthEndpoint,
       artifactConfig: config.artifactConfig,
       status: 'PENDING',
       healthStatus: 'UNKNOWN',
@@ -96,6 +98,7 @@ export class DeploymentOrchestrator {
       sshPort: config.sshPort,
       sshUsername: config.sshUsername,
       containerName: config.containerName,
+      templateId: config.templateId,
       hasUpdate: false,
       createdAt: now,
       updatedAt: now,
@@ -145,12 +148,16 @@ export class DeploymentOrchestrator {
     return results.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
 
+  /**
+   * Unified deploy flow: PENDING -> DEPLOYING -> (poll if SSH) -> VALIDATING -> ONLINE
+   * Always runs the full deploy + validate pipeline.
+   */
   async deploy(id: string, userId: string): Promise<DeploymentRecord> {
     const record = this.getOrThrow(id);
-    this.assertTransition(record.status, 'PROVISIONING');
+    this.assertTransition(record.status, 'DEPLOYING');
 
     const adapter = this.registry.get(record.providerSlug);
-    this.transition(record, 'PROVISIONING', 'Deploy initiated', userId);
+    this.transition(record, 'DEPLOYING', 'Deploy initiated', userId);
 
     try {
       const result = await adapter.deploy({
@@ -160,9 +167,11 @@ export class DeploymentOrchestrator {
         gpuVramGb: record.gpuVramGb,
         gpuCount: record.gpuCount,
         cudaVersion: record.cudaVersion,
-        artifactType: record.artifactType as 'ai-runner' | 'scope',
+        artifactType: record.artifactType,
         artifactVersion: record.artifactVersion,
         dockerImage: record.dockerImage,
+        healthPort: record.healthPort,
+        healthEndpoint: record.healthEndpoint,
         artifactConfig: record.artifactConfig,
         sshHost: record.sshHost,
         sshPort: record.sshPort,
@@ -173,7 +182,6 @@ export class DeploymentOrchestrator {
       record.providerDeploymentId = result.providerDeploymentId;
       record.endpointUrl = result.endpointUrl;
       record.deployedAt = new Date();
-      this.transition(record, 'DEPLOYING', 'Provider accepted deployment', userId);
 
       await this.audit.log({
         deploymentId: id,
@@ -185,7 +193,14 @@ export class DeploymentOrchestrator {
         status: 'success',
       });
 
-      return record;
+      if (record.providerMode === 'ssh-bridge' && record.providerDeploymentId) {
+        await this.pollUntilReady(adapter, record, userId);
+        if (record.status === 'FAILED') return record;
+      } else {
+        this.transition(record, 'VALIDATING', 'Validating deployment', userId);
+      }
+
+      return await this.runValidation(record, adapter, userId);
     } catch (err: any) {
       this.transition(record, 'FAILED', err.message, userId);
       await this.audit.log({
@@ -203,10 +218,9 @@ export class DeploymentOrchestrator {
 
   async destroy(id: string, userId: string): Promise<DeploymentRecord> {
     const record = this.getOrThrow(id);
-    this.assertTransition(record.status, 'DESTROYING');
+    this.assertTransition(record.status, 'DESTROYED');
 
     const adapter = this.registry.get(record.providerSlug);
-    this.transition(record, 'DESTROYING', 'Destroy initiated', userId);
 
     try {
       if (record.providerDeploymentId) {
@@ -270,7 +284,7 @@ export class DeploymentOrchestrator {
         status: 'success',
       });
 
-      return record;
+      return await this.runValidation(record, adapter, userId);
     } catch (err: any) {
       this.transition(record, 'FAILED', err.message, userId);
       await this.audit.log({
@@ -293,7 +307,41 @@ export class DeploymentOrchestrator {
     }
 
     const adapter = this.registry.get(record.providerSlug);
+    return this.runValidation(record, adapter, userId);
+  }
 
+  async retry(id: string, userId: string): Promise<DeploymentRecord> {
+    const record = this.getOrThrow(id);
+    if (record.status !== 'FAILED') {
+      throw new Error(`Can only retry FAILED deployments, current status: ${record.status}`);
+    }
+    return this.deploy(id, userId);
+  }
+
+  async remove(id: string): Promise<boolean> {
+    return this.deployments.delete(id);
+  }
+
+  getStatusHistory(deploymentId: string): StatusLogEntry[] {
+    return this.statusLogs
+      .filter((l) => l.deploymentId === deploymentId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  updateHealthStatus(id: string, healthStatus: HealthStatus): void {
+    const record = this.deployments.get(id);
+    if (!record) return;
+
+    record.healthStatus = healthStatus;
+    record.lastHealthCheck = new Date();
+    record.updatedAt = new Date();
+  }
+
+  private async runValidation(
+    record: DeploymentRecord,
+    adapter: IProviderAdapter,
+    userId: string,
+  ): Promise<DeploymentRecord> {
     try {
       const health = await adapter.healthCheck(
         record.providerDeploymentId || '',
@@ -316,79 +364,8 @@ export class DeploymentOrchestrator {
     }
   }
 
-  async deployAndValidate(id: string, userId: string, maxRetries = 0): Promise<DeploymentRecord> {
-    let lastError: Error | undefined;
-
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        const record = this.getOrThrow(id);
-
-        if (record.status === 'FAILED' && attempt > 0) {
-          this.assertTransition(record.status, 'PROVISIONING');
-          this.transition(record, 'PROVISIONING', `Retry attempt ${attempt}/${maxRetries}`, userId);
-          // Re-deploy
-          const adapter = this.registry.get(record.providerSlug);
-          const result = await adapter.deploy({
-            name: record.name,
-            providerSlug: record.providerSlug,
-            gpuModel: record.gpuModel,
-            gpuVramGb: record.gpuVramGb,
-            gpuCount: record.gpuCount,
-            cudaVersion: record.cudaVersion,
-            artifactType: record.artifactType as 'ai-runner' | 'scope',
-            artifactVersion: record.artifactVersion,
-            dockerImage: record.dockerImage,
-            artifactConfig: record.artifactConfig,
-            sshHost: record.sshHost,
-            sshPort: record.sshPort,
-            sshUsername: record.sshUsername,
-            containerName: record.containerName,
-          });
-          record.providerDeploymentId = result.providerDeploymentId;
-          record.endpointUrl = result.endpointUrl;
-          this.transition(record, 'DEPLOYING', 'Provider accepted retry', userId);
-        } else if (record.status === 'PENDING') {
-          await this.deploy(id, userId);
-        }
-
-        // Poll for status until deployed, then validate
-        const deployed = this.getOrThrow(id);
-        if (deployed.status === 'DEPLOYING' || deployed.status === 'VALIDATING') {
-          // For SSH Bridge, poll the job status
-          if (deployed.providerMode === 'ssh-bridge' && deployed.providerDeploymentId) {
-            const adapter = this.registry.get(deployed.providerSlug);
-            const pollResult = await this.pollUntilReady(adapter, deployed, userId);
-            if (pollResult.status === 'FAILED') {
-              lastError = new Error('Deployment failed during provisioning');
-              continue;
-            }
-          }
-          return await this.validate(id, userId);
-        }
-
-        return deployed;
-      } catch (err: any) {
-        lastError = err;
-        if (attempt < maxRetries) {
-          await new Promise((r) => setTimeout(r, 5000));
-        }
-      }
-    }
-
-    throw lastError || new Error('Deploy and validate failed');
-  }
-
-  async retry(id: string, userId: string): Promise<DeploymentRecord> {
-    const record = this.getOrThrow(id);
-    if (record.status !== 'FAILED') {
-      throw new Error(`Can only retry FAILED deployments, current status: ${record.status}`);
-    }
-    this.assertTransition(record.status, 'PROVISIONING');
-    return this.deployAndValidate(id, userId, 0);
-  }
-
   private async pollUntilReady(
-    adapter: import('../adapters/IProviderAdapter.js').IProviderAdapter,
+    adapter: IProviderAdapter,
     record: DeploymentRecord,
     userId: string,
   ): Promise<DeploymentRecord> {
@@ -412,33 +389,6 @@ export class DeploymentOrchestrator {
     }
     this.transition(record, 'FAILED', 'Deployment timed out during polling', userId);
     return record;
-  }
-
-  async remove(id: string): Promise<boolean> {
-    return this.deployments.delete(id);
-  }
-
-  getStatusHistory(deploymentId: string): StatusLogEntry[] {
-    return this.statusLogs
-      .filter((l) => l.deploymentId === deploymentId)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  }
-
-  updateHealthStatus(id: string, healthStatus: HealthStatus): void {
-    const record = this.deployments.get(id);
-    if (!record) return;
-
-    record.healthStatus = healthStatus;
-    record.lastHealthCheck = new Date();
-    record.updatedAt = new Date();
-
-    if (record.status === 'ONLINE' && healthStatus === 'ORANGE') {
-      this.transition(record, 'DEGRADED', 'Health degraded', 'system');
-    } else if (record.status === 'ONLINE' && healthStatus === 'RED') {
-      this.transition(record, 'OFFLINE', 'Health check failed', 'system');
-    } else if ((record.status === 'DEGRADED' || record.status === 'OFFLINE') && healthStatus === 'GREEN') {
-      this.transition(record, 'ONLINE', 'Health recovered', 'system');
-    }
   }
 
   private getOrThrow(id: string): DeploymentRecord {

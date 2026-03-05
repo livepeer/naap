@@ -69,7 +69,7 @@ export class FalAdapter implements IProviderAdapter {
 
     const data = await res.json();
     const statusMap: Record<string, ProviderStatus['status']> = {
-      ACTIVE: 'ONLINE', DEPLOYING: 'DEPLOYING', FAILED: 'FAILED', STOPPED: 'OFFLINE',
+      ACTIVE: 'ONLINE', DEPLOYING: 'DEPLOYING', FAILED: 'FAILED', STOPPED: 'FAILED',
     };
     return {
       status: statusMap[data.status] || 'DEPLOYING',
