@@ -401,9 +401,11 @@ export function RequireAuth({
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      router.push('/login?redirect=' + encodeURIComponent(pathname));
+      // Prevent middleware redirect loops when a stale client token exists.
+      clearAllAuthStorage();
+      window.location.replace('/login?redirect=' + encodeURIComponent(pathname));
     }
-  }, [isLoading, isAuthenticated, router, pathname]);
+  }, [isLoading, isAuthenticated, pathname]);
 
   if (isLoading) {
     return fallback ?? (
