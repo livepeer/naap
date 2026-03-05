@@ -45,6 +45,7 @@ Set in Vercel Dashboard → Project Settings → Environment Variables:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `DATABASE_URL_UNPOOLED` | Yes | Non-pooled connection (for Prisma migrations) |
 | `NEXTAUTH_SECRET` | Yes | Session encryption key |
 | `NEXT_PUBLIC_APP_URL` | Yes | Production URL |
 | `BLOB_READ_WRITE_TOKEN` | No | Vercel Blob for plugin storage |
@@ -53,6 +54,64 @@ Set in Vercel Dashboard → Project Settings → Environment Variables:
 | `GOOGLE_CLIENT_SECRET` | No | Google OAuth |
 | `GITHUB_CLIENT_ID` | No | GitHub OAuth |
 | `GITHUB_CLIENT_SECRET` | No | GitHub OAuth |
+
+### Database Environment Variables (Neon Branching)
+
+NaaP uses **Neon database branching** to separate preview from production data.
+Each Vercel environment (Production, Preview) must have its own `DATABASE_URL`
+pointing to the correct Neon branch.
+
+#### Setup Steps
+
+1. **Neon Console**: Go to your Neon project. You should have two branches:
+   - `main` — production data (default branch)
+   - `preview` — isolated branch for PR preview deployments
+
+2. **Get connection strings**: For each branch, copy the pooled and unpooled
+   connection strings from Neon Console → Branch → Connection Details.
+
+3. **Vercel Dashboard** → Project Settings → Environment Variables:
+
+   **Scope existing database vars to Production only:**
+   - Edit `DATABASE_URL` → set scope to **Production** only → use the Neon `main` branch pooled URL
+   - Edit `DATABASE_URL_UNPOOLED` → set scope to **Production** only → use the Neon `main` branch unpooled URL
+   - Edit all `POSTGRES_*` and `PG*` variables → set scope to **Production** only
+
+   **Add preview-scoped database vars:**
+   - Add `DATABASE_URL` → set scope to **Preview** only → use the Neon `preview` branch pooled URL
+   - Add `DATABASE_URL_UNPOOLED` → set scope to **Preview** only → use the Neon `preview` branch unpooled URL
+
+   Example (the compute endpoint hostname differs per branch):
+   ```
+   # Production (Neon main branch)
+   DATABASE_URL=postgresql://neondb_owner:***@ep-frosty-pine-aiybl1uq-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require
+   DATABASE_URL_UNPOOLED=postgresql://neondb_owner:***@ep-frosty-pine-aiybl1uq.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require
+
+   # Preview (Neon preview branch — different compute endpoint)
+   DATABASE_URL=postgresql://neondb_owner:***@ep-<preview-endpoint>-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require
+   DATABASE_URL_UNPOOLED=postgresql://neondb_owner:***@ep-<preview-endpoint>.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require
+   ```
+
+4. **GitHub Secrets** (for the preview branch reset workflow):
+   - `NEON_API_KEY` — Neon API key ([create one here](https://neon.tech/docs/manage/api-keys))
+   - `NEON_PROJECT_ID` — Your Neon project ID (visible in project settings)
+   - `NEON_PREVIEW_BRANCH_ID` — The branch ID of the `preview` branch (format: `br-xxx-xxx-xxxxxxxx`, visible in Neon Console → Branches)
+
+#### How It Works
+
+```
+PR created/updated
+  → Vercel preview build
+  → DATABASE_URL resolves to Neon "preview" branch (via Preview-scoped env var)
+  → prisma db push applies schema to preview branch
+  → Preview deployment runs against isolated preview data
+
+PR merged to main
+  → Vercel production build
+  → DATABASE_URL resolves to Neon "main" branch (via Production-scoped env var)
+  → prisma db push promotes schema changes to production
+  → Reset Preview DB workflow resets preview branch to match main
+```
 
 ## Build Process
 
@@ -96,7 +155,9 @@ automatically. This serves as the staging environment:
 
 - Each PR gets a unique preview URL (e.g., `naap-<hash>.vercel.app`)
 - Preview builds use the same `./bin/vercel-build.sh` as production
-- Teams can test their changes in an isolated environment before merge
+- Preview deployments use the Neon `preview` database branch (isolated from production)
+- Schema changes are auto-applied to the preview DB via `prisma db push`
+- Teams can test their changes — including schema changes — without risking production data
 - No shared staging branch means no merge conflicts between teams
 
 ### Production

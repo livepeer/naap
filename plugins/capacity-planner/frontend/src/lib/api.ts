@@ -141,7 +141,40 @@ export async function createRequest(
   });
 }
 
-// Toggle soft commit (thumbs up)
+export interface CommitResponse {
+  action: 'added' | 'updated' | 'removed';
+  userId?: string;
+  userName?: string;
+  commit?: {
+    id: string;
+    userId: string;
+    userName: string;
+    gpuCount: number;
+    timestamp: string;
+  };
+}
+
+export async function commitCapacity(
+  requestId: string,
+  gpuCount: number,
+  userName?: string
+): Promise<CommitResponse> {
+  return apiRequest<CommitResponse>(`/requests/${requestId}/commit`, {
+    method: 'POST',
+    body: JSON.stringify({ gpuCount, userName }),
+  });
+}
+
+export async function withdrawCommit(
+  requestId: string
+): Promise<CommitResponse> {
+  return apiRequest<CommitResponse>(`/requests/${requestId}/commit`, {
+    method: 'POST',
+    body: JSON.stringify({ withdraw: true }),
+  });
+}
+
+/** @deprecated Use commitCapacity / withdrawCommit instead */
 export async function toggleCommit(
   requestId: string,
   userId: string,
@@ -168,4 +201,30 @@ export async function addComment(
 // Get summary/analytics
 export async function fetchSummary(): Promise<SummaryData> {
   return apiRequest<SummaryData>('/summary');
+}
+
+export interface CurrentUser {
+  id: string;
+  name: string;
+}
+
+/**
+ * Fetch the current authenticated user from /api/v1/auth/me.
+ * Falls back to {id: 'anonymous', name: 'Anonymous'} on error.
+ */
+export async function fetchCurrentUser(): Promise<CurrentUser> {
+  try {
+    const headers = getAuthHeaders();
+    const res = await fetch('/api/v1/auth/me', { headers });
+    if (!res.ok) return { id: 'anonymous', name: 'Anonymous' };
+    const data = await res.json();
+    const user = data?.data?.user;
+    if (!user?.id) return { id: 'anonymous', name: 'Anonymous' };
+    return {
+      id: user.id,
+      name: user.displayName || user.email || user.id,
+    };
+  } catch {
+    return { id: 'anonymous', name: 'Anonymous' };
+  }
 }

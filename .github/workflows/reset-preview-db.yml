@@ -1,0 +1,61 @@
+# =============================================================================
+# Reset Preview Database — After Production Deploy
+# =============================================================================
+# After a successful production deployment, resets the Neon "preview" database
+# branch to match the "main" branch. This ensures the next PR's preview
+# deployment starts with an up-to-date schema and clean data.
+#
+# Requires GitHub secrets:
+#   NEON_API_KEY    — Neon API key (https://neon.tech/docs/manage/api-keys)
+#   NEON_PROJECT_ID — Neon project ID (visible in project settings)
+#   NEON_PREVIEW_BRANCH_ID — Branch ID of the preview branch (br-xxx-xxx-xxxxxxxx)
+# =============================================================================
+
+name: Reset Preview DB
+
+on:
+  workflow_run:
+    workflows: [Deploy]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  reset-preview-branch:
+    name: Reset Neon preview branch
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Reset preview branch from main
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
+          NEON_PREVIEW_BRANCH_ID: ${{ secrets.NEON_PREVIEW_BRANCH_ID }}
+        run: |
+          echo "Resetting Neon preview branch to match main..."
+
+          HTTP_STATUS=$(curl -s -o /tmp/neon-response.json -w "%{http_code}" \
+            -X POST \
+            "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches/${NEON_PREVIEW_BRANCH_ID}/reset" \
+            -H "Accept: application/json" \
+            -H "Authorization: Bearer ${NEON_API_KEY}" \
+            -H "Content-Type: application/json")
+
+          echo "Neon API response status: ${HTTP_STATUS}"
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "Preview branch reset successfully."
+          else
+            echo "::warning::Preview branch reset failed (HTTP ${HTTP_STATUS})."
+            echo "Response:"
+            cat /tmp/neon-response.json
+            exit 1
+          fi
+
+      - name: Post summary
+        if: always()
+        run: |
+          echo "## Preview DB Reset" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger:** Production deploy succeeded" >> $GITHUB_STEP_SUMMARY
+          echo "- **Action:** Reset Neon preview branch to match main" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
@@ -18,25 +18,38 @@ import { Badge } from '@naap/ui';
 import type { CapacityRequest, RequestComment } from '../types';
 import { RiskIndicator } from './RiskIndicator';
 import { formatDate } from '../utils';
+import { CommitDialog } from './CommitDialog';
 
 interface RequestDetailModalProps {
   request: CapacityRequest;
   isOpen: boolean;
   onClose: () => void;
-  onThumbsUp: (request: CapacityRequest) => void;
+  onCommit: (request: CapacityRequest, gpuCount: number) => void;
+  onWithdraw: (request: CapacityRequest) => void;
   onAddComment: (requestId: string, comment: RequestComment) => void;
   hasCommitted: boolean;
+  userCommitCount?: number;
+  currentUserName: string;
 }
 
 export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
   request,
   isOpen,
   onClose,
-  onThumbsUp,
+  onCommit,
+  onWithdraw,
   onAddComment,
   hasCommitted,
+  userCommitCount,
+  currentUserName,
 }) => {
   const [commentText, setCommentText] = useState('');
+  const [showCommitDialog, setShowCommitDialog] = useState(false);
+  const commitBtnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) setShowCommitDialog(false);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -44,7 +57,7 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
     if (!commentText.trim()) return;
     const comment: RequestComment = {
       id: `cmt-${Date.now()}`,
-      author: 'You',
+      author: currentUserName,
       text: commentText.trim(),
       timestamp: new Date().toISOString(),
     };
@@ -58,6 +71,12 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
       handleSubmitComment();
     }
   };
+
+  const totalCommittedGpus = request.softCommits.reduce(
+    (sum, sc) => sum + (sc.gpuCount ?? 1),
+    0
+  );
+  const fillPct = Math.min(100, (totalCommittedGpus / request.count) * 100);
 
   const specs = [
     { icon: <Cpu size={14} />, label: 'GPU Model', value: request.gpuModel },
@@ -147,33 +166,75 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
             <div className="p-6 border-b border-[var(--border-color)]">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                  Soft Commitments ({request.softCommits.length})
+                  Providers ({request.softCommits.length})
                 </h3>
-                <button
-                  onClick={() => onThumbsUp(request)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-                    hasCommitted
-                      ? 'bg-accent-emerald/20 text-accent-emerald border border-accent-emerald/30'
-                      : 'bg-accent-emerald text-white shadow-lg shadow-accent-emerald/20 hover:bg-accent-emerald/90'
-                  }`}
-                >
-                  <ThumbsUp size={15} className={hasCommitted ? 'fill-current' : ''} />
-                  {hasCommitted ? 'Committed' : 'I can provide'}
-                </button>
+                <div className="relative">
+                  <button
+                    ref={commitBtnRef}
+                    onClick={() => setShowCommitDialog(true)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                      hasCommitted
+                        ? 'bg-accent-emerald/20 text-accent-emerald border border-accent-emerald/30'
+                        : 'bg-accent-emerald text-white shadow-lg shadow-accent-emerald/20 hover:bg-accent-emerald/90'
+                    }`}
+                  >
+                    <ThumbsUp size={15} className={hasCommitted ? 'fill-current' : ''} />
+                    {hasCommitted
+                      ? `Committed ${userCommitCount || 1} GPU${(userCommitCount || 1) > 1 ? 's' : ''}`
+                      : 'I can provide'}
+                  </button>
+                  {showCommitDialog && (
+                    <CommitDialog
+                      isOpen={showCommitDialog}
+                      onClose={() => setShowCommitDialog(false)}
+                      onCommit={(count) => onCommit(request, count)}
+                      onWithdraw={hasCommitted ? () => onWithdraw(request) : undefined}
+                      existingCount={hasCommitted ? userCommitCount : undefined}
+                      maxGpus={request.count}
+                      anchorRect={commitBtnRef.current?.getBoundingClientRect()}
+                    />
+                  )}
+                </div>
               </div>
+
+              {/* Commitment progress bar */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="text-text-secondary">
+                    {totalCommittedGpus} of {request.count} GPUs committed
+                  </span>
+                  <span className={`font-semibold ${fillPct >= 100 ? 'text-accent-emerald' : 'text-text-secondary'}`}>
+                    {Math.round(fillPct)}%
+                  </span>
+                </div>
+                <div className="h-2 bg-bg-tertiary rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      fillPct >= 100 ? 'bg-accent-emerald' : fillPct >= 50 ? 'bg-accent-blue' : 'bg-accent-amber'
+                    }`}
+                    style={{ width: `${fillPct}%` }}
+                  />
+                </div>
+              </div>
+
               {request.softCommits.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
+                <div className="space-y-2">
                   {request.softCommits.map((commit) => (
                     <div
                       key={commit.id}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-emerald/10 border border-accent-emerald/20 rounded-full"
+                      className="flex items-center justify-between px-3 py-2 bg-accent-emerald/5 border border-accent-emerald/10 rounded-xl"
                     >
-                      <div className="w-5 h-5 rounded-full bg-accent-emerald/30 flex items-center justify-center">
-                        <User size={10} className="text-accent-emerald" />
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-accent-emerald/20 flex items-center justify-center">
+                          <User size={11} className="text-accent-emerald" />
+                        </div>
+                        <span className="text-sm font-medium text-text-primary">
+                          {commit.userName}
+                        </span>
                       </div>
-                      <span className="text-xs font-medium text-accent-emerald">
-                        {commit.userName}
-                      </span>
+                      <Badge variant="emerald">
+                        {commit.gpuCount ?? 1} GPU{(commit.gpuCount ?? 1) > 1 ? 's' : ''}
+                      </Badge>
                     </div>
                   ))}
                 </div>
@@ -191,7 +252,6 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                 Questions & Comments ({request.comments.length})
               </h3>
 
-              {/* Comment thread */}
               {request.comments.length > 0 ? (
                 <div className="space-y-3 mb-4">
                   {request.comments.map((comment) => (

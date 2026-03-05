@@ -153,6 +153,7 @@ export interface SoftCommit {
   id: string;
   userId: string;
   userName: string;
+  gpuCount: number;
   timestamp: string;
 }
 

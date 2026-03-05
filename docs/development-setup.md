@@ -162,9 +162,33 @@ Plugin backends run on ports 4001-4012. Run `./bin/start.sh status` for the full
 The platform deploys to **Vercel** as a single Next.js application. On Vercel:
 - Plugin API routes are handled by Next.js API route handlers (no separate Express servers)
 - Plugin UMD bundles are served via same-origin CDN routes
-- Database is a managed PostgreSQL (e.g., Neon) connected via `DATABASE_URL`
+- Database is a managed PostgreSQL (Neon) connected via `DATABASE_URL`
 
 See [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md) for production deployment details.
+
+### Preview vs Production Database
+
+NaaP uses **Neon database branching** to isolate preview deployments from production:
+
+| Environment | Neon Branch | When Used |
+|-------------|-------------|-----------|
+| Production  | `main`      | Merges to `main` (production deploys) |
+| Preview     | `preview`   | All PR preview deployments |
+| Development | Local Docker | `./bin/start.sh` (local dev) |
+
+**How it works:**
+
+1. **PR created** — Vercel auto-deploys a preview build. The preview build runs
+   `prisma db push` against the Neon `preview` branch (isolated from production).
+2. **PR merged to main** — Vercel deploys to production. The production build runs
+   `prisma db push` against the Neon `main` branch, promoting schema changes.
+3. **After production deploy** — The `Reset Preview DB` workflow automatically
+   resets the Neon `preview` branch to match `main`, so the next PR starts clean.
+
+All open PRs share a single `preview` branch. If two PRs modify the schema
+concurrently, the last-deployed PR's schema wins on the preview branch. This
+is acceptable for typical workflows where schema-changing PRs are reviewed
+and merged sequentially.
 
 ## Troubleshooting
 
