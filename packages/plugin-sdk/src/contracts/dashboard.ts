@@ -55,6 +55,7 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     protocol: Protocol
     fees(days: Int): FeesInfo
     pipelines(limit: Int, timeframe: String): [PipelineUsage!]
+    pipelineCatalog: [PipelineCatalogEntry!]
     gpuCapacity: GPUCapacity
     pricing: [PipelinePricing!]
     orchestrators(period: String): [OrchestratorRow!]
@@ -118,6 +119,12 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     mins: Int!
     color: String
     modelMins: [PipelineModelMins!]
+  }
+
+  type PipelineCatalogEntry {
+    id: String!
+    name: String!
+    models: [String!]!
   }
 
   type GPUModelCapacity {
@@ -223,6 +230,16 @@ export interface DashboardPipelineUsage {
   modelMins?: DashboardPipelineModelMins[];
 }
 
+/** Pipeline catalog entry from /api/pipelines — all supported pipelines/models on the network */
+export interface DashboardPipelineCatalogEntry {
+  /** Pipeline identifier (e.g. "live-video-to-video") */
+  id: string;
+  /** Human-readable pipeline name */
+  name: string;
+  /** Models supported under this pipeline */
+  models: string[];
+}
+
 /** GPU model capacity entry */
 export interface DashboardGPUModelCapacity {
   model: string;
@@ -262,6 +279,7 @@ export interface DashboardData {
   protocol?: DashboardProtocol | null;
   fees?: DashboardFeesInfo | null;
   pipelines?: DashboardPipelineUsage[] | null;
+  pipelineCatalog?: DashboardPipelineCatalogEntry[] | null;
   gpuCapacity?: DashboardGPUCapacity | null;
   pricing?: DashboardPipelinePricing[] | null;
   orchestrators?: DashboardOrchestrator[] | null;
@@ -318,6 +336,7 @@ export interface DashboardResolvers {
   protocol?: () => DashboardProtocol | Promise<DashboardProtocol>;
   fees?: (args: { days?: number }) => DashboardFeesInfo | Promise<DashboardFeesInfo>;
   pipelines?: (args: { limit?: number; timeframe?: string }) => DashboardPipelineUsage[] | Promise<DashboardPipelineUsage[]>;
+  pipelineCatalog?: () => DashboardPipelineCatalogEntry[] | Promise<DashboardPipelineCatalogEntry[]>;
   gpuCapacity?: () => DashboardGPUCapacity | Promise<DashboardGPUCapacity>;
   pricing?: () => DashboardPipelinePricing[] | Promise<DashboardPipelinePricing[]>;
   orchestrators?: (args: { period?: string }) => DashboardOrchestrator[] | Promise<DashboardOrchestrator[]>;

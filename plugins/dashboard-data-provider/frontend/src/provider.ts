@@ -23,6 +23,7 @@ import {
   type IEventBus,
   type DashboardKPI,
   type DashboardPipelineUsage,
+  type DashboardPipelineCatalogEntry,
   type DashboardGPUCapacity,
   type DashboardOrchestrator,
   type DashboardProtocol,
@@ -32,6 +33,7 @@ import {
   fetchNetworkDemand,
   fetchGPUMetrics,
   fetchSLACompliance,
+  fetchPipelineCatalog,
   type NetworkDemandRow,
   type SLAComplianceRow,
 } from './api/leaderboard.js';
@@ -208,15 +210,16 @@ async function resolvePipelines({ limit = 5, timeframe }: { limit?: number; time
   const byPipeline = new Map<string, Accum>();
 
   for (const row of demand) {
-    if (PIPELINE_DISPLAY[row.pipeline] === null) continue;
-    const acc = byPipeline.get(row.pipeline) ?? { mins: 0, modelMins: new Map<string, number>() };
+    const pipelineName = row.pipeline?.trim();
+    if (!pipelineName || PIPELINE_DISPLAY[pipelineName] === null) continue;
+    const acc = byPipeline.get(pipelineName) ?? { mins: 0, modelMins: new Map<string, number>() };
     const mins = row.total_inference_minutes ?? 0;
     acc.mins += mins;
     const modelId = row.model_id?.trim();
     if (modelId) {
       acc.modelMins.set(modelId, (acc.modelMins.get(modelId) ?? 0) + mins);
     }
-    byPipeline.set(row.pipeline, acc);
+    byPipeline.set(pipelineName, acc);
   }
 
   return [...byPipeline.entries()]
@@ -232,6 +235,20 @@ async function resolvePipelines({ limit = 5, timeframe }: { limit?: number; time
     }))
     .sort((a, b) => b.mins - a.mins)
     .slice(0, safeLimit);
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline Catalog resolver (all supported pipelines/models on the network)
+// ---------------------------------------------------------------------------
+
+async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
+  const catalog = await fetchPipelineCatalog();
+
+  return catalog.map((entry) => ({
+    id: entry.id,
+    name: PIPELINE_DISPLAY[entry.id] ?? entry.id,
+    models: entry.models ?? [],
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -343,12 +360,13 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
  */
 export function registerDashboardProvider(eventBus: IEventBus): () => void {
   return createDashboardProvider(eventBus, {
-    kpi:           ({ timeframe }: { timeframe?: string }) => resolveKPI({ timeframe }),
-    protocol:      () => resolveProtocol(),
-    fees:          ({ days }: { days?: number }) => resolveFees({ days }),
-    pipelines:     ({ limit, timeframe }: { limit?: number; timeframe?: string }) => resolvePipelines({ limit, timeframe }),
-    gpuCapacity:   () => resolveGPUCapacity(),
-    pricing:       async () => [],
-    orchestrators: ({ period }: { period?: string }) => resolveOrchestrators({ period }),
+    kpi:             ({ timeframe }: { timeframe?: string }) => resolveKPI({ timeframe }),
+    protocol:        () => resolveProtocol(),
+    fees:            ({ days }: { days?: number }) => resolveFees({ days }),
+    pipelines:       ({ limit, timeframe }: { limit?: number; timeframe?: string }) => resolvePipelines({ limit, timeframe }),
+    pipelineCatalog: () => resolvePipelineCatalog(),
+    gpuCapacity:     () => resolveGPUCapacity(),
+    pricing:         async () => [],
+    orchestrators:   ({ period }: { period?: string }) => resolveOrchestrators({ period }),
   });
 }

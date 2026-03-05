@@ -70,6 +70,12 @@ export interface SLAComplianceRow {
   sla_score: number | null;
 }
 
+export interface PipelineCatalogEntry {
+  id: string;
+  models: string[];
+  regions: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Fetch helpers
 // ---------------------------------------------------------------------------
@@ -105,4 +111,9 @@ export async function fetchSLACompliance(period: string): Promise<SLAComplianceR
     `/sla/compliance?${query.toString()}`
   );
   return data.compliance ?? [];
+}
+
+export async function fetchPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
+  const data = await apiFetch<{ pipelines: PipelineCatalogEntry[] }>('/pipelines');
+  return data.pipelines ?? [];
 }

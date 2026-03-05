@@ -18,6 +18,7 @@ export {
   type DashboardFeeWeeklyData,
   type DashboardFeesInfo,
   type DashboardPipelineUsage,
+  type DashboardPipelineCatalogEntry,
   type DashboardGPUCapacity,
   type DashboardPipelinePricing,
   type DashboardOrchestrator,

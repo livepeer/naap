@@ -21,6 +21,7 @@ import type {
   DashboardProtocol,
   DashboardFeesInfo,
   DashboardPipelineUsage,
+  DashboardPipelineCatalogEntry,
   DashboardGPUCapacity,
   DashboardPipelinePricing,
   DashboardOrchestrator,
@@ -76,8 +77,11 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
       totalBlocks
       totalStakedLPT
     }
-    pipelines(limit: 5, timeframe: $timeframe) {
+    pipelines(limit: 50, timeframe: $timeframe) {
       name mins color modelMins { model mins }
+    }
+    pipelineCatalog {
+      id name models
     }
     gpuCapacity {
       totalGPUs
@@ -541,19 +545,48 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
   );
 }
 
-function formatModelShort(model: string): string {
-  const normalized = model.trim();
-  const slashParts = normalized.split('/').filter(Boolean);
-  if (slashParts.length >= 2) {
-    const org = slashParts[slashParts.length - 2];
-    const name = slashParts[slashParts.length - 1];
-    const s = `${org}/${name}`;
-    return s.length > 20 ? `${org}/${name.slice(0, 14)}…` : s;
-  }
-  return normalized.length > 20 ? `${normalized.slice(0, 18)}…` : normalized;
-}
 
-function PipelinesCard({ data, timeframeHours }: { data: DashboardPipelineUsage[]; timeframeHours: number }) {
+function PipelinesCard({
+  data,
+  catalog,
+  timeframeHours,
+}: {
+  data: DashboardPipelineUsage[];
+  catalog?: DashboardPipelineCatalogEntry[] | null;
+  timeframeHours: number;
+}) {
+  const mergedPipelines = useMemo(() => {
+    const usageByName = new Map(data.filter((p) => p.name?.trim()).map((p) => [p.name, p]));
+    const result: Array<DashboardPipelineUsage & { models?: string[] }> = [];
+
+    for (const p of data.filter((p) => p.name?.trim())) {
+      const catalogEntry = catalog?.find((c) => c.name === p.name || c.id === p.name);
+      result.push({
+        ...p,
+        models: catalogEntry?.models,
+      });
+    }
+
+    if (catalog) {
+      for (const c of catalog) {
+        if (!usageByName.has(c.name) && !usageByName.has(c.id)) {
+          result.push({
+            name: c.name,
+            mins: 0,
+            color: '#6366f1',
+            models: c.models,
+          });
+        }
+      }
+    }
+
+    return result;
+  }, [data, catalog]);
+
+  const activePipelines = mergedPipelines.filter((p) => p.mins > 0);
+  const availablePipelines = mergedPipelines.filter((p) => p.mins === 0);
+  const [availableExpanded, setAvailableExpanded] = useState(false);
+
   return (
     <div className="p-4 rounded-lg bg-card border border-border">
       <div className="flex items-center gap-2 mb-4">
@@ -561,11 +594,11 @@ function PipelinesCard({ data, timeframeHours }: { data: DashboardPipelineUsage[
           <Activity className="w-3.5 h-3.5" />
         </div>
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-          Top Pipelines ({formatTimeframeLabel(timeframeHours)})
+          Pipelines ({formatTimeframeLabel(timeframeHours)})
         </span>
       </div>
       <div className="space-y-3">
-        {data.map((p) => (
+        {activePipelines.map((p) => (
           <div key={p.name} className="rounded border border-border/60 overflow-hidden">
             <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-muted/20">
               <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -580,30 +613,101 @@ function PipelinesCard({ data, timeframeHours }: { data: DashboardPipelineUsage[
               </div>
               <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">{formatNumber(p.mins)} mins</span>
             </div>
-            {p.modelMins && p.modelMins.length > 0 && (
+            {p.modelMins && p.modelMins.length > 0 ? (
               <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
                 {p.modelMins.map((m) => (
                   <div key={m.model} className="flex items-center justify-between text-[10px]">
-                    <span className="text-muted-foreground truncate pr-2 font-mono" title={m.model}>
-                      {formatModelShort(m.model)}
+                    <span className="text-muted-foreground pr-2 font-mono break-all">
+                      {m.model}
                     </span>
                     <span className="font-mono text-foreground flex-shrink-0">{formatNumber(m.mins)}</span>
                   </div>
                 ))}
               </div>
-            )}
+            ) : p.models && p.models.length > 0 ? (
+              <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
+                {p.models.map((model) => (
+                  <div key={model} className="flex items-center justify-between text-[10px]">
+                    <span className="text-muted-foreground pr-2 font-mono break-all">
+                      {model}
+                    </span>
+                    <span className="font-mono text-muted-foreground/50 flex-shrink-0">—</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         ))}
+
+        {availablePipelines.length > 0 && (
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setAvailableExpanded((v) => !v)}
+              className="w-full flex items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:text-muted-foreground transition-colors group"
+              aria-expanded={availableExpanded}
+            >
+              <span>Available (no usage in timeframe)</span>
+              <span className="transition-transform group-hover:opacity-100">
+                {availableExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </span>
+            </button>
+            {availableExpanded && (
+              <div className="space-y-1.5 mt-1.5">
+                {availablePipelines.map((p) => (
+                  <div key={p.name} className="rounded border border-border/60 overflow-hidden">
+                    <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-muted/20">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span
+                          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: p.color ?? '#6366f1', opacity: 0.9 }}
+                          aria-hidden="true"
+                        />
+                        <div className="text-xs font-medium text-foreground truncate" title={p.name}>
+                          {p.name}
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">0 mins</span>
+                    </div>
+                    {p.models && p.models.length > 0 && (
+                      <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
+                        {p.models.map((model) => (
+                          <div key={model} className="flex items-center justify-between text-[10px]">
+                            <span className="text-muted-foreground pr-2 font-mono break-all">
+                              {model}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
+const GPU_MODEL_COLORS = [
+  '#3b82f6', // blue
+  '#8b5cf6', // violet
+  '#f59e0b', // amber
+  '#10b981', // emerald
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#f97316', // orange
+  '#84cc16', // lime
+];
 
 function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
   const usedPct = 100 - data.availableCapacity;
   const radius = 40;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference - (usedPct / 100) * circumference;
+  const totalGPUs = data.totalGPUs || 1;
 
   return (
     <div className="p-4 rounded-lg bg-card border border-border">
@@ -652,19 +756,45 @@ function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
       </div>
       {data.models && data.models.length > 0 && (
         <div className="mt-4 pt-3 border-t border-border">
-          <div className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wider">Hardware Breakdown</div>
-          <div className="space-y-1.5">
-            {data.models.slice(0, 3).map(m => (
-              <div key={m.model} className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground truncate pr-2">{m.model}</span>
-                <span className="font-mono text-foreground">{m.count}</span>
-              </div>
-            ))}
-            {data.models.length > 3 && (
-              <div className="text-[10px] text-muted-foreground pt-1">
-                + {data.models.length - 3} more models
-              </div>
-            )}
+          <div className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wider">Capacity by model</div>
+          <div
+            className="flex h-2 rounded-full overflow-hidden bg-muted/50"
+            role="img"
+            aria-label="GPU capacity breakdown by model"
+          >
+            {data.models.map((m, i) => {
+              const pct = (m.count / totalGPUs) * 100;
+              const color = GPU_MODEL_COLORS[i % GPU_MODEL_COLORS.length];
+              return (
+                <div
+                  key={m.model}
+                  className="transition-all duration-300 first:rounded-l-full last:rounded-r-full"
+                  style={{
+                    width: `${pct}%`,
+                    backgroundColor: color,
+                  }}
+                  title={`${m.model}: ${m.count} GPU${m.count !== 1 ? 's' : ''} (${pct.toFixed(1)}%)`}
+                />
+              );
+            })}
+          </div>
+          <div className="space-y-1.5 mt-2">
+            {data.models.map((m, i) => {
+              const color = GPU_MODEL_COLORS[i % GPU_MODEL_COLORS.length];
+              return (
+                <div key={m.model} className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: color }}
+                      aria-hidden
+                    />
+                    <span className="text-muted-foreground truncate" title={m.model}>{m.model}</span>
+                  </span>
+                  <span className="font-mono text-foreground flex-shrink-0">{m.count}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -701,8 +831,9 @@ function JobFeedCard({ jobs, connected }: { jobs: JobFeedEntry[]; connected: boo
       </div>
       <div className="overflow-hidden">
         {jobs.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-xs text-muted-foreground">
-            {connected ? 'Waiting for jobs...' : 'Job feed not connected'}
+          <div className="flex flex-col items-center justify-center h-32 text-center">
+            <span className="text-xs text-muted-foreground">Coming soon</span>
+            <span className="text-[10px] text-muted-foreground/70 mt-1">Real-time job feed when data is connected</span>
           </div>
         ) : (
           <table className="w-full text-xs">
@@ -1142,7 +1273,7 @@ export default function DashboardPage() {
         )}
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
           {data?.pipelines && data?.kpi
-            ? <PipelinesCard data={data.pipelines} timeframeHours={data.kpi.timeframeHours} />
+            ? <PipelinesCard data={data.pipelines} catalog={data.pipelineCatalog} timeframeHours={data.kpi.timeframeHours} />
             : <WidgetUnavailable label="Pipelines" />}
           {data?.gpuCapacity ? <GPUCapacityCard data={data.gpuCapacity} /> : <WidgetUnavailable label="GPU Capacity" />}
         </div>

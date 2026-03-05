@@ -74,6 +74,9 @@ export function createDashboardProvider(
   if (resolvers.pipelines) {
     rootValue.pipelines = (_args: { limit?: number }) => resolvers.pipelines!(_args);
   }
+  if (resolvers.pipelineCatalog) {
+    rootValue.pipelineCatalog = () => resolvers.pipelineCatalog!();
+  }
   if (resolvers.gpuCapacity) {
     rootValue.gpuCapacity = () => resolvers.gpuCapacity!();
   }

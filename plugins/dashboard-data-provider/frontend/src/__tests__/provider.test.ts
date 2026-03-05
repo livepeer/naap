@@ -174,6 +174,18 @@ function stubFetch() {
         } as Response);
       }
 
+      if (pathname.startsWith('/api/v1/leaderboard/pipelines')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            pipelines: [
+              { id: 'live-video-to-video', models: ['streamdiffusion-sdxl'], regions: ['FRA', 'LAX'] },
+              { id: 'text-to-image', models: ['black-forest-labs/FLUX.1-dev'], regions: ['MDW'] },
+            ],
+          }),
+        } as Response);
+      }
+
       // Subgraph endpoint
       if (urlStr.includes('/api/v1/subgraph')) {
         return Promise.resolve({
@@ -342,7 +354,7 @@ describe('registerDashboardProvider', () => {
     })) as DashboardQueryResponse;
 
     expect(response.data!.kpi!.successRate.value).toBe(100);
-    expect(response.data!.kpi!.successRate.delta).toBe(10);
+    expect(response.data!.kpi!.successRate.delta).toBe(0);
   });
 
   it('pipelines are sorted by inference minutes descending', async () => {
@@ -355,6 +367,22 @@ describe('registerDashboardProvider', () => {
     const pipelines = response.data!.pipelines!;
     expect(pipelines.length).toBe(2);
     expect(pipelines[0].mins).toBeGreaterThanOrEqual(pipelines[1].mins);
+  });
+
+  it('returns pipeline catalog with all supported models', async () => {
+    registerDashboardProvider(testEventBus as any);
+
+    const response = (await testEventBus._invoke(DASHBOARD_QUERY_EVENT, {
+      query: '{ pipelineCatalog { id name models } }',
+    })) as DashboardQueryResponse;
+
+    expect(response.errors).toBeUndefined();
+    const catalog = response.data!.pipelineCatalog!;
+    expect(catalog.length).toBe(2);
+
+    const liveVideo = catalog.find(p => p.id === 'live-video-to-video');
+    expect(liveVideo).toBeDefined();
+    expect(liveVideo!.models).toContain('streamdiffusion-sdxl');
   });
 
   it('returns orchestrators aggregated from SLA compliance data', async () => {
@@ -428,43 +456,20 @@ describe('registerJobFeedEmitter', () => {
     expect(response.eventName).toBe('job');
   });
 
-  it('emits initial seed jobs on registration', () => {
+  it('does not emit mock jobs (Coming soon mode)', () => {
     registerJobFeedEmitter(testEventBus as any);
 
-    expect(testEventBus.emit).toHaveBeenCalled();
     const emitCalls = testEventBus.emit.mock.calls.filter(
       (call: any[]) => call[0] === DASHBOARD_JOB_FEED_EMIT_EVENT
     );
-    expect(emitCalls.length).toBeGreaterThan(0);
+    expect(emitCalls.length).toBe(0);
   });
 
-  it('emits new jobs at regular intervals', () => {
-    registerJobFeedEmitter(testEventBus as any);
-
-    const initialEmitCount = testEventBus.emit.mock.calls.filter(
-      (call: any[]) => call[0] === DASHBOARD_JOB_FEED_EMIT_EVENT
-    ).length;
-
-    vi.advanceTimersByTime(3500);
-
-    const newEmitCount = testEventBus.emit.mock.calls.filter(
-      (call: any[]) => call[0] === DASHBOARD_JOB_FEED_EMIT_EVENT
-    ).length;
-
-    expect(newEmitCount).toBeGreaterThan(initialEmitCount);
-  });
-
-  it('cleanup stops interval and unregisters handler', () => {
+  it('cleanup unregisters handler', () => {
     const cleanup = registerJobFeedEmitter(testEventBus as any);
 
     cleanup();
 
     expect(testEventBus._hasHandler(DASHBOARD_JOB_FEED_EVENT)).toBe(false);
-
-    const countBefore = testEventBus.emit.mock.calls.length;
-    vi.advanceTimersByTime(10000);
-    const countAfter = testEventBus.emit.mock.calls.length;
-
-    expect(countAfter).toBe(countBefore);
   });
 });
