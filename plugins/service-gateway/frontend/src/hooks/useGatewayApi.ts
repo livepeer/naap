@@ -3,10 +3,6 @@
  *
  * Wraps useApiClient from plugin-sdk for gateway admin API calls.
  * All calls are team-scoped via x-team-id header.
- *
- * Gateway admin routes (templates, connectors, keys, etc.) live on the Next.js
- * shell, not on base-svc. We must use the shell origin so requests hit the
- * correct server (e.g. localhost:3000 in dev, not localhost:4000).
  */
 
 import { useCallback, useMemo, useState } from 'react';
@@ -15,13 +11,8 @@ import { useTeam } from '@naap/plugin-sdk';
 
 const GW_API_BASE = '/api/v1/gw/admin';
 
-function getShellOrigin(): string {
-  if (typeof window !== 'undefined') return window.location.origin;
-  return '';
-}
-
 export function useGatewayApi() {
-  const apiClient = useApiClient({ baseUrl: getShellOrigin() });
+  const apiClient = useApiClient({ baseUrl: '' });
   const teamContext = useTeam();
   const teamId = teamContext?.currentTeam?.id;
 
