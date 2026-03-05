@@ -152,8 +152,9 @@ function stubFetch() {
 
       // Leaderboard API endpoints (proxy path: /api/v1/leaderboard/...)
       if (pathname.startsWith('/api/v1/leaderboard/network/demand')) {
-        const interval = parsedUrl.searchParams.get('interval') ?? '1h';
-        const demand = interval === '24h' || interval === '2h' ? STUB_DEMAND_2H : STUB_DEMAND_1H;
+        const interval = parsedUrl.searchParams.get('interval') ?? '5m';
+        // fetchNetworkDemand(lookbackHours) sends interval as minutes: 24h→120m, 2h→10m, 1h→5m
+        const demand = interval === '120m' || interval === '10m' ? STUB_DEMAND_2H : STUB_DEMAND_1H;
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ demand }),
