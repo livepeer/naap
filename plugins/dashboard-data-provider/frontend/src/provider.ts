@@ -116,6 +116,18 @@ function weightedSuccessRatio(rows: Array<{ success_ratio: number; known_session
   return rows.reduce((s, r) => s + r.success_ratio * r.known_sessions, 0) / totalSessions;
 }
 
+function trueSuccessRate(rows: NetworkDemandRow[]): number {
+  let served = 0, totalDemand = 0, unexcused = 0, known = 0;
+  for (const r of rows) {
+    served += r.served_sessions || 0;
+    totalDemand += r.total_demand_sessions || 0;
+    unexcused += r.unexcused_sessions || 0;
+    known += r.known_sessions || 0;
+  }
+  if (totalDemand === 0 || known === 0) return 0;
+  return (served / totalDemand) * (1 - unexcused / known) * 100;
+}
+
 /** Count distinct non-empty Ethereum addresses in an array of SLA rows */
 function countOrchestrators(rows: SLAComplianceRow[]): number {
   return new Set(rows.map(r => r.orchestrator_address).filter(a => a?.startsWith('0x'))).size;
@@ -130,37 +142,56 @@ function round1(n: number): number {
 // KPI resolver
 // ---------------------------------------------------------------------------
 
-async function resolveKPI(): Promise<DashboardKPI> {
-  const [demand1h, demand2h, gpuRows, slaRows] = await Promise.all([
-    fetchNetworkDemand('1h'),
-    fetchNetworkDemand('2h'),
-    fetchGPUMetrics('1h'),
-    fetchSLACompliance('72h'),
+/** Valid timeframe options in hours */
+const VALID_TIMEFRAMES = [1, 6, 12, 24, 72] as const;
+type TimeframeHours = (typeof VALID_TIMEFRAMES)[number];
+
+function parseTimeframe(input?: string | number): TimeframeHours {
+  const hours = typeof input === 'string' ? parseInt(input, 10) : input;
+  if (hours && VALID_TIMEFRAMES.includes(hours as TimeframeHours)) {
+    return hours as TimeframeHours;
+  }
+  return 24; // default
+}
+
+async function resolveKPI({ timeframe }: { timeframe?: string }): Promise<DashboardKPI & { timeframeHours: number }> {
+  const timeframeHours = parseTimeframe(timeframe);
+  
+  // Fetch demand data for the selected timeframe
+  // For orchestrators, use the same timeframe but cap at 72h for SLA data
+  const slaPeriod = `${Math.min(timeframeHours, 72)}h`;
+  
+  const [demandRows, slaRows] = await Promise.all([
+    fetchNetworkDemand(timeframeHours),
+    fetchSLACompliance(slaPeriod),
   ]);
 
-  // Success Rate: compare latest 1 h window vs the previous one
-  const demandWindows = byWindow<NetworkDemandRow>(demand1h);
+  // Success Rate: compare latest window vs the previous one
+  const demandWindows = byWindow<NetworkDemandRow>(demandRows);
   const demandKeys    = sortedKeys(demandWindows);
 
   const latestDemand = demandWindows.get(demandKeys.at(-1) ?? '') ?? [];
   const prevDemand   = demandWindows.get(demandKeys.at(-2) ?? '') ?? [];
 
-  const currentSR = weightedSuccessRatio(latestDemand) * 100;
-  const prevSR    = weightedSuccessRatio(prevDemand)   * 100;
+  const currentSR = trueSuccessRate(latestDemand);
+  const prevSR    = trueSuccessRate(prevDemand);
 
-  // Orchestrators Seen (72h): distinct addresses across the full period
+  // Orchestrators Seen: distinct addresses across the selected period
   const orchCount = countOrchestrators(slaRows) || 0;
   const orchDelta = 0;
 
-  // Daily Usage & Streams: sum over the last 24 h window
-  const dailyMins    = demand2h.reduce((s, r) => s + r.total_inference_minutes, 0);
-  const dailyStreams  = demand2h.reduce((s, r) => s + r.total_streams, 0);
+  // Usage, Streams, and Fees: sum over the selected timeframe
+  const totalMins    = demandRows.reduce((s, r) => s + (r.total_inference_minutes || 0), 0);
+  const totalStreams = demandRows.reduce((s, r) => s + (r.total_streams || 0), 0);
+  const totalFeesEth = demandRows.reduce((s, r) => s + (r.fee_payment_eth || 0), 0);
 
   return {
     successRate:        { value: round1(currentSR),         delta: round1(currentSR - prevSR) },
     orchestratorsOnline:{ value: orchCount,                  delta: orchDelta },
-    dailyUsageMins:     { value: Math.round(dailyMins),      delta: 0 },
-    dailyStreamCount:   { value: dailyStreams,                delta: 0 },
+    dailyUsageMins:     { value: Math.round(totalMins),      delta: 0 },
+    dailyStreamCount:   { value: totalStreams,               delta: 0 },
+    dailyNetworkFeesEth:{ value: round1(totalFeesEth),       delta: 0 },
+    timeframeHours,
   };
 }
 
@@ -168,21 +199,36 @@ async function resolveKPI(): Promise<DashboardKPI> {
 // Pipelines resolver
 // ---------------------------------------------------------------------------
 
-async function resolvePipelines({ limit = 5 }: { limit?: number }): Promise<DashboardPipelineUsage[]> {
+async function resolvePipelines({ limit = 5, timeframe }: { limit?: number; timeframe?: string }): Promise<DashboardPipelineUsage[]> {
   const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 5;
-  const demand = await fetchNetworkDemand('2h');
+  const timeframeHours = parseTimeframe(timeframe);
+  const demand = await fetchNetworkDemand(timeframeHours);
 
-  const totals = new Map<string, number>();
+  type Accum = { mins: number; modelMins: Map<string, number> };
+  const byPipeline = new Map<string, Accum>();
+
   for (const row of demand) {
-    totals.set(row.pipeline, (totals.get(row.pipeline) ?? 0) + row.total_inference_minutes);
+    if (PIPELINE_DISPLAY[row.pipeline] === null) continue;
+    const acc = byPipeline.get(row.pipeline) ?? { mins: 0, modelMins: new Map<string, number>() };
+    const mins = row.total_inference_minutes ?? 0;
+    acc.mins += mins;
+    const modelId = row.model_id?.trim();
+    if (modelId) {
+      acc.modelMins.set(modelId, (acc.modelMins.get(modelId) ?? 0) + mins);
+    }
+    byPipeline.set(row.pipeline, acc);
   }
 
-  return [...totals.entries()]
-    .filter(([name]) => PIPELINE_DISPLAY[name] !== null)
-    .map(([name, mins]) => ({
-      name:  PIPELINE_DISPLAY[name] ?? name,
-      mins:  Math.round(mins),
-      color: PIPELINE_COLOR[name] ?? DEFAULT_PIPELINE_COLOR,
+  return [...byPipeline.entries()]
+    .map(([pipeline, acc]) => ({
+      name:  PIPELINE_DISPLAY[pipeline] ?? pipeline,
+      mins:  Math.round(acc.mins),
+      color: PIPELINE_COLOR[pipeline] ?? DEFAULT_PIPELINE_COLOR,
+      modelMins: acc.modelMins.size > 0
+        ? [...acc.modelMins.entries()]
+            .map(([model, m]) => ({ model, mins: Math.round(m) }))
+            .sort((a, b) => b.mins - a.mins)
+        : undefined,
     }))
     .sort((a, b) => b.mins - a.mins)
     .slice(0, safeLimit);
@@ -208,7 +254,21 @@ async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
       )
     : 100;
 
-  return { totalGPUs, availableCapacity: avgAvailable };
+  const modelCounts = new Map<string, Set<string>>();
+  for (const m of metricsWide) {
+    if (!m.gpu_name || !m.gpu_id) continue;
+    if (!modelCounts.has(m.gpu_name)) {
+      modelCounts.set(m.gpu_name, new Set());
+    }
+    modelCounts.get(m.gpu_name)!.add(m.gpu_id);
+  }
+
+  const models = [...modelCounts.entries()].map(([model, ids]) => ({
+    model,
+    count: ids.size,
+  })).sort((a, b) => b.count - a.count);
+
+  return { totalGPUs, availableCapacity: avgAvailable, models };
 }
 
 // ---------------------------------------------------------------------------
@@ -221,12 +281,8 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
   type Accum = {
     knownSessions: number;
     successSessions: number;
-    srSum: number;
-    srSessions: number;
-    slaSum: number;
-    slaSessions: number;
-    noSwapSum: number;
-    noSwapSessions: number;
+    unexcusedSessions: number;
+    swappedSessions: number;
     pipelines: Set<string>;
     gpuIds: Set<string>;
   };
@@ -239,9 +295,7 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
     if (!byAddress.has(row.orchestrator_address)) {
       byAddress.set(row.orchestrator_address, {
         knownSessions: 0, successSessions: 0,
-        srSum: 0, srSessions: 0,
-        slaSum: 0, slaSessions: 0,
-        noSwapSum: 0, noSwapSessions: 0,
+        unexcusedSessions: 0, swappedSessions: 0,
         pipelines: new Set(), gpuIds: new Set(),
       });
     }
@@ -250,40 +304,30 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
     const knownSessions = row.known_sessions ?? 0;
     d.knownSessions += knownSessions;
     d.successSessions += row.success_sessions ?? 0;
+    d.unexcusedSessions += row.unexcused_sessions ?? 0;
+    d.swappedSessions += row.swapped_sessions ?? 0;
 
-    if (row.success_ratio != null && knownSessions > 0) {
-      d.srSum += row.success_ratio * knownSessions;
-      d.srSessions += knownSessions;
-    }
-    if (row.sla_score != null && knownSessions > 0) {
-      d.slaSum += row.sla_score * knownSessions;
-      d.slaSessions += knownSessions;
-    }
-    if (row.no_swap_ratio != null && knownSessions > 0) {
-      d.noSwapSum += row.no_swap_ratio * knownSessions;
-      d.noSwapSessions += knownSessions;
-    }
     if (row.pipeline) d.pipelines.add(row.pipeline);
     if (row.gpu_id) d.gpuIds.add(row.gpu_id);
   }
 
   return [...byAddress.entries()]
-    .map(([address, d]) => ({
-      address,
-      knownSessions: d.knownSessions,
-      successSessions: d.successSessions,
-      successRatio: d.srSessions > 0
-        ? Math.round((d.srSum / d.srSessions) * 1000) / 10
-        : 0,
-      noSwapRatio: d.noSwapSessions > 0
-        ? Math.round((d.noSwapSum / d.noSwapSessions) * 1000) / 10
-        : null,
-      slaScore: d.slaSessions > 0
-        ? Math.round(d.slaSum / d.slaSessions)
-        : null,
-      pipelines: [...d.pipelines].sort(),
-      gpuCount: d.gpuIds.size,
-    }))
+    .map(([address, d]) => {
+      const successRatio = d.knownSessions > 0 ? 1 - (d.unexcusedSessions / d.knownSessions) : 0;
+      const noSwapRatio = d.knownSessions > 0 ? 1 - (d.swappedSessions / d.knownSessions) : null;
+      const slaScore = d.knownSessions > 0 ? (0.7 * successRatio + 0.3 * (noSwapRatio || 0)) * 100 : null;
+
+      return {
+        address,
+        knownSessions: d.knownSessions,
+        successSessions: d.successSessions,
+        successRatio: Math.round(successRatio * 1000) / 10,
+        noSwapRatio: noSwapRatio !== null ? Math.round(noSwapRatio * 1000) / 10 : null,
+        slaScore: slaScore !== null ? Math.round(slaScore) : null,
+        pipelines: [...d.pipelines].sort(),
+        gpuCount: d.gpuIds.size,
+      };
+    })
     .sort((a, b) => b.knownSessions - a.knownSessions);
 }
 
@@ -299,10 +343,10 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
  */
 export function registerDashboardProvider(eventBus: IEventBus): () => void {
   return createDashboardProvider(eventBus, {
-    kpi:           () => resolveKPI(),
+    kpi:           ({ timeframe }: { timeframe?: string }) => resolveKPI({ timeframe }),
     protocol:      () => resolveProtocol(),
     fees:          ({ days }: { days?: number }) => resolveFees({ days }),
-    pipelines:     ({ limit }: { limit?: number }) => resolvePipelines({ limit }),
+    pipelines:     ({ limit, timeframe }: { limit?: number; timeframe?: string }) => resolvePipelines({ limit, timeframe }),
     gpuCapacity:   () => resolveGPUCapacity(),
     pricing:       async () => [],
     orchestrators: ({ period }: { period?: string }) => resolveOrchestrators({ period }),

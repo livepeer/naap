@@ -23,6 +23,7 @@ export interface NetworkDemandRow {
   gateway: string;
   region: string | null;
   pipeline: string;
+  model_id: string | null;
   total_sessions: number;
   total_streams: number;
   avg_output_fps: number;
@@ -51,6 +52,8 @@ export interface GPUMetricRow {
   success_sessions: number;
   failure_rate: number;
   swap_rate: number;
+  gpu_name: string | null;
+  gpu_memory_total: number | null;
 }
 
 export interface SLAComplianceRow {
@@ -60,6 +63,8 @@ export interface SLAComplianceRow {
   gpu_id: string | null;
   known_sessions: number;
   success_sessions: number;
+  unexcused_sessions: number;
+  swapped_sessions: number;
   success_ratio: number | null;
   no_swap_ratio: number | null;
   sla_score: number | null;
@@ -75,8 +80,11 @@ async function apiFetch<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function fetchNetworkDemand(interval: string): Promise<NetworkDemandRow[]> {
-  const query = new URLSearchParams({ interval });
+export async function fetchNetworkDemand(lookbackHours: number): Promise<NetworkDemandRow[]> {
+  // The API uses a quirk where it multiplies the interval by 12 to get the total lookback window.
+  // We abstract that away here so callers can just ask for the total hours they want.
+  const intervalMinutes = (lookbackHours * 60) / 12;
+  const query = new URLSearchParams({ interval: `${intervalMinutes}m` });
   const data = await apiFetch<{ demand: NetworkDemandRow[] }>(
     `/network/demand?${query.toString()}`
   );

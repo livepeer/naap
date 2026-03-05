@@ -51,10 +51,10 @@ export const DASHBOARD_JOB_FEED_EMIT_EVENT = 'dashboard:job-feed:event' as const
  */
 export const DASHBOARD_SCHEMA = /* GraphQL */ `
   type Query {
-    kpi(window: String): KPI
+    kpi(window: String, timeframe: String): KPI
     protocol: Protocol
     fees(days: Int): FeesInfo
-    pipelines(limit: Int): [PipelineUsage!]
+    pipelines(limit: Int, timeframe: String): [PipelineUsage!]
     gpuCapacity: GPUCapacity
     pricing: [PipelinePricing!]
     orchestrators(period: String): [OrchestratorRow!]
@@ -65,6 +65,8 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     orchestratorsOnline: MetricDelta!
     dailyUsageMins: MetricDelta!
     dailyStreamCount: MetricDelta!
+    dailyNetworkFeesEth: MetricDelta!
+    timeframeHours: Int!
   }
 
   type MetricDelta {
@@ -106,15 +108,27 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     weeklyVolumeEth: Float!
   }
 
+  type PipelineModelMins {
+    model: String!
+    mins: Int!
+  }
+
   type PipelineUsage {
     name: String!
     mins: Int!
     color: String
+    modelMins: [PipelineModelMins!]
+  }
+
+  type GPUModelCapacity {
+    model: String!
+    count: Int!
   }
 
   type GPUCapacity {
     totalGPUs: Int!
     availableCapacity: Float!
+    models: [GPUModelCapacity!]!
   }
 
   type PipelinePricing {
@@ -152,6 +166,9 @@ export interface DashboardKPI {
   orchestratorsOnline: MetricDelta;
   dailyUsageMins: MetricDelta;
   dailyStreamCount: MetricDelta;
+  dailyNetworkFeesEth: MetricDelta;
+  /** The timeframe in hours that this KPI data covers */
+  timeframeHours: number;
 }
 
 /** Protocol widget data */
@@ -193,16 +210,30 @@ export interface DashboardFeesInfo {
 }
 
 /** Pipeline usage entry */
+export interface DashboardPipelineModelMins {
+  model: string;
+  mins: number;
+}
+
 export interface DashboardPipelineUsage {
   name: string;
   mins: number;
   color?: string;
+  /** Per-model inference minutes (when available) */
+  modelMins?: DashboardPipelineModelMins[];
+}
+
+/** GPU model capacity entry */
+export interface DashboardGPUModelCapacity {
+  model: string;
+  count: number;
 }
 
 /** GPU capacity widget data */
 export interface DashboardGPUCapacity {
   totalGPUs: number;
   availableCapacity: number;
+  models: DashboardGPUModelCapacity[];
 }
 
 /** Pipeline pricing entry */
@@ -283,10 +314,10 @@ export interface JobFeedEntry {
  * Unimplemented resolvers return null (GraphQL handles this gracefully).
  */
 export interface DashboardResolvers {
-  kpi?: (args: { window?: string }) => DashboardKPI | Promise<DashboardKPI>;
+  kpi?: (args: { window?: string; timeframe?: string }) => DashboardKPI | Promise<DashboardKPI>;
   protocol?: () => DashboardProtocol | Promise<DashboardProtocol>;
   fees?: (args: { days?: number }) => DashboardFeesInfo | Promise<DashboardFeesInfo>;
-  pipelines?: (args: { limit?: number }) => DashboardPipelineUsage[] | Promise<DashboardPipelineUsage[]>;
+  pipelines?: (args: { limit?: number; timeframe?: string }) => DashboardPipelineUsage[] | Promise<DashboardPipelineUsage[]>;
   gpuCapacity?: () => DashboardGPUCapacity | Promise<DashboardGPUCapacity>;
   pricing?: () => DashboardPipelinePricing[] | Promise<DashboardPipelinePricing[]>;
   orchestrators?: (args: { period?: string }) => DashboardOrchestrator[] | Promise<DashboardOrchestrator[]>;
