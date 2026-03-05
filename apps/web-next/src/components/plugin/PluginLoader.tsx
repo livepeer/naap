@@ -9,6 +9,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Loader2, AlertCircle, RefreshCw, ExternalLink } from 'lucide-react';
+import { getSafeErrorMessage } from '@naap/plugin-sdk';
 import {
   loadUMDPlugin,
   mountUMDPlugin,
@@ -230,12 +231,7 @@ export function PluginLoader({
       setStatus('loaded');
       onLoadRef.current?.(loaded);
     } catch (err) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : err && typeof err === 'object' && typeof (err as Record<string, unknown>).message === 'string'
-            ? (err as Record<string, unknown>).message as string
-            : String(err ?? 'Unknown error');
+      const msg = getSafeErrorMessage(err);
       const loadError = err instanceof Error ? err : new Error(msg);
       setError(loadError);
       setStatus('error');

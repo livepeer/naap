@@ -10,8 +10,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import { useApiClient } from '@naap/plugin-sdk';
-import { useTeam } from '@naap/plugin-sdk';
+import { useApiClient, useTeam, getSafeErrorMessage } from '@naap/plugin-sdk';
 
 const GW_API_BASE = '/api/v1/gw/admin';
 
