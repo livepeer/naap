@@ -61,7 +61,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     }
 
     const gpuCount = Math.max(1, Math.min(clientGpuCount || 1, 999));
-    const userName = clientUserName || user.displayName || user.email || 'Anonymous';
+    const userName = user.displayName || user.email || clientUserName || 'Anonymous';
 
     if (existing) {
       const updated = await prisma.capacitySoftCommit.update({

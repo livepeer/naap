@@ -202,3 +202,29 @@ export async function addComment(
 export async function fetchSummary(): Promise<SummaryData> {
   return apiRequest<SummaryData>('/summary');
 }
+
+export interface CurrentUser {
+  id: string;
+  name: string;
+}
+
+/**
+ * Fetch the current authenticated user from /api/v1/auth/me.
+ * Falls back to {id: 'anonymous', name: 'Anonymous'} on error.
+ */
+export async function fetchCurrentUser(): Promise<CurrentUser> {
+  try {
+    const headers = getAuthHeaders();
+    const res = await fetch('/api/v1/auth/me', { headers });
+    if (!res.ok) return { id: 'anonymous', name: 'Anonymous' };
+    const data = await res.json();
+    const user = data?.data?.user;
+    if (!user?.id) return { id: 'anonymous', name: 'Anonymous' };
+    return {
+      id: user.id,
+      name: user.displayName || user.email || user.id,
+    };
+  } catch {
+    return { id: 'anonymous', name: 'Anonymous' };
+  }
+}

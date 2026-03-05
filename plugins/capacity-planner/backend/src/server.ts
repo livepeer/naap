@@ -359,7 +359,7 @@ app.post('/api/v1/capacity-planner/requests/:id/commit', async (req, res) => {
       return res.status(401).json({ success: false, error: 'Authentication required' });
     }
     const userId = user.id;
-    const userName = req.body?.userName || user.id;
+    const userName = user.displayName || user.email || req.body?.userName || userId;
     const gpuCount = Math.max(1, Math.min(req.body?.gpuCount || 1, 999));
     const withdraw = req.body?.withdraw === true;
 
