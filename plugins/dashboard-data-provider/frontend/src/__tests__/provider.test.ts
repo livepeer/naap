@@ -147,11 +147,12 @@ function stubFetch() {
     'fetch',
     vi.fn((url: string | URL | Request) => {
       const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+      const parsedUrl = new URL(urlStr, 'http://test');
+      const pathname = parsedUrl.pathname;
 
-      // Leaderboard API endpoints (proxy path: /api/v1/leaderboard/network/demand)
-      if (urlStr.includes('/network/demand') || urlStr.includes('/api/network/demand')) {
-        const url = new URL(urlStr, 'http://test');
-        const interval = url.searchParams.get('interval') ?? '1h';
+      // Leaderboard API endpoints (proxy path: /api/v1/leaderboard/...)
+      if (pathname.startsWith('/api/v1/leaderboard/network/demand')) {
+        const interval = parsedUrl.searchParams.get('interval') ?? '1h';
         const demand = interval === '24h' || interval === '2h' ? STUB_DEMAND_2H : STUB_DEMAND_1H;
         return Promise.resolve({
           ok: true,
@@ -159,14 +160,14 @@ function stubFetch() {
         } as Response);
       }
 
-      if (urlStr.includes('/gpu/metrics')) {
+      if (pathname.startsWith('/api/v1/leaderboard/gpu/metrics')) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ metrics: STUB_GPU }),
         } as Response);
       }
 
-      if (urlStr.includes('/sla/compliance')) {
+      if (pathname.startsWith('/api/v1/leaderboard/sla/compliance')) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ compliance: STUB_SLA }),
@@ -367,17 +368,21 @@ describe('registerDashboardProvider', () => {
     const orchs = response.data!.orchestrators!;
     expect(orchs.length).toBe(2);
 
-    expect(orchs[0].address).toBe('0xaaa');
-    expect(orchs[0].knownSessions).toBe(7);
-    expect(orchs[0].successSessions).toBe(7);
-    expect(orchs[0].successRatio).toBe(100);
-    expect(orchs[0].noSwapRatio).toBe(100);
-    expect(orchs[0].slaScore).toBe(100);
-    expect(orchs[0].gpuCount).toBe(1);
-    expect(orchs[0].pipelines).toContain('streamdiffusion-sdxl');
+    const byAddr = new Map(orchs.map(o => [o.address, o]));
 
-    expect(orchs[1].address).toBe('0xbbb');
-    expect(orchs[1].knownSessions).toBe(2);
+    const orchA = byAddr.get('0xaaa')!;
+    expect(orchA).toBeDefined();
+    expect(orchA.knownSessions).toBe(7);
+    expect(orchA.successSessions).toBe(7);
+    expect(orchA.successRatio).toBe(100);
+    expect(orchA.noSwapRatio).toBe(100);
+    expect(orchA.slaScore).toBe(100);
+    expect(orchA.gpuCount).toBe(1);
+    expect(orchA.pipelines).toContain('streamdiffusion-sdxl');
+
+    const orchB = byAddr.get('0xbbb')!;
+    expect(orchB).toBeDefined();
+    expect(orchB.knownSessions).toBe(2);
   });
 
   it('cleanup unregisters the handler', () => {

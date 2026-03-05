@@ -1,17 +1,24 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Zap, Check, Cpu, MapPin } from 'lucide-react';
+import { Clock, DollarSign, Check } from 'lucide-react';
 import { Badge } from '@naap/ui';
-import type { NetworkModel } from '@naap/types';
-import { shortGPUName } from '../../utils/gpu';
+import type { AIModel } from '@naap/types';
 
 interface ModelCardProps {
-  model: NetworkModel;
+  model: AIModel;
   isSelected: boolean;
   isComparing: boolean;
   onSelect: () => void;
   onToggleCompare: () => void;
 }
+
+const badgeVariants = {
+  'Featured': 'emerald',
+  'Realtime': 'blue',
+  'Best Quality': 'amber',
+  'Low-cost': 'secondary',
+  'High-quality': 'amber',
+} as const;
 
 export const ModelCard: React.FC<ModelCardProps> = ({
   model,
@@ -20,42 +27,20 @@ export const ModelCard: React.FC<ModelCardProps> = ({
   onSelect,
   onToggleCompare,
 }) => {
-  const uniqueGPUs = [...new Set(model.gpuHardware.map((g) => shortGPUName(g.name)))];
-  const gpuLabel =
-    uniqueGPUs.length <= 2
-      ? uniqueGPUs.join(' · ')
-      : `${uniqueGPUs.slice(0, 2).join(' · ')} +${uniqueGPUs.length - 2}`;
-
-  const slaPercent =
-    model.slaScore != null ? `${Math.round(model.slaScore * 100)}%` : null;
-
   return (
     <motion.div
       layout
-      role="button"
-      tabIndex={0}
       onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-      aria-pressed={isSelected}
       className={`glass-card p-4 cursor-pointer transition-all group ${
         isSelected ? 'border-accent-emerald/50 bg-accent-emerald/5' : 'hover:border-white/20'
       }`}
     >
-      {/* Title row */}
-      <div className="flex items-start justify-between gap-3 mb-2">
+      <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex-1 min-w-0">
           <h3 className="font-bold text-text-primary truncate group-hover:text-accent-emerald transition-colors">
-            {model.displayName}
+            {model.name}
           </h3>
-          <div className="flex items-center gap-1.5 mt-1">
-            <Badge variant="secondary">{model.pipelineType}</Badge>
-            {model.isRealtime && <Badge variant="blue">Realtime</Badge>}
-          </div>
+          <p className="text-xs text-text-secondary line-clamp-1 mt-0.5">{model.tagline}</p>
         </div>
         <button
           onClick={(e) => {
@@ -73,34 +58,28 @@ export const ModelCard: React.FC<ModelCardProps> = ({
         </button>
       </div>
 
-      {/* GPU line */}
-      {uniqueGPUs.length > 0 && (
-        <div className="flex items-center gap-1.5 text-xs text-text-secondary mb-3">
-          <Cpu size={12} className="text-accent-amber shrink-0" />
-          <span className="truncate">{gpuLabel}</span>
-        </div>
-      )}
+      {/* Badges */}
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {model.badges.slice(0, 3).map((badge) => (
+          <Badge
+            key={badge}
+            variant={badgeVariants[badge as keyof typeof badgeVariants] || 'secondary'}
+          >
+            {badge}
+          </Badge>
+        ))}
+      </div>
 
-      {/* Metrics row */}
-      <div className="flex items-center gap-3 text-xs text-text-secondary flex-wrap">
-        {model.avgFPS > 0 && (
-          <span className="flex items-center gap-1">
-            <Zap size={12} className="text-accent-emerald" />
-            <span className="font-mono">{model.avgFPS} fps</span>
-          </span>
-        )}
-        {model.e2eLatencyMs != null && (
-          <span className="font-mono text-text-secondary">{model.e2eLatencyMs}ms</span>
-        )}
-        {slaPercent && (
-          <span className="text-accent-emerald font-medium">{slaPercent} SLA</span>
-        )}
-        {model.regionCodes.length > 0 && (
-          <span className="flex items-center gap-1 ml-auto">
-            <MapPin size={12} className="text-text-secondary/60" />
-            <span className="font-mono">{model.regionCodes.join(' ')}</span>
-          </span>
-        )}
+      {/* Quick Metrics */}
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="flex items-center gap-1.5 text-text-secondary">
+          <DollarSign size={12} className="text-accent-emerald" />
+          <span className="font-mono">${model.costPerMin.min.toFixed(2)}/min</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-text-secondary">
+          <Clock size={12} className="text-accent-blue" />
+          <span className="font-mono">{model.latencyP50}ms</span>
+        </div>
       </div>
     </motion.div>
   );

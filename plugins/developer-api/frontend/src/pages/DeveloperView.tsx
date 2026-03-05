@@ -15,12 +15,24 @@ import {
   Loader2,
   CreditCard,
   Cloud,
-  Cpu,
 } from 'lucide-react';
 import { Card, Badge, Modal } from '@naap/ui';
-import { useModelCatalog, type CatalogModel } from '../hooks/useModelCatalog';
+import { getServiceOrigin } from '@naap/plugin-sdk';
 
 type TabId = 'models' | 'api-keys' | 'usage' | 'docs';
+
+interface AIModel {
+  id: string;
+  name: string;
+  tagline: string;
+  type: string;
+  featured: boolean;
+  realtime: boolean;
+  costPerMin: { min: number; max: number };
+  latencyP50: number;
+  badges: string[];
+}
+
 interface ApiKeyProject {
   id: string;
   name: string;
@@ -52,6 +64,8 @@ interface ProjectInfo {
   name: string;
   isDefault: boolean;
 }
+
+const BASE_URL = getServiceOrigin('developer-api');
 
 async function fetchCsrfToken(): Promise<string> {
   try {
@@ -103,6 +117,7 @@ const inputClassName =
 
 export const DeveloperView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>('api-keys');
+  const [models, setModels] = useState<AIModel[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [_loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -128,8 +143,6 @@ export const DeveloperView: React.FC = () => {
   const [revokeKeyId, setRevokeKeyId] = useState<string | null>(null);
   const [revoking, setRevoking] = useState(false);
   const pollAbortControllerRef = useRef<AbortController | null>(null);
-  const { models: liveCatalogModels, loading: modelsLoading, error: modelsError } = useModelCatalog();
-  const [selectedModel, setSelectedModel] = useState<CatalogModel | null>(null);
 
   const revokedCount = useMemo(
     () => apiKeys.filter(k => (k.status || '').toUpperCase() === 'REVOKED').length,
@@ -176,25 +189,17 @@ export const DeveloperView: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const fetchJson = async (url: string) => {
-        const response = await fetch(url, { credentials: 'include' });
-        const payload = await response.json();
-        if (!response.ok) {
-          const message = payload?.error?.message || payload?.error || `HTTP ${response.status}`;
-          throw new Error(`${url} failed: ${message}`);
-        }
-        return payload;
-      };
-
-      const [keysJson, projectsJson] = await Promise.all([
-        fetchJson('/api/v1/developer/keys'),
-        fetchJson('/api/v1/developer/projects'),
+      const [modelsJson, keysJson, projectsJson] = await Promise.all([
+        fetch(`${BASE_URL}/api/v1/developer/models`).then(r => r.json()),
+        fetch('/api/v1/developer/keys').then(r => r.json()),
+        fetch('/api/v1/developer/projects').then(r => r.json()),
       ]);
-
+      setModels((modelsJson.data ?? modelsJson).models || []);
       setApiKeys((keysJson.data ?? keysJson).keys || []);
       setProjects((projectsJson.data ?? projectsJson).projects || []);
     } catch (err) {
       console.error('Failed to load data:', err);
+      setModels(getMockModels());
       setApiKeys([]);
     } finally {
       setLoading(false);
@@ -209,17 +214,10 @@ export const DeveloperView: React.FC = () => {
 
   const loadBillingProviders = useCallback(async () => {
     try {
-      const response = await fetch('/api/v1/billing-providers', { credentials: 'include' });
-      if (!response.ok) {
-        console.error('Failed to load billing providers:', response.status, response.statusText);
-        setBillingProviders([]);
-        return;
-      }
-      const json = await response.json();
+      const json = await fetch('/api/v1/billing-providers').then(r => r.json());
       setBillingProviders((json.data ?? json).providers || []);
     } catch (err) {
       console.error('Failed to load billing providers:', err);
-      setBillingProviders([]);
     }
   }, []);
 
@@ -230,22 +228,12 @@ export const DeveloperView: React.FC = () => {
   const loadModalData = useCallback(async () => {
     setModalDataLoading(true);
     try {
-      const [projectsRes, bpRes] = await Promise.all([
-        fetch('/api/v1/developer/projects', { credentials: 'include' }),
-        fetch('/api/v1/billing-providers', { credentials: 'include' }),
-      ]);
-      if (!projectsRes.ok) {
-        console.error('Failed to load projects:', projectsRes.status, projectsRes.statusText);
-      }
-      if (!bpRes.ok) {
-        console.error('Failed to load billing providers:', bpRes.status, bpRes.statusText);
-      }
       const [projectsJson, bpJson] = await Promise.all([
-        projectsRes.json(),
-        bpRes.json(),
+        fetch('/api/v1/developer/projects').then(r => r.json()),
+        fetch('/api/v1/billing-providers').then(r => r.json()),
       ]);
-      const projectList: ProjectInfo[] = projectsRes.ok ? ((projectsJson.data ?? projectsJson).projects || []) : [];
-      const providerList: BillingProviderInfo[] = bpRes.ok ? ((bpJson.data ?? bpJson).providers || []) : [];
+      const projectList: ProjectInfo[] = (projectsJson.data ?? projectsJson).projects || [];
+      const providerList: BillingProviderInfo[] = (bpJson.data ?? bpJson).providers || [];
       setProjects(projectList);
       setBillingProviders(providerList);
       if (projectList.length > 0) {
@@ -458,24 +446,10 @@ export const DeveloperView: React.FC = () => {
     }
   }, [revokeKeyId, loadData]);
 
-  useEffect(() => {
-    if (!import.meta.env.DEV || modelsLoading) return;
-    if (modelsError) {
-      console.debug('[DeveloperView] Leaderboard models unavailable:', modelsError);
-      return;
-    }
-    console.debug('[DeveloperView] Using live leaderboard data:', liveCatalogModels.length, 'models');
-  }, [liveCatalogModels.length, modelsError, modelsLoading]);
-
-  const filteredModels = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return liveCatalogModels;
-    return liveCatalogModels.filter((m) =>
-      m.displayName.toLowerCase().includes(q) ||
-      m.pipelineType.toLowerCase().includes(q) ||
-      m.gpuTypes.some((gpu) => gpu.toLowerCase().includes(q))
-    );
-  }, [liveCatalogModels, searchQuery]);
+  const filteredModels = models.filter(m =>
+    m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    m.type.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <div className="space-y-4">
@@ -505,59 +479,24 @@ export const DeveloperView: React.FC = () => {
                 <input type="text" placeholder="Search models..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-bg-secondary border border-white/10 rounded-lg py-2 pl-9 pr-3 text-xs focus:outline-none focus:border-accent-blue" />
               </div>
-              {modelsLoading ? (
-                <Card>
-                  <div className="flex flex-col items-center justify-center py-10 space-y-3 text-text-secondary">
-                    <Loader2 size={28} className="animate-spin" />
-                    <p className="text-sm">Loading model availability...</p>
-                  </div>
-                </Card>
-              ) : modelsError || liveCatalogModels.length === 0 ? (
-                <Card>
-                  <div className="text-center py-10">
-                    <BarChart3 size={40} className="mx-auto mb-3 text-text-secondary opacity-30" />
-                    <h3 className="text-base font-bold text-text-primary mb-1">No model availability data</h3>
-                    <p className="text-sm text-text-secondary">
-                      {modelsError
-                        ? 'We could not load leaderboard model availability right now.'
-                        : 'No model availability data is currently available.'}
-                    </p>
-                  </div>
-                </Card>
-              ) : filteredModels.length === 0 ? (
-                <Card>
-                  <div className="text-center py-10">
-                    <Search size={40} className="mx-auto mb-3 text-text-secondary opacity-30" />
-                    <h3 className="text-base font-bold text-text-primary mb-1">No matching models</h3>
-                    <p className="text-sm text-text-secondary">Try a different search term.</p>
-                  </div>
-                </Card>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {filteredModels.map((model) => (
-                    <Card key={model.id} className="hover:border-accent-blue/30 transition-all cursor-pointer" onClick={() => setSelectedModel(model)}>
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h3 className="text-sm font-semibold text-text-primary">{model.displayName}</h3>
-                          <p className="text-xs text-text-secondary">{model.pipelineType}</p>
-                        </div>
-                        {model.isRealtime && <Badge variant="emerald">Realtime</Badge>}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {filteredModels.map((model) => (
+                  <Card key={model.id} className="hover:border-accent-blue/30 transition-all cursor-pointer">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-text-primary">{model.name}</h3>
+                        <p className="text-xs text-text-secondary">{model.type}</p>
                       </div>
-                      <p className="text-xs text-text-secondary mb-3 line-clamp-2">
-                        {model.gpuTypes.length > 0
-                          ? `Hardware: ${model.gpuTypes.join(' | ')}`
-                          : 'Hardware: Unknown'}
-                      </p>
-                      <div className="flex items-center justify-between text-xs text-text-secondary gap-2">
-                        <span className="flex items-center gap-1">
-                          <Cpu size={12} /> {model.orchestratorCount} orchestrators
-                        </span>
-                        {model.avgFPS > 0 && <span>{model.avgFPS} fps</span>}
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              )}
+                      {model.featured && <Badge variant="emerald">Featured</Badge>}
+                    </div>
+                    <p className="text-xs text-text-secondary mb-3 line-clamp-2">{model.tagline}</p>
+                    <div className="flex items-center justify-between text-xs text-text-secondary">
+                      <span>${model.costPerMin.min.toFixed(2)} - ${model.costPerMin.max.toFixed(2)}/min</span>
+                      <span>{model.latencyP50}ms p50 latency</span>
+                    </div>
+                  </Card>
+                ))}
+              </div>
             </div>
           )}
 
@@ -760,67 +699,6 @@ export const DeveloperView: React.FC = () => {
         </motion.div>
       </AnimatePresence>
 
-      {/* ===== Model Detail Modal ===== */}
-      <Modal isOpen={selectedModel !== null} onClose={() => setSelectedModel(null)}
-        title={selectedModel?.displayName ?? ''} size="lg">
-        {selectedModel && (
-          <div className="space-y-5">
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary">{selectedModel.pipelineType}</Badge>
-              {selectedModel.isRealtime && <Badge variant="emerald">Realtime</Badge>}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 rounded-xl bg-bg-tertiary border border-white/10">
-                <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">Avg FPS</p>
-                <p className="text-2xl font-bold text-text-primary font-mono">
-                  {selectedModel.avgFPS > 0 ? selectedModel.avgFPS : '—'}
-                </p>
-              </div>
-              <div className="p-4 rounded-xl bg-bg-tertiary border border-white/10">
-                <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">Latency (p50)</p>
-                <p className="text-2xl font-bold text-text-primary font-mono">
-                  {selectedModel.latencyP50 != null ? `${selectedModel.latencyP50}ms` : '—'}
-                </p>
-              </div>
-              <div className="p-4 rounded-xl bg-bg-tertiary border border-white/10">
-                <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">SLA Score</p>
-                <p className="text-2xl font-bold text-accent-emerald font-mono">
-                  {selectedModel.slaScore != null ? `${Math.round(selectedModel.slaScore * 100)}%` : '—'}
-                </p>
-              </div>
-              <div className="p-4 rounded-xl bg-bg-tertiary border border-white/10">
-                <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">Orchestrators</p>
-                <p className="text-2xl font-bold text-text-primary font-mono">
-                  {selectedModel.orchestratorCount}
-                </p>
-              </div>
-            </div>
-
-            {selectedModel.gpuTypes.length > 0 && (
-              <div>
-                <p className="text-sm font-medium text-text-secondary mb-2 flex items-center gap-1.5">
-                  <Cpu size={14} /> GPU Hardware
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {selectedModel.gpuTypes.map((gpu) => (
-                    <span key={gpu} className="px-3 py-1 rounded-full bg-bg-tertiary border border-white/10 text-xs font-mono text-text-primary">
-                      {gpu}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div>
-              <p className="text-xs text-text-secondary font-mono break-all">
-                Model ID: {selectedModel.modelId}
-              </p>
-            </div>
-          </div>
-        )}
-      </Modal>
-
       {/* ===== Create Key Modal ===== */}
       <Modal isOpen={showCreateModal} onClose={closeCreateModal}
         title={createStep === 'form' ? 'Create API Key' : createStep === 'oauth' ? 'Authenticating...' : 'API Key Created'}
@@ -954,4 +832,13 @@ export const DeveloperView: React.FC = () => {
     </div>
   );
 };
+
+function getMockModels(): AIModel[] {
+  return [
+    { id: 'model-sd15', name: 'Stable Diffusion 1.5', tagline: 'Fast, lightweight image generation', type: 'text-to-video', featured: false, realtime: true, costPerMin: { min: 0.02, max: 0.05 }, latencyP50: 120, badges: ['Realtime'] },
+    { id: 'model-sdxl', name: 'SDXL Turbo', tagline: 'High-quality video generation', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.08, max: 0.15 }, latencyP50: 180, badges: ['Featured', 'Best Quality'] },
+    { id: 'model-krea', name: 'Krea AI', tagline: 'Creative AI for unique visuals', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.15, max: 0.30 }, latencyP50: 150, badges: ['Featured', 'Realtime'] },
+  ];
+}
+
 export default DeveloperView;

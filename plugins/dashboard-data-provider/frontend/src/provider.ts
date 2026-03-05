@@ -131,9 +131,9 @@ function round1(n: number): number {
 // ---------------------------------------------------------------------------
 
 async function resolveKPI(): Promise<DashboardKPI> {
-  const [demand1h, demand24h, gpuRows, slaRows] = await Promise.all([
+  const [demand1h, demand2h, gpuRows, slaRows] = await Promise.all([
     fetchNetworkDemand('1h'),
-    fetchNetworkDemand('24h'),
+    fetchNetworkDemand('2h'),
     fetchGPUMetrics('1h'),
     fetchSLACompliance('72h'),
   ]);
@@ -149,12 +149,12 @@ async function resolveKPI(): Promise<DashboardKPI> {
   const prevSR    = weightedSuccessRatio(prevDemand)   * 100;
 
   // Orchestrators Seen (72h): distinct addresses across the full period
-  const orchCount = countOrchestrators(slaRows) || gpuRows.length;
+  const orchCount = countOrchestrators(slaRows) || 0;
   const orchDelta = 0;
 
   // Daily Usage & Streams: sum over the last 24 h window
-  const dailyMins    = demand24h.reduce((s, r) => s + r.total_inference_minutes, 0);
-  const dailyStreams  = demand24h.reduce((s, r) => s + r.total_streams, 0);
+  const dailyMins    = demand2h.reduce((s, r) => s + r.total_inference_minutes, 0);
+  const dailyStreams  = demand2h.reduce((s, r) => s + r.total_streams, 0);
 
   return {
     successRate:        { value: round1(currentSR),         delta: round1(currentSR - prevSR) },
@@ -170,7 +170,7 @@ async function resolveKPI(): Promise<DashboardKPI> {
 
 async function resolvePipelines({ limit = 5 }: { limit?: number }): Promise<DashboardPipelineUsage[]> {
   const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 5;
-  const demand = await fetchNetworkDemand('24h');
+  const demand = await fetchNetworkDemand('2h');
 
   const totals = new Map<string, number>();
   for (const row of demand) {
@@ -194,7 +194,7 @@ async function resolvePipelines({ limit = 5 }: { limit?: number }): Promise<Dash
 
 async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
   const [metricsWide, metricsRecent] = await Promise.all([
-    fetchGPUMetrics('24h'),
+    fetchGPUMetrics('2h'),
     fetchGPUMetrics('1h'),
   ]);
 
