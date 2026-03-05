@@ -141,7 +141,40 @@ export async function createRequest(
   });
 }
 
-// Toggle soft commit (thumbs up)
+export interface CommitResponse {
+  action: 'added' | 'updated' | 'removed';
+  userId?: string;
+  userName?: string;
+  commit?: {
+    id: string;
+    userId: string;
+    userName: string;
+    gpuCount: number;
+    timestamp: string;
+  };
+}
+
+export async function commitCapacity(
+  requestId: string,
+  gpuCount: number,
+  userName?: string
+): Promise<CommitResponse> {
+  return apiRequest<CommitResponse>(`/requests/${requestId}/commit`, {
+    method: 'POST',
+    body: JSON.stringify({ gpuCount, userName }),
+  });
+}
+
+export async function withdrawCommit(
+  requestId: string
+): Promise<CommitResponse> {
+  return apiRequest<CommitResponse>(`/requests/${requestId}/commit`, {
+    method: 'POST',
+    body: JSON.stringify({ withdraw: true }),
+  });
+}
+
+/** @deprecated Use commitCapacity / withdrawCommit instead */
 export async function toggleCommit(
   requestId: string,
   userId: string,

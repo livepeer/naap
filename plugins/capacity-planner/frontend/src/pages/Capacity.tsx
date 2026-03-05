@@ -22,30 +22,59 @@ import { RequestDetailModal } from '../components/RequestDetailModal';
 import {
   fetchRequests,
   createRequest as apiCreateRequest,
-  toggleCommit as apiToggleCommit,
+  commitCapacity as apiCommitCapacity,
+  withdrawCommit as apiWithdrawCommit,
   addComment as apiAddComment,
   type FetchRequestsParams,
 } from '../lib/api';
 
-// Mock user context - in production this would come from shell context
-const getCurrentUser = () => ({
-  id: 'current-user',
-  name: 'You',
-});
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(payload));
+  } catch {
+    return null;
+  }
+}
+
+function getCurrentUser(): { id: string; name: string } {
+  if (typeof window === 'undefined') return { id: 'anonymous', name: 'Anonymous' };
+
+  const shellContext = (window as any).__SHELL_CONTEXT__;
+  if (shellContext?.authToken) {
+    const payload = decodeJwtPayload(shellContext.authToken);
+    if (payload) {
+      const id = (payload.sub || payload.userId || payload.id || 'anonymous') as string;
+      const name = (payload.displayName || payload.name || payload.email || id) as string;
+      return { id, name };
+    }
+  }
+
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('naap_auth_token') : null;
+  if (token) {
+    const payload = decodeJwtPayload(token);
+    if (payload) {
+      const id = (payload.sub || payload.userId || payload.id || 'anonymous') as string;
+      const name = (payload.displayName || payload.name || payload.email || id) as string;
+      return { id, name };
+    }
+  }
+
+  return { id: 'anonymous', name: 'Anonymous' };
+}
 
 export const CapacityPage: React.FC = () => {
-  // Data state
   const [requests, setRequests] = useState<CapacityRequest[]>([]);
   const [committedIds, setCommittedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // UI state
   const [selectedRequest, setSelectedRequest] = useState<CapacityRequest | null>(null);
   const [showNewRequestModal, setShowNewRequestModal] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
-  // Filter/sort state
   const [filters, setFilters] = useState<FilterState>({
     search: '',
     gpuModel: '',
@@ -54,7 +83,8 @@ export const CapacityPage: React.FC = () => {
   });
   const [sortField, setSortField] = useState<SortField>('newest');
 
-  // Load requests on mount
+  const currentUser = useMemo(() => getCurrentUser(), []);
+
   const loadRequests = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -69,11 +99,9 @@ export const CapacityPage: React.FC = () => {
       const data = await fetchRequests(params);
       setRequests(data);
 
-      // Initialize committed IDs based on current user's commits
-      const user = getCurrentUser();
       const userCommits = new Set<string>();
       data.forEach(req => {
-        if (req.softCommits?.some(sc => sc.userId === user.id)) {
+        if (req.softCommits?.some(sc => sc.userId === currentUser.id)) {
           userCommits.add(req.id);
         }
       });
@@ -84,13 +112,12 @@ export const CapacityPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [filters, sortField]);
+  }, [filters, sortField, currentUser.id]);
 
   useEffect(() => {
     loadRequests();
   }, [loadRequests]);
 
-  // Derived data
   const filteredAndSorted = useMemo(() => {
     const filtered = filterRequests(requests, filters);
     return sortRequests(filtered, sortField);
@@ -98,151 +125,102 @@ export const CapacityPage: React.FC = () => {
 
   const summary = useMemo(() => computeSummary(requests), [requests]);
 
-  // Available filter options from current data
   const availableGPUs = useMemo(() => getUniqueValues(requests, 'gpuModel'), [requests]);
   const availablePipelines = useMemo(() => getUniqueValues(requests, 'pipeline'), [requests]);
 
   const hasActiveFilters = filters.gpuModel || filters.vramMin || filters.pipeline;
 
-  // Handlers
-  const handleThumbsUp = useCallback(
-    async (request: CapacityRequest) => {
-      const user = getCurrentUser();
-      const alreadyCommitted = committedIds.has(request.id);
+  const getUserCommit = useCallback(
+    (request: CapacityRequest) => {
+      return request.softCommits.find(sc => sc.userId === currentUser.id);
+    },
+    [currentUser.id]
+  );
 
-      // Optimistic update
-      setRequests((prev) =>
-        prev.map((r) => {
-          if (r.id !== request.id) return r;
-          if (alreadyCommitted) {
-            return {
-              ...r,
-              softCommits: r.softCommits.filter((sc) => sc.userId !== user.id),
-            };
-          }
-          return {
-            ...r,
-            softCommits: [
-              ...r.softCommits,
-              {
-                id: `sc-${Date.now()}`,
-                userId: user.id,
-                userName: user.name,
-                timestamp: new Date().toISOString(),
-              },
-            ],
-          };
-        })
+  const applyCommitUpdate = useCallback(
+    (requestId: string, updater: (commits: CapacityRequest['softCommits']) => CapacityRequest['softCommits']) => {
+      setRequests(prev =>
+        prev.map(r => (r.id === requestId ? { ...r, softCommits: updater(r.softCommits) } : r))
       );
+      setSelectedRequest(prev => {
+        if (!prev || prev.id !== requestId) return prev;
+        return { ...prev, softCommits: updater(prev.softCommits) };
+      });
+    },
+    []
+  );
 
-      setCommittedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(request.id)) {
-          next.delete(request.id);
-        } else {
-          next.add(request.id);
+  const handleCommit = useCallback(
+    async (request: CapacityRequest, gpuCount: number) => {
+      const existing = getUserCommit(request);
+      const optimisticCommit = {
+        id: existing?.id || `sc-${Date.now()}`,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        gpuCount,
+        timestamp: existing?.timestamp || new Date().toISOString(),
+      };
+
+      applyCommitUpdate(request.id, (commits) => {
+        const filtered = commits.filter(sc => sc.userId !== currentUser.id);
+        return [...filtered, optimisticCommit];
+      });
+      setCommittedIds(prev => new Set(prev).add(request.id));
+
+      try {
+        const result = await apiCommitCapacity(request.id, gpuCount, currentUser.name);
+        if (result.commit) {
+          applyCommitUpdate(request.id, (commits) => {
+            const filtered = commits.filter(sc => sc.userId !== currentUser.id);
+            return [...filtered, result.commit!];
+          });
         }
+      } catch (err) {
+        console.error('[Capacity] Failed to commit:', err);
+        applyCommitUpdate(request.id, (commits) =>
+          existing
+            ? commits.map(sc => (sc.userId === currentUser.id ? existing : sc))
+            : commits.filter(sc => sc.userId !== currentUser.id)
+        );
+        if (!existing) {
+          setCommittedIds(prev => {
+            const next = new Set(prev);
+            next.delete(request.id);
+            return next;
+          });
+        }
+      }
+    },
+    [currentUser, getUserCommit, applyCommitUpdate]
+  );
+
+  const handleWithdraw = useCallback(
+    async (request: CapacityRequest) => {
+      const existing = getUserCommit(request);
+      if (!existing) return;
+
+      applyCommitUpdate(request.id, (commits) =>
+        commits.filter(sc => sc.userId !== currentUser.id)
+      );
+      setCommittedIds(prev => {
+        const next = new Set(prev);
+        next.delete(request.id);
         return next;
       });
 
-      // Update selected request if open — use functional updater to avoid
-      // stale closure over selectedRequest
-      setSelectedRequest((prev) => {
-        if (!prev || prev.id !== request.id) return prev;
-        if (alreadyCommitted) {
-          return {
-            ...prev,
-            softCommits: prev.softCommits.filter((sc) => sc.userId !== user.id),
-          };
-        }
-        return {
-          ...prev,
-          softCommits: [
-            ...prev.softCommits,
-            {
-              id: `sc-${Date.now()}`,
-              userId: user.id,
-              userName: user.name,
-              timestamp: new Date().toISOString(),
-            },
-          ],
-        };
-      });
-
-      // Call API (fire and forget with error handling)
       try {
-        await apiToggleCommit(request.id, user.id, user.name);
+        await apiWithdrawCommit(request.id);
       } catch (err) {
-        console.error('[Capacity] Failed to toggle commit:', err);
-        // Revert the optimistic update for only the affected request
-        // instead of calling loadRequests() which can wipe the list if backend is down
-        setRequests((prev) =>
-          prev.map((r) => {
-            if (r.id !== request.id) return r;
-            if (alreadyCommitted) {
-              // Was removed optimistically — re-add the commit
-              return {
-                ...r,
-                softCommits: [
-                  ...r.softCommits,
-                  {
-                    id: `sc-${Date.now()}`,
-                    userId: user.id,
-                    userName: user.name,
-                    timestamp: new Date().toISOString(),
-                  },
-                ],
-              };
-            }
-            // Was added optimistically — remove it
-            return {
-              ...r,
-              softCommits: r.softCommits.filter((sc) => sc.userId !== user.id),
-            };
-          })
-        );
-        setCommittedIds((prev) => {
-          const next = new Set(prev);
-          if (alreadyCommitted) {
-            next.add(request.id);
-          } else {
-            next.delete(request.id);
-          }
-          return next;
-        });
-        // Also revert selected request if it was open.
-        // Use the functional updater to read current state and avoid stale closure
-        // over `selectedRequest` — the user may have switched to a different request
-        // between the optimistic update and the error callback.
-        setSelectedRequest((prev) => {
-          if (!prev || prev.id !== request.id) return prev;
-          if (alreadyCommitted) {
-            return {
-              ...prev,
-              softCommits: [
-                ...prev.softCommits,
-                {
-                  id: `sc-${Date.now()}`,
-                  userId: user.id,
-                  userName: user.name,
-                  timestamp: new Date().toISOString(),
-                },
-              ],
-            };
-          }
-          return {
-            ...prev,
-            softCommits: prev.softCommits.filter((sc) => sc.userId !== user.id),
-          };
-        });
+        console.error('[Capacity] Failed to withdraw:', err);
+        applyCommitUpdate(request.id, (commits) => [...commits, existing]);
+        setCommittedIds(prev => new Set(prev).add(request.id));
       }
     },
-    [committedIds]
+    [currentUser.id, getUserCommit, applyCommitUpdate]
   );
 
   const handleAddComment = useCallback(
     async (requestId: string, comment: RequestComment) => {
-      // Optimistic update
       setRequests((prev) =>
         prev.map((r) =>
           r.id === requestId ? { ...r, comments: [...r.comments, comment] } : r
@@ -255,12 +233,10 @@ export const CapacityPage: React.FC = () => {
         );
       }
 
-      // Call API
       try {
         await apiAddComment(requestId, comment.author, comment.text);
       } catch (err) {
         console.error('[Capacity] Failed to add comment:', err);
-        // Reload on error
         loadRequests();
       }
     },
@@ -269,10 +245,8 @@ export const CapacityPage: React.FC = () => {
 
   const handleNewRequest = useCallback(
     async (request: CapacityRequest) => {
-      // Optimistic update
       setRequests((prev) => [request, ...prev]);
 
-      // Call API
       try {
         const created = await apiCreateRequest({
           requesterName: request.requesterName,
@@ -290,13 +264,11 @@ export const CapacityPage: React.FC = () => {
           reason: request.reason,
           riskLevel: request.riskLevel,
         });
-        // Replace optimistic with server response
         setRequests((prev) =>
           prev.map((r) => (r.id === request.id ? created : r))
         );
       } catch (err) {
         console.error('[Capacity] Failed to create request:', err);
-        // Remove optimistic entry on error
         setRequests((prev) => prev.filter((r) => r.id !== request.id));
       }
     },
@@ -323,7 +295,6 @@ export const CapacityPage: React.FC = () => {
   const selectCls =
     'bg-bg-tertiary border border-[var(--border-color)] rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors appearance-none cursor-pointer';
 
-  // Loading state
   if (loading && requests.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24">
@@ -333,7 +304,6 @@ export const CapacityPage: React.FC = () => {
     );
   }
 
-  // Error state
   if (error && requests.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24">
@@ -355,7 +325,6 @@ export const CapacityPage: React.FC = () => {
     <div className="space-y-6">
       {/* Top bar: Title + Summary */}
       <div className="flex flex-col lg:flex-row lg:items-start gap-6">
-        {/* Left: Title + subtitle */}
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-1">
             <div className="p-2 bg-accent-blue/10 text-accent-blue rounded-xl">
@@ -372,7 +341,6 @@ export const CapacityPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: Summary panel */}
         <div className="w-full lg:w-[380px] flex-shrink-0">
           <SummaryPanel summary={summary} />
         </div>
@@ -381,7 +349,6 @@ export const CapacityPage: React.FC = () => {
       {/* Search, Filters & Sort bar */}
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row gap-3">
-          {/* Search */}
           <div className="relative flex-1">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
@@ -404,7 +371,6 @@ export const CapacityPage: React.FC = () => {
             )}
           </div>
 
-          {/* Filter toggle */}
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all border ${
@@ -420,7 +386,6 @@ export const CapacityPage: React.FC = () => {
             )}
           </button>
 
-          {/* Sort dropdown */}
           <div className="flex items-center gap-2">
             <ArrowUpDown size={14} className="text-text-secondary flex-shrink-0" />
             <select
@@ -436,7 +401,6 @@ export const CapacityPage: React.FC = () => {
             </select>
           </div>
 
-          {/* New Request button */}
           <button
             onClick={() => setShowNewRequestModal(true)}
             className="flex items-center gap-2 px-5 py-2.5 bg-accent-emerald text-white rounded-xl font-bold text-sm shadow-lg shadow-accent-emerald/20 hover:bg-accent-emerald/90 transition-all whitespace-nowrap"
@@ -445,7 +409,6 @@ export const CapacityPage: React.FC = () => {
           </button>
         </div>
 
-        {/* Expanded filters */}
         <AnimatePresence>
           {showFilters && (
             <motion.div
@@ -534,7 +497,7 @@ export const CapacityPage: React.FC = () => {
         </p>
       </div>
 
-      {/* Request cards grid - 3-4 per row */}
+      {/* Request cards grid */}
       {filteredAndSorted.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {filteredAndSorted.map((req) => (
@@ -542,8 +505,10 @@ export const CapacityPage: React.FC = () => {
               key={req.id}
               request={req}
               onSelect={(r) => setSelectedRequest(r)}
-              onThumbsUp={handleThumbsUp}
+              onCommit={handleCommit}
+              onWithdraw={handleWithdraw}
               hasCommitted={committedIds.has(req.id)}
+              userCommitCount={getUserCommit(req)?.gpuCount}
             />
           ))}
         </div>
@@ -581,9 +546,12 @@ export const CapacityPage: React.FC = () => {
           request={selectedRequest}
           isOpen={!!selectedRequest}
           onClose={() => setSelectedRequest(null)}
-          onThumbsUp={handleThumbsUp}
+          onCommit={handleCommit}
+          onWithdraw={handleWithdraw}
           onAddComment={handleAddComment}
           hasCommitted={committedIds.has(selectedRequest.id)}
+          userCommitCount={getUserCommit(selectedRequest)?.gpuCount}
+          currentUserName={currentUser.name}
         />
       )}
     </div>
