@@ -396,7 +396,6 @@ export function RequireAuth({
   fallback?: ReactNode;
 }) {
   const { isAuthenticated, isLoading, hasAnyRole } = useAuth();
-  const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
