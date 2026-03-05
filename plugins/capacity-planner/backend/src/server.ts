@@ -378,7 +378,7 @@ app.post('/api/v1/capacity-planner/requests/:id/commit', async (req, res) => {
       }
 
       if (existing) {
-        const updated = await (prisma.capacitySoftCommit as any).update({
+        const updated = await prisma.capacitySoftCommit.update({
           where: { id: existing.id },
           data: { gpuCount, userName },
         });
@@ -429,7 +429,7 @@ app.post('/api/v1/capacity-planner/requests/:id/commit', async (req, res) => {
     r.softCommits.push(commit);
     res.json({ success: true, data: { action: 'added', commit } });
   } catch (error) {
-    console.error('Error toggling commit:', error);
+    console.error('Error processing commit:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });

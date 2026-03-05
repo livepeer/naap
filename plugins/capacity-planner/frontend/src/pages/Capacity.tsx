@@ -83,10 +83,14 @@ export const CapacityPage: React.FC = () => {
     fetchCurrentUser().then(user => {
       if (cancelled) return;
       setCurrentUser(user);
-      loadRequests(user.id);
     });
     return () => { cancelled = true; };
-  }, [loadRequests]);
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser.id) return;
+    loadRequests(currentUser.id);
+  }, [currentUser.id, loadRequests]);
 
   const filteredAndSorted = useMemo(() => {
     const filtered = filterRequests(requests, filters);
