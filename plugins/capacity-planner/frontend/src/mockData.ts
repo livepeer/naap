@@ -18,12 +18,12 @@ export const mockRequests: CapacityRequest[] = [
     reason: 'Scaling Flux.1 model inference to meet growing demand for high-quality text-to-image generation. We expect a 3x traffic increase in Q1.',
     riskLevel: 5,
     softCommits: [
-      { id: 'sc-1', userId: 'u-1', userName: 'NodeRunner Pro', timestamp: '2026-01-20T10:00:00Z' },
-      { id: 'sc-2', userId: 'u-2', userName: 'GPU Capital', timestamp: '2026-01-21T14:30:00Z' },
-      { id: 'sc-3', userId: 'u-3', userName: 'Decentralized Compute Co', timestamp: '2026-01-22T09:15:00Z' },
-      { id: 'sc-4', userId: 'u-4', userName: 'HashPower Labs', timestamp: '2026-01-23T16:00:00Z' },
-      { id: 'sc-5', userId: 'u-5', userName: 'CloudNodes.io', timestamp: '2026-01-24T11:45:00Z' },
-      { id: 'sc-6', userId: 'u-6', userName: 'InferenceNet', timestamp: '2026-01-25T08:20:00Z' },
+      { id: 'sc-1', userId: 'u-1', userName: 'NodeRunner Pro', gpuCount: 4, timestamp: '2026-01-20T10:00:00Z' },
+      { id: 'sc-2', userId: 'u-2', userName: 'GPU Capital', gpuCount: 6, timestamp: '2026-01-21T14:30:00Z' },
+      { id: 'sc-3', userId: 'u-3', userName: 'Decentralized Compute Co', gpuCount: 2, timestamp: '2026-01-22T09:15:00Z' },
+      { id: 'sc-4', userId: 'u-4', userName: 'HashPower Labs', gpuCount: 3, timestamp: '2026-01-23T16:00:00Z' },
+      { id: 'sc-5', userId: 'u-5', userName: 'CloudNodes.io', gpuCount: 1, timestamp: '2026-01-24T11:45:00Z' },
+      { id: 'sc-6', userId: 'u-6', userName: 'InferenceNet', gpuCount: 2, timestamp: '2026-01-25T08:20:00Z' },
     ],
     comments: [
       { id: 'c-1', author: 'NodeRunner Pro', text: 'We have 4x RTX 4090 ready to deploy. What SLA do you expect?', timestamp: '2026-01-20T10:05:00Z' },
@@ -50,8 +50,8 @@ export const mockRequests: CapacityRequest[] = [
     reason: 'Deploying Llama-3 70B for inference at scale. Need high-VRAM GPUs for full model weight loading without quantization.',
     riskLevel: 4,
     softCommits: [
-      { id: 'sc-7', userId: 'u-7', userName: 'DataCenter One', timestamp: '2026-01-18T09:00:00Z' },
-      { id: 'sc-8', userId: 'u-8', userName: 'AI Compute Pool', timestamp: '2026-01-19T15:00:00Z' },
+      { id: 'sc-7', userId: 'u-7', userName: 'DataCenter One', gpuCount: 3, timestamp: '2026-01-18T09:00:00Z' },
+      { id: 'sc-8', userId: 'u-8', userName: 'AI Compute Pool', gpuCount: 2, timestamp: '2026-01-19T15:00:00Z' },
     ],
     comments: [
       { id: 'c-4', author: 'DataCenter One', text: 'We can offer A100 80GB with NVLink. Interested in long-term contract?', timestamp: '2026-01-18T09:10:00Z' },
@@ -97,9 +97,9 @@ export const mockRequests: CapacityRequest[] = [
     reason: 'Live streaming AI effects for gaming tournaments. Need reliable, low-latency GPU access for real-time style transfer.',
     riskLevel: 4,
     softCommits: [
-      { id: 'sc-9', userId: 'u-9', userName: 'GameNodes', timestamp: '2026-01-16T13:00:00Z' },
-      { id: 'sc-10', userId: 'u-1', userName: 'NodeRunner Pro', timestamp: '2026-01-17T10:00:00Z' },
-      { id: 'sc-11', userId: 'u-10', userName: 'PixelForge', timestamp: '2026-01-18T16:30:00Z' },
+      { id: 'sc-9', userId: 'u-9', userName: 'GameNodes', gpuCount: 3, timestamp: '2026-01-16T13:00:00Z' },
+      { id: 'sc-10', userId: 'u-1', userName: 'NodeRunner Pro', gpuCount: 2, timestamp: '2026-01-17T10:00:00Z' },
+      { id: 'sc-11', userId: 'u-10', userName: 'PixelForge', gpuCount: 3, timestamp: '2026-01-18T16:30:00Z' },
     ],
     comments: [
       { id: 'c-5', author: 'GameNodes', text: 'Perfect for our gaming cluster. Can dedicate 3 units.', timestamp: '2026-01-16T13:05:00Z' },
@@ -124,10 +124,10 @@ export const mockRequests: CapacityRequest[] = [
     reason: 'Expanding image-to-video pipeline capacity for Stable Video Diffusion. Growing enterprise demand.',
     riskLevel: 5,
     softCommits: [
-      { id: 'sc-12', userId: 'u-2', userName: 'GPU Capital', timestamp: '2026-01-20T08:00:00Z' },
-      { id: 'sc-13', userId: 'u-7', userName: 'DataCenter One', timestamp: '2026-01-21T11:00:00Z' },
-      { id: 'sc-14', userId: 'u-11', userName: 'ComputeHive', timestamp: '2026-01-22T14:00:00Z' },
-      { id: 'sc-15', userId: 'u-12', userName: 'NeuralOps', timestamp: '2026-01-23T09:00:00Z' },
+      { id: 'sc-12', userId: 'u-2', userName: 'GPU Capital', gpuCount: 2, timestamp: '2026-01-20T08:00:00Z' },
+      { id: 'sc-13', userId: 'u-7', userName: 'DataCenter One', gpuCount: 2, timestamp: '2026-01-21T11:00:00Z' },
+      { id: 'sc-14', userId: 'u-11', userName: 'ComputeHive', gpuCount: 1, timestamp: '2026-01-22T14:00:00Z' },
+      { id: 'sc-15', userId: 'u-12', userName: 'NeuralOps', gpuCount: 1, timestamp: '2026-01-23T09:00:00Z' },
     ],
     comments: [
       { id: 'c-6', author: 'GPU Capital', text: 'We have A100 40GB available. Are you open to A100 80GB at slightly higher rate?', timestamp: '2026-01-20T08:10:00Z' },
@@ -153,7 +153,7 @@ export const mockRequests: CapacityRequest[] = [
     reason: 'Whisper large-v3 transcription service expansion for healthcare compliance recordings.',
     riskLevel: 2,
     softCommits: [
-      { id: 'sc-16', userId: 'u-13', userName: 'MedTech Nodes', timestamp: '2026-01-25T10:00:00Z' },
+      { id: 'sc-16', userId: 'u-13', userName: 'MedTech Nodes', gpuCount: 2, timestamp: '2026-01-25T10:00:00Z' },
     ],
     comments: [],
     createdAt: '2026-01-22T16:00:00Z',
@@ -176,8 +176,8 @@ export const mockRequests: CapacityRequest[] = [
     reason: 'High-volume SDXL generation for our creative marketplace. Need cost-effective GPUs with decent VRAM.',
     riskLevel: 3,
     softCommits: [
-      { id: 'sc-17', userId: 'u-1', userName: 'NodeRunner Pro', timestamp: '2026-01-26T09:00:00Z' },
-      { id: 'sc-18', userId: 'u-14', userName: 'EcoCompute', timestamp: '2026-01-27T14:00:00Z' },
+      { id: 'sc-17', userId: 'u-1', userName: 'NodeRunner Pro', gpuCount: 5, timestamp: '2026-01-26T09:00:00Z' },
+      { id: 'sc-18', userId: 'u-14', userName: 'EcoCompute', gpuCount: 5, timestamp: '2026-01-27T14:00:00Z' },
     ],
     comments: [
       { id: 'c-8', author: 'EcoCompute', text: 'Can provide 5 units with green energy. Interested?', timestamp: '2026-01-27T14:05:00Z' },

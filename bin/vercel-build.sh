@@ -61,18 +61,19 @@ fi
 # NOTE: prisma generate is NOT needed here — it already ran during
 # npm install via packages/database postinstall hook.
 #
-# SAFETY: Only push schema changes on production deploys.  Preview deployments
-# share the production database, so running `db push` from a feature branch
-# could apply destructive changes (column drops/renames) to live data.
-# Additive-only PRs are still safe, but we gate on production to enforce
-# the expand/contract migration discipline.
-if [ "${VERCEL_ENV}" = "production" ]; then
-  echo "[3/6] Prisma db push (production)..."
+# Runs for both production and preview environments:
+#   - Production: pushes to the Neon "main" branch (via production-scoped DATABASE_URL)
+#   - Preview: pushes to the Neon "preview" branch (via preview-scoped DATABASE_URL)
+# Each Vercel environment has its own DATABASE_URL pointing to the correct
+# Neon branch, so there is no risk of preview schema changes affecting production.
+# The preview branch is automatically reset after each production deploy.
+if [ "${VERCEL_ENV}" = "production" ] || [ "${VERCEL_ENV}" = "preview" ]; then
+  echo "[3/6] Prisma db push (${VERCEL_ENV})..."
   cd packages/database || { echo "ERROR: Failed to cd to packages/database"; exit 1; }
   npx prisma db push --skip-generate --accept-data-loss 2>&1 || echo "WARN: prisma db push had issues (non-fatal)"
   cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
 else
-  echo "[3/6] Skipping prisma db push (VERCEL_ENV=${VERCEL_ENV:-unset}, only runs on production)"
+  echo "[3/6] Skipping prisma db push (VERCEL_ENV=${VERCEL_ENV:-unset}, only runs on production/preview)"
 fi
 
 # Step 4: Sync plugin registry in database (BEFORE build so generated files

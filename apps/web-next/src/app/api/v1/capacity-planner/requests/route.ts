@@ -44,6 +44,7 @@ function serialiseRequest(r: {
     id: string;
     userId: string;
     userName: string;
+    gpuCount: number;
     createdAt: Date;
   }>;
   comments?: Array<{
@@ -83,6 +84,7 @@ function serialiseRequest(r: {
       id: sc.id,
       userId: sc.userId,
       userName: sc.userName,
+      gpuCount: sc.gpuCount,
       timestamp: sc.createdAt.toISOString(),
     })),
     comments: (r.comments ?? []).map((c) => ({

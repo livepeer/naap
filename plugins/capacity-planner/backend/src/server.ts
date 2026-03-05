@@ -45,6 +45,7 @@ interface SoftCommit {
   id: string;
   userId: string;
   userName: string;
+  gpuCount: number;
   timestamp: string;
 }
 
@@ -95,8 +96,8 @@ const inMemoryRequests: CapacityRequest[] = [
     reason: 'Scaling Flux.1 model inference to meet growing demand for high-quality text-to-image generation.',
     riskLevel: 5,
     softCommits: [
-      { id: 'sc-1', userId: 'u-1', userName: 'NodeRunner Pro', timestamp: '2026-01-20T10:00:00Z' },
-      { id: 'sc-2', userId: 'u-2', userName: 'GPU Capital', timestamp: '2026-01-21T14:30:00Z' },
+      { id: 'sc-1', userId: 'u-1', userName: 'NodeRunner Pro', gpuCount: 4, timestamp: '2026-01-20T10:00:00Z' },
+      { id: 'sc-2', userId: 'u-2', userName: 'GPU Capital', gpuCount: 2, timestamp: '2026-01-21T14:30:00Z' },
     ],
     comments: [
       { id: 'c-1', author: 'NodeRunner Pro', text: 'We have 4x RTX 4090 ready to deploy.', timestamp: '2026-01-20T10:05:00Z' },
@@ -181,6 +182,7 @@ app.get('/api/v1/capacity-planner/requests', async (req, res) => {
           id: sc.id,
           userId: sc.userId,
           userName: sc.userName,
+          gpuCount: sc.gpuCount ?? 1,
           timestamp: sc.createdAt.toISOString(),
         })),
         comments: r.comments.map((c: any) => ({
@@ -257,6 +259,7 @@ app.get('/api/v1/capacity-planner/requests/:id', async (req, res) => {
             id: sc.id,
             userId: sc.userId,
             userName: sc.userName,
+            gpuCount: sc.gpuCount ?? 1,
             timestamp: sc.createdAt.toISOString(),
           })),
           comments: r.comments.map((c: any) => ({
@@ -349,7 +352,7 @@ app.post('/api/v1/capacity-planner/requests', async (req, res) => {
   }
 });
 
-// Soft commit (toggle)
+// Soft commit (create, update, or withdraw)
 app.post('/api/v1/capacity-planner/requests/:id/commit', async (req, res) => {
   try {
     const user = (req as any).user;
@@ -357,7 +360,14 @@ app.post('/api/v1/capacity-planner/requests/:id/commit', async (req, res) => {
       return res.status(401).json({ success: false, error: 'Authentication required' });
     }
     const userId = user.id;
-    const userName = req.body?.userName || user.id;
+    const userName = user.displayName || user.email || req.body?.userName || userId;
+    const withdraw = req.body?.withdraw === true;
+
+    const rawGpuCount = Number(req.body?.gpuCount ?? 1);
+    if (!withdraw && (!Number.isInteger(rawGpuCount) || rawGpuCount < 1 || rawGpuCount > 999)) {
+      return res.status(400).json({ success: false, error: 'gpuCount must be an integer between 1 and 999' });
+    }
+    const gpuCount = rawGpuCount;
 
     if (prisma) {
       const request = await prisma.capacityRequest.findUnique({
@@ -367,17 +377,38 @@ app.post('/api/v1/capacity-planner/requests/:id/commit', async (req, res) => {
       if (!request) return res.status(404).json({ success: false, error: 'Not found' });
 
       const existing = request.softCommits.find((sc: any) => sc.userId === userId);
-      if (existing) {
-        // Remove commitment
-        await prisma.capacitySoftCommit.delete({ where: { id: existing.id } });
-        return res.json({ success: true, data: { action: 'removed' } });
+
+      if (withdraw) {
+        if (existing) {
+          await prisma.capacitySoftCommit.delete({ where: { id: existing.id } });
+        }
+        return res.json({ success: true, data: { action: 'removed', userId, userName: existing?.userName ?? userName } });
       }
 
-      // Add commitment
-      await prisma.capacitySoftCommit.create({
-        data: { requestId: req.params.id, userId, userName },
+      if (existing) {
+        const updated = await prisma.capacitySoftCommit.update({
+          where: { id: existing.id },
+          data: { gpuCount, userName },
+        });
+        return res.json({
+          success: true,
+          data: {
+            action: 'updated',
+            commit: { id: updated.id, userId: updated.userId, userName: updated.userName, gpuCount: updated.gpuCount, timestamp: updated.createdAt.toISOString() },
+          },
+        });
+      }
+
+      const created = await prisma.capacitySoftCommit.create({
+        data: { requestId: req.params.id, userId, userName, gpuCount },
       });
-      return res.json({ success: true, data: { action: 'added' } });
+      return res.json({
+        success: true,
+        data: {
+          action: 'added',
+          commit: { id: created.id, userId: created.userId, userName: created.userName, gpuCount: created.gpuCount, timestamp: created.createdAt.toISOString() },
+        },
+      });
     }
 
     // In-memory fallback
@@ -385,20 +416,30 @@ app.post('/api/v1/capacity-planner/requests/:id/commit', async (req, res) => {
     if (!r) return res.status(404).json({ success: false, error: 'Not found' });
 
     const existing = r.softCommits.find((sc) => sc.userId === userId);
-    if (existing) {
-      r.softCommits = r.softCommits.filter((sc) => sc.userId !== userId);
-      return res.json({ success: true, data: r, action: 'removed' });
+    if (withdraw) {
+      if (existing) {
+        r.softCommits = r.softCommits.filter((sc) => sc.userId !== userId);
+      }
+      return res.json({ success: true, data: { action: 'removed', userId, userName: existing?.userName ?? userName } });
     }
 
-    r.softCommits.push({
+    if (existing) {
+      existing.gpuCount = gpuCount;
+      existing.userName = userName;
+      return res.json({ success: true, data: { action: 'updated', commit: existing } });
+    }
+
+    const commit = {
       id: `sc-${Date.now()}`,
       userId,
       userName,
+      gpuCount,
       timestamp: new Date().toISOString(),
-    });
-    res.json({ success: true, data: r, action: 'added' });
+    };
+    r.softCommits.push(commit);
+    res.json({ success: true, data: { action: 'added', commit } });
   } catch (error) {
-    console.error('Error toggling commit:', error);
+    console.error('Error processing commit:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
