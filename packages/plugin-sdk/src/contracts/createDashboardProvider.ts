@@ -63,7 +63,7 @@ export function createDashboardProvider(
   const rootValue: Record<string, unknown> = {};
 
   if (resolvers.kpi) {
-    rootValue.kpi = (_args: { window?: string }) => resolvers.kpi!(_args);
+    rootValue.kpi = (_args: { window?: string; timeframe?: string }) => resolvers.kpi!(_args);
   }
   if (resolvers.protocol) {
     rootValue.protocol = () => resolvers.protocol!();
@@ -72,7 +72,7 @@ export function createDashboardProvider(
     rootValue.fees = (_args: { days?: number }) => resolvers.fees!(_args);
   }
   if (resolvers.pipelines) {
-    rootValue.pipelines = (_args: { limit?: number }) => resolvers.pipelines!(_args);
+    rootValue.pipelines = (_args: { limit?: number; timeframe?: string }) => resolvers.pipelines!(_args);
   }
   if (resolvers.pipelineCatalog) {
     rootValue.pipelineCatalog = () => resolvers.pipelineCatalog!();

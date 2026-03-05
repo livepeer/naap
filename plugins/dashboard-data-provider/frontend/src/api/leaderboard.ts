@@ -81,7 +81,9 @@ export interface PipelineCatalogEntry {
 // ---------------------------------------------------------------------------
 
 async function apiFetch<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`);
+  const res = await fetch(`${BASE_URL}${path}`, {
+    signal: AbortSignal.timeout(10_000),
+  });
   if (!res.ok) throw new Error(`leaderboard API ${path} failed: ${res.status}`);
   return res.json() as Promise<T>;
 }
