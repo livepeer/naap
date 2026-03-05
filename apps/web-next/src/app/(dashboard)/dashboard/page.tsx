@@ -11,7 +11,7 @@
  * describes what it needs (the query) and renders what it receives.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useDashboardQuery } from '@/hooks/useDashboardQuery';
 import { useJobFeedStream } from '@/hooks/useJobFeedStream';
@@ -21,8 +21,10 @@ import type {
   DashboardProtocol,
   DashboardFeesInfo,
   DashboardPipelineUsage,
+  DashboardPipelineCatalogEntry,
   DashboardGPUCapacity,
   DashboardPipelinePricing,
+  DashboardOrchestrator,
   JobFeedEntry,
 } from '@naap/plugin-sdk';
 import {
@@ -42,6 +44,9 @@ import {
   Loader2,
   Timer,
   List,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
 } from 'lucide-react';
 import {
   Bar,
@@ -57,12 +62,13 @@ import {
 // ============================================================================
 
 const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
-  query NetworkOverview {
-    kpi(window: "1h") {
+  query NetworkOverview($timeframe: String) {
+    kpi(timeframe: $timeframe) {
       successRate { value delta }
       orchestratorsOnline { value delta }
       dailyUsageMins { value delta }
       dailyStreamCount { value delta }
+      timeframeHours
     }
     protocol {
       currentRound
@@ -70,15 +76,22 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
       totalBlocks
       totalStakedLPT
     }
-    pipelines(limit: 5) {
-      name mins color
+    pipelines(limit: 50, timeframe: $timeframe) {
+      name mins color modelMins { model mins }
+    }
+    pipelineCatalog {
+      id name models
     }
     gpuCapacity {
       totalGPUs
       availableCapacity
+      models { model count }
     }
     pricing {
       pipeline unit price outputPerDollar
+    }
+    orchestrators(period: $timeframe) {
+      address knownSessions successSessions successRatio noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount
     }
   }
 `;
@@ -222,6 +235,7 @@ function KPICard({
   deltaUnit,
   deltaInvert,
   suffix,
+  action,
 }: {
   icon: React.ElementType;
   iconColor: string;
@@ -231,6 +245,7 @@ function KPICard({
   deltaUnit?: string;
   deltaInvert?: boolean;
   suffix?: string;
+  action?: React.ReactNode;
 }) {
   return (
     <div className="p-4 rounded-lg bg-card border border-border hover:border-border/80 transition-colors">
@@ -239,6 +254,7 @@ function KPICard({
           <Icon className="w-3.5 h-3.5" />
         </div>
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
+        {action && <div className="ml-auto">{action}</div>}
       </div>
       <div className="flex items-end justify-between">
         <div className="flex items-baseline gap-1">
@@ -251,21 +267,29 @@ function KPICard({
   );
 }
 
+function formatTimeframeLabel(hours: number): string {
+  if (hours === 1) return '1h';
+  if (hours === 72) return '3d';
+  return `${hours}h`;
+}
+
 function KPIRow({ data }: { data: DashboardKPI }) {
+  const tfLabel = formatTimeframeLabel(data.timeframeHours);
+
   return (
     <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
       <KPICard
         icon={CheckCircle2}
         iconColor="bg-muted text-muted-foreground"
-        label="Success Rate (1h)"
+        label={`Success Rate (${tfLabel})`}
         value={`${data.successRate.value}%`}
         delta={data.successRate.delta}
-        deltaUnit="% vs prev hr"
+        deltaUnit="% vs prev"
       />
       <KPICard
         icon={Server}
         iconColor="bg-muted text-muted-foreground"
-        label="Orchestrators Online"
+        label={`Orchestrators (${tfLabel})`}
         value={data.orchestratorsOnline.value}
         delta={data.orchestratorsOnline.delta}
         deltaUnit=""
@@ -273,7 +297,7 @@ function KPIRow({ data }: { data: DashboardKPI }) {
       <KPICard
         icon={Clock}
         iconColor="bg-muted text-muted-foreground"
-        label="Daily Usage"
+        label={`Usage (${tfLabel})`}
         value={formatNumber(data.dailyUsageMins.value)}
         delta={data.dailyUsageMins.delta}
         deltaUnit=" mins"
@@ -282,7 +306,7 @@ function KPIRow({ data }: { data: DashboardKPI }) {
       <KPICard
         icon={Radio}
         iconColor="bg-muted text-muted-foreground"
-        label="Daily Streams"
+        label={`Streams (${tfLabel})`}
         value={data.dailyStreamCount.value.toLocaleString()}
         delta={data.dailyStreamCount.delta}
         deltaUnit=""
@@ -496,8 +520,47 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
   );
 }
 
-function PipelinesCard({ data }: { data: DashboardPipelineUsage[] }) {
-  const maxMins = Math.max(...data.map(p => p.mins), 1);
+
+function PipelinesCard({
+  data,
+  catalog,
+  timeframeHours,
+}: {
+  data: DashboardPipelineUsage[];
+  catalog?: DashboardPipelineCatalogEntry[] | null;
+  timeframeHours: number;
+}) {
+  const mergedPipelines = useMemo(() => {
+    const usageByName = new Map(data.filter((p) => p.name?.trim()).map((p) => [p.name, p]));
+    const result: Array<DashboardPipelineUsage & { models?: string[] }> = [];
+
+    for (const p of data.filter((p) => p.name?.trim())) {
+      const catalogEntry = catalog?.find((c) => c.name === p.name || c.id === p.name);
+      result.push({
+        ...p,
+        models: catalogEntry?.models,
+      });
+    }
+
+    if (catalog) {
+      for (const c of catalog) {
+        if (!usageByName.has(c.name) && !usageByName.has(c.id)) {
+          result.push({
+            name: c.name,
+            mins: 0,
+            color: '#6366f1',
+            models: c.models,
+          });
+        }
+      }
+    }
+
+    return result;
+  }, [data, catalog]);
+
+  const activePipelines = mergedPipelines.filter((p) => p.mins > 0);
+  const availablePipelines = mergedPipelines.filter((p) => p.mins === 0);
+  const [availableExpanded, setAvailableExpanded] = useState(false);
 
   return (
     <div className="p-4 rounded-lg bg-card border border-border">
@@ -505,35 +568,120 @@ function PipelinesCard({ data }: { data: DashboardPipelineUsage[] }) {
         <div className="p-1 rounded-md bg-muted text-muted-foreground">
           <Activity className="w-3.5 h-3.5" />
         </div>
-        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Top Pipelines (Daily)</span>
+        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+          Pipelines ({formatTimeframeLabel(timeframeHours)})
+        </span>
       </div>
-      <div className="space-y-2.5">
-        {data.map((p) => (
-          <div key={p.name} className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground w-28 truncate" title={p.name}>{p.name}</span>
-            <div className="flex-1 h-4 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-700"
-                style={{
-                  width: `${(p.mins / maxMins) * 100}%`,
-                  backgroundColor: p.color ?? '#8b5cf6',
-                  opacity: 0.7,
-                }}
-              />
+      <div className="space-y-3">
+        {activePipelines.map((p) => (
+          <div key={p.name} className="rounded border border-border/60 overflow-hidden">
+            <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-muted/20">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span
+                  className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: p.color ?? '#8b5cf6', opacity: 0.9 }}
+                  aria-hidden="true"
+                />
+                <div className="text-xs font-medium text-foreground truncate" title={p.name}>
+                  {p.name}
+                </div>
+              </div>
+              <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">{formatNumber(p.mins)} mins</span>
             </div>
-            <span className="text-xs font-mono text-foreground w-14 text-right">{formatNumber(p.mins)}</span>
+            {p.modelMins && p.modelMins.length > 0 ? (
+              <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
+                {p.modelMins.map((m) => (
+                  <div key={m.model} className="flex items-center justify-between text-[10px]">
+                    <span className="text-muted-foreground pr-2 font-mono break-all">
+                      {m.model}
+                    </span>
+                    <span className="font-mono text-foreground flex-shrink-0">{formatNumber(m.mins)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : p.models && p.models.length > 0 ? (
+              <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
+                {p.models.map((model) => (
+                  <div key={model} className="flex items-center justify-between text-[10px]">
+                    <span className="text-muted-foreground pr-2 font-mono break-all">
+                      {model}
+                    </span>
+                    <span className="font-mono text-muted-foreground/50 flex-shrink-0">—</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         ))}
+
+        {availablePipelines.length > 0 && (
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setAvailableExpanded((v) => !v)}
+              className="w-full flex items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:text-muted-foreground transition-colors group"
+              aria-expanded={availableExpanded}
+            >
+              <span>Available (no usage in timeframe)</span>
+              <span className="transition-transform group-hover:opacity-100">
+                {availableExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </span>
+            </button>
+            {availableExpanded && (
+              <div className="space-y-1.5 mt-1.5">
+                {availablePipelines.map((p) => (
+                  <div key={p.name} className="rounded border border-border/60 overflow-hidden">
+                    <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-muted/20">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span
+                          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: p.color ?? '#6366f1', opacity: 0.9 }}
+                          aria-hidden="true"
+                        />
+                        <div className="text-xs font-medium text-foreground truncate" title={p.name}>
+                          {p.name}
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">0 mins</span>
+                    </div>
+                    {p.models && p.models.length > 0 && (
+                      <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
+                        {p.models.map((model) => (
+                          <div key={model} className="flex items-center justify-between text-[10px]">
+                            <span className="text-muted-foreground pr-2 font-mono break-all">
+                              {model}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
+const GPU_MODEL_COLORS = [
+  '#3b82f6', // blue
+  '#8b5cf6', // violet
+  '#f59e0b', // amber
+  '#10b981', // emerald
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#f97316', // orange
+  '#84cc16', // lime
+];
+
 function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
-  const usedPct = 100 - data.availableCapacity;
   const radius = 40;
   const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference - (usedPct / 100) * circumference;
+  const dashOffset = circumference - (data.availableCapacity / 100) * circumference;
+  const totalGPUs = data.totalGPUs || 1;
 
   return (
     <div className="p-4 rounded-lg bg-card border border-border">
@@ -568,18 +716,52 @@ function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
             <span className="text-xl font-semibold font-mono text-foreground">{data.totalGPUs}</span>
             <span className="text-xs text-muted-foreground ml-1">GPUs</span>
           </div>
-          <div className="text-xs text-muted-foreground space-y-0.5">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-              <span>Used: {usedPct}% ({Math.round(data.totalGPUs * usedPct / 100)})</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-muted inline-block" />
-              <span>Free: {data.availableCapacity}% ({Math.round(data.totalGPUs * data.availableCapacity / 100)})</span>
-            </div>
-          </div>
         </div>
       </div>
+      {data.models && data.models.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-border">
+          <div className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wider">Capacity by model</div>
+          <div
+            className="flex h-2 rounded-full overflow-hidden bg-muted/50"
+            role="img"
+            aria-label="GPU capacity breakdown by model"
+          >
+            {data.models.map((m, i) => {
+              const pct = (m.count / totalGPUs) * 100;
+              const color = GPU_MODEL_COLORS[i % GPU_MODEL_COLORS.length];
+              return (
+                <div
+                  key={m.model}
+                  className="transition-all duration-300 first:rounded-l-full last:rounded-r-full"
+                  style={{
+                    width: `${pct}%`,
+                    backgroundColor: color,
+                  }}
+                  title={`${m.model}: ${m.count} GPU${m.count !== 1 ? 's' : ''} (${pct.toFixed(1)}%)`}
+                />
+              );
+            })}
+          </div>
+          <div className="space-y-1.5 mt-2">
+            {data.models.map((m, i) => {
+              const color = GPU_MODEL_COLORS[i % GPU_MODEL_COLORS.length];
+              return (
+                <div key={m.model} className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: color }}
+                      aria-hidden
+                    />
+                    <span className="text-muted-foreground truncate" title={m.model}>{m.model}</span>
+                  </span>
+                  <span className="font-mono text-foreground flex-shrink-0">{m.count}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -613,8 +795,9 @@ function JobFeedCard({ jobs, connected }: { jobs: JobFeedEntry[]; connected: boo
       </div>
       <div className="overflow-hidden">
         {jobs.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-xs text-muted-foreground">
-            {connected ? 'Waiting for jobs...' : 'Job feed not connected'}
+          <div className="flex flex-col items-center justify-center h-32 text-center">
+            <span className="text-xs text-muted-foreground">Coming soon</span>
+            <span className="text-[10px] text-muted-foreground/70 mt-1">Real-time job feed when data is connected</span>
           </div>
         ) : (
           <table className="w-full text-xs">
@@ -686,6 +869,209 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
 }
 
 // ============================================================================
+// Orchestrator Table Card
+// ============================================================================
+
+type OrchestratorSortCol = 'address' | 'knownSessions' | 'successRatio' | 'slaScore' | 'gpuCount';
+type SortDir = 'asc' | 'desc';
+
+const LIVE_VIDEO_TO_VIDEO_PIPELINE_ID = 'live-video-to-video';
+
+/** Badge color classes (bg + text) for model badges — high contrast for readability */
+const MODEL_BADGE_COLORS = [
+  'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
+  'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+  'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+  'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
+  'bg-lime-100 text-lime-800 dark:bg-lime-900/40 dark:text-lime-200',
+  'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-200',
+  'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200',
+] as const;
+
+function modelBadgeColor(modelId: string): (typeof MODEL_BADGE_COLORS)[number] {
+  let n = 0;
+  for (let i = 0; i < modelId.length; i++) n += modelId.charCodeAt(i);
+  return MODEL_BADGE_COLORS[Math.abs(n) % MODEL_BADGE_COLORS.length];
+}
+
+/** Format pipeline + models for display: "Display name (model1, model2)" using the models this orchestrator offers. */
+function formatPipelineLabel(
+  pipelineId: string,
+  catalog: DashboardPipelineCatalogEntry[] | null | undefined,
+  modelIds?: string[] | null
+): string {
+  const entry = catalog?.find((p) => p.id === pipelineId);
+  const name = entry?.name ?? pipelineId;
+  if (modelIds?.length) return `${name} (${modelIds.join(', ')})`;
+  return name;
+}
+
+function OrchestratorTableCard({
+  data,
+  catalog,
+}: {
+  data: DashboardOrchestrator[];
+  catalog?: DashboardPipelineCatalogEntry[] | null;
+}) {
+  const [sortCol, setSortCol] = useState<OrchestratorSortCol>('knownSessions');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [filter, setFilter] = useState('');
+
+  const toggleSort = (col: OrchestratorSortCol) => {
+    if (sortCol === col) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortCol(col);
+      setSortDir('desc');
+    }
+  };
+
+  const SortIcon = ({ col }: { col: OrchestratorSortCol }) => {
+    if (sortCol !== col) return <ChevronsUpDown className="w-3 h-3 opacity-30" />;
+    return sortDir === 'asc'
+      ? <ChevronUp className="w-3 h-3" />
+      : <ChevronDown className="w-3 h-3" />;
+  };
+
+  const sorted = useMemo(() => {
+    let rows = [...data];
+    if (filter) {
+      const q = filter.toLowerCase();
+      rows = rows.filter((r) => {
+        if (r.address.toLowerCase().includes(q)) return true;
+        return r.pipelines.some((p) => {
+          const offer = r.pipelineModels?.find((o) => o.pipelineId === p);
+          const label = formatPipelineLabel(p, catalog, offer?.modelIds);
+          return label.toLowerCase().includes(q) || p.toLowerCase().includes(q);
+        });
+      });
+    }
+    rows.sort((a, b) => {
+      const av = a[sortCol] ?? 0;
+      const bv = b[sortCol] ?? 0;
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      }
+      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
+    });
+    return rows;
+  }, [data, sortCol, sortDir, filter, catalog]);
+  const getPipelineLabel = (pipelineId: string, modelIds: string[] | undefined) =>
+    formatPipelineLabel(pipelineId, catalog, modelIds);
+
+  const ariaSortValue = (col: OrchestratorSortCol): 'ascending' | 'descending' | 'none' =>
+    sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
+
+  const TH = ({ col, label, right }: { col: OrchestratorSortCol; label: string; right?: boolean }) => (
+    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'}`} aria-sort={ariaSortValue(col)}>
+      <button
+        type="button"
+        onClick={() => toggleSort(col)}
+        className={`inline-flex items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'flex-row-reverse' : ''}`}
+        aria-label={`Sort by ${label}`}
+      >
+        {label}
+        <SortIcon col={col} />
+      </button>
+    </th>
+  );
+
+  const totalGPUsInList = useMemo(() => sorted.reduce((sum, r) => sum + (r.gpuCount ?? 0), 0), [sorted]);
+
+  return (
+    <div className="p-4 rounded-lg bg-card border border-border">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="p-1 rounded-md bg-muted text-muted-foreground">
+            <Server className="w-3.5 h-3.5" />
+          </div>
+          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+            Orchestrators ({sorted.length}{filter ? ` of ${data.length}` : ''}) · {totalGPUsInList} GPUs
+          </span>
+        </div>
+        <input
+          id="orchestrator-filter"
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+          placeholder="Filter address / pipeline…"
+          aria-label="Filter orchestrators by address or pipeline"
+          className="px-2 py-0.5 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground w-48"
+        />
+      </div>
+
+      <div className="overflow-x-auto max-h-80 overflow-y-auto">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-card text-muted-foreground border-b border-border">
+            <tr>
+              <TH col="address" label="Address" />
+              <TH col="knownSessions" label="Sessions" right />
+              <TH col="successRatio" label="Success %" right />
+              <TH col="slaScore" label="SLA" right />
+              <TH col="gpuCount" label="GPUs" right />
+              <th className="pb-2 font-medium text-left">Pipelines</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map(row => (
+              <tr key={row.address} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors">
+                <td className="py-1.5 font-mono text-foreground">{row.address.slice(0, 8)}…{row.address.slice(-4)}</td>
+                <td className="py-1.5 text-right font-mono">{row.knownSessions.toLocaleString()}</td>
+                <td className="py-1.5 text-right font-mono">{row.successRatio}%</td>
+                <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
+                <td className="py-1.5 text-right font-mono">{row.gpuCount}</td>
+                <td className="py-1.5 max-w-[280px]" title={row.pipelines.map((p) => getPipelineLabel(p, row.pipelineModels?.find((o) => o.pipelineId === p)?.modelIds)).join(', ')}>
+                  <div className="flex flex-wrap gap-1">
+                    {row.pipelines.length === 0 && '—'}
+                    {row.pipelines.map((p) => {
+                      const offer = row.pipelineModels?.find((o) => o.pipelineId === p);
+                      const modelIds = offer?.modelIds ?? [];
+                      const entry = catalog?.find((c) => c.id === p);
+                      const pipelineName = entry?.name ?? p;
+                      const isLiveV2V = p === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID;
+                      return (
+                        <span key={p} className="inline-flex flex-wrap gap-1 items-center">
+                          {!isLiveV2V && (
+                            <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">
+                              {pipelineName}
+                            </span>
+                          )}
+                          {modelIds.length > 0 ? (
+                            modelIds.map((modelId) => (
+                              <span
+                                key={modelId}
+                                className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId)}`}
+                              >
+                                {modelId}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">
+                              —
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {sorted.length === 0 && (
+              <tr>
+                <td colSpan={6} className="py-4 text-center text-muted-foreground">
+                  {filter ? 'No orchestrators match the filter' : 'No orchestrator data'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // Polling Interval Selector
 // ============================================================================
 
@@ -729,6 +1115,88 @@ function PollIntervalSelector({ value, onChange }: { value: number; onChange: (m
 }
 
 // ============================================================================
+// Timeframe Selector
+// ============================================================================
+
+const TIMEFRAME_KEY = 'naap_dashboard_timeframe';
+const DEFAULT_TIMEFRAME = '24';
+
+const TIMEFRAME_OPTIONS = [
+  { label: '1h',  value: '1',  description: 'Last hour' },
+  { label: '6h',  value: '6',  description: 'Last 6 hours' },
+  { label: '12h', value: '12', description: 'Last 12 hours' },
+  { label: '24h', value: '24', description: 'Last 24 hours' },
+  { label: '72h', value: '72', description: 'Last 3 days' },
+] as const;
+
+function getStoredTimeframe(): string {
+  if (typeof window === 'undefined') return DEFAULT_TIMEFRAME;
+  const stored = localStorage.getItem(TIMEFRAME_KEY);
+  if (!stored) return DEFAULT_TIMEFRAME;
+  return TIMEFRAME_OPTIONS.some((o) => o.value === stored) ? stored : DEFAULT_TIMEFRAME;
+}
+
+function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const selected = TIMEFRAME_OPTIONS.find((o) => o.value === value) ?? TIMEFRAME_OPTIONS[3];
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [open]);
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/30 border border-border hover:bg-muted/50 transition-colors"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Select timeframe"
+      >
+        <Clock className="w-3 h-3 text-muted-foreground" />
+        <span className="text-[11px] font-medium text-foreground">{selected.label}</span>
+        <ChevronsUpDown className="w-3 h-3 text-muted-foreground" />
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 mt-1 w-40 rounded-md bg-card border border-border shadow-lg z-50"
+          role="listbox"
+        >
+          {TIMEFRAME_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => {
+                onChange(opt.value);
+                setOpen(false);
+              }}
+              className={`w-full px-3 py-2 text-left text-xs transition-colors first:rounded-t-md last:rounded-b-md ${
+                value === opt.value
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+              }`}
+              role="option"
+              aria-selected={value === opt.value}
+            >
+              <div className="font-medium">{opt.label}</div>
+              <div className="text-[10px] opacity-70">{opt.description}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // Main Dashboard
 // ============================================================================
 
@@ -736,21 +1204,27 @@ export default function DashboardPage() {
   useAuth();
 
   const [pollInterval, setPollInterval] = useState(getStoredPollInterval);
+  const [timeframe, setTimeframe] = useState(getStoredTimeframe);
 
   const handlePollIntervalChange = (ms: number) => {
     setPollInterval(ms);
     localStorage.setItem(POLL_INTERVAL_KEY, String(ms));
   };
 
+  const handleTimeframeChange = (tf: string) => {
+    setTimeframe(tf);
+    localStorage.setItem(TIMEFRAME_KEY, tf);
+  };
+
   const { data, loading, error } = useDashboardQuery<DashboardData>(
     NETWORK_OVERVIEW_QUERY,
-    undefined,
+    { timeframe },
     { pollInterval, timeout: 8000 }
   );
   const { data: feesData, loading: feesLoading } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
-    { timeout: 8000 }
+    { pollInterval, timeout: 8000 }
   );
 
   const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8 });
@@ -763,7 +1237,7 @@ export default function DashboardPage() {
   // No provider installed
   if (error?.type === 'no-provider') {
     return (
-      <div className="space-y-5 max-w-[1440px] mx-auto">
+      <div className="space-y-6 max-w-[1440px] mx-auto">
         <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
         <NoProviderMessage />
       </div>
@@ -771,39 +1245,59 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-5 max-w-[1440px] mx-auto">
+    <div className="space-y-6 max-w-[1440px] mx-auto">
       <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
 
-      {/* Row 1: Key Performance Indicators */}
-      {data?.kpi ? (
-        <KPIRow data={data.kpi} />
-      ) : loading ? (
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-          <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
+      {/* Protocol & Fees — Subgraph data (timeframe does not apply) */}
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-medium text-muted-foreground">Protocol & Fees</h2>
         </div>
-      ) : (
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-          <WidgetUnavailable label="KPI" />
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+          {data?.protocol
+            ? <ProtocolCard data={data.protocol} />
+            : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
+          {feesData?.fees
+            ? <FeesCard data={feesData.fees} />
+            : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
         </div>
-      )}
+      </section>
 
-      {/* Row 2: Protocol, Fees, Pipelines, GPU */}
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
-        {data?.protocol
-          ? <ProtocolCard data={data.protocol} />
-          : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
-        {feesData?.fees
-          ? <FeesCard data={feesData.fees} />
-          : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
-        {data?.pipelines ? <PipelinesCard data={data.pipelines} /> : <WidgetUnavailable label="Pipelines" />}
-        {data?.gpuCapacity ? <GPUCapacityCard data={data.gpuCapacity} /> : <WidgetUnavailable label="GPU Capacity" />}
-      </div>
+      {/* Leaderboard Metrics — API data (timeframe applies) */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-muted-foreground">Network Metrics</h2>
+          <TimeframeSelector value={timeframe} onChange={handleTimeframeChange} />
+        </div>
+        {data?.kpi ? (
+          <KPIRow data={data.kpi} />
+        ) : loading ? (
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+            <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
+          </div>
+        ) : (
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+            <WidgetUnavailable label="KPI" />
+          </div>
+        )}
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+          {data?.pipelines && data?.kpi
+            ? <PipelinesCard data={data.pipelines} catalog={data.pipelineCatalog} timeframeHours={data.kpi.timeframeHours} />
+            : <WidgetUnavailable label="Pipelines" />}
+          {data?.gpuCapacity ? <GPUCapacityCard data={data.gpuCapacity} /> : <WidgetUnavailable label="GPU Capacity" />}
+        </div>
+        {data && (
+          <OrchestratorTableCard data={data.orchestrators ?? []} catalog={data.pipelineCatalog} />
+        )}
+      </section>
 
-      {/* Row 3: Live Feed & Pricing */}
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
-        <JobFeedCard jobs={jobs} connected={jobFeedConnected} />
-        {data?.pricing ? <PricingCard data={data.pricing} /> : <WidgetUnavailable label="Pricing" />}
-      </div>
+      {/* Live Feed & Pricing */}
+      <section className="space-y-3">
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
+          <JobFeedCard jobs={jobs} connected={jobFeedConnected} />
+          {data?.pricing ? <PricingCard data={data.pricing} /> : <WidgetUnavailable label="Pricing" />}
+        </div>
+      </section>
     </div>
   );
 }

@@ -77,6 +77,7 @@ describe('DASHBOARD_SCHEMA', () => {
     expect(fields).toHaveProperty('pipelines');
     expect(fields).toHaveProperty('gpuCapacity');
     expect(fields).toHaveProperty('pricing');
+    expect(fields).toHaveProperty('orchestrators');
   });
 
   it('has all root Query fields nullable (for partial providers)', () => {
@@ -106,6 +107,7 @@ describe('DASHBOARD_SCHEMA', () => {
       'PipelineUsage',
       'GPUCapacity',
       'PipelinePricing',
+      'OrchestratorRow',
     ];
 
     for (const typeName of expectedTypes) {
