@@ -65,7 +65,7 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     successRate: MetricDelta!
     orchestratorsOnline: MetricDelta!
     dailyUsageMins: MetricDelta!
-    dailyStreamCount: MetricDelta!
+    dailySessionCount: MetricDelta!
     dailyNetworkFeesEth: MetricDelta!
     timeframeHours: Int!
   }
@@ -155,6 +155,7 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     knownSessions: Int!
     successSessions: Int!
     successRatio: Float!
+    effectiveSuccessRate: Float
     noSwapRatio: Float
     slaScore: Float
     pipelines: [String!]!
@@ -178,7 +179,7 @@ export interface DashboardKPI {
   successRate: MetricDelta;
   orchestratorsOnline: MetricDelta;
   dailyUsageMins: MetricDelta;
-  dailyStreamCount: MetricDelta;
+  dailySessionCount: MetricDelta;
   dailyNetworkFeesEth: MetricDelta;
   /** The timeframe in hours that this KPI data covers */
   timeframeHours: number;
@@ -279,6 +280,7 @@ export interface DashboardOrchestrator {
   knownSessions: number;
   successSessions: number;
   successRatio: number;
+  effectiveSuccessRate: number | null;
   noSwapRatio: number | null;
   slaScore: number | null;
   pipelines: string[];
