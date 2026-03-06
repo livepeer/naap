@@ -49,8 +49,8 @@ export const CostPreview: React.FC<CostPreviewProps> = ({ providerSlug, gpuModel
 
   if (loading) {
     return (
-      <div style={{ padding: '1rem', background: '#f9fafb', borderRadius: '0.5rem', marginTop: '1rem' }}>
-        <span style={{ color: '#6b7280', fontSize: '0.875rem' }}>Estimating cost...</span>
+      <div style={{ padding: '1rem', background: 'var(--dm-bg-secondary)', borderRadius: '0.5rem', marginTop: '1rem' }}>
+        <span style={{ color: 'var(--dm-text-secondary)', fontSize: '0.875rem' }}>Estimating cost...</span>
       </div>
     );
   }
@@ -68,14 +68,14 @@ export const CostPreview: React.FC<CostPreviewProps> = ({ providerSlug, gpuModel
           <span style={{ fontWeight: 700, fontSize: '1.25rem', color: costColor }}>
             ${estimate.totalCostPerHour.toFixed(2)}
           </span>
-          <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>/hour</span>
+          <span style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)' }}>/hour</span>
         </div>
-        <div style={{ textAlign: 'right', fontSize: '0.8rem', color: '#6b7280' }}>
+        <div style={{ textAlign: 'right', fontSize: '0.8rem', color: 'var(--dm-text-secondary)' }}>
           <div>${estimate.totalCostPerDay.toFixed(2)}/day</div>
           <div>${estimate.totalCostPerMonth.toFixed(0)}/month</div>
         </div>
       </div>
-      <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.5rem', display: 'flex', gap: '1rem' }}>
+      <div style={{ fontSize: '0.75rem', color: 'var(--dm-text-tertiary)', marginTop: '0.5rem', display: 'flex', gap: '1rem' }}>
         <span>GPU: ${estimate.breakdown.gpu.toFixed(2)}</span>
         {estimate.breakdown.storage > 0 && <span>Storage: ${estimate.breakdown.storage.toFixed(2)}</span>}
       </div>

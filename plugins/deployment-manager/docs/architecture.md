@@ -17,7 +17,7 @@
 │  │                                                                                    │   │
 │  │  Components: TemplateSelector, ProviderSelector, GpuConfigForm, SshHostConfig,   │   │
 │  │              HealthIndicator, VersionBadge, DeploymentLogs, StatusTimeline,       │   │
-│  │              AuditTable, ArtifactSelector                                          │   │
+│  │              AuditTable, ArtifactSelector, ProviderCredentialConfig               │   │
 │  │                                                                                    │   │
 │  │  Hooks: useDeployments, useProviders, useGpuOptions, useHealthPolling              │   │
 │  └──────────────────────────────────────────────────┬──────────────────────────────┘   │
@@ -27,7 +27,7 @@
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
 │  │  BACKEND (Express.js, port 4117)                                                 │   │
 │  │                                                                                    │   │
-│  │  Routes: /providers, /deployments, /templates, /health, /audit                     │   │
+│  │  Routes: /providers, /deployments, /templates, /health, /audit, /credentials      │   │
 │  │                                                                                    │   │
 │  │  Services:                                                                         │   │
 │  │  • DeploymentOrchestrator — state machine (PENDING→DEPLOYING→VALIDATING→ONLINE,   │   │
@@ -38,25 +38,25 @@
 │  │  • VersionCheckerService — GitHub releases polling                                │   │
 │  │  • AuditService — action logging                                                   │   │
 │  │  • RateLimiter — request throttling                                                │   │
+│  │  • SecretStore — per-user credential storage                                       │   │
 │  │                                                                                    │   │
-│  │  Adapters (IProviderAdapter):                                                      │   │
-│  │  FalAdapter → gw/fal-ai | RunPodAdapter → gw/runpod-serverless |                   │   │
-│  │  ReplicateAdapter → gw/replicate | BasetenAdapter → gw/baseten |                    │   │
-│  │  ModalAdapter → gw/modal | SshBridgeAdapter → gw/ssh-bridge                         │   │
+│  │  Adapters (IProviderAdapter → providerFetch → upstream API):                       │   │
+│  │  FalAdapter     → https://rest.fal.ai                                              │   │
+│  │  RunPodAdapter   → https://rest.runpod.io/v1                                       │   │
+│  │  ReplicateAdapter→ https://api.replicate.com/v1                                    │   │
+│  │  BasetenAdapter  → https://api.baseten.co/v1                                       │   │
+│  │  ModalAdapter    → https://api.modal.com/v1                                        │   │
+│  │  SshBridgeAdapter→ http://localhost:2222 (SSH Bridge service)                       │   │
 │  └──────────────────────────────────────────────────┬──────────────────────────────┘   │
 │                                                       │                                 │
-│                                                       │ gwFetch → /api/v1/gw/{connector}│
-│                                                       ▼                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │  SERVICE GATEWAY (Next.js middleware, port 3000)                                  │   │
-│  │  • Connector resolution                                                           │   │
-│  │  • Secret injection (SecretVault)                                                 │   │
-│  │  • SSRF protection (allowedHosts allowlist)                                       │   │
-│  │  • Circuit breaker                                                                 │   │
-│  │  • Proxy to upstream Provider APIs                                                │   │
-│  └──────────────────────────────────────────────────┬──────────────────────────────┘   │
+│                                               providerFetch (direct)                    │
 │                                                       │                                 │
 │                                                       ▼                                 │
+│                                     ┌─────────────────────────────────────────┐         │
+│                                     │  Upstream Provider APIs (direct calls)  │         │
+│                                     │  No service-gateway dependency          │         │
+│                                     └─────────────────────────────────────────┘         │
+│                                                                                           │
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
 │  │  DATABASE (PostgreSQL, schema: plugin_deployment_manager)                          │   │
 │  │  • ServerlessDeployment — deployment records                                      │   │
@@ -65,8 +65,6 @@
 │  │  • DmDeploymentHealthLog — health check results                                    │   │
 │  │  • DmProviderAuthConfig — provider auth configs                                     │   │
 │  │  • DmDeploymentTemplate — deployment templates                                     │   │
-│  │                                                                                    │   │
-│  │  NOTE: Orchestrator currently uses in-memory Map; Prisma integration planned.     │   │
 │  └─────────────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                           │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
@@ -81,7 +79,6 @@ sequenceDiagram
     participant Backend as Backend (Express)
     participant Orchestrator as DeploymentOrchestrator
     participant Adapter as ProviderAdapter
-    participant Gateway as Service Gateway
     participant Provider as Provider API (fal/runpod/etc)
     participant HealthMonitor as HealthMonitorService
     participant VersionChecker as VersionCheckerService
@@ -108,18 +105,14 @@ sequenceDiagram
     Orchestrator->>Orchestrator: PENDING → DEPLOYING
 
     Orchestrator->>Adapter: deploy(config)
-    Adapter->>Gateway: gwFetch (POST to gw/{connector})
-    Gateway->>Gateway: connector resolution, secret injection, SSRF check
-    Gateway->>Provider: proxy request
-    Provider-->>Gateway: response
-    Gateway-->>Adapter: response
+    Adapter->>Provider: providerFetch (direct HTTP to upstream API)
+    Provider-->>Adapter: response
     Adapter-->>Orchestrator: ProviderDeployment (providerDeploymentId, endpointUrl)
 
     alt SSH Bridge mode
         loop poll until ONLINE/FAILED
             Orchestrator->>Adapter: getStatus(providerDeploymentId)
-            Adapter->>Gateway: gwFetch
-            Gateway->>Provider: proxy
+            Adapter->>Provider: providerFetch (direct)
             Provider-->>Adapter: status
             Adapter-->>Orchestrator: ONLINE or FAILED
         end
@@ -127,8 +120,7 @@ sequenceDiagram
 
     Orchestrator->>Orchestrator: → VALIDATING
     Orchestrator->>Adapter: healthCheck(providerDeploymentId, endpointUrl)
-    Adapter->>Gateway: gwFetch (health endpoint)
-    Gateway->>Provider: proxy
+    Adapter->>Provider: providerFetch (health endpoint)
     Provider-->>Adapter: health response
     Adapter-->>Orchestrator: HealthResult
 
@@ -209,7 +201,7 @@ stateDiagram-v2
 │ DeploymentOrchestrator │ │ HealthMonitorService   │ │ Routes: /providers   │
 │ (state machine)        │◄│ (periodic polling)     │ │ /providers/:slug/   │
 └───────────┬───────────┘ └───────────┬───────────┘ │ gpu-options          │
-            │                           │
+            │                           │             └─────────────────────┘
             │  uses registry.get(slug)  │
             │  for healthCheck          │
             │                           │
@@ -222,8 +214,8 @@ stateDiagram-v2
 └───────────────────┘     └─────────┬─────────┘               │ /templates         │
                                     │                          │ /health            │
                                     │                          │ /audit             │
-                                    ▼                          └───────────────────┘
-                        ┌───────────────────────┐
+                                    ▼                          │ /credentials       │
+                        ┌───────────────────────┐             └───────────────────┘
                         │ VersionCheckerService │
                         │ (GitHub releases)     │
                         └───────────┬───────────┘
@@ -231,8 +223,14 @@ stateDiagram-v2
                                     │ depends on: orchestrator, templateRegistry
                         ┌───────────┴───────────┐
                         │ GithubReleasesAdapter │
-                        │ → gw/github-releases  │
+                        │ → api.github.com      │
                         └───────────────────────┘
+
+                        ┌───────────────────────┐
+                        │ SecretStore            │
+                        │ (per-user credentials) │
+                        └───────────────────────┘
+                            used by: /credentials routes
 ```
 
 **Dependency summary:**
@@ -244,9 +242,40 @@ stateDiagram-v2
 | VersionCheckerService   | DeploymentOrchestrator, TemplateRegistry                |
 | TemplateRegistry        | GithubReleasesAdapter (internal)                         |
 | AuditService            | (none — standalone)                                     |
+| SecretStore             | (none — standalone)                                     |
 | RateLimiter             | (none — used by deployments router)                    |
 | Routes /deployments     | DeploymentOrchestrator, RateLimiter                     |
 | Routes /providers       | ProviderAdapterRegistry                                 |
 | Routes /templates       | TemplateRegistry                                        |
 | Routes /health          | HealthMonitorService, DeploymentOrchestrator             |
 | Routes /audit           | AuditService                                            |
+| Routes /credentials     | ProviderAdapterRegistry, SecretStore                     |
+
+## 5. Key Design Decisions
+
+### No Service Gateway Dependency
+
+The deployment manager calls provider APIs **directly** via `providerFetch()`. Each adapter
+defines its own `ProviderApiConfig` with the upstream URL and auth format. This eliminates:
+
+- Connector provisioning and ownership complexity
+- Double-hop latency (DM → Gateway proxy → upstream)
+- Cross-plugin Prisma model coupling
+- Mandatory `service-gateway` plugin dependency
+
+### Provider Auth Injection
+
+Each adapter's `ProviderApiConfig` declares:
+- `authType`: `'bearer'`, `'header'`, or `'none'`
+- `authHeaderTemplate`: e.g., `'Bearer {{secret}}'` or `'Key {{secret}}'`
+- `secretNames`: which secrets are required (e.g., `['api-key']`)
+
+The `credentials.ts` routes handle secret storage via `SecretStore`, and adapters receive
+auth tokens injected at call time.
+
+### Extensibility
+
+Adding a new provider requires only:
+1. Implement `IProviderAdapter` with a `ProviderApiConfig`
+2. Register in `server.ts`
+3. No gateway connector setup, no database migrations, no admin API calls

@@ -3,8 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { ProviderSelector } from '../../components/ProviderSelector';
 
 const mockProviders = [
-  { slug: 'fal-ai', displayName: 'fal.ai GPU', description: 'Serverless GPU', icon: '⚡', mode: 'serverless' as const, connectorSlug: 'fal-ai', authMethod: 'api-key' },
-  { slug: 'ssh-bridge', displayName: 'SSH Bridge', description: 'Bare Metal', icon: '🖥', mode: 'ssh-bridge' as const, connectorSlug: 'ssh-bridge', authMethod: 'ssh-key' },
+  { slug: 'fal-ai', displayName: 'fal.ai GPU', description: 'Serverless GPU', icon: '⚡', mode: 'serverless' as const, authMethod: 'api-key', secretNames: ['api-key'] },
+  { slug: 'ssh-bridge', displayName: 'SSH Bridge', description: 'Bare Metal', icon: '🖥', mode: 'ssh-bridge' as const, authMethod: 'ssh-key', secretNames: [] },
 ];
 
 describe('ProviderSelector', () => {

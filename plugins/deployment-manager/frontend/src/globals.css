@@ -1,0 +1,51 @@
+/* ============================================
+   Light Mode (Default) - Professional Palette
+   ============================================ */
+:root {
+  --dm-bg-primary: #ffffff;
+  --dm-bg-secondary: #f8fafc;
+  --dm-bg-tertiary: #f1f5f9;
+  --dm-bg-input: #ffffff;
+  --dm-bg-selected: #eff6ff;
+  --dm-bg-hover: rgba(0, 0, 0, 0.03);
+
+  --dm-text-primary: #0f172a;
+  --dm-text-secondary: #475569;
+  --dm-text-tertiary: #94a3b8;
+
+  --dm-accent-blue: #3b82f6;
+  --dm-accent-blue-text: #1d4ed8;
+  --dm-accent-emerald: #059669;
+  --dm-accent-amber: #d97706;
+  --dm-accent-rose: #dc2626;
+
+  --dm-border: #e2e8f0;
+  --dm-border-selected: #3b82f6;
+  --dm-border-input: #d1d5db;
+}
+
+/* ============================================
+   Dark Mode - Matches NaaP Shell Theme
+   ============================================ */
+.dark {
+  --dm-bg-primary: #0a0f1a;
+  --dm-bg-secondary: #111827;
+  --dm-bg-tertiary: #1f2937;
+  --dm-bg-input: #1f2937;
+  --dm-bg-selected: rgba(59, 130, 246, 0.12);
+  --dm-bg-hover: rgba(255, 255, 255, 0.04);
+
+  --dm-text-primary: #f9fafb;
+  --dm-text-secondary: #9ca3af;
+  --dm-text-tertiary: #6b7280;
+
+  --dm-accent-blue: #60a5fa;
+  --dm-accent-blue-text: #93c5fd;
+  --dm-accent-emerald: #34d399;
+  --dm-accent-amber: #fbbf24;
+  --dm-accent-rose: #f87171;
+
+  --dm-border: rgba(255, 255, 255, 0.1);
+  --dm-border-selected: #3b82f6;
+  --dm-border-input: rgba(255, 255, 255, 0.15);
+}

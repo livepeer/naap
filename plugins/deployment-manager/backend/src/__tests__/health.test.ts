@@ -10,11 +10,11 @@ import type { DeployConfig, ProviderDeployment, ProviderStatus, HealthResult, Gp
 class HealthTestAdapter implements IProviderAdapter {
   readonly slug = 'health-test';
   readonly displayName = 'Health Test';
-  readonly connectorSlug = 'health-test';
   readonly mode = 'serverless' as const;
   readonly icon = '🧪';
   readonly description = 'Test';
   readonly authMethod = 'api-key';
+  readonly apiConfig = { upstreamBaseUrl: 'http://mock', authType: 'bearer' as const, secretNames: ['api-key'], healthCheckPath: null };
 
   healthResponse: HealthResult = { healthy: true, status: 'GREEN', responseTimeMs: 50 };
 

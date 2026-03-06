@@ -3,11 +3,14 @@ import type { DeploymentOrchestrator } from '../services/DeploymentOrchestrator.
 import type { DeploymentStatus } from '../types/index.js';
 import { CreateDeploymentSchema, UpdateDeploymentSchema } from './validation.js';
 import { RateLimiter } from '../services/RateLimiter.js';
+import { usageService, type InvokeOutcome } from '../services/RequestUsageService.js';
+import { authenticatedProviderFetch } from '../lib/providerFetch.js';
+import type { ProviderAdapterRegistry } from '../services/ProviderAdapterRegistry.js';
 
 const deployLimiter = new RateLimiter(10, 60_000);
 const writeLimiter = new RateLimiter(30, 60_000);
 
-export function createDeploymentsRouter(orchestrator: DeploymentOrchestrator): Router {
+export function createDeploymentsRouter(orchestrator: DeploymentOrchestrator, registry?: ProviderAdapterRegistry): Router {
   const router = Router();
 
   router.get('/', async (req, res) => {
@@ -130,10 +133,115 @@ export function createDeploymentsRouter(orchestrator: DeploymentOrchestrator): R
   router.delete('/:id', async (req, res) => {
     try {
       const userId = (req as any).user?.id || 'anonymous';
-      const deployment = await orchestrator.destroy(req.params.id, userId);
-      res.json({ success: true, data: deployment });
+      const { record, destroyResult } = await orchestrator.destroy(req.params.id, userId);
+      res.json({ success: true, data: record, destroyResult });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/:id/force-destroy', async (req, res) => {
+    try {
+      const userId = (req as any).user?.id || 'anonymous';
+      const { record, destroyResult } = await orchestrator.forceDestroy(req.params.id, userId);
+      res.json({ success: true, data: record, destroyResult });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/:id/retry-cleanup', async (req, res) => {
+    try {
+      const userId = (req as any).user?.id || 'anonymous';
+      const { record, destroyResult } = await orchestrator.retryCleanup(req.params.id, userId);
+      res.json({ success: true, data: record, destroyResult });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/:id/invoke', async (req, res) => {
+    try {
+      const deployment = await orchestrator.get(req.params.id);
+      if (!deployment) {
+        res.status(404).json({ success: false, error: 'Deployment not found' });
+        return;
+      }
+      if (!deployment.endpointUrl) {
+        res.status(400).json({ success: false, error: 'Deployment has no endpoint URL' });
+        return;
+      }
+
+      const adapter = registry?.get(deployment.providerSlug);
+      if (!adapter) {
+        res.status(400).json({ success: false, error: `No adapter for provider: ${deployment.providerSlug}` });
+        return;
+      }
+
+      const runPath = deployment.providerSlug === 'runpod'
+        ? `/v2/${deployment.providerDeploymentId}/run`
+        : '';
+      const invokeUrl = deployment.providerSlug === 'runpod'
+        ? 'https://api.runpod.ai'
+        : deployment.endpointUrl;
+
+      const start = Date.now();
+      const timeoutMs = Number(req.query.timeout) || 30000;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      let outcome: InvokeOutcome = 'completed';
+      try {
+        const upstreamRes = await authenticatedProviderFetch(
+          deployment.providerSlug,
+          { ...adapter.apiConfig, upstreamBaseUrl: invokeUrl },
+          runPath,
+          {
+            method: 'POST',
+            body: JSON.stringify(req.body),
+            signal: controller.signal,
+          },
+        );
+        clearTimeout(timer);
+        const responseTimeMs = Date.now() - start;
+
+        const responseBody = await upstreamRes.text();
+        let parsedBody: unknown;
+        try { parsedBody = JSON.parse(responseBody); } catch { parsedBody = responseBody; }
+
+        if (!upstreamRes.ok) outcome = 'failed';
+        usageService.record(req.params.id, outcome, responseTimeMs);
+
+        res.json({
+          success: true,
+          data: {
+            status: upstreamRes.status,
+            statusText: upstreamRes.statusText,
+            responseTimeMs,
+            body: parsedBody,
+          },
+        });
+      } catch (err: any) {
+        clearTimeout(timer);
+        outcome = err.name === 'AbortError' ? 'failed' : 'retried';
+        usageService.record(req.params.id, outcome, Date.now() - start);
+        res.status(504).json({
+          success: false,
+          error: err.name === 'AbortError' ? `Request timed out after ${timeoutMs}ms` : err.message,
+        });
+      }
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/:id/usage', async (req, res) => {
+    try {
+      const range = (req.query.range as string) === 'day' ? 'day' : 'hour';
+      const stats = usageService.getUsage(req.params.id, range);
+      res.json({ success: true, data: stats });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 

@@ -1,4 +1,6 @@
-const GATEWAY_BASE = process.env.SHELL_URL || 'http://localhost:3000';
+import { providerFetch } from '../lib/providerFetch.js';
+
+const GITHUB_API_URL = process.env.GITHUB_API_URL || 'https://api.github.com';
 
 export interface ReleaseInfo {
   tagName: string;
@@ -10,20 +12,12 @@ export interface ReleaseInfo {
   assets: { name: string; downloadUrl: string; size: number }[];
 }
 
-async function gwFetch(path: string): Promise<Response> {
-  const url = `${GATEWAY_BASE}/api/v1/gw/github-releases${path}`;
-  return fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/vnd.github+json',
-    },
-  });
-}
-
 export class GithubReleasesAdapter {
   async getLatestRelease(owner: string, repo: string): Promise<ReleaseInfo | null> {
     try {
-      const res = await gwFetch(`/repos/${owner}/${repo}/releases/latest`);
+      const res = await providerFetch(GITHUB_API_URL, `/repos/${owner}/${repo}/releases/latest`, {
+        headers: { Accept: 'application/vnd.github+json' } as Record<string, string>,
+      });
       if (!res.ok) return null;
       const data = await res.json();
       return this.mapRelease(data);
@@ -34,7 +28,9 @@ export class GithubReleasesAdapter {
 
   async listReleases(owner: string, repo: string, limit = 10): Promise<ReleaseInfo[]> {
     try {
-      const res = await gwFetch(`/repos/${owner}/${repo}/releases?per_page=${limit}`);
+      const res = await providerFetch(GITHUB_API_URL, `/repos/${owner}/${repo}/releases?per_page=${limit}`, {
+        headers: { Accept: 'application/vnd.github+json' } as Record<string, string>,
+      });
       if (!res.ok) return [];
       const data = await res.json();
       if (!Array.isArray(data)) return [];
@@ -46,7 +42,9 @@ export class GithubReleasesAdapter {
 
   async getReleaseByTag(owner: string, repo: string, tag: string): Promise<ReleaseInfo | null> {
     try {
-      const res = await gwFetch(`/repos/${owner}/${repo}/releases/tags/${tag}`);
+      const res = await providerFetch(GITHUB_API_URL, `/repos/${owner}/${repo}/releases/tags/${tag}`, {
+        headers: { Accept: 'application/vnd.github+json' } as Record<string, string>,
+      });
       if (!res.ok) return null;
       const data = await res.json();
       return this.mapRelease(data);

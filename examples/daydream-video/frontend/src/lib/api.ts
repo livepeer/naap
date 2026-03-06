@@ -1,7 +1,13 @@
 /**
  * Daydream AI Video - API Client
  *
- * Uses @naap/plugin-sdk for backend URL resolution and auth.
+ * Stream operations (create, update, get, delete) are routed through the
+ * Service Gateway daydream connector (/api/v1/gw/daydream/*), which
+ * automatically injects the API key from SecretVault. The plugin never
+ * handles the upstream API key directly.
+ *
+ * NaaP-internal operations (sessions, settings, usage, presets, controlnets)
+ * are routed to the daydream-video plugin backend.
  */
 
 import {
@@ -11,7 +17,6 @@ import {
 } from '@naap/plugin-sdk';
 import { HEADER_CSRF_TOKEN, HEADER_CORRELATION, HEADER_PLUGIN_NAME } from '@naap/types';
 
-// API Error class
 export class ApiError extends Error {
   status: number;
   code?: string;
@@ -24,14 +29,33 @@ export class ApiError extends Error {
   }
 }
 
-// Get Daydream API URL using SDK's unified resolution
-const getDaydreamApiUrl = (): string => {
+const getPluginApiUrl = (): string => {
   return getPluginBackendUrl('daydream-video', {
     apiPath: '/api/v1/daydream',
   });
 };
 
-const API_URL = getDaydreamApiUrl;
+const getGatewayUrl = (): string => {
+  // The gateway engine runs on the shell (port 3000). In iframe mode the
+  // shell context provides the origin; in dev mode fall back to localhost:3000.
+  if (typeof window !== 'undefined') {
+    const shellCtx = (window as any).__SHELL_CONTEXT__;
+    if (shellCtx?.shellOrigin) {
+      return `${shellCtx.shellOrigin}/api/v1/gw/daydream`;
+    }
+    // When running inside the shell iframe, the page origin IS the shell
+    const origin = window.location.origin;
+    if (origin.includes(':3000')) {
+      return `${origin}/api/v1/gw/daydream`;
+    }
+    // Dev mode (Vite on another port) — point to shell explicitly
+    return `http://${window.location.hostname}:3000/api/v1/gw/daydream`;
+  }
+  return 'http://localhost:3000/api/v1/gw/daydream';
+};
+
+const PLUGIN_API_URL = getPluginApiUrl;
+const GW_URL = getGatewayUrl;
 
 // Auth token storage key (must match shell's STORAGE_KEYS.AUTH_TOKEN)
 const AUTH_TOKEN_KEY = 'naap_auth_token';
@@ -133,22 +157,33 @@ export interface ModelInfo {
   description: string;
 }
 
-// API response wrapper
-async function apiRequest<T>(
+/** Call a NaaP-internal plugin backend endpoint */
+async function pluginRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const url = `${API_URL()}${endpoint}`;
+  return apiRequest<T>(`${PLUGIN_API_URL()}${endpoint}`, options);
+}
+
+/** Call through the Service Gateway daydream connector (upstream API) */
+async function gwRequest<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  return apiRequest<T>(`${GW_URL()}${endpoint}`, options);
+}
+
+async function apiRequest<T>(
+  url: string,
+  options: RequestInit = {}
+): Promise<T> {
   const headers: Record<string, string> = {
     ...authHeaders(),
   };
 
-  // Merge any additional headers from options
   if (options.headers) {
     Object.assign(headers, options.headers);
   }
-
-  console.log(`[API] ${options.method || 'GET'} ${url}`, options.body ? JSON.parse(options.body as string) : '');
 
   try {
     const response = await fetch(url, {
@@ -159,7 +194,6 @@ async function apiRequest<T>(
     const data = await response.json();
 
     if (!response.ok || !data.success) {
-      console.log(`[API] Request returned error:`, response.status, data.error?.message);
       throw new ApiError(
         data.error?.message || 'API request failed',
         response.status,
@@ -167,20 +201,19 @@ async function apiRequest<T>(
       );
     }
 
-    console.log(`[API] Response OK`);
     return data.data;
   } catch (err) {
     if (err instanceof ApiError) {
       throw err;
     }
-    console.log(`[API] Network/fetch error:`, err);
     throw new ApiError('Network error - backend may be unavailable', 0, 'NETWORK_ERROR');
   }
 }
 
-// Settings API
+// ─── Settings (NaaP-internal, plugin backend) ───────────────────────
+
 export async function getSettings(): Promise<SettingsData> {
-  return apiRequest<SettingsData>('/settings');
+  return pluginRequest<SettingsData>('/settings');
 }
 
 export async function updateSettings(settings: Partial<{
@@ -189,31 +222,62 @@ export async function updateSettings(settings: Partial<{
   defaultSeed: number;
   negativePrompt: string;
 }>): Promise<SettingsData> {
-  return apiRequest<SettingsData>('/settings', {
+  return pluginRequest<SettingsData>('/settings', {
     method: 'POST',
     body: JSON.stringify(settings),
   });
 }
 
 export async function testApiKey(apiKey?: string): Promise<{ message: string }> {
-  return apiRequest<{ message: string }>('/settings/test', {
+  return pluginRequest<{ message: string }>('/settings/test', {
     method: 'POST',
     body: JSON.stringify({ apiKey }),
   });
 }
 
-// Stream API
+// ─── Stream operations (via Gateway connector → api.daydream.live) ──
+
 export async function createStream(params?: {
   prompt?: string;
   seed?: number;
   model_id?: string;
   negative_prompt?: string;
 }): Promise<StreamResponse> {
-  console.log('[API] createStream with params:', params);
-  return apiRequest<StreamResponse>('/streams', {
+  const gwResult = await gwRequest<any>('/streams', {
     method: 'POST',
-    body: JSON.stringify(params || {}),
+    body: JSON.stringify({
+      pipeline: 'streamdiffusion',
+      params: params || {},
+    }),
   });
+
+  // Record session in NaaP via plugin backend
+  try {
+    const session = await pluginRequest<any>('/sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        streamId: gwResult.id,
+        playbackId: gwResult.output_playback_id,
+        whipUrl: gwResult.whip_url,
+        prompt: params?.prompt || 'cinematic, high quality',
+        seed: params?.seed || 42,
+      }),
+    });
+    return {
+      sessionId: session.id || session.sessionId,
+      streamId: gwResult.id,
+      playbackId: gwResult.output_playback_id,
+      whipUrl: gwResult.whip_url,
+    };
+  } catch {
+    // Session recording is non-critical; stream was created successfully
+    return {
+      sessionId: '',
+      streamId: gwResult.id,
+      playbackId: gwResult.output_playback_id,
+      whipUrl: gwResult.whip_url,
+    };
+  }
 }
 
 export async function updateStreamParams(
@@ -228,56 +292,72 @@ export async function updateStreamParams(
     controlnetSliders?: Record<string, number>;
   }
 ): Promise<void> {
-  console.log('[API] updateStreamParams called - streamId:', streamId, 'params:', params);
-  await apiRequest<void>(`/streams/${streamId}`, {
+  await gwRequest<void>(`/streams/${streamId}`, {
     method: 'PATCH',
-    body: JSON.stringify(params),
+    body: JSON.stringify({
+      pipeline: 'streamdiffusion',
+      params,
+    }),
   });
-  console.log('[API] updateStreamParams completed successfully');
 }
 
 export async function endStream(streamId: string): Promise<{
   sessionEnded: boolean;
   durationMins: number;
 }> {
-  return apiRequest(`/streams/${streamId}`, {
+  // Delete on upstream via gateway
+  await gwRequest<void>(`/streams/${streamId}`, {
     method: 'DELETE',
   });
+
+  // End session tracking in NaaP
+  try {
+    return await pluginRequest<{ sessionEnded: boolean; durationMins: number }>(
+      `/sessions/end-by-stream/${streamId}`,
+      { method: 'POST' }
+    );
+  } catch {
+    return { sessionEnded: false, durationMins: 0 };
+  }
 }
 
-// Usage API
+// ─── Usage & Sessions (NaaP-internal, plugin backend) ───────────────
+
 export async function getUsageStats(): Promise<UsageStats> {
-  return apiRequest<UsageStats>('/usage');
+  return pluginRequest<UsageStats>('/usage');
 }
 
 export async function getSessionHistory(
   limit = 50,
   offset = 0
 ): Promise<SessionRecord[]> {
-  const result = await apiRequest<{ sessions: SessionRecord[] } | SessionRecord[]>(
+  const result = await pluginRequest<{ sessions: SessionRecord[] } | SessionRecord[]>(
     `/sessions?limit=${limit}&offset=${offset}`
   );
-  // Route returns { sessions: [...] } inside the envelope
   if (Array.isArray(result)) return result;
   return result.sessions ?? [];
 }
 
 export async function getActiveSession(): Promise<SessionRecord | null> {
-  return apiRequest<SessionRecord | null>('/sessions/active');
+  return pluginRequest<SessionRecord | null>('/sessions/active');
 }
 
-// Reference data
+// ─── Reference data (plugin backend or gateway) ─────────────────────
+
 export async function getControlNets(): Promise<ControlNetInfo[]> {
-  return apiRequest<ControlNetInfo[]>('/controlnets');
+  return pluginRequest<ControlNetInfo[]>('/controlnets');
 }
 
 export async function getPresets(): Promise<PresetInfo[]> {
-  const result = await apiRequest<Record<string, Omit<PresetInfo, 'id'>> | PresetInfo[]>('/presets');
-  // Route returns an object keyed by preset name; convert to array
+  const result = await pluginRequest<Record<string, Omit<PresetInfo, 'id'>> | PresetInfo[]>('/presets');
   if (Array.isArray(result)) return result;
   return Object.entries(result).map(([id, preset]) => ({ id, ...preset }));
 }
 
 export async function getModels(): Promise<ModelInfo[]> {
-  return apiRequest<ModelInfo[]>('/models');
+  try {
+    return await gwRequest<ModelInfo[]>('/models');
+  } catch {
+    return pluginRequest<ModelInfo[]>('/models');
+  }
 }

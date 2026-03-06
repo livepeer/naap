@@ -2,14 +2,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BasetenAdapter } from '../adapters/BasetenAdapter.js';
 import type { DeployConfig, UpdateConfig } from '../types/index.js';
 
-const GATEWAY_BASE = process.env.SHELL_URL || 'http://localhost:3000';
-const GW_PREFIX = `${GATEWAY_BASE}/api/v1/gw/baseten`;
+vi.mock('../lib/providerFetch.js', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    authenticatedProviderFetch: (_slug: string, apiConfig: any, path: string, options?: RequestInit) => {
+      return actual.providerFetch(apiConfig.upstreamBaseUrl, path, options);
+    },
+  };
+});
+
+const UPSTREAM_BASE = 'https://api.baseten.co/v1';
 
 describe('BasetenAdapter', () => {
   let adapter: BasetenAdapter;
   const mockFetch = vi.fn();
 
   beforeEach(() => {
+    mockFetch.mockClear();
     adapter = new BasetenAdapter();
     global.fetch = mockFetch;
   });
@@ -20,7 +30,6 @@ describe('BasetenAdapter', () => {
 
   it('has correct metadata', () => {
     expect(adapter.slug).toBe('baseten');
-    expect(adapter.connectorSlug).toBe('baseten-serverless');
     expect(adapter.mode).toBe('serverless');
   });
 
@@ -63,7 +72,7 @@ describe('BasetenAdapter', () => {
       expect(result.status).toBe('DEPLOYING');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/models`,
+        `${UPSTREAM_BASE}/models`,
         expect.objectContaining({ method: 'POST' }),
       );
 
@@ -125,7 +134,7 @@ describe('BasetenAdapter', () => {
       expect(result.endpointUrl).toBe('https://baseten.co/predict');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/models/mdl-abc123`,
+        `${UPSTREAM_BASE}/models/mdl-abc123`,
         expect.any(Object),
       );
     });
@@ -214,7 +223,7 @@ describe('BasetenAdapter', () => {
 
       await adapter.destroy('mdl-abc123');
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/models/mdl-abc123`,
+        `${UPSTREAM_BASE}/models/mdl-abc123`,
         expect.objectContaining({ method: 'DELETE' }),
       );
     });
@@ -259,7 +268,7 @@ describe('BasetenAdapter', () => {
       expect(result.endpointUrl).toBe('https://baseten.co/updated');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/models/mdl-abc123`,
+        `${UPSTREAM_BASE}/models/mdl-abc123`,
         expect.objectContaining({ method: 'PATCH' }),
       );
 

@@ -2,14 +2,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ReplicateAdapter } from '../adapters/ReplicateAdapter.js';
 import type { DeployConfig, UpdateConfig } from '../types/index.js';
 
-const GATEWAY_BASE = process.env.SHELL_URL || 'http://localhost:3000';
-const GW_PREFIX = `${GATEWAY_BASE}/api/v1/gw/replicate`;
+vi.mock('../lib/providerFetch.js', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    authenticatedProviderFetch: (_slug: string, apiConfig: any, path: string, options?: RequestInit) => {
+      return actual.providerFetch(apiConfig.upstreamBaseUrl, path, options);
+    },
+  };
+});
+
+const UPSTREAM_BASE = 'https://api.replicate.com/v1';
 
 describe('ReplicateAdapter', () => {
   let adapter: ReplicateAdapter;
   const mockFetch = vi.fn();
 
   beforeEach(() => {
+    mockFetch.mockClear();
     adapter = new ReplicateAdapter();
     global.fetch = mockFetch;
   });
@@ -20,7 +30,6 @@ describe('ReplicateAdapter', () => {
 
   it('has correct metadata', () => {
     expect(adapter.slug).toBe('replicate');
-    expect(adapter.connectorSlug).toBe('replicate-serverless');
     expect(adapter.mode).toBe('serverless');
   });
 
@@ -64,7 +73,7 @@ describe('ReplicateAdapter', () => {
       expect(result.status).toBe('DEPLOYING');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/deployments`,
+        `${UPSTREAM_BASE}/deployments`,
         expect.objectContaining({ method: 'POST' }),
       );
 
@@ -121,7 +130,7 @@ describe('ReplicateAdapter', () => {
       expect(result.endpointUrl).toBe('https://api.replicate.com/...');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/deployments/naap/test-model`,
+        `${UPSTREAM_BASE}/deployments/naap/test-model`,
         expect.any(Object),
       );
     });
@@ -162,7 +171,7 @@ describe('ReplicateAdapter', () => {
 
       await adapter.destroy('naap/test-model');
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/deployments/naap/test-model`,
+        `${UPSTREAM_BASE}/deployments/naap/test-model`,
         expect.objectContaining({ method: 'DELETE' }),
       );
     });
@@ -210,7 +219,7 @@ describe('ReplicateAdapter', () => {
       expect(result.endpointUrl).toBe('https://api.replicate.com/updated');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/deployments/naap/test-model`,
+        `${UPSTREAM_BASE}/deployments/naap/test-model`,
         expect.objectContaining({ method: 'PATCH' }),
       );
 
@@ -291,7 +300,7 @@ describe('ReplicateAdapter', () => {
 
       await adapter.healthCheck('naap/test-model');
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/deployments/naap/test-model`,
+        `${UPSTREAM_BASE}/deployments/naap/test-model`,
         expect.any(Object),
       );
     });

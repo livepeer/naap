@@ -18,7 +18,7 @@ export const GpuConfigForm: React.FC<GpuConfigFormProps> = ({
 }) => {
   return (
     <div>
-      <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>GPU Configuration</h3>
+      <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--dm-text-primary)' }}>GPU Configuration</h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
         {gpuOptions.filter((g) => g.available).map((gpu) => (
           <button
@@ -26,15 +26,16 @@ export const GpuConfigForm: React.FC<GpuConfigFormProps> = ({
             onClick={() => onSelectGpu(gpu.id)}
             style={{
               padding: '1rem',
-              border: selectedGpu === gpu.id ? '2px solid #3b82f6' : '1px solid #e5e7eb',
+              border: selectedGpu === gpu.id ? '2px solid var(--dm-accent-blue)' : '1px solid var(--dm-border)',
               borderRadius: '0.5rem',
-              background: selectedGpu === gpu.id ? '#eff6ff' : '#fff',
+              background: selectedGpu === gpu.id ? 'var(--dm-bg-selected)' : 'var(--dm-bg-primary)',
+              color: 'var(--dm-text-primary)',
               cursor: 'pointer',
               textAlign: 'left',
             }}
           >
-            <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{gpu.name}</div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' }}>
+            <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--dm-text-primary)' }}>{gpu.name}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--dm-text-secondary)', marginTop: '0.25rem' }}>
               {gpu.vramGb}GB VRAM
               {gpu.pricePerHour != null && ` · $${gpu.pricePerHour.toFixed(2)}/hr`}
             </div>
@@ -42,15 +43,17 @@ export const GpuConfigForm: React.FC<GpuConfigFormProps> = ({
         ))}
       </div>
       <div style={{ marginTop: '1rem' }}>
-        <label style={{ fontSize: '0.875rem', fontWeight: 500 }}>GPU Count</label>
+        <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--dm-text-secondary)' }}>GPU Count</label>
         <select
           value={gpuCount}
           onChange={(e) => onGpuCountChange(parseInt(e.target.value, 10))}
           style={{
             marginLeft: '0.75rem',
             padding: '0.375rem 0.75rem',
-            border: '1px solid #d1d5db',
+            border: '1px solid var(--dm-border-input)',
             borderRadius: '0.375rem',
+            color: 'var(--dm-text-primary)',
+            backgroundColor: 'var(--dm-bg-input)',
           }}
         >
           {[1, 2, 4, 8].map((n) => (

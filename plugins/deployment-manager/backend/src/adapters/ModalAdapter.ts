@@ -6,19 +6,24 @@ import type {
   ProviderDeployment,
   ProviderStatus,
   HealthResult,
+  ProviderApiConfig,
 } from '../types/index.js';
-import { gwFetch } from '../lib/gwFetch.js';
-
-const CONNECTOR_SLUG = 'modal';
+import { authenticatedProviderFetch } from '../lib/providerFetch.js';
 
 export class ModalAdapter implements IProviderAdapter {
   readonly slug = 'modal';
   readonly displayName = 'Modal Serverless GPU';
-  readonly connectorSlug = 'modal-serverless';
   readonly mode = 'serverless' as const;
   readonly icon = '🔮';
   readonly description = 'Serverless GPU infrastructure on Modal with elastic scaling.';
   readonly authMethod = 'token';
+  readonly apiConfig: ProviderApiConfig = {
+    upstreamBaseUrl: 'https://api.modal.com/v1',
+    authType: 'bearer',
+    authHeaderTemplate: 'Bearer {{secret}}',
+    secretNames: ['api-key'],
+    healthCheckPath: '/apps',
+  };
 
   async getGpuOptions(): Promise<GpuOption[]> {
     return [
@@ -32,7 +37,7 @@ export class ModalAdapter implements IProviderAdapter {
   }
 
   async deploy(config: DeployConfig): Promise<ProviderDeployment> {
-    const res = await gwFetch(CONNECTOR_SLUG, '/apps', {
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, '/apps', {
       method: 'POST',
       body: JSON.stringify({
         name: config.name,
@@ -58,7 +63,7 @@ export class ModalAdapter implements IProviderAdapter {
   }
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
-    const res = await gwFetch(CONNECTOR_SLUG, `/apps/${providerDeploymentId}`);
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/apps/${providerDeploymentId}`);
     if (!res.ok) return { status: 'FAILED' };
 
     const data = await res.json();
@@ -73,7 +78,7 @@ export class ModalAdapter implements IProviderAdapter {
   }
 
   async destroy(providerDeploymentId: string): Promise<void> {
-    const res = await gwFetch(CONNECTOR_SLUG, `/apps/${providerDeploymentId}`, { method: 'DELETE' });
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/apps/${providerDeploymentId}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) throw new Error(`Modal destroy failed (${res.status})`);
   }
 
@@ -82,7 +87,7 @@ export class ModalAdapter implements IProviderAdapter {
     if (config.dockerImage) body.image = config.dockerImage;
     if (config.gpuModel) body.gpu = config.gpuModel;
 
-    const res = await gwFetch(CONNECTOR_SLUG, `/apps/${providerDeploymentId}`, {
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/apps/${providerDeploymentId}`, {
       method: 'PUT',
       body: JSON.stringify(body),
     });
@@ -101,7 +106,7 @@ export class ModalAdapter implements IProviderAdapter {
   async healthCheck(providerDeploymentId: string): Promise<HealthResult> {
     try {
       const start = Date.now();
-      const res = await gwFetch(CONNECTOR_SLUG, `/apps/${providerDeploymentId}`);
+      const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/apps/${providerDeploymentId}`);
       const responseTimeMs = Date.now() - start;
 
       if (!res.ok) return { healthy: false, status: 'RED', responseTimeMs, statusCode: res.status };

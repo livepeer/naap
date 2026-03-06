@@ -1,5 +1,6 @@
 import React from 'react';
 import type { Provider } from '../hooks/useProviders';
+import { CredentialStatusBadge } from './ProviderCredentialConfig';
 
 interface ProviderSelectorProps {
   providers: Provider[];
@@ -16,9 +17,10 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({ providers, s
           onClick={() => onSelect(p.slug)}
           style={{
             padding: '1.25rem',
-            border: selected === p.slug ? '2px solid #3b82f6' : '1px solid #e5e7eb',
+            border: selected === p.slug ? '2px solid var(--dm-accent-blue)' : '1px solid var(--dm-border)',
             borderRadius: '0.75rem',
-            background: selected === p.slug ? '#eff6ff' : '#fff',
+            background: selected === p.slug ? 'var(--dm-bg-selected)' : 'var(--dm-bg-primary)',
+            color: 'var(--dm-text-primary)',
             cursor: 'pointer',
             textAlign: 'left',
             transition: 'all 0.15s',
@@ -26,16 +28,16 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({ providers, s
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
             <span style={{ fontSize: '1.5rem' }}>{p.icon}</span>
-            <span style={{ fontWeight: 600, fontSize: '1rem' }}>{p.displayName}</span>
+            <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--dm-text-primary)', flex: 1 }}>{p.displayName}</span>
           </div>
-          <p style={{ fontSize: '0.8rem', color: '#6b7280', margin: 0 }}>{p.description}</p>
-          <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
+          <p style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)', margin: 0 }}>{p.description}</p>
+          <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <span style={{
               fontSize: '0.7rem',
               padding: '0.15rem 0.5rem',
               borderRadius: '1rem',
               background: p.mode === 'serverless' ? '#dbeafe' : '#fef3c7',
-              color: p.mode === 'serverless' ? '#1d4ed8' : '#92400e',
+              color: p.mode === 'serverless' ? 'var(--dm-accent-blue-text)' : '#92400e',
             }}>
               {p.mode === 'serverless' ? 'Serverless' : 'SSH Bridge'}
             </span>
@@ -43,11 +45,12 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({ providers, s
               fontSize: '0.7rem',
               padding: '0.15rem 0.5rem',
               borderRadius: '1rem',
-              background: '#f3f4f6',
-              color: '#374151',
+              background: 'var(--dm-bg-tertiary)',
+              color: 'var(--dm-text-secondary)',
             }}>
               {p.authMethod}
             </span>
+            {p.mode !== 'ssh-bridge' && <CredentialStatusBadge providerSlug={p.slug} />}
           </div>
         </button>
       ))}

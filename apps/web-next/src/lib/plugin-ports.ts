@@ -30,6 +30,8 @@ export const PLUGIN_PORTS: Record<string, number> = {
 
   // Extended plugins (4100+)
   'daydream-video': 4111,
+  'service-gateway': 4116,
+  'deployment-manager': 4117,
 };
 
 /** Default port when plugin is not found */

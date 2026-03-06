@@ -7,6 +7,7 @@
 
 import { resolveSecrets } from '@/lib/gateway/secrets';
 import { validateHost } from '@/lib/gateway/types';
+import { interpolateSecrets } from '@/lib/gateway/transforms/types';
 
 export interface ConnectivityResult {
   success: boolean;
@@ -62,8 +63,8 @@ export async function testUpstreamConnectivity(
       }
     } else if (authType === 'header') {
       const headerEntries = (authConfig.headers as Record<string, string>) || {};
-      for (const [key, valueRef] of Object.entries(headerEntries)) {
-        headers[key] = secrets[valueRef] || valueRef;
+      for (const [key, valueTemplate] of Object.entries(headerEntries)) {
+        headers[key] = interpolateSecrets(valueTemplate, secrets);
       }
     } else if (authType === 'query') {
       const queryEntries = (authConfig.queryParams as Record<string, string>) || {};

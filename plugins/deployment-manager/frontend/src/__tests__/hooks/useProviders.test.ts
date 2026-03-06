@@ -3,8 +3,8 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { useProviders, useGpuOptions } from '../../hooks/useProviders';
 
 const mockProviders = [
-  { slug: 'fal-ai', displayName: 'fal.ai', description: 'GPU', icon: '⚡', mode: 'serverless', connectorSlug: 'fal-ai', authMethod: 'api-key' },
-  { slug: 'ssh-bridge', displayName: 'SSH Bridge', description: 'SSH', icon: '🖥', mode: 'ssh-bridge', connectorSlug: 'ssh-bridge', authMethod: 'ssh-key' },
+  { slug: 'fal-ai', displayName: 'fal.ai', description: 'GPU', icon: '⚡', mode: 'serverless', authMethod: 'api-key', secretNames: ['api-key'] },
+  { slug: 'ssh-bridge', displayName: 'SSH Bridge', description: 'SSH', icon: '🖥', mode: 'ssh-bridge', authMethod: 'ssh-key', secretNames: [] },
 ];
 
 const mockGpuOptions = [

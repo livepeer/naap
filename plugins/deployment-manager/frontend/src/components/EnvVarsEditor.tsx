@@ -34,11 +34,11 @@ export const EnvVarsEditor: React.FC<EnvVarsEditorProps> = ({ envVars, onChange 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-        <label style={{ fontSize: '0.875rem', fontWeight: 600 }}>Environment Variables</label>
+        <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Environment Variables</label>
         <button
           onClick={addEntry}
           style={{
-            padding: '0.25rem 0.75rem', fontSize: '0.75rem', background: '#3b82f6',
+            padding: '0.25rem 0.75rem', fontSize: '0.75rem', background: 'var(--dm-accent-blue)',
             color: '#fff', border: 'none', borderRadius: '0.25rem', cursor: 'pointer',
           }}
         >
@@ -46,7 +46,7 @@ export const EnvVarsEditor: React.FC<EnvVarsEditorProps> = ({ envVars, onChange 
         </button>
       </div>
       {entries.length === 0 && (
-        <p style={{ fontSize: '0.8rem', color: '#9ca3af' }}>No environment variables configured.</p>
+        <p style={{ fontSize: '0.8rem', color: 'var(--dm-text-tertiary)' }}>No environment variables configured.</p>
       )}
       {entries.map(([key, value], idx) => (
         <div key={idx} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
@@ -56,8 +56,9 @@ export const EnvVarsEditor: React.FC<EnvVarsEditorProps> = ({ envVars, onChange 
             onChange={(e) => updateKey(key, e.target.value)}
             placeholder="KEY"
             style={{
-              flex: 1, padding: '0.375rem 0.5rem', border: '1px solid #d1d5db',
+              flex: 1, padding: '0.375rem 0.5rem', border: '1px solid var(--dm-border-input)',
               borderRadius: '0.25rem', fontSize: '0.8rem', fontFamily: 'monospace',
+              color: 'var(--dm-text-primary)', backgroundColor: 'var(--dm-bg-input)',
             }}
           />
           <input
@@ -66,8 +67,9 @@ export const EnvVarsEditor: React.FC<EnvVarsEditorProps> = ({ envVars, onChange 
             onChange={(e) => updateValue(key, e.target.value)}
             placeholder="value"
             style={{
-              flex: 2, padding: '0.375rem 0.5rem', border: '1px solid #d1d5db',
+              flex: 2, padding: '0.375rem 0.5rem', border: '1px solid var(--dm-border-input)',
               borderRadius: '0.25rem', fontSize: '0.8rem', fontFamily: 'monospace',
+              color: 'var(--dm-text-primary)', backgroundColor: 'var(--dm-bg-input)',
             }}
           />
           <button

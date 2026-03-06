@@ -7,11 +7,11 @@ function makeMockAdapter(slug: string, gpuOptions: { id: string; pricePerHour: n
   return {
     slug,
     displayName: slug,
-    connectorSlug: slug,
     mode: 'serverless' as const,
     icon: 'T',
     description: 'Test',
     authMethod: 'api-key',
+    apiConfig: { upstreamBaseUrl: 'http://mock', authType: 'bearer' as const, secretNames: ['api-key'], healthCheckPath: null },
     getGpuOptions: vi.fn().mockResolvedValue(
       gpuOptions.map((g) => ({ id: g.id, name: g.id, vramGb: 24, available: true, pricePerHour: g.pricePerHour })),
     ),
@@ -40,8 +40,8 @@ describe('CostEstimationService', () => {
     expect(estimate.gpuCount).toBe(1);
   });
 
-  it('returns correct cost for runpod NVIDIA A100 80GB', async () => {
-    const estimate = await service.estimate('runpod', 'NVIDIA A100 80GB', 1);
+  it('returns correct cost for runpod NVIDIA A100 80GB PCIe', async () => {
+    const estimate = await service.estimate('runpod', 'NVIDIA A100 80GB PCIe', 1);
     expect(estimate.gpuCostPerHour).toBe(2.49);
     expect(estimate.breakdown.gpu).toBe(2.49);
   });
@@ -88,7 +88,7 @@ describe('CostEstimationService', () => {
   });
 
   it('includes storage cost for serverless providers', async () => {
-    const estimate = await service.estimate('runpod', 'NVIDIA A100 80GB', 1);
+    const estimate = await service.estimate('runpod', 'NVIDIA A100 80GB PCIe', 1);
     expect(estimate.breakdown.storage).toBe(0.10);
   });
 

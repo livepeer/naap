@@ -16,12 +16,13 @@ import { createDeploymentsRouter } from './routes/deployments.js';
 import { createTemplatesRouter } from './routes/templates.js';
 import { createHealthRouter } from './routes/health.js';
 import { createAuditRouter } from './routes/audit.js';
-import { setAuthContext } from './lib/gwFetch.js';
+import { setAuthContext } from './lib/providerFetch.js';
 import { PrismaDeploymentStore } from './store/PrismaDeploymentStore.js';
 import { InMemoryDeploymentStore } from './store/InMemoryDeploymentStore.js';
 import type { IDeploymentStore } from './store/IDeploymentStore.js';
 import { CostEstimationService } from './services/CostEstimationService.js';
 import { createCostRouter } from './routes/cost.js';
+import { createCredentialsRouter } from './routes/credentials.js';
 
 const PORT = parseInt(process.env.PORT || '4117', 10);
 const API_PREFIX = '/api/v1/deployment-manager';
@@ -83,11 +84,12 @@ app.get('/healthz', (_req, res) => {
 });
 
 app.use(`${API_PREFIX}/providers`, createProvidersRouter(registry));
-app.use(`${API_PREFIX}/deployments`, createDeploymentsRouter(orchestrator));
+app.use(`${API_PREFIX}/deployments`, createDeploymentsRouter(orchestrator, registry));
 app.use(`${API_PREFIX}/templates`, createTemplatesRouter(templateRegistry));
 app.use(`${API_PREFIX}/health`, createHealthRouter(healthMonitor, orchestrator));
 app.use(`${API_PREFIX}/audit`, createAuditRouter(audit));
 app.use(`${API_PREFIX}/cost`, createCostRouter(costService));
+app.use(`${API_PREFIX}/credentials`, createCredentialsRouter(registry));
 
 app.get(`${API_PREFIX}/status`, async (_req, res) => {
   const all = await orchestrator.list();

@@ -2,14 +2,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FalAdapter } from '../adapters/FalAdapter.js';
 import type { DeployConfig, UpdateConfig } from '../types/index.js';
 
-const GATEWAY_BASE = process.env.SHELL_URL || 'http://localhost:3000';
-const GW_PREFIX = `${GATEWAY_BASE}/api/v1/gw/fal-ai`;
+vi.mock('../lib/providerFetch.js', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    authenticatedProviderFetch: (_slug: string, apiConfig: any, path: string, options?: RequestInit) => {
+      return actual.providerFetch(apiConfig.upstreamBaseUrl, path, options);
+    },
+  };
+});
+
+const UPSTREAM_BASE = 'https://rest.fal.ai';
 
 describe('FalAdapter', () => {
   let adapter: FalAdapter;
   const mockFetch = vi.fn();
 
   beforeEach(() => {
+    mockFetch.mockClear();
     adapter = new FalAdapter();
     global.fetch = mockFetch;
   });
@@ -20,7 +30,6 @@ describe('FalAdapter', () => {
 
   it('has correct metadata', () => {
     expect(adapter.slug).toBe('fal-ai');
-    expect(adapter.connectorSlug).toBe('fal-ai-serverless');
     expect(adapter.mode).toBe('serverless');
   });
 
@@ -59,7 +68,7 @@ describe('FalAdapter', () => {
       expect(result.status).toBe('DEPLOYING');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/applications`,
+        `${UPSTREAM_BASE}/applications`,
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
@@ -84,7 +93,6 @@ describe('FalAdapter', () => {
 
       const result = await adapter.deploy(config);
       expect(result.providerDeploymentId).toBe('app-alt-456');
-      // URL fallback uses data.id which is undefined when only application_id is present
       expect(result.endpointUrl).toBe('https://fal.run/undefined');
     });
 
@@ -186,7 +194,7 @@ describe('FalAdapter', () => {
 
       await adapter.destroy('app-123');
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/applications/app-123`,
+        `${UPSTREAM_BASE}/applications/app-123`,
         expect.objectContaining({ method: 'DELETE' }),
       );
     });
@@ -231,7 +239,7 @@ describe('FalAdapter', () => {
       expect(result.endpointUrl).toBe('https://fal.run/app-123');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/applications/app-123`,
+        `${UPSTREAM_BASE}/applications/app-123`,
         expect.objectContaining({
           method: 'PUT',
           body: JSON.stringify({ image: 'my-org/new-image:v2' }),

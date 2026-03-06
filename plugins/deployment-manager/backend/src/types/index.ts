@@ -75,15 +75,24 @@ export interface HealthResult {
   details?: Record<string, unknown>;
 }
 
+export interface ProviderApiConfig {
+  upstreamBaseUrl: string;
+  authType: 'bearer' | 'header' | 'none';
+  authHeaderName?: string;
+  authHeaderTemplate?: string;
+  secretNames: string[];
+  healthCheckPath?: string | null;
+}
+
 export interface ProviderInfo {
   slug: string;
   displayName: string;
   description: string;
   icon: string;
   mode: ProviderMode;
-  connectorSlug: string;
   authMethod: string;
   gpuOptionsAvailable: boolean;
+  secretNames: string[];
 }
 
 export interface DeploymentTemplate {

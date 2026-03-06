@@ -27,11 +27,11 @@ const sshBaseConfig: DeployConfig = {
 
 describe('Feature: SSH Bridge End-to-End', () => {
   let adapter: SshBridgeAdapter;
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  let fetchSpy: any;
 
   beforeEach(() => {
     adapter = new SshBridgeAdapter();
-    fetchSpy = vi.spyOn(globalThis, 'fetch');
+    fetchSpy = vi.spyOn(globalThis, 'fetch') as any;
   });
 
   afterEach(() => {
@@ -59,13 +59,13 @@ describe('Feature: SSH Bridge End-to-End', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
 
     const connectCall = fetchSpy.mock.calls[0];
-    expect(connectCall[0]).toContain('/ssh-bridge/connect');
+    expect(connectCall[0]).toContain('/connect');
     const connectBody = JSON.parse((connectCall[1] as RequestInit).body as string);
     expect(connectBody.host).toBe('10.0.0.1');
     expect(connectBody.username).toBe('deploy');
 
     const scriptCall = fetchSpy.mock.calls[1];
-    expect(scriptCall[0]).toContain('/ssh-bridge/exec/script');
+    expect(scriptCall[0]).toContain('/exec/script');
     const scriptBody = JSON.parse((scriptCall[1] as RequestInit).body as string);
     expect(scriptBody.script).toContain('docker pull livepeer/ai-runner:v1.0.0');
     expect(scriptBody.script).toContain('docker run -d');
@@ -88,7 +88,7 @@ describe('Feature: SSH Bridge End-to-End', () => {
     expect(status.status).toBe('ONLINE');
     expect(status.endpointUrl).toBe('http://10.0.0.1:8080');
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(fetchSpy.mock.calls[0][0]).toContain('/ssh-bridge/jobs/job-xyz');
+    expect(fetchSpy.mock.calls[0][0]).toContain('/jobs/job-xyz');
   });
 
   it('Given missing SSH host or username, When deploy is called, Then it throws a validation error', async () => {

@@ -150,35 +150,35 @@ describe('GithubReleasesAdapter', () => {
   });
 
   describe('URL construction', () => {
-    it('should call the correct gateway URL for getLatestRelease', async () => {
+    it('should call the correct URL for getLatestRelease', async () => {
       fetchMock.mockResolvedValueOnce({ ok: false });
 
       await adapter.getLatestRelease('livepeer', 'ai-runner');
 
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/v1/gw/github-releases/repos/livepeer/ai-runner/releases/latest'),
+        'https://api.github.com/repos/livepeer/ai-runner/releases/latest',
         expect.any(Object),
       );
     });
 
-    it('should call the correct gateway URL for listReleases', async () => {
+    it('should call the correct URL for listReleases', async () => {
       fetchMock.mockResolvedValueOnce({ ok: false });
 
       await adapter.listReleases('org', 'project', 5);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/v1/gw/github-releases/repos/org/project/releases?per_page=5'),
+        'https://api.github.com/repos/org/project/releases?per_page=5',
         expect.any(Object),
       );
     });
 
-    it('should call the correct gateway URL for getReleaseByTag', async () => {
+    it('should call the correct URL for getReleaseByTag', async () => {
       fetchMock.mockResolvedValueOnce({ ok: false });
 
       await adapter.getReleaseByTag('owner', 'repo', 'v3.0.0');
 
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/v1/gw/github-releases/repos/owner/repo/releases/tags/v3.0.0'),
+        'https://api.github.com/repos/owner/repo/releases/tags/v3.0.0',
         expect.any(Object),
       );
     });

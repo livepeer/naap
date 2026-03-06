@@ -9,11 +9,11 @@ import type { DeployConfig, ProviderDeployment, ProviderStatus, HealthResult, Gp
 class MockAdapter implements IProviderAdapter {
   readonly slug = 'mock';
   readonly displayName = 'Mock Provider';
-  readonly connectorSlug = 'mock-connector';
   readonly mode = 'serverless' as const;
   readonly icon = '🧪';
   readonly description = 'Mock provider for testing';
   readonly authMethod = 'api-key';
+  readonly apiConfig = { upstreamBaseUrl: 'http://mock', authType: 'bearer' as const, secretNames: ['api-key'], healthCheckPath: null };
   deployCallCount = 0;
   shouldFail = false;
 

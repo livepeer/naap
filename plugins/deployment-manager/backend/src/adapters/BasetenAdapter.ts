@@ -6,19 +6,24 @@ import type {
   ProviderDeployment,
   ProviderStatus,
   HealthResult,
+  ProviderApiConfig,
 } from '../types/index.js';
-import { gwFetch } from '../lib/gwFetch.js';
-
-const CONNECTOR_SLUG = 'baseten';
+import { authenticatedProviderFetch } from '../lib/providerFetch.js';
 
 export class BasetenAdapter implements IProviderAdapter {
   readonly slug = 'baseten';
   readonly displayName = 'Baseten Model Deployment';
-  readonly connectorSlug = 'baseten-serverless';
   readonly mode = 'serverless' as const;
   readonly icon = '🏗️';
   readonly description = 'Deploy ML models as scalable API endpoints on Baseten.';
   readonly authMethod = 'api-key';
+  readonly apiConfig: ProviderApiConfig = {
+    upstreamBaseUrl: 'https://api.baseten.co/v1',
+    authType: 'bearer',
+    authHeaderTemplate: 'Bearer {{secret}}',
+    secretNames: ['api-key'],
+    healthCheckPath: '/models',
+  };
 
   async getGpuOptions(): Promise<GpuOption[]> {
     return [
@@ -31,7 +36,7 @@ export class BasetenAdapter implements IProviderAdapter {
   }
 
   async deploy(config: DeployConfig): Promise<ProviderDeployment> {
-    const res = await gwFetch(CONNECTOR_SLUG, '/models', {
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, '/models', {
       method: 'POST',
       body: JSON.stringify({
         name: config.name,
@@ -56,7 +61,7 @@ export class BasetenAdapter implements IProviderAdapter {
   }
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
-    const res = await gwFetch(CONNECTOR_SLUG, `/models/${providerDeploymentId}`);
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/models/${providerDeploymentId}`);
     if (!res.ok) return { status: 'FAILED' };
 
     const data = await res.json();
@@ -71,7 +76,7 @@ export class BasetenAdapter implements IProviderAdapter {
   }
 
   async destroy(providerDeploymentId: string): Promise<void> {
-    const res = await gwFetch(CONNECTOR_SLUG, `/models/${providerDeploymentId}`, { method: 'DELETE' });
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/models/${providerDeploymentId}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) throw new Error(`Baseten destroy failed (${res.status})`);
   }
 
@@ -79,7 +84,7 @@ export class BasetenAdapter implements IProviderAdapter {
     const body: Record<string, unknown> = {};
     if (config.dockerImage) body.docker_image = config.dockerImage;
 
-    const res = await gwFetch(CONNECTOR_SLUG, `/models/${providerDeploymentId}`, {
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/models/${providerDeploymentId}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
     });
@@ -98,7 +103,7 @@ export class BasetenAdapter implements IProviderAdapter {
   async healthCheck(providerDeploymentId: string): Promise<HealthResult> {
     try {
       const start = Date.now();
-      const res = await gwFetch(CONNECTOR_SLUG, `/models/${providerDeploymentId}`);
+      const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/models/${providerDeploymentId}`);
       const responseTimeMs = Date.now() - start;
 
       if (!res.ok) return { healthy: false, status: 'RED', responseTimeMs, statusCode: res.status };

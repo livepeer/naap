@@ -24,8 +24,8 @@ export function createProvidersRouter(registry: ProviderAdapterRegistry): Router
         description: adapter.description,
         icon: adapter.icon,
         mode: adapter.mode,
-        connectorSlug: adapter.connectorSlug,
         authMethod: adapter.authMethod,
+        secretNames: adapter.apiConfig.secretNames,
       },
     });
   });

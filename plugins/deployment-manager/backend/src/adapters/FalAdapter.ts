@@ -6,19 +6,25 @@ import type {
   ProviderDeployment,
   ProviderStatus,
   HealthResult,
+  ProviderApiConfig,
 } from '../types/index.js';
-import { gwFetch } from '../lib/gwFetch.js';
-
-const CONNECTOR_SLUG = 'fal-ai';
+import { authenticatedProviderFetch } from '../lib/providerFetch.js';
 
 export class FalAdapter implements IProviderAdapter {
   readonly slug = 'fal-ai';
   readonly displayName = 'fal.ai Serverless GPU';
-  readonly connectorSlug = 'fal-ai-serverless';
   readonly mode = 'serverless' as const;
   readonly icon = '⚡';
   readonly description = 'Serverless GPU inference with sub-second cold starts on fal.ai.';
   readonly authMethod = 'api-key';
+  readonly apiConfig: ProviderApiConfig = {
+    upstreamBaseUrl: 'https://rest.fal.ai',
+    authType: 'header',
+    authHeaderName: 'Authorization',
+    authHeaderTemplate: 'Key {{secret}}',
+    secretNames: ['api-key'],
+    healthCheckPath: '/applications',
+  };
 
   async getGpuOptions(): Promise<GpuOption[]> {
     return [
@@ -32,7 +38,7 @@ export class FalAdapter implements IProviderAdapter {
   }
 
   async deploy(config: DeployConfig): Promise<ProviderDeployment> {
-    const res = await gwFetch(CONNECTOR_SLUG, '/applications', {
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, '/applications', {
       method: 'POST',
       body: JSON.stringify({
         name: config.name,
@@ -59,7 +65,7 @@ export class FalAdapter implements IProviderAdapter {
   }
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
-    const res = await gwFetch(CONNECTOR_SLUG, `/applications/${providerDeploymentId}`);
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/applications/${providerDeploymentId}`);
     if (!res.ok) return { status: 'FAILED' };
 
     const data = await res.json();
@@ -74,7 +80,7 @@ export class FalAdapter implements IProviderAdapter {
   }
 
   async destroy(providerDeploymentId: string): Promise<void> {
-    const res = await gwFetch(CONNECTOR_SLUG, `/applications/${providerDeploymentId}`, { method: 'DELETE' });
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/applications/${providerDeploymentId}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) {
       throw new Error(`fal.ai destroy failed (${res.status})`);
     }
@@ -84,7 +90,7 @@ export class FalAdapter implements IProviderAdapter {
     const body: Record<string, unknown> = {};
     if (config.dockerImage) body.image = config.dockerImage;
 
-    const res = await gwFetch(CONNECTOR_SLUG, `/applications/${providerDeploymentId}`, {
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/applications/${providerDeploymentId}`, {
       method: 'PUT',
       body: JSON.stringify(body),
     });
@@ -103,7 +109,7 @@ export class FalAdapter implements IProviderAdapter {
   async healthCheck(providerDeploymentId: string, endpointUrl?: string): Promise<HealthResult> {
     try {
       const start = Date.now();
-      const res = await gwFetch(CONNECTOR_SLUG, `/applications/${providerDeploymentId}`);
+      const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/applications/${providerDeploymentId}`);
       const responseTimeMs = Date.now() - start;
 
       if (!res.ok) return { healthy: false, status: 'RED', responseTimeMs, statusCode: res.status };

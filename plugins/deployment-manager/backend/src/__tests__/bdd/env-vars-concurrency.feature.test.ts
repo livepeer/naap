@@ -10,11 +10,11 @@ function makeMockAdapter(slug: string): IProviderAdapter & { deploy: ReturnType<
   return {
     slug,
     displayName: slug,
-    connectorSlug: slug,
     mode: 'serverless' as const,
     icon: 'T',
     description: '',
     authMethod: 'api-key',
+    apiConfig: { upstreamBaseUrl: 'http://mock', authType: 'bearer' as const, secretNames: ['api-key'], healthCheckPath: null },
     getGpuOptions: vi.fn().mockResolvedValue([]),
     deploy: vi.fn().mockResolvedValue({
       providerDeploymentId: 'pid-1',

@@ -6,19 +6,25 @@ import type {
   ProviderDeployment,
   ProviderStatus,
   HealthResult,
+  ProviderApiConfig,
 } from '../types/index.js';
-import { gwFetch } from '../lib/gwFetch.js';
+import { authenticatedProviderFetch } from '../lib/providerFetch.js';
 
-const CONNECTOR_SLUG = 'ssh-bridge';
+const SSH_BRIDGE_URL = process.env.SSH_BRIDGE_URL || 'http://localhost:2222';
 
 export class SshBridgeAdapter implements IProviderAdapter {
   readonly slug = 'ssh-bridge';
   readonly displayName = 'SSH Bridge (Bare-Metal / VM)';
-  readonly connectorSlug = 'ssh-bridge';
   readonly mode = 'ssh-bridge' as const;
   readonly icon = '🖥️';
   readonly description = 'Deploy Docker containers directly to GPU machines via SSH. Requires Docker + NVIDIA runtime pre-installed.';
   readonly authMethod = 'ssh-key';
+  readonly apiConfig: ProviderApiConfig = {
+    upstreamBaseUrl: SSH_BRIDGE_URL,
+    authType: 'none',
+    secretNames: ['ssh-key'],
+    healthCheckPath: '/healthz',
+  };
 
   async getGpuOptions(): Promise<GpuOption[]> {
     return [
@@ -40,7 +46,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
       throw new Error('SSH host and username are required for SSH Bridge deployments');
     }
 
-    const connectRes = await gwFetch(CONNECTOR_SLUG, '/connect', {
+    const connectRes = await authenticatedProviderFetch(this.slug, this.apiConfig, '/connect', {
       method: 'POST',
       body: JSON.stringify({
         host: config.sshHost,
@@ -98,7 +104,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
       'exit 1',
     ].join('\n');
 
-    const scriptRes = await gwFetch(CONNECTOR_SLUG, '/exec/script', {
+    const scriptRes = await authenticatedProviderFetch(this.slug, this.apiConfig, '/exec/script', {
       method: 'POST',
       body: JSON.stringify({
         host: config.sshHost,
@@ -134,7 +140,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
 
     if (jobId) {
       try {
-        const res = await gwFetch(CONNECTOR_SLUG, `/jobs/${jobId}`);
+        const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/jobs/${jobId}`);
         if (res.ok) {
           const data = await res.json();
           const jobStatus = data.data?.status || data.status;
@@ -164,7 +170,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
     const host = parts[0];
     const containerName = parts[1];
 
-    const res = await gwFetch(CONNECTOR_SLUG, '/exec', {
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, '/exec', {
       method: 'POST',
       body: JSON.stringify({
         host,
@@ -221,7 +227,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
       'exit 1',
     ].join('\n');
 
-    const res = await gwFetch(CONNECTOR_SLUG, '/exec/script', {
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, '/exec/script', {
       method: 'POST',
       body: JSON.stringify({
         host,
@@ -261,7 +267,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
 
     try {
       const start = Date.now();
-      const res = await gwFetch(CONNECTOR_SLUG, '/exec', {
+      const res = await authenticatedProviderFetch(this.slug, this.apiConfig, '/exec', {
         method: 'POST',
         body: JSON.stringify({
           host,

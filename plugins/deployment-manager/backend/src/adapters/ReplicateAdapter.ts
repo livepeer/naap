@@ -6,19 +6,24 @@ import type {
   ProviderDeployment,
   ProviderStatus,
   HealthResult,
+  ProviderApiConfig,
 } from '../types/index.js';
-import { gwFetch } from '../lib/gwFetch.js';
-
-const CONNECTOR_SLUG = 'replicate';
+import { authenticatedProviderFetch } from '../lib/providerFetch.js';
 
 export class ReplicateAdapter implements IProviderAdapter {
   readonly slug = 'replicate';
   readonly displayName = 'Replicate Deployments';
-  readonly connectorSlug = 'replicate-serverless';
   readonly mode = 'serverless' as const;
   readonly icon = '🔁';
   readonly description = 'Deploy custom models as scalable endpoints on Replicate.';
   readonly authMethod = 'api-key';
+  readonly apiConfig: ProviderApiConfig = {
+    upstreamBaseUrl: 'https://api.replicate.com/v1',
+    authType: 'bearer',
+    authHeaderTemplate: 'Bearer {{secret}}',
+    secretNames: ['api-key'],
+    healthCheckPath: '/deployments',
+  };
 
   async getGpuOptions(): Promise<GpuOption[]> {
     return [
@@ -34,7 +39,7 @@ export class ReplicateAdapter implements IProviderAdapter {
     const owner = 'naap';
     const name = config.name.replace(/[^a-z0-9-]/g, '-');
 
-    const res = await gwFetch(CONNECTOR_SLUG, '/deployments', {
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, '/deployments', {
       method: 'POST',
       body: JSON.stringify({
         owner,
@@ -60,7 +65,7 @@ export class ReplicateAdapter implements IProviderAdapter {
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
     const [owner, name] = providerDeploymentId.split('/');
-    const res = await gwFetch(CONNECTOR_SLUG, `/deployments/${owner}/${name}`);
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/deployments/${owner}/${name}`);
     if (!res.ok) return { status: 'FAILED' };
 
     const data = await res.json();
@@ -74,7 +79,7 @@ export class ReplicateAdapter implements IProviderAdapter {
 
   async destroy(providerDeploymentId: string): Promise<void> {
     const [owner, name] = providerDeploymentId.split('/');
-    const res = await gwFetch(CONNECTOR_SLUG, `/deployments/${owner}/${name}`, { method: 'DELETE' });
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/deployments/${owner}/${name}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) throw new Error(`Replicate destroy failed (${res.status})`);
   }
 
@@ -84,7 +89,7 @@ export class ReplicateAdapter implements IProviderAdapter {
     if (config.dockerImage) body.model = config.dockerImage;
     if (config.gpuModel) body.hardware = config.gpuModel;
 
-    const res = await gwFetch(CONNECTOR_SLUG, `/deployments/${owner}/${name}`, {
+    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/deployments/${owner}/${name}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
     });
@@ -104,7 +109,7 @@ export class ReplicateAdapter implements IProviderAdapter {
     try {
       const start = Date.now();
       const [owner, name] = providerDeploymentId.split('/');
-      const res = await gwFetch(CONNECTOR_SLUG, `/deployments/${owner}/${name}`);
+      const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/deployments/${owner}/${name}`);
       const responseTimeMs = Date.now() - start;
 
       if (!res.ok) return { healthy: false, status: 'RED', responseTimeMs, statusCode: res.status };

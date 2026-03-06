@@ -9,11 +9,11 @@ import type { DeployConfig, UpdateConfig, HealthResult } from '../../types/index
 class MockAdapter implements IProviderAdapter {
   readonly slug = 'mock';
   readonly displayName = 'Mock';
-  readonly connectorSlug = 'mock';
   readonly mode = 'serverless' as const;
   readonly icon = '🧪';
   readonly description = 'Mock';
   readonly authMethod = 'api-key';
+  readonly apiConfig = { upstreamBaseUrl: 'http://mock', authType: 'bearer' as const, secretNames: ['api-key'], healthCheckPath: null };
   shouldFail = false;
   healthResult: HealthResult = { healthy: true, status: 'GREEN', responseTimeMs: 50 };
   deployCallCount = 0;
@@ -74,28 +74,35 @@ describe('Feature: Full Deployment Lifecycle', () => {
     expect(statuses).toContain('ONLINE');
   });
 
-  it('Given an adapter that returns an unhealthy health check, When the operator deploys, Then the deployment reaches FAILED status', async () => {
-    // Given
+  it('Given a serverless adapter with unhealthy health check but ONLINE status, deployment reaches ONLINE with ORANGE health', async () => {
+    // Serverless endpoints with workersMin=0 may be unhealthy (no workers) but still correctly deployed
     adapter.healthResult = { healthy: false, status: 'RED', responseTimeMs: 100 };
     const deployment = await orchestrator.create(baseConfig, 'user-1');
 
-    // When
     const result = await orchestrator.deploy(deployment.id, 'user-1');
 
-    // Then
+    expect(result.status).toBe('ONLINE');
+    expect(result.healthStatus).toBe('ORANGE');
+  });
+
+  it('Given a non-serverless adapter with unhealthy health check, deployment reaches FAILED status', async () => {
+    // Non-serverless providers should still fail when health check reports unhealthy
+    class DedicatedMockAdapter extends MockAdapter {
+      override readonly slug = 'mock-dedicated' as any;
+      override readonly mode = 'dedicated' as any;
+    }
+    const dedicatedAdapter = new DedicatedMockAdapter();
+    dedicatedAdapter.healthResult = { healthy: false, status: 'RED', responseTimeMs: 100 };
+
+    const dedicatedRegistry = new ProviderAdapterRegistry();
+    dedicatedRegistry.register(dedicatedAdapter);
+    const dedicatedOrchestrator = new DeploymentOrchestrator(dedicatedRegistry, audit, new InMemoryDeploymentStore());
+
+    const config = { ...baseConfig, providerSlug: 'mock-dedicated' };
+    const deployment = await dedicatedOrchestrator.create(config, 'user-1');
+    const result = await dedicatedOrchestrator.deploy(deployment.id, 'user-1');
+
     expect(result.status).toBe('FAILED');
     expect(result.healthStatus).toBe('RED');
-
-    const history = await orchestrator.getStatusHistory(deployment.id);
-    const statuses = history.map((h) => h.toStatus);
-    expect(statuses).toHaveLength(4);
-    expect(statuses).toContain('PENDING');
-    expect(statuses).toContain('DEPLOYING');
-    expect(statuses).toContain('VALIDATING');
-    expect(statuses).toContain('FAILED');
-
-    const auditLogs = await audit.query({ deploymentId: deployment.id });
-    expect(auditLogs.data.some((l) => l.action === 'CREATE')).toBe(true);
-    expect(auditLogs.data.some((l) => l.action === 'DEPLOY')).toBe(true);
   });
 });

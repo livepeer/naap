@@ -1,7 +1,7 @@
 import type { DeploymentStatus, DeployConfig, UpdateConfig, HealthStatus } from '../types/index.js';
 import type { ProviderAdapterRegistry } from './ProviderAdapterRegistry.js';
 import type { AuditService } from './AuditService.js';
-import type { IProviderAdapter } from '../adapters/IProviderAdapter.js';
+import type { IProviderAdapter, DestroyResult } from '../adapters/IProviderAdapter.js';
 import type { IDeploymentStore, DeploymentFilters, StatusLogEntry } from '../store/IDeploymentStore.js';
 
 export type { DeploymentRecord } from '../store/IDeploymentStore.js';
@@ -14,7 +14,7 @@ const VALID_TRANSITIONS: Record<DeploymentStatus, DeploymentStatus[]> = {
   ONLINE: ['UPDATING', 'DESTROYED'],
   UPDATING: ['VALIDATING', 'FAILED'],
   FAILED: ['DEPLOYING', 'DESTROYED'],
-  DESTROYED: [],
+  DESTROYED: ['DESTROYED'],
 };
 
 export class DeploymentOrchestrator {
@@ -122,6 +122,7 @@ export class DeploymentOrchestrator {
       record = await this.store.update(id, {
         providerDeploymentId: result.providerDeploymentId,
         endpointUrl: result.endpointUrl,
+        providerConfig: result.metadata || undefined,
         deployedAt: new Date(),
       });
 
@@ -158,41 +159,135 @@ export class DeploymentOrchestrator {
     }
   }
 
-  async destroy(id: string, userId: string): Promise<DeploymentRecord> {
+  async destroy(id: string, userId: string): Promise<{ record: DeploymentRecord; destroyResult?: DestroyResult }> {
     let record = await this.getOrThrow(id);
     this.assertTransition(record.status, 'DESTROYED');
 
     const adapter = this.registry.get(record.providerSlug);
+    let destroyResult: DestroyResult | undefined;
 
-    try {
-      if (record.providerDeploymentId) {
-        await adapter.destroy(record.providerDeploymentId);
+    if (record.providerDeploymentId) {
+      const result = await adapter.destroy(record.providerDeploymentId, record.providerConfig || undefined);
+      if (result && typeof result === 'object' && 'allClean' in result) {
+        destroyResult = result;
       }
-      record = await this.transition(record, 'DESTROYED', 'Destroyed', userId);
-
-      await this.audit.log({
-        deploymentId: id,
-        action: 'DESTROY',
-        resource: 'deployment',
-        resourceId: id,
-        userId,
-        status: 'success',
-      });
-
-      return record;
-    } catch (err: any) {
-      record = await this.transition(record, 'FAILED', err.message, userId);
-      await this.audit.log({
-        deploymentId: id,
-        action: 'DESTROY',
-        resource: 'deployment',
-        resourceId: id,
-        userId,
-        status: 'failure',
-        errorMsg: err.message,
-      });
-      throw err;
     }
+
+    const cleanupPending = destroyResult ? !destroyResult.allClean : false;
+    const reason = cleanupPending
+      ? 'Destroyed (remote cleanup incomplete)'
+      : 'Destroyed';
+
+    record = await this.store.update(id, {
+      providerConfig: { ...(record.providerConfig || {}), cleanupPending },
+    });
+    record = await this.transitionWithMetadata(
+      record, 'DESTROYED', reason, userId,
+      destroyResult ? { steps: destroyResult.steps, allClean: destroyResult.allClean } : undefined,
+    );
+
+    await this.audit.log({
+      deploymentId: id,
+      action: 'DESTROY',
+      resource: 'deployment',
+      resourceId: id,
+      userId,
+      status: cleanupPending ? 'partial' : 'success',
+      details: destroyResult ? { steps: destroyResult.steps } : undefined,
+    });
+
+    return { record, destroyResult };
+  }
+
+  async forceDestroy(id: string, userId: string): Promise<{ record: DeploymentRecord; destroyResult?: DestroyResult }> {
+    let record = await this.getOrThrow(id);
+    const adapter = this.registry.get(record.providerSlug);
+    let destroyResult: DestroyResult | undefined;
+
+    if (record.providerDeploymentId) {
+      try {
+        const result = await adapter.destroy(record.providerDeploymentId, record.providerConfig || undefined);
+        if (result && typeof result === 'object' && 'allClean' in result) {
+          destroyResult = result;
+        }
+      } catch (err: any) {
+        destroyResult = { allClean: false, steps: [{ resource: 'adapter', action: 'DESTROY', status: 'failed', error: err.message }] };
+      }
+    }
+
+    const cleanupPending = destroyResult ? !destroyResult.allClean : false;
+    const reason = cleanupPending
+      ? 'Force destroyed (remote cleanup incomplete)'
+      : 'Force destroyed';
+
+    record = await this.store.update(id, {
+      status: 'DESTROYED',
+      providerConfig: { ...(record.providerConfig || {}), cleanupPending },
+    });
+    await this.recordTransitionWithMetadata(
+      id, record.status, 'DESTROYED', reason, userId,
+      destroyResult ? { steps: destroyResult.steps, allClean: destroyResult.allClean } : undefined,
+    );
+
+    await this.audit.log({
+      deploymentId: id,
+      action: 'FORCE_DESTROY',
+      resource: 'deployment',
+      resourceId: id,
+      userId,
+      status: cleanupPending ? 'partial' : 'success',
+      details: destroyResult ? { steps: destroyResult.steps } : undefined,
+    });
+
+    return { record, destroyResult };
+  }
+
+  async retryCleanup(id: string, userId: string): Promise<{ record: DeploymentRecord; destroyResult?: DestroyResult }> {
+    let record = await this.getOrThrow(id);
+    if (record.status !== 'DESTROYED') {
+      throw new Error(`Can only retry cleanup on DESTROYED deployments, current status: ${record.status}`);
+    }
+
+    const adapter = this.registry.get(record.providerSlug);
+    let destroyResult: DestroyResult | undefined;
+
+    if (record.providerDeploymentId) {
+      try {
+        const result = await adapter.destroy(record.providerDeploymentId, record.providerConfig || undefined);
+        if (result && typeof result === 'object' && 'allClean' in result) {
+          destroyResult = result;
+        }
+      } catch (err: any) {
+        destroyResult = { allClean: false, steps: [{ resource: 'adapter', action: 'DESTROY', status: 'failed', error: err.message }] };
+      }
+    } else {
+      destroyResult = { allClean: true, steps: [{ resource: 'deployment', action: 'CLEANUP', status: 'ok', detail: 'No provider deployment to clean' }] };
+    }
+
+    const cleanupPending = destroyResult ? !destroyResult.allClean : false;
+    const reason = cleanupPending
+      ? 'Retry cleanup (still incomplete)'
+      : 'Retry cleanup (all clean)';
+
+    record = await this.store.update(id, {
+      providerConfig: { ...(record.providerConfig || {}), cleanupPending },
+    });
+    record = await this.transitionWithMetadata(
+      record, 'DESTROYED', reason, userId,
+      destroyResult ? { steps: destroyResult.steps, allClean: destroyResult.allClean } : undefined,
+    );
+
+    await this.audit.log({
+      deploymentId: id,
+      action: 'RETRY_CLEANUP',
+      resource: 'deployment',
+      resourceId: id,
+      userId,
+      status: cleanupPending ? 'partial' : 'success',
+      details: destroyResult ? { steps: destroyResult.steps } : undefined,
+    });
+
+    return { record, destroyResult };
   }
 
   async updateDeployment(id: string, config: UpdateConfig, userId: string): Promise<DeploymentRecord> {
@@ -301,6 +396,20 @@ export class DeploymentOrchestrator {
           healthStatus: 'GREEN',
           lastHealthCheck: new Date(),
         });
+      } else if (record.providerMode === 'serverless') {
+        // Serverless endpoints with workersMin=0 have no running workers until
+        // a request arrives — treat "endpoint exists but idle" as ONLINE.
+        const status = await adapter.getStatus(record.providerDeploymentId || '');
+        if (status.status === 'ONLINE' || status.status === 'DEPLOYING') {
+          record = await this.transition(record, 'ONLINE', 'Serverless endpoint deployed (cold-start ready)', userId);
+          record = await this.store.update(record.id, {
+            healthStatus: 'ORANGE',
+            lastHealthCheck: new Date(),
+          });
+        } else {
+          record = await this.transition(record, 'FAILED', `Validation failed: provider status=${status.status}`, userId);
+          record = await this.store.update(record.id, { healthStatus: 'RED' });
+        }
       } else {
         record = await this.transition(record, 'FAILED', 'Validation failed: health check returned unhealthy', userId);
         record = await this.store.update(record.id, { healthStatus: 'RED' });
@@ -367,6 +476,19 @@ export class DeploymentOrchestrator {
     return updated;
   }
 
+  private async transitionWithMetadata(
+    record: DeploymentRecord,
+    to: DeploymentStatus,
+    reason: string,
+    initiatedBy: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<DeploymentRecord> {
+    const from = record.status;
+    const updated = await this.store.update(record.id, { status: to });
+    await this.recordTransitionWithMetadata(record.id, from, to, reason, initiatedBy, metadata);
+    return updated;
+  }
+
   private async recordTransition(
     deploymentId: string,
     from: DeploymentStatus | undefined,
@@ -381,6 +503,26 @@ export class DeploymentOrchestrator {
       toStatus: to,
       reason,
       initiatedBy,
+      createdAt: new Date(),
+    });
+  }
+
+  private async recordTransitionWithMetadata(
+    deploymentId: string,
+    from: DeploymentStatus | undefined,
+    to: DeploymentStatus,
+    reason: string,
+    initiatedBy: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    await this.store.addStatusLog({
+      id: crypto.randomUUID(),
+      deploymentId,
+      fromStatus: from,
+      toStatus: to,
+      reason,
+      initiatedBy,
+      metadata,
       createdAt: new Date(),
     });
   }

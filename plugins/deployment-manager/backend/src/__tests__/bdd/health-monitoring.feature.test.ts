@@ -10,11 +10,11 @@ import type { DeployConfig, UpdateConfig, HealthResult } from '../../types/index
 class MockAdapter implements IProviderAdapter {
   readonly slug = 'mock';
   readonly displayName = 'Mock';
-  readonly connectorSlug = 'mock';
   readonly mode = 'serverless' as const;
   readonly icon = '🧪';
   readonly description = 'Mock';
   readonly authMethod = 'api-key';
+  readonly apiConfig = { upstreamBaseUrl: 'http://mock', authType: 'bearer' as const, secretNames: ['api-key'], healthCheckPath: null };
   shouldFail = false;
   healthResult: HealthResult = { healthy: true, status: 'GREEN', responseTimeMs: 50 };
   deployCallCount = 0;

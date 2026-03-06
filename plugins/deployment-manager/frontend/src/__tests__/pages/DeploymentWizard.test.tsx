@@ -18,8 +18,8 @@ const sshProvider = {
   description: 'SSH GPU',
   icon: '🖥️',
   mode: 'ssh-bridge',
-  connectorSlug: 'ssh-connector',
   authMethod: 'ssh-key',
+  secretNames: [],
 };
 
 const serverlessProvider = {
@@ -28,8 +28,8 @@ const serverlessProvider = {
   description: 'GPU',
   icon: '⚡',
   mode: 'serverless',
-  connectorSlug: 'fal-ai',
   authMethod: 'api-key',
+  secretNames: ['api-key'],
 };
 
 beforeEach(() => {

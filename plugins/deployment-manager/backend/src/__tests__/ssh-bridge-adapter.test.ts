@@ -2,14 +2,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SshBridgeAdapter } from '../adapters/SshBridgeAdapter.js';
 import type { DeployConfig, UpdateConfig } from '../types/index.js';
 
-const GATEWAY_BASE = process.env.SHELL_URL || 'http://localhost:3000';
-const GW_PREFIX = `${GATEWAY_BASE}/api/v1/gw/ssh-bridge`;
+vi.mock('../lib/providerFetch.js', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    authenticatedProviderFetch: (_slug: string, apiConfig: any, path: string, options?: RequestInit) => {
+      return actual.providerFetch(apiConfig.upstreamBaseUrl, path, options);
+    },
+  };
+});
+
+const SSH_BRIDGE_URL = process.env.SSH_BRIDGE_URL || 'http://localhost:2222';
 
 describe('SshBridgeAdapter', () => {
   let adapter: SshBridgeAdapter;
   const mockFetch = vi.fn();
 
   beforeEach(() => {
+    mockFetch.mockClear();
     adapter = new SshBridgeAdapter();
     global.fetch = mockFetch;
   });
@@ -20,7 +30,6 @@ describe('SshBridgeAdapter', () => {
 
   it('has correct metadata', () => {
     expect(adapter.slug).toBe('ssh-bridge');
-    expect(adapter.connectorSlug).toBe('ssh-bridge');
     expect(adapter.mode).toBe('ssh-bridge');
     expect(adapter.authMethod).toBe('ssh-key');
   });
@@ -53,7 +62,6 @@ describe('SshBridgeAdapter', () => {
     };
 
     it('connects then runs deploy script and returns composite id', async () => {
-      // Connect response
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -61,7 +69,6 @@ describe('SshBridgeAdapter', () => {
         text: async () => '',
       } as any);
 
-      // Script execution response
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -80,20 +87,18 @@ describe('SshBridgeAdapter', () => {
         sshHost: '192.168.1.100',
       });
 
-      // Verify connect call
       expect(mockFetch).toHaveBeenNthCalledWith(
         1,
-        `${GW_PREFIX}/connect`,
+        `${SSH_BRIDGE_URL}/connect`,
         expect.objectContaining({ method: 'POST' }),
       );
       const connectBody = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(connectBody.host).toBe('192.168.1.100');
       expect(connectBody.username).toBe('deploy');
 
-      // Verify script call
       expect(mockFetch).toHaveBeenNthCalledWith(
         2,
-        `${GW_PREFIX}/exec/script`,
+        `${SSH_BRIDGE_URL}/exec/script`,
         expect.objectContaining({ method: 'POST' }),
       );
       const scriptBody = JSON.parse(mockFetch.mock.calls[1][1].body);
@@ -200,7 +205,7 @@ describe('SshBridgeAdapter', () => {
       expect(result.endpointUrl).toBe('http://192.168.1.100:8080');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/jobs/job-456`,
+        `${SSH_BRIDGE_URL}/jobs/job-456`,
         expect.any(Object),
       );
     });
@@ -334,7 +339,7 @@ describe('SshBridgeAdapter', () => {
       await adapter.destroy(deploymentId);
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/exec`,
+        `${SSH_BRIDGE_URL}/exec`,
         expect.objectContaining({ method: 'POST' }),
       );
 
@@ -387,7 +392,7 @@ describe('SshBridgeAdapter', () => {
       expect(result.status).toBe('UPDATING');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/exec/script`,
+        `${SSH_BRIDGE_URL}/exec/script`,
         expect.objectContaining({ method: 'POST' }),
       );
 

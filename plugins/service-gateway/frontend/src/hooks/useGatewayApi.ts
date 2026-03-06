@@ -12,7 +12,8 @@ import { useTeam } from '@naap/plugin-sdk';
 const GW_API_BASE = '/api/v1/gw/admin';
 
 export function useGatewayApi() {
-  const apiClient = useApiClient({ baseUrl: '' });
+  const shellOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  const apiClient = useApiClient({ baseUrl: shellOrigin });
   const teamContext = useTeam();
   const teamId = teamContext?.currentTeam?.id;
 

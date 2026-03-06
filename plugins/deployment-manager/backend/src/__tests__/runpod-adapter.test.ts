@@ -2,14 +2,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { RunPodAdapter } from '../adapters/RunPodAdapter.js';
 import type { DeployConfig, UpdateConfig } from '../types/index.js';
 
-const GATEWAY_BASE = process.env.SHELL_URL || 'http://localhost:3000';
-const GW_PREFIX = `${GATEWAY_BASE}/api/v1/gw/runpod-serverless`;
+vi.mock('../lib/providerFetch.js', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    authenticatedProviderFetch: (_slug: string, apiConfig: any, path: string, options?: RequestInit) => {
+      return actual.providerFetch(apiConfig.upstreamBaseUrl, path, options);
+    },
+  };
+});
+
+const UPSTREAM_BASE = 'https://rest.runpod.io/v1';
 
 describe('RunPodAdapter', () => {
   let adapter: RunPodAdapter;
   const mockFetch = vi.fn();
 
   beforeEach(() => {
+    mockFetch.mockClear();
     adapter = new RunPodAdapter();
     global.fetch = mockFetch;
   });
@@ -20,39 +30,20 @@ describe('RunPodAdapter', () => {
 
   it('has correct metadata', () => {
     expect(adapter.slug).toBe('runpod');
-    expect(adapter.connectorSlug).toBe('runpod-serverless');
     expect(adapter.mode).toBe('serverless');
   });
 
+  it('has correct api config for rest.runpod.io', () => {
+    expect(adapter.apiConfig.upstreamBaseUrl).toBe('https://rest.runpod.io/v1');
+    expect(adapter.apiConfig.authType).toBe('bearer');
+  });
+
   describe('getGpuOptions', () => {
-    it('returns mapped GPU options from API on success', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ([
-          { id: 'gpu-a100', displayName: 'A100 80GB', memoryInGb: 80, available: true, securePrice: 3.5 },
-          { id: 'gpu-t4', displayName: 'T4 16GB', memoryInGb: 16, available: false, communityPrice: 0.5 },
-        ]),
-        text: async () => '',
-      } as any);
-
-      const options = await adapter.getGpuOptions();
-      expect(options).toHaveLength(2);
-      expect(options[0]).toMatchObject({ id: 'gpu-a100', name: 'A100 80GB', vramGb: 80, available: true, pricePerHour: 3.5 });
-      expect(options[1]).toMatchObject({ id: 'gpu-t4', available: false, pricePerHour: 0.5 });
-    });
-
-    it('falls back to static options when API returns non-array', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ error: 'unexpected' }),
-        text: async () => '',
-      } as any);
-
+    it('returns static GPU options (RunPod REST API does not have a GPU list endpoint)', async () => {
       const options = await adapter.getGpuOptions();
       expect(options.length).toBeGreaterThan(0);
-      expect(options[0].id).toBe('NVIDIA A100 80GB');
+      expect(options[0].id).toBe('NVIDIA GeForce RTX 4090');
+      expect(options[0].vramGb).toBe(24);
     });
 
     it('falls back to static options on fetch failure', async () => {
@@ -60,7 +51,7 @@ describe('RunPodAdapter', () => {
 
       const options = await adapter.getGpuOptions();
       expect(options.length).toBeGreaterThan(0);
-      expect(options[0].id).toBe('NVIDIA A100 80GB');
+      expect(options[0].id).toBe('NVIDIA GeForce RTX 4090');
     });
 
     it('falls back to static options on non-ok response', async () => {
@@ -73,7 +64,7 @@ describe('RunPodAdapter', () => {
 
       const options = await adapter.getGpuOptions();
       expect(options.length).toBeGreaterThan(0);
-      expect(options[0].id).toBe('NVIDIA A100 80GB');
+      expect(options[0].id).toBe('NVIDIA GeForce RTX 4090');
     });
   });
 
@@ -81,7 +72,7 @@ describe('RunPodAdapter', () => {
     const config: DeployConfig = {
       name: 'test-endpoint',
       providerSlug: 'runpod',
-      gpuModel: 'NVIDIA A100 80GB',
+      gpuModel: 'NVIDIA A100-SXM4-80GB',
       gpuVramGb: 80,
       gpuCount: 1,
       artifactType: 'ai-runner',
@@ -90,7 +81,13 @@ describe('RunPodAdapter', () => {
       artifactConfig: { MODEL_ID: 'test' },
     };
 
-    it('returns providerDeploymentId on success', async () => {
+    it('creates template then endpoint (2-step deploy)', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'tmpl-xyz' }),
+        text: async () => '',
+      } as any);
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -102,20 +99,41 @@ describe('RunPodAdapter', () => {
       expect(result.providerDeploymentId).toBe('ep-abc123');
       expect(result.endpointUrl).toBe('https://api.runpod.ai/v2/ep-abc123');
       expect(result.status).toBe('DEPLOYING');
+      expect(result.metadata?.templateId).toBe('tmpl-xyz');
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/endpoints`,
-        expect.objectContaining({ method: 'POST' }),
-      );
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls[0][0]).toBe(`${UPSTREAM_BASE}/templates`);
+      const templateBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(templateBody.imageName).toBe('my-org/my-image:latest');
+      expect(templateBody.isServerless).toBe(true);
+      expect(templateBody.env).toEqual({ MODEL_ID: 'test' });
 
-      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body.name).toBe('test-endpoint');
-      expect(body.dockerImage).toBe('my-org/my-image:latest');
-      expect(body.gpuTypeId).toBe('NVIDIA A100 80GB');
-      expect(body.env).toEqual({ MODEL_ID: 'test' });
+      expect(mockFetch.mock.calls[1][0]).toBe(`${UPSTREAM_BASE}/endpoints`);
+      const endpointBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      expect(endpointBody.templateId).toBe('tmpl-xyz');
+      expect(endpointBody.gpuTypeIds).toEqual(['NVIDIA A100-SXM4-80GB']);
+      expect(endpointBody.workersMin).toBe(0);
+      expect(endpointBody.workersMax).toBe(1);
     });
 
-    it('throws on HTTP error', async () => {
+    it('throws when template creation fails', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({}),
+        text: async () => 'Invalid template',
+      } as any);
+
+      await expect(adapter.deploy(config)).rejects.toThrow('RunPod template creation failed (400)');
+    });
+
+    it('throws when endpoint creation fails', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'tmpl-xyz' }),
+        text: async () => '',
+      } as any);
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 422,
@@ -123,7 +141,7 @@ describe('RunPodAdapter', () => {
         text: async () => 'Validation error',
       } as any);
 
-      await expect(adapter.deploy(config)).rejects.toThrow('RunPod deploy failed (422): Validation error');
+      await expect(adapter.deploy(config)).rejects.toThrow('RunPod endpoint creation failed (422)');
     });
   });
 
@@ -165,7 +183,7 @@ describe('RunPodAdapter', () => {
       expect(result.status).toBe('ONLINE');
     });
 
-    it('maps OFFLINE to FAILED', async () => {
+    it('maps OFFLINE to ONLINE (serverless cold-start)', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -174,7 +192,7 @@ describe('RunPodAdapter', () => {
       } as any);
 
       const result = await adapter.getStatus('ep-abc123');
-      expect(result.status).toBe('FAILED');
+      expect(result.status).toBe('ONLINE');
     });
 
     it('returns FAILED when response is not ok', async () => {
@@ -191,46 +209,62 @@ describe('RunPodAdapter', () => {
   });
 
   describe('destroy', () => {
-    it('calls DELETE on the endpoint', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({}),
-        text: async () => '',
-      } as any);
+    const mockEndpointDetail = { ok: true, status: 200, json: async () => ({ templateId: 'tpl-x' }), text: async () => '' } as any;
+    const mockGone = { ok: false, status: 404, json: async () => ({}), text: async () => 'Not Found' } as any;
+    const mockTemplateDelete = { ok: true, status: 204, json: async () => ({}), text: async () => '' } as any;
+
+    it('calls DELETE on the endpoint and cleans up template', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockEndpointDetail) // GET endpoint details → templateId
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}), text: async () => '' } as any) // DELETE endpoint
+        .mockResolvedValueOnce(mockGone)            // GET verify endpoint gone → 404
+        .mockResolvedValueOnce(mockTemplateDelete); // DELETE template
 
       await adapter.destroy('ep-abc123');
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/endpoints/ep-abc123`,
+        `${UPSTREAM_BASE}/endpoints/ep-abc123`,
+        expect.objectContaining({ method: 'DELETE' }),
+      );
+      expect(mockFetch).toHaveBeenCalledWith(
+        `${UPSTREAM_BASE}/templates/tpl-x`,
+        expect.objectContaining({ method: 'DELETE' }),
+      );
+    });
+
+    it('uses stored metadata.templateId when available', async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}), text: async () => '' } as any) // DELETE endpoint (no detail fetch needed)
+        .mockResolvedValueOnce(mockGone)            // GET verify → 404
+        .mockResolvedValueOnce(mockTemplateDelete); // DELETE template
+
+      await adapter.destroy('ep-abc123', { templateId: 'tpl-stored' });
+      expect(mockFetch).toHaveBeenCalledWith(
+        `${UPSTREAM_BASE}/templates/tpl-stored`,
         expect.objectContaining({ method: 'DELETE' }),
       );
     });
 
     it('does not throw on 404', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        json: async () => ({}),
-        text: async () => 'Not Found',
-      } as any);
+      mockFetch
+        .mockResolvedValueOnce(mockEndpointDetail) // GET details
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}), text: async () => 'Not Found' } as any) // DELETE 404
+        .mockResolvedValueOnce(mockGone)            // verify → 404
+        .mockResolvedValueOnce(mockTemplateDelete); // DELETE template
 
       await expect(adapter.destroy('ep-abc123')).resolves.toBeUndefined();
     });
 
     it('throws on non-404 error', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        json: async () => ({}),
-        text: async () => 'Server Error',
-      } as any);
+      mockFetch
+        .mockResolvedValueOnce(mockEndpointDetail)
+        .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}), text: async () => 'Server Error' } as any);
 
       await expect(adapter.destroy('ep-abc123')).rejects.toThrow('RunPod destroy failed (500)');
     });
   });
 
   describe('update', () => {
-    it('sends PUT with updated fields', async () => {
+    it('sends PUT with updated fields using RunPod field names', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -240,7 +274,7 @@ describe('RunPodAdapter', () => {
 
       const updateConfig: UpdateConfig = {
         dockerImage: 'my-org/new-image:v2',
-        gpuModel: 'NVIDIA H100 80GB',
+        gpuModel: 'NVIDIA H100 80GB HBM3',
         gpuCount: 2,
       };
       const result = await adapter.update('ep-abc123', updateConfig);
@@ -250,8 +284,8 @@ describe('RunPodAdapter', () => {
       expect(result.endpointUrl).toBe('https://api.runpod.ai/v2/ep-abc123');
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body.dockerImage).toBe('my-org/new-image:v2');
-      expect(body.gpuTypeId).toBe('NVIDIA H100 80GB');
+      expect(body.imageName).toBe('my-org/new-image:v2');
+      expect(body.gpuTypeIds).toEqual(['NVIDIA H100 80GB HBM3']);
       expect(body.gpuCount).toBe(2);
     });
 
@@ -340,7 +374,7 @@ describe('RunPodAdapter', () => {
 
       await adapter.healthCheck('ep-abc123');
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/endpoints/ep-abc123/health`,
+        `${UPSTREAM_BASE}/endpoints/ep-abc123/health`,
         expect.any(Object),
       );
     });

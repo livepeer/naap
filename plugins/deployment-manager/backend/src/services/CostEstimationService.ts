@@ -21,9 +21,9 @@ const PROVIDER_PRICING: Record<string, Record<string, number>> = {
     'A100': 2.55, 'A100-40GB': 1.50, 'H100': 3.85, 'A10G': 0.75, 'T4': 0.40, 'L4': 0.65,
   },
   'runpod': {
-    'NVIDIA A100 80GB': 2.49, 'NVIDIA A100 40GB': 1.64, 'NVIDIA H100 80GB': 4.49,
-    'NVIDIA A40': 0.79, 'NVIDIA L40S': 1.14, 'NVIDIA RTX 4090': 0.69,
-    'NVIDIA RTX A6000': 0.79, 'NVIDIA T4': 0.39,
+    'NVIDIA GeForce RTX 4090': 0.69, 'NVIDIA A100-SXM4-80GB': 2.49, 'NVIDIA A100 80GB PCIe': 2.49,
+    'NVIDIA H100 80GB HBM3': 4.49, 'NVIDIA H200': 5.49, 'NVIDIA A40': 0.79,
+    'NVIDIA L40S': 1.14, 'NVIDIA RTX A6000': 0.79, 'NVIDIA L4': 0.39, 'NVIDIA T4': 0.39,
   },
   'replicate': {
     'gpu-a100-large': 3.50, 'gpu-a100-small': 2.30, 'gpu-a40-large': 1.10,

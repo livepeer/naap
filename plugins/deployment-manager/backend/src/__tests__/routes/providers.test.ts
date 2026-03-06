@@ -10,8 +10,8 @@ function createMockAdapter(overrides = {}) {
     description: 'A mock cloud GPU provider',
     icon: '☁️',
     mode: 'managed',
-    connectorSlug: 'mock-connector',
     authMethod: 'api-key',
+    apiConfig: { upstreamBaseUrl: 'http://mock', authType: 'bearer' as const, secretNames: ['api-key'], healthCheckPath: null },
     getGpuOptions: vi.fn().mockResolvedValue([
       { model: 'A100', vramGb: 80, pricePerHour: 2.5 },
       { model: 'H100', vramGb: 80, pricePerHour: 4.0 },
@@ -87,8 +87,8 @@ describe('Providers Router', () => {
         description: 'A mock cloud GPU provider',
         icon: '☁️',
         mode: 'managed',
-        connectorSlug: 'mock-connector',
         authMethod: 'api-key',
+        secretNames: ['api-key'],
       });
     });
   });

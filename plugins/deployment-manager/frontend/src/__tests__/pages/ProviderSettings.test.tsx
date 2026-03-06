@@ -17,8 +17,8 @@ const mockProviders: Provider[] = [
     description: 'Serverless GPU inference',
     icon: '🔁',
     mode: 'serverless',
-    connectorSlug: 'replicate-connector',
     authMethod: 'api-key',
+    secretNames: ['api-key'],
   },
   {
     slug: 'ssh-bridge',
@@ -26,8 +26,8 @@ const mockProviders: Provider[] = [
     description: 'Self-hosted GPU via SSH',
     icon: '🖥️',
     mode: 'ssh-bridge',
-    connectorSlug: 'ssh-connector',
     authMethod: 'ssh-key',
+    secretNames: [],
   },
   {
     slug: 'modal',
@@ -35,8 +35,8 @@ const mockProviders: Provider[] = [
     description: 'Cloud GPU provider',
     icon: '⚡',
     mode: 'serverless',
-    connectorSlug: 'modal-connector',
     authMethod: 'token',
+    secretNames: ['token'],
   },
 ];
 

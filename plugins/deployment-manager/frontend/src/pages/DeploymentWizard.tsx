@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, ArrowRight, Rocket, RefreshCw } from 'lucide-react';
-import { useProviders, useGpuOptions } from '../hooks/useProviders';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, Rocket, RefreshCw, Trash2, ExternalLink, Home } from 'lucide-react';
+import { useProviders, useGpuOptions, useCredentialStatus } from '../hooks/useProviders';
 import { ProviderSelector } from '../components/ProviderSelector';
+import { ProviderCredentialConfig } from '../components/ProviderCredentialConfig';
 import { SshHostConfig } from '../components/SshHostConfig';
 import { GpuConfigForm } from '../components/GpuConfigForm';
 import { TemplateSelector } from '../components/TemplateSelector';
@@ -26,6 +28,7 @@ interface SelectedTemplate {
 }
 
 export const DeploymentWizard: React.FC = () => {
+  const navigate = useNavigate();
   const { providers } = useProviders();
   const [step, setStep] = useState(0);
   const [deploying, setDeploying] = useState(false);
@@ -33,6 +36,7 @@ export const DeploymentWizard: React.FC = () => {
   const [deployStatus, setDeployStatus] = useState<string>('');
   const [healthStatus, setHealthStatus] = useState<string>('UNKNOWN');
   const [deployError, setDeployError] = useState<string | null>(null);
+  const [destroying, setDestroying] = useState(false);
 
   const [selectedTemplate, setSelectedTemplate] = useState<SelectedTemplate | null>(null);
 
@@ -61,6 +65,9 @@ export const DeploymentWizard: React.FC = () => {
   const isSSH = selectedProvider?.mode === 'ssh-bridge';
   const { gpuOptions } = useGpuOptions(form.providerSlug || null);
   const isCustom = selectedTemplate?.category === 'custom';
+  const { credentialStatus, refreshCredentials } = useCredentialStatus(form.providerSlug || null);
+  const [childCredentialsConfigured, setChildCredentialsConfigured] = useState(false);
+  const credentialsReady = isSSH || !form.providerSlug || childCredentialsConfigured || (credentialStatus?.configured ?? false);
 
   const updateForm = (key: string, value: any) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -87,11 +94,12 @@ export const DeploymentWizard: React.FC = () => {
       case 0: {
         if (!selectedTemplate) return false;
         if (isCustom) return !!form.customImage;
-        return !!form.artifactVersion;
+        return !!(form.artifactVersion || selectedTemplate.dockerImage);
       }
       case 1:
         if (!form.providerSlug || !form.gpuModel) return false;
         if (isSSH) return !!(form.sshHost && form.sshUsername);
+        if (!credentialsReady) return false;
         return true;
       case 2:
         return true;
@@ -115,7 +123,7 @@ export const DeploymentWizard: React.FC = () => {
   const testSshConnection = async () => {
     try {
       setSshTestResult(null);
-      const res = await fetch('/api/v1/gw/ssh-bridge/connect', {
+      const res = await fetch(`${API_BASE}/credentials/ssh-bridge/test-connection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -124,11 +132,11 @@ export const DeploymentWizard: React.FC = () => {
           username: form.sshUsername,
         }),
       });
-      if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.data?.success) {
         setSshTestResult({ success: true, message: 'Connection successful' });
       } else {
-        const data = await res.text();
-        setSshTestResult({ success: false, message: data || 'Connection failed' });
+        setSshTestResult({ success: false, message: data.data?.error || data.error || 'Connection failed' });
       }
     } catch (err: any) {
       setSshTestResult({ success: false, message: err.message });
@@ -151,7 +159,7 @@ export const DeploymentWizard: React.FC = () => {
       gpuVramGb: form.gpuVramGb,
       gpuCount: form.gpuCount,
       artifactType: form.artifactType,
-      artifactVersion: isCustom ? 'latest' : form.artifactVersion,
+      artifactVersion: isCustom ? 'latest' : (form.artifactVersion || 'latest'),
       dockerImage,
       healthPort: form.healthPort,
       healthEndpoint: form.healthEndpoint,
@@ -236,13 +244,13 @@ export const DeploymentWizard: React.FC = () => {
 
   const renderStep1 = () => (
     <div>
-      <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '0.5rem' }}>Configure Resources</h3>
-      <p style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
+      <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--dm-text-primary)' }}>Configure Resources</h3>
+      <p style={{ color: 'var(--dm-text-secondary)', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
         Select your compute provider, GPU, and name your deployment.
       </p>
 
       <div style={{ marginBottom: '1.5rem' }}>
-        <label style={{ fontSize: '0.875rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem' }}>
+        <label style={{ fontSize: '0.875rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem', color: 'var(--dm-text-secondary)' }}>
           Deployment Name
         </label>
         <input
@@ -254,24 +262,40 @@ export const DeploymentWizard: React.FC = () => {
             width: '100%',
             maxWidth: '400px',
             padding: '0.5rem 0.75rem',
-            border: '1px solid #d1d5db',
+            border: '1px solid var(--dm-border-input)',
             borderRadius: '0.375rem',
             fontSize: '0.875rem',
+            color: 'var(--dm-text-primary)',
+            backgroundColor: 'var(--dm-bg-input)',
           }}
         />
-        <p style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.25rem' }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--dm-text-tertiary)', marginTop: '0.25rem' }}>
           Leave blank to auto-generate.
         </p>
       </div>
 
       <div style={{ marginBottom: '1.5rem' }}>
-        <h4 style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '0.75rem' }}>Provider</h4>
+        <h4 style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--dm-text-primary)' }}>Provider</h4>
         <ProviderSelector
           providers={providers}
           selected={form.providerSlug}
           onSelect={(slug) => updateForm('providerSlug', slug)}
         />
       </div>
+
+      {/* Inline credential configuration */}
+      {selectedProvider && (
+        <div style={{ marginBottom: '1.5rem' }}>
+          <ProviderCredentialConfig
+            provider={selectedProvider}
+            compact
+            onStatusChange={(configured) => {
+              setChildCredentialsConfigured(configured);
+              if (configured) refreshCredentials();
+            }}
+          />
+        </div>
+      )}
 
       {isSSH && (
         <div style={{ marginBottom: '1.5rem' }}>
@@ -308,7 +332,7 @@ export const DeploymentWizard: React.FC = () => {
       )}
 
       <div style={{ marginBottom: '1.5rem' }}>
-        <label style={{ fontSize: '0.875rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem' }}>
+        <label style={{ fontSize: '0.875rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem', color: 'var(--dm-text-secondary)' }}>
           Concurrency
         </label>
         <input
@@ -320,12 +344,14 @@ export const DeploymentWizard: React.FC = () => {
           style={{
             width: '100px',
             padding: '0.5rem 0.75rem',
-            border: '1px solid #d1d5db',
+            border: '1px solid var(--dm-border-input)',
             borderRadius: '0.375rem',
             fontSize: '0.875rem',
+            color: 'var(--dm-text-primary)',
+            backgroundColor: 'var(--dm-bg-input)',
           }}
         />
-        <p style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.25rem' }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--dm-text-tertiary)', marginTop: '0.25rem' }}>
           Max concurrent requests per replica.
         </p>
       </div>
@@ -345,26 +371,27 @@ export const DeploymentWizard: React.FC = () => {
 
     return (
       <div>
-        <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem' }}>Deploy & Monitor</h3>
+        <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--dm-text-primary)' }}>Deploy & Monitor</h3>
 
         {/* Summary */}
         <div style={{
           padding: '1rem',
-          background: '#f9fafb',
+          background: 'var(--dm-bg-secondary)',
           borderRadius: '0.5rem',
           fontSize: '0.875rem',
           marginBottom: '1.5rem',
+          color: 'var(--dm-text-secondary)',
         }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-            <div><strong>Template:</strong> {selectedTemplate?.name}</div>
-            <div><strong>Provider:</strong> {selectedProvider?.displayName}</div>
-            <div><strong>GPU:</strong> {form.gpuModel} x{form.gpuCount}</div>
-            <div><strong>Version:</strong> {isCustom ? 'latest' : form.artifactVersion}</div>
-            {isSSH && <div><strong>Host:</strong> {form.sshHost}:{form.sshPort}</div>}
-            <div><strong>Concurrency:</strong> {form.concurrency}</div>
-            <div><strong>Env Vars:</strong> {Object.keys(form.envVars).length} configured</div>
+            <div><strong style={{ color: 'var(--dm-text-primary)' }}>Template:</strong> {selectedTemplate?.name}</div>
+            <div><strong style={{ color: 'var(--dm-text-primary)' }}>Provider:</strong> {selectedProvider?.displayName}</div>
+            <div><strong style={{ color: 'var(--dm-text-primary)' }}>GPU:</strong> {form.gpuModel} x{form.gpuCount}</div>
+            <div><strong style={{ color: 'var(--dm-text-primary)' }}>Version:</strong> {isCustom ? 'latest' : (form.artifactVersion || 'latest')}</div>
+            {isSSH && <div><strong style={{ color: 'var(--dm-text-primary)' }}>Host:</strong> {form.sshHost}:{form.sshPort}</div>}
+            <div><strong style={{ color: 'var(--dm-text-primary)' }}>Concurrency:</strong> {form.concurrency}</div>
+            <div><strong style={{ color: 'var(--dm-text-primary)' }}>Env Vars:</strong> {Object.keys(form.envVars).length} configured</div>
             <div style={{ gridColumn: '1 / -1' }}>
-              <strong>Image:</strong> <code style={{ fontSize: '0.8rem' }}>{dockerImage}</code>
+              <strong style={{ color: 'var(--dm-text-primary)' }}>Image:</strong> <code style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)' }}>{dockerImage}</code>
             </div>
           </div>
         </div>
@@ -417,7 +444,7 @@ export const DeploymentWizard: React.FC = () => {
                 size={20}
               />
               <div>
-                <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>
+                <div style={{ fontWeight: 600, fontSize: '0.95rem', color: deployStatus === 'ONLINE' ? '#166534' : deployStatus === 'FAILED' ? '#dc2626' : '#1e40af' }}>
                   {deployStatus === 'ONLINE' ? 'Deployment Online' :
                    deployStatus === 'FAILED' ? 'Deployment Failed' :
                    deployStatus === 'VALIDATING' ? 'Validating...' :
@@ -425,7 +452,7 @@ export const DeploymentWizard: React.FC = () => {
                    deployStatus}
                 </div>
                 {deployStatus === 'ONLINE' && (
-                  <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)' }}>
                     Health: <HealthIndicator status={healthStatus} size={8} showLabel />
                   </div>
                 )}
@@ -467,7 +494,7 @@ export const DeploymentWizard: React.FC = () => {
                 disabled={deploying}
                 style={{
                   padding: '0.5rem 1.5rem',
-                  background: '#3b82f6',
+                  background: 'var(--dm-accent-blue)',
                   color: '#fff',
                   border: 'none',
                   borderRadius: '0.375rem',
@@ -482,6 +509,76 @@ export const DeploymentWizard: React.FC = () => {
               </button>
             )}
 
+            {/* Action buttons */}
+            <div style={{
+              display: 'flex',
+              gap: '0.5rem',
+              flexWrap: 'wrap',
+              marginBottom: '1.5rem',
+            }}>
+              <button
+                onClick={() => navigate('/')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  background: 'var(--dm-bg-primary)',
+                  color: 'var(--dm-text-secondary)',
+                  border: '1px solid var(--dm-border-input)',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  fontSize: '0.8rem',
+                }}
+              >
+                <Home size={14} /> All Deployments
+              </button>
+              <button
+                onClick={() => navigate(`/deployments/${deployedId}`)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  background: 'var(--dm-bg-primary)',
+                  color: 'var(--dm-accent-blue-text)',
+                  border: '1px solid var(--dm-accent-blue)',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  fontSize: '0.8rem',
+                }}
+              >
+                <ExternalLink size={14} /> View Detail
+              </button>
+              {!destroying && (
+                <button
+                  onClick={async () => {
+                    if (!confirm('Destroy this deployment? This cannot be undone.')) return;
+                    setDestroying(true);
+                    try {
+                      await fetch(`${API_BASE}/deployments/${deployedId}`, { method: 'DELETE' });
+                      setDeployStatus('DESTROYED');
+                    } catch { /* ignore */ }
+                    setDestroying(false);
+                  }}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    background: '#fef2f2',
+                    color: '#dc2626',
+                    border: '1px solid #fca5a5',
+                    borderRadius: '0.375rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  <Trash2 size={14} /> Destroy
+                </button>
+              )}
+            </div>
+
             {/* Deployment Logs */}
             <DeploymentLogs deploymentId={deployedId} />
           </div>
@@ -494,7 +591,7 @@ export const DeploymentWizard: React.FC = () => {
     <div style={{ padding: '2rem', maxWidth: '960px', margin: '0 auto' }}>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
-      <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '2rem' }}>New Deployment</h1>
+      <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '2rem', color: 'var(--dm-text-primary)' }}>New Deployment</h1>
 
       {/* Step indicator */}
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem' }}>
@@ -505,8 +602,8 @@ export const DeploymentWizard: React.FC = () => {
               flex: 1,
               textAlign: 'center',
               padding: '0.5rem',
-              borderBottom: i === step ? '3px solid #3b82f6' : '3px solid #e5e7eb',
-              color: i === step ? '#1d4ed8' : i < step ? '#22c55e' : '#9ca3af',
+              borderBottom: i === step ? '3px solid var(--dm-accent-blue)' : '3px solid var(--dm-border)',
+              color: i === step ? 'var(--dm-accent-blue-text)' : i < step ? '#22c55e' : 'var(--dm-text-tertiary)',
               fontSize: '0.85rem',
               fontWeight: i === step ? 600 : 400,
               cursor: i < step && !deployedId ? 'pointer' : 'default',
@@ -520,8 +617,8 @@ export const DeploymentWizard: React.FC = () => {
               width: '1.5rem',
               height: '1.5rem',
               borderRadius: '50%',
-              background: i < step ? '#22c55e' : i === step ? '#3b82f6' : '#e5e7eb',
-              color: i <= step || i < step ? '#fff' : '#9ca3af',
+              background: i < step ? '#22c55e' : i === step ? 'var(--dm-accent-blue)' : 'var(--dm-border)',
+              color: i <= step || i < step ? '#fff' : 'var(--dm-text-tertiary)',
               fontSize: '0.75rem',
               fontWeight: 600,
               marginRight: '0.5rem',
@@ -548,38 +645,56 @@ export const DeploymentWizard: React.FC = () => {
             disabled={step === 0}
             style={{
               padding: '0.5rem 1rem',
-              background: step === 0 ? '#f3f4f6' : '#fff',
-              border: '1px solid #d1d5db',
+              background: step === 0 ? 'var(--dm-bg-tertiary)' : 'var(--dm-bg-primary)',
+              color: 'var(--dm-text-secondary)',
+              border: '1px solid var(--dm-border-input)',
               borderRadius: '0.375rem',
               cursor: step === 0 ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '0.5rem',
-              opacity: step === 0 ? 0.5 : 1,
+              fontWeight: 500,
+              fontSize: '0.875rem',
+              opacity: step === 0 ? 0.4 : 1,
             }}
           >
             <ArrowLeft size={16} /> Back
           </button>
 
-          {step < STEPS.length - 1 && (
-            <button
-              onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
-              disabled={!canProceed()}
-              style={{
-                padding: '0.5rem 1.5rem',
-                background: canProceed() ? '#3b82f6' : '#9ca3af',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '0.375rem',
-                cursor: canProceed() ? 'pointer' : 'not-allowed',
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            {step === 1 && form.providerSlug && !credentialsReady && (
+              <span style={{
+                fontSize: '0.75rem',
+                color: '#d97706',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '0.5rem',
-              }}
-            >
-              Next <ArrowRight size={16} />
-            </button>
-          )}
+                gap: '0.25rem',
+              }}>
+                Configure credentials above to proceed
+              </span>
+            )}
+            {step < STEPS.length - 1 && (
+              <button
+                onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
+                disabled={!canProceed()}
+                style={{
+                  padding: '0.5rem 1.5rem',
+                  background: canProceed() ? 'var(--dm-accent-blue)' : 'var(--dm-border-input)',
+                  color: canProceed() ? '#fff' : 'var(--dm-text-tertiary)',
+                  border: 'none',
+                  borderRadius: '0.375rem',
+                  cursor: canProceed() ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  fontWeight: 500,
+                  fontSize: '0.875rem',
+                }}
+              >
+                Next <ArrowRight size={16} />
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

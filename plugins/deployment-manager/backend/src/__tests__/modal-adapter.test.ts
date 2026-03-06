@@ -2,14 +2,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ModalAdapter } from '../adapters/ModalAdapter.js';
 import type { DeployConfig, UpdateConfig } from '../types/index.js';
 
-const GATEWAY_BASE = process.env.SHELL_URL || 'http://localhost:3000';
-const GW_PREFIX = `${GATEWAY_BASE}/api/v1/gw/modal`;
+vi.mock('../lib/providerFetch.js', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    authenticatedProviderFetch: (_slug: string, apiConfig: any, path: string, options?: RequestInit) => {
+      return actual.providerFetch(apiConfig.upstreamBaseUrl, path, options);
+    },
+  };
+});
+
+const UPSTREAM_BASE = 'https://api.modal.com/v1';
 
 describe('ModalAdapter', () => {
   let adapter: ModalAdapter;
   const mockFetch = vi.fn();
 
   beforeEach(() => {
+    mockFetch.mockClear();
     adapter = new ModalAdapter();
     global.fetch = mockFetch;
   });
@@ -20,7 +30,6 @@ describe('ModalAdapter', () => {
 
   it('has correct metadata', () => {
     expect(adapter.slug).toBe('modal');
-    expect(adapter.connectorSlug).toBe('modal-serverless');
     expect(adapter.mode).toBe('serverless');
     expect(adapter.authMethod).toBe('token');
   });
@@ -64,7 +73,7 @@ describe('ModalAdapter', () => {
       expect(result.status).toBe('DEPLOYING');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/apps`,
+        `${UPSTREAM_BASE}/apps`,
         expect.objectContaining({ method: 'POST' }),
       );
 
@@ -127,7 +136,7 @@ describe('ModalAdapter', () => {
       expect(result.endpointUrl).toBe('https://app.modal.run');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/apps/app-modal-123`,
+        `${UPSTREAM_BASE}/apps/app-modal-123`,
         expect.any(Object),
       );
     });
@@ -216,7 +225,7 @@ describe('ModalAdapter', () => {
 
       await adapter.destroy('app-modal-123');
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/apps/app-modal-123`,
+        `${UPSTREAM_BASE}/apps/app-modal-123`,
         expect.objectContaining({ method: 'DELETE' }),
       );
     });
@@ -264,7 +273,7 @@ describe('ModalAdapter', () => {
       expect(result.endpointUrl).toBe('https://app-updated.modal.run');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${GW_PREFIX}/apps/app-modal-123`,
+        `${UPSTREAM_BASE}/apps/app-modal-123`,
         expect.objectContaining({ method: 'PUT' }),
       );
 

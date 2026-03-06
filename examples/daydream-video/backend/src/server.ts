@@ -1,8 +1,10 @@
 /**
  * Daydream AI Video Plugin - Backend Server
  *
- * Proxies to the Daydream.live StreamDiffusion API using the user's API key.
- * API Docs: https://docs.daydream.live/quickstart
+ * Upstream Daydream API calls are routed through the Service Gateway
+ * connector (/api/v1/gw/daydream/*), which handles API key injection
+ * from SecretVault. This backend only manages NaaP-internal concerns:
+ * sessions, settings, usage, WHIP proxy, and reference data.
  */
 
 import dotenv from 'dotenv';
@@ -16,17 +18,10 @@ function sanitizeForLog(value: unknown): string {
   return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
 }
 import {
-  createStream as daydreamCreateStream,
-  updateStreamParams as daydreamUpdateParams,
-  getStreamStatus as daydreamGetStatus,
-  deleteStream as daydreamDeleteStream,
-  listModels,
   MODELS,
   CONTROLNETS_SD15,
-  CONTROLNETS_SDXL,
   getControlnetsForModel,
   PRESETS,
-  type StreamParams,
 } from './services/daydream.js';
 import {
   startSession,
@@ -71,47 +66,12 @@ function getUserId(req: Request): string {
   throw new Error('Authentication required');
 }
 
-// Helper to get user's Daydream API key
-async function getUserApiKey(userId: string): Promise<string> {
-  // Try the actual user ID first
-  let settings = await prisma.daydreamSettings.findUnique({
-    where: { userId },
-  });
-
-  // Backward compat: keys saved before auth was fixed used 'default-user'
-  // If no key for this user, check the default and migrate it
-  if (!settings?.apiKey && userId !== 'default-user') {
-    const defaultSettings = await prisma.daydreamSettings.findUnique({
-      where: { userId: 'default-user' },
-    });
-    if (defaultSettings?.apiKey) {
-      // Migrate the key to the real user
-      settings = await prisma.daydreamSettings.upsert({
-        where: { userId },
-        update: {
-          apiKey: defaultSettings.apiKey,
-          defaultPrompt: defaultSettings.defaultPrompt,
-          defaultSeed: defaultSettings.defaultSeed,
-          negativePrompt: defaultSettings.negativePrompt,
-        },
-        create: {
-          userId,
-          apiKey: defaultSettings.apiKey,
-          defaultPrompt: defaultSettings.defaultPrompt || 'superman',
-          defaultSeed: defaultSettings.defaultSeed || 42,
-          negativePrompt: defaultSettings.negativePrompt || 'blurry, low quality, flat, 2d',
-        },
-      });
-      console.log(`[daydream] Migrated API key from default-user to ${userId}`);
-    }
-  }
-
-  if (!settings?.apiKey) {
-    throw new Error('No Daydream API key configured. Go to Settings to add your API key.');
-  }
-
-  return settings.apiKey;
-}
+/**
+ * Note: Upstream Daydream API calls go through the Service Gateway
+ * connector (/api/v1/gw/daydream/*), which auto-injects the API key
+ * from SecretVault. This backend only handles NaaP-internal concerns
+ * (sessions, settings, usage, reference data).
+ */
 
 // ==================== Settings Endpoints ====================
 
@@ -189,110 +149,93 @@ router.post(`${API_PREFIX}/settings`, async (req, res) => {
   }
 });
 
-// Test API key connection against Daydream.live
+// Test connector by calling gateway health check (models endpoint)
 router.post(`${API_PREFIX}/settings/test`, async (req, res) => {
   try {
-    const userId = getUserId(req);
-    const { apiKey: testKey } = req.body;
-
-    // Use provided key or fallback to stored key
-    let apiKey = testKey;
-    if (!apiKey) {
-      const settings = await prisma.daydreamSettings.findUnique({ where: { userId } });
-      apiKey = settings?.apiKey;
-    }
-
-    if (!apiKey) {
-      return res.status(400).json({
+    const token = req.headers.authorization;
+    if (!token) {
+      return res.status(401).json({
         success: false,
-        error: { message: 'No API key provided or stored' },
+        error: { message: 'Authentication required' },
       });
     }
 
-    // Test by listing models from Daydream API
-    const models = await listModels(apiKey);
+    // Call the gateway connector's models endpoint to verify the key works
+    const gwBase = process.env.NAAP_SHELL_URL || 'http://localhost:3000';
+    const response = await fetch(`${gwBase}/api/v1/gw/daydream/models`, {
+      headers: { Authorization: token },
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      return res.status(400).json({
+        success: false,
+        error: { message: `Gateway health check failed (${response.status}): ${body}` },
+      });
+    }
+
     res.json({
       success: true,
-      message: 'Daydream API connection successful',
-      data: { modelsAvailable: models.length },
+      message: 'Daydream connector is working',
     });
   } catch (error) {
-    console.error('API key test failed:', error);
+    console.error('Connector test failed:', error);
     res.status(400).json({
       success: false,
-      error: { message: 'Failed to connect to Daydream API. Check your API key.' },
+      error: { message: 'Failed to reach Daydream via gateway connector.' },
     });
   }
 });
 
-// ==================== Stream Endpoints ====================
+// ==================== Session Recording ==============================
+// Stream CRUD goes through the gateway connector (/api/v1/gw/daydream).
+// These endpoints let the frontend record / end NaaP-internal sessions
+// after the gateway call succeeds.
 
-// Create a new stream via Daydream.live API
-router.post(`${API_PREFIX}/streams`, async (req, res) => {
+router.post(`${API_PREFIX}/sessions`, async (req, res) => {
   try {
     const userId = getUserId(req);
-    const apiKey = await getUserApiKey(userId);
-    const { prompt, seed, model_id, negative_prompt } = req.body;
+    const { streamId, playbackId, whipUrl, prompt, seed } = req.body;
+    if (!streamId) {
+      return res.status(400).json({ success: false, error: { message: 'streamId is required' } });
+    }
 
-    // Get user's default settings
-    const settings = await prisma.daydreamSettings.findUnique({
-      where: { userId },
-    });
-
-    // Build params with user defaults
-    const streamParams: Partial<StreamParams> = {
-      prompt: prompt || settings?.defaultPrompt || 'cinematic, high quality',
-      seed: seed || settings?.defaultSeed || 42,
-      model_id: model_id || 'stabilityai/sd-turbo',
-      negative_prompt: negative_prompt || settings?.negativePrompt || 'blurry, low quality, flat, 2d',
-    };
-
-    // Call Daydream.live API directly
-    const daydreamResult = await daydreamCreateStream(apiKey, streamParams);
-
-    // Record session in our database
     const session = await startSession({
       userId,
-      streamId: daydreamResult.id,
-      playbackId: daydreamResult.output_playback_id,
-      whipUrl: daydreamResult.whip_url,
-      prompt: streamParams.prompt!,
-      seed: streamParams.seed!,
+      streamId,
+      playbackId: playbackId || '',
+      whipUrl: whipUrl || '',
+      prompt: prompt || 'cinematic, high quality',
+      seed: seed || 42,
     });
 
+    res.json({ success: true, data: { sessionId: session.id, streamId } });
+  } catch (error) {
+    console.error('Error recording session:', error);
+    res.status(500).json({ success: false, error: { message: 'Failed to record session' } });
+  }
+});
+
+router.post(`${API_PREFIX}/sessions/end-by-stream/:streamId`, async (req, res) => {
+  try {
+    const { streamId } = req.params;
+    const session = await endSessionByStreamId(streamId);
     res.json({
       success: true,
-      data: {
-        sessionId: session.id,
-        streamId: daydreamResult.id,
-        playbackId: daydreamResult.output_playback_id,
-        whipUrl: daydreamResult.whip_url,
-        params: streamParams,
-      },
+      data: { sessionEnded: !!session, durationMins: session?.durationMins || 0 },
     });
-  } catch (error: any) {
-    console.error('Error creating stream:', error);
-    const message = error?.message || 'Failed to create stream';
-    const statusCode = message.includes('API key') ? 400 : 500;
-    res.status(statusCode).json({
-      success: false,
-      error: { message },
-    });
+  } catch (error) {
+    console.error('Error ending session:', error);
+    res.status(500).json({ success: false, error: { message: 'Failed to end session' } });
   }
 });
 
 // ==================== WHIP Proxy ====================
 // Proxies the WebRTC WHIP SDP handshake through the backend to avoid CORS.
-//
-// WHY: The WHIP endpoint (ai.livepeer.com) is a third-party server that
-// doesn't set Access-Control-Allow-Origin for localhost or any arbitrary
-// origin. Browsers block cross-origin fetch() to it. The actual WebRTC
-// media stream goes peer-to-peer and doesn't need this proxy — only the
-// initial SDP offer/answer exchange does.
-//
-// Uses the shared createExternalProxy from @naap/plugin-server-sdk.
-// Future plugins that need to call external APIs should use the same
-// utility — see plugin-server-sdk docs for details.
+// The actual WebRTC media stream goes peer-to-peer; only the initial SDP
+// offer/answer exchange needs this proxy. Auth is validated by the gateway
+// connector on the stream-creation step; here we only check the user is
+// authenticated to NaaP.
 
 router.post(
   `${API_PREFIX}/whip-proxy`,
@@ -303,91 +246,11 @@ router.post(
     exposeHeaders: [{ from: 'Location', to: 'X-WHIP-Resource' }],
     timeout: 30_000,
     authorize: async (req) => {
-      // Verify the user has a valid API key before proxying
-      const userId = getUserId(req);
-      await getUserApiKey(userId);
+      getUserId(req);
       return true;
     },
   })
 );
-
-// Update stream parameters via Daydream.live API
-router.patch(`${API_PREFIX}/streams/:streamId`, async (req, res) => {
-  try {
-    const userId = getUserId(req);
-    const apiKey = await getUserApiKey(userId);
-    const { streamId } = req.params;
-    const params = req.body || {};
-
-    if (Object.keys(params).length === 0) {
-      return res.json({ success: true, message: 'No parameters to update' });
-    }
-
-    await daydreamUpdateParams(apiKey, streamId, params);
-
-    res.json({
-      success: true,
-      message: 'Stream parameters updated',
-    });
-  } catch (error) {
-    console.error('Error updating stream:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Failed to update stream parameters' },
-    });
-  }
-});
-
-// Get stream status from Daydream.live API
-router.get(`${API_PREFIX}/streams/:streamId`, async (req, res) => {
-  try {
-    const userId = getUserId(req);
-    const apiKey = await getUserApiKey(userId);
-    const { streamId } = req.params;
-
-    const status = await daydreamGetStatus(apiKey, streamId);
-
-    res.json({
-      success: true,
-      data: status,
-    });
-  } catch (error) {
-    console.error('Error getting stream status:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Failed to get stream status' },
-    });
-  }
-});
-
-// End/delete a stream via Daydream.live API
-router.delete(`${API_PREFIX}/streams/:streamId`, async (req, res) => {
-  try {
-    const userId = getUserId(req);
-    const apiKey = await getUserApiKey(userId);
-    const { streamId } = req.params;
-
-    // Delete from Daydream.live
-    await daydreamDeleteStream(apiKey, streamId);
-
-    // End session in our database
-    const session = await endSessionByStreamId(streamId);
-
-    res.json({
-      success: true,
-      data: {
-        sessionEnded: !!session,
-        durationMins: session?.durationMins || 0,
-      },
-    });
-  } catch (error) {
-    console.error('Error ending stream:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Failed to end stream' },
-    });
-  }
-});
 
 // ==================== Usage Endpoints ====================
 
@@ -439,19 +302,8 @@ router.get(`${API_PREFIX}/sessions/active`, async (req, res) => {
 
 // ==================== Reference Data Endpoints ====================
 
-// Models - try Daydream API, fallback to built-in list
-router.get(`${API_PREFIX}/models`, async (req, res) => {
-  try {
-    // Try to get user's API key for dynamic model list
-    const userId = getUserId(req);
-    const settings = await prisma.daydreamSettings.findUnique({ where: { userId } });
-    if (settings?.apiKey) {
-      const models = await listModels(settings.apiKey);
-      return res.json({ success: true, data: models });
-    }
-  } catch {
-    // Fall through to default list
-  }
+// Models - return built-in list (live list available via gateway: /api/v1/gw/daydream/models)
+router.get(`${API_PREFIX}/models`, async (_req, res) => {
   res.json({ success: true, data: MODELS });
 });
 
@@ -490,7 +342,7 @@ start().then(() => {
   console.log(`🎬 Daydream AI Video backend running on port ${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/healthz`);
   console.log(`   API: http://localhost:${PORT}/api/v1${API_PREFIX}`);
-  console.log(`   Daydream API: https://api.daydream.live`);
+  console.log(`   Upstream: via gateway connector /api/v1/gw/daydream/*`);
 }).catch((err) => {
   console.error('Failed to start daydream-video backend:', err);
   process.exit(1);

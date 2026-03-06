@@ -33,24 +33,25 @@ export const AuditTable: React.FC<AuditTableProps> = ({ deploymentId, limit = 20
   }, [deploymentId, limit]);
 
   if (entries.length === 0) {
-    return <p style={{ color: '#9ca3af', fontSize: '0.875rem' }}>No audit entries</p>;
+    return <p style={{ color: 'var(--dm-text-tertiary)', fontSize: '0.875rem' }}>No audit entries</p>;
   }
 
   const cellStyle: React.CSSProperties = {
     padding: '0.5rem 0.75rem',
     fontSize: '0.8rem',
-    borderBottom: '1px solid #f3f4f6',
+    borderBottom: '1px solid var(--dm-bg-tertiary)',
+    color: 'var(--dm-text-secondary)',
   };
 
   return (
     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
       <thead>
-        <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600 }}>Action</th>
-          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600 }}>Resource</th>
-          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600 }}>Status</th>
-          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600 }}>User</th>
-          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600 }}>Time</th>
+        <tr style={{ borderBottom: '2px solid var(--dm-border)' }}>
+          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Action</th>
+          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Resource</th>
+          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Status</th>
+          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>User</th>
+          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Time</th>
         </tr>
       </thead>
       <tbody>
@@ -67,7 +68,7 @@ export const AuditTable: React.FC<AuditTableProps> = ({ deploymentId, limit = 20
               </span>
             </td>
             <td style={{ ...cellStyle, fontFamily: 'monospace' }}>{e.userId.slice(0, 8)}</td>
-            <td style={{ ...cellStyle, color: '#9ca3af' }}>{new Date(e.createdAt).toLocaleString()}</td>
+            <td style={{ ...cellStyle, color: 'var(--dm-text-tertiary)' }}>{new Date(e.createdAt).toLocaleString()}</td>
           </tr>
         ))}
       </tbody>

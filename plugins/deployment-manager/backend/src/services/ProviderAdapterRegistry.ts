@@ -34,9 +34,9 @@ export class ProviderAdapterRegistry {
       description: a.description,
       icon: a.icon,
       mode: a.mode,
-      connectorSlug: a.connectorSlug,
       authMethod: a.authMethod,
       gpuOptionsAvailable: true,
+      secretNames: a.apiConfig.secretNames,
     }));
   }
 }

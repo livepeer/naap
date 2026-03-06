@@ -31,8 +31,8 @@ This document compares the NaaP Deployment Manager plugin with [Chutes.ai Custom
 | Cost/Fee Visibility | Shows fee before deploy | CostEstimationService + CostPreview component in Step 2 | **CLOSED** | Color-coded hourly/daily/monthly with GPU breakdown |
 | Startup Hooks | `@chute.on_startup()` | Container is the startup | N/A | Container lifecycle is the startup |
 | Persistent Storage | Full DB | PrismaDeploymentStore backed by PostgreSQL (ServerlessDeployment model) | **CLOSED** | IDeploymentStore abstraction with InMemory fallback |
-| Auth Propagation | Built-in | Shared `gwFetch()` utility forwards Authorization, Cookie, x-team-id | **CLOSED** | All 6 adapters use centralized auth context |
-| Connector Provisioning | N/A (single platform) | `seed-connectors.ts` script provisions all 6 connectors via gateway admin API | **CLOSED** | `npm run seed:connectors` |
+| Auth Propagation | Built-in | `providerFetch()` utility with per-user SecretStore for auth injection | **CLOSED** | All 6 adapters use centralized auth context |
+| Credential Management | N/A (single platform) | Per-user SecretStore with save/test/status UI per provider | **CLOSED** | ProviderCredentialConfig component |
 | Template Marketplace | N/A | Only 2 hardcoded + custom | OPEN | Future: template sharing/import |
 | Log Streaming | Built-in | Only SSH bridge has logs | OPEN | Future: add for serverless |
 | Environment Variables | Env config support | `envVars` config in DeployConfig + EnvVarsEditor UI component | **CLOSED** | Injected as `-e` flags (SSH) or `env` field (serverless) |
@@ -47,9 +47,7 @@ This document compares the NaaP Deployment Manager plugin with [Chutes.ai Custom
 
 1. **Persistent Storage** — `IDeploymentStore` interface with `InMemoryDeploymentStore` (testing/fallback) and `PrismaDeploymentStore` (production). Orchestrator refactored to use the store abstraction. Prisma schema extended with `envVars`, `concurrency`, `estimatedCostPerHour` fields.
 
-2. **Auth Propagation** — Centralized `gwFetch()` utility in `lib/gwFetch.ts` replaces 6 duplicated local functions. Express middleware extracts `Authorization`, `Cookie`, `x-team-id` from incoming requests and sets global auth context for all downstream provider API calls.
-
-3. **Connector Auto-Provisioning** — `scripts/seed-connectors.ts` provisions all 6 required service gateway connectors (fal-ai, runpod, replicate, modal, baseten, ssh-bridge) via the gateway admin API with upsert logic.
+2. **Auth Propagation** — Centralized `providerFetch()` utility in `lib/providerFetch.ts` with per-user `SecretStore` for credential management. Express middleware extracts auth headers from incoming requests. Each adapter calls upstream APIs directly with injected auth.
 
 4. **Cost Estimation** — `CostEstimationService` with hardcoded per-provider GPU pricing tables + fallback to adapter `getGpuOptions()` pricing. `CostPreview` React component renders color-coded cost cards (green/yellow/red) with hourly/daily/monthly breakdown. Integrated in Step 2 of DeploymentWizard.
 
@@ -79,4 +77,4 @@ This document compares the NaaP Deployment Manager plugin with [Chutes.ai Custom
 7. **SSH bridge** for bare-metal / VM deployments (unique capability)
 8. **Cost estimation** with per-provider GPU pricing and visual breakdown
 9. **Persistent storage** with PostgreSQL via Prisma ORM
-10. **Auth propagation** through service gateway with JWT/API key forwarding
+10. **Direct provider API integration** with per-user credential management

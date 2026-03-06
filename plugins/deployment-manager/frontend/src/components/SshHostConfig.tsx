@@ -20,17 +20,19 @@ export const SshHostConfig: React.FC<SshHostConfigProps> = ({
   const inputStyle: React.CSSProperties = {
     width: '100%',
     padding: '0.5rem 0.75rem',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--dm-border-input)',
     borderRadius: '0.375rem',
     fontSize: '0.875rem',
+    color: 'var(--dm-text-primary)',
+    backgroundColor: 'var(--dm-bg-input)',
   };
 
   return (
     <div>
-      <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>SSH Host Configuration</h3>
+      <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--dm-text-primary)' }}>SSH Host Configuration</h3>
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
         <div>
-          <label style={{ fontSize: '0.8rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem' }}>Host</label>
+          <label style={{ fontSize: '0.8rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem', color: 'var(--dm-text-secondary)' }}>Host</label>
           <input
             type="text"
             value={host}
@@ -40,7 +42,7 @@ export const SshHostConfig: React.FC<SshHostConfigProps> = ({
           />
         </div>
         <div>
-          <label style={{ fontSize: '0.8rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem' }}>Port</label>
+          <label style={{ fontSize: '0.8rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem', color: 'var(--dm-text-secondary)' }}>Port</label>
           <input
             type="number"
             value={port}
@@ -50,7 +52,7 @@ export const SshHostConfig: React.FC<SshHostConfigProps> = ({
         </div>
       </div>
       <div style={{ marginBottom: '1rem' }}>
-        <label style={{ fontSize: '0.8rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem' }}>Username</label>
+        <label style={{ fontSize: '0.8rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem', color: 'var(--dm-text-secondary)' }}>Username</label>
         <input
           type="text"
           value={username}
@@ -65,7 +67,7 @@ export const SshHostConfig: React.FC<SshHostConfigProps> = ({
             onClick={onTestConnection}
             style={{
               padding: '0.5rem 1rem',
-              background: '#3b82f6',
+              background: 'var(--dm-accent-blue)',
               color: '#fff',
               border: 'none',
               borderRadius: '0.375rem',

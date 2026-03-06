@@ -19,7 +19,8 @@ export const VersionBadge: React.FC<VersionBadgeProps> = ({
         fontSize: '0.8rem',
         padding: '0.15rem 0.5rem',
         borderRadius: '0.25rem',
-        background: '#f3f4f6',
+        background: 'var(--dm-bg-tertiary)',
+        color: 'var(--dm-text-secondary)',
       }}>
         {currentVersion}
       </span>

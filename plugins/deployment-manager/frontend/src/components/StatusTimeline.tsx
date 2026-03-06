@@ -26,7 +26,7 @@ export const StatusTimeline: React.FC<StatusTimelineProps> = ({ deploymentId }) 
   }, [deploymentId]);
 
   if (entries.length === 0) {
-    return <p style={{ color: '#9ca3af', fontSize: '0.875rem' }}>No status history</p>;
+    return <p style={{ color: 'var(--dm-text-tertiary)', fontSize: '0.875rem' }}>No status history</p>;
   }
 
   return (
@@ -37,7 +37,7 @@ export const StatusTimeline: React.FC<StatusTimelineProps> = ({ deploymentId }) 
         top: 0,
         bottom: 0,
         width: '2px',
-        background: '#e5e7eb',
+        background: 'var(--dm-border)',
       }} />
       {entries.map((entry) => (
         <div key={entry.id} style={{ position: 'relative', paddingBottom: '1rem' }}>
@@ -48,18 +48,18 @@ export const StatusTimeline: React.FC<StatusTimelineProps> = ({ deploymentId }) 
             width: '8px',
             height: '8px',
             borderRadius: '50%',
-            background: '#3b82f6',
+            background: 'var(--dm-accent-blue)',
           }} />
-          <div style={{ fontSize: '0.875rem' }}>
-            <span style={{ fontWeight: 600 }}>{entry.toStatus}</span>
+          <div style={{ fontSize: '0.875rem', color: 'var(--dm-text-primary)' }}>
+            <span style={{ fontWeight: 600, color: 'var(--dm-text-primary)' }}>{entry.toStatus}</span>
             {entry.fromStatus && (
-              <span style={{ color: '#9ca3af' }}> from {entry.fromStatus}</span>
+              <span style={{ color: 'var(--dm-text-tertiary)' }}> from {entry.fromStatus}</span>
             )}
           </div>
           {entry.reason && (
-            <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{entry.reason}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--dm-text-secondary)' }}>{entry.reason}</div>
           )}
-          <div style={{ fontSize: '0.7rem', color: '#9ca3af' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--dm-text-tertiary)' }}>
             {new Date(entry.createdAt).toLocaleString()}
             {entry.initiatedBy && ` by ${entry.initiatedBy}`}
           </div>

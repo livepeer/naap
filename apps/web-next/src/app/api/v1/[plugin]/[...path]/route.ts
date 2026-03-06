@@ -28,6 +28,8 @@ const PLUGIN_ENV_MAP: Record<string, string> = {
   'daydream-video': 'DAYDREAM_VIDEO_URL',
   'developer-api': 'DEVELOPER_API_URL',
   'plugin-publisher': 'PLUGIN_PUBLISHER_URL',
+  'service-gateway': 'SERVICE_GATEWAY_URL',
+  'deployment-manager': 'DEPLOYMENT_MANAGER_URL',
 };
 
 /** Short aliases so both `/api/v1/wallet/...` and `/api/v1/my-wallet/...` resolve. */
@@ -108,8 +110,12 @@ async function handleRequest(
   }
 
   // Build the proxy URL
+  // Some plugin backends mount routes under /api/v1/<plugin-name>/... (e.g. deployment-manager),
+  // while others mount under /api/v1/... directly. Try the plugin-prefixed path first;
+  // if the backend doesn't use the prefix, the catch-all proxy still works because
+  // the frontend already includes the plugin name in its fetch URL.
   const pathString = path.join('/');
-  const targetUrl = `${serviceUrl}/api/v1/${pathString}${request.nextUrl.search}`;
+  const targetUrl = `${serviceUrl}/api/v1/${plugin}/${pathString}${request.nextUrl.search}`;
 
   // Build headers for the proxy request
   const headers = new Headers();

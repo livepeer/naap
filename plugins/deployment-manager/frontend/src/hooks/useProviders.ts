@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 const API_BASE = '/api/v1/deployment-manager';
 
@@ -8,8 +8,8 @@ export interface Provider {
   description: string;
   icon: string;
   mode: 'serverless' | 'ssh-bridge';
-  connectorSlug: string;
   authMethod: string;
+  secretNames?: string[];
 }
 
 export interface GpuOption {
@@ -19,6 +19,19 @@ export interface GpuOption {
   cudaVersion?: string;
   available: boolean;
   pricePerHour?: number;
+}
+
+export interface SecretStatus {
+  name: string;
+  configured: boolean;
+  maskedValue?: string;
+  lastUpdated?: string;
+}
+
+export interface CredentialStatus {
+  configured: boolean;
+  secrets: SecretStatus[];
+  message?: string;
 }
 
 export function useProviders() {
@@ -51,4 +64,65 @@ export function useGpuOptions(providerSlug: string | null) {
   }, [providerSlug]);
 
   return { gpuOptions, loading };
+}
+
+export function useCredentialStatus(providerSlug: string | null) {
+  const [status, setStatus] = useState<CredentialStatus | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!providerSlug) { setStatus(null); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/credentials/${providerSlug}/credential-status`);
+      const data = await res.json();
+      if (data.success) setStatus(data.data);
+    } catch {
+      setStatus(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [providerSlug]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  return { credentialStatus: status, credentialLoading: loading, refreshCredentials: refresh };
+}
+
+export async function saveCredentials(
+  providerSlug: string,
+  secrets: Record<string, string>,
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/credentials/${providerSlug}/credentials`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secrets }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      return { success: true, message: data.data?.message || 'Credentials saved' };
+    }
+    return { success: false, message: data.error || 'Failed to save credentials' };
+  } catch (err: any) {
+    return { success: false, message: err.message };
+  }
+}
+
+export async function testProviderConnection(
+  providerSlug: string,
+): Promise<{ success: boolean; latencyMs?: number; error?: string; statusCode?: number }> {
+  try {
+    const res = await fetch(`${API_BASE}/credentials/${providerSlug}/test-connection`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
+    if (data.success) {
+      return data.data;
+    }
+    return { success: false, error: data.error || 'Test failed' };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 }

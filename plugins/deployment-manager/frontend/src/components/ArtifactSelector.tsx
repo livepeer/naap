@@ -49,7 +49,7 @@ export const ArtifactSelector: React.FC<ArtifactSelectorProps> = ({
 
   return (
     <div>
-      <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Deployment Artifact</h3>
+      <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--dm-text-primary)' }}>Deployment Artifact</h3>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
         {artifacts.map((a) => (
           <button
@@ -57,16 +57,17 @@ export const ArtifactSelector: React.FC<ArtifactSelectorProps> = ({
             onClick={() => onSelectType(a.type)}
             style={{
               padding: '1.25rem',
-              border: selectedType === a.type ? '2px solid #3b82f6' : '1px solid #e5e7eb',
+              border: selectedType === a.type ? '2px solid var(--dm-accent-blue)' : '1px solid var(--dm-border)',
               borderRadius: '0.75rem',
-              background: selectedType === a.type ? '#eff6ff' : '#fff',
+              background: selectedType === a.type ? 'var(--dm-bg-selected)' : 'var(--dm-bg-primary)',
+              color: 'var(--dm-text-primary)',
               cursor: 'pointer',
               textAlign: 'left',
             }}
           >
-            <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{a.displayName}</div>
-            <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>{a.description}</div>
-            <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '0.5rem', fontFamily: 'monospace' }}>
+            <div style={{ fontWeight: 600, marginBottom: '0.25rem', color: 'var(--dm-text-primary)' }}>{a.displayName}</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)' }}>{a.description}</div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--dm-text-tertiary)', marginTop: '0.5rem', fontFamily: 'monospace' }}>
               {a.dockerImage}
             </div>
           </button>
@@ -75,7 +76,7 @@ export const ArtifactSelector: React.FC<ArtifactSelectorProps> = ({
 
       {selectedType && versions.length > 0 && (
         <div>
-          <label style={{ fontSize: '0.875rem', fontWeight: 500 }}>Version</label>
+          <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--dm-text-secondary)' }}>Version</label>
           <select
             value={selectedVersion || ''}
             onChange={(e) => {
@@ -86,10 +87,12 @@ export const ArtifactSelector: React.FC<ArtifactSelectorProps> = ({
               display: 'block',
               marginTop: '0.5rem',
               padding: '0.5rem 1rem',
-              border: '1px solid #d1d5db',
+              border: '1px solid var(--dm-border-input)',
               borderRadius: '0.375rem',
               width: '100%',
               maxWidth: '400px',
+              color: 'var(--dm-text-primary)',
+              backgroundColor: 'var(--dm-bg-input)',
             }}
           >
             <option value="">Select a version...</option>

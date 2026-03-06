@@ -1,6 +1,7 @@
 import React from 'react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { createPlugin } from '@naap/plugin-sdk';
+import './globals.css';
 import { DeploymentList } from './pages/DeploymentList';
 import { DeploymentWizard } from './pages/DeploymentWizard';
 import { DeploymentDetail } from './pages/DeploymentDetail';

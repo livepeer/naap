@@ -20,7 +20,7 @@
     "maxVersion": "2.x"
   },
 
-  "dependencies": ["service-gateway"],
+  "dependencies": [],
 
   "frontend": {
     "entry": "./frontend/dist/production/deployment-manager.js",
@@ -54,7 +54,7 @@
 
   "permissions": {
     "shell": ["navigation", "notifications", "theme", "auth"],
-    "apis": ["base", "service-gateway"],
+    "apis": ["base"],
     "external": []
   },
 
