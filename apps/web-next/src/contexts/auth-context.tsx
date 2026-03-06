@@ -190,7 +190,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
       if (!response.ok) {
-        if (response.status === 503) {
+        if (response.status === 429) {
+          throw new Error('Too many sign-in attempts. Please try again later.');
+        }
+        if (response.status >= 500) {
           throw new Error('Unable to sign in right now. Please try again later.');
         }
         throw new Error('Invalid email or password');

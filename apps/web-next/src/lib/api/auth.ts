@@ -12,6 +12,9 @@ import {
   sendPasswordResetEmail as sendEmailPasswordReset,
 } from '../email';
 
+const RESEND_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+const resendCooldownMap = new Map<string, number>();
+
 /** Sanitize a value for safe log output (prevents log injection) */
 function sanitizeForLog(value: unknown): string {
   return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f\u2028\u2029]/g, '');
@@ -264,10 +267,16 @@ export async function register(
 
   if (existing) {
     // Preserve a uniform external response while still helping legitimate users
-    // who may have an unverified account.
-    resendVerificationEmail(email).catch((err) => {
-      console.error('[AUTH] Failed to handle existing-email registration:', (err as Error).message);
-    });
+    // who may have an unverified account. Throttle resend to prevent inbox flooding.
+    const cooldownKey = `resend:${email}`;
+    const lastSent = resendCooldownMap.get(cooldownKey);
+    const now = Date.now();
+    if (!lastSent || now - lastSent >= RESEND_COOLDOWN_MS) {
+      resendCooldownMap.set(cooldownKey, now);
+      resendVerificationEmail(email).catch((err) => {
+        console.error('[AUTH] Failed to handle existing-email registration:', (err as Error).message);
+      });
+    }
     return { created: false };
   }
 

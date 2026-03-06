@@ -51,7 +51,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const error = err as Error & { code?: string };
-    return errors.unauthorized(error.message || 'Invalid email or password');
+    const error = err as Error & { code?: string; lockedUntil?: Date };
+    console.error('[AUTH] Login failure:', { code: error.code, message: error.message });
+
+    if (error.code === 'ACCOUNT_LOCKED' && error.lockedUntil) {
+      return errors.accountLocked(error.lockedUntil);
+    }
+
+    return errors.unauthorized('Invalid email or password');
   }
 }

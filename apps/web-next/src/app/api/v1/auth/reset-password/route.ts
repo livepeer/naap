@@ -40,7 +40,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
 
     return response;
-  } catch {
-    return errors.badRequest('Invalid or expired reset token');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '';
+    if (message.includes('expired') || message.includes('invalid') || message.includes('token')) {
+      return errors.badRequest('Invalid or expired reset token');
+    }
+    console.error('[AUTH] Reset password error:', err);
+    return errors.internal('Unable to reset password. Please try again later.');
   }
 }

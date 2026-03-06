@@ -29,13 +29,16 @@ export default function ForgotPasswordForm() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Failed to send reset email');
+        if (response.status === 429) {
+          throw new Error('Too many attempts. Please wait and try again.');
+        }
+        throw new Error('Unable to send reset email. Please try again later.');
       }
 
       setIsSubmitted(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send reset email');
+      const msg = err instanceof Error ? err.message : '';
+      setError(msg.includes('Too many') ? msg : 'Unable to send reset email. Please try again later.');
     } finally {
       setIsLoading(false);
     }
