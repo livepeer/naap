@@ -1,0 +1,241 @@
+/**
+ * Service Gateway — Config Resolver
+ *
+ * Loads connector + endpoint configuration from the database,
+ * with an in-memory cache (60s TTL) to avoid DB hits on every request.
+ *
+ * Supports polymorphic ownership:
+ *   - Team scope:     `scopeId` is a team UUID → lookup by `{ teamId, slug }`
+ *   - Personal scope: `scopeId` is `personal:<userId>` → lookup by `{ ownerUserId, slug }`
+ */
+
+import { prisma } from '@/lib/db';
+import { cacheGet, cacheSet, cacheDel } from '@naap/cache';
+import { parseScope } from './scope';
+import type { ResolvedConfig, ResolvedConnector, ResolvedEndpoint } from './types';
+
+// ── In-Memory Cache ──
+
+interface CacheEntry {
+  config: ResolvedConfig | null;
+  expiresAt: number;
+}
+
+// Process-local cache: each serverless instance maintains its own copy.
+// Stale data may be served for up to TTL after config changes.
+// For stricter consistency, layer a distributed cache (Redis L2) in front.
+const CONFIG_CACHE = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 60_000; // 60s L1
+const REDIS_CACHE_TTL_S = 120; // 120s L2
+const NEGATIVE_CACHE_TTL_MS = 5_000;
+const REDIS_PREFIX = 'gw:resolve';
+
+function getCacheKey(scopeId: string, slug: string, method: string, path: string): string {
+  return `gw:config:${scopeId}:${slug}:${method}:${path}`;
+}
+
+/**
+ * Invalidate all cached configs for a connector (called on admin updates).
+ * `scopeId` can be a teamId, `personal:<userId>`, or `public`.
+ */
+export function invalidateConnectorCache(scopeId: string, slug: string): void {
+  const prefix = `gw:config:${scopeId}:${slug}:`;
+  const publicPrefix = `gw:config:public:${slug}:`;
+  for (const key of CONFIG_CACHE.keys()) {
+    if (key.startsWith(prefix) || key.startsWith(publicPrefix)) {
+      CONFIG_CACHE.delete(key);
+      cacheDel(key, { prefix: REDIS_PREFIX }).catch(() => {});
+    }
+  }
+}
+
+/**
+ * Find a connector by owner scope + slug.
+ * Personal scope queries by `ownerUserId`; team scope queries by `teamId`.
+ */
+async function findConnectorByOwner(scopeId: string, slug: string) {
+  const scope = parseScope(scopeId);
+  if (scope.type === 'personal') {
+    return prisma.serviceConnector.findUnique({
+      where: { ownerUserId_slug: { ownerUserId: scope.userId, slug } },
+      include: { endpoints: true },
+    });
+  }
+  return prisma.serviceConnector.findUnique({
+    where: { teamId_slug: { teamId: scope.teamId, slug } },
+    include: { endpoints: true },
+  });
+}
+
+/**
+ * Fallback: find a public connector by slug (any owner).
+ * Used when the scope-based lookup fails.
+ */
+async function findPublicConnector(slug: string) {
+  return prisma.serviceConnector.findFirst({
+    where: { slug, visibility: 'public', status: 'published' },
+    include: { endpoints: true },
+  });
+}
+
+/**
+ * Resolve connector + endpoint config for a gateway request.
+ *
+ * @param scopeId - Caller's scope: a team UUID or `personal:<userId>`
+ * @param slug    - Connector slug from URL path
+ * @param method  - HTTP method (GET, POST, etc.)
+ * @param path    - Consumer endpoint path (e.g. "/query")
+ */
+export async function resolveConfig(
+  scopeId: string,
+  slug: string,
+  method: string,
+  path: string
+): Promise<ResolvedConfig | null> {
+  const cacheKey = getCacheKey(scopeId, slug, method, path);
+
+  // L1: in-memory
+  const cached = CONFIG_CACHE.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.config;
+  }
+
+  // L2: Redis
+  try {
+    const redisHit = await cacheGet<ResolvedConfig | null>(cacheKey, { prefix: REDIS_PREFIX });
+    if (redisHit !== null) {
+      CONFIG_CACHE.set(cacheKey, { config: redisHit, expiresAt: Date.now() + CACHE_TTL_MS });
+      return redisHit;
+    }
+  } catch {
+    // Redis unavailable — continue to DB
+  }
+
+  let connector = await findConnectorByOwner(scopeId, slug);
+
+  // Fallback: try public connector if scope-based lookup fails
+  if (!connector || connector.status !== 'published') {
+    connector = await findPublicConnector(slug);
+  }
+
+  if (!connector || connector.status !== 'published') {
+    CONFIG_CACHE.set(cacheKey, { config: null, expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS });
+    return null;
+  }
+
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const matchingEndpoints = connector.endpoints
+    .filter(
+      (ep) =>
+        ep.enabled &&
+        ep.method.toUpperCase() === method.toUpperCase() &&
+        matchPath(ep.path, normalizedPath)
+    )
+    .sort((a, b) => pathSpecificity(b.path) - pathSpecificity(a.path));
+  const endpoint = matchingEndpoints[0];
+
+  if (!endpoint) {
+    CONFIG_CACHE.set(cacheKey, { config: null, expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS });
+    return null;
+  }
+
+  const resolvedConnector: ResolvedConnector = {
+    id: connector.id,
+    teamId: connector.teamId,
+    ownerUserId: connector.ownerUserId,
+    slug: connector.slug,
+    displayName: connector.displayName,
+    status: connector.status,
+    visibility: connector.visibility,
+    upstreamBaseUrl: connector.upstreamBaseUrl,
+    allowedHosts: connector.allowedHosts,
+    defaultTimeout: connector.defaultTimeout,
+    healthCheckPath: connector.healthCheckPath,
+    authType: connector.authType,
+    authConfig: connector.authConfig as Record<string, unknown>,
+    secretRefs: connector.secretRefs,
+    responseWrapper: connector.responseWrapper,
+    streamingEnabled: connector.streamingEnabled,
+    errorMapping: connector.errorMapping as Record<string, string>,
+  };
+
+  const resolvedEndpoint: ResolvedEndpoint = {
+    id: endpoint.id,
+    connectorId: endpoint.connectorId,
+    name: endpoint.name,
+    method: endpoint.method,
+    path: endpoint.path,
+    enabled: endpoint.enabled,
+    upstreamMethod: endpoint.upstreamMethod,
+    upstreamPath: endpoint.upstreamPath,
+    upstreamContentType: endpoint.upstreamContentType,
+    upstreamQueryParams: endpoint.upstreamQueryParams as Record<string, string>,
+    upstreamStaticBody: endpoint.upstreamStaticBody,
+    bodyTransform: endpoint.bodyTransform,
+    headerMapping: endpoint.headerMapping as Record<string, string>,
+    rateLimit: endpoint.rateLimit,
+    timeout: endpoint.timeout,
+    maxRequestSize: endpoint.maxRequestSize,
+    maxResponseSize: endpoint.maxResponseSize,
+    cacheTtl: endpoint.cacheTtl,
+    retries: endpoint.retries,
+    bodyPattern: endpoint.bodyPattern,
+    bodyBlacklist: endpoint.bodyBlacklist,
+    bodySchema: endpoint.bodySchema,
+    requiredHeaders: endpoint.requiredHeaders,
+  };
+
+  const config: ResolvedConfig = {
+    connector: resolvedConnector,
+    endpoint: resolvedEndpoint,
+  };
+
+  CONFIG_CACHE.set(cacheKey, { config, expiresAt: Date.now() + CACHE_TTL_MS });
+  cacheSet(cacheKey, config, { prefix: REDIS_PREFIX, ttl: REDIS_CACHE_TTL_S }).catch(() => {});
+  return config;
+}
+
+/**
+ * Match consumer path against endpoint path pattern.
+ * Supports parameterized segments (:param) and catch-all (:param*).
+ */
+function matchPath(pattern: string, actual: string): boolean {
+  const patternParts = pattern.split('/').filter(Boolean);
+  const actualParts = actual.split('/').filter(Boolean);
+
+  const lastPattern = patternParts[patternParts.length - 1];
+  const isCatchAll = lastPattern?.endsWith('*');
+
+  if (isCatchAll) {
+    if (actualParts.length < patternParts.length) return false;
+    return patternParts.slice(0, -1).every(
+      (part, i) => part.startsWith(':') || part === actualParts[i]
+    );
+  }
+
+  if (patternParts.length !== actualParts.length) return false;
+
+  return patternParts.every((part, i) => {
+    if (part.startsWith(':')) return true;
+    return part === actualParts[i];
+  });
+}
+
+/**
+ * Score a path pattern for specificity sorting.
+ * Higher = more specific. Exact segments > params > catch-all.
+ */
+function pathSpecificity(pattern: string): number {
+  const parts = pattern.split('/').filter(Boolean);
+  let score = 0;
+  for (const part of parts) {
+    if (part.endsWith('*')) {
+      score += 1;
+    } else if (part.startsWith(':')) {
+      score += 10;
+    } else {
+      score += 100;
+    }
+  }
+  return score;
+}

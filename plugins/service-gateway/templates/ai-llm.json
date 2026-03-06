@@ -1,0 +1,59 @@
+{
+  "id": "ai-llm",
+  "name": "AI / LLM",
+  "description": "OpenAI-compatible LLM inference API — works with OpenAI, Anthropic, Azure OpenAI, Ollama, vLLM, and any OpenAI-compatible endpoint",
+  "icon": "🤖",
+  "category": "ai",
+  "connector": {
+    "slug": "ai-llm",
+    "displayName": "AI / LLM API",
+    "description": "OpenAI-compatible LLM inference API",
+    "authType": "bearer",
+    "authConfig": { "tokenRef": "token" },
+    "secretRefs": ["token"],
+    "streamingEnabled": true,
+    "responseWrapper": true,
+    "healthCheckPath": "/v1/models",
+    "defaultTimeout": 60000,
+    "tags": ["ai", "llm", "openai"]
+  },
+  "endpoints": [
+    {
+      "name": "Chat Completions",
+      "method": "POST",
+      "path": "/chat",
+      "upstreamPath": "/v1/chat/completions",
+      "upstreamContentType": "application/json",
+      "bodyTransform": "passthrough",
+      "timeout": 60000,
+      "retries": 1
+    },
+    {
+      "name": "Completions",
+      "method": "POST",
+      "path": "/completions",
+      "upstreamPath": "/v1/completions",
+      "upstreamContentType": "application/json",
+      "bodyTransform": "passthrough",
+      "timeout": 60000,
+      "retries": 1
+    },
+    {
+      "name": "Embeddings",
+      "method": "POST",
+      "path": "/embeddings",
+      "upstreamPath": "/v1/embeddings",
+      "upstreamContentType": "application/json",
+      "bodyTransform": "passthrough"
+    },
+    {
+      "name": "List Models",
+      "method": "GET",
+      "path": "/models",
+      "upstreamPath": "/v1/models",
+      "upstreamContentType": "application/json",
+      "bodyTransform": "passthrough",
+      "cacheTtl": 300
+    }
+  ]
+}

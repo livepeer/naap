@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@naap/plugin-sdk": ["../../../packages/plugin-sdk/src"],
+      "@naap/plugin-sdk/*": ["../../../packages/plugin-sdk/src/*"],
+      "@naap/plugin-utils": ["../../../packages/plugin-utils/src"],
+      "@naap/plugin-utils/*": ["../../../packages/plugin-utils/src/*"],
+      "@naap/ui": ["../../../packages/ui/src"],
+      "@naap/ui/*": ["../../../packages/ui/src/*"],
+      "@naap/types": ["../../../packages/types/src"],
+      "@naap/types/*": ["../../../packages/types/src/*"],
+      "@naap/theme": ["../../../packages/theme/src"],
+      "@naap/theme/*": ["../../../packages/theme/src/*"],
+      "@naap/utils": ["../../../packages/utils/src"],
+      "@naap/utils/*": ["../../../packages/utils/src/*"]
+    }
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}

@@ -1,0 +1,76 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "fal-ai-serverless",
+  "name": "fal.ai Serverless GPU",
+  "description": "Deploy and run inference workloads on fal.ai serverless GPU infrastructure with sub-second cold starts and auto-scaling.",
+  "icon": "⚡",
+  "category": "ai",
+  "connector": {
+    "slug": "fal-ai",
+    "displayName": "fal.ai Serverless GPU",
+    "description": "Serverless GPU inference with fal.ai — fast cold starts, auto-scaling, pay-per-use.",
+    "category": "ai",
+    "upstreamBaseUrl": "https://rest.alpha.fal.ai",
+    "allowedHosts": ["rest.alpha.fal.ai", "fal.run"],
+    "defaultTimeout": 120000,
+    "healthCheckPath": "/",
+    "authType": "header",
+    "authConfig": {
+      "headers": {
+        "Authorization": "Key {{secrets.api-key}}"
+      }
+    },
+    "secretRefs": ["api-key"],
+    "streamingEnabled": false,
+    "responseWrapper": false,
+    "tags": ["fal", "gpu", "serverless", "inference", "deployment"]
+  },
+  "endpoints": [
+    {
+      "name": "list-applications",
+      "description": "List deployed applications",
+      "method": "GET",
+      "path": "/applications",
+      "upstreamPath": "/applications",
+      "rateLimit": 60,
+      "timeout": 10000
+    },
+    {
+      "name": "create-application",
+      "description": "Create a new serverless application from a Docker image",
+      "method": "POST",
+      "path": "/applications",
+      "upstreamPath": "/applications",
+      "rateLimit": 10,
+      "timeout": 60000
+    },
+    {
+      "name": "get-application",
+      "description": "Get application details and status",
+      "method": "GET",
+      "path": "/applications/:appId",
+      "upstreamPath": "/applications/:appId",
+      "rateLimit": 60,
+      "timeout": 10000
+    },
+    {
+      "name": "delete-application",
+      "description": "Delete a deployed application",
+      "method": "DELETE",
+      "path": "/applications/:appId",
+      "upstreamPath": "/applications/:appId",
+      "rateLimit": 10,
+      "timeout": 30000
+    },
+    {
+      "name": "update-application",
+      "description": "Update application configuration or image",
+      "method": "PUT",
+      "path": "/applications/:appId",
+      "upstreamPath": "/applications/:appId",
+      "rateLimit": 10,
+      "timeout": 30000
+    }
+  ],
+  "envKey": "FAL_AI_API_KEY"
+}

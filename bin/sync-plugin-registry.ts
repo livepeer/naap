@@ -28,9 +28,12 @@ import {
   toPluginPackageData,
   toPluginVersionData,
   getBundleUrl,
+  toCamelCase,
+  toKebabCase,
 } from '../packages/database/src/plugin-discovery.js';
 import { BILLING_PROVIDERS } from '@naap/database';
 import * as path from 'path';
+import * as fs from 'fs';
 import { fileURLToPath } from 'url';
 
 // Resolve paths — works with both tsx/esm and cjs
@@ -89,13 +92,18 @@ async function main(): Promise<void> {
 
       const existing = await prisma.workflowPlugin.findUnique({
         where: { name: p.name },
-        select: { id: true },
+        select: { id: true, metadata: true },
       });
+
+      const mergedMetadata = {
+        ...((existing?.metadata as Record<string, unknown>) || {}),
+        originalRoutes: p.originalRoutes,
+      };
 
       await prisma.workflowPlugin.upsert({
         where: { name: p.name },
-        update: data,
-        create: data,
+        update: { ...data, metadata: mergedMetadata },
+        create: { ...data, metadata: mergedMetadata },
       });
 
       if (existing) {
@@ -114,14 +122,36 @@ async function main(): Promise<void> {
     let unlisted = 0;
 
     if (!isVercelPreview) {
-      // Soft-disable stale WorkflowPlugin records
+      // Collect names of plugins that have active user installations — these
+      // were explicitly published and installed via the marketplace or publish
+      // endpoints and must NOT be disabled/unlisted during cleanup.
+      const activeInstalls = await prisma.tenantPluginInstall.findMany({
+        where: { status: 'active' },
+        select: { deployment: { select: { package: { select: { name: true } } } } },
+      });
+      const installedPluginNames = new Set(
+        activeInstalls
+          .map((i) => i.deployment?.package?.name)
+          .filter(Boolean) as string[],
+      );
+
+      // Also protect plugins published by a registered publisher
+      const publisherOwnedPkgs = await prisma.pluginPackage.findMany({
+        where: { publisherId: { not: null } },
+        select: { name: true },
+      });
+      for (const pkg of publisherOwnedPkgs) {
+        installedPluginNames.add(pkg.name);
+      }
+
+      // Soft-disable stale WorkflowPlugin records (skip actively installed ones)
       const dbPlugins = await prisma.workflowPlugin.findMany({
         where: { enabled: true },
         select: { name: true },
       });
 
       for (const db of dbPlugins) {
-        if (!discoveredNames.has(db.name)) {
+        if (!discoveredNames.has(db.name) && !installedPluginNames.has(db.name)) {
           await prisma.workflowPlugin.update({
             where: { name: db.name },
             data: { enabled: false },
@@ -131,14 +161,14 @@ async function main(): Promise<void> {
         }
       }
 
-      // Unlist stale PluginPackage records
+      // Unlist stale PluginPackage records (skip actively installed / publisher-owned)
       const publishedPackages = await prisma.pluginPackage.findMany({
         where: { publishStatus: 'published' },
         select: { name: true },
       });
 
       for (const pkg of publishedPackages) {
-        if (!discoveredNames.has(pkg.name)) {
+        if (!discoveredNames.has(pkg.name) && !installedPluginNames.has(pkg.name)) {
           await prisma.pluginPackage.update({
             where: { name: pkg.name },
             data: { publishStatus: 'unlisted' },
@@ -146,6 +176,40 @@ async function main(): Promise<void> {
           unlisted++;
           console.log(`  [UNLISTED] ${pkg.name} (no longer in repo)`);
         }
+      }
+      // Normalize stale top-level routes for non-core, non-discovered plugins.
+      // Plugins that were published with legacy top-level routes get moved to /plugins/{name}.
+      const coreNames = new Set(
+        (await prisma.pluginPackage.findMany({
+          where: { isCore: true },
+          select: { name: true },
+        })).map((p) => p.name),
+      );
+      const allWPs = await prisma.workflowPlugin.findMany({
+        where: { enabled: true },
+        select: { name: true, routes: true, metadata: true },
+      });
+      let normalized = 0;
+      for (const wp of allWPs) {
+        if (coreNames.has(wp.name) || discoveredNames.has(wp.name)) continue;
+        const routes = Array.isArray(wp.routes) ? wp.routes.filter((r): r is string => typeof r === 'string') : [];
+        const hasStaleRoutes = routes.length > 0 && routes.some((r) => !r.startsWith('/plugins/'));
+        if (hasStaleRoutes) {
+          const kebabName = toKebabCase(wp.name);
+          const meta = (wp.metadata as Record<string, unknown>) || {};
+          await prisma.workflowPlugin.update({
+            where: { name: wp.name },
+            data: {
+              routes: [`/plugins/${kebabName}`, `/plugins/${kebabName}/*`],
+              metadata: { ...meta, originalRoutes: meta.originalRoutes || wp.routes },
+            },
+          });
+          normalized++;
+          console.log(`  [NORMALIZED] ${wp.name} routes → /plugins/${kebabName}`);
+        }
+      }
+      if (normalized > 0) {
+        console.log(`[sync-plugin-registry] Normalized ${normalized} stale route(s)`);
       }
     } else {
       console.log('[sync-plugin-registry] Skipping stale plugin cleanup (Vercel preview — shared DB)');
@@ -270,6 +334,97 @@ async function main(): Promise<void> {
       });
     }
     console.log(`[sync-plugin-registry] BillingProviders: ${BILLING_PROVIDERS.length} ensured`);
+
+    // ------------------------------------------------------------------
+    // Sync Gateway Connector Templates (JSON → DB)
+    // ------------------------------------------------------------------
+    const templatesDir = path.join(MONOREPO_ROOT, 'plugins', 'service-gateway', 'connectors');
+    if (fs.existsSync(templatesDir)) {
+      console.log('[sync-plugin-registry] Syncing gateway connector templates...');
+      const jsonFiles = fs.readdirSync(templatesDir).filter((f) => f.endsWith('.json') && !f.includes('schema'));
+      let tplCreated = 0;
+      let tplUpdated = 0;
+
+      for (const file of jsonFiles) {
+        try {
+          const raw = fs.readFileSync(path.join(templatesDir, file), 'utf-8');
+          const tpl = JSON.parse(raw);
+          if (!tpl.id || !tpl.name) {
+            console.warn(`  [SKIP] ${file}: missing id or name`);
+            continue;
+          }
+
+          const existing = await prisma.gatewayConnectorTemplate.findUnique({
+            where: { id: tpl.id },
+            select: { id: true },
+          });
+
+          await prisma.gatewayConnectorTemplate.upsert({
+            where: { id: tpl.id },
+            update: {
+              name: tpl.name,
+              description: tpl.description || '',
+              icon: tpl.icon || '',
+              category: tpl.category || '',
+              connector: tpl.connector || {},
+              endpoints: tpl.endpoints || [],
+            },
+            create: {
+              id: tpl.id,
+              name: tpl.name,
+              description: tpl.description || '',
+              icon: tpl.icon || '',
+              category: tpl.category || '',
+              connector: tpl.connector || {},
+              endpoints: tpl.endpoints || [],
+              source: 'builtin',
+            },
+          });
+
+          if (existing) tplUpdated++;
+          else tplCreated++;
+        } catch (err) {
+          console.warn(`  [ERROR] ${file}:`, err);
+        }
+      }
+
+      console.log(
+        `[sync-plugin-registry] ConnectorTemplates: ${tplCreated} created, ${tplUpdated} updated`,
+      );
+    }
+
+    // ------------------------------------------------------------------
+    // Generate plugin-routes.json for middleware consumption
+    // ------------------------------------------------------------------
+    const routesWithOwnPage = new Set(['/marketplace', '/dashboard', '/plugins/my-dashboard']);
+    const routeMap: Record<string, string> = {};
+
+    for (const p of discovered) {
+      const camelName = toCamelCase(p.dirName);
+      const routes: string[] = p.routes || [];
+      for (const route of routes) {
+        const baseRoute = route.replace(/\/?\*$/, '');
+        if (!baseRoute || routesWithOwnPage.has(baseRoute)) continue;
+        const existing = routeMap[baseRoute];
+        if (existing && existing !== camelName) {
+          console.warn(
+            `[sync-plugin-registry] Route collision: "${baseRoute}" claimed by both "${existing}" and "${camelName}" — keeping "${existing}"`,
+          );
+          continue;
+        }
+        routeMap[baseRoute] = camelName;
+      }
+    }
+
+    const generatedDir = path.join(MONOREPO_ROOT, 'apps', 'web-next', 'src', 'generated');
+    if (!fs.existsSync(generatedDir)) {
+      fs.mkdirSync(generatedDir, { recursive: true });
+    }
+    const routesPath = path.join(generatedDir, 'plugin-routes.json');
+    fs.writeFileSync(routesPath, JSON.stringify(routeMap, null, 2) + '\n', 'utf-8');
+    console.log(
+      `[sync-plugin-registry] Generated plugin-routes.json with ${Object.keys(routeMap).length} route(s): ${Object.keys(routeMap).join(', ')}`,
+    );
 
     console.log('[sync-plugin-registry] Done.');
   } finally {

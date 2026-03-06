@@ -159,11 +159,11 @@ describe('CDN Serve Route — toKebabCase conversion (replaces PLUGIN_DIR_MAP)',
 
   it('handles unknown/new plugin names without a map entry', () => {
     expect(toKebabCase('someNewPlugin')).toBe('some-new-plugin');
-    expect(toKebabCase('dashboardProviderMock')).toBe('dashboard-provider-mock');
+    expect(toKebabCase('dashboardDataProvider')).toBe('dashboard-data-provider');
   });
 
   it('handles triple-word camelCase', () => {
-    expect(toKebabCase('dashboardProviderMock')).toBe('dashboard-provider-mock');
+    expect(toKebabCase('dashboardDataProvider')).toBe('dashboard-data-provider');
   });
 });
 

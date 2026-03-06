@@ -1,0 +1,91 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "runpod-serverless",
+  "name": "RunPod Serverless GPU",
+  "description": "Deploy and manage serverless GPU endpoints on RunPod. Supports custom Docker images with auto-scaling, pay-per-second billing, and GPU selection.",
+  "icon": "🚀",
+  "category": "ai",
+  "connector": {
+    "slug": "runpod-serverless",
+    "displayName": "RunPod Serverless GPU",
+    "description": "Deploy serverless GPU endpoints with custom Docker images on RunPod infrastructure.",
+    "category": "ai",
+    "upstreamBaseUrl": "https://api.runpod.io/v2",
+    "allowedHosts": ["api.runpod.io"],
+    "defaultTimeout": 60000,
+    "healthCheckPath": "/",
+    "authType": "bearer",
+    "authConfig": {},
+    "secretRefs": ["api-key"],
+    "streamingEnabled": false,
+    "responseWrapper": false,
+    "tags": ["runpod", "gpu", "serverless", "deployment", "inference"]
+  },
+  "endpoints": [
+    {
+      "name": "list-endpoints",
+      "description": "List all serverless endpoints",
+      "method": "GET",
+      "path": "/endpoints",
+      "upstreamPath": "/endpoints",
+      "rateLimit": 60,
+      "timeout": 10000
+    },
+    {
+      "name": "create-endpoint",
+      "description": "Create a new serverless endpoint with a Docker image",
+      "method": "POST",
+      "path": "/endpoints",
+      "upstreamPath": "/endpoints",
+      "rateLimit": 10,
+      "timeout": 30000
+    },
+    {
+      "name": "get-endpoint",
+      "description": "Get endpoint details and status",
+      "method": "GET",
+      "path": "/endpoints/:endpointId",
+      "upstreamPath": "/endpoints/:endpointId",
+      "rateLimit": 60,
+      "timeout": 10000
+    },
+    {
+      "name": "update-endpoint",
+      "description": "Update endpoint configuration",
+      "method": "PUT",
+      "path": "/endpoints/:endpointId",
+      "upstreamPath": "/endpoints/:endpointId",
+      "rateLimit": 10,
+      "timeout": 30000
+    },
+    {
+      "name": "delete-endpoint",
+      "description": "Delete a serverless endpoint",
+      "method": "DELETE",
+      "path": "/endpoints/:endpointId",
+      "upstreamPath": "/endpoints/:endpointId",
+      "rateLimit": 10,
+      "timeout": 30000
+    },
+    {
+      "name": "get-gpu-types",
+      "description": "List available GPU types and pricing",
+      "method": "GET",
+      "path": "/gpu-types",
+      "upstreamPath": "/gpu-types",
+      "rateLimit": 30,
+      "timeout": 10000,
+      "cacheTtl": 300
+    },
+    {
+      "name": "health-check",
+      "description": "Check endpoint health",
+      "method": "GET",
+      "path": "/endpoints/:endpointId/health",
+      "upstreamPath": "/endpoints/:endpointId/health",
+      "rateLimit": 120,
+      "timeout": 5000
+    }
+  ],
+  "envKey": "RUNPOD_API_KEY"
+}

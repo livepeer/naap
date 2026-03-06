@@ -7,7 +7,7 @@
  * on app startup. These are "provider" plugins that register event bus
  * handlers to serve data to the core UI without having their own pages.
  *
- * Example: dashboard-provider-mock registers as a dashboard data provider
+ * Example: dashboard-data-provider registers as a dashboard data provider
  * so the /dashboard page can fetch data via the event bus.
  *
  * This component renders hidden mount containers for each headless plugin

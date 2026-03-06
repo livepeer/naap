@@ -1,0 +1,62 @@
+{
+  "id": "clickhouse",
+  "name": "ClickHouse",
+  "description": "ClickHouse analytics database — run SQL queries, list tables, and inspect schemas with SELECT-only enforcement",
+  "icon": "📊",
+  "category": "analytics",
+  "connector": {
+    "slug": "clickhouse",
+    "displayName": "ClickHouse",
+    "description": "ClickHouse analytics query API with SELECT-only enforcement",
+    "authType": "basic",
+    "authConfig": { "usernameRef": "username", "passwordRef": "password" },
+    "secretRefs": ["username", "password"],
+    "streamingEnabled": false,
+    "responseWrapper": true,
+    "healthCheckPath": "/ping",
+    "defaultTimeout": 30000,
+    "tags": ["analytics", "database", "clickhouse", "sql"]
+  },
+  "endpoints": [
+    {
+      "name": "Query",
+      "description": "Execute a SELECT query against ClickHouse",
+      "method": "POST",
+      "path": "/query",
+      "upstreamPath": "/",
+      "upstreamContentType": "application/json",
+      "bodyTransform": "passthrough",
+      "bodyBlacklist": ["DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE", "TRUNCATE", "GRANT", "REVOKE"],
+      "bodyPattern": "(?i)^\\s*SELECT\\b",
+      "bodySchema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string" }
+        }
+      },
+      "timeout": 30000,
+      "retries": 0
+    },
+    {
+      "name": "Tables",
+      "description": "List all tables in the default database",
+      "method": "GET",
+      "path": "/tables",
+      "upstreamPath": "/?query=SHOW+TABLES+FORMAT+JSON",
+      "upstreamContentType": "application/json",
+      "bodyTransform": "passthrough",
+      "cacheTtl": 60
+    },
+    {
+      "name": "Table Schema",
+      "description": "Get schema of a specific table",
+      "method": "GET",
+      "path": "/schema/:table",
+      "upstreamPath": "/?query=DESCRIBE+TABLE+:table+FORMAT+JSON",
+      "upstreamContentType": "application/json",
+      "bodyTransform": "passthrough",
+      "cacheTtl": 300
+    }
+  ]
+}

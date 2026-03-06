@@ -130,8 +130,8 @@ export function useApiClient(options: UseApiClientOptions = {}): EnhancedApiClie
     // Determine the base URL
     let baseUrl: string;
     
-    if (customBaseUrl) {
-      // Use custom URL if provided
+    if (customBaseUrl !== undefined) {
+      // Explicit baseUrl provided ('' means same-origin)
       baseUrl = customBaseUrl;
     } else if (pluginName) {
       // Auto-resolve plugin backend URL using canonical functions:

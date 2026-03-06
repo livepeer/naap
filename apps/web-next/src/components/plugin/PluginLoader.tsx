@@ -9,6 +9,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Loader2, AlertCircle, RefreshCw, ExternalLink } from 'lucide-react';
+import { getSafeErrorMessage } from '@naap/plugin-sdk';
 import {
   loadUMDPlugin,
   mountUMDPlugin,
@@ -230,7 +231,8 @@ export function PluginLoader({
       setStatus('loaded');
       onLoadRef.current?.(loaded);
     } catch (err) {
-      const loadError = err instanceof Error ? err : new Error(String(err));
+      const msg = getSafeErrorMessage(err);
+      const loadError = err instanceof Error ? err : new Error(msg);
       setError(loadError);
       setStatus('error');
       onErrorRef.current?.(loadError);
@@ -326,7 +328,9 @@ export function PluginLoader({
             <h3 className="font-semibold text-text-primary">
               Failed to load plugin
             </h3>
-            <p className="text-text-secondary text-sm">{error.message}</p>
+            <p className="text-text-secondary text-sm">
+              {typeof error?.message === 'string' ? error.message : String(error ?? 'Unknown error')}
+            </p>
           </div>
           <div className="flex items-center justify-center gap-3">
             <button

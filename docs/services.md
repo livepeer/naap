@@ -80,7 +80,13 @@ const proxy = createExternalProxy({
 });
 ```
 
-See the [External API Proxy guide](/docs/guides/external-api-proxy) for details.
+### Preferred Pattern: Service Gateway
+For production applications, the **Service Gateway** is the recommended way to integrate third-party APIs. It provides:
+- **Zero-code proxying**: Expose external APIs via simple configuration.
+- **Secure Secret Injection**: Credentials are never exposed to the client.
+- **Unified Analytics**: Built-in tracking for request counts, latency, and errors.
+
+👉 [**See the Service Gateway Tutorial**](./tutorial-service-gateway-app.md)
 
 ## Health Checks
 

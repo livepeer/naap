@@ -1,0 +1,34 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "livepeer-studio",
+  "name": "Livepeer Studio API",
+  "description": "Livepeer Studio — video streaming, transcoding, and AI generation APIs",
+  "icon": "📹",
+  "category": "video",
+  "connector": {
+    "slug": "livepeer-studio",
+    "displayName": "Livepeer Studio API",
+    "description": "Livepeer Studio — video streaming, transcoding, and AI generation APIs",
+    "category": "video",
+    "upstreamBaseUrl": "https://livepeer.studio/api",
+    "allowedHosts": ["livepeer.studio"],
+    "defaultTimeout": 30000,
+    "authType": "bearer",
+    "authConfig": { "tokenRef": "token" },
+    "secretRefs": ["token"],
+    "streamingEnabled": false,
+    "tags": ["livepeer", "studio", "video", "streaming", "ai"]
+  },
+  "endpoints": [
+    { "name": "list-streams", "description": "List all streams", "method": "GET", "path": "/streams", "upstreamPath": "/stream", "rateLimit": 100, "timeout": 10000, "cacheTtl": 30 },
+    { "name": "create-stream", "description": "Create a new stream", "method": "POST", "path": "/streams", "upstreamPath": "/stream", "rateLimit": 20, "timeout": 10000 },
+    { "name": "get-stream", "description": "Get stream by ID", "method": "GET", "path": "/streams/:id", "upstreamPath": "/stream/:id", "rateLimit": 200, "timeout": 5000, "cacheTtl": 15 },
+    { "name": "delete-stream", "description": "Delete a stream", "method": "DELETE", "path": "/streams/:id", "upstreamPath": "/stream/:id", "rateLimit": 20, "timeout": 5000 },
+    { "name": "list-assets", "description": "List all assets", "method": "GET", "path": "/assets", "upstreamPath": "/asset", "rateLimit": 100, "timeout": 10000, "cacheTtl": 30 },
+    { "name": "upload-asset-url", "description": "Upload asset from URL", "method": "POST", "path": "/assets/upload/url", "upstreamPath": "/asset/upload/url", "rateLimit": 10, "timeout": 30000 },
+    { "name": "get-asset", "description": "Get asset by ID", "method": "GET", "path": "/assets/:id", "upstreamPath": "/asset/:id", "rateLimit": 200, "timeout": 5000, "cacheTtl": 15 },
+    { "name": "text-to-image", "description": "Generate image from text prompt", "method": "POST", "path": "/generate/text-to-image", "upstreamPath": "/generate/text-to-image", "rateLimit": 10, "timeout": 60000 },
+    { "name": "image-to-video", "description": "Generate video from image", "method": "POST", "path": "/generate/image-to-video", "upstreamPath": "/generate/image-to-video", "rateLimit": 5, "timeout": 60000 }
+  ],
+  "envKey": "LIVEPEER_STUDIO_API_KEY"
+}

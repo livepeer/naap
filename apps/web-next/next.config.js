@@ -26,6 +26,7 @@ const nextConfig = {
     '@naap/utils',
     '@naap/config',
     '@naap/plugin-sdk',
+    '@naap/cache',
   ],
 
   // Image optimization
@@ -52,6 +53,14 @@ const nextConfig = {
     if (isServer && process.env.NODE_ENV === 'production') {
       config.plugins = [...config.plugins, new PrismaPlugin()];
     }
+
+    // Transpiled workspace packages use TypeScript's .js extension convention
+    // (e.g. `from './utils/index.js'` in .ts files). Webpack needs extensionAlias
+    // to resolve these to the actual .ts/.tsx source files.
+    config.resolve.extensionAlias = {
+      '.js': ['.js', '.ts', '.tsx'],
+      '.jsx': ['.jsx', '.tsx'],
+    };
 
     // Reduce file watcher scope to prevent EMFILE errors in large monorepos.
     // Without this, Watchpack tries to watch all node_modules directories

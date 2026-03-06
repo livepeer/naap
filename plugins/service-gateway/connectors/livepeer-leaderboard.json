@@ -1,0 +1,28 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "livepeer-leaderboard",
+  "name": "Livepeer AI Leaderboard",
+  "description": "Orchestrator performance leaderboard for Livepeer AI pipelines (text-to-image, LLM, live-video-to-video)",
+  "icon": "🏆",
+  "category": "video",
+  "connector": {
+    "slug": "livepeer-leaderboard",
+    "displayName": "Livepeer AI Leaderboard",
+    "description": "Orchestrator performance leaderboard for Livepeer AI pipelines (text-to-image, LLM, live-video-to-video)",
+    "category": "video",
+    "upstreamBaseUrl": "https://leaderboard-api.livepeer.cloud",
+    "allowedHosts": ["leaderboard-api.livepeer.cloud"],
+    "defaultTimeout": 15000,
+    "healthCheckPath": "/api/pipelines",
+    "authType": "none",
+    "authConfig": {},
+    "secretRefs": [],
+    "streamingEnabled": false,
+    "tags": ["livepeer", "ai", "leaderboard", "orchestrator"]
+  },
+  "endpoints": [
+    { "name": "list-pipelines", "description": "List all AI pipelines with their models and regions", "method": "GET", "path": "/pipelines", "upstreamPath": "/api/pipelines", "rateLimit": 200, "timeout": 5000, "cacheTtl": 300 },
+    { "name": "aggregated-stats", "description": "Get aggregated performance scores by pipeline and model", "method": "GET", "path": "/stats", "upstreamPath": "/api/aggregated_stats", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 },
+    { "name": "raw-stats", "description": "Get raw per-run stats for a specific orchestrator", "method": "GET", "path": "/stats/raw", "upstreamPath": "/api/raw_stats", "rateLimit": 50, "timeout": 15000, "cacheTtl": 30 }
+  ]
+}

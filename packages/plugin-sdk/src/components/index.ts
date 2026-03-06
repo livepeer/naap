@@ -4,8 +4,8 @@
  * Re-exports WHIP/WHEP components for plugin use.
  */
 
-export { LivepeerPublisher } from './LivepeerPublisher.js';
-export type { LivepeerPublisherProps, LivepeerPublisherRef } from './LivepeerPublisher.js';
+export { LivepeerPublisher } from './LivepeerPublisher';
+export type { LivepeerPublisherProps, LivepeerPublisherRef } from './LivepeerPublisher';
 
-export { LivepeerPlayer } from './LivepeerPlayer.js';
-export type { LivepeerPlayerProps, LivepeerPlayerRef } from './LivepeerPlayer.js';
+export { LivepeerPlayer } from './LivepeerPlayer';
+export type { LivepeerPlayerProps, LivepeerPlayerRef } from './LivepeerPlayer';

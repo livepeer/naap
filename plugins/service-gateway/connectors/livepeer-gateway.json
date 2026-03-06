@@ -1,0 +1,91 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "livepeer-gateway",
+  "name": "Livepeer Lightweight Gateway",
+  "description": "Livepeer AI pipeline gateway — start, manage, and monitor live video-to-video jobs with orchestrator discovery and trickle streaming",
+  "icon": "🎬",
+  "category": "ai",
+  "connector": {
+    "slug": "livepeer-gateway",
+    "displayName": "Livepeer Lightweight Gateway",
+    "description": "Livepeer AI pipeline gateway — start, manage, and monitor live video-to-video jobs with orchestrator discovery and trickle streaming",
+    "category": "ai",
+    "upstreamBaseUrl": "https://livepeer-gateway-90265565772.us-central1.run.app",
+    "allowedHosts": ["livepeer-gateway-90265565772.us-central1.run.app"],
+    "defaultTimeout": 60000,
+    "healthCheckPath": "/health",
+    "authType": "header",
+    "authConfig": { "headers": { "x-api-key": "{{secrets.api-key}}" } },
+    "secretRefs": ["api-key"],
+    "streamingEnabled": true,
+    "responseWrapper": false,
+    "tags": ["livepeer", "ai", "video", "lv2v", "streaming", "orchestrator", "pipeline"]
+  },
+  "endpoints": [
+    {
+      "name": "health",
+      "description": "Health check — returns service status, active job count, and version",
+      "method": "GET",
+      "path": "/health",
+      "upstreamPath": "/health",
+      "rateLimit": 120,
+      "timeout": 5000,
+      "cacheTtl": 10
+    },
+    {
+      "name": "list-jobs",
+      "description": "List all active LV2V jobs",
+      "method": "GET",
+      "path": "/jobs",
+      "upstreamPath": "/jobs",
+      "rateLimit": 60,
+      "timeout": 10000
+    },
+    {
+      "name": "start-job",
+      "description": "Start a live video-to-video job with model selection and pipeline parameters",
+      "method": "POST",
+      "path": "/start-job",
+      "upstreamPath": "/start-job",
+      "rateLimit": 10,
+      "timeout": 60000
+    },
+    {
+      "name": "get-job",
+      "description": "Get job status including publish/subscribe/control URLs",
+      "method": "GET",
+      "path": "/job/:job_id",
+      "upstreamPath": "/job/:job_id",
+      "rateLimit": 60,
+      "timeout": 10000
+    },
+    {
+      "name": "stop-job",
+      "description": "Stop a running LV2V job and release orchestrator resources",
+      "method": "DELETE",
+      "path": "/stop-job/:job_id",
+      "upstreamPath": "/stop-job/:job_id",
+      "rateLimit": 20,
+      "timeout": 15000
+    },
+    {
+      "name": "send-control",
+      "description": "Send a control message to a running job (e.g., update pipeline params)",
+      "method": "POST",
+      "path": "/job/:job_id/control",
+      "upstreamPath": "/job/:job_id/control",
+      "rateLimit": 30,
+      "timeout": 10000
+    },
+    {
+      "name": "stream-events",
+      "description": "SSE stream of real-time job events (orchestrator selection, media status, errors)",
+      "method": "GET",
+      "path": "/job/:job_id/events",
+      "upstreamPath": "/job/:job_id/events",
+      "rateLimit": 10,
+      "timeout": 120000
+    }
+  ],
+  "envKey": "LIVEPEER_GATEWAY_API_KEY"
+}
