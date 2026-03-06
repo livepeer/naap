@@ -64,12 +64,19 @@ function ResetPasswordFormInner() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Failed to reset password');
+        if (response.status === 400 || response.status === 401) {
+          throw new Error('Invalid or expired reset token');
+        }
+        if (response.status === 429) {
+          throw new Error('Too many attempts. Please wait and try again.');
+        }
+        throw new Error('Unable to reset password. Please try again later.');
       }
 
       setIsSuccess(true);
-      setTimeout(() => router.push('/login'), 3000);
+      // The API already set the auth cookie — redirect to login which will
+      // detect the session and forward to dashboard automatically.
+      setTimeout(() => router.push('/login'), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reset password');
     } finally {

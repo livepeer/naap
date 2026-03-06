@@ -6,8 +6,13 @@
 import {NextRequest, NextResponse } from 'next/server';
 import { requestPasswordReset } from '@/lib/api/auth';
 import { success, errors } from '@/lib/api/response';
+import { applyRateLimit, rateLimiters } from '@/lib/rateLimit';
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest): Promise<NextResponse | Response> {
+  // Rate limit: 3 requests per 15 minutes per IP
+  const limited = await applyRateLimit(request, rateLimiters.forgotPassword);
+  if (limited) return limited;
+
   try {
     const body = await request.json();
     const { email } = body;
@@ -23,7 +28,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
   } catch (err) {
     console.error('Forgot password error:', err);
-    // Don't reveal the actual error to prevent email enumeration
     return success({
       message: 'If an account exists, a reset link has been sent.',
     });
