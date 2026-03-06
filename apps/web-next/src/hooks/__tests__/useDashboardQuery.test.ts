@@ -179,4 +179,37 @@ describe('useDashboardQuery', () => {
       );
     });
   });
+
+  it('re-fetches when variables change', async () => {
+    mockEventBus.request.mockResolvedValue({ data: testData, errors: undefined });
+
+    const { result, rerender } = renderHook(
+      ({ vars }) => useDashboardQuery(testQuery, vars),
+      { initialProps: { vars: { timeframe: '24' } } }
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(mockEventBus.request).toHaveBeenCalledTimes(1);
+    expect(mockEventBus.request).toHaveBeenLastCalledWith(
+      DASHBOARD_QUERY_EVENT,
+      { query: testQuery, variables: { timeframe: '24' } },
+      { timeout: 8000 }
+    );
+
+    // Change variables
+    rerender({ vars: { timeframe: '72' } });
+
+    await waitFor(() => {
+      expect(mockEventBus.request).toHaveBeenCalledTimes(2);
+    });
+
+    expect(mockEventBus.request).toHaveBeenLastCalledWith(
+      DASHBOARD_QUERY_EVENT,
+      { query: testQuery, variables: { timeframe: '72' } },
+      { timeout: 8000 }
+    );
+  });
 });

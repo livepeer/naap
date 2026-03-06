@@ -2,6 +2,7 @@
  * Utility Exports
  */
 
+export * from './error.js';
 export * from './validation.js';
 export * from './api.js';
 export * from './migration.js';

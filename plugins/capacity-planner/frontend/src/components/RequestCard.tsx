@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   ThumbsUp,
@@ -8,27 +8,41 @@ import {
   Cpu,
   Calendar,
   AlertTriangle,
+  Users,
 } from 'lucide-react';
 import { Badge } from '@naap/ui';
 import type { CapacityRequest } from '../types';
 import { RiskIndicator } from './RiskIndicator';
 import { formatDate, formatRelativeDate } from '../utils';
+import { CommitDialog } from './CommitDialog';
 
 interface RequestCardProps {
   request: CapacityRequest;
   onSelect: (request: CapacityRequest) => void;
-  onThumbsUp: (request: CapacityRequest) => void;
+  onCommit: (request: CapacityRequest, gpuCount: number) => void;
+  onWithdraw: (request: CapacityRequest) => void;
   hasCommitted: boolean;
+  userCommitCount?: number;
 }
 
 export const RequestCard: React.FC<RequestCardProps> = ({
   request,
   onSelect,
-  onThumbsUp,
+  onCommit,
+  onWithdraw,
   hasCommitted,
+  userCommitCount,
 }) => {
+  const [showCommitDialog, setShowCommitDialog] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const isExpiringSoon =
     new Date(request.validUntil).getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000;
+
+  const totalCommittedGpus = request.softCommits.reduce(
+    (sum, sc) => sum + (sc.gpuCount ?? 1),
+    0
+  );
+  const providerCount = request.softCommits.length;
 
   return (
     <motion.div
@@ -96,20 +110,49 @@ export const RequestCard: React.FC<RequestCardProps> = ({
       {/* Footer: Engagement stats + Thumb up */}
       <div className="flex items-center justify-between pt-3 border-t border-[var(--border-color)]">
         <div className="flex items-center gap-3">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onThumbsUp(request);
-            }}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              hasCommitted
-                ? 'bg-accent-emerald/20 text-accent-emerald'
-                : 'bg-white/5 text-text-secondary hover:bg-accent-emerald/10 hover:text-accent-emerald'
-            }`}
-          >
-            <ThumbsUp size={13} className={hasCommitted ? 'fill-current' : ''} />
-            <span>{request.softCommits.length}</span>
-          </button>
+          <div className="relative">
+            <button
+              ref={buttonRef}
+              aria-label={
+                hasCommitted
+                  ? `Update or withdraw commitment${userCommitCount ? ` (${userCommitCount} GPUs)` : ''}`
+                  : 'Commit GPUs'
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowCommitDialog(true);
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                hasCommitted
+                  ? 'bg-accent-emerald/20 text-accent-emerald'
+                  : 'bg-white/5 text-text-secondary hover:bg-accent-emerald/10 hover:text-accent-emerald'
+              }`}
+            >
+              <ThumbsUp size={13} className={hasCommitted ? 'fill-current' : ''} />
+              {hasCommitted && userCommitCount ? (
+                <span>{userCommitCount}</span>
+              ) : null}
+            </button>
+            {showCommitDialog && (
+              <CommitDialog
+                isOpen={showCommitDialog}
+                onClose={() => setShowCommitDialog(false)}
+                onCommit={(count) => onCommit(request, count)}
+                onWithdraw={hasCommitted ? () => onWithdraw(request) : undefined}
+                existingCount={hasCommitted ? userCommitCount : undefined}
+                maxGpus={request.count}
+                anchorRect={buttonRef.current?.getBoundingClientRect()}
+              />
+            )}
+          </div>
+          {providerCount > 0 && (
+            <div className="flex items-center gap-1 text-text-secondary" title={`${providerCount} provider${providerCount !== 1 ? 's' : ''} committed ${totalCommittedGpus} GPU${totalCommittedGpus !== 1 ? 's' : ''}`}>
+              <Users size={12} />
+              <span className="text-xs">
+                {providerCount} <span className="text-text-secondary/60">·</span> {totalCommittedGpus} GPU{totalCommittedGpus !== 1 ? 's' : ''}
+              </span>
+            </div>
+          )}
           <div className="flex items-center gap-1 text-text-secondary">
             <MessageSquare size={13} />
             <span className="text-xs">{request.comments.length}</span>

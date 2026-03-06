@@ -1,11 +1,15 @@
-# Dashboard Data Provider
+# Dashboard Network Data
 
-Dashboard data provider plugin for NAAP.
+Reference implementation of a **dashboard data provider** plugin.
 
-This plugin provides data to the core dashboard via the GraphQL-over-event-bus pattern defined in `@naap/plugin-sdk`. It serves as both:
+This plugin provides live data to the core dashboard via the GraphQL-over-event-bus pattern defined in `@naap/plugin-sdk`. It is backed by:
 
-1. **A working example** — install it and the dashboard renders data immediately
-2. **A starter template** — clone it, replace mock data with real API calls, deploy
+- **Livepeer Leaderboard API** — KPI, pipelines, GPU capacity, orchestrators
+- **Job feed** — simulated job events (seed data)
+
+- **Protocol** — live data from the Livepeer subgraph and L1 RPC (via server routes `/api/v1/protocol-block` and subgraph proxy). Requires `L1_RPC_URL` and subgraph config for full accuracy.
+- **Fees** — live data from the Livepeer subgraph (via server-side proxy). Requires subgraph configuration.
+- **Pricing** — currently returns static fallback values; no live pricing source is wired yet.
 
 ## Quick Start
 
@@ -15,8 +19,10 @@ cp -r plugins/dashboard-data-provider plugins/my-dashboard-provider
 
 # 2. Update plugin.json (name, displayName, etc.)
 
-# 3. Replace mock data in frontend/src/data/ with real API calls
-#    Edit frontend/src/provider.ts to call your backend APIs
+# 3. Configure environment variables (see .env.example in apps/web-next)
+#    LEADERBOARD_API_URL
+#    L1_RPC_URL (required for protocol block progress)
+#    SUBGRAPH_API_KEY and SUBGRAPH_ID (required for fees/protocol data)
 
 # 4. Build and deploy
 cd plugins/my-dashboard-provider/frontend && npm run build
@@ -39,24 +45,8 @@ The plugin uses `createDashboardProvider()` from the SDK, which:
 
 | File | Purpose |
 |---|---|
-| `frontend/src/provider.ts` | Registers all dashboard resolvers |
+| `frontend/src/provider.ts` | Registers all dashboard resolvers (live API + fallbacks) |
+| `frontend/src/api/leaderboard.ts` | Typed fetch wrappers for the Leaderboard API |
 | `frontend/src/job-feed-emitter.ts` | Simulates live job events |
-| `frontend/src/data/*.ts` | Mock data (replace with real fetches) |
+| `frontend/src/data/*.ts` | Pipeline config and seed data |
 | `frontend/src/App.tsx` | Plugin entry — registers providers on mount |
-
-## Replacing Mock Data
-
-Each file in `frontend/src/data/` exports a single mock data object. To use real data:
-
-```typescript
-// Before (mock)
-export const mockKPI = { successRate: { value: 97.3, delta: 1.2 }, ... };
-
-// After (real)
-export async function fetchKPI(api: IApiClient): Promise<DashboardKPI> {
-  const stats = await api.get('/api/v1/network-analytics/stats');
-  return { successRate: { value: stats.successRate, delta: ... }, ... };
-}
-```
-
-Then update `provider.ts` to call the async function instead of returning the static object.

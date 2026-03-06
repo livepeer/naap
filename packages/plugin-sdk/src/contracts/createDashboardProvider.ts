@@ -29,16 +29,18 @@ import {
 } from './dashboard.js';
 import type { IEventBus } from '../types/services.js';
 
-// Cached schema instance — built once, reused across all calls
+// Cached schema instance — built once per schema version, reused across all calls
 let cachedSchema: GraphQLSchema | null = null;
+let cachedSchemaSource: string | null = null;
 
 /**
  * Get or build the dashboard GraphQL schema.
  * The schema is built once and cached for the lifetime of the process.
  */
 export function getDashboardSchema(): GraphQLSchema {
-  if (!cachedSchema) {
+  if (!cachedSchema || cachedSchemaSource !== DASHBOARD_SCHEMA) {
     cachedSchema = buildSchema(DASHBOARD_SCHEMA);
+    cachedSchemaSource = DASHBOARD_SCHEMA;
   }
   return cachedSchema;
 }
@@ -61,7 +63,7 @@ export function createDashboardProvider(
   const rootValue: Record<string, unknown> = {};
 
   if (resolvers.kpi) {
-    rootValue.kpi = (_args: { window?: string }) => resolvers.kpi!(_args);
+    rootValue.kpi = (_args: { window?: string; timeframe?: string }) => resolvers.kpi!(_args);
   }
   if (resolvers.protocol) {
     rootValue.protocol = () => resolvers.protocol!();
@@ -70,13 +72,19 @@ export function createDashboardProvider(
     rootValue.fees = (_args: { days?: number }) => resolvers.fees!(_args);
   }
   if (resolvers.pipelines) {
-    rootValue.pipelines = (_args: { limit?: number }) => resolvers.pipelines!(_args);
+    rootValue.pipelines = (_args: { limit?: number; timeframe?: string }) => resolvers.pipelines!(_args);
+  }
+  if (resolvers.pipelineCatalog) {
+    rootValue.pipelineCatalog = () => resolvers.pipelineCatalog!();
   }
   if (resolvers.gpuCapacity) {
     rootValue.gpuCapacity = () => resolvers.gpuCapacity!();
   }
   if (resolvers.pricing) {
     rootValue.pricing = () => resolvers.pricing!();
+  }
+  if (resolvers.orchestrators) {
+    rootValue.orchestrators = (_args: { period?: string }) => resolvers.orchestrators!(_args);
   }
 
   // Register a single handler on the event bus

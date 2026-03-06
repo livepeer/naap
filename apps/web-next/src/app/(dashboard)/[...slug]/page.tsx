@@ -16,6 +16,7 @@ import { usePathname } from 'next/navigation';
 import { usePlugins } from '@/contexts/plugin-context';
 import { Loader2, AlertCircle, RefreshCw, Cloud } from 'lucide-react';
 import Link from 'next/link';
+import { getSafeErrorMessage } from '@naap/plugin-sdk';
 import { PluginLoader, type PluginInfo } from '@/components/plugin/PluginLoader';
 import { PluginInfoButton, type PluginMetadata } from '@/components/plugin/PluginInfoButton';
 
@@ -150,7 +151,7 @@ export default function CatchAllPluginPage() {
         onLoad={() => setStatus('ready')}
         onError={(err) => {
           console.error(`[CatchAllPluginPage] CDN load failed for ${plugin.name}:`, err);
-          setError(err.message);
+          setError(getSafeErrorMessage(err));
           setStatus('error');
         }}
       />
