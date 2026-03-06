@@ -676,10 +676,16 @@ export async function requestPasswordReset(email: string): Promise<{ success: bo
   const resetUrl = `${appUrl}/reset-password?token=${token}`;
   const result = await sendEmailPasswordReset(email, resetUrl);
 
-  if (!result.success && process.env.NODE_ENV !== 'production') {
+  if (!result.success) {
     const safeEmail = sanitizeForLog(email);
-    console.log(`[PASSWORD RESET] Token for ${safeEmail}: ${token}`);
-    console.log(`[PASSWORD RESET] Reset URL: ${resetUrl}`);
+    if (process.env.NODE_ENV === 'production') {
+      console.error(
+        `[PASSWORD RESET] Failed to send reset email to ${safeEmail}: ${result.error || 'unknown error'}`
+      );
+    } else {
+      console.log(`[PASSWORD RESET] Token for ${safeEmail}: ${token}`);
+      console.log(`[PASSWORD RESET] Reset URL: ${resetUrl}`);
+    }
   }
 
   return { success: true, message: 'If an account exists, a reset link has been sent.' };

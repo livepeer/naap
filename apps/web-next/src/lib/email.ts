@@ -17,6 +17,36 @@ function getResendClient(): Resend | null {
   return _resendClient;
 }
 
+/**
+ * Validate email configuration at startup.
+ * Logs warnings for missing or sandbox-only config in production.
+ */
+export function validateEmailConfig(): { configured: boolean; warnings: string[] } {
+  const warnings: string[] = [];
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (!RESEND_API_KEY) {
+    const msg = '[EMAIL] RESEND_API_KEY is not set — email sending is disabled';
+    warnings.push(msg);
+    if (isProduction) console.error(msg);
+  }
+
+  if (EMAIL_FROM.includes('@resend.dev')) {
+    const msg =
+      '[EMAIL] EMAIL_FROM uses sandbox domain (resend.dev). ' +
+      'In production, set EMAIL_FROM to an address on a verified custom domain.';
+    warnings.push(msg);
+    if (isProduction) console.warn(msg);
+  }
+
+  return { configured: !!RESEND_API_KEY && !EMAIL_FROM.includes('@resend.dev'), warnings };
+}
+
+// Run validation on module load (logs once per cold start)
+if (typeof process !== 'undefined') {
+  validateEmailConfig();
+}
+
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
