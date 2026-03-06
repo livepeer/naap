@@ -64,8 +64,13 @@ function ResetPasswordFormInner() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Failed to reset password');
+        if (response.status === 400 || response.status === 401) {
+          throw new Error('Invalid or expired reset token');
+        }
+        if (response.status === 429) {
+          throw new Error('Too many attempts. Please wait and try again.');
+        }
+        throw new Error('Unable to reset password. Please try again later.');
       }
 
       setIsSuccess(true);
