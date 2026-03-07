@@ -118,6 +118,10 @@
   "crons": [
     { "path": "/api/v1/gw/admin/health/check", "schedule": "*/5 * * * *" },
     { "path": "/api/v1/gw/admin/metrics/aggregate", "schedule": "5 * * * *" },
-    { "path": "/api/v1/naap-api/warm", "schedule": "*/50 * * * *" }
+    { "path": "/api/v1/naap-api/warm", "schedule": "*/50 * * * *" },
+    { "path": "/api/v1/wallet/jobs/prices", "schedule": "*/5 * * * *" },
+    { "path": "/api/v1/wallet/jobs/unbonding", "schedule": "*/5 * * * *" },
+    { "path": "/api/v1/wallet/jobs/snapshot", "schedule": "0 * * * *" },
+    { "path": "/api/v1/wallet/jobs/alerts", "schedule": "*/5 * * * *" }
   ]
 }
