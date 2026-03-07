@@ -1,6 +1,4 @@
-import { createGwFetch } from './gateway-fetch';
-
-const gwFetch = createGwFetch('github-releases');
+const GITHUB_API = 'https://api.github.com';
 
 export interface ReleaseInfo {
   tagName: string;
@@ -13,9 +11,18 @@ export interface ReleaseInfo {
 }
 
 export class GithubReleasesAdapter {
+  private async ghFetch(path: string): Promise<Response> {
+    return fetch(`${GITHUB_API}${path}`, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'naap-deployment-manager',
+      },
+    });
+  }
+
   async getLatestRelease(owner: string, repo: string): Promise<ReleaseInfo | null> {
     try {
-      const res = await gwFetch(`/repos/${owner}/${repo}/releases/latest`);
+      const res = await this.ghFetch(`/repos/${owner}/${repo}/releases/latest`);
       if (!res.ok) return null;
       return this.mapRelease(await res.json());
     } catch { return null; }
@@ -23,7 +30,7 @@ export class GithubReleasesAdapter {
 
   async listReleases(owner: string, repo: string, limit = 10): Promise<ReleaseInfo[]> {
     try {
-      const res = await gwFetch(`/repos/${owner}/${repo}/releases?per_page=${limit}`);
+      const res = await this.ghFetch(`/repos/${owner}/${repo}/releases?per_page=${limit}`);
       if (!res.ok) return [];
       const data = await res.json();
       if (!Array.isArray(data)) return [];
@@ -33,7 +40,7 @@ export class GithubReleasesAdapter {
 
   async getReleaseByTag(owner: string, repo: string, tag: string): Promise<ReleaseInfo | null> {
     try {
-      const res = await gwFetch(`/repos/${owner}/${repo}/releases/tags/${tag}`);
+      const res = await this.ghFetch(`/repos/${owner}/${repo}/releases/tags/${tag}`);
       if (!res.ok) return null;
       return this.mapRelease(await res.json());
     } catch { return null; }

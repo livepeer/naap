@@ -10,6 +10,7 @@ import type {
 } from '../types';
 import type { ProviderAdapterRegistry } from './ProviderAdapterRegistry';
 import type { AuditService } from './AuditService';
+import { setCurrentUserId } from '../provider-fetch';
 
 const VALID_TRANSITIONS: Record<DeploymentStatus, DeploymentStatus[]> = {
   PENDING: ['PROVISIONING', 'DESTROYING'],
@@ -133,6 +134,7 @@ export class DeploymentOrchestrator {
     const adapter = this.registry.get(record.providerSlug);
     record = await this.transition(record, 'PROVISIONING', 'Deploy initiated', userId);
 
+    setCurrentUserId(userId);
     try {
       const result = await adapter.deploy({
         name: record.name,
@@ -176,6 +178,8 @@ export class DeploymentOrchestrator {
         status: 'failure', errorMsg: err.message,
       });
       throw err;
+    } finally {
+      setCurrentUserId(null);
     }
   }
 
@@ -186,6 +190,7 @@ export class DeploymentOrchestrator {
     const adapter = this.registry.get(record.providerSlug);
     record = await this.transition(record, 'DESTROYING', 'Destroy initiated', userId);
 
+    setCurrentUserId(userId);
     try {
       if (record.providerDeploymentId) {
         await adapter.destroy(record.providerDeploymentId);
@@ -202,6 +207,8 @@ export class DeploymentOrchestrator {
         status: 'failure', errorMsg: err.message,
       });
       throw err;
+    } finally {
+      setCurrentUserId(null);
     }
   }
 
@@ -212,6 +219,7 @@ export class DeploymentOrchestrator {
     const adapter = this.registry.get(record.providerSlug);
     record = await this.transition(record, 'UPDATING', 'Update initiated', userId);
 
+    setCurrentUserId(userId);
     try {
       const updateData: any = {};
       if (record.providerDeploymentId) {
@@ -240,6 +248,8 @@ export class DeploymentOrchestrator {
         status: 'failure', errorMsg: err.message,
       });
       throw err;
+    } finally {
+      setCurrentUserId(null);
     }
   }
 
@@ -250,6 +260,7 @@ export class DeploymentOrchestrator {
     }
 
     const adapter = this.registry.get(record.providerSlug);
+    setCurrentUserId(userId);
     try {
       const health = await adapter.healthCheck(record.providerDeploymentId || '', record.endpointUrl || undefined);
       if (health.healthy) {
@@ -270,6 +281,8 @@ export class DeploymentOrchestrator {
     } catch (err: any) {
       await this.transition(record, 'FAILED', `Validation error: ${err.message}`, userId);
       throw err;
+    } finally {
+      setCurrentUserId(null);
     }
   }
 

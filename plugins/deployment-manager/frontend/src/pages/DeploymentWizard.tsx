@@ -11,10 +11,9 @@ import { HealthIndicator } from '../components/HealthIndicator';
 import { DeploymentLogs } from '../components/DeploymentLogs';
 import { CostPreview } from '../components/CostPreview';
 import { EnvVarsEditor } from '../components/EnvVarsEditor';
+import { LivepeerConfigForm, type LivepeerConfig } from '../components/LivepeerConfigForm';
 
 const API_BASE = '/api/v1/deployment-manager';
-
-const STEPS = ['Template', 'Resources', 'Deploy & Monitor'];
 
 interface SelectedTemplate {
   id: string;
@@ -39,6 +38,23 @@ export const DeploymentWizard: React.FC = () => {
   const [destroying, setDestroying] = useState(false);
 
   const [selectedTemplate, setSelectedTemplate] = useState<SelectedTemplate | null>(null);
+  const isLivepeer = selectedTemplate?.id === 'livepeer-inference';
+  const STEPS = isLivepeer
+    ? ['Template', 'Inference Config', 'Resources', 'Deploy & Monitor']
+    : ['Template', 'Resources', 'Deploy & Monitor'];
+
+  const [livepeerConfig, setLivepeerConfig] = useState<LivepeerConfig>({
+    topology: 'split-cpu-serverless',
+    serverlessProvider: '',
+    serverlessModelId: '',
+    serverlessApiKey: '',
+    serverlessEndpointUrl: '',
+    modelImage: '',
+    capacity: 1,
+    pricePerUnit: 1200,
+    publicAddress: '',
+    capabilityName: '',
+  });
 
   const [form, setForm] = useState({
     name: '',
@@ -87,25 +103,39 @@ export const DeploymentWizard: React.FC = () => {
     if (template.defaultGpuVramGb) {
       updateForm('gpuVramGb', template.defaultGpuVramGb);
     }
+    // Auto-select ssh-compose provider for livepeer template
+    if (template.id === 'livepeer-inference') {
+      updateForm('providerSlug', 'ssh-compose');
+    }
   };
 
+  // Map logical step to content step accounting for livepeer extra step
+  const resourceStep = isLivepeer ? 2 : 1;
+  const deployStep = isLivepeer ? 3 : 2;
+  const livepeerStep = 1; // only used when isLivepeer
+
   const canProceed = (): boolean => {
-    switch (step) {
-      case 0: {
-        if (!selectedTemplate) return false;
-        if (isCustom) return !!form.customImage;
-        return !!(form.artifactVersion || selectedTemplate.dockerImage);
-      }
-      case 1:
-        if (!form.providerSlug || !form.gpuModel) return false;
-        if (isSSH) return !!(form.sshHost && form.sshUsername);
-        if (!credentialsReady) return false;
-        return true;
-      case 2:
-        return true;
-      default:
-        return false;
+    if (step === 0) {
+      if (!selectedTemplate) return false;
+      if (isCustom) return !!form.customImage;
+      return !!(form.artifactVersion || selectedTemplate.dockerImage);
     }
+    if (isLivepeer && step === livepeerStep) {
+      const lc = livepeerConfig;
+      if (lc.topology === 'split-cpu-serverless') {
+        if (lc.serverlessProvider === 'custom') return !!lc.serverlessEndpointUrl;
+        return !!(lc.serverlessProvider && lc.serverlessModelId && lc.serverlessApiKey);
+      }
+      return !!lc.modelImage;
+    }
+    if (step === resourceStep) {
+      if (!form.providerSlug || !form.gpuModel) return false;
+      if (isSSH) return !!(form.sshHost && form.sshUsername);
+      if (!credentialsReady) return false;
+      return true;
+    }
+    if (step === deployStep) return true;
+    return false;
   };
 
   const generateName = useCallback(() => {
@@ -152,7 +182,7 @@ export const DeploymentWizard: React.FC = () => {
       ? form.customImage
       : form.dockerImage;
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       name: form.name,
       providerSlug: form.providerSlug,
       gpuModel: form.gpuModel,
@@ -170,6 +200,10 @@ export const DeploymentWizard: React.FC = () => {
       envVars: form.envVars,
       concurrency: form.concurrency,
     };
+
+    if (isLivepeer) {
+      payload.livepeerConfig = livepeerConfig;
+    }
 
     try {
       const createRes = await fetch(`${API_BASE}/deployments`, {
@@ -633,8 +667,14 @@ export const DeploymentWizard: React.FC = () => {
       {/* Step content */}
       <div style={{ minHeight: '350px', marginBottom: '2rem' }}>
         {step === 0 && renderStep0()}
-        {step === 1 && renderStep1()}
-        {step === 2 && renderStep2()}
+        {isLivepeer && step === livepeerStep && (
+          <LivepeerConfigForm
+            config={livepeerConfig}
+            onChange={(field, value) => setLivepeerConfig(prev => ({ ...prev, [field]: value }))}
+          />
+        )}
+        {step === resourceStep && renderStep1()}
+        {step === deployStep && renderStep2()}
       </div>
 
       {/* Navigation */}

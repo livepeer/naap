@@ -1,8 +1,24 @@
-# Livepeer Universal Inference Adapter — Planning Document
+# Livepeer Inference Adapter -- Implementation Plan
 
 ## Vision
 
-Any developer can take any AI model or workflow (LLM, ComfyUI, text-to-image, text-to-video, etc.), deploy it to any serverless GPU provider (fal.ai, Replicate, RunPod) or self-hosted GPU, and have it automatically become a Livepeer network-enabled inference service — with zero changes to go-livepeer, zero dependency on ai-runner.
+Any developer can take any existing AI inference service -- whether self-hosted or on a serverless GPU provider (fal.ai, Replicate, RunPod) -- and bring it on-chain as a Livepeer network-enabled inference service, with zero changes to go-livepeer, zero dependency on ai-runner.
+
+## Goal: Least Effort to On-Chain AI
+
+The primary user journey (Topology 3 -- bring existing inference on-chain):
+
+```
+Step 1: Select "Livepeer Inference Adapter" template
+Step 2: Pick your inference provider + model + API key
+        Pick where to run orchestrator (SSH to your VM)
+Step 3: Click Deploy
+
+Everything else is auto-configured: orchestrator secret, capability name,
+inter-container URLs, pricing defaults. Playground appears to test immediately.
+```
+
+---
 
 ## Context & Key Insight
 
@@ -10,1098 +26,923 @@ Any developer can take any AI model or workflow (LLM, ComfyUI, text-to-image, te
 
 **go-livepeer** has two paths for AI inference:
 
-1. **Built-in AI pipeline** (`server/ai_http.go`, `core/ai.go`, `ai/worker/`) — Tightly coupled to ai-runner. Adding a new pipeline requires: new capability enum, new Go interface method, new HTTP handler, new worker case, OpenAPI regeneration, Go codegen. ~8 files touched per pipeline.
+1. **Built-in AI pipeline** -- Tightly coupled to ai-runner. ~8 files touched per pipeline addition.
 
-2. **BYOC system** (`byoc/`) — Already provides a generic external capability framework:
-   - `POST /capability/register` — register any HTTP service as a capability
-   - `POST /capability/unregister` — remove a capability
-   - `POST /process/request/*` — proxy requests to registered capability URL with payment
-   - `GET /process/token` — issue payment tokens for clients
-   - `POST /ai/stream/start|stop|update|payment` — streaming support
-   - Capacity management, payment processing, balance tracking — all built-in
-
-**ai-runner** — Monolithic Python container. Every pipeline is a hardcoded module in `src/runner/pipelines/`. Adding a new model means: write pipeline code, update FastAPI routes, regenerate OpenAPI spec, rebuild Docker image, regenerate Go bindings. Rigid and slow to extend.
+2. **BYOC system** (`byoc/`) -- Already provides a generic external capability framework:
+   - `POST /capability/register` -- register any HTTP service as a capability
+   - `POST /capability/unregister` -- remove a capability
+   - `POST /process/request/*` -- proxy requests to registered capability URL with payment
+   - `GET /process/token` -- issue payment tokens for clients
+   - Capacity management, payment processing, balance tracking -- all built-in
 
 ### Key Insight
 
-**BYOC is already 90% of the answer.** The orchestrator side is done. What's missing is a thin adapter layer that sits between "I have a Docker container running inference" and "it's registered and working on Livepeer." This adapter is ~300-400 lines of code.
+**BYOC is already 90% of the answer.** The orchestrator side is done. What's missing is a thin adapter layer (~300-400 lines) that sits between "I have a running inference service" and "it's registered and working on Livepeer."
 
 ### Orchestrator-to-Inference Mapping: 1:N
 
-**One orchestrator serves many inference services.** This is already built into BYOC.
+One orchestrator serves many inference services. `ExternalCapabilities.Capabilities` is a `map[string]*ExternalCapability` -- each entry has its own name, URL, capacity, price, and load tracking.
 
-`ExternalCapabilities.Capabilities` is a `map[string]*ExternalCapability` — each entry has its own name, URL, capacity, price, and load tracking. The orchestrator routes requests by capability name to the correct backend URL (`GetUrlForCapability()`), reserves capacity per-capability (`ReserveExternalCapabilityCapacity()`), and bills per-capability (`DebitFees()` with `ManifestID = capability name`).
+---
 
-This means a single orchestrator deployment can simultaneously offer:
+## Phase 0: Spike -- Validate Prerequisites
 
-```
-One go-livepeer orchestrator (:7935)
-  ├── capability: "llama3-70b"     → adapter :9090 → Replicate LLM    (capacity=4, $0.001/s)
-  ├── capability: "flux-image-gen" → adapter :9091 → fal.ai Flux      (capacity=2, $0.005/s)
-  ├── capability: "whisper-v3"     → adapter :9092 → RunPod Whisper    (capacity=8, $0.0005/s)
-  └── capability: "custom-ocr"     → adapter :9093 → local container   (capacity=1, $0.002/s)
-```
+**Before any implementation, validate two blockers:**
 
-Each capability is independent: different backend, different price, different capacity. Multiple adapters register their capabilities with the same orchestrator. The adapter design (one adapter = one capability) is intentional — it keeps each adapter simple and independently deployable. Adding a new capability = adding one more adapter+backend pair to the docker-compose.
+- [ ] **P0.1: go-livepeer Docker image supports BYOC flags** -- Confirm `livepeer/go-livepeer` Docker image can run as orchestrator with BYOC enabled (`-orchestrator`, `-orchSecret`, `-serviceAddr`, BYOC capability registration). If the official image doesn't support this, determine the minimal Dockerfile needed.
+- [ ] **P0.2: BYOC API contract verification** -- Read `byoc/job_orchestrator.go` and `core/external_capabilities.go` in go-livepeer `master` branch. Confirm the exact JSON format for `/capability/register`, the required headers, and the `ExternalCapability` struct fields. Document the contract.
 
-NaaP's deployment wizard should support "add capability to existing deployment" in addition to "new full deployment" — but for Phase 1, each deployment is a complete stack.
+**Exit criteria:** A manually-started go-livepeer Docker container accepts `/capability/register` POST requests. The exact API contract is documented.
+
+---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Livepeer Network                              │
-│                                                                      │
-│  ┌──────────────┐          ┌───────────────────────────────────────┐ │
-│  │ livepeer-sdk  │────────▶│  Livepeer Orchestrator (go-livepeer)  │ │
-│  │ (client)      │         │                                       │ │
-│  └──────────────┘          │  BYOC Server (already exists):        │ │
-│                            │   POST /capability/register           │ │
-│                            │   POST /process/request/*  ──proxy──┐ │ │
-│                            │   GET  /process/token               │ │ │
-│                            │   POST /ai/stream/*                 │ │ │
-│                            └─────────────────────────────────────│─┘ │
-│                                                                  │   │
-│  ┌───────────────────────────────────────────────────────────────▼─┐ │
-│  │      livepeer-inference-adapter  (NEW — lightweight sidecar)    │ │
-│  │                                                                  │ │
-│  │  Startup:  register capability with orchestrator                 │ │
-│  │  Runtime:  receive proxied requests → forward to backend         │ │
-│  │  Health:   monitor backend, re-register on recovery              │ │
-│  │  Shutdown: unregister capability                                 │ │
-│  │                                                                  │ │
-│  │  Config: ORCH_URL, ORCH_SECRET, CAPABILITY_NAME,                │ │
-│  │          BACKEND_URL, PRICE, CAPACITY                            │ │
-│  └──────────────────────────────────────────┬───────────────────────┘ │
-│                                             │                         │
-│  ┌──────────────────────────────────────────▼───────────────────────┐ │
-│  │           Inference Backend (any HTTP container)                  │ │
-│  │                                                                   │ │
-│  │  Option A: Self-hosted container (HF TGI, ComfyUI, vLLM, etc.) │ │
-│  │  Option B: Serverless proxy → fal.ai / Replicate / RunPod API    │ │
-│  │  Option C: Any HTTP service with a POST endpoint                  │ │
-│  └───────────────────────────────────────────────────────────────────┘ │
-└───────────────────────────────────────────────────────────────────────┘
++---------------------------------------------------------------------+
+|                        Livepeer Network                              |
+|                                                                      |
+|  +--------------+          +-------------------------------------+   |
+|  | livepeer-sdk  |-------->|  Livepeer Orchestrator (go-livepeer) |   |
+|  | (client)      |         |                                     |   |
+|  +--------------+          |  BYOC Server (already exists):      |   |
+|                            |   POST /capability/register         |   |
+|                            |   POST /process/request/*  --proxy--+   |
+|                            |   GET  /process/token               |   |
+|                            +-------------------------------------+   |
+|                                                                  |   |
+|  +---------------------------------------------------------------v-+ |
+|  |      livepeer-inference-adapter  (NEW -- lightweight sidecar)    | |
+|  |                                                                  | |
+|  |  Startup:  register capability with orchestrator                 | |
+|  |  Runtime:  receive proxied requests -> forward to backend        | |
+|  |  Health:   monitor backend, re-register on recovery              | |
+|  |  Shutdown: unregister capability                                 | |
+|  +------------------------------------------+-----------------------+ |
+|                                             |                         |
+|  +------------------------------------------v-----------------------+ |
+|  |           Inference Backend (any HTTP service)                    | |
+|  |                                                                   | |
+|  |  Option A: Self-hosted container (TGI, vLLM, ComfyUI, etc.)     | |
+|  |  Option B: Serverless proxy -> fal.ai / Replicate / RunPod API   | |
+|  |  Option C: Any HTTP service with a POST endpoint                  | |
+|  +-------------------------------------------------------------------+ |
++---------------------------------------------------------------------+
 ```
 
 ### Deployment Topologies
 
-The adapter and serverless proxy are **CPU-only, lightweight (~50MB each)** containers. They don't need a GPU. NaaP's deployment wizard presents three topology options. The user chooses based on their infrastructure.
-
----
-
 #### Topology 1: All-in-One Self-Hosted GPU
 
-**Everything on a single GPU machine with a public IP.**
+Everything on a single GPU machine with a public IP. Docker compose with 3 services: go-livepeer + adapter + model container.
+
+**Best for:** Operators with GPU hardware who want full control.
+
+#### Topology 2: All-on-Serverless-GPU (RunPod)
+
+Same as Topology 1 but on a serverless GPU provider pod.
+
+**Best for:** Operators who want GPU without managing hardware.
+
+#### Topology 3: CPU Orchestrator + Remote Inference (PRIMARY)
+
+**This is the primary topology for "bring existing AI on-chain."**
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  Single GPU Server (bare metal / cloud VM, public IP)    │
-│                                                          │
-│  ┌────────────────────────────────────────────────────┐  │
-│  │  docker-compose up                                  │  │
-│  │                                                     │  │
-│  │  go-livepeer orchestrator     :7935  (public)       │  │
-│  │  livepeer/inference-adapter   :9090  (internal)     │  │
-│  │  model container (TGI/vLLM)   :8080  (internal/GPU) │  │
-│  └────────────────────────────────────────────────────┘  │
-│                                                          │
-│  ORCH_URL=http://localhost:7935                          │
-│  BACKEND_URL=http://localhost:8080                       │
-│  Adapter registers as: http://localhost:9090/inference   │
-└──────────────────────────────────────────────────────────┘
++----------------------------------------------------------+
+|  CPU Machine (cheap VM, $5-20/mo, public IP)              |
+|                                                           |
+|  docker compose up (3 lightweight CPU services)           |
+|                                                           |
+|  go-livepeer orchestrator     :7935  (public)             |
+|  livepeer/inference-adapter   :9090  (internal)           |
+|  livepeer/serverless-proxy    :8080  (internal)           |
++-------------------------------|---------------------------+
+                                |
+                                v (HTTPS)
++----------------------------------------------------------+
+|  Any existing inference service                           |
+|  (fal.ai, Replicate, RunPod, HF, custom HTTP endpoint)   |
++----------------------------------------------------------+
 ```
 
-**What NaaP does:** Deploys a single docker-compose via SshBridgeAdapter to the GPU server. The compose includes go-livepeer, adapter, and model container. One machine, one deployment, one public IP.
-
-**Pros:**
-- Simplest possible setup — single docker-compose, single machine
-- Zero network hops between components (all localhost)
-- Lowest latency — GPU inference result goes straight back to orchestrator
-- No public IP issues — the machine already has one for go-livepeer
-- Full control over GPU, model loading, warm-up times
-- Works offline / air-gapped (no external API calls)
-
-**Cons:**
-- Single point of failure — if machine goes down, everything goes down
-- Scaling = buying more GPU machines (vertical only)
-- GPU utilization may be low if traffic is bursty
-- Operator must manage GPU drivers, CUDA, model weights
-- Fixed capacity — can't burst beyond the GPU's throughput
-
-**Best for:** Operators who already have GPU hardware, want full control, or need guaranteed low latency.
-
----
-
-#### Topology 2: Serverless GPU Provider (All-on-Provider)
-
-**go-livepeer + adapter + proxy all deployed to a serverless GPU provider (fal.ai, RunPod, etc.), with the model also on the same provider.**
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Serverless GPU Provider (e.g., RunPod, fal.ai)              │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │  Pod / Container Group (provider-assigned public IP)    │  │
-│  │                                                         │  │
-│  │  go-livepeer orchestrator     :7935  (public*)          │  │
-│  │  livepeer/inference-adapter   :9090  (internal)         │  │
-│  │  model container (TGI/vLLM)   :8080  (internal/GPU)    │  │
-│  └────────────────────────────────────────────────────────┘  │
-│                                                              │
-│  * Public IP via provider's port forwarding / load balancer  │
-└──────────────────────────────────────────────────────────────┘
-```
-
-**What NaaP does:** Deploys via RunPodAdapter/FalAdapter. Same docker-compose as Topology 1, but running on provider infrastructure. NaaP handles provider API calls for deploy/destroy/status.
-
-**Challenges — Public IP:**
-
-| Challenge | Detail | Mitigation |
-|---|---|---|
-| **Ephemeral IPs** | Serverless pods get new IPs on restart. go-livepeer needs a stable address for clients to discover it. | Use provider's static endpoint URL (RunPod provides `https://<pod-id>-7935.proxy.runpod.net`). Configure go-livepeer's `-serviceAddr` to this URL. |
-| **Port exposure** | Providers may only expose certain ports or require explicit port mapping. | RunPod: expose port 7935 via TCP proxy. fal.ai: may not support long-running servers well (designed for request/response). |
-| **Cold starts** | If pod scales to zero, go-livepeer loses its on-chain registration and clients can't find it. | Use "always-on" tier (RunPod) or minimum 1 replica. Accept higher cost for reliability. |
-| **Provider limitations** | Not all providers support long-running server processes. fal.ai is request/response oriented. Replicate doesn't support custom servers. | RunPod is the best fit (supports persistent pods). fal.ai/Replicate better suited for Topology 3. |
-| **Networking between containers** | Provider may not support docker-compose natively. May need single-container with supervisord or provider-specific multi-container config. | RunPod supports multi-container pods. fal.ai does not. For fal.ai, use single container with supervisord or switch to Topology 3. |
-
-**Pros:**
-- No hardware to manage — provider handles GPU, drivers, CUDA
-- Pay-per-use GPU (cheaper than owning if traffic is intermittent)
-- Provider handles hardware failures, GPU replacement
-- Scales with provider's infrastructure
-- Same localhost architecture as Topology 1 (once running)
-
-**Cons:**
-- Public IP is not guaranteed stable (provider-dependent)
-- Cold start latency if pod scales down
-- Provider lock-in for networking/port exposure
-- More expensive than self-hosted for sustained high traffic
-- Some providers (fal.ai, Replicate) don't support this topology well — they're request/response, not long-running server
-- Debugging is harder (no SSH, limited logs depending on provider)
-
-**Best for:** Operators who want GPU without managing hardware, using RunPod or similar providers that support persistent pods with public endpoints.
-
----
-
-#### Topology 3: Split — CPU Orchestrator + Remote Serverless Inference
-
-**go-livepeer + adapter + proxy on a cheap CPU machine with a public IP. Model runs independently on any serverless provider. The proxy calls the provider API over HTTPS.**
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  CPU Machine (cheap VM, $5-20/mo, public IP)             │
-│                                                          │
-│  ┌────────────────────────────────────────────────────┐  │
-│  │  docker-compose up                                  │  │
-│  │                                                     │  │
-│  │  go-livepeer orchestrator     :7935  (public)       │  │
-│  │  livepeer/inference-adapter   :9090  (internal)     │  │
-│  │  livepeer/serverless-proxy    :8080  (internal)     │  │
-│  └────────────────────────────────────────────────────┘  │
-│                                                          │
-│  Proxy calls out to provider API over HTTPS ─────────┐   │
-└──────────────────────────────────────────────────────│───┘
-                                                       │
-                                                       ▼
-┌──────────────────────────────────────────────────────────┐
-│  Serverless Provider (fal.ai / Replicate / RunPod / HF)  │
-│                                                          │
-│  Model runs on their GPU infrastructure                  │
-│  (deployed independently, or already exists as           │
-│   a public API endpoint on the provider)                 │
-└──────────────────────────────────────────────────────────┘
-```
-
-**What NaaP does:** Two-part deployment:
-1. Deploy go-livepeer + adapter + proxy to a CPU machine (via SshBridgeAdapter to a cheap VM, or even locally)
-2. The model is either already running on the provider (existing fal.ai endpoint) or NaaP deploys it via FalAdapter/ReplicateAdapter/RunPodAdapter
-
-The serverless proxy bridges the two — it sits on the CPU machine and makes outbound HTTPS calls to the provider's inference API.
-
-**This is the most flexible topology.** Any existing serverless inference on fal.ai, Replicate, RunPod, HuggingFace Inference Endpoints, or even a custom API can be brought onto the Livepeer network without modifying the inference service at all.
-
-**Pros:**
-- **Any existing inference service** can be brought to Livepeer — no modification needed
-- CPU machine is cheap ($5-20/mo on Hetzner, DigitalOcean, Fly.io)
-- Stable public IP (it's a regular VM)
-- Model can scale independently on the provider (auto-scaling, multi-GPU)
-- Can aggregate multiple models — run multiple adapter+proxy pairs on one CPU machine
-- Provider handles all GPU complexity (drivers, CUDA, model loading, scaling)
-- Mix and match providers — one adapter for fal.ai Flux, another for Replicate Llama
-- Best cost efficiency for bursty traffic (pay provider per-inference, not per-hour)
-
-**Cons:**
-- **Extra network latency** — proxy → provider API round-trip adds 50-500ms depending on provider and model. For LLMs with streaming, this is mostly the time-to-first-token; subsequent tokens stream normally. For image/video generation, the model inference time (seconds) dominates, so the extra hop is negligible.
-- **Provider cold starts** — fal.ai and Replicate may have cold starts (5-30s) if the model isn't warm. This is a provider-side issue, not adapter-side. Mitigation: use providers with warm instances or "keep-alive" options.
-- **Provider reliability** — if fal.ai has an outage, your capability goes down. Adapter's health monitor will auto-unregister. Mitigation: could failover to another provider (future enhancement).
-- **Double billing** — you pay the serverless provider per-inference AND charge the Livepeer client. Price must cover provider cost + margin. No automatic cost tracking in Phase 1.
-- **Provider rate limits** — some providers have rate limits or queue depths. Adapter's CAPACITY config should be set to match provider limits.
-- **Request/response format** — provider APIs have different formats (fal.ai queue system, Replicate prediction model, RunPod runsync). The serverless proxy handles this translation, but each provider needs its own implementation.
-
-**Scalability analysis:**
-
-| Dimension | Rating | Detail |
-|---|---|---|
-| **Horizontal (more models)** | Excellent | Add another adapter+proxy pair per model. CPU machine handles dozens. |
-| **Horizontal (more throughput)** | Good | Provider auto-scales GPU. Proxy is stateless, can be replicated. CPU machine is rarely the bottleneck (just proxying HTTP). |
-| **Vertical (bigger models)** | Excellent | Provider handles GPU sizing. Switch from A100 to H100 on provider side. |
-| **Multi-region** | Good | Deploy CPU machines in multiple regions, each pointing to nearest provider endpoint. |
-
-**Performance analysis:**
-
-| Metric | Impact | Detail |
-|---|---|---|
-| **Latency overhead** | +50-200ms | One extra HTTP hop (proxy → provider). Negligible for generation tasks (seconds). Noticeable for real-time (sub-100ms) use cases. |
-| **Throughput** | Minimal impact | Proxy is async, handles concurrent requests. CPU machine can proxy thousands of requests/sec. |
-| **Streaming** | Works well | SSE passthrough from provider through proxy through adapter to client. Time-to-first-token adds the proxy hop; subsequent tokens flow at network speed. |
-| **Cold start** | Provider-dependent | 0s (warm) to 30s+ (cold). Not adapter's problem. Set CAPACITY=0 during cold start via health monitor. |
-
-**Reliability analysis:**
-
-| Failure Mode | Impact | Recovery |
-|---|---|---|
-| CPU machine down | All capabilities offline | Adapter auto-unregisters (or times out). Restart machine, adapter re-registers. |
-| Provider API down | Affected capabilities fail | Health monitor detects, unregisters capability. Re-registers when provider recovers. |
-| Provider cold start | First request slow | Subsequent requests fast. Consider provider warm-keeping. |
-| Network partition (CPU ↔ provider) | Requests fail with timeout | Health monitor detects, unregisters. Recovers when network restores. |
-| go-livepeer crash | All capabilities offline | Adapter's heartbeat re-registers when orch restarts. |
-
-**Best for:** Operators who want to offer inference on Livepeer without owning GPUs. Bringing existing serverless inference (already deployed on fal.ai, Replicate, etc.) onto the network. Maximum flexibility and lowest upfront cost.
-
----
-
-#### Topology Comparison Summary
-
-| | Topology 1: All-in-One | Topology 2: All-on-Provider | Topology 3: Split CPU + Serverless |
-|---|---|---|---|
-| **Complexity** | Lowest | Medium | Low-Medium |
-| **Cost (low traffic)** | High (GPU idle) | Medium (pay-per-use GPU) | Lowest ($5 VM + per-inference) |
-| **Cost (high traffic)** | Lowest (amortized GPU) | Medium | Highest (per-inference adds up) |
-| **Latency** | Lowest (all localhost) | Low (all localhost on pod) | +50-200ms per request |
-| **Public IP** | Easy (VM has it) | Tricky (provider-dependent) | Easy (VM has it) |
-| **Scalability** | Vertical only | Provider-managed | Best (provider auto-scales) |
-| **Reliability** | SPOF (one machine) | Provider-managed | Distributed (CPU + provider) |
-| **Bring existing inference** | No (must run locally) | No (must run on pod) | Yes (any HTTP endpoint) |
-| **GPU management** | You manage | Provider manages | Provider manages |
-| **Provider compatibility** | N/A | RunPod (best), others limited | All providers (fal.ai, Replicate, RunPod, HF, custom) |
-
-#### NaaP Template: Topology Selection
-
-NaaP's deployment wizard presents topology as the first decision:
-
-```
-Step 1: Select Deployment Topology
-  ┌─────────────────────────────────────────────────────────────────┐
-  │  ( ) Topology 1: All-in-One Self-Hosted GPU                    │
-  │      Everything on your GPU machine. Simplest setup.           │
-  │      Requires: GPU server with public IP                       │
-  │                                                                │
-  │  ( ) Topology 2: All-on-Serverless-GPU                         │
-  │      Everything on a serverless GPU provider pod.              │
-  │      Requires: RunPod account (recommended)                    │
-  │                                                                │
-  │  ( ) Topology 3: CPU Orchestrator + Remote Inference           │
-  │      Orchestrator on cheap VM. Model on any provider.          │
-  │      Requires: VM with public IP + provider API key            │
-  │      Best for: bringing existing inference to Livepeer         │
-  └─────────────────────────────────────────────────────────────────┘
-
-Step 2: (varies by topology — see wizard flow below)
-```
+**Any existing inference service can be brought to Livepeer -- no modification needed.**
 
 ### Request Flow
 
 ```
-Client (livepeer-sdk)
-  │
-  │  1. GET /process/token (get payment token + ticket params)
-  │  2. POST /process/request/ (with Livepeer payment headers)
-  ▼
-Orchestrator (go-livepeer BYOC)
-  │
-  │  • Verify signature, check capacity, process payment
-  │  • Proxy request to registered capability URL (localhost:9090)
-  ▼
-Adapter (livepeer-inference-adapter)  [on same machine]
-  │
-  │  • Forward to backend (localhost:8080)
-  ▼
-Backend (inference container or serverless-proxy)  [on same machine]
-  │
-  │  Self-hosted: run inference locally on GPU
-  │  Serverless:  call fal.ai/Replicate API over HTTPS → return result
-  ▼
-Response flows back: Backend → Adapter → Orchestrator → Client
-                     (Orchestrator debits fees on success)
+Client -> Orchestrator (verify payment, proxy) -> Adapter (forward) -> Backend (inference)
+Response flows back: Backend -> Adapter -> Orchestrator -> Client
 ```
+
+---
+
+## Critical Integration Design: SSH Compose Adapter
+
+### The Problem
+
+The existing `SshBridgeAdapter` deploys a **single Docker container** per deployment. It generates a bash script with `docker run -d --name $containerName ...` and runs it via SSH. Its `destroy()`, `getStatus()`, and `healthCheck()` methods all assume a single container identified by name.
+
+A Livepeer inference deployment requires **3 containers** (go-livepeer, adapter, proxy/model) managed as a unit via `docker compose`.
+
+### The Solution: New `SshComposeAdapter` (SOLID-Compliant)
+
+**Do NOT modify `SshBridgeAdapter`.** Instead, create a new adapter:
+
+```
+backend/src/adapters/SshComposeAdapter.ts   (NEW file)
+```
+
+`SshComposeAdapter implements IProviderAdapter` with slug `ssh-compose`:
+
+```typescript
+export class SshComposeAdapter implements IProviderAdapter {
+  readonly slug = 'ssh-compose';
+  readonly displayName = 'SSH Compose (Multi-Container)';
+  readonly mode = 'ssh-bridge' as const;
+  // ... same SSH bridge URL, same auth
+
+  async getGpuOptions(): Promise<GpuOption[]> {
+    // For Topology 3 (CPU), return a CPU-only option
+    // For Topology 1, return full GPU list (same as SshBridgeAdapter)
+    return [
+      { id: 'CPU', name: 'CPU Only (no GPU)', vramGb: 0, available: true },
+      { id: 'NVIDIA A100 80GB', name: 'NVIDIA A100 80GB', vramGb: 80, available: true },
+      { id: 'NVIDIA H100 80GB', name: 'NVIDIA H100 80GB', vramGb: 80, available: true },
+      { id: 'NVIDIA RTX 4090', name: 'NVIDIA RTX 4090', vramGb: 24, available: true },
+      // ... same list as SshBridgeAdapter
+    ];
+  }
+
+  async deploy(config: DeployConfig): Promise<ProviderDeployment> {
+    // 1. SSH connect (same as SshBridgeAdapter)
+    // 2. Read compose YAML from config.artifactConfig.composeYaml
+    // 3. Generate deploy script:
+    //    mkdir -p /opt/naap/<project>
+    //    chmod 700 /opt/naap/<project>
+    //    cat > /opt/naap/<project>/docker-compose.yml << 'COMPOSE_EOF'
+    //    <compose yaml>
+    //    COMPOSE_EOF
+    //    chmod 600 /opt/naap/<project>/docker-compose.yml
+    //    docker compose -p <project> -f /opt/naap/<project>/docker-compose.yml up -d
+    //    # wait for health on adapter port
+    // 4. Send script via /exec/script
+    // 5. Return providerDeploymentId = "compose:<host>:<project>:<jobId>:<healthPort>:<healthEndpoint>"
+  }
+
+  async destroy(providerDeploymentId: string): Promise<void> {
+    // Parse compose: prefix
+    // Run: docker compose -p <project> down -v --remove-orphans
+    // Run: rm -rf /opt/naap/<project>
+  }
+
+  async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
+    // Same job-polling logic as SshBridgeAdapter
+  }
+
+  async update(providerDeploymentId: string, config: UpdateConfig): Promise<ProviderDeployment> {
+    // 1. If config contains new composeYaml (in artifactConfig), overwrite remote compose file
+    // 2. Run: docker compose -p <project> pull
+    // 3. Run: docker compose -p <project> up -d --remove-orphans
+    // 4. Wait for health
+    // Returns same providerDeploymentId with new jobId
+  }
+
+  async healthCheck(providerDeploymentId: string, endpointUrl?: string): Promise<HealthResult> {
+    // Curl adapter health port via SSH (same pattern as SshBridgeAdapter)
+  }
+}
+```
+
+**Why this works:**
+- Same SSH bridge infrastructure (`/exec/script`, `/connect`)
+- No changes to `SshBridgeAdapter`
+- `ProviderAdapterRegistry` just registers one more adapter
+- The wizard selects `ssh-compose` provider slug for Livepeer template
+- All lifecycle operations (deploy/destroy/status/health) work correctly for multi-container
+
+**`providerDeploymentId` format:** `compose:<host>:<project-name>:<jobId>:<healthPort>:<healthEndpoint>`
+
+The `compose:` prefix distinguishes it from single-container deployments. The project name is the compose project name (`docker compose -p <project>`).
+
+---
+
+## Auto-Configuration Design
+
+### Principle: Zero Manual Wiring
+
+The NaaP wizard auto-generates all inter-component configuration. The user never manually sets `ORCH_URL`, `BACKEND_URL`, or `ORCH_SECRET`.
+
+### What the User Provides vs. What NaaP Auto-Configures
+
+| User Provides | NaaP Auto-Configures |
+|---|---|
+| Inference endpoint URL or provider + model | `BACKEND_URL` (docker compose service name) |
+| Provider API key (if serverless) | Env var in serverless-proxy container |
+| SSH host/user for orchestrator VM | SSH connection details |
+| Public IP/domain (for orchestrator discovery) | go-livepeer `-serviceAddr` flag |
+| | `ORCH_URL=http://go-livepeer:7935` (compose internal) |
+| | `ORCH_SECRET` (auto-generated UUID) |
+| | `CAPABILITY_NAME` (derived from model name) |
+| | Docker network, health checks, restart policies |
+| | All port mappings and service dependencies |
+
+### LivepeerComposeBuilder: How It Generates YAML
+
+```typescript
+// NEW file: backend/src/services/LivepeerComposeBuilder.ts
+
+export class LivepeerComposeBuilder {
+  build(config: LivepeerInferenceConfig): string {
+    const secret = config.orchestratorSecret || crypto.randomUUID();
+    const capabilityName = config.capabilityName || this.deriveCapabilityName(config);
+
+    // All inter-container URLs use compose service names -- auto-wired
+    const orchUrl = 'http://go-livepeer:7935';
+    const backendUrl = config.topology === 'split-cpu-serverless'
+      ? 'http://serverless-proxy:8080'
+      : 'http://model:8080';
+
+    // Returns valid docker-compose YAML string
+    // YAML values are sanitized to prevent injection
+    return yaml.dump(composeObject);
+  }
+
+  // "fal-ai/flux/dev" -> "flux-dev"
+  // "meta-llama/Llama-3.1-70B-Instruct" -> "llama-3-1-70b-instruct"
+  deriveCapabilityName(config: LivepeerInferenceConfig): string { ... }
+}
+```
+
+**YAML Sanitization:** All user-provided values (model IDs, API keys, hostnames) are sanitized before embedding in YAML. Use a proper YAML library (`js-yaml`) to generate the compose file -- never string interpolation.
+
+### How LivepeerComposeBuilder Connects to the Deploy Flow
+
+```
+User clicks Deploy
+  |
+  v
+DeploymentOrchestrator.create(config)
+  |  config.providerSlug = 'ssh-compose'
+  |  config.artifactConfig = {
+  |    composeYaml: LivepeerComposeBuilder.build(livepeerConfig),
+  |    composeProject: 'naap-livepeer-<timestamp>',
+  |    topology: 'split-cpu-serverless',
+  |    capabilityName: 'flux-dev',
+  |    orchestratorSecret: '<auto-generated>',
+  |  }
+  v
+DeploymentOrchestrator.deploy(id)
+  |  registry.get('ssh-compose') -> SshComposeAdapter
+  v
+SshComposeAdapter.deploy(config)
+  |  1. SSH connect
+  |  2. Write config.artifactConfig.composeYaml to remote file
+  |  3. docker compose up -d
+  |  4. Wait for health
+  v
+Deployment ONLINE
+```
+
+**Key:** The `DeploymentOrchestrator` does NOT need modification. It already calls `adapter.deploy(config)` and passes through `artifactConfig`. The `SshComposeAdapter` reads `composeYaml` from `artifactConfig`.
+
+### Data Storage: No Schema Changes Needed
+
+Livepeer-specific data is stored in existing JSON columns:
+
+| Field | Stored In | Example |
+|---|---|---|
+| Topology | `artifactConfig.topology` | `"split-cpu-serverless"` |
+| Capability name | `artifactConfig.capabilityName` | `"flux-dev"` |
+| Orchestrator secret | `artifactConfig.orchestratorSecret` | `"<uuid>"` |
+| Compose project name | `artifactConfig.composeProject` | `"naap-livepeer-1709..."` |
+| Compose YAML | `artifactConfig.composeYaml` | `"version: '3.8'..."` |
+| Provider type | `artifactConfig.serverlessProvider` | `"fal-ai"` |
+
+The `DeploymentRecord.artifactConfig` field (`Record<string, unknown>`) already exists and is used for template-specific configuration. No Prisma schema migration needed.
+
+---
+
+## Inference Playground Design
+
+### Purpose
+
+After deployment reaches ONLINE, the playground lets operators immediately test the full pipeline: client -> orchestrator -> adapter -> backend -> response.
+
+### Design: New Component, Extends RequestTab Pattern
+
+```
+frontend/src/components/InferencePlayground.tsx    (NEW)
+```
+
+The `InferencePlayground` component:
+1. Shows on deployment detail page when `templateId === 'livepeer-inference'`
+2. Provides template-specific default request bodies (LLM chat, image gen, etc.)
+3. Calls the existing `/deployments/:id/invoke` backend endpoint (reuses existing proxy)
+4. Adds a "Pipeline Status" section checking adapter health + capability registration
+5. Supports streaming display for LLM responses (SSE)
+
+### Pipeline Status: New Endpoint in Existing Deployments Router
+
+**Do NOT create a separate `inference.ts` route file.** Add to the existing `deployments.ts` router (consistent with existing pattern where all `/deployments/:id/*` routes live in one router):
+
+```typescript
+// In routes/deployments.ts (ADDITIVE -- new route handler at end of router)
+
+router.get('/:id/pipeline-status', async (req, res) => {
+  // Fetch deployment, check artifactConfig for livepeer-specific fields
+  // Return: { adapterHealthy, backendReachable, capabilityRegistered }
+});
+```
+
+This is ~20 lines added to an existing router, not a new file.
+
+### Playground UI
+
+```
++-------------------------------------------------------------------+
+| Inference Playground                                               |
+|                                                                    |
+| Capability: flux-dev                        Status: [GREEN]       |
+| Orchestrator: http://203.0.113.1:7935                             |
+|                                                                    |
+| Request Body (JSON):                                              |
+| +---------------------------------------------------------------+ |
+| | { "prompt": "a cat wearing a hat", "num_inference_steps": 28 }| |
+| +---------------------------------------------------------------+ |
+|                                                                    |
+| [ Run Test ]                                                      |
+|                                                                    |
+| Response:                                    200 OK  |  3247ms   |
+| +---------------------------------------------------------------+ |
+| | { "images": [{ "url": "data:image/png;base64,..." }] }       | |
+| +---------------------------------------------------------------+ |
+|                                                                    |
+| Pipeline Status:                                                   |
+|   [OK] Adapter health         12ms                                |
+|   [OK] Backend reachable      45ms                                |
+|   [OK] Capability registered                                     |
++-------------------------------------------------------------------+
+```
+
+---
 
 ## Component Details
 
 ### Component 1: `livepeer-inference-adapter`
 
-**What it is:** A lightweight Python process (~300-400 lines) that bridges any inference backend to a Livepeer BYOC orchestrator.
+**Location:** `containers/livepeer-inference-adapter/` (NOT in npm workspaces, NOT in Nx, NOT in Vercel build)
 
-**Where the code lives:** `~/Documents/mycodespace/NaaP/containers/livepeer-inference-adapter/`
-
-This lives in the **NaaP monorepo** under a new `containers/` top-level directory. Rationale:
-- **Co-located with the deployment template** — the deployment-manager plugin that deploys it is in the same repo. One PR to change adapter code + template together.
-- **Not part of the NaaP project build** — it's a Python project, not an npm package. npm workspaces (`packages/*`, `apps/*`, `plugins/*/frontend`, etc.) don't include `containers/*`. Nx ignores it. Vercel build ignores it.
-- **No dependency on livepeer-sdk** — adapter talks pure HTTP to BYOC endpoints. No shared Python code needed.
-- **Built as Docker only** — only built when the deployment-manager creates a deployment. CI/CD builds and pushes the Docker image separately.
-- **Not part of NaaP's `npm install` or `npm run build`** — zero impact on NaaP development workflow.
-
-**How it integrates with NaaP monorepo:**
-```
-NaaP/
-├── apps/                            # npm workspace — Next.js app
-├── packages/                        # npm workspace — shared TS packages
-├── plugins/                         # npm workspace — plugins (frontend + backend)
-│   └── deployment-manager/          # deploys containers defined below
-├── services/                        # npm workspace — microservices
-├── containers/                      # NEW — NOT in npm workspaces, NOT in Nx
-│   ├── README.md                    # Explains this directory's purpose
-│   ├── livepeer-inference-adapter/  # Python, Dockerfile only
-│   └── livepeer-serverless-proxy/   # Python, Dockerfile only
-├── package.json                     # workspaces: ["packages/*", "apps/*", ...] — no "containers/*"
-├── nx.json                          # Nx ignores containers/ (no project.json inside)
-└── vercel.json                      # Vercel builds apps/web-next only
-```
-
-**Directory structure:**
 ```
 containers/livepeer-inference-adapter/
-├── src/
-│   └── livepeer_adapter/
-│       ├── __init__.py
-│       ├── main.py              # Entry point, signal handlers
-│       ├── config.py            # Load from env vars + optional YAML
-│       ├── registrar.py         # Register/unregister with orchestrator BYOC
-│       ├── proxy.py             # HTTP server: receive from orch → forward to backend
-│       └── health.py            # Backend health monitoring, auto re-register
-├── Dockerfile
-├── pyproject.toml
-├── README.md
-└── tests/
+|-- src/livepeer_adapter/
+|   |-- __init__.py
+|   |-- main.py              # Entry point, signal handlers
+|   |-- config.py            # Load from env vars
+|   |-- registrar.py         # Register/unregister with orchestrator BYOC
+|   |-- proxy.py             # HTTP server: receive from orch -> forward to backend
+|   \-- health.py            # Backend health monitoring
+|-- Dockerfile
+|-- pyproject.toml
+|-- README.md
+\-- tests/
+    |-- test_config.py
+    |-- test_registrar.py
+    |-- test_proxy.py
+    \-- test_health.py
 ```
 
-**What it does:**
+### Component 2: Serverless Provider Proxy
 
-| Lifecycle Event | Action |
-|---|---|
-| Startup | Wait for backend health → POST `/capability/register` on orchestrator |
-| Running | HTTP server receives proxied requests from orchestrator, forwards to backend |
-| Health fail | Detect backend down → POST `/capability/unregister` → wait for recovery → re-register |
-| Shutdown (SIGTERM) | POST `/capability/unregister` → exit cleanly |
+**Location:** `containers/livepeer-serverless-proxy/`
 
-**Configuration (env vars):**
-```bash
-# Required
-ORCH_URL=https://orchestrator.example.com     # Orchestrator BYOC endpoint
-ORCH_SECRET=secret123                         # TranscoderSecret for auth
-CAPABILITY_NAME=llama3-70b-chat               # Unique name on network
-BACKEND_URL=http://localhost:8080             # Where inference container listens
-
-# Optional
-ADAPTER_PORT=9090                             # Port adapter listens on (for orch to proxy to)
-ADAPTER_HOST=0.0.0.0                          # Bind address
-CAPACITY=4                                    # Concurrent request slots
-PRICE_PER_UNIT=1000                           # Price in base units
-PRICE_SCALING=1000000                         # Scaling denominator
-PRICE_CURRENCY=USD                            # Auto-converted to ETH by orchestrator
-BACKEND_HEALTH_PATH=/health                   # Health check endpoint on backend
-BACKEND_INFERENCE_PATH=/v1/chat/completions   # Inference endpoint on backend
-BACKEND_TIMEOUT=120                           # Request timeout in seconds
-HEALTH_CHECK_INTERVAL=15                      # Seconds between health checks
-REGISTER_INTERVAL=30                          # Seconds between re-registration heartbeats
-```
-
-**Key design decisions:**
-- **No request translation by default** — adapter passes through request/response as-is. The backend is expected to expose an HTTP API. If format mapping is needed, users can set `REQUEST_TRANSFORM` and `RESPONSE_TRANSFORM` as Jinja2 templates (optional, Phase 2+).
-- **Adapter exposes its own HTTP server** — The orchestrator's BYOC proxy sends requests to the adapter's URL (the `url` field in capability registration). The adapter then forwards to the backend. This extra hop is necessary because the adapter's public URL may differ from the backend's internal URL (e.g., backend is on localhost, adapter has a public IP).
-- **Stateless** — No database, no persistent state. Can be restarted freely.
-
-### Component 2: Serverless Provider Proxy (optional, for fal.ai/Replicate/RunPod)
-
-**What it is:** When the inference backend is a serverless API (not a local container), this thin HTTP proxy translates between a standard local HTTP interface and the provider's API.
-
-**Where the code lives:** `~/Documents/mycodespace/NaaP/containers/livepeer-serverless-proxy/`
-
-Same `containers/` directory in NaaP monorepo. Same isolation rules — not in npm workspaces, not in Nx, not in Vercel build. Published as Docker image: `livepeer/serverless-proxy`.
-
-**Directory structure:**
 ```
 containers/livepeer-serverless-proxy/
-├── src/
-│   └── serverless_proxy/
-│       ├── __init__.py
-│       ├── main.py
-│       ├── server.py            # FastAPI: /health + /inference
-│       └── providers/
-│           ├── base.py          # Abstract: health() + inference()
-│           ├── fal_ai.py
-│           ├── replicate.py
-│           ├── runpod.py
-│           └── huggingface.py   # HF Inference Endpoints
-├── Dockerfile
-├── pyproject.toml
-└── tests/
+|-- src/serverless_proxy/
+|   |-- __init__.py
+|   |-- main.py
+|   |-- server.py            # FastAPI: /health + /inference
+|   \-- providers/
+|       |-- base.py          # Abstract: health() + inference()
+|       |-- fal_ai.py
+|       |-- replicate.py
+|       \-- runpod.py
+|-- Dockerfile
+|-- pyproject.toml
+\-- tests/
 ```
 
-**How NaaP knows about it:**
+### Component 3: NaaP Deployment Manager Integration
 
-The deployment-manager plugin (in `plugins/deployment-manager/`) references the Docker images built from `containers/`. The connection:
+**All new files except 4 minimal additive changes:**
 
-1. `containers/livepeer-inference-adapter/Dockerfile` → builds `livepeer/inference-adapter` image
-2. `containers/livepeer-serverless-proxy/Dockerfile` → builds `livepeer/serverless-proxy` image
-3. `plugins/deployment-manager/` generates docker-compose YAML referencing these images
-4. NaaP's provider adapters (FalAdapter, RunPodAdapter, SshBridgeAdapter) deploy the compose to the target host
+```
+NEW files:
+  backend/src/adapters/SshComposeAdapter.ts              # Multi-container SSH deploy
+  backend/src/services/LivepeerComposeBuilder.ts         # Compose YAML generation
+  backend/src/__tests__/ssh-compose-adapter.test.ts
+  backend/src/__tests__/livepeer-compose-builder.test.ts
+  backend/src/__tests__/bdd/livepeer-inference.feature.test.ts
+  frontend/src/components/InferencePlayground.tsx         # Test playground
+  frontend/src/components/LivepeerConfigForm.tsx          # Livepeer settings form
+  frontend/src/__tests__/components/InferencePlayground.test.tsx
+  frontend/src/__tests__/components/LivepeerConfigForm.test.tsx
 
-The deployment-manager doesn't import or build the Python code — it only references the Docker image names. In development, images are built locally (`docker build containers/livepeer-inference-adapter`). In production, CI/CD builds and pushes them to a registry.
+ADDITIVE changes to existing files:
+  backend/src/services/TemplateRegistry.ts    -> Add 1 entry to BUILT_IN_TEMPLATES array
+  backend/src/server.ts                       -> Register SshComposeAdapter with ProviderAdapterRegistry
+  backend/src/routes/deployments.ts           -> Add /:id/pipeline-status route handler (~20 lines)
+  frontend/src/pages/DeploymentWizard.tsx     -> Conditional: show LivepeerConfigForm when template is livepeer
+  frontend/src/pages/DeploymentDetail.tsx     -> Conditional: show InferencePlayground tab
+```
 
-### Component 3: NaaP Deployment Manager Template
+### Template Registration
 
-**What it is:** A new built-in template in the deployment-manager plugin, alongside the existing `ai-runner` and `scope` templates.
+Added to `BUILT_IN_TEMPLATES` in `TemplateRegistry.ts`:
 
-**Where the code lives:** `~/Documents/mycodespace/NaaP/plugins/deployment-manager/`
-
-Changes needed:
-
-1. **New template entry** in `TemplateRegistry.ts` (add to `BUILT_IN_TEMPLATES`)
-2. **Template configuration** with topology selection + Livepeer-specific fields
-3. **Frontend wizard steps** — topology-aware, shows relevant options per topology
-4. **Docker compose generation** — generates different compose files per topology
-
-**Template definition** (added to `BUILT_IN_TEMPLATES` in `TemplateRegistry.ts`):
 ```typescript
 {
   id: 'livepeer-inference',
   name: 'Livepeer Inference Adapter',
-  description: 'Deploy any AI model as a Livepeer network-enabled inference service. Choose from 3 deployment topologies: self-hosted GPU, serverless GPU, or split CPU + remote inference.',
+  description: 'Bring any AI inference service on-chain. Supports fal.ai, Replicate, RunPod, self-hosted, or any HTTP endpoint.',
   icon: '🔗',
-  dockerImage: 'livepeer/inference-adapter',
+  dockerImage: 'livepeer/inference-adapter',  // Primary image (adapter)
   healthEndpoint: '/health',
-  healthPort: 9090,
-  defaultGpuModel: 'A100',
-  defaultGpuVramGb: 40,
+  healthPort: 9090,                           // Adapter health port
+  defaultGpuModel: 'CPU',                     // Topology 3 default: no GPU needed
+  defaultGpuVramGb: 0,
   category: 'curated',
   githubOwner: 'livepeer',
-  githubRepo: 'livepeer-sdk',
+  githubRepo: 'go-livepeer',                  // For version checking
 }
 ```
 
-**Deployment wizard flow (frontend):**
+**Note on `dockerImage` field:** The `DeploymentTemplate` interface requires a single `dockerImage`. For the livepeer template, this is set to the adapter image (the primary component). The actual multi-container compose is generated by `LivepeerComposeBuilder` and stored in `artifactConfig.composeYaml`. The `dockerImage` field serves as the "canonical" image for display purposes and version tracking.
+
+### Livepeer Types (added to `types/index.ts`)
+
+```typescript
+// ADDITIVE: new types, no existing types modified
+
+export type LivepeerTopology = 'all-in-one' | 'all-on-provider' | 'split-cpu-serverless';
+
+export interface LivepeerInferenceConfig {
+  topology: LivepeerTopology;
+  // Livepeer settings
+  orchestratorSecret?: string;    // Auto-generated if omitted
+  capabilityName?: string;        // Auto-derived from model if omitted
+  pricePerUnit?: number;          // Default: 1000
+  capacity?: number;              // Default: 4 (serverless), 1 (self-hosted)
+  publicAddress?: string;         // For go-livepeer -serviceAddr
+  // Model settings (topology 1 & 2)
+  modelImage?: string;            // Docker image for model container
+  // Serverless settings (topology 3)
+  serverlessProvider?: string;    // fal-ai | replicate | runpod | custom
+  serverlessApiKey?: string;
+  serverlessModelId?: string;
+  serverlessEndpointUrl?: string; // For custom HTTP endpoints
+}
 ```
-Step 1: Select template → "Livepeer Inference Adapter"
-
-Step 2: Select Deployment Topology
-        ├─ Topology 1: All-in-One Self-Hosted GPU
-        ├─ Topology 2: All-on-Serverless-GPU (RunPod recommended)
-        └─ Topology 3: CPU Orchestrator + Remote Inference
-
-Step 3: (varies by topology)
-
-  Topology 1 & 2:
-    3a. Select model
-        ├─ HuggingFace model ID (e.g., meta-llama/Llama-3.1-70B-Instruct)
-        └─ Custom Docker image URL
-    3b. Select GPU provider (Topology 1: SSH Bridge; Topology 2: RunPod/fal.ai)
-    3c. Select GPU type + VRAM
-
-  Topology 3:
-    3a. Select inference source
-        ├─ Existing fal.ai endpoint (model ID)
-        ├─ Existing Replicate model (model version)
-        ├─ Existing RunPod serverless endpoint (endpoint ID)
-        ├─ Existing HuggingFace Inference Endpoint (URL)
-        └─ Custom HTTP endpoint (any URL)
-    3b. Enter provider API credentials
-    3c. Select where to run CPU stack (SSH Bridge to VM, or local)
-
-Step 4: Configure Livepeer settings (all topologies)
-        ├─ Orchestrator secret
-        ├─ Capability name (auto-suggested from model name)
-        ├─ Pricing (price per unit, currency)
-        └─ Capacity (concurrent slots)
-
-Step 5: Review & Deploy
-```
-
-**What gets generated per topology:**
-
-| Topology | Docker Compose Contents | Deployed To |
-|---|---|---|
-| 1: All-in-One | go-livepeer + adapter + model container (GPU) | SSH Bridge to GPU server |
-| 2: All-on-Provider | go-livepeer + adapter + model container (GPU) | RunPod pod (or similar) |
-| 3: Split | go-livepeer + adapter + serverless-proxy | SSH Bridge to CPU VM (model on provider) |
-
-## Implementation Plan
-
-### Source Code & Branches
-
-**All adapter, proxy, and template work happens in the NaaP monorepo:**
-```
-Repository: ~/Documents/mycodespace/NaaP
-Branch:     feature/livepeer-inference-adapter
-```
-
-New directories in NaaP (NOT part of npm workspaces / Nx / Vercel):
-- `containers/livepeer-inference-adapter/` — Python, Dockerfile (Phase 1)
-- `containers/livepeer-serverless-proxy/` — Python, Dockerfile (Phase 2)
-
-Changes to existing NaaP code:
-- `plugins/deployment-manager/` — template, wizard, compose generation (Phase 3)
-
-**Client-side SDK work happens in livepeer-sdk:**
-```
-Repository: ~/Documents/mycodespace/livepeer-sdk
-Branch:     feature/byoc-inference-client
-```
-
-Changes to `livepeer-python-gateway/` — generic BYOC inference client (Phase 4).
-
-**No changes to go-livepeer needed.** The existing BYOC system (`byoc/` package, `master` branch) is used as-is. Reference go-livepeer's `master` branch for BYOC API compatibility during development.
-
-### Monorepo Isolation Strategy
-
-The `containers/` directory is **physically in the NaaP repo but logically separate from the NaaP project:**
-
-```
-NaaP repo isolation:
-┌─────────────────────────────────────────────────────────────────┐
-│  npm workspaces: packages/*, apps/*, services/*, plugins/*/...  │
-│  Nx build graph: discovers projects via package.json in above   │
-│  Vercel build:   plugins → Next.js app                         │
-│  npm install:    installs deps for all workspace packages       │
-│                                                                  │
-│  ALL OF THE ABOVE IGNORE containers/                             │
-├─────────────────────────────────────────────────────────────────┤
-│  containers/                                                     │
-│  ├── livepeer-inference-adapter/    (Python, pyproject.toml)     │
-│  └── livepeer-serverless-proxy/     (Python, pyproject.toml)     │
-│                                                                  │
-│  Built separately:                                               │
-│    docker build -t livepeer/inference-adapter containers/livepeer-inference-adapter │
-│    docker build -t livepeer/serverless-proxy containers/livepeer-serverless-proxy   │
-│                                                                  │
-│  CI/CD: separate GitHub Actions workflow for containers/          │
-│  Triggered: on changes to containers/** path                     │
-│  Pushed to: Docker Hub or GitHub Container Registry              │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Why this is safe:**
-- `npm install` at NaaP root won't touch `containers/` (no `package.json`, not in workspaces)
-- `nx run-many --target=build` won't find them (no Nx project config)
-- `vercel-build.sh` won't touch them (only builds plugins + Next.js)
-- `containers/` has zero TypeScript, zero npm deps, zero JS tooling
-- The only connection is: `plugins/deployment-manager/` references Docker image names as strings in template config
 
 ---
 
+## Wizard Flow: How It Integrates with Existing Steps
+
+### Existing Wizard Steps (unchanged for non-livepeer templates)
+
+```
+Step 0: Template        -> TemplateSelector (pick ai-runner, scope, custom, OR livepeer-inference)
+Step 1: Resources       -> ProviderSelector, GpuConfigForm, SshHostConfig, EnvVarsEditor
+Step 2: Deploy & Monitor -> Summary, Deploy button, status polling, logs
+```
+
+### Livepeer Template: Step 1 Changes
+
+When `templateId === 'livepeer-inference'`, step 1 renders `LivepeerConfigForm` INSTEAD of the default GPU-centric resource config. This is handled by conditional rendering in `DeploymentWizard.renderStep1()`:
+
+```typescript
+// In DeploymentWizard.tsx (ADDITIVE change to renderStep1)
+const renderStep1 = () => {
+  if (selectedTemplate?.id === 'livepeer-inference') {
+    return <LivepeerConfigForm
+      form={form}
+      onUpdate={updateForm}
+      providers={providers}
+    />;
+  }
+  // ... existing GPU-centric step 1 code (unchanged)
+};
+```
+
+`LivepeerConfigForm` handles:
+- Topology selection (Topology 3 default, Topology 1 for self-hosted, Topology 2 collapsed)
+- Inference source config (provider dropdown, model ID, API key)
+- SSH config for orchestrator VM (reuses existing `SshHostConfig` component)
+- Collapsible advanced settings (capability name, pricing, capacity)
+
+`canProceed()` modification for livepeer template (additive branch in existing switch):
+
+```typescript
+// In DeploymentWizard canProceed(), case 1 (ADDITIVE branch):
+case 1:
+  if (selectedTemplate?.id === 'livepeer-inference') {
+    // Livepeer template: SSH host required, GPU not required for Topology 3
+    if (!form.sshHost || !form.sshUsername) return false;
+    // LivepeerConfigForm validates inference source internally
+    return form.providerSlug === 'ssh-compose';
+  }
+  // ... existing GPU-centric validation (unchanged)
+```
+
+**Auto-selecting `ssh-compose` provider:** When template is selected in `handleSelectTemplate()`, auto-set the provider slug:
+
+```typescript
+// In handleSelectTemplate (ADDITIVE):
+if (template.id === 'livepeer-inference') {
+  updateForm('providerSlug', 'ssh-compose');
+  updateForm('gpuModel', 'CPU');  // Default for Topology 3
+  updateForm('gpuVramGb', 0);
+}
+```
+
+This ensures:
+- Provider slug is pre-set (user never picks `ssh-compose` from a dropdown)
+- GPU model is pre-set to `'CPU'` so existing `canProceed` checks pass
+- `LivepeerConfigForm` can override `gpuModel` if user selects Topology 1
+
+### Step 2: Deploy & Monitor (extended)
+
+After deployment reaches ONLINE, the `InferencePlayground` tab appears in `DeploymentDetail.tsx`:
+
+```typescript
+// In DeploymentDetail.tsx (ADDITIVE)
+{deployment.templateId === 'livepeer-inference' && deployment.status === 'ONLINE' && (
+  <InferencePlayground
+    deploymentId={deployment.id}
+    capabilityName={deployment.artifactConfig?.capabilityName}
+    endpointUrl={deployment.endpointUrl}
+  />
+)}
+```
+
+---
+
+## Branch Strategy & Environment Support
+
+### Branch
+
+```
+Base:   feat/deployment-manager (latest)
+Branch: feat/inference-adapter
+```
+
+### Local Development
+
+```bash
+# Start NaaP locally (existing flow)
+npm run dev
+
+# Build container images locally (only when testing actual deployments)
+docker build -t livepeer/inference-adapter containers/livepeer-inference-adapter
+docker build -t livepeer/serverless-proxy containers/livepeer-serverless-proxy
+```
+
+Frontend/backend plugin code runs in the existing NaaP dev server. Container images are only needed when deploying to a remote host.
+
+### Vercel Production
+
+No changes to Vercel build. The `containers/` directory:
+- Not in npm workspaces (no `package.json`)
+- Not in Nx project graph (no `project.json`)
+- Not referenced by `vercel-build.sh`
+- Container images built by separate CI/CD workflow
+
+---
+
+## Implementation Phases
+
 ### Phase 1: Core Adapter
 
-**Goal:** A working adapter that registers any local HTTP inference backend with a Livepeer BYOC orchestrator, receives proxied requests, and forwards them. This is the foundation — all three topologies depend on it.
+**Goal:** A working adapter that registers any HTTP inference backend with a Livepeer BYOC orchestrator.
 
-**Location:** `~/Documents/mycodespace/NaaP/containers/livepeer-inference-adapter/`
+**Location:** `containers/livepeer-inference-adapter/`
 
-**Essential TODOs:**
+**Tasks:**
 
-- [ ] **P1.1: Create feature branch + project scaffolding**
-  - `cd ~/Documents/mycodespace/NaaP && git checkout -b feature/livepeer-inference-adapter`
-  - Create `containers/` top-level directory with `README.md` explaining its purpose
-  - Create `containers/livepeer-inference-adapter/` directory
-  - `pyproject.toml` with dependencies (aiohttp, pyyaml)
-  - Basic Dockerfile (python:3.11-slim, ~50MB)
-  - Verify BYOC API contract by reading go-livepeer `byoc/job_orchestrator.go` — confirm `/capability/register` request format matches `ExternalCapability` struct in `core/external_capabilities.go`
+- [ ] P1.1: Validate Phase 0 prerequisites (go-livepeer Docker + BYOC API contract)
+- [ ] P1.2: Project scaffolding -- `containers/` directory, `pyproject.toml`, Dockerfile
+- [ ] P1.3: Config module (`config.py`) -- env var loading, validation, defaults
+- [ ] P1.4: Registrar module (`registrar.py`) -- register/unregister/heartbeat with BYOC
+- [ ] P1.5: Proxy server (`proxy.py`) -- aiohttp server, request forwarding, SSE streaming
+- [ ] P1.6: Health monitor (`health.py`) -- poll backend, state machine (WAITING/HEALTHY/UNHEALTHY)
+- [ ] P1.7: Main entry point (`main.py`) -- wire modules, SIGTERM/SIGINT handlers
+- [ ] P1.8: Dockerfile + docker-compose for testing
 
-- [ ] **P1.2: Config module** (`config.py`)
-  - Load from env vars, validate required: `ORCH_URL`, `ORCH_SECRET`, `CAPABILITY_NAME`, `BACKEND_URL`
-  - Defaults: `ADAPTER_PORT=9090`, `CAPACITY=1`, `HEALTH_CHECK_INTERVAL=15`, `REGISTER_INTERVAL=30`, `BACKEND_HEALTH_PATH=/health`, `BACKEND_TIMEOUT=120`
+**Quality Gates:**
 
-- [ ] **P1.3: Registrar module** (`registrar.py`)
-  - `register()` — POST `{ORCH_URL}/capability/register`, Authorization: `{ORCH_SECRET}`, body: JSON matching `ExternalCapability` struct
-  - `unregister()` — POST `{ORCH_URL}/capability/unregister`, body: capability name string
-  - `heartbeat_loop()` — re-register every `REGISTER_INTERVAL` seconds (covers orch restarts, capability expiry)
-  - Log registration success/failure clearly
+- [ ] P1.QG1: Design review -- module boundaries, config schema, BYOC API contract match
+- [ ] P1.QG2: Code review -- Python code correctness, security, error handling
+- [ ] P1.QG3: Unit tests -- >=85% coverage on config, registrar, proxy, health modules
+- [ ] P1.QG4: BDD e2e tests
 
-- [ ] **P1.4: Proxy server** (`proxy.py`)
-  - aiohttp server on `ADAPTER_PORT`
-  - `POST /inference` and `POST /inference/{path}` — forward to `{BACKEND_URL}{BACKEND_INFERENCE_PATH}/{path}`
-  - Pass through Content-Type, stream SSE responses (`text/event-stream`) chunk-by-chunk
-  - `GET /health` — return 200 if backend is healthy
-  - Timeout: `BACKEND_TIMEOUT` seconds
+**BDD Scenarios:**
 
-- [ ] **P1.5: Health monitor** (`health.py`)
-  - Poll backend health endpoint, state machine: `WAITING → HEALTHY → UNHEALTHY`
-  - On HEALTHY: register. On UNHEALTHY: unregister. On recovery: re-register.
+```gherkin
+Feature: Adapter Lifecycle
 
-- [ ] **P1.6: Main entry point** (`main.py`)
-  - Wire config → health → registrar → proxy. SIGTERM/SIGINT handler: unregister + shutdown.
+  Scenario: Adapter registers capability on startup
+    Given a healthy backend on port 8080
+    And an orchestrator with BYOC enabled on port 7935
+    When the adapter starts with CAPABILITY_NAME="test-model"
+    Then the adapter registers "test-model" with the orchestrator
+    And the adapter health endpoint returns 200
 
-- [ ] **P1.7: Dockerfile + docker-compose for testing**
-  - Dockerfile for adapter image
-  - `docker-compose.test.yaml`: adapter + mock backend (simple Flask/FastAPI that returns canned responses) + real go-livepeer orchestrator (or mock BYOC endpoints)
-  - Test: register → send request → get response → unregister
+  Scenario: Adapter forwards inference request
+    Given a registered adapter with capability "test-model"
+    When the orchestrator proxies a POST request to the adapter
+    Then the adapter forwards the request to the backend
+    And returns the backend response to the orchestrator
 
-**Exit criteria:** `docker run livepeer/inference-adapter` registers with a go-livepeer orchestrator running BYOC, forwards a request to a backend, returns the response. Health monitoring works. Clean shutdown unregisters.
+  Scenario: Adapter unregisters on backend failure
+    Given a registered adapter with a healthy backend
+    When the backend health endpoint starts returning 503
+    Then the adapter unregisters the capability
+    And when the backend recovers, the adapter re-registers
+
+  Scenario: Adapter unregisters on shutdown
+    Given a registered adapter
+    When the adapter receives SIGTERM
+    Then the adapter unregisters the capability and exits cleanly
+
+  Scenario: Adapter streams SSE responses
+    Given a registered adapter with an SSE-capable backend
+    When the orchestrator proxies a streaming POST request
+    Then the adapter streams the SSE events back chunk-by-chunk
+```
+
+**Exit Criteria:** `docker run livepeer/inference-adapter` registers with go-livepeer BYOC, forwards requests, handles health monitoring, and shuts down cleanly.
 
 ---
 
 ### Phase 2: Serverless Provider Proxy
 
-**Goal:** A thin HTTP service that wraps serverless provider APIs behind `/health` + `/inference`, enabling Topology 3. The adapter treats it like any local backend.
+**Goal:** Thin HTTP service wrapping serverless APIs behind `/health` + `/inference` for Topology 3.
 
-**Location:** `~/Documents/mycodespace/NaaP/containers/livepeer-serverless-proxy/`
+**Location:** `containers/livepeer-serverless-proxy/`
 
-**Essential TODOs:**
+**Tasks:**
 
-- [ ] **P2.1: Project scaffolding**
-  - Create `containers/livepeer-serverless-proxy/` in NaaP (same feature branch)
-  - `pyproject.toml` — keep deps minimal per provider (optional extras: `pip install .[fal,replicate,runpod]`)
-  - Dockerfile
+- [ ] P2.1: Project scaffolding -- directory, `pyproject.toml`, Dockerfile
+- [ ] P2.2: Provider interface (`providers/base.py`) -- abstract `health()` + `inference()`
+- [ ] P2.3: fal.ai provider -- queue API, polling, streaming
+- [ ] P2.4: Replicate provider -- prediction API, polling
+- [ ] P2.5: RunPod provider -- runsync/run API
+- [ ] P2.6: HTTP server (`server.py`) -- FastAPI with `/health`, `/inference`
+- [ ] P2.7: End-to-end test: adapter + proxy compose
 
-- [ ] **P2.2: Provider interface** (`providers/base.py`)
-  ```python
-  class Provider(ABC):
-      async def health(self) -> bool: ...
-      async def inference(self, request: dict, headers: dict) -> Union[dict, AsyncIterator[str]]: ...
-  ```
+**Quality Gates:**
 
-- [ ] **P2.3: fal.ai provider** (`providers/fal_ai.py`) — IMPLEMENT FIRST
-  - Submit to fal.ai queue API → poll for result or stream
-  - Handle queue status (IN_QUEUE → IN_PROGRESS → COMPLETED)
-  - Config: `FAL_KEY`, `FAL_MODEL_ID`
+- [ ] P2.QG1: Design review -- provider interface, error handling, timeout strategy
+- [ ] P2.QG2: Code review -- all provider implementations
+- [ ] P2.QG3: Unit tests -- >=85% coverage, mock provider APIs
+- [ ] P2.QG4: BDD e2e tests
 
-- [ ] **P2.4: Replicate provider** (`providers/replicate.py`)
-  - Create prediction → poll/stream
-  - Config: `REPLICATE_API_TOKEN`, `REPLICATE_MODEL`
+**BDD Scenarios:**
 
-- [ ] **P2.5: RunPod provider** (`providers/runpod.py`)
-  - Call `/runsync` (sync) or `/run` + poll (async)
-  - Config: `RUNPOD_API_KEY`, `RUNPOD_ENDPOINT_ID`
+```gherkin
+Feature: Serverless Proxy
 
-- [ ] **P2.6: HTTP server** (`server.py`)
-  - `GET /health`, `POST /inference`, `POST /inference/{path}`
-  - Select provider from `PROVIDER` env var
-  - Return provider response as-is (JSON or SSE stream)
+  Scenario: Proxy forwards request to fal.ai
+    Given a serverless proxy configured for fal.ai with a valid API key
+    When a POST request is sent to /inference
+    Then the proxy submits to fal.ai queue API
+    And returns the inference result
 
-- [ ] **P2.7: End-to-end test with adapter**
-  - `docker-compose.test.yaml`: adapter + serverless-proxy (with fal.ai mock or real API key)
-  - Verify: adapter → proxy → provider → response back
+  Scenario: Proxy reports unhealthy when provider is unreachable
+    Given a serverless proxy configured for fal.ai
+    When the fal.ai API is unreachable
+    Then GET /health returns 503
 
-**Exit criteria:** `docker-compose up` with adapter + serverless-proxy successfully proxies a request to fal.ai (or other provider) and returns the result through the adapter.
+  Scenario: Proxy handles provider queue polling
+    Given a request submitted to fal.ai that enters the queue
+    When the proxy polls for completion
+    Then it returns the completed result when ready
+
+  Scenario: Proxy returns error for invalid API key
+    Given a serverless proxy with an invalid FAL_KEY
+    When a POST request is sent to /inference
+    Then it returns a 401 error with a clear message
+```
+
+**Exit Criteria:** Adapter + serverless-proxy compose successfully proxies a request through fal.ai.
 
 ---
 
-### Phase 3: NaaP Deployment Manager Integration
+### Phase 3: NaaP Integration -- Auto-Config Wizard + Playground
 
-**Goal:** NaaP deployment wizard supports all 3 topologies. Users select topology → configure → deploy. Docker compose is generated per topology.
+**Goal:** NaaP wizard deploys with auto-configured wiring. Playground tests the pipeline.
 
-**Location:** `~/Documents/mycodespace/NaaP/plugins/deployment-manager/` (same feature branch `feature/livepeer-inference-adapter`)
+**Location:** `plugins/deployment-manager/`
 
-**Essential TODOs:**
+**Tasks:**
 
-- [ ] **P3.1: Template registration** (`backend/src/services/TemplateRegistry.ts`)
-  - Add `livepeer-inference` to `BUILT_IN_TEMPLATES`
-  - Include topology metadata in template definition
+- [ ] P3.1: `SshComposeAdapter` -- new provider adapter for multi-container SSH compose deployments
+- [ ] P3.2: `LivepeerComposeBuilder` -- generates docker-compose YAML per topology with auto-wired env vars
+- [ ] P3.3: Template registration -- add `livepeer-inference` to `BUILT_IN_TEMPLATES`
+- [ ] P3.4: Livepeer types -- add `LivepeerInferenceConfig`, `LivepeerTopology` to `types/index.ts`
+- [ ] P3.5: `LivepeerConfigForm` component -- topology + inference source + SSH + advanced settings
+- [ ] P3.6: Wizard integration -- conditional rendering in step 1 for livepeer template
+- [ ] P3.7: `InferencePlayground` component -- test deployed pipeline
+- [ ] P3.8: Pipeline status endpoint -- `GET /:id/pipeline-status` in deployments router
+- [ ] P3.9: DeploymentDetail integration -- show playground tab for livepeer deployments
+- [ ] P3.10: Register `SshComposeAdapter` in `server.ts`
+- [ ] P3.11: Deploy flow validation -- `canProceed()` logic for livepeer template
 
-- [ ] **P3.2: Topology + config types** (`backend/src/types/index.ts`)
-  ```typescript
-  type LivepeerTopology = 'all-in-one' | 'all-on-provider' | 'split-cpu-serverless';
+**Quality Gates:**
 
-  interface LivepeerInferenceConfig {
-    topology: LivepeerTopology;
-    // Livepeer settings (all topologies)
-    orchestratorSecret: string;
-    capabilityName: string;
-    pricePerUnit: number;
-    priceScaling: number;
-    priceCurrency: string;
-    capacity: number;
-    // Model settings (topology 1 & 2)
-    modelId?: string;           // HuggingFace model ID
-    modelImage?: string;        // Custom Docker image
-    // Serverless settings (topology 3)
-    serverlessProvider?: string; // fal-ai | replicate | runpod | huggingface
-    serverlessApiKey?: string;
-    serverlessModelId?: string;
-    // Infrastructure
-    publicIp?: string;          // For go-livepeer -serviceAddr
-    gpuModel?: string;
-    gpuVramGb?: number;
-  }
-  ```
+- [ ] P3.QG1: Design review -- wizard UX, compose correctness, SSH compose adapter lifecycle
+- [ ] P3.QG2: Code review -- all new TS/TSX, verify no regressions
+- [ ] P3.QG3: Unit tests -- >=85% coverage on SshComposeAdapter, LivepeerComposeBuilder, new components
+- [ ] P3.QG4: BDD e2e tests
 
-- [ ] **P3.3: Docker compose builder** (`backend/src/services/LivepeerComposeBuilder.ts`)
-  - `buildCompose(config: LivepeerInferenceConfig): string` — returns docker-compose YAML
-  - **Topology 1 compose:** go-livepeer + adapter + model container (GPU runtime)
-  - **Topology 2 compose:** same as Topology 1 (deployed to provider pod, go-livepeer `-serviceAddr` uses provider endpoint URL)
-  - **Topology 3 compose:** go-livepeer + adapter + serverless-proxy (no GPU)
-  - All composes include: health checks, restart policies, shared docker network, env vars
+**BDD Scenarios -- Backend:**
 
-- [ ] **P3.4: Frontend wizard — topology selection step**
-  - New component: `TopologySelector` — radio cards for 3 topologies with description, pros/cons summary
-  - Conditionally shows subsequent steps based on topology
+```gherkin
+Feature: Livepeer Inference Template
 
-- [ ] **P3.5: Frontend wizard — model/provider steps**
-  - **Topology 1 & 2:** HuggingFace model browser OR custom Docker image input. GPU type selector.
-  - **Topology 3:** Provider dropdown (fal.ai, Replicate, RunPod, HF, custom URL) + API key + model ID
+  Scenario: Template appears in template list
+    Given the deployment manager is running
+    When the user fetches templates
+    Then "livepeer-inference" appears with category "curated"
 
-- [ ] **P3.6: Frontend wizard — Livepeer config step** (all topologies)
-  - Orchestrator secret, capability name (auto-suggest), pricing, capacity
+  Scenario: Compose builder generates valid Topology 3 YAML
+    Given a LivepeerInferenceConfig with topology "split-cpu-serverless"
+    And serverlessProvider "fal-ai" and serverlessModelId "fal-ai/flux/dev"
+    When LivepeerComposeBuilder.build() is called
+    Then the YAML contains services: go-livepeer, inference-adapter, serverless-proxy
+    And inference-adapter ORCH_URL is "http://go-livepeer:7935"
+    And inference-adapter BACKEND_URL is "http://serverless-proxy:8080"
+    And go-livepeer and inference-adapter share the same ORCH_SECRET
 
-- [ ] **P3.7: Frontend wizard — infrastructure step**
-  - **Topology 1:** SSH host/port/user for GPU server (existing SshBridgeAdapter flow)
-  - **Topology 2:** Provider account selection (existing RunPodAdapter flow) + GPU tier
-  - **Topology 3:** SSH host for CPU VM + provider API key for inference
+  Scenario: Compose builder generates valid Topology 1 YAML
+    Given a LivepeerInferenceConfig with topology "all-in-one"
+    And modelImage "ghcr.io/huggingface/text-generation-inference"
+    When LivepeerComposeBuilder.build() is called
+    Then the YAML contains services: go-livepeer, inference-adapter, model
+    And the model service has runtime: nvidia configured
 
-- [ ] **P3.8: Deploy flow integration**
-  - `DeploymentOrchestrator` calls `LivepeerComposeBuilder.buildCompose()` to generate compose
-  - Passes compose to appropriate `IProviderAdapter.deploy()` (SshBridgeAdapter or RunPodAdapter)
-  - Stores topology + config in deployment metadata for status display
+  Scenario: Capability name derived from model ID
+    Given serverlessModelId "fal-ai/flux/dev"
+    When deriveCapabilityName is called
+    Then the result is "flux-dev"
 
-- [ ] **P3.9: Post-deployment status view**
-  - Deployment detail page shows: topology, capability name, orchestrator URL, pricing, capacity
-  - Health monitor checks adapter `/health` endpoint
-  - For Topology 3: show provider status (is fal.ai reachable?)
+  Scenario: SshComposeAdapter deploys compose via SSH
+    Given a valid DeployConfig with providerSlug "ssh-compose"
+    And artifactConfig containing composeYaml
+    When SshComposeAdapter.deploy() is called
+    Then it writes the compose file to the remote host
+    And runs docker compose up -d
+    And returns a providerDeploymentId with compose: prefix
 
-**Exit criteria:** User can go through NaaP wizard, pick any topology, configure settings, and have NaaP generate + deploy the correct docker-compose. All 3 topologies work end-to-end.
+  Scenario: SshComposeAdapter destroys compose deployment
+    Given a deployed compose with project name "naap-livepeer-123"
+    When SshComposeAdapter.destroy() is called
+    Then it runs docker compose -p naap-livepeer-123 down
+    And removes the compose directory
+
+  Scenario: YAML values are sanitized
+    Given a model ID containing YAML special characters ": {}"
+    When the compose is generated
+    Then the YAML is valid and the value is properly quoted
+
+  Scenario: Pipeline status returns health info
+    Given a deployed livepeer-inference deployment ONLINE
+    When GET /deployments/:id/pipeline-status is called
+    Then it returns adapter health status
+```
+
+**BDD Scenarios -- Frontend E2E:**
+
+```gherkin
+Feature: Livepeer Deployment Wizard
+
+  Scenario: User deploys Topology 3 via wizard
+    Given the user is on the deployment wizard
+    When they select "Livepeer Inference Adapter" template
+    And configure fal.ai provider with model "fal-ai/flux/dev" and API key
+    And enter SSH host details for the orchestrator VM
+    And click "Deploy Now"
+    Then the deployment is created with providerSlug "ssh-compose"
+    And artifactConfig contains auto-generated orchestratorSecret
+    And artifactConfig.capabilityName is "flux-dev"
+
+  Scenario: Playground appears after ONLINE
+    Given a livepeer-inference deployment with status ONLINE
+    When the user views the deployment detail page
+    Then the "Inference Playground" section is visible
+    And shows a default request body
+
+  Scenario: Playground test executes successfully
+    Given the Inference Playground for an ONLINE deployment
+    When the user clicks "Run Test"
+    Then the response is displayed with status code and timing
+    And pipeline status shows all checks passing
+
+  Scenario: GPU options hidden for Topology 3
+    Given the user selected livepeer-inference template
+    When they are on the configuration step
+    Then GPU selection is not shown (Topology 3 is CPU-only)
+
+  Scenario: Advanced settings collapsed by default
+    Given the user is configuring a livepeer deployment
+    Then capability name, pricing, and capacity are collapsed
+    And auto-derived values are shown as placeholders
+```
+
+**Exit Criteria:** User selects livepeer template, enters provider + model + API key + SSH host, clicks deploy, and tests via playground. All 3 topologies generate valid compose YAML.
 
 ---
 
 ### Phase 4: livepeer-sdk Client Integration
 
-**Goal:** Python SDK clients can discover and call any registered BYOC capability by name, with automatic payment handling. This is the consumer side — how apps use the deployed inference services.
+**Goal:** Python SDK clients call registered BYOC capabilities with automatic payment.
 
-**Location:** `~/Documents/mycodespace/livepeer-sdk/livepeer-python-gateway/` (separate branch: `feature/byoc-inference-client`)
+**Location:** Separate repo `livepeer-sdk/livepeer-python-gateway/` (branch: `feature/byoc-inference-client`)
 
-**Essential TODOs:**
+**Tasks:**
 
-- [ ] **P4.1: Generic inference client**
-  - Add `BYOCClient` class (or extend existing client) with `async def inference(capability, request, stream=False)`
-  - Flow: connect to orchestrator → get job token → submit request with payment → return response
-  - Reference: `byoc/job_orchestrator.go` for the exact header format (`Livepeer`, `Livepeer-Eth-Address`, `Livepeer-Payment`, `Livepeer-Capability`)
+- [ ] P4.1: `BYOCClient` class -- `inference(capability, request, stream=False)`
+- [ ] P4.2: Job token acquisition -- `GET /process/token` with auth headers
+- [ ] P4.3: Request submission with payment -- `POST /process/request/{path}`
+- [ ] P4.4: Example scripts -- LLM streaming, image generation
 
-- [ ] **P4.2: Job token acquisition**
-  - `GET /process/token` with `Livepeer-Eth-Address` (base64-encoded `{addr, sig}`) and `Livepeer-Capability` headers
-  - Parse `JobToken` response: ticket params, price, balance, capacity
+**Quality Gates:**
 
-- [ ] **P4.3: Request submission with payment**
-  - Build `JobRequest` JSON: `{id, request, parameters, capability, sender, sig, timeout_seconds}`
-  - Sign `request + parameters` with sender's private key
-  - `POST /process/request/{path}` with `Livepeer` header (base64 job request)
-  - Include `Livepeer-Payment` header with payment ticket when balance is low
-  - Support SSE streaming response (async iterator)
+- [ ] P4.QG1: Design review -- client API surface, auth flow
+- [ ] P4.QG2: Code review -- Python quality, error handling
+- [ ] P4.QG3: Unit tests -- >=85% coverage with mocked responses
+- [ ] P4.QG4: BDD e2e test -- client against deployed stack
 
-- [ ] **P4.4: Example scripts**
-  - `examples/byoc_inference_llm.py` — call LLM capability with streaming
-  - `examples/byoc_inference_image.py` — call text-to-image capability
-
-**Exit criteria:** `client.inference("llama3-70b", {"messages": [...]}, stream=True)` works against a deployed Topology 1/2/3 stack with automatic payment.
+**Exit Criteria:** `client.inference("flux-dev", {"prompt": "a cat"}, stream=False)` works against a deployed stack.
 
 ---
 
-### Phase 5: Polish, Templates & Documentation
+### Phase 5: Polish & Production Readiness
 
-**Goal:** Pre-built configs for popular models, CI/CD, docs. Make it production-ready.
+**Tasks:**
 
-**Essential TODOs:**
+- [ ] P5.1: Pre-built model configs -- Llama 3.1 (TGI), Flux (fal.ai), Whisper (RunPod)
+- [ ] P5.2: CI/CD -- `.github/workflows/containers.yml` for container image builds
+- [ ] P5.3: Documentation -- quickstart, architecture guide, troubleshooting
+- [ ] P5.4: NaaP marketplace listing
 
-- [ ] **P5.1: Pre-built model configs** (in livepeer-sdk repo, `examples/` or `templates/`)
-  - Llama 3.1 70B (TGI, Topology 1) — docker-compose + env template
-  - Flux image gen (fal.ai, Topology 3) — docker-compose + env template
-  - Whisper (RunPod serverless, Topology 3) — docker-compose + env template
+**Quality Gates:**
 
-- [ ] **P5.2: CI/CD** (GitHub Actions in NaaP repo)
-  - New workflow: `.github/workflows/containers.yml` — triggered on `containers/**` path changes
-  - Build + push `livepeer/inference-adapter:latest` and `livepeer/serverless-proxy:latest`
-  - Run Python tests for `containers/` on PR
-  - Tag releases independently from NaaP app releases
-  - Does NOT interfere with existing NaaP CI (Vercel, plugin builds, etc.)
+- [ ] P5.QG1: Documentation review -- completeness, accuracy
+- [ ] P5.QG2: CI/CD review -- pipeline correctness
+- [ ] P5.QG3: Integration test -- quickstart works end-to-end
+- [ ] P5.QG4: Full lifecycle BDD -- deploy, test via playground, call via SDK, destroy
 
-- [ ] **P5.3: Documentation** (in NaaP `docs/` and `containers/*/README.md`)
-  - Quickstart: "Deploy Llama 3.1 to Livepeer in 5 minutes" (Topology 1)
-  - Quickstart: "Bring fal.ai Flux to Livepeer" (Topology 3)
-  - Architecture guide with topology diagrams
-  - Pricing guide
-  - Troubleshooting (health check failures, registration issues, payment errors)
-
-- [ ] **P5.4: NaaP marketplace listing**
-  - Publish `livepeer-inference` template to NaaP marketplace plugin
-  - Screenshots, description, topology comparison
-
-**Exit criteria:** A developer can follow the quickstart, deploy a model on Livepeer, and call it from livepeer-sdk, in under 30 minutes.
-
----
-
-## Architectural Decisions & Rationale
-
-### Why NOT put the adapter in go-livepeer?
-
-| Reason | Detail |
-|---|---|
-| **BYOC already exists** | The orchestrator side (`byoc/`) handles registration, proxying, payment, capacity. No Go code changes needed. |
-| **Adapter is worker-side** | It runs alongside the inference backend, not alongside the orchestrator. It's operationally separate. |
-| **Python, not Go** | Adapter is a lightweight Python process. Go would be overkill for ~300 lines of HTTP proxying. |
-| **Independence** | Adapter can be versioned, released, and deployed independently of go-livepeer releases. |
-
-### Why put adapter + proxy in NaaP monorepo (not livepeer-sdk)?
-
-| Reason | Detail |
-|---|---|
-| **Co-located with deployment template** | The deployment-manager plugin that deploys these containers is in NaaP. One PR to change adapter + template together. |
-| **No dependency on livepeer-sdk** | Adapter talks HTTP to BYOC endpoints. Proxy talks HTTP to provider APIs. Zero shared Python code with livepeer-sdk. |
-| **Clean isolation** | `containers/` directory is invisible to npm, Nx, Vercel. Python projects with `pyproject.toml`, not `package.json`. Zero impact on NaaP's JS toolchain. |
-| **Single repo for operator tooling** | NaaP is the operator's platform. Adapter + proxy are operator-side components (deployed by the operator alongside the orchestrator). They belong with the operator's tooling, not the client SDK. |
-| **livepeer-sdk stays client-focused** | livepeer-sdk is for consumers of inference services (the BYOC client in Phase 4). Adapter + proxy are for providers of inference services. Different audiences, different repos. |
-
-### Why a separate serverless proxy instead of building it into the adapter?
-
-| Reason | Detail |
-|---|---|
-| **Separation of concerns** | Adapter handles Livepeer registration + proxying. Serverless proxy handles provider-specific API translation. |
-| **Reusability** | Serverless proxy can be used without Livepeer (plain HTTP proxy to fal.ai). Adapter can be used without serverless (direct to local container). |
-| **Composability** | Self-hosted GPU: adapter → local container (no proxy). Serverless: adapter → proxy → provider API. Same adapter either way. |
-| **Simpler testing** | Each component testable independently. |
-
-### How NaaP deployment-manager ties it together
-
-```
-NaaP Deployment Manager
-  │
-  ├── Template: "livepeer-inference"  (in BUILT_IN_TEMPLATES, like ai-runner and scope)
-  │     Defines: adapter image, health endpoint, config schema, topology options
-  │
-  ├── Provider Adapter: FalAdapter / RunPodAdapter / SshBridgeAdapter
-  │     Handles: deploy / destroy / status / health-check on the provider
-  │     NOTE: These handle DEPLOYMENT lifecycle, not runtime inference
-  │
-  ├── LivepeerComposeBuilder (NEW service)
-  │     Generates docker-compose.yaml based on selected topology
-  │
-  ├── Deployment Orchestrator
-  │     Manages: lifecycle, multi-container coordination
-  │
-  └── What gets deployed (three topology paths):
-
-        TOPOLOGY 1 — All-in-One Self-Hosted GPU:
-        ┌─────────────────────────────────────────────────────┐
-        │ Deployed to: GPU server via SshBridgeAdapter        │
-        │                                                     │
-        │ Container 1: go-livepeer orchestrator  :7935        │
-        │   Env: -serviceAddr=http://<public-ip>:7935         │
-        │                                                     │
-        │ Container 2: livepeer/inference-adapter :9090        │
-        │   Env: ORCH_URL=http://localhost:7935                │
-        │        ORCH_SECRET, CAPABILITY_NAME                  │
-        │        BACKEND_URL=http://localhost:8080              │
-        │        PRICE, CAPACITY                               │
-        │                                                     │
-        │ Container 3: model container (on GPU)  :8080        │
-        │   Image: ghcr.io/huggingface/text-generation-inference │
-        │   Env: MODEL_ID=meta-llama/Llama-3.1-70B-Instruct   │
-        └─────────────────────────────────────────────────────┘
-
-        TOPOLOGY 2 — All-on-Serverless-GPU:
-        ┌─────────────────────────────────────────────────────┐
-        │ Deployed to: RunPod pod via RunPodAdapter           │
-        │                                                     │
-        │ Same 3 containers as Topology 1, but on a provider  │
-        │ pod. go-livepeer's -serviceAddr set to provider's   │
-        │ assigned public endpoint URL.                       │
-        │                                                     │
-        │ NOTE: go-livepeer needs stable reachable URL.       │
-        │ RunPod provides: https://<pod-id>-7935.proxy.runpod.net │
-        └─────────────────────────────────────────────────────┘
-
-        TOPOLOGY 3 — CPU Orchestrator + Remote Inference:
-        ┌─────────────────────────────────────────────────────┐
-        │ Deployed to: CPU VM via SshBridgeAdapter            │
-        │                                                     │
-        │ Container 1: go-livepeer orchestrator  :7935        │
-        │   Env: -serviceAddr=http://<public-ip>:7935         │
-        │                                                     │
-        │ Container 2: livepeer/inference-adapter :9090        │
-        │   Env: ORCH_URL=http://localhost:7935                │
-        │        ORCH_SECRET, CAPABILITY_NAME                  │
-        │        BACKEND_URL=http://localhost:8080              │
-        │        PRICE, CAPACITY                               │
-        │                                                     │
-        │ Container 3: livepeer/serverless-proxy :8080        │
-        │   Env: PROVIDER=fal-ai                               │
-        │        FAL_KEY=...                                    │
-        │        FAL_MODEL_ID=fal-ai/flux/dev                  │
-        └─────────────────────────────────────────────────────┘
-        Model runs on fal.ai cloud (already deployed or existing).
-        Proxy calls fal.ai API over HTTPS.
-```
-
-The deployment-manager's existing `IProviderAdapter.deploy()` interface already supports `DeployConfig` with `dockerImage`, `artifactConfig`, and provider-specific fields. The `livepeer-inference` template extends this with topology selection + Livepeer-specific config that gets passed as container environment variables.
-
-**Key: NaaP provider adapters vs. serverless proxy — different roles:**
-- NaaP `FalAdapter` = deploys/destroys containers on fal.ai infrastructure (deployment lifecycle)
-- `livepeer/serverless-proxy` = runtime HTTP process that calls fal.ai inference API (request proxying)
-- They are complementary, not overlapping. NaaP deploys the proxy container; the proxy handles runtime traffic.
-
-**Key: go-livepeer is included in the docker-compose for all topologies.**
-This is a deliberate design choice — the operator deploys a complete Livepeer node + inference stack as one unit. go-livepeer doesn't need to be pre-existing on the machine.
-
-### Why this is simple, effective, and reliable
-
-| Property | How it's achieved |
-|---|---|
-| **Simple** | ~300 line adapter. Config-driven. No code changes to go-livepeer. No new protocols. |
-| **Effective** | Leverages battle-tested BYOC payment/capacity system. Any HTTP backend works. |
-| **Reliable** | Health monitoring with auto-unregister/re-register. Clean shutdown. Stateless adapter (restart-safe). Orchestrator handles payment atomicity. |
-| **No performance penalty** | Single HTTP hop (orch → adapter → backend). Streaming passthrough for SSE. No serialization overhead. |
-| **Extensible** | New provider = new file in `serverless_proxy/providers/`. New model = new template config. Zero framework code changes. |
-
-## Open Questions
-
-1. ~~**Adapter public URL**~~ **RESOLVED** — All 3 topologies co-locate adapter with go-livepeer on the same machine. Adapter registers as `localhost:9090`. No NAT/tunnel needed.
-
-2. ~~**Where do adapter/proxy run?**~~ **RESOLVED** — Three topologies defined. User chooses in NaaP wizard. See "Deployment Topologies" section.
-
-3. ~~**Multi-capability per adapter**~~ **RESOLVED** — One orchestrator serves N capabilities (1:N). One adapter = one capability. For multiple models, run multiple adapter instances (different ports) on the same machine, each registering a different capability name with the same orchestrator. See "Orchestrator-to-Inference Mapping: 1:N" section. NaaP future enhancement: "add capability to existing deployment."
-
-4. **Dynamic pricing**: Phase 1 uses static pricing. Future: adapter could query provider cost APIs and adjust dynamically. Especially useful for Topology 3 where provider costs vary.
-
-5. **Capability discovery for clients**: Clients currently need the orchestrator URL. Future: network-wide capability registry so clients can discover "who serves llama3-70b" across all orchestrators.
-
-6. **Request format standardization**: Phase 1 is passthrough. Future: optional OpenAI-compatible translation layer in the adapter (e.g., all LLM capabilities accept OpenAI chat completion format regardless of backend).
-
-7. **go-livepeer Docker image**: Topologies 1-3 all include go-livepeer in the docker-compose. Need to confirm the official go-livepeer Docker image (`livepeer/go-livepeer`) supports BYOC flags and is suitable for compose-based deployment. May need a lightweight config template for orchestrator settings (ETH key, network, service address).
+**Exit Criteria:** Developer follows quickstart, deploys model, calls it from SDK, in under 30 minutes.
 
 ---
 
 ## What Can and Cannot Be Supported
 
-### BYOC Protocol Capabilities (What the Wire Supports)
+### Works Perfectly
 
-The BYOC system in go-livepeer provides exactly **three interaction patterns**:
+Any HTTP POST -> JSON/binary/SSE response service: LLM inference, image gen, video gen, audio, embeddings, code gen, any HuggingFace/fal.ai/Replicate/RunPod model.
 
-| Pattern | BYOC Endpoint | How It Works | Billing |
+### Does Not Work
+
+WebSocket/gRPC, pub/sub, persistent connections, real-time bidirectional (<100ms). Transcoding: use go-livepeer's native pipeline.
+
+---
+
+## Risk Mitigation
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| go-livepeer Docker image doesn't support BYOC | Blocks all topologies | Phase 0 spike validates before implementation |
+| SshComposeAdapter deploy script fails | Deployment stuck in DEPLOYING | Timeout handling, clear error messages, compose project cleanup on failure |
+| YAML injection via user input | Security vulnerability | Use `js-yaml` library for generation, never string interpolation |
+| Partial compose startup (2/3 services start) | Unhealthy deployment | Compose health checks with `depends_on` + `healthcheck`. Adapter waits for backend before registering. |
+| Orchestrator crash during registered capability | Capability lost | Adapter heartbeat loop re-registers every 30s |
+| Provider API key exposed in compose YAML on remote host | Security | Compose file stored in `/opt/naap/<project>/` with restricted permissions (chmod 600, directory chmod 700). In NaaP DB, API keys stored in `artifactConfig` use the existing `SecretStore` encryption (same as provider credentials). The compose YAML on the remote host is the minimum necessary -- keys are in env vars inside the compose, not in separate files. |
+
+---
+
+## Quality Assessment
+
+| Category | Weight | Score | Notes |
 |---|---|---|---|
-| **Request-response** | `POST /process/request/{path}` | Client sends POST body, gets full response back | Per wall-clock second (`chargeForCompute(start, ...)`) |
-| **SSE streaming** | `POST /process/request/{path}` | Client sends POST, gets `text/event-stream` back. Orch debits every 5s while stream is open. | Per 5-second interval |
-| **Bidirectional live streaming** | `POST /ai/stream/start` | Creates trickle protocol channels: video in, video out, control, events, data (JSONL). Orch monitors and debits continuously. | Per 23-second interval |
-
-**Payment model:** `PricePerUnit / PixelsPerUnit` ratio = price per compute unit. For BYOC, "compute unit" = 1 second of wall-clock time. Minimum balance required: `price * 60` (1 minute). Uses probabilistic micropayment tickets (ETH L2).
-
-### The Core Question: What Existing Endpoints Can Be Published?
-
-**YES — any HTTP POST endpoint that follows request→response or request→SSE stream can be published on the Livepeer network via Topology 3.** The adapter + proxy just need to:
-1. Accept the request from the orchestrator
-2. Forward it to the backend endpoint
-3. Return the response
-
-The backend doesn't know it's on Livepeer. The adapter handles registration. The orchestrator handles payment. It's transparent.
-
-### What CAN Be Supported
-
-#### Tier 1: Perfect Fit (request-response, stateless, compute-bound)
-
-These map directly to BYOC's request-response pattern. Per-second billing makes sense because the cost correlates with compute time.
-
-| Service Type | Examples | How It Works |
-|---|---|---|
-| **LLM inference** | OpenAI-compatible APIs, Ollama, vLLM, TGI, LiteLLM | POST chat completion → response or SSE stream. Streaming supported natively. |
-| **Image generation** | Stable Diffusion, Flux, DALL-E-like APIs, fal.ai image models | POST prompt → image response. 2-30s per request. |
-| **Video generation** | Runway, Pika, fal.ai video models | POST prompt → video URL. 10-120s per request. |
-| **Audio generation** | TTS (ElevenLabs, Bark), music gen | POST text → audio response. |
-| **Audio transcription** | Whisper, Deepgram | POST audio file → text response. |
-| **Image analysis** | OCR, image captioning, object detection, CLIP | POST image → JSON response. |
-| **Embeddings** | Sentence transformers, OpenAI embeddings | POST text → vector response. |
-| **Code generation** | Code Llama, StarCoder, Copilot-like APIs | POST prompt → code response (SSE streaming). |
-| **Document processing** | PDF extraction, summarization | POST document → structured response. |
-| **Translation** | Language translation APIs | POST text → translated text. |
-| **Any HuggingFace Inference Endpoint** | Any model deployed on HF | POST → response. All HF endpoints are HTTP POST. |
-| **Any fal.ai model** | 100+ models on fal.ai | POST → queue → result. Proxy handles queue polling. |
-| **Any Replicate model** | 1000+ models on Replicate | POST → prediction → result. Proxy handles polling. |
-
-#### Tier 2: Works With Caveats (stateless but unusual patterns)
-
-| Service Type | Caveat | Workaround |
-|---|---|---|
-| **Multi-step workflows (ComfyUI)** | ComfyUI has a WebSocket API for progress, and workflows can be complex JSON. | Use ComfyUI's `/prompt` REST API (POST workflow JSON → poll for result). Proxy handles polling. No WebSocket needed for basic use. |
-| **Batch processing** | Multiple items in one request. BYOC bills per-second, so large batches are fine — billed for total wall time. | Works as-is. Set `BACKEND_TIMEOUT` high enough for batch completion. |
-| **Long-running jobs (>2 min)** | BYOC default timeout is per `timeout_seconds` in job request. For very long jobs (video gen, large batch). | Set high timeout. Orchestrator supports up to 15+ minutes. SSE streaming for progress updates. |
-| **File upload (multipart)** | BYOC proxies the raw POST body including multipart form data. | Works — `Content-Type: multipart/form-data` is passed through. Backend receives the file. |
-| **File download (large responses)** | Response body is proxied in full. Large files (videos, images) work but consume memory on the orchestrator. | Works for responses up to ~100MB. For very large files, return a URL to a storage service instead of the file itself. |
-
-#### Tier 3: Technically Possible But Poor Fit
-
-| Service Type | Why It's a Poor Fit | Could It Work? |
-|---|---|---|
-| **Transcoding** | go-livepeer already does transcoding natively via its built-in pipeline (not BYOC). It has its own segment-based pricing, B-frame handling, codec negotiation. Registering a transcoding service as a BYOC capability would bypass all of this and lose go-livepeer's transcoding optimizations. | **Don't do this.** Use go-livepeer's native transcoding. It's already on the network. BYOC is for capabilities go-livepeer doesn't have natively. |
-| **CDN / Content Delivery** | CDN is about geographic proximity to users. A single orchestrator + adapter on one machine serves from one location. CDN value = many edge nodes. BYOC has one endpoint. Also, CDN is typically pull-based (client requests content), while BYOC is push-based (client sends request body). | **Partially.** You could register a "fetch from origin + return cached content" capability. But you'd need orchestrators in multiple regions, each with their own adapter, to get CDN-like geographic distribution. The adapter itself doesn't provide this. |
-| **S3 / Object Storage** | Storage is stateful (files persist). BYOC is stateless (request-response). Billing per-second doesn't match storage billing (per-GB-month). Uploading works (POST file → store), but how do you bill for ongoing storage? | **Upload/download works.** POST file → adapter → S3 PUT, or GET file → adapter → S3 GET. But ongoing storage costs are not covered by BYOC billing. The operator eats the storage cost or must build a separate billing layer. |
-| **Database queries** | BYOC could technically proxy a POST containing a SQL query and return results. But: no connection pooling, no transactions, no persistent connections, no auth beyond Livepeer payment. Per-second billing for a 50ms query is wasteful. | **Technically possible** but impractical. Every query is a fresh HTTP request through the full BYOC stack. Latency overhead (~10-50ms for local, ~100-300ms for Topology 3) dominates for fast queries. No session/transaction support. |
-| **Kafka / Message Queue** | Pub/sub pattern. Consumers need long-lived connections. Producers need guaranteed delivery. BYOC is request-response with timeout. No persistent subscriptions. | **Cannot work.** BYOC fundamentally doesn't support the pub/sub pattern. You'd need to build a completely different protocol. |
-| **WebSocket services** | BYOC proxies HTTP. It does not support WebSocket upgrade (`101 Switching Protocols`). The orchestrator's HTTP proxy reads the full response body. | **Cannot work** without go-livepeer changes. The BYOC proxy in `job_orchestrator.go` reads `resp.Body` fully — it doesn't support bidirectional WebSocket. The trickle-based streaming (`/ai/stream/`) is the closest equivalent but uses a different protocol. |
-| **gRPC services** | BYOC is HTTP/1.1 request-response. gRPC uses HTTP/2 with bidirectional streaming, specific framing, and trailers. | **Cannot work** as-is. Would need a gRPC-to-HTTP translation layer (like grpc-gateway) in front of the service, which defeats the purpose. |
-| **Real-time bidirectional (gaming, collaboration)** | Requires sub-10ms latency and persistent connections. BYOC adds HTTP overhead per interaction. | **Cannot work.** BYOC is not designed for real-time bidirectional communication. The trickle streaming gets close for video but has segment-level granularity (~seconds), not frame-level. |
-
-### Summary: The Boundary
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    WORKS PERFECTLY                                │
-│                                                                  │
-│  Any HTTP POST → JSON/binary/SSE response service               │
-│  (AI inference, processing, transformation, analysis)            │
-│                                                                  │
-│  Billing: per-second of compute time makes sense                 │
-│  Pattern: stateless request → response                           │
-│  Latency: seconds-scale is fine (generation tasks)               │
-├─────────────────────────────────────────────────────────────────┤
-│                    WORKS WITH CAVEATS                             │
-│                                                                  │
-│  File upload/download (size limits)                              │
-│  Long-running batch jobs (set high timeout)                      │
-│  Multi-step workflows (use REST API, not WebSocket)              │
-│  Storage upload (but not ongoing storage billing)                │
-├─────────────────────────────────────────────────────────────────┤
-│                    DOES NOT WORK                                  │
-│                                                                  │
-│  Transcoding (use go-livepeer native — already on network)       │
-│  WebSocket / gRPC / bidirectional protocols                      │
-│  Pub/sub (Kafka, MQTT, message queues)                           │
-│  Persistent connections (database sessions, connection pools)    │
-│  Real-time bidirectional (<100ms round-trip)                     │
-│  Ongoing storage billing (S3 monthly costs)                      │
-│  Geographic distribution (CDN multi-edge)                        │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Can Transcoding Be Supported?
-
-**It already is — natively.** go-livepeer's original purpose is transcoding. It has:
-- Segment-based transcoding pipeline (`server/broadcast.go`, `core/transcoder.go`)
-- Hardware-accelerated encoding (NVENC, VAAPI)
-- B-frame handling, codec negotiation
-- Its own pricing model (per-pixel)
-- Built-in orchestrator ↔ transcoder protocol (gRPC)
-
-**Do NOT register transcoding as a BYOC capability.** It would bypass go-livepeer's optimized transcoding pipeline and use a suboptimal HTTP proxy path instead. Transcoding is already a first-class citizen on the Livepeer network.
-
-### Can CDN Be Supported?
-
-**Not effectively with this architecture.** CDN requires:
-1. **Many edge nodes** geographically distributed — BYOC is one orchestrator in one location
-2. **Caching** — BYOC is stateless, no cache layer
-3. **Pull model** — CDN serves content on demand; BYOC is push (client sends request)
-
-To make CDN work on Livepeer, you'd need a fundamentally different architecture: multiple orchestrators with a discovery layer that routes clients to the nearest one, plus a caching layer. This is beyond the adapter scope.
-
-### Can "General Services" Be Brought to Livepeer?
-
-The adapter makes Livepeer a **paid compute network for HTTP services**. It works well for:
-- **Compute-bound services** where billing per-second matches cost structure
-- **Stateless services** where each request is independent
-- **Services with seconds-scale latency** where HTTP overhead is negligible
-
-It does NOT make Livepeer a general-purpose cloud platform. Services that need persistent state, persistent connections, sub-100ms latency, or non-HTTP protocols need their own infrastructure. The Livepeer protocol (probabilistic micropayments + orchestrator discovery) is designed for compute work, not for storage, messaging, or CDN.
-
-**The sweet spot is exactly what it says: inference.** Any AI model, any processing pipeline, any transformation service that takes input and produces output via HTTP POST. That's a massive surface area — every model on HuggingFace, every endpoint on fal.ai/Replicate/RunPod, every custom inference container.
+| **Completeness** | 15 | 14 | Phase 0 spike, all IProviderAdapter methods (deploy/destroy/update/getStatus/healthCheck/getGpuOptions) specified for SshComposeAdapter, data storage via existing artifactConfig |
+| **Consistency** | 10 | 9 | Route in deployments router, types additive, ProviderMode reuses 'ssh-bridge' |
+| **Simplicity** | 15 | 13 | 2 new frontend components, topology 3 default, auto-config, auto-select provider |
+| **SOLID Compliance** | 15 | 14 | New SshComposeAdapter, no SshBridgeAdapter changes, additive wizard branches |
+| **Test Coverage Plan** | 10 | 9 | >=85% target, BDD for all phases, failure mode scenarios |
+| **E2E / BDD Quality** | 10 | 9 | Realistic scenarios including compose deploy/destroy, partial failures |
+| **UX / Least Effort** | 10 | 9 | Auto-select ssh-compose, auto-set gpuModel=CPU, canProceed() detailed |
+| **Architecture Fit** | 10 | 10 | Follows NaaP patterns, containers/ isolation, Vercel-safe, SecretStore for keys |
+| **Risk Mitigation** | 5 | 5 | Phase 0 spike, YAML sanitization via js-yaml, compose permissions, SecretStore encryption |
+| **Total** | 100 | **92** | |

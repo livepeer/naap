@@ -1,17 +1,25 @@
 import type { IProviderAdapter } from './IProviderAdapter';
-import type { GpuOption, DeployConfig, UpdateConfig, ProviderDeployment, ProviderStatus, HealthResult } from '../types';
-import { createGwFetch } from './gateway-fetch';
-
-const gwFetch = createGwFetch('modal');
+import type { ProviderApiConfig, GpuOption, DeployConfig, UpdateConfig, ProviderDeployment, ProviderStatus, HealthResult } from '../types';
+import { authenticatedProviderFetch } from '../provider-fetch';
 
 export class ModalAdapter implements IProviderAdapter {
   readonly slug = 'modal';
   readonly displayName = 'Modal Serverless GPU';
-  readonly connectorSlug = 'modal-serverless';
   readonly mode = 'serverless' as const;
   readonly icon = '🔮';
   readonly description = 'Serverless GPU infrastructure on Modal with elastic scaling.';
   readonly authMethod = 'token';
+  readonly apiConfig: ProviderApiConfig = {
+    upstreamBaseUrl: 'https://api.modal.com/v1',
+    authType: 'bearer',
+    authHeaderTemplate: 'Bearer {{secret}}',
+    secretNames: ['api-key'],
+    healthCheckPath: '/apps',
+  };
+
+  private fetch(path: string, options: RequestInit = {}) {
+    return authenticatedProviderFetch(this.slug, this.apiConfig, path, options);
+  }
 
   async getGpuOptions(): Promise<GpuOption[]> {
     return [
@@ -25,7 +33,7 @@ export class ModalAdapter implements IProviderAdapter {
   }
 
   async deploy(config: DeployConfig): Promise<ProviderDeployment> {
-    const res = await gwFetch('/apps', {
+    const res = await this.fetch('/apps', {
       method: 'POST',
       body: JSON.stringify({ name: config.name, image: config.dockerImage, gpu: config.gpuModel, gpu_count: config.gpuCount, min_containers: 0, max_containers: 5, timeout: 300 }),
     });
@@ -39,7 +47,7 @@ export class ModalAdapter implements IProviderAdapter {
   }
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
-    const res = await gwFetch(`/apps/${providerDeploymentId}`);
+    const res = await this.fetch(`/apps/${providerDeploymentId}`);
     if (!res.ok) return { status: 'FAILED' };
     const data = await res.json();
     const statusMap: Record<string, ProviderStatus['status']> = { deployed: 'ONLINE', deploying: 'DEPLOYING', stopped: 'OFFLINE', errored: 'FAILED' };
@@ -47,7 +55,7 @@ export class ModalAdapter implements IProviderAdapter {
   }
 
   async destroy(providerDeploymentId: string): Promise<void> {
-    const res = await gwFetch(`/apps/${providerDeploymentId}`, { method: 'DELETE' });
+    const res = await this.fetch(`/apps/${providerDeploymentId}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) throw new Error(`Modal destroy failed (${res.status})`);
   }
 
@@ -55,7 +63,7 @@ export class ModalAdapter implements IProviderAdapter {
     const body: Record<string, unknown> = {};
     if (config.dockerImage) body.image = config.dockerImage;
     if (config.gpuModel) body.gpu = config.gpuModel;
-    const res = await gwFetch(`/apps/${providerDeploymentId}`, { method: 'PUT', body: JSON.stringify(body) });
+    const res = await this.fetch(`/apps/${providerDeploymentId}`, { method: 'PUT', body: JSON.stringify(body) });
     if (!res.ok) throw new Error(`Modal update failed (${res.status})`);
     const data = await res.json();
     return { providerDeploymentId, endpointUrl: data.web_url, status: 'UPDATING', metadata: data };
@@ -64,7 +72,7 @@ export class ModalAdapter implements IProviderAdapter {
   async healthCheck(providerDeploymentId: string): Promise<HealthResult> {
     try {
       const start = Date.now();
-      const res = await gwFetch(`/apps/${providerDeploymentId}`);
+      const res = await this.fetch(`/apps/${providerDeploymentId}`);
       const responseTimeMs = Date.now() - start;
       if (!res.ok) return { healthy: false, status: 'RED', responseTimeMs, statusCode: res.status };
       const data = await res.json();

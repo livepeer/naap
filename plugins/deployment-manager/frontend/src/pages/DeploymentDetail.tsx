@@ -11,10 +11,11 @@ import { DeploymentLogs } from '../components/DeploymentLogs';
 import { OverviewTab } from '../components/OverviewTab';
 import { UsageTab } from '../components/UsageTab';
 import { RequestTab } from '../components/RequestTab';
+import { InferencePlayground } from '../components/InferencePlayground';
 
 const API_BASE = '/api/v1/deployment-manager';
 
-type TabId = 'overview' | 'usage' | 'request' | 'timeline' | 'logs' | 'health' | 'audit';
+type TabId = 'overview' | 'usage' | 'request' | 'pipeline' | 'timeline' | 'logs' | 'health' | 'audit';
 
 interface DeploymentDetailProps {
   deploymentId?: string;
@@ -344,6 +345,9 @@ export const DeploymentDetail: React.FC<DeploymentDetailProps> = ({ deploymentId
         <button style={tabStyle('overview')} onClick={() => setActiveTab('overview')}>Overview</button>
         <button style={tabStyle('usage')} onClick={() => setActiveTab('usage')}>Usage</button>
         <button style={tabStyle('request')} onClick={() => setActiveTab('request')}>Request</button>
+        {d.templateId === 'livepeer-inference' && (
+          <button style={tabStyle('pipeline')} onClick={() => setActiveTab('pipeline')}>Pipeline</button>
+        )}
         <button style={tabStyle('timeline')} onClick={() => setActiveTab('timeline')}>Timeline</button>
         <button style={tabStyle('logs')} onClick={() => setActiveTab('logs')}>Logs</button>
         <button style={tabStyle('health')} onClick={() => setActiveTab('health')}>Health</button>
@@ -354,6 +358,9 @@ export const DeploymentDetail: React.FC<DeploymentDetailProps> = ({ deploymentId
       {activeTab === 'overview' && <OverviewTab deployment={d as any} />}
       {activeTab === 'usage' && <UsageTab deploymentId={id} />}
       {activeTab === 'request' && <RequestTab deploymentId={id} endpointUrl={d.endpointUrl} providerSlug={d.providerSlug} />}
+      {activeTab === 'pipeline' && d.templateId === 'livepeer-inference' && (
+        <InferencePlayground deploymentId={id} endpointUrl={d.endpointUrl} />
+      )}
       {activeTab === 'timeline' && <StatusTimeline deploymentId={id} />}
       {activeTab === 'logs' && <DeploymentLogs deploymentId={id} />}
       {activeTab === 'health' && (

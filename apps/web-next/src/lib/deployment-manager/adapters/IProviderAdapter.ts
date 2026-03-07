@@ -1,5 +1,6 @@
 import type {
   ProviderMode,
+  ProviderApiConfig,
   GpuOption,
   DeployConfig,
   UpdateConfig,
@@ -11,7 +12,7 @@ import type {
 export interface IProviderAdapter {
   readonly slug: string;
   readonly displayName: string;
-  readonly connectorSlug: string;
+  readonly apiConfig: ProviderApiConfig;
   readonly mode: ProviderMode;
   readonly icon: string;
   readonly description: string;

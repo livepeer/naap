@@ -11,6 +11,7 @@ import { FalAdapter } from './adapters/FalAdapter.js';
 import { BasetenAdapter } from './adapters/BasetenAdapter.js';
 import { ModalAdapter } from './adapters/ModalAdapter.js';
 import { ReplicateAdapter } from './adapters/ReplicateAdapter.js';
+import { SshComposeAdapter } from './adapters/SshComposeAdapter.js';
 import { createProvidersRouter } from './routes/providers.js';
 import { createDeploymentsRouter } from './routes/deployments.js';
 import { createTemplatesRouter } from './routes/templates.js';
@@ -34,6 +35,7 @@ registry.register(new FalAdapter());
 registry.register(new BasetenAdapter());
 registry.register(new ModalAdapter());
 registry.register(new ReplicateAdapter());
+registry.register(new SshComposeAdapter());
 
 const audit = new AuditService();
 const templateRegistry = new TemplateRegistry();

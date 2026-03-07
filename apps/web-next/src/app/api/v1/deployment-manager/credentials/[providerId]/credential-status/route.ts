@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken } from '@/lib/api/response';
-import { prisma } from '@/lib/db';
 import { getServices } from '@/lib/deployment-manager';
+import { hasSecret } from '@/lib/deployment-manager/secrets';
 
 export async function GET(
   request: NextRequest,
@@ -22,34 +22,19 @@ export async function GET(
     }
 
     const adapter = registry.get(providerId);
-    const connector = await prisma.serviceConnector.findFirst({
-      where: { slug: { contains: providerId } },
-    });
+    const secretNames = adapter.apiConfig.secretNames;
 
-    if (!connector) {
-      const secretName = adapter.authMethod === 'token' ? 'bearer-token' : 'api-key';
-      return NextResponse.json({
-        success: true,
-        data: {
-          configured: false,
-          secrets: [{ name: secretName, configured: false }],
-        },
-      });
-    }
+    const secretStatuses = await Promise.all(
+      secretNames.map((name) => hasSecret(user.id, providerId, name)),
+    );
 
-    const authCfg = connector.authConfig as Record<string, unknown> | null;
-    const hasAuth = authCfg && Object.keys(authCfg).length > 0 && authCfg.type !== 'none';
-    const secretName = adapter.authMethod === 'token' ? 'bearer-token' : 'api-key';
+    const configured = secretStatuses.every((s) => s.configured);
 
     return NextResponse.json({
       success: true,
       data: {
-        configured: !!hasAuth,
-        secrets: [{
-          name: secretName,
-          configured: !!hasAuth,
-          maskedValue: hasAuth ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : undefined,
-        }],
+        configured,
+        secrets: secretStatuses,
       },
     });
   } catch (err: any) {

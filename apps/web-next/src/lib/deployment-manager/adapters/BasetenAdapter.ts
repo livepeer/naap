@@ -1,17 +1,25 @@
 import type { IProviderAdapter } from './IProviderAdapter';
-import type { GpuOption, DeployConfig, UpdateConfig, ProviderDeployment, ProviderStatus, HealthResult } from '../types';
-import { createGwFetch } from './gateway-fetch';
-
-const gwFetch = createGwFetch('baseten');
+import type { ProviderApiConfig, GpuOption, DeployConfig, UpdateConfig, ProviderDeployment, ProviderStatus, HealthResult } from '../types';
+import { authenticatedProviderFetch } from '../provider-fetch';
 
 export class BasetenAdapter implements IProviderAdapter {
   readonly slug = 'baseten';
   readonly displayName = 'Baseten Model Deployment';
-  readonly connectorSlug = 'baseten-serverless';
   readonly mode = 'serverless' as const;
   readonly icon = '🏗️';
   readonly description = 'Deploy ML models as scalable API endpoints on Baseten.';
   readonly authMethod = 'api-key';
+  readonly apiConfig: ProviderApiConfig = {
+    upstreamBaseUrl: 'https://api.baseten.co/v1',
+    authType: 'bearer',
+    authHeaderTemplate: 'Bearer {{secret}}',
+    secretNames: ['api-key'],
+    healthCheckPath: '/models',
+  };
+
+  private fetch(path: string, options: RequestInit = {}) {
+    return authenticatedProviderFetch(this.slug, this.apiConfig, path, options);
+  }
 
   async getGpuOptions(): Promise<GpuOption[]> {
     return [
@@ -24,7 +32,7 @@ export class BasetenAdapter implements IProviderAdapter {
   }
 
   async deploy(config: DeployConfig): Promise<ProviderDeployment> {
-    const res = await gwFetch('/models', {
+    const res = await this.fetch('/models', {
       method: 'POST',
       body: JSON.stringify({ name: config.name, docker_image: config.dockerImage, gpu: config.gpuModel, min_replica: 0, max_replica: 3, autoscaling_window: 300 }),
     });
@@ -38,7 +46,7 @@ export class BasetenAdapter implements IProviderAdapter {
   }
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
-    const res = await gwFetch(`/models/${providerDeploymentId}`);
+    const res = await this.fetch(`/models/${providerDeploymentId}`);
     if (!res.ok) return { status: 'FAILED' };
     const data = await res.json();
     const statusMap: Record<string, ProviderStatus['status']> = { ACTIVE: 'ONLINE', BUILDING: 'DEPLOYING', SCALING: 'DEPLOYING', FAILED: 'FAILED', STOPPED: 'OFFLINE' };
@@ -46,14 +54,14 @@ export class BasetenAdapter implements IProviderAdapter {
   }
 
   async destroy(providerDeploymentId: string): Promise<void> {
-    const res = await gwFetch(`/models/${providerDeploymentId}`, { method: 'DELETE' });
+    const res = await this.fetch(`/models/${providerDeploymentId}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) throw new Error(`Baseten destroy failed (${res.status})`);
   }
 
   async update(providerDeploymentId: string, config: UpdateConfig): Promise<ProviderDeployment> {
     const body: Record<string, unknown> = {};
     if (config.dockerImage) body.docker_image = config.dockerImage;
-    const res = await gwFetch(`/models/${providerDeploymentId}`, { method: 'PATCH', body: JSON.stringify(body) });
+    const res = await this.fetch(`/models/${providerDeploymentId}`, { method: 'PATCH', body: JSON.stringify(body) });
     if (!res.ok) throw new Error(`Baseten update failed (${res.status})`);
     const data = await res.json();
     return { providerDeploymentId, endpointUrl: data.url, status: 'UPDATING', metadata: data };
@@ -62,7 +70,7 @@ export class BasetenAdapter implements IProviderAdapter {
   async healthCheck(providerDeploymentId: string): Promise<HealthResult> {
     try {
       const start = Date.now();
-      const res = await gwFetch(`/models/${providerDeploymentId}`);
+      const res = await this.fetch(`/models/${providerDeploymentId}`);
       const responseTimeMs = Date.now() - start;
       if (!res.ok) return { healthy: false, status: 'RED', responseTimeMs, statusCode: res.status };
       const data = await res.json();
