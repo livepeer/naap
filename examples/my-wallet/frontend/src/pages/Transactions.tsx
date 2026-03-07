@@ -17,13 +17,19 @@ import {
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { useTransactions, Transaction } from '../hooks/useTransactions';
+import { useGasAccounting } from '../hooks/useGasAccounting';
+import { usePnlExport } from '../hooks/usePnlExport';
 import { PageHeader } from '../components/PageHeader';
+import { GasSummaryCard } from '../components/GasSummaryCard';
+import { ExportButton } from '../components/ExportButton';
 import { formatTxHash, formatBalance, getExplorerTxUrl } from '../lib/utils';
 
 export const TransactionsPage: React.FC = () => {
   const navigate = useNavigate();
   const { address, chainId, isConnected } = useWallet();
   const { transactions, isLoading, error, refresh, hasMore, loadMore, total } = useTransactions(20);
+  const { summary: gasSummary, isLoading: gasLoading } = useGasAccounting();
+  const { exportPnl, isExporting } = usePnlExport();
 
   if (!isConnected || !address) {
     return (
@@ -98,6 +104,31 @@ export const TransactionsPage: React.FC = () => {
           </button>
         }
       />
+
+      {/* Gas Summary (S7) */}
+      {gasSummary && (
+        <GasSummaryCard
+          totalGasCostEth={gasSummary.totalGasCostEth}
+          transactionCount={gasSummary.transactionCount}
+          avgGasPerTx={gasSummary.avgGasPerTx}
+          byType={gasSummary.byType}
+          isLoading={gasLoading}
+        />
+      )}
+
+      {/* P&L Export (S13) */}
+      <div className="flex items-center justify-between glass-card p-4">
+        <div>
+          <h3 className="text-sm font-semibold text-text-primary">P&L Report</h3>
+          <p className="text-xs text-text-muted">Export profit & loss with gas costs</p>
+        </div>
+        <ExportButton
+          onExportCSV={() => exportPnl('csv')}
+          onExportJSON={() => exportPnl('json')}
+          isExporting={isExporting}
+          label="Export P&L"
+        />
+      </div>
 
       {/* Error State */}
       {error && (
