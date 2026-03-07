@@ -168,6 +168,9 @@ export const ConnectorDetailPage: React.FC = () => {
       .finally(() => setSpecLoading(false));
   }, [activeTab, id, api, openApiSpec]);
 
+  const connector = connectorRes?.data;
+  const keys = keysRes?.data || [];
+
   // Load secrets when Settings tab is active
   const loadSecrets = useCallback(() => {
     if (!id) return;
@@ -217,9 +220,6 @@ export const ConnectorDetailPage: React.FC = () => {
     if (activeTab !== 'Usage' || !id) return;
     loadUsage();
   }, [activeTab, id, loadUsage]);
-
-  const connector = connectorRes?.data;
-  const keys = keysRes?.data || [];
 
   const handleCreateKey = async () => {
     if (!newKeyName || !id) return;
