@@ -112,6 +112,7 @@ async function createConnectorFromTemplate(
         description: ep.description,
         method: ep.method,
         path: ep.path,
+        enabled: true,
         upstreamPath: ep.upstreamPath,
         upstreamContentType: ep.upstreamContentType || 'application/json',
         bodyTransform: ep.bodyTransform || 'passthrough',
