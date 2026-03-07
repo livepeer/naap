@@ -39,7 +39,6 @@ export interface ResolvedEndpoint {
   upstreamQueryParams: Record<string, string>;
   upstreamStaticBody: string | null;
   bodyTransform: string;
-  responseBodyTransform: string;
   headerMapping: Record<string, string>;
   rateLimit: number | null;
   timeout: number | null;

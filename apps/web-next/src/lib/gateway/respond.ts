@@ -23,7 +23,7 @@ export async function buildResponse(
   const { connector, endpoint } = config;
 
   const responseContentType = response.headers.get('content-type') || '';
-  const rbt = endpoint.responseBodyTransform || 'none';
+  const rbt = 'none';
   const mode = resolveResponseMode(connector, responseContentType, rbt);
 
   const strategy = registry.getResponse(mode);

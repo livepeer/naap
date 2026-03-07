@@ -285,6 +285,15 @@ export const ConnectorWizardPage: React.FC = () => {
       if (!connRes.success) return;
       const connectorId = connRes.data.id;
 
+      const secretEntries = Object.entries(secrets).filter(([, v]) => v.trim());
+      if (secretEntries.length > 0) {
+        try {
+          await api.put(`/connectors/${connectorId}/secrets`, Object.fromEntries(secretEntries));
+        } catch (secErr: unknown) {
+          setSaveError(`Secrets could not be saved: ${extractErrorMessage(secErr, 'unknown error')}. You can add them from the connector detail page.`);
+        }
+      }
+
       const failedEndpoints: string[] = [];
       for (const ep of endpoints) {
         try {

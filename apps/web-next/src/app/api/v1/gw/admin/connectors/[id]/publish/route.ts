@@ -13,6 +13,7 @@ import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse, loadConnectorWithEndpoints } from '@/lib/gateway/admin/team-guard';
 import { invalidateConnectorCache } from '@/lib/gateway/resolve';
+import { logAudit } from '@/lib/gateway/admin/audit';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -62,6 +63,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
 
     invalidateConnectorCache(ctx.teamId, updated.slug);
+
+    logAudit(ctx, {
+      action: 'connector.publish',
+      resourceId: id,
+      details: { slug: updated.slug, endpointCount: enabledEndpoints.length },
+      request,
+    }).catch(() => {});
 
     return success(updated);
   } catch (err) {

@@ -90,6 +90,7 @@ export const ConnectorDetailPage: React.FC = () => {
   const [secrets, setSecrets] = useState<Array<{ name: string; configured: boolean; updatedAt?: string }>>([]);
   const [secretInputs, setSecretInputs] = useState<Record<string, string>>({});
   const [secretSaving, setSecretSaving] = useState<Record<string, boolean>>({});
+  const [secretError, setSecretError] = useState<string | null>(null);
   const [secretsLoaded, setSecretsLoaded] = useState(false);
 
   // Usage state
@@ -1101,6 +1102,11 @@ export const ConnectorDetailPage: React.FC = () => {
                 <p className="text-xs text-gray-500">
                   Configure API keys and credentials for the upstream service. These are encrypted and only visible to the connector owner.
                 </p>
+                {secretError && (
+                  <div className="px-3 py-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
+                    {secretError}
+                  </div>
+                )}
                 <div className="space-y-3">
                   {secrets.map((secret) => (
                     <div key={secret.name} className="flex items-center gap-3">
@@ -1126,10 +1132,13 @@ export const ConnectorDetailPage: React.FC = () => {
                           const value = secretInputs[secret.name];
                           if (!value?.trim()) return;
                           setSecretSaving(prev => ({ ...prev, [secret.name]: true }));
+                          setSecretError(null);
                           try {
                             await api.put(`/connectors/${id}/secrets`, { [secret.name]: value });
                             setSecretInputs(prev => ({ ...prev, [secret.name]: '' }));
                             setSecretsLoaded(false);
+                          } catch (err: unknown) {
+                            setSecretError(extractErrorMessage(err, `Failed to save secret "${secret.name}"`));
                           } finally {
                             setSecretSaving(prev => ({ ...prev, [secret.name]: false }));
                           }
@@ -1143,9 +1152,12 @@ export const ConnectorDetailPage: React.FC = () => {
                         <button
                           onClick={async () => {
                             setSecretSaving(prev => ({ ...prev, [secret.name]: true }));
+                            setSecretError(null);
                             try {
                               await api.del(`/connectors/${id}/secrets/${secret.name}`);
                               setSecretsLoaded(false);
+                            } catch (err: unknown) {
+                              setSecretError(extractErrorMessage(err, `Failed to remove secret "${secret.name}"`));
                             } finally {
                               setSecretSaving(prev => ({ ...prev, [secret.name]: false }));
                             }
