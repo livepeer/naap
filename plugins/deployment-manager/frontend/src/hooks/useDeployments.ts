@@ -97,7 +97,8 @@ export function useDeployment(id: string) {
       }
     };
 
-    timerRef.current = setInterval(poll, 10_000);
+    poll();
+    timerRef.current = setInterval(poll, 5_000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [deployment?.status, id]);
 

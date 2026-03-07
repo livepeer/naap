@@ -2,10 +2,14 @@ export type ProviderMode = 'serverless' | 'ssh-bridge';
 
 export type DeploymentStatus =
   | 'PENDING'
+  | 'PROVISIONING'
   | 'DEPLOYING'
   | 'VALIDATING'
   | 'ONLINE'
+  | 'DEGRADED'
+  | 'OFFLINE'
   | 'UPDATING'
+  | 'DESTROYING'
   | 'FAILED'
   | 'DESTROYED';
 

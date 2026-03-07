@@ -239,7 +239,7 @@ export const DeploymentWizard: React.FC = () => {
   // Poll deployment status after deploy — uses sync-status to reconcile with provider
   useEffect(() => {
     if (!deployedId || deploying) return;
-    if (['DESTROYED', 'ONLINE'].includes(deployStatus)) return;
+    if (['DESTROYED', 'ONLINE', 'FAILED'].includes(deployStatus)) return;
 
     const poll = async () => {
       try {
@@ -249,16 +249,20 @@ export const DeploymentWizard: React.FC = () => {
           : `${API_BASE}/deployments/${deployedId}`;
         const res = await fetch(url, inProgress ? { method: 'POST' } : undefined);
         const data = await res.json();
-        if (data.success) {
+        if (data.success && data.data) {
           setDeployStatus(data.data.status);
           setHealthStatus(data.data.healthStatus || 'UNKNOWN');
+          if (data.data.statusMessage) {
+            setDeployError(data.data.statusMessage);
+          }
         }
       } catch {
-        // ignore
+        // ignore network errors — will retry on next interval
       }
     };
 
-    const timer = setInterval(poll, 8000);
+    poll();
+    const timer = setInterval(poll, 5000);
     return () => clearInterval(timer);
   }, [deployedId, deploying, deployStatus]);
 

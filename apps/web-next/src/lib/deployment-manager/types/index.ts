@@ -113,6 +113,7 @@ export interface DeploymentRecord {
   updatedAt: Date;
   lastHealthCheck?: Date;
   deployedAt?: Date;
+  statusMessage?: string;
 }
 
 export interface StatusLogEntry {

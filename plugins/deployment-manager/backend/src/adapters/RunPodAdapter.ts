@@ -80,12 +80,15 @@ export class RunPodAdapter implements IProviderAdapter {
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
     const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/endpoints/${providerDeploymentId}`);
     if (!res.ok) {
-      return { status: 'FAILED', metadata: { error: `RunPod API returned ${res.status}` } };
+      const body = await res.text().catch(() => '');
+      console.error(`[RunPodAdapter.getStatus] API returned ${res.status} for ${providerDeploymentId}: ${body}`);
+      return { status: 'FAILED', metadata: { error: `RunPod API returned ${res.status}`, body } };
     }
     const data = await res.json();
+    const rawStatus = data.status || 'UNKNOWN';
+    console.log(`[RunPodAdapter.getStatus] ${providerDeploymentId}: rawStatus=${rawStatus}, workers=${JSON.stringify({ running: data.workersRunning, total: data.workersTotal, min: data.workersMin })}`);
 
-    // Detect stuck initializing — workers with throttled/failed image pulls
-    if (data.status === 'INITIALIZING' && data.workersTotal > 0) {
+    if (rawStatus === 'INITIALIZING' && data.workersTotal > 0) {
       const hasRunning = (data.workersRunning || 0) > 0;
       if (!hasRunning) {
         const createdAt = data.createdAt ? new Date(data.createdAt).getTime() : 0;
@@ -103,13 +106,22 @@ export class RunPodAdapter implements IProviderAdapter {
     const statusMap: Record<string, ProviderStatus['status']> = {
       READY: 'ONLINE',
       INITIALIZING: 'DEPLOYING',
-      UNHEALTHY: 'ONLINE',
+      UNHEALTHY: 'DEGRADED',
       OFFLINE: 'ONLINE',
+      RUNNING: 'ONLINE',
+      SCALING: 'DEPLOYING',
+      PENDING: 'DEPLOYING',
+      CREATING: 'DEPLOYING',
     };
+
+    const mapped = statusMap[rawStatus] || statusMap[rawStatus.toUpperCase()];
+    if (!mapped) {
+      console.warn(`[RunPodAdapter.getStatus] Unknown RunPod status "${rawStatus}" for ${providerDeploymentId}, defaulting to DEPLOYING`);
+    }
     return {
-      status: statusMap[data.status] || 'DEPLOYING',
+      status: mapped || 'DEPLOYING',
       endpointUrl: `https://api.runpod.ai/v2/${providerDeploymentId}`,
-      metadata: data,
+      metadata: { ...data, rawStatus },
     };
   }
 

@@ -58,6 +58,7 @@ function toRecord(row: any): DeploymentRecord {
     updatedAt: row.updatedAt,
     lastHealthCheck: row.lastHealthCheck ?? undefined,
     deployedAt: row.deployedAt ?? undefined,
+    statusMessage: row.statusMessage ?? undefined,
   };
 }
 
@@ -234,7 +235,10 @@ export class DeploymentOrchestrator {
 
   async syncStatus(id: string, userId: string): Promise<DeploymentRecord> {
     const record = await this.getOrThrow(id);
-    if (!record.providerDeploymentId) return record;
+    if (!record.providerDeploymentId) {
+      console.warn(`[syncStatus] ${id}: no providerDeploymentId, skipping`);
+      return record;
+    }
 
     const inProgressStates: DeploymentStatus[] = ['PROVISIONING', 'DEPLOYING', 'VALIDATING'];
     if (!inProgressStates.includes(record.status)) return record;
@@ -243,6 +247,8 @@ export class DeploymentOrchestrator {
     setCurrentUserId(userId);
     try {
       const providerStatus = await adapter.getStatus(record.providerDeploymentId);
+      console.log(`[syncStatus] ${id}: provider reported status="${providerStatus.status}", current="${record.status}"`);
+
       const providerMeta: Record<string, unknown> = {
         providerDeploymentId: record.providerDeploymentId,
         providerSlug: record.providerSlug,
@@ -263,6 +269,7 @@ export class DeploymentOrchestrator {
         await this.recordTransition(id, record.status, 'ONLINE', 'Provider reports ready', userId, {
           ...providerMeta, endpointUrl: providerStatus.endpointUrl || record.endpointUrl,
         });
+        console.log(`[syncStatus] ${id}: transitioned to ONLINE`);
         return toRecord(updated);
       }
 
@@ -276,6 +283,16 @@ export class DeploymentOrchestrator {
         return toRecord(updated);
       }
 
+      if (providerStatus.status === 'DEGRADED') {
+        const updated = await prisma.dmDeployment.update({
+          where: { id },
+          data: { status: 'ONLINE', healthStatus: 'ORANGE', lastHealthCheck: new Date(),
+            endpointUrl: providerStatus.endpointUrl || record.endpointUrl },
+        });
+        await this.recordTransition(id, record.status, 'ONLINE', `Provider reports ${providerStatus.status} (endpoint exists)`, userId, providerMeta);
+        return toRecord(updated);
+      }
+
       // Still in progress — record snapshot so logs show provider state
       await this.recordTransition(
         id, record.status, record.status,
@@ -284,8 +301,9 @@ export class DeploymentOrchestrator {
 
       return record;
     } catch (err: any) {
-      console.warn(`[syncStatus] Failed to sync ${id}: ${err.message}`);
-      return record;
+      console.error(`[syncStatus] Failed to sync ${id}: ${err.message}`, err.stack);
+      // Return record with sync error in metadata so frontend can see the issue
+      return { ...record, statusMessage: `Sync error: ${err.message}` } as DeploymentRecord;
     } finally {
       setCurrentUserId(null);
     }

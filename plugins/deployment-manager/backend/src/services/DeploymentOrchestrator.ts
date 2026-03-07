@@ -371,7 +371,10 @@ export class DeploymentOrchestrator {
 
   async syncStatus(id: string, userId: string): Promise<DeploymentRecord> {
     let record = await this.getOrThrow(id);
-    if (!record.providerDeploymentId) return record;
+    if (!record.providerDeploymentId) {
+      console.warn(`[syncStatus] ${id}: no providerDeploymentId, skipping`);
+      return record;
+    }
 
     const inProgressStates: DeploymentStatus[] = ['PROVISIONING', 'DEPLOYING', 'VALIDATING'];
     if (!inProgressStates.includes(record.status)) return record;
@@ -379,6 +382,8 @@ export class DeploymentOrchestrator {
     const adapter = this.registry.get(record.providerSlug);
     try {
       const providerStatus = await adapter.getStatus(record.providerDeploymentId);
+      console.log(`[syncStatus] ${id}: provider reported status="${providerStatus.status}", current="${record.status}"`);
+
       const providerMeta: Record<string, unknown> = {
         providerDeploymentId: record.providerDeploymentId,
         providerSlug: record.providerSlug,
@@ -396,12 +401,23 @@ export class DeploymentOrchestrator {
           lastHealthCheck: new Date(),
           endpointUrl: providerStatus.endpointUrl || record.endpointUrl,
         });
+        console.log(`[syncStatus] ${id}: transitioned to ONLINE`);
         return record;
       }
 
       if (providerStatus.status === 'FAILED') {
         const detail = (providerStatus.metadata as any)?.error || 'Provider reports deployment failed';
         record = await this.transitionWithMetadata(record, 'FAILED', detail, userId, providerMeta);
+        return record;
+      }
+
+      if (providerStatus.status === 'DEGRADED') {
+        record = await this.transitionWithMetadata(record, 'ONLINE', `Provider reports ${providerStatus.status} (endpoint exists)`, userId, providerMeta);
+        record = await this.store.update(id, {
+          healthStatus: 'ORANGE',
+          lastHealthCheck: new Date(),
+          endpointUrl: providerStatus.endpointUrl || record.endpointUrl,
+        });
         return record;
       }
 
@@ -413,7 +429,7 @@ export class DeploymentOrchestrator {
 
       return record;
     } catch (err: any) {
-      console.warn(`[syncStatus] Failed to sync ${id}: ${err.message}`);
+      console.error(`[syncStatus] Failed to sync ${id}: ${err.message}`, err.stack);
       return record;
     }
   }
