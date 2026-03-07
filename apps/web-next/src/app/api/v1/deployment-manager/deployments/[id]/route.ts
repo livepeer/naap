@@ -3,6 +3,8 @@ import { validateSession } from '@/lib/api/auth';
 import { getAuthToken } from '@/lib/api/response';
 import { getServices, UpdateDeploymentSchema } from '@/lib/deployment-manager';
 
+const IN_PROGRESS_STATES = ['PROVISIONING', 'DEPLOYING', 'VALIDATING'];
+
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const token = getAuthToken(request);
@@ -12,8 +14,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const { id } = await params;
     const { orchestrator } = getServices();
-    const deployment = await orchestrator.get(id);
+    let deployment = await orchestrator.get(id);
     if (!deployment) return NextResponse.json({ success: false, error: 'Deployment not found' }, { status: 404 });
+
+    if (IN_PROGRESS_STATES.includes(deployment.status) && deployment.providerDeploymentId) {
+      try {
+        deployment = await orchestrator.syncStatus(id, user.id);
+      } catch {
+        // sync failed — return stale data rather than error
+      }
+    }
+
     return NextResponse.json({ success: true, data: deployment });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });

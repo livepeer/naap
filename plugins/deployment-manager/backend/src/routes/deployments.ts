@@ -13,16 +13,29 @@ const writeLimiter = new RateLimiter(30, 60_000);
 export function createDeploymentsRouter(orchestrator: DeploymentOrchestrator, registry?: ProviderAdapterRegistry): Router {
   const router = Router();
 
+  const IN_PROGRESS = ['PROVISIONING', 'DEPLOYING', 'VALIDATING'];
+
   router.get('/', async (req, res) => {
     try {
       const { status, provider, userId, teamId } = req.query;
+      const reqUserId = (req as any).user?.id || 'anonymous';
       const deployments = await orchestrator.list({
         status: status as DeploymentStatus | undefined,
         providerSlug: provider as string | undefined,
         ownerUserId: userId as string | undefined,
         teamId: teamId as string | undefined,
       });
-      res.json({ success: true, data: deployments, total: deployments.length });
+
+      const synced = await Promise.all(
+        deployments.map(async (d) => {
+          if (IN_PROGRESS.includes(d.status) && d.providerDeploymentId) {
+            try { return await orchestrator.syncStatus(d.id, reqUserId); } catch { /* ignore */ }
+          }
+          return d;
+        }),
+      );
+
+      res.json({ success: true, data: synced, total: synced.length });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -30,11 +43,17 @@ export function createDeploymentsRouter(orchestrator: DeploymentOrchestrator, re
 
   router.get('/:id', async (req, res) => {
     try {
-      const deployment = await orchestrator.get(req.params.id);
+      const reqUserId = (req as any).user?.id || 'anonymous';
+      let deployment = await orchestrator.get(req.params.id);
       if (!deployment) {
         res.status(404).json({ success: false, error: 'Deployment not found' });
         return;
       }
+
+      if (IN_PROGRESS.includes(deployment.status) && deployment.providerDeploymentId) {
+        try { deployment = await orchestrator.syncStatus(deployment.id, reqUserId); } catch { /* ignore */ }
+      }
+
       res.json({ success: true, data: deployment });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });

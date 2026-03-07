@@ -19,7 +19,18 @@ export async function GET(request: NextRequest) {
       ownerUserId: sp.get('userId') || undefined,
       teamId: sp.get('teamId') || undefined,
     });
-    return NextResponse.json({ success: true, data: deployments, total: deployments.length });
+
+    const inProgressStates = ['PROVISIONING', 'DEPLOYING', 'VALIDATING'];
+    const synced = await Promise.all(
+      deployments.map(async (d) => {
+        if (inProgressStates.includes(d.status) && d.providerDeploymentId) {
+          try { return await orchestrator.syncStatus(d.id, user.id); } catch { /* ignore */ }
+        }
+        return d;
+      }),
+    );
+
+    return NextResponse.json({ success: true, data: synced, total: synced.length });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
