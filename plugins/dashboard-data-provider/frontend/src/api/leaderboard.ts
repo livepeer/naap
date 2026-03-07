@@ -22,52 +22,67 @@ export interface NetworkDemandRow {
   window_start: string;
   gateway: string;
   region: string | null;
-  pipeline: string;
+  pipeline_id: string;
   model_id: string | null;
-  total_sessions: number;
-  total_streams: number;
+  sessions_count: number;
   avg_output_fps: number;
-  total_inference_minutes: number;
-  known_sessions: number;
+  total_minutes: number;
+  known_sessions_count: number;
   served_sessions: number;
   unserved_sessions: number;
   total_demand_sessions: number;
-  unexcused_sessions: number;
-  swapped_sessions: number;
-  missing_capacity_count: number;
-  success_ratio: number;
-  fee_payment_eth: number;
+  startup_unexcused_sessions: number;
+  confirmed_swapped_sessions: number;
+  inferred_swap_sessions: number;
+  total_swapped_sessions: number;
+  sessions_ending_in_error: number;
+  error_status_samples: number;
+  health_signal_coverage_ratio: number;
+  startup_success_rate: number;
+  effective_success_rate: number;
+  ticket_face_value_eth: number;
 }
 
 export interface GPUMetricRow {
   window_start: string;
   orchestrator_address: string;
-  pipeline: string;
+  pipeline_id: string;
   model_id: string | null;
   gpu_id: string | null;
   region: string | null;
   avg_output_fps: number;
   p95_output_fps: number;
-  known_sessions: number;
-  success_sessions: number;
-  failure_rate: number;
+  known_sessions_count: number;
+  startup_success_sessions: number;
+  startup_unexcused_rate: number;
   swap_rate: number;
-  gpu_name: string | null;
-  gpu_memory_total: number | null;
+  gpu_model_name: string | null;
+  gpu_memory_bytes_total: number | null;
+  sessions_ending_in_error: number;
+  error_status_samples: number;
+  health_signal_coverage_ratio: number;
 }
 
 export interface SLAComplianceRow {
   window_start: string;
   orchestrator_address: string;
-  pipeline: string;
+  pipeline_id: string;
   model_id: string | null;
   gpu_id: string | null;
-  known_sessions: number;
-  success_sessions: number;
-  unexcused_sessions: number;
-  swapped_sessions: number;
-  success_ratio: number | null;
-  no_swap_ratio: number | null;
+  region: string | null;
+  known_sessions_count: number;
+  startup_success_sessions: number;
+  startup_excused_sessions: number;
+  startup_unexcused_sessions: number;
+  confirmed_swapped_sessions: number;
+  inferred_swap_sessions: number;
+  total_swapped_sessions: number;
+  sessions_ending_in_error: number;
+  error_status_samples: number;
+  health_signal_coverage_ratio: number;
+  startup_success_rate: number | null;
+  effective_success_rate: number | null;
+  no_swap_rate: number | null;
   sla_score: number | null;
 }
 

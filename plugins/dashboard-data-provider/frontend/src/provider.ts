@@ -4,10 +4,10 @@
  * Registers as the dashboard data provider via createDashboardProvider().
  *
  * Live data sources:
- *   kpi.successRate         ← Leaderboard /api/network/demand  (weighted success_ratio)
+ *   kpi.successRate         ← Leaderboard /api/network/demand  (weighted effective_success_rate)
  *   kpi.orchestratorsOnline ← Leaderboard /api/sla/compliance  (distinct addresses, 72 h)
- *   kpi.dailyUsageMins      ← Leaderboard /api/network/demand  (sum total_inference_minutes, 24 h)
- *   kpi.dailyStreamCount    ← Leaderboard /api/network/demand  (sum total_streams, 24 h)
+ *   kpi.dailyUsageMins      ← Leaderboard /api/network/demand  (sum total_minutes, 24 h)
+ *   kpi.dailySessionCount   ← Leaderboard /api/network/demand  (sum sessions_count, 24 h)
  *   pipelines               ← Leaderboard /api/network/demand  (grouped by pipeline, 24 h)
  *   gpuCapacity.totalGPUs   ← Leaderboard /api/gpu/metrics     (distinct gpu_id, 24 h)
  *   orchestrators            ← Leaderboard /api/sla/compliance  (per-address aggregation)
@@ -109,13 +109,13 @@ function sortedKeys(m: Map<string, unknown[]>): string[] {
 }
 
 /**
- * Weighted average of success_ratio by known_sessions.
+ * Weighted average of effective_success_rate by known_sessions_count.
  * Returns 0 when no sessions exist (avoids false 100%).
  */
-function weightedSuccessRatio(rows: Array<{ success_ratio: number; known_sessions: number }>): number {
-  const totalSessions = rows.reduce((s, r) => s + r.known_sessions, 0);
+function weightedSuccessRate(rows: Array<{ effective_success_rate: number; known_sessions_count: number }>): number {
+  const totalSessions = rows.reduce((s, r) => s + r.known_sessions_count, 0);
   if (totalSessions === 0) return 0;
-  return rows.reduce((s, r) => s + r.success_ratio * r.known_sessions, 0) / totalSessions;
+  return rows.reduce((s, r) => s + r.effective_success_rate * r.known_sessions_count, 0) / totalSessions;
 }
 
 function trueSuccessRate(rows: NetworkDemandRow[]): number {
@@ -123,8 +123,8 @@ function trueSuccessRate(rows: NetworkDemandRow[]): number {
   for (const r of rows) {
     served += r.served_sessions || 0;
     totalDemand += r.total_demand_sessions || 0;
-    unexcused += r.unexcused_sessions || 0;
-    known += r.known_sessions || 0;
+    unexcused += r.startup_unexcused_sessions || 0;
+    known += r.known_sessions_count || 0;
   }
   if (totalDemand === 0 || known === 0) return 0;
   return (served / totalDemand) * (1 - unexcused / known) * 100;
@@ -182,16 +182,16 @@ async function resolveKPI({ timeframe }: { timeframe?: string }): Promise<Dashbo
   const orchCount = countOrchestrators(slaRows) || 0;
   const orchDelta = 0;
 
-  // Usage, Streams, and Fees: sum over the selected timeframe
-  const totalMins    = demandRows.reduce((s, r) => s + (r.total_inference_minutes || 0), 0);
-  const totalStreams = demandRows.reduce((s, r) => s + (r.total_streams || 0), 0);
-  const totalFeesEth = demandRows.reduce((s, r) => s + (r.fee_payment_eth || 0), 0);
+  // Usage, Sessions, and Fees: sum over the selected timeframe
+  const totalMins       = demandRows.reduce((s, r) => s + (r.total_minutes || 0), 0);
+  const totalSessions   = demandRows.reduce((s, r) => s + (r.sessions_count || 0), 0);
+  const totalFeesEth    = demandRows.reduce((s, r) => s + (r.ticket_face_value_eth || 0), 0);
 
   return {
     successRate:        { value: round1(currentSR),         delta: round1(currentSR - prevSR) },
     orchestratorsOnline:{ value: orchCount,                  delta: orchDelta },
     dailyUsageMins:     { value: Math.round(totalMins),      delta: 0 },
-    dailyStreamCount:   { value: totalStreams,               delta: 0 },
+    dailySessionCount:  { value: totalSessions,              delta: 0 },
     dailyNetworkFeesEth:{ value: round1(totalFeesEth),       delta: 0 },
     timeframeHours,
   };
@@ -210,10 +210,10 @@ async function resolvePipelines({ limit = 5, timeframe }: { limit?: number; time
   const byPipeline = new Map<string, Accum>();
 
   for (const row of demand) {
-    const pipelineName = row.pipeline?.trim();
+    const pipelineName = row.pipeline_id?.trim();
     if (!pipelineName || PIPELINE_DISPLAY[pipelineName] === null) continue;
     const acc = byPipeline.get(pipelineName) ?? { mins: 0, modelMins: new Map<string, number>() };
-    const mins = row.total_inference_minutes ?? 0;
+    const mins = row.total_minutes ?? 0;
     acc.mins += mins;
     const modelId = row.model_id?.trim();
     if (modelId) {
@@ -260,7 +260,7 @@ function countTotalGPUsFromSLA(rows: SLAComplianceRow[]): number {
   const gpuIds = new Set<string>();
   let rowsWithoutGpuIdWithSessions = 0;
   for (const row of rows) {
-    const knownSessions = row.known_sessions ?? 0;
+    const knownSessions = row.known_sessions_count ?? 0;
     if (knownSessions <= 0) continue;
     if (row.gpu_id) {
       gpuIds.add(row.gpu_id);
@@ -284,17 +284,17 @@ async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
   const sample = metricsRecent.length > 0 ? metricsRecent : metricsWide;
   const avgAvailable = sample.length > 0
     ? Math.round(
-        (1 - sample.reduce((s, m) => s + m.failure_rate, 0) / sample.length) * 100
+        (1 - sample.reduce((s, m) => s + m.startup_unexcused_rate, 0) / sample.length) * 100
       )
     : 100;
 
   const modelCounts = new Map<string, Set<string>>();
   for (const m of metricsWide) {
-    if (!m.gpu_name || !m.gpu_id) continue;
-    if (!modelCounts.has(m.gpu_name)) {
-      modelCounts.set(m.gpu_name, new Set());
+    if (!m.gpu_model_name || !m.gpu_id) continue;
+    if (!modelCounts.has(m.gpu_model_name)) {
+      modelCounts.set(m.gpu_model_name, new Set());
     }
-    modelCounts.get(m.gpu_name)!.add(m.gpu_id);
+    modelCounts.get(m.gpu_model_name)!.add(m.gpu_id);
   }
 
   const models = [...modelCounts.entries()].map(([model, ids]) => ({
@@ -320,6 +320,8 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
     successSessions: number;
     unexcusedSessions: number;
     swappedSessions: number;
+    /** Weighted sum for effective_success_rate (numerator for weighted avg). */
+    effectiveSuccessWeighted: number;
     pipelines: Set<string>;
     /** Per-pipeline set of model_ids this orchestrator offered (from SLA rows with sessions). */
     pipelineModels: Map<string, Set<string>>;
@@ -338,23 +340,25 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
       byAddress.set(row.orchestrator_address, {
         knownSessions: 0, successSessions: 0,
         unexcusedSessions: 0, swappedSessions: 0,
+        effectiveSuccessWeighted: 0,
         pipelines: new Set(), pipelineModels: new Map(),
         gpuIds: new Set(), rowsWithoutGpuIdWithSessions: 0,
       });
     }
 
     const d = byAddress.get(row.orchestrator_address)!;
-    const knownSessions = row.known_sessions ?? 0;
+    const knownSessions = row.known_sessions_count ?? 0;
     d.knownSessions += knownSessions;
-    d.successSessions += row.success_sessions ?? 0;
-    d.unexcusedSessions += row.unexcused_sessions ?? 0;
-    d.swappedSessions += row.swapped_sessions ?? 0;
+    d.successSessions += row.startup_success_sessions ?? 0;
+    d.unexcusedSessions += row.startup_unexcused_sessions ?? 0;
+    d.swappedSessions += row.total_swapped_sessions ?? 0;
+    d.effectiveSuccessWeighted += (row.effective_success_rate ?? 0) * knownSessions;
 
-    if (row.pipeline) {
-      d.pipelines.add(row.pipeline);
+    if (row.pipeline_id) {
+      d.pipelines.add(row.pipeline_id);
       if (knownSessions > 0 && row.model_id?.trim()) {
-        if (!d.pipelineModels.has(row.pipeline)) d.pipelineModels.set(row.pipeline, new Set());
-        d.pipelineModels.get(row.pipeline)!.add(row.model_id.trim());
+        if (!d.pipelineModels.has(row.pipeline_id)) d.pipelineModels.set(row.pipeline_id, new Set());
+        d.pipelineModels.get(row.pipeline_id)!.add(row.model_id.trim());
       }
     }
     // Only count GPUs that had sessions so the number is associated with the session data
@@ -369,10 +373,12 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
   return [...byAddress.entries()]
     .map(([address, d]) => {
       const successRatio = d.knownSessions > 0 ? 1 - (d.unexcusedSessions / d.knownSessions) : 0;
+      const effectiveSuccessRate = d.knownSessions > 0
+        ? d.effectiveSuccessWeighted / d.knownSessions
+        : null;
       const noSwapRatio = d.knownSessions > 0 ? 1 - (d.swappedSessions / d.knownSessions) : null;
       const slaScore = d.knownSessions > 0 ? (0.7 * successRatio + 0.3 * (noSwapRatio || 0)) * 100 : null;
 
-      // GPU count: distinct GPUs that had sessions in this period (+ rows with sessions but no gpu_id).
       const gpuCount = d.gpuIds.size + d.rowsWithoutGpuIdWithSessions;
 
       const pipelineModels = [...d.pipelineModels.entries()]
@@ -384,6 +390,7 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
         knownSessions: d.knownSessions,
         successSessions: d.successSessions,
         successRatio: Math.round(successRatio * 1000) / 10,
+        effectiveSuccessRate: effectiveSuccessRate !== null ? Math.round(effectiveSuccessRate * 1000) / 10 : null,
         noSwapRatio: noSwapRatio !== null ? Math.round(noSwapRatio * 1000) / 10 : null,
         slaScore: slaScore !== null ? Math.round(slaScore) : null,
         pipelines: [...d.pipelines].sort(),

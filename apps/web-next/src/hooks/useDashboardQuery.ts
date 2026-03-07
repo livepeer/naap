@@ -42,7 +42,10 @@ export interface UseDashboardQueryOptions {
 
 export interface UseDashboardQueryResult<T> {
   data: T | null;
+  /** True during the very first fetch (no data yet). */
   loading: boolean;
+  /** True when refetching while stale data is still displayed. */
+  refreshing: boolean;
   error: DashboardError | null;
   refetch: () => void;
 }
@@ -176,5 +179,6 @@ export function useDashboardQuery<T = Record<string, unknown>>(
     return () => clearInterval(intervalId);
   }, [fetchData, pollInterval, skip]);
 
-  return { data, loading, error, refetch: fetchData };
+  const refreshing = loading && data !== null;
+  return { data, loading, refreshing, error, refetch: fetchData };
 }
