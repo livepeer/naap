@@ -496,6 +496,55 @@ app.post('/api/v1/wallet/settings', async (req: Request, res: Response) => {
 });
 
 // ============================================
+// Phase 2: Advanced Routes
+// ============================================
+
+import yieldRoutes from './routes/yield.js';
+import pricesRoutes from './routes/prices.js';
+import alertsRoutes from './routes/alerts.js';
+import compareRoutes from './routes/compare.js';
+import benchmarksRoutes from './routes/benchmarks.js';
+import exportRoutes from './routes/export.js';
+import walletAddressesRoutes from './routes/walletAddresses.js';
+import portfolioRoutes from './routes/portfolio.js';
+import unbondingLocksRoutes from './routes/unbondingLocks.js';
+import protocolRoutes from './routes/protocol.js';
+
+app.use(yieldRoutes);
+app.use(pricesRoutes);
+app.use(alertsRoutes);
+app.use(compareRoutes);
+app.use(benchmarksRoutes);
+app.use(exportRoutes);
+app.use(walletAddressesRoutes);
+app.use(portfolioRoutes);
+app.use(unbondingLocksRoutes);
+app.use(protocolRoutes);
+
+// Sync Now endpoint (on-demand for current user)
+import { snapshotStaking } from './jobs/snapshotStaking.js';
+import { fetchPrices } from './jobs/fetchPrices.js';
+import { updateUnbonding } from './jobs/updateUnbonding.js';
+
+app.post('/api/v1/wallet/sync', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+    const [snapCount] = await Promise.all([
+      snapshotStaking(userId),
+      fetchPrices(),
+      updateUnbonding(),
+    ]);
+
+    res.json({ synced: true, snapshotCount: snapCount });
+  } catch (error: any) {
+    console.error('Error syncing:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ============================================
 // Error Handler
 // ============================================
 
@@ -508,15 +557,23 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 // Start Server
 // ============================================
 
+import { startScheduler, stopScheduler } from './jobs/scheduler.js';
+
 const server = app.listen(PORT, () => {
-  console.log(`🚀 My Wallet backend running on http://localhost:${PORT}`);
+  console.log(`My Wallet backend running on http://localhost:${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/healthz`);
   console.log(`   API: http://localhost:${PORT}/api/v1/wallet/*`);
+
+  // Start cron jobs in Express mode
+  if (process.env.DISABLE_CRON !== 'true') {
+    startScheduler();
+  }
 });
 
 // Graceful shutdown
 async function shutdown() {
   console.log('Shutting down gracefully...');
+  stopScheduler();
 
   server.close(async () => {
     console.log('HTTP server closed');

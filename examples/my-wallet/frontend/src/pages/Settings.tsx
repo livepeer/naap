@@ -13,6 +13,7 @@ interface PluginSettings {
   defaultNetwork: NetworkId;
   autoConnect: boolean;
   showTestnets: boolean;
+  showUsdPrices: boolean;
   gasStrategy: 'slow' | 'standard' | 'fast';
 }
 
@@ -20,6 +21,7 @@ const defaultSettings: PluginSettings = {
   defaultNetwork: 'arbitrum-one',
   autoConnect: true,
   showTestnets: false,
+  showUsdPrices: true,
   gasStrategy: 'standard',
 };
 
@@ -191,6 +193,30 @@ export const SettingsPage: React.FC = () => {
               Disconnect Wallet
             </button>
           )}
+        </div>
+      </div>
+
+      {/* Display Settings */}
+      <div className="glass-card p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <Eye className="w-5 h-5 text-accent-purple" />
+          <h2 className="text-lg font-semibold text-text-primary">Display</h2>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-4 bg-bg-tertiary rounded-lg">
+            <div className="flex items-center gap-3">
+              <span className="text-text-secondary text-lg">$</span>
+              <div>
+                <p className="font-medium text-text-primary">Show USD Prices</p>
+                <p className="text-sm text-text-secondary">Display USD equivalent for LPT/ETH amounts</p>
+              </div>
+            </div>
+            <Toggle
+              checked={settings.showUsdPrices !== false}
+              onChange={checked => setSettings(prev => ({ ...prev, showUsdPrices: checked }))}
+            />
+          </div>
         </div>
       </div>
 
