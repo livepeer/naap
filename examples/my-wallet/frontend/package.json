@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite --port 3008",
     "build": "vite build --mode production",
-    "preview": "vite preview --port 3008 --host 0.0.0.0 --strictPort"
+    "preview": "vite preview --port 3008 --host 0.0.0.0 --strictPort",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@naap/ui": "file:../../../packages/ui",
