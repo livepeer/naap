@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useShell } from '@naap/plugin-sdk';
 import { getApiUrl } from '../App';
+import { useWallet } from '../context/WalletContext';
 
 export type YieldPeriod = '7d' | '30d' | '90d' | 'ytd';
 
@@ -27,6 +28,7 @@ interface YieldData {
 
 export function useYield() {
   const shell = useShell();
+  const { address } = useWallet();
   const [data, setData] = useState<YieldData | null>(null);
   const [period, setPeriod] = useState<YieldPeriod>('30d');
   const [isLoading, setIsLoading] = useState(false);
@@ -36,7 +38,7 @@ export function useYield() {
     try {
       const apiUrl = getApiUrl();
       const token = await shell.auth.getToken().catch(() => '');
-      const res = await fetch(`${apiUrl}/yield?period=${period}`, {
+      const res = await fetch(`${apiUrl}/yield?period=${period}&address=${address || ''}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const json = await res.json();

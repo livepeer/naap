@@ -1,23 +1,41 @@
 /**
  * My Wallet Plugin - Main App Entry
+ *
+ * Tab-based architecture: Earn | Explore | Optimize | Reports
+ * Settings lives in a slide-out drawer (gear icon in header)
  */
 
-import React, { useCallback } from 'react';
-import { MemoryRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useState, useCallback } from 'react';
 import { createPlugin, useShell, useNotify, useEvents, getPluginBackendUrl } from '@naap/plugin-sdk';
-import { WalletProvider } from './context/WalletContext';
+import { WalletProvider, useWallet } from './context/WalletContext';
 import { ConnectPage } from './pages/Connect';
-import { PortfolioPage } from './pages/Portfolio';
-import { StakingPage } from './pages/Staking';
-import { TransactionsPage } from './pages/Transactions';
-import { SettingsPage } from './pages/Settings';
-import { ComparePage } from './pages/Compare';
-import { WatchlistPage } from './pages/Watchlist';
-import { SimulatorPage } from './pages/Simulator';
-import { GovernancePage } from './pages/Governance';
+import { AppLayout, TabId } from './components/AppLayout';
+import { EarnTab } from './tabs/EarnTab';
+import { ExploreTab } from './tabs/ExploreTab';
+import { OptimizeTab } from './tabs/OptimizeTab';
+import { ReportsTab } from './tabs/ReportsTab';
 import './globals.css';
 
-// Wallet App Component -- now uses SDK hooks instead of getShellContext()
+/** Inner app that switches between connect screen and tab layout */
+const AppContent: React.FC = () => {
+  const { isConnected } = useWallet();
+  const [activeTab, setActiveTab] = useState<TabId>('earn');
+
+  if (!isConnected) {
+    return <ConnectPage />;
+  }
+
+  return (
+    <AppLayout activeTab={activeTab} onTabChange={setActiveTab}>
+      {activeTab === 'earn' && <EarnTab onNavigate={setActiveTab} />}
+      {activeTab === 'explore' && <ExploreTab />}
+      {activeTab === 'optimize' && <OptimizeTab />}
+      {activeTab === 'reports' && <ReportsTab />}
+    </AppLayout>
+  );
+};
+
+// Wallet App Component -- uses SDK hooks
 const WalletApp: React.FC = () => {
   const shell = useShell();
   const notifications = useNotify();
@@ -58,23 +76,7 @@ const WalletApp: React.FC = () => {
 
   return (
     <WalletProvider onConnect={handleConnect} onDisconnect={handleDisconnect}>
-      <div className="space-y-6">
-        <MemoryRouter>
-          <Routes>
-            <Route path="/" element={<ConnectPage />} />
-            <Route path="/dashboard" element={<Navigate to="/portfolio" replace />} />
-            <Route path="/portfolio" element={<PortfolioPage />} />
-            <Route path="/compare" element={<ComparePage />} />
-            <Route path="/staking" element={<StakingPage />} />
-            <Route path="/transactions" element={<TransactionsPage />} />
-            <Route path="/watchlist" element={<WatchlistPage />} />
-            <Route path="/simulator" element={<SimulatorPage />} />
-            <Route path="/governance" element={<GovernancePage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </MemoryRouter>
-      </div>
+      <AppContent />
     </WalletProvider>
   );
 };

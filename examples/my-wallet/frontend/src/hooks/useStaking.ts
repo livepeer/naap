@@ -129,12 +129,35 @@ export function useStaking(): UseStakingReturn {
         error: null,
       });
     } catch (err: any) {
-      console.error('Failed to fetch staking state:', err);
-      setState(prev => ({
-        ...prev,
-        isLoading: false,
-        error: err?.message || 'Failed to fetch staking state',
-      }));
+      console.error('Failed to fetch staking state via MetaMask, trying backend API:', err);
+      // Fallback: try the backend API which uses its own RPC
+      try {
+        const { getApiUrl } = await import('../App');
+        const apiUrl = getApiUrl();
+        const [portfolioRes, protocolRes] = await Promise.all([
+          fetch(`${apiUrl}/portfolio?address=${address}`),
+          fetch(`${apiUrl}/protocol/params`),
+        ]);
+        const portfolio = (await portfolioRes.json()).data;
+        const protocol = (await protocolRes.json()).data;
+
+        setState({
+          lptBalance: 0n, // Can't get LPT balance without direct RPC
+          stakedAmount: BigInt(portfolio?.totalStaked || '0'),
+          pendingRewards: BigInt(portfolio?.totalPendingRewards || '0'),
+          pendingFees: BigInt(portfolio?.totalPendingFees || '0'),
+          delegatedTo: portfolio?.positions?.[0]?.orchestrator || null,
+          currentRound: BigInt(protocol?.currentRound || 0),
+          isLoading: false,
+          error: null,
+        });
+      } catch (fallbackErr) {
+        setState(prev => ({
+          ...prev,
+          isLoading: false,
+          error: 'Failed to fetch staking state. Please ensure MetaMask is on Arbitrum One.',
+        }));
+      }
     }
   }, [address, isConnected, getContracts]);
 

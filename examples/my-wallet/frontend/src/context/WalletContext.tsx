@@ -1,5 +1,7 @@
 /**
  * WalletContext - Global wallet state management
+ *
+ * Exposes: address (active), accounts (all permitted), switchAccount
  */
 
 import React, { createContext, useContext, useCallback, useEffect, useMemo } from 'react';
@@ -10,6 +12,7 @@ export interface WalletContextValue extends MetaMaskState {
   connect: () => Promise<void>;
   disconnect: () => void;
   switchNetwork: (chainId: number) => Promise<void>;
+  switchAccount: (address: string) => Promise<void>;
   signMessage: (message: string) => Promise<string>;
   sendTransaction: (tx: TransactionRequest) => Promise<TransactionResponse>;
   isMetaMaskInstalled: boolean;
@@ -32,15 +35,12 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({
 }) => {
   const metamask = useMetaMask();
 
-  // Send transaction
   const sendTransaction = useCallback(async (tx: TransactionRequest): Promise<TransactionResponse> => {
-    if (!metamask.signer) {
-      throw new Error('Wallet not connected');
-    }
+    if (!metamask.signer) throw new Error('Wallet not connected');
     return metamask.signer.sendTransaction(tx);
   }, [metamask.signer]);
 
-  // Notify on connect/disconnect
+  // Notify on connect/disconnect (fires on account switch too)
   useEffect(() => {
     if (metamask.isConnected && metamask.address && metamask.chainId) {
       onConnect?.(metamask.address, metamask.chainId);

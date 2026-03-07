@@ -28,7 +28,7 @@ export async function getNetworkBenchmarks(): Promise<NetworkBenchmarks> {
   const count = orchestrators.length;
   if (count === 0) {
     return {
-      totalBonded: protocolParams.totalBonded,
+      totalBonded: protocolParams.totalActiveStake,
       participationRate: protocolParams.participationRate,
       inflation: protocolParams.inflation,
       avgRewardCut: 0,
@@ -54,7 +54,7 @@ export async function getNetworkBenchmarks(): Promise<NetworkBenchmarks> {
   }
 
   return {
-    totalBonded: protocolParams.totalBonded,
+    totalBonded: protocolParams.totalActiveStake,
     participationRate: protocolParams.participationRate,
     inflation: protocolParams.inflation,
     avgRewardCut: parseFloat(avgRewardCut.toFixed(2)),
