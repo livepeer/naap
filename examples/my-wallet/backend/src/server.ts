@@ -510,6 +510,18 @@ import portfolioRoutes from './routes/portfolio.js';
 import unbondingLocksRoutes from './routes/unbondingLocks.js';
 import protocolRoutes from './routes/protocol.js';
 
+// Phase 3 routes
+import gasAccountingRoutes from './routes/gasAccounting.js';
+import rewardConsistencyRoutes from './routes/rewardConsistency.js';
+import pnlRoutes from './routes/pnl.js';
+import watchlistRoutes from './routes/watchlist.js';
+import simulatorRoutes from './routes/simulator.js';
+import riskScoreRoutes from './routes/riskScore.js';
+import autoClaimRoutes from './routes/autoClaim.js';
+import governanceRoutes from './routes/governance.js';
+import networkHistoryRoutes from './routes/networkHistory.js';
+import aiRecommendRoutes from './routes/aiRecommend.js';
+
 app.use(yieldRoutes);
 app.use(pricesRoutes);
 app.use(alertsRoutes);
@@ -520,6 +532,16 @@ app.use(walletAddressesRoutes);
 app.use(portfolioRoutes);
 app.use(unbondingLocksRoutes);
 app.use(protocolRoutes);
+app.use(gasAccountingRoutes);
+app.use(rewardConsistencyRoutes);
+app.use(pnlRoutes);
+app.use(watchlistRoutes);
+app.use(simulatorRoutes);
+app.use(riskScoreRoutes);
+app.use(autoClaimRoutes);
+app.use(governanceRoutes);
+app.use(networkHistoryRoutes);
+app.use(aiRecommendRoutes);
 
 // Sync Now endpoint (on-demand for current user)
 import { snapshotStaking } from './jobs/snapshotStaking.js';

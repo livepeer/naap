@@ -12,6 +12,9 @@ import { StakingPage } from './pages/Staking';
 import { TransactionsPage } from './pages/Transactions';
 import { SettingsPage } from './pages/Settings';
 import { ComparePage } from './pages/Compare';
+import { WatchlistPage } from './pages/Watchlist';
+import { SimulatorPage } from './pages/Simulator';
+import { GovernancePage } from './pages/Governance';
 import './globals.css';
 
 // Wallet App Component -- now uses SDK hooks instead of getShellContext()
@@ -64,6 +67,9 @@ const WalletApp: React.FC = () => {
             <Route path="/compare" element={<ComparePage />} />
             <Route path="/staking" element={<StakingPage />} />
             <Route path="/transactions" element={<TransactionsPage />} />
+            <Route path="/watchlist" element={<WatchlistPage />} />
+            <Route path="/simulator" element={<SimulatorPage />} />
+            <Route path="/governance" element={<GovernancePage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

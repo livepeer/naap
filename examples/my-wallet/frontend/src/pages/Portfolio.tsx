@@ -28,6 +28,10 @@ import { AlertConfigModal } from '../components/AlertConfigModal';
 import { NetworkBenchmarks } from '../components/NetworkBenchmarks';
 import { ExportButton } from '../components/ExportButton';
 import { useStakingOps } from '../hooks/useStakingOps';
+import { useAiRecommend } from '../hooks/useAiRecommend';
+import { useNetworkHistory } from '../hooks/useNetworkHistory';
+import { AiRecommendPanel } from '../components/AiRecommendPanel';
+import { Eye, BarChart3, Activity } from 'lucide-react';
 
 export const PortfolioPage: React.FC = () => {
   const navigate = useNavigate();
@@ -42,6 +46,8 @@ export const PortfolioPage: React.FC = () => {
   const alerts = useAlerts();
   const benchmarks = useBenchmarks();
   const { exportCSV, exportJSON, isExporting } = useExport();
+  const aiRecommend = useAiRecommend();
+  const networkHistory = useNetworkHistory();
 
   const [selectedAddressId, setSelectedAddressId] = useState<string>();
   const [showAddWallet, setShowAddWallet] = useState(false);
@@ -195,6 +201,76 @@ export const PortfolioPage: React.FC = () => {
         totalDelegatorStake={benchmarks.totalDelegatorStake}
         isLoading={benchmarks.isLoading}
       />
+
+      {/* Quick Navigation to Phase 3 Features */}
+      <div className="grid grid-cols-3 gap-3">
+        <button
+          onClick={() => navigate('/watchlist')}
+          className="glass-card p-4 text-left hover:bg-bg-tertiary/50 transition-colors"
+        >
+          <Eye className="w-5 h-5 text-accent-purple mb-2" />
+          <p className="text-sm font-semibold text-text-primary">Watchlist</p>
+          <p className="text-xs text-text-muted">Monitor orchestrators</p>
+        </button>
+        <button
+          onClick={() => navigate('/simulator')}
+          className="glass-card p-4 text-left hover:bg-bg-tertiary/50 transition-colors"
+        >
+          <BarChart3 className="w-5 h-5 text-accent-emerald mb-2" />
+          <p className="text-sm font-semibold text-text-primary">Simulator</p>
+          <p className="text-xs text-text-muted">Rebalance what-if</p>
+        </button>
+        <button
+          onClick={() => navigate('/governance')}
+          className="glass-card p-4 text-left hover:bg-bg-tertiary/50 transition-colors"
+        >
+          <Activity className="w-5 h-5 text-accent-amber mb-2" />
+          <p className="text-sm font-semibold text-text-primary">Governance</p>
+          <p className="text-xs text-text-muted">Track proposals</p>
+        </button>
+      </div>
+
+      {/* AI Recommendations (S19) */}
+      <AiRecommendPanel
+        recommendations={aiRecommend.recommendations}
+        isLoading={aiRecommend.isLoading}
+        onFetch={(risk, yield_, diversify) =>
+          aiRecommend.fetchRecommendations(risk as 'conservative' | 'moderate' | 'aggressive', yield_ as 'low' | 'medium' | 'high', diversify)
+        }
+      />
+
+      {/* Network History Summary (S21) */}
+      {networkHistory.data && networkHistory.data.dataPoints.length > 0 && (
+        <div className="glass-card p-4">
+          <h3 className="text-sm font-semibold text-text-primary mb-3">Network Trends</h3>
+          <div className="grid grid-cols-4 gap-4">
+            <div>
+              <p className="text-xs text-text-muted">Participation</p>
+              <p className="text-lg font-mono text-text-primary">
+                {(networkHistory.data.dataPoints[0].participationRate * 100).toFixed(1)}%
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-text-muted">Active Orchestrators</p>
+              <p className="text-lg font-mono text-text-primary">
+                {networkHistory.data.dataPoints[0].activeOrchestrators}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-text-muted">Avg Reward Cut</p>
+              <p className="text-lg font-mono text-text-primary">
+                {networkHistory.data.dataPoints[0].avgRewardCut.toFixed(1)}%
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-text-muted">Avg Fee Share</p>
+              <p className="text-lg font-mono text-text-primary">
+                {networkHistory.data.dataPoints[0].avgFeeShare.toFixed(1)}%
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Unbonding panel */}
       <UnbondingPanel
