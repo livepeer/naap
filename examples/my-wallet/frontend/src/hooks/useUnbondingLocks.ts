@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useShell } from '@naap/plugin-sdk';
 import { getApiUrl } from '../App';
+import { useWallet } from '../context/WalletContext';
 
 interface UnbondingLock {
   id: string;
@@ -34,17 +35,19 @@ interface UseUnbondingLocksReturn {
 
 export function useUnbondingLocks(): UseUnbondingLocksReturn {
   const shell = useShell();
+  const { address: walletAddress } = useWallet();
   const [locks, setLocks] = useState<UnbondingLock[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!walletAddress) return;
     setIsLoading(true);
     setError(null);
     try {
       const apiUrl = getApiUrl();
       const token = await shell.auth.getToken().catch(() => '');
-      const res = await fetch(`${apiUrl}/unbonding-locks`, {
+      const res = await fetch(`${apiUrl}/unbonding-locks?address=${walletAddress}`, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },

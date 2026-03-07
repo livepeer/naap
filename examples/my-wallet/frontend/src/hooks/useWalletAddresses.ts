@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useShell, getPluginBackendUrl } from '@naap/plugin-sdk';
 import { getApiUrl } from '../App';
+import { useWallet } from '../context/WalletContext';
 
 interface WalletAddress {
   id: string;
@@ -30,6 +31,7 @@ interface UseWalletAddressesReturn {
 
 export function useWalletAddresses(): UseWalletAddressesReturn {
   const shell = useShell();
+  const { address: walletAddress } = useWallet();
   const [addresses, setAddresses] = useState<WalletAddress[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +50,7 @@ export function useWalletAddresses(): UseWalletAddressesReturn {
     try {
       const apiUrl = getApiUrl();
       const headers = await getHeaders();
-      const res = await fetch(`${apiUrl}/addresses`, { headers });
+      const res = await fetch(`${apiUrl}/addresses?address=${walletAddress || ''}`, { headers });
       const json = await res.json();
       const data = json.data ?? json;
       setAddresses(data.addresses || []);

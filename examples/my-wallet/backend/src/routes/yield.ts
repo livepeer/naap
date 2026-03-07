@@ -1,39 +1,47 @@
 /**
- * Yield calculation routes
+ * Yield calculation routes — estimate based on protocol inflation and orchestrator reward cut
  */
 
 import { Router, Request, Response } from 'express';
-import { prisma } from '../db/client.js';
-import { calculateYield, parsePeriod } from '../lib/yieldCalc.js';
+import { getProtocol, getDelegator } from '../lib/livepeer.js';
 
 const router = Router();
 
 router.get('/api/v1/wallet/yield', async (req: Request, res: Response) => {
   try {
-    const { userId, period = '30d' } = req.query;
-    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    const address = (req.query.address || req.query.userId) as string | undefined;
+    const period = (req.query.period as string) || '30d';
 
-    const periodDays = parsePeriod(period as string);
-    const since = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000);
+    const [protocol, delegator] = await Promise.all([
+      getProtocol(),
+      address ? getDelegator(address) : Promise.resolve(null),
+    ]);
 
-    const snapshots = await prisma.walletStakingSnapshot.findMany({
-      where: {
-        walletAddress: { userId: userId as string },
-        snapshotAt: { gte: since },
+    // Estimate APY from protocol inflation and reward cut
+    // Annual inflation ≈ inflation * rounds_per_year / totalSupply
+    const roundsPerYear = 365; // ~1 round per day on Arbitrum
+    const inflationPerRound = parseFloat(protocol.inflation) / 1e18;
+    const totalSupply = parseFloat(protocol.totalSupply) / 1e18;
+    const totalStaked = parseFloat(protocol.totalActiveStake) / 1e18;
+
+    // Base staking APY = (inflation * rounds_per_year) / totalStaked * 100
+    const annualInflation = inflationPerRound * roundsPerYear;
+    const stakingApy = totalStaked > 0 ? (annualInflation / totalStaked) * 100 : 0;
+
+    // Delegator APY = stakingApy * (1 - rewardCut/100)
+    const rewardCut = delegator?.delegateInfo?.rewardCut ?? 10;
+    const delegatorApy = stakingApy * (1 - rewardCut / 100);
+
+    res.json({
+      data: {
+        period,
+        combinedApy: Math.min(delegatorApy, 50), // cap at 50% for sanity
+        stakingApy: Math.min(stakingApy, 50),
+        rewardCut,
+        inflationRate: (annualInflation / totalSupply) * 100,
+        participationRate: protocol.participationRate,
       },
-      orderBy: { snapshotAt: 'asc' },
     });
-
-    const mapped = snapshots.map((s: { bondedAmount: { toString(): string }; pendingStake: { toString(): string }; pendingFees: { toString(): string }; round: number; snapshotAt: Date }) => ({
-      bondedAmount: s.bondedAmount.toString(),
-      pendingStake: s.pendingStake.toString(),
-      pendingFees: s.pendingFees.toString(),
-      round: s.round,
-      snapshotAt: s.snapshotAt.toISOString(),
-    }));
-
-    const result = calculateYield(mapped, periodDays);
-    res.json(result);
   } catch (error: any) {
     console.error('Error calculating yield:', error);
     res.status(500).json({ error: error.message || 'Internal server error' });

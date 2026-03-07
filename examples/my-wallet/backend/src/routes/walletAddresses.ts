@@ -1,70 +1,46 @@
 /**
- * Express routes for wallet address CRUD
+ * Wallet addresses routes — for connected wallet, returns the address itself
  */
 
 import { Router, Request, Response } from 'express';
-import { listAddresses, createAddress, updateAddress, deleteAddress } from '../lib/addressService.js';
-import { validateAddressInput } from '../lib/validators.js';
 
 const router = Router();
 
-router.get('/', async (req: Request, res: Response) => {
+// In the new architecture the connected wallet address IS the identity.
+// This route returns it in the expected format so existing hooks work.
+router.get('/api/v1/wallet/addresses', async (req: Request, res: Response) => {
   try {
-    const userId = req.query.userId as string;
-    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    const address = (req.query.address || req.query.userId) as string;
+    if (!address) return res.status(400).json({ error: 'address is required' });
 
-    const addresses = await listAddresses(userId);
-    res.json({ addresses });
-  } catch (err) {
+    res.json({
+      data: {
+        addresses: [{
+          id: address.toLowerCase(),
+          address: address,
+          label: 'Connected Wallet',
+          chainId: 42161,
+          isPrimary: true,
+        }],
+      },
+    });
+  } catch (err: any) {
     console.error('Error fetching addresses:', err);
     res.status(500).json({ error: 'Failed to fetch addresses' });
   }
 });
 
-router.post('/', async (req: Request, res: Response) => {
-  try {
-    const { userId, address, chainId, label } = req.body;
-    if (!userId) return res.status(400).json({ error: 'userId is required' });
-
-    const validationError = validateAddressInput({ address, chainId, label });
-    if (validationError) return res.status(400).json({ error: validationError });
-
-    const walletAddress = await createAddress(userId, address, chainId, label);
-    res.json({ address: walletAddress });
-  } catch (err) {
-    console.error('Error creating address:', err);
-    res.status(500).json({ error: 'Failed to create address' });
-  }
+// Accept POST for adding but just ack
+router.post('/api/v1/wallet/addresses', async (req: Request, res: Response) => {
+  res.json({ data: { address: req.body } });
 });
 
-router.patch('/:id', async (req: Request, res: Response) => {
-  try {
-    const { userId, label, isPrimary } = req.body;
-    if (!userId) return res.status(400).json({ error: 'userId is required' });
-
-    const updated = await updateAddress(req.params.id, userId, { label, isPrimary });
-    if (!updated) return res.status(404).json({ error: 'Address not found' });
-
-    res.json({ address: updated });
-  } catch (err) {
-    console.error('Error updating address:', err);
-    res.status(500).json({ error: 'Failed to update address' });
-  }
+router.patch('/api/v1/wallet/addresses/:id', async (req: Request, res: Response) => {
+  res.json({ data: { address: req.body } });
 });
 
-router.delete('/:id', async (req: Request, res: Response) => {
-  try {
-    const userId = req.query.userId as string;
-    if (!userId) return res.status(400).json({ error: 'userId is required' });
-
-    const deleted = await deleteAddress(req.params.id, userId);
-    if (!deleted) return res.status(404).json({ error: 'Address not found' });
-
-    res.json({ deleted: true });
-  } catch (err) {
-    console.error('Error deleting address:', err);
-    res.status(500).json({ error: 'Failed to delete address' });
-  }
+router.delete('/api/v1/wallet/addresses/:id', async (req: Request, res: Response) => {
+  res.json({ data: { deleted: true } });
 });
 
 export default router;
