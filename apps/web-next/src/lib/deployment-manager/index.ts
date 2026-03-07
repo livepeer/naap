@@ -37,6 +37,30 @@ interface DmServices {
 }
 
 let _services: DmServices | null = null;
+let _configWarned = false;
+
+function preflightCheck(): void {
+  if (_configWarned) return;
+  _configWarned = true;
+
+  const isVercel = !!process.env.VERCEL;
+  const missing: string[] = [];
+
+  if (!process.env.ENCRYPTION_KEY && (isVercel || process.env.NODE_ENV === 'production')) {
+    missing.push('ENCRYPTION_KEY (required for credential encryption)');
+  }
+
+  if (!process.env.DATABASE_URL && !process.env.POSTGRES_PRISMA_URL) {
+    missing.push('DATABASE_URL or POSTGRES_PRISMA_URL (required for credential storage)');
+  }
+
+  if (missing.length > 0) {
+    const msg = `[deployment-manager] CONFIGURATION ERROR — missing env vars:\n` +
+      missing.map(v => `  • ${v}`).join('\n') +
+      `\n  Set them in Vercel Project Settings → Environment Variables.`;
+    console.error(msg);
+  }
+}
 
 /**
  * Lazy singleton initialization of all deployment-manager services.
@@ -46,6 +70,8 @@ let _services: DmServices | null = null;
  */
 export function getServices(): DmServices {
   if (_services) return _services;
+
+  preflightCheck();
 
   const registry = new ProviderAdapterRegistry();
   registry.register(new RunPodAdapter());

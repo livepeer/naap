@@ -25,25 +25,20 @@ export async function storeSecret(
   value: string,
 ): Promise<boolean> {
   const key = secretKey(userId, providerSlug, name);
-  try {
-    const { encryptedValue, iv } = encrypt(value);
-    await prisma.secretVault.upsert({
-      where: { key },
-      update: { encryptedValue, iv, updatedAt: new Date() },
-      create: {
-        key,
-        encryptedValue,
-        iv,
-        scope: `dm:${userId}`,
-        createdBy: userId,
-      },
-    });
-    SECRET_CACHE.delete(key);
-    return true;
-  } catch (err) {
-    console.error(`[dm] Failed to store secret "${name}" for ${providerSlug}:`, err);
-    return false;
-  }
+  const { encryptedValue, iv } = encrypt(value);
+  await prisma.secretVault.upsert({
+    where: { key },
+    update: { encryptedValue, iv },
+    create: {
+      key,
+      encryptedValue,
+      iv,
+      scope: `dm:${userId}`,
+      createdBy: userId,
+    },
+  });
+  SECRET_CACHE.delete(key);
+  return true;
 }
 
 export async function getSecret(

@@ -91,22 +91,24 @@ jobs:
               -H "Content-Type: application/json" \
               --max-time 15 || echo "000")
 
+            RESPONSE_BODY=$(cat /tmp/smoke-response.json 2>/dev/null || echo "{}")
+
             if [ "$HTTP_STATUS" = "501" ]; then
               echo "::error::FAIL [501 NOT_IMPLEMENTED] ${method} ${path} — missing Next.js route handler"
-              echo "  Response: $(cat /tmp/smoke-response.json | jq -r '.error.message // .error // "unknown"' 2>/dev/null)"
+              echo "  Response: $(echo "$RESPONSE_BODY" | jq -r '.error.message // .error // "unknown"' 2>/dev/null)"
               FAILED=$((FAILED + 1))
             elif [ "$HTTP_STATUS" = "000" ]; then
               echo "::warning::TIMEOUT ${method} ${path} — request timed out"
               FAILED=$((FAILED + 1))
+            elif [ "$HTTP_STATUS" -ge 500 ]; then
+              echo "::error::FAIL [${HTTP_STATUS}] ${method} ${path} — server error (likely missing env var or DB issue)"
+              echo "  Response: $(echo "$RESPONSE_BODY" | jq -r '.error // .error.message // "unknown"' 2>/dev/null)"
+              FAILED=$((FAILED + 1))
             elif [ "$HTTP_STATUS" = "401" ] || [ "$HTTP_STATUS" = "403" ]; then
-              # Auth-protected routes returning 401/403 means the route handler exists
               echo "  OK   [${HTTP_STATUS}] ${method} ${path} (auth-protected, route exists)"
               PASSED=$((PASSED + 1))
             elif [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 500 ]; then
               echo "  OK   [${HTTP_STATUS}] ${method} ${path}"
-              PASSED=$((PASSED + 1))
-            else
-              echo "::warning::WARN [${HTTP_STATUS}] ${method} ${path}"
               PASSED=$((PASSED + 1))
             fi
           }
@@ -137,6 +139,10 @@ jobs:
           smoke_check GET "/api/v1/deployment-manager/providers/runpod/gpu-options"
 
           echo ""
+          echo "--- Deployment Manager: Config Check ---"
+          smoke_check GET "/api/v1/deployment-manager/config-check"
+
+          echo ""
           echo "--- Service Gateway ---"
           smoke_check GET "/api/v1/gw/admin/connectors"
           smoke_check GET "/api/v1/gw/admin/status"
@@ -146,7 +152,7 @@ jobs:
 
           if [ "$FAILED" -gt 0 ]; then
             echo ""
-            echo "::error::${FAILED} route(s) returned 501 (NOT_IMPLEMENTED). These routes need dedicated Next.js handlers."
+            echo "::error::${FAILED} route(s) failed (501=missing handler, 5xx=config/runtime error). Fix before merging."
             exit 1
           fi
 

@@ -31,17 +31,31 @@ export async function PUT(
       );
     }
 
+    const entries = Object.entries(secretValues).filter(([, v]) => typeof v === 'string' && v.trim());
+    if (entries.length === 0) {
+      return NextResponse.json(
+        { success: false, error: `No valid secrets provided. Received keys: [${Object.keys(secretValues).join(', ')}], types: [${Object.values(secretValues).map(v => typeof v).join(', ')}]` },
+        { status: 400 },
+      );
+    }
+
     const saved: string[] = [];
-    for (const [name, value] of Object.entries(secretValues)) {
-      if (!value || !value.trim()) continue;
-      const ok = await storeSecret(user.id, providerId, name, value.trim());
-      if (ok) saved.push(name);
+    const errors: string[] = [];
+    for (const [name, value] of entries) {
+      try {
+        const ok = await storeSecret(user.id, providerId, name, value.trim());
+        if (ok) saved.push(name);
+        else errors.push(`${name}: store returned false`);
+      } catch (e: any) {
+        console.error(`[dm/credentials] storeSecret failed for "${name}":`, e);
+        errors.push(`${name}: ${e.message}`);
+      }
     }
 
     if (saved.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'No valid secrets provided' },
-        { status: 400 },
+        { success: false, error: `Failed to save secrets: ${errors.join('; ')}` },
+        { status: 500 },
       );
     }
 

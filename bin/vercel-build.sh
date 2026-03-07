@@ -31,6 +31,24 @@ export DATABASE_URL="${DATABASE_URL:-$POSTGRES_PRISMA_URL}"
 echo "=== Vercel Build Pipeline ==="
 echo "Environment: ${VERCEL_ENV:-unknown}"
 
+# ─── Required env-var validation ──────────────────────────────────────────────
+# Warn (non-fatal) about missing env vars that will cause runtime errors.
+# These are easy to forget when configuring a new Vercel project/branch.
+MISSING_VARS=""
+[ -z "$DATABASE_URL" ]    && MISSING_VARS="$MISSING_VARS DATABASE_URL"
+[ -z "$ENCRYPTION_KEY" ]  && MISSING_VARS="$MISSING_VARS ENCRYPTION_KEY"
+[ -z "$NEXTAUTH_SECRET" ] && MISSING_VARS="$MISSING_VARS NEXTAUTH_SECRET"
+
+if [ -n "$MISSING_VARS" ]; then
+  echo ""
+  echo "================================================================="
+  echo "WARNING: Missing environment variables:${MISSING_VARS}"
+  echo "  These are required at runtime and will cause 400/500 errors."
+  echo "  Set them in Vercel Project Settings → Environment Variables."
+  echo "================================================================="
+  echo ""
+fi
+
 # When CI restores a valid plugin cache (content-based key), skip plugin build to avoid stale output.
 # SKIP_PLUGIN_BUILD is set by .github/workflows/ci.yml when plugin cache hits.
 if [ "${SKIP_PLUGIN_BUILD}" = "true" ] && [ -d "dist/plugins" ] && [ -n "$(ls -A dist/plugins 2>/dev/null)" ]; then
