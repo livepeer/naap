@@ -86,7 +86,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return success(endpoint);
   } catch (err) {
     console.error('[gateway/endpoints] Failed to create endpoint:', err);
-    const msg = err instanceof Error ? err.message : 'Unknown database error';
-    return errors.internal(`Failed to create endpoint: ${msg}`);
+    if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'P2002') {
+      return errors.conflict(
+        `Endpoint ${parsed.data.method} ${parsed.data.path} already exists on this connector`
+      );
+    }
+    return errors.internal('Failed to create endpoint');
   }
 }

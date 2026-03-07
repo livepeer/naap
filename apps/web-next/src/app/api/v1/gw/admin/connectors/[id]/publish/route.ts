@@ -8,7 +8,7 @@
 
 export const runtime = 'nodejs';
 
-import { NextRequest } from 'next/server';
+import { after, NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse, loadConnectorWithEndpoints } from '@/lib/gateway/admin/team-guard';
@@ -64,12 +64,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     invalidateConnectorCache(ctx.teamId, updated.slug);
 
-    logAudit(ctx, {
-      action: 'connector.publish',
-      resourceId: id,
-      details: { slug: updated.slug, endpointCount: enabledEndpoints.length },
-      request,
-    }).catch(() => {});
+    after(() =>
+      logAudit(ctx, {
+        action: 'connector.publish',
+        resourceId: id,
+        details: { slug: updated.slug, endpointCount: enabledEndpoints.length },
+        request,
+      })
+    );
 
     return success(updated);
   } catch (err) {

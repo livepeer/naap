@@ -4,7 +4,8 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { getSafeErrorMessage } from '@naap/plugin-sdk';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
 import { QuickStart } from '../components/QuickStart';
 import { HealthDot } from '../components/HealthDot';
@@ -62,21 +63,13 @@ const STATUS_COLORS: Record<string, string> = {
   revoked: 'bg-red-500/10 text-red-400',
 };
 
-function extractErrorMessage(err: unknown, fallback: string): string {
-  if (typeof err === 'string') return err;
-  if (err instanceof Error) return err.message;
-  if (err && typeof err === 'object' && 'message' in err) {
-    const m = (err as { message: unknown }).message;
-    return typeof m === 'string' ? m : fallback;
-  }
-  return fallback;
-}
-
 export const ConnectorDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const api = useGatewayApi();
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
+  const navWarnings = (location.state as { warnings?: string[] } | null)?.warnings;
   const { data: connectorRes, loading, execute: loadConnector } = useAsync<{ success: boolean; data: Connector }>();
   const { data: keysRes, execute: loadKeys } = useAsync<{ success: boolean; data: ApiKey[] }>();
   const [newKeyName, setNewKeyName] = useState('');
@@ -188,6 +181,15 @@ export const ConnectorDetailPage: React.FC = () => {
   }, [id, api]);
 
   useEffect(() => {
+    const ep = connector?.endpoints?.[playEndpointIdx];
+    if (!ep) return;
+    const params: Record<string, string> = {};
+    const matches = ep.path.match(/:([a-zA-Z_]+)/g);
+    if (matches) matches.forEach((m: string) => { params[m.slice(1)] = ''; });
+    setPlayPathParams(params);
+  }, [playEndpointIdx, connector?.endpoints]);
+
+  useEffect(() => {
     if (activeTab !== 'Settings' || !id) return;
     if (secretsLoaded) return;
     loadSecrets();
@@ -250,7 +252,7 @@ export const ConnectorDetailPage: React.FC = () => {
       await api.post(`/connectors/${id}/publish`);
       fetchConnector();
     } catch (err: unknown) {
-      setPublishError(extractErrorMessage(err, 'Failed to publish connector'));
+      setPublishError(getSafeErrorMessage(err));
     } finally {
       setPublishing(false);
     }
@@ -264,7 +266,7 @@ export const ConnectorDetailPage: React.FC = () => {
       await api.del(`/connectors/${id}`);
       navigate('/');
     } catch (err: unknown) {
-      setActionError(extractErrorMessage(err, 'Failed to archive connector'));
+      setActionError(getSafeErrorMessage(err));
       setArchiving(false);
     }
   };
@@ -307,18 +309,20 @@ export const ConnectorDetailPage: React.FC = () => {
       const resHeaders: Record<string, string> = {};
       res.headers.forEach((v, k) => { resHeaders[k] = v; });
 
-      let body: string;
+      const rawBody = await res.text();
       const ct = res.headers.get('content-type') || '';
-      if (ct.includes('json')) {
-        const json = await res.json();
-        body = JSON.stringify(json, null, 2);
-      } else {
-        body = await res.text();
+      let body = rawBody;
+      if (ct.includes('json') && rawBody.trim()) {
+        try {
+          body = JSON.stringify(JSON.parse(rawBody), null, 2);
+        } catch {
+          body = rawBody;
+        }
       }
 
       setPlayResponse({ status: res.status, statusText: res.statusText, headers: resHeaders, body, latencyMs });
     } catch (err) {
-      setPlayError(err instanceof Error ? err.message : 'Request failed');
+      setPlayError(getSafeErrorMessage(err));
     } finally {
       setPlaySending(false);
     }
@@ -338,6 +342,11 @@ export const ConnectorDetailPage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
+        {navWarnings && navWarnings.length > 0 && (
+          <div className="mb-4 px-4 py-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm text-yellow-300 space-y-1">
+            {navWarnings.map((w, i) => <div key={i}>{w}</div>)}
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div>
@@ -1138,7 +1147,7 @@ export const ConnectorDetailPage: React.FC = () => {
                             setSecretInputs(prev => ({ ...prev, [secret.name]: '' }));
                             setSecretsLoaded(false);
                           } catch (err: unknown) {
-                            setSecretError(extractErrorMessage(err, `Failed to save secret "${secret.name}"`));
+                            setSecretError(getSafeErrorMessage(err));
                           } finally {
                             setSecretSaving(prev => ({ ...prev, [secret.name]: false }));
                           }
@@ -1157,7 +1166,7 @@ export const ConnectorDetailPage: React.FC = () => {
                               await api.del(`/connectors/${id}/secrets/${secret.name}`);
                               setSecretsLoaded(false);
                             } catch (err: unknown) {
-                              setSecretError(extractErrorMessage(err, `Failed to remove secret "${secret.name}"`));
+                              setSecretError(getSafeErrorMessage(err));
                             } finally {
                               setSecretSaving(prev => ({ ...prev, [secret.name]: false }));
                             }
