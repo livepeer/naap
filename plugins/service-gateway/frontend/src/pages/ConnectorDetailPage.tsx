@@ -62,6 +62,16 @@ const STATUS_COLORS: Record<string, string> = {
   revoked: 'bg-red-500/10 text-red-400',
 };
 
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (typeof err === 'string') return err;
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object' && 'message' in err) {
+    const m = (err as { message: unknown }).message;
+    return typeof m === 'string' ? m : fallback;
+  }
+  return fallback;
+}
+
 export const ConnectorDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -239,8 +249,7 @@ export const ConnectorDetailPage: React.FC = () => {
       await api.post(`/connectors/${id}/publish`);
       fetchConnector();
     } catch (err: unknown) {
-      const apiErr = err as { message?: string };
-      setPublishError(apiErr.message || 'Failed to publish connector');
+      setPublishError(extractErrorMessage(err, 'Failed to publish connector'));
     } finally {
       setPublishing(false);
     }
@@ -254,8 +263,7 @@ export const ConnectorDetailPage: React.FC = () => {
       await api.del(`/connectors/${id}`);
       navigate('/');
     } catch (err: unknown) {
-      const apiErr = err as { message?: string };
-      setActionError(apiErr.message || 'Failed to archive connector');
+      setActionError(extractErrorMessage(err, 'Failed to archive connector'));
       setArchiving(false);
     }
   };

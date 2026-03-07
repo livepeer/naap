@@ -73,14 +73,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
     );
   }
 
-  const endpoint = await prisma.connectorEndpoint.create({
-    data: {
-      connectorId: id,
-      ...parsed.data,
-    },
-  });
+  try {
+    const endpoint = await prisma.connectorEndpoint.create({
+      data: {
+        connectorId: id,
+        ...parsed.data,
+      },
+    });
 
-  invalidateConnectorCache(ctx.teamId, connector.slug);
+    invalidateConnectorCache(ctx.teamId, connector.slug);
 
-  return success(endpoint);
+    return success(endpoint);
+  } catch (err) {
+    console.error('[gateway/endpoints] Failed to create endpoint:', err);
+    const msg = err instanceof Error ? err.message : 'Unknown database error';
+    return errors.internal(`Failed to create endpoint: ${msg}`);
+  }
 }

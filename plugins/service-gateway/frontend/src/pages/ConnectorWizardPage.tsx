@@ -91,6 +91,16 @@ interface BatchCreateResponse {
   };
 }
 
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (typeof err === 'string') return err;
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object' && 'message' in err) {
+    const m = (err as { message: unknown }).message;
+    return typeof m === 'string' ? m : fallback;
+  }
+  return fallback;
+}
+
 export const ConnectorWizardPage: React.FC = () => {
   const navigate = useNavigate();
   const api = useGatewayApi();
@@ -250,7 +260,7 @@ export const ConnectorWizardPage: React.FC = () => {
         }
       }
     } catch (err) {
-      setBatchError(err instanceof Error ? err.message : 'Batch create failed');
+      setBatchError(extractErrorMessage(err, 'Batch create failed'));
     } finally {
       setSaving(false);
     }
@@ -280,9 +290,9 @@ export const ConnectorWizardPage: React.FC = () => {
         try {
           await api.post(`/connectors/${connectorId}/endpoints`, ep);
         } catch (epErr: unknown) {
-          const epApiErr = epErr as { message?: string; status?: number };
-          if (epApiErr.status === 409) continue;
-          failedEndpoints.push(`${ep.method} ${ep.path}: ${epApiErr.message || 'failed'}`);
+          const epStatus = (epErr as { status?: number }).status;
+          if (epStatus === 409) continue;
+          failedEndpoints.push(`${ep.method} ${ep.path}: ${extractErrorMessage(epErr, 'failed')}`);
         }
       }
 
@@ -300,9 +310,8 @@ export const ConnectorWizardPage: React.FC = () => {
         try {
           await api.post(`/connectors/${connectorId}/publish`);
         } catch (pubErr: unknown) {
-          const pubApiErr = pubErr as { message?: string };
           setSaveError(prev =>
-            (prev ? prev + '\n\n' : '') + `Publish failed: ${pubApiErr.message || 'Unknown error'}. You can publish later from the connector detail page.`
+            (prev ? prev + '\n\n' : '') + `Publish failed: ${extractErrorMessage(pubErr, 'Unknown error')}. You can publish later from the connector detail page.`
           );
           navigate(`/connectors/${connectorId}`);
           return;
@@ -311,9 +320,8 @@ export const ConnectorWizardPage: React.FC = () => {
 
       navigate(`/connectors/${connectorId}`);
     } catch (err: unknown) {
-      const apiErr = err as { message?: string; status?: number; code?: string };
-      const status = apiErr.status;
-      const msg = apiErr.message || (err instanceof Error ? err.message : 'Save failed');
+      const status = (err as { status?: number }).status;
+      const msg = extractErrorMessage(err, 'Save failed');
       if (status === 409 || msg.toLowerCase().includes('already exists')) {
         setSaveError(`A connector with slug "${slug}" already exists. Please choose a different slug.`);
         setStep(1);
