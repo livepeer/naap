@@ -21,6 +21,18 @@ export const CreateDeploymentSchema = z.object({
   envVars: z.record(z.string(), z.string()).optional(),
   concurrency: z.number().int().min(1).max(100).optional(),
   estimatedCostPerHour: z.number().min(0).optional(),
+  livepeerConfig: z.object({
+    topology: z.enum(['all-in-one', 'all-on-provider', 'split-cpu-serverless']),
+    serverlessProvider: z.string().optional(),
+    serverlessModelId: z.string().optional(),
+    serverlessApiKey: z.string().optional(),
+    serverlessEndpointUrl: z.string().optional(),
+    modelImage: z.string().optional(),
+    capacity: z.number().optional(),
+    pricePerUnit: z.number().optional(),
+    publicAddress: z.string().optional(),
+    capabilityName: z.string().optional(),
+  }).optional(),
 });
 
 export const UpdateDeploymentSchema = z.object({

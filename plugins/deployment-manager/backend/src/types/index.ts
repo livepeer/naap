@@ -41,6 +41,7 @@ export interface DeployConfig {
   envVars?: Record<string, string>;
   concurrency?: number;
   estimatedCostPerHour?: number;
+  livepeerConfig?: LivepeerInferenceConfig;
 }
 
 export interface UpdateConfig {

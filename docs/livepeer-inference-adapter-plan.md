@@ -1,5 +1,16 @@
 # Livepeer Inference Adapter -- Implementation Plan
 
+## Implementation Status
+
+| Phase | Status | Notes |
+|---|---|---|
+| Phase 0: Spike | COMPLETE | BYOC API contract verified via go-livepeer source |
+| Phase 1: Core Adapter | COMPLETE | Python adapter container with config, registrar, proxy, health monitor (30 tests) |
+| Phase 2: Serverless Proxy | COMPLETE | Python proxy container with fal.ai, Replicate, RunPod, custom providers (20 tests) |
+| Phase 3: NaaP Integration | COMPLETE | SshComposeAdapter, LivepeerComposeBuilder, LivepeerConfigForm, InferencePlayground, BDD tests (80+ tests) |
+| Phase 4: livepeer-sdk | DEFERRED | Separate repo, not blocking core functionality |
+| Phase 5: CI/CD & Docs | COMPLETE | Container CI job added, integration docker-compose, plan documentation |
+
 ## Vision
 
 Any developer can take any existing AI inference service -- whether self-hosted or on a serverless GPU provider (fal.ai, Replicate, RunPod) -- and bring it on-chain as a Livepeer network-enabled inference service, with zero changes to go-livepeer, zero dependency on ai-runner.

@@ -61,7 +61,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
       return NextResponse.json({
         success: proxyRes.ok,
-        data: { status: proxyRes.status, statusText: proxyRes.statusText, responseTimeMs, body: parsedResponse },
+        data: {
+          status: proxyRes.status,
+          statusText: proxyRes.statusText,
+          responseTimeMs,
+          body: parsedResponse,
+        },
       }, { status: proxyRes.ok ? 200 : 502 });
     } catch (err: any) {
       const responseTimeMs = Date.now() - start;

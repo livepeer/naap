@@ -1,0 +1,148 @@
+version: '3.8'
+
+# Integration test: full Livepeer inference stack
+# Usage: docker compose -f docker-compose.livepeer-test.yaml up --build
+#
+# Tests Topology 3 (CPU + Remote Inference) with a mock backend.
+# Verifies: adapter registers with orchestrator, proxy forwards to backend.
+
+services:
+  # Mock orchestrator: accepts /capability/register POST
+  mock-orchestrator:
+    image: python:3.11-slim
+    command: >
+      python -c "
+      from http.server import HTTPServer, BaseHTTPRequestHandler
+      import json
+
+      capabilities = {}
+
+      class Handler(BaseHTTPRequestHandler):
+          def do_POST(self):
+              content_length = int(self.headers.get('Content-Length', 0))
+              body = self.rfile.read(content_length)
+              request = json.loads(body) if body else {}
+
+              if self.path == '/capability/register':
+                  capabilities[request.get('name', 'unknown')] = request
+                  self.send_response(200)
+                  self.send_header('Content-Type', 'application/json')
+                  self.end_headers()
+                  self.wfile.write(json.dumps({'status': 'registered'}).encode())
+              elif self.path == '/capability/unregister':
+                  name = request.get('name', '')
+                  capabilities.pop(name, None)
+                  self.send_response(200)
+                  self.send_header('Content-Type', 'application/json')
+                  self.end_headers()
+                  self.wfile.write(json.dumps({'status': 'unregistered'}).encode())
+              else:
+                  self.send_response(404)
+                  self.end_headers()
+
+          def do_GET(self):
+              if self.path == '/capabilities':
+                  self.send_response(200)
+                  self.send_header('Content-Type', 'application/json')
+                  self.end_headers()
+                  self.wfile.write(json.dumps(capabilities).encode())
+              else:
+                  self.send_response(404)
+                  self.end_headers()
+
+          def log_message(self, format, *args):
+              print(f'[mock-orch] {format % args}')
+
+      print('Mock orchestrator starting on :7935')
+      HTTPServer(('0.0.0.0', 7935), Handler).serve_forever()
+      "
+    ports:
+      - "7935:7935"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7935/capabilities')"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+
+  # Mock inference backend
+  mock-backend:
+    image: python:3.11-slim
+    command: >
+      python -c "
+      from http.server import HTTPServer, BaseHTTPRequestHandler
+      import json
+
+      class Handler(BaseHTTPRequestHandler):
+          def do_GET(self):
+              if self.path == '/health':
+                  self.send_response(200)
+                  self.send_header('Content-Type', 'application/json')
+                  self.end_headers()
+                  self.wfile.write(json.dumps({'status': 'healthy'}).encode())
+              else:
+                  self.send_response(404)
+                  self.end_headers()
+
+          def do_POST(self):
+              content_length = int(self.headers.get('Content-Length', 0))
+              body = self.rfile.read(content_length)
+              self.send_response(200)
+              self.send_header('Content-Type', 'application/json')
+              self.end_headers()
+              self.wfile.write(json.dumps({
+                  'output': {'images': [{'url': 'data:image/png;base64,iVBOR...'}]},
+                  'model': 'mock-model'
+              }).encode())
+
+          def log_message(self, format, *args):
+              print(f'[mock-backend] {format % args}')
+
+      print('Mock backend starting on :8080')
+      HTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
+      "
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+
+  # Serverless proxy (translates adapter requests to provider API calls)
+  serverless-proxy:
+    build: ./livepeer-serverless-proxy
+    depends_on:
+      mock-backend:
+        condition: service_healthy
+    environment:
+      PROVIDER: custom
+      ENDPOINT_URL: http://mock-backend:8080
+      PORT: "8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+
+  # Inference adapter (registers with orchestrator, proxies to serverless-proxy)
+  inference-adapter:
+    build: ./livepeer-inference-adapter
+    depends_on:
+      mock-orchestrator:
+        condition: service_healthy
+      serverless-proxy:
+        condition: service_healthy
+    environment:
+      ORCH_URL: http://mock-orchestrator:7935
+      ORCH_SECRET: test-integration-secret
+      CAPABILITY_NAME: test-flux-dev
+      BACKEND_URL: http://serverless-proxy:8080
+      ADAPTER_PORT: "9090"
+      CAPACITY: "2"
+      HEALTH_CHECK_INTERVAL: "3"
+      REGISTER_INTERVAL: "5"
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9090/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

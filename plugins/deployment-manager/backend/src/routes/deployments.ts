@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { DeploymentOrchestrator } from '../services/DeploymentOrchestrator.js';
 import type { DeploymentStatus } from '../types/index.js';
 import { CreateDeploymentSchema, UpdateDeploymentSchema } from './validation.js';
+import { LivepeerComposeBuilder } from '../services/LivepeerComposeBuilder.js';
 import { RateLimiter } from '../services/RateLimiter.js';
 import { usageService, type InvokeOutcome } from '../services/RequestUsageService.js';
 import { authenticatedProviderFetch } from '../lib/providerFetch.js';
@@ -82,6 +83,21 @@ export function createDeploymentsRouter(orchestrator: DeploymentOrchestrator, re
       if (!parsed.success) {
         res.status(400).json({ success: false, error: 'Validation failed', details: parsed.error.format() });
         return;
+      }
+
+      if (parsed.data.livepeerConfig) {
+        const builder = new LivepeerComposeBuilder();
+        const composeResult = builder.build(parsed.data.livepeerConfig);
+        parsed.data.artifactConfig = {
+          composeYaml: composeResult.yaml,
+          composeProject: composeResult.project,
+          topology: parsed.data.livepeerConfig.topology,
+          capabilityName: composeResult.capabilityName,
+          orchestratorSecret: composeResult.orchestratorSecret,
+        };
+        if (!parsed.data.providerSlug) {
+          parsed.data.providerSlug = 'ssh-compose';
+        }
       }
 
       const teamId = req.headers['x-team-id'] as string | undefined;
