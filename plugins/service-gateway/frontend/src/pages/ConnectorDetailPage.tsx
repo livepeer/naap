@@ -51,7 +51,7 @@ interface ApiKey {
   createdAt: string;
 }
 
-const TABS = ['Overview', 'API Spec', 'API Keys', 'Usage', 'Settings'] as const;
+const TABS = ['Overview', 'API Spec', 'API Keys', 'Play', 'Usage', 'Settings'] as const;
 type Tab = (typeof TABS)[number];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -101,6 +101,28 @@ export const ConnectorDetailPage: React.FC = () => {
   // Test connection state
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; latencyMs?: number; error?: string; healthStatus?: string } | null>(null);
+
+  // Publish / archive action state
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // Play tab state
+  const [playEndpointIdx, setPlayEndpointIdx] = useState(0);
+  const [playApiKey, setPlayApiKey] = useState('');
+  const [playBody, setPlayBody] = useState('');
+  const [playPathParams, setPlayPathParams] = useState<Record<string, string>>({});
+  const [playHeaders, setPlayHeaders] = useState('');
+  const [playSending, setPlaySending] = useState(false);
+  const [playResponse, setPlayResponse] = useState<{
+    status: number;
+    statusText: string;
+    headers: Record<string, string>;
+    body: string;
+    latencyMs: number;
+  } | null>(null);
+  const [playError, setPlayError] = useState<string | null>(null);
 
   const handleTestConnection = async () => {
     if (!id) return;
@@ -210,15 +232,87 @@ export const ConnectorDetailPage: React.FC = () => {
   };
 
   const handlePublish = async () => {
-    if (!id) return;
-    await api.post(`/connectors/${id}/publish`);
-    fetchConnector();
+    if (!id || publishing) return;
+    setPublishing(true);
+    setPublishError(null);
+    try {
+      await api.post(`/connectors/${id}/publish`);
+      fetchConnector();
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setPublishError(apiErr.message || 'Failed to publish connector');
+    } finally {
+      setPublishing(false);
+    }
   };
 
   const handleArchive = async () => {
-    if (!id) return;
-    await api.del(`/connectors/${id}`);
-    navigate('/');
+    if (!id || archiving) return;
+    setArchiving(true);
+    setActionError(null);
+    try {
+      await api.del(`/connectors/${id}`);
+      navigate('/');
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setActionError(apiErr.message || 'Failed to archive connector');
+      setArchiving(false);
+    }
+  };
+
+  const handlePlaySend = async () => {
+    if (!connector || playSending) return;
+    const ep = connector.endpoints[playEndpointIdx];
+    if (!ep) return;
+
+    setPlaySending(true);
+    setPlayResponse(null);
+    setPlayError(null);
+
+    let resolvedPath = ep.path;
+    for (const [param, value] of Object.entries(playPathParams)) {
+      resolvedPath = resolvedPath.replace(`:${param}`, encodeURIComponent(value));
+    }
+    const url = `${window.location.origin}/api/v1/gw/${connector.slug}${resolvedPath}`;
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (playApiKey) headers['x-api-key'] = playApiKey;
+    if (playHeaders.trim()) {
+      for (const line of playHeaders.split('\n')) {
+        const idx = line.indexOf(':');
+        if (idx > 0) {
+          headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+        }
+      }
+    }
+
+    const start = performance.now();
+    try {
+      const fetchOpts: RequestInit = { method: ep.method, headers };
+      if (ep.method !== 'GET' && ep.method !== 'DELETE' && playBody.trim()) {
+        fetchOpts.body = playBody;
+      }
+      const res = await fetch(url, fetchOpts);
+      const latencyMs = Math.round(performance.now() - start);
+
+      const resHeaders: Record<string, string> = {};
+      res.headers.forEach((v, k) => { resHeaders[k] = v; });
+
+      let body: string;
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('json')) {
+        const json = await res.json();
+        body = JSON.stringify(json, null, 2);
+      } else {
+        body = await res.text();
+      }
+
+      setPlayResponse({ status: res.status, statusText: res.statusText, headers: resHeaders, body, latencyMs });
+    } catch (err) {
+      setPlayError(err instanceof Error ? err.message : 'Request failed');
+    } finally {
+      setPlaySending(false);
+    }
   };
 
   if (loading || !connector) {
@@ -283,9 +377,15 @@ export const ConnectorDetailPage: React.FC = () => {
             {connector.status === 'draft' && (
               <button
                 onClick={handlePublish}
-                className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg"
+                disabled={publishing}
+                className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 flex items-center gap-1.5"
               >
-                Publish
+                {publishing ? (
+                  <>
+                    <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    Publishing...
+                  </>
+                ) : 'Publish'}
               </button>
             )}
             <button
@@ -296,12 +396,27 @@ export const ConnectorDetailPage: React.FC = () => {
             </button>
             <button
               onClick={handleArchive}
-              className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm rounded-lg"
+              disabled={archiving}
+              className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm rounded-lg disabled:opacity-50"
             >
-              Archive
+              {archiving ? 'Archiving...' : 'Archive'}
             </button>
           </div>
         </div>
+
+        {/* Action errors */}
+        {publishError && (
+          <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex items-start justify-between">
+            <span className="text-red-400 text-sm">{publishError}</span>
+            <button onClick={() => setPublishError(null)} className="text-red-400 hover:text-red-300 text-xs ml-3">Dismiss</button>
+          </div>
+        )}
+        {actionError && (
+          <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex items-start justify-between">
+            <span className="text-red-400 text-sm">{actionError}</span>
+            <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-300 text-xs ml-3">Dismiss</button>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 border-b border-gray-700 mb-6">
@@ -601,6 +716,186 @@ export const ConnectorDetailPage: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* Tab: Play */}
+        {activeTab === 'Play' && (
+          <div className="space-y-5">
+            <h3 className="text-sm font-semibold text-gray-300">API Playground</h3>
+
+            {connector.endpoints.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 text-sm">
+                No endpoints configured. Add endpoints before testing.
+              </div>
+            ) : (
+              <>
+                {/* Endpoint selector */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="block text-xs text-gray-400">Endpoint</label>
+                    <select
+                      value={playEndpointIdx}
+                      onChange={(e) => {
+                        const idx = Number(e.target.value);
+                        setPlayEndpointIdx(idx);
+                        setPlayResponse(null);
+                        setPlayError(null);
+                        const ep = connector.endpoints[idx];
+                        if (ep) {
+                          const params: Record<string, string> = {};
+                          const matches = ep.path.match(/:([a-zA-Z_]+)/g);
+                          if (matches) matches.forEach(m => { params[m.slice(1)] = ''; });
+                          setPlayPathParams(params);
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm"
+                    >
+                      {connector.endpoints.map((ep, i) => (
+                        <option key={ep.id} value={i}>
+                          {ep.method} {ep.path} — {ep.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-xs text-gray-400">API Key</label>
+                    <input
+                      type="text"
+                      value={playApiKey}
+                      onChange={(e) => setPlayApiKey(e.target.value)}
+                      placeholder="Paste your API key here"
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* URL preview */}
+                {(() => {
+                  const ep = connector.endpoints[playEndpointIdx];
+                  if (!ep) return null;
+                  let resolvedPath = ep.path;
+                  for (const [param, value] of Object.entries(playPathParams)) {
+                    resolvedPath = resolvedPath.replace(`:${param}`, value || `:${param}`);
+                  }
+                  return (
+                    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3 flex items-center gap-3">
+                      <span className={`px-2 py-0.5 text-xs font-bold rounded uppercase ${
+                        ep.method === 'GET' ? 'bg-green-500/20 text-green-400'
+                        : ep.method === 'POST' ? 'bg-blue-500/20 text-blue-400'
+                        : ep.method === 'PUT' ? 'bg-yellow-500/20 text-yellow-400'
+                        : ep.method === 'DELETE' ? 'bg-red-500/20 text-red-400'
+                        : 'bg-gray-500/20 text-gray-400'
+                      }`}>
+                        {ep.method}
+                      </span>
+                      <code className="text-sm text-gray-300 font-mono break-all">
+                        {window.location.origin}/api/v1/gw/{connector.slug}{resolvedPath}
+                      </code>
+                    </div>
+                  );
+                })()}
+
+                {/* Path params */}
+                {Object.keys(playPathParams).length > 0 && (
+                  <div className="space-y-2">
+                    <label className="block text-xs text-gray-400">Path Parameters</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      {Object.entries(playPathParams).map(([param, value]) => (
+                        <div key={param} className="flex items-center gap-2">
+                          <span className="text-xs text-gray-400 font-mono w-20 flex-shrink-0">:{param}</span>
+                          <input
+                            type="text"
+                            value={value}
+                            onChange={(e) => setPlayPathParams(prev => ({ ...prev, [param]: e.target.value }))}
+                            placeholder={`Value for ${param}`}
+                            className="flex-1 px-2 py-1.5 bg-gray-900 border border-gray-700 rounded text-gray-200 text-sm font-mono"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Headers */}
+                <div className="space-y-1">
+                  <label className="block text-xs text-gray-400">Additional Headers (one per line, Key: Value)</label>
+                  <textarea
+                    value={playHeaders}
+                    onChange={(e) => setPlayHeaders(e.target.value)}
+                    placeholder="Authorization: Bearer token123"
+                    rows={2}
+                    className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-xs font-mono"
+                  />
+                </div>
+
+                {/* Request body */}
+                {connector.endpoints[playEndpointIdx]?.method !== 'GET' && connector.endpoints[playEndpointIdx]?.method !== 'DELETE' && (
+                  <div className="space-y-1">
+                    <label className="block text-xs text-gray-400">Request Body (JSON)</label>
+                    <textarea
+                      value={playBody}
+                      onChange={(e) => setPlayBody(e.target.value)}
+                      placeholder='{"key": "value"}'
+                      rows={6}
+                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-xs font-mono"
+                    />
+                  </div>
+                )}
+
+                {/* Send button */}
+                <button
+                  onClick={handlePlaySend}
+                  disabled={playSending}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 flex items-center gap-2"
+                >
+                  {playSending ? (
+                    <>
+                      <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      Sending...
+                    </>
+                  ) : 'Send Request'}
+                </button>
+
+                {/* Error */}
+                {playError && (
+                  <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
+                    {playError}
+                  </div>
+                )}
+
+                {/* Response */}
+                {playResponse && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <span className={`px-2 py-0.5 text-xs font-bold rounded ${
+                        playResponse.status < 300 ? 'bg-green-500/20 text-green-400'
+                        : playResponse.status < 400 ? 'bg-blue-500/20 text-blue-400'
+                        : playResponse.status < 500 ? 'bg-yellow-500/20 text-yellow-400'
+                        : 'bg-red-500/20 text-red-400'
+                      }`}>
+                        {playResponse.status} {playResponse.statusText}
+                      </span>
+                      <span className="text-xs text-gray-400">{playResponse.latencyMs}ms</span>
+                    </div>
+
+                    <details className="text-xs">
+                      <summary className="text-gray-500 cursor-pointer hover:text-gray-300">Response Headers</summary>
+                      <pre className="mt-1 bg-gray-900 border border-gray-700 rounded p-2 text-gray-400 font-mono overflow-x-auto">
+{Object.entries(playResponse.headers).map(([k, v]) => `${k}: ${v}`).join('\n')}
+                      </pre>
+                    </details>
+
+                    <div className="space-y-1">
+                      <label className="block text-xs text-gray-400">Response Body</label>
+                      <pre className="bg-gray-900 border border-gray-700 rounded-lg p-4 text-xs text-gray-300 font-mono overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">
+{playResponse.body}
+                      </pre>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 

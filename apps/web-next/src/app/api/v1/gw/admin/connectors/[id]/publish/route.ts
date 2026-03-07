@@ -21,7 +21,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (isErrorResponse(ctx)) return ctx;
 
   const { id } = await context.params;
-  const connector = await loadConnectorWithEndpoints(id, ctx.teamId);
+
+  let connector;
+  try {
+    connector = await loadConnectorWithEndpoints(id, ctx.teamId);
+  } catch (err) {
+    console.error('[gateway/publish] Failed to load connector:', err);
+    return errors.internal('Failed to load connector data');
+  }
+
   if (!connector) {
     return errors.notFound('Connector');
   }
@@ -34,23 +42,30 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return errors.badRequest('Cannot publish an archived connector. Create a new one instead.');
   }
 
-  // Must have at least one enabled endpoint
   const enabledEndpoints = connector.endpoints.filter((ep) => ep.enabled);
   if (enabledEndpoints.length === 0) {
-    return errors.badRequest('Connector must have at least one enabled endpoint before publishing');
+    return errors.badRequest(
+      `Connector must have at least one enabled endpoint before publishing. ` +
+      `Found ${connector.endpoints.length} endpoint(s), 0 enabled.`
+    );
   }
 
-  const updated = await prisma.serviceConnector.update({
-    where: { id },
-    data: {
-      status: 'published',
-      publishedAt: new Date(),
-      version: { increment: 1 },
-    },
-    include: { endpoints: true },
-  });
+  try {
+    const updated = await prisma.serviceConnector.update({
+      where: { id },
+      data: {
+        status: 'published',
+        publishedAt: new Date(),
+        version: { increment: 1 },
+      },
+      include: { endpoints: true },
+    });
 
-  invalidateConnectorCache(ctx.teamId, updated.slug);
+    invalidateConnectorCache(ctx.teamId, updated.slug);
 
-  return success(updated);
+    return success(updated);
+  } catch (err) {
+    console.error('[gateway/publish] Failed to update connector:', err);
+    return errors.internal('Failed to publish connector');
+  }
 }

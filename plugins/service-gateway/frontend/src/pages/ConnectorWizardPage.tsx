@@ -275,12 +275,38 @@ export const ConnectorWizardPage: React.FC = () => {
       if (!connRes.success) return;
       const connectorId = connRes.data.id;
 
+      const failedEndpoints: string[] = [];
       for (const ep of endpoints) {
-        await api.post(`/connectors/${connectorId}/endpoints`, ep);
+        try {
+          await api.post(`/connectors/${connectorId}/endpoints`, ep);
+        } catch (epErr: unknown) {
+          const epApiErr = epErr as { message?: string; status?: number };
+          if (epApiErr.status === 409) continue;
+          failedEndpoints.push(`${ep.method} ${ep.path}: ${epApiErr.message || 'failed'}`);
+        }
+      }
+
+      if (failedEndpoints.length > 0 && failedEndpoints.length === endpoints.length) {
+        setSaveError(`All endpoint creations failed:\n${failedEndpoints.join('\n')}`);
+        navigate(`/connectors/${connectorId}`);
+        return;
+      }
+
+      if (failedEndpoints.length > 0) {
+        setSaveError(`Some endpoints failed (connector was still created):\n${failedEndpoints.join('\n')}`);
       }
 
       if (publish) {
-        await api.post(`/connectors/${connectorId}/publish`);
+        try {
+          await api.post(`/connectors/${connectorId}/publish`);
+        } catch (pubErr: unknown) {
+          const pubApiErr = pubErr as { message?: string };
+          setSaveError(prev =>
+            (prev ? prev + '\n\n' : '') + `Publish failed: ${pubApiErr.message || 'Unknown error'}. You can publish later from the connector detail page.`
+          );
+          navigate(`/connectors/${connectorId}`);
+          return;
+        }
       }
 
       navigate(`/connectors/${connectorId}`);
