@@ -1,17 +1,24 @@
 import type { IProviderAdapter } from './IProviderAdapter';
-import type { GpuOption, DeployConfig, UpdateConfig, ProviderDeployment, ProviderStatus, HealthResult } from '../types';
-import { createGwFetch } from './gateway-fetch';
-
-const gwFetch = createGwFetch('ssh-bridge');
+import type { ProviderApiConfig, GpuOption, DeployConfig, UpdateConfig, ProviderDeployment, ProviderStatus, HealthResult } from '../types';
+import { authenticatedProviderFetch } from '../provider-fetch';
 
 export class SshBridgeAdapter implements IProviderAdapter {
   readonly slug = 'ssh-bridge';
   readonly displayName = 'SSH Bridge (Bare-Metal / VM)';
-  readonly connectorSlug = 'ssh-bridge';
   readonly mode = 'ssh-bridge' as const;
   readonly icon = '🖥️';
   readonly description = 'Deploy Docker containers directly to GPU machines via SSH. Requires Docker + NVIDIA runtime pre-installed.';
   readonly authMethod = 'ssh-key';
+  readonly apiConfig: ProviderApiConfig = {
+    upstreamBaseUrl: 'http://localhost:2222',
+    authType: 'none',
+    secretNames: ['ssh-key'],
+    healthCheckPath: null,
+  };
+
+  private fetch(path: string, options: RequestInit = {}) {
+    return authenticatedProviderFetch(this.slug, this.apiConfig, path, options);
+  }
 
   async getGpuOptions(): Promise<GpuOption[]> {
     return [
@@ -33,7 +40,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
       throw new Error('SSH host and username are required for SSH Bridge deployments');
     }
 
-    const connectRes = await gwFetch('/connect', {
+    const connectRes = await this.fetch('/connect', {
       method: 'POST',
       body: JSON.stringify({ host: config.sshHost, port: config.sshPort || 22, username: config.sshUsername }),
     });
@@ -61,7 +68,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
       `echo "=== FAILED: Container not healthy after 300s ==="`, `docker logs ${containerName} --tail 50`, 'exit 1',
     ].join('\n');
 
-    const scriptRes = await gwFetch('/exec/script', {
+    const scriptRes = await this.fetch('/exec/script', {
       method: 'POST',
       body: JSON.stringify({ host: config.sshHost, port: config.sshPort || 22, username: config.sshUsername, script: deployScript, timeout: 1800000, workingDirectory: '/tmp' }),
     });
@@ -82,7 +89,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
     const [host, , jobId] = providerDeploymentId.split(':');
     if (jobId) {
       try {
-        const res = await gwFetch(`/jobs/${jobId}`);
+        const res = await this.fetch(`/jobs/${jobId}`);
         if (res.ok) {
           const data = await res.json();
           const jobStatus = data.data?.status || data.status;
@@ -100,7 +107,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
 
   async destroy(providerDeploymentId: string): Promise<void> {
     const [host, containerName] = providerDeploymentId.split(':');
-    const res = await gwFetch('/exec', {
+    const res = await this.fetch('/exec', {
       method: 'POST',
       body: JSON.stringify({ host, port: 22, username: 'deploy', command: `docker stop ${containerName} 2>/dev/null; docker rm ${containerName} 2>/dev/null; echo "removed"`, timeout: 30000 }),
     });
@@ -125,7 +132,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
       'echo "Update health check failed"', 'exit 1',
     ].join('\n');
 
-    const res = await gwFetch('/exec/script', {
+    const res = await this.fetch('/exec/script', {
       method: 'POST',
       body: JSON.stringify({ host, port: 22, username: 'deploy', script: updateScript, timeout: 900000 }),
     });
@@ -143,7 +150,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
 
     try {
       const start = Date.now();
-      const res = await gwFetch('/exec', {
+      const res = await this.fetch('/exec', {
         method: 'POST',
         body: JSON.stringify({ host, port: 22, username: 'deploy', command: `curl -sf -o /dev/null -w "%{http_code}" http://localhost:${port}/health`, timeout: 15000 }),
       });

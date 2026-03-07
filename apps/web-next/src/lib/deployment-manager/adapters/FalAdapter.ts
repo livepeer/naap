@@ -1,17 +1,26 @@
 import type { IProviderAdapter } from './IProviderAdapter';
-import type { GpuOption, DeployConfig, UpdateConfig, ProviderDeployment, ProviderStatus, HealthResult } from '../types';
-import { createGwFetch } from './gateway-fetch';
-
-const gwFetch = createGwFetch('fal-ai');
+import type { ProviderApiConfig, GpuOption, DeployConfig, UpdateConfig, ProviderDeployment, ProviderStatus, HealthResult } from '../types';
+import { authenticatedProviderFetch } from '../provider-fetch';
 
 export class FalAdapter implements IProviderAdapter {
   readonly slug = 'fal-ai';
   readonly displayName = 'fal.ai Serverless GPU';
-  readonly connectorSlug = 'fal-ai-serverless';
   readonly mode = 'serverless' as const;
   readonly icon = '⚡';
   readonly description = 'Serverless GPU inference with sub-second cold starts on fal.ai.';
   readonly authMethod = 'api-key';
+  readonly apiConfig: ProviderApiConfig = {
+    upstreamBaseUrl: 'https://rest.fal.ai',
+    authType: 'header',
+    authHeaderName: 'Authorization',
+    authHeaderTemplate: 'Key {{secret}}',
+    secretNames: ['api-key'],
+    healthCheckPath: '/applications',
+  };
+
+  private fetch(path: string, options: RequestInit = {}) {
+    return authenticatedProviderFetch(this.slug, this.apiConfig, path, options);
+  }
 
   async getGpuOptions(): Promise<GpuOption[]> {
     return [
@@ -25,7 +34,7 @@ export class FalAdapter implements IProviderAdapter {
   }
 
   async deploy(config: DeployConfig): Promise<ProviderDeployment> {
-    const res = await gwFetch('/applications', {
+    const res = await this.fetch('/applications', {
       method: 'POST',
       body: JSON.stringify({
         name: config.name, image: config.dockerImage,
@@ -42,7 +51,7 @@ export class FalAdapter implements IProviderAdapter {
   }
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
-    const res = await gwFetch(`/applications/${providerDeploymentId}`);
+    const res = await this.fetch(`/applications/${providerDeploymentId}`);
     if (!res.ok) return { status: 'FAILED' };
     const data = await res.json();
     const statusMap: Record<string, ProviderStatus['status']> = {
@@ -52,14 +61,14 @@ export class FalAdapter implements IProviderAdapter {
   }
 
   async destroy(providerDeploymentId: string): Promise<void> {
-    const res = await gwFetch(`/applications/${providerDeploymentId}`, { method: 'DELETE' });
+    const res = await this.fetch(`/applications/${providerDeploymentId}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) throw new Error(`fal.ai destroy failed (${res.status})`);
   }
 
   async update(providerDeploymentId: string, config: UpdateConfig): Promise<ProviderDeployment> {
     const body: Record<string, unknown> = {};
     if (config.dockerImage) body.image = config.dockerImage;
-    const res = await gwFetch(`/applications/${providerDeploymentId}`, { method: 'PUT', body: JSON.stringify(body) });
+    const res = await this.fetch(`/applications/${providerDeploymentId}`, { method: 'PUT', body: JSON.stringify(body) });
     if (!res.ok) throw new Error(`fal.ai update failed (${res.status})`);
     const data = await res.json();
     return { providerDeploymentId, endpointUrl: data.url, status: 'UPDATING', metadata: data };
@@ -68,7 +77,7 @@ export class FalAdapter implements IProviderAdapter {
   async healthCheck(providerDeploymentId: string): Promise<HealthResult> {
     try {
       const start = Date.now();
-      const res = await gwFetch(`/applications/${providerDeploymentId}`);
+      const res = await this.fetch(`/applications/${providerDeploymentId}`);
       const responseTimeMs = Date.now() - start;
       if (!res.ok) return { healthy: false, status: 'RED', responseTimeMs, statusCode: res.status };
       const data = await res.json();

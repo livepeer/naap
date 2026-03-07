@@ -1,17 +1,25 @@
 import type { IProviderAdapter } from './IProviderAdapter';
-import type { GpuOption, DeployConfig, UpdateConfig, ProviderDeployment, ProviderStatus, HealthResult } from '../types';
-import { createGwFetch } from './gateway-fetch';
-
-const gwFetch = createGwFetch('replicate');
+import type { ProviderApiConfig, GpuOption, DeployConfig, UpdateConfig, ProviderDeployment, ProviderStatus, HealthResult } from '../types';
+import { authenticatedProviderFetch } from '../provider-fetch';
 
 export class ReplicateAdapter implements IProviderAdapter {
   readonly slug = 'replicate';
   readonly displayName = 'Replicate Deployments';
-  readonly connectorSlug = 'replicate-serverless';
   readonly mode = 'serverless' as const;
   readonly icon = '🔁';
   readonly description = 'Deploy custom models as scalable endpoints on Replicate.';
   readonly authMethod = 'api-key';
+  readonly apiConfig: ProviderApiConfig = {
+    upstreamBaseUrl: 'https://api.replicate.com/v1',
+    authType: 'bearer',
+    authHeaderTemplate: 'Bearer {{secret}}',
+    secretNames: ['api-key'],
+    healthCheckPath: '/deployments',
+  };
+
+  private fetch(path: string, options: RequestInit = {}) {
+    return authenticatedProviderFetch(this.slug, this.apiConfig, path, options);
+  }
 
   async getGpuOptions(): Promise<GpuOption[]> {
     return [
@@ -26,7 +34,7 @@ export class ReplicateAdapter implements IProviderAdapter {
   async deploy(config: DeployConfig): Promise<ProviderDeployment> {
     const owner = 'naap';
     const name = config.name.replace(/[^a-z0-9-]/g, '-');
-    const res = await gwFetch('/deployments', {
+    const res = await this.fetch('/deployments', {
       method: 'POST',
       body: JSON.stringify({ owner, name, model: config.dockerImage, hardware: config.gpuModel, min_instances: 0, max_instances: 3 }),
     });
@@ -41,7 +49,7 @@ export class ReplicateAdapter implements IProviderAdapter {
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
     const [owner, name] = providerDeploymentId.split('/');
-    const res = await gwFetch(`/deployments/${owner}/${name}`);
+    const res = await this.fetch(`/deployments/${owner}/${name}`);
     if (!res.ok) return { status: 'FAILED' };
     const data = await res.json();
     return { status: data.current_release ? 'ONLINE' : 'DEPLOYING', endpointUrl: data.current_release?.url, metadata: data };
@@ -49,7 +57,7 @@ export class ReplicateAdapter implements IProviderAdapter {
 
   async destroy(providerDeploymentId: string): Promise<void> {
     const [owner, name] = providerDeploymentId.split('/');
-    const res = await gwFetch(`/deployments/${owner}/${name}`, { method: 'DELETE' });
+    const res = await this.fetch(`/deployments/${owner}/${name}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) throw new Error(`Replicate destroy failed (${res.status})`);
   }
 
@@ -58,7 +66,7 @@ export class ReplicateAdapter implements IProviderAdapter {
     const body: Record<string, unknown> = {};
     if (config.dockerImage) body.model = config.dockerImage;
     if (config.gpuModel) body.hardware = config.gpuModel;
-    const res = await gwFetch(`/deployments/${owner}/${name}`, { method: 'PATCH', body: JSON.stringify(body) });
+    const res = await this.fetch(`/deployments/${owner}/${name}`, { method: 'PATCH', body: JSON.stringify(body) });
     if (!res.ok) throw new Error(`Replicate update failed (${res.status})`);
     const data = await res.json();
     return { providerDeploymentId, endpointUrl: data.current_release?.url, status: 'UPDATING', metadata: data };
@@ -68,7 +76,7 @@ export class ReplicateAdapter implements IProviderAdapter {
     try {
       const start = Date.now();
       const [owner, name] = providerDeploymentId.split('/');
-      const res = await gwFetch(`/deployments/${owner}/${name}`);
+      const res = await this.fetch(`/deployments/${owner}/${name}`);
       const responseTimeMs = Date.now() - start;
       if (!res.ok) return { healthy: false, status: 'RED', responseTimeMs, statusCode: res.status };
       const data = await res.json();

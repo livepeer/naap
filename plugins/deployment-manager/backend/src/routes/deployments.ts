@@ -245,5 +245,36 @@ export function createDeploymentsRouter(orchestrator: DeploymentOrchestrator, re
     }
   });
 
+  // Pipeline status for livepeer-inference deployments
+  router.get('/:id/pipeline-status', async (req, res) => {
+    try {
+      const deployment = await orchestrator.get(req.params.id);
+      if (!deployment) {
+        res.status(404).json({ success: false, error: 'Deployment not found' });
+        return;
+      }
+
+      if (deployment.templateId !== 'livepeer-inference') {
+        res.status(400).json({ success: false, error: 'Pipeline status only available for livepeer-inference deployments' });
+        return;
+      }
+
+      const artifactConfig = deployment.artifactConfig as Record<string, unknown> | undefined;
+      const pipelineStatus = {
+        capabilityName: artifactConfig?.capabilityName || 'unknown',
+        topology: artifactConfig?.topology || 'unknown',
+        adapterHealthy: deployment.healthStatus === 'GREEN',
+        deploymentStatus: deployment.status,
+        healthStatus: deployment.healthStatus,
+        endpointUrl: deployment.endpointUrl,
+        orchestratorSecret: artifactConfig?.orchestratorSecret ? '***' : undefined,
+      };
+
+      res.json({ success: true, data: pipelineStatus });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   return router;
 }

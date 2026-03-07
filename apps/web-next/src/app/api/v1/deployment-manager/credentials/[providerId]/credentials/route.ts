@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken } from '@/lib/api/response';
-import { prisma } from '@/lib/db';
 import { getServices } from '@/lib/deployment-manager';
+import { storeSecret } from '@/lib/deployment-manager/secrets';
 
 export async function PUT(
   request: NextRequest,
@@ -31,38 +31,26 @@ export async function PUT(
       );
     }
 
-    const apiKey = Object.values(secretValues)[0];
-    if (!apiKey || !apiKey.trim()) {
+    const saved: string[] = [];
+    for (const [name, value] of Object.entries(secretValues)) {
+      if (!value || !value.trim()) continue;
+      const ok = await storeSecret(user.id, providerId, name, value.trim());
+      if (ok) saved.push(name);
+    }
+
+    if (saved.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'Secret value cannot be empty' },
+        { success: false, error: 'No valid secrets provided' },
         { status: 400 },
       );
     }
-
-    const connector = await prisma.serviceConnector.findFirst({
-      where: { slug: { contains: providerId } },
-    });
-
-    if (!connector) {
-      return NextResponse.json(
-        { success: false, error: `No connector found for provider: ${providerId}. Ensure the service-gateway connector is configured.` },
-        { status: 404 },
-      );
-    }
-
-    await prisma.serviceConnector.update({
-      where: { id: connector.id },
-      data: {
-        authConfig: { type: 'api-key', value: apiKey },
-      },
-    });
 
     const adapter = registry.get(providerId);
     return NextResponse.json({
       success: true,
       data: {
         message: `Credentials saved for ${adapter.displayName}`,
-        savedSecrets: Object.keys(secretValues),
+        savedSecrets: saved,
       },
     });
   } catch (err: any) {

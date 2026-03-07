@@ -112,6 +112,25 @@ export interface DeploymentTemplate {
   githubRepo?: string;
 }
 
+// Livepeer inference adapter types
+export type LivepeerTopology = 'all-in-one' | 'all-on-provider' | 'split-cpu-serverless';
+
+export interface LivepeerInferenceConfig {
+  topology: LivepeerTopology;
+  orchestratorSecret?: string;
+  capabilityName?: string;
+  pricePerUnit?: number;
+  capacity?: number;
+  publicAddress?: string;
+  // Model settings (topology 1 & 2)
+  modelImage?: string;
+  // Serverless settings (topology 3)
+  serverlessProvider?: string;
+  serverlessApiKey?: string;
+  serverlessModelId?: string;
+  serverlessEndpointUrl?: string;
+}
+
 export interface CostEstimate {
   gpuCostPerHour: number;
   totalCostPerHour: number;

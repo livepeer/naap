@@ -19,7 +19,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       success: true,
       data: {
         slug: adapter.slug, displayName: adapter.displayName, description: adapter.description,
-        icon: adapter.icon, mode: adapter.mode, connectorSlug: adapter.connectorSlug, authMethod: adapter.authMethod,
+        icon: adapter.icon, mode: adapter.mode, authMethod: adapter.authMethod, secretNames: adapter.apiConfig.secretNames,
       },
     });
   } catch (err: any) {

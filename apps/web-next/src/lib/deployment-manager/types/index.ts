@@ -77,8 +77,8 @@ export interface ProviderInfo {
   description: string;
   icon: string;
   mode: ProviderMode;
-  connectorSlug: string;
   authMethod: string;
+  secretNames: string[];
   gpuOptionsAvailable: boolean;
 }
 
@@ -144,4 +144,13 @@ export interface DeploymentFilters {
   teamId?: string;
   status?: DeploymentStatus;
   providerSlug?: string;
+}
+
+export interface ProviderApiConfig {
+  upstreamBaseUrl: string;
+  authType: 'bearer' | 'header' | 'none';
+  authHeaderName?: string;
+  authHeaderTemplate?: string;
+  secretNames: string[];
+  healthCheckPath?: string | null;
 }
