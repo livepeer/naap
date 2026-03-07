@@ -65,7 +65,8 @@ model User {
   communityProfile CommunityProfile?
 
   // Plugin relations - Wallet
-  walletConnection WalletConnection?
+  walletConnection  WalletConnection?
+  walletAddresses   WalletAddress[]
 
   @@schema("public")
 }
@@ -1029,23 +1030,25 @@ model WalletConnection {
 }
 
 model WalletTransactionLog {
-  id          String    @id @default(uuid())
-  userId      String
-  address     String
-  txHash      String    @unique
-  type        String
-  status      String    @default("pending")
-  chainId     Int
-  value       String?
-  gasUsed     String?
-  gasPrice    String?
-  blockNumber Int?
-  toAddress   String?
-  timestamp   DateTime  @default(now())
-  confirmedAt DateTime?
-  metadata    Json?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id              String    @id @default(uuid())
+  userId          String
+  address         String
+  walletAddressId String?
+  txHash          String    @unique
+  type            String
+  status          String    @default("pending")
+  chainId         Int
+  value           String?
+  gasUsed         String?
+  gasPrice        String?
+  blockNumber     Int?
+  toAddress       String?
+  timestamp       DateTime  @default(now())
+  confirmedAt     DateTime?
+  metadata        Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  walletAddress   WalletAddress? @relation("AddressTransactions", fields: [walletAddressId], references: [id], onDelete: SetNull)
 
   @@index([userId, timestamp])
   @@index([address, timestamp])
@@ -1055,18 +1058,20 @@ model WalletTransactionLog {
 }
 
 model WalletStakingState {
-  id             String   @id @default(uuid())
-  address        String   @unique
-  chainId        Int
-  stakedAmount   String   @default("0")
-  delegatedTo    String?
-  pendingRewards String   @default("0")
-  pendingFees    String   @default("0")
-  startRound     String?
-  lastClaimRound String?
-  lastSynced     DateTime @default(now())
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default(uuid())
+  address         String   @unique
+  walletAddressId String?
+  chainId         Int
+  stakedAmount    String   @default("0")
+  delegatedTo     String?
+  pendingRewards  String   @default("0")
+  pendingFees     String   @default("0")
+  startRound      String?
+  lastClaimRound  String?
+  lastSynced      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  walletAddress   WalletAddress? @relation("AddressStakingStates", fields: [walletAddressId], references: [id], onDelete: SetNull)
 
   @@index([address])
   @@index([delegatedTo])
@@ -1099,9 +1104,103 @@ model WalletSettings {
   autoConnect    Boolean  @default(true)
   showTestnets   Boolean  @default(false)
   gasStrategy    String   @default("standard")
+  showUsdPrices  Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  @@schema("plugin_wallet")
+}
+
+model WalletAddress {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address       String
+  label         String?
+  chainId       Int       @default(42161)
+  isPrimary     Boolean   @default(false)
+  connectedAt   DateTime  @default(now())
+  lastSyncedAt  DateTime?
+
+  stakingStates  WalletStakingState[] @relation("AddressStakingStates")
+  transactions   WalletTransactionLog[] @relation("AddressTransactions")
+  unbondingLocks WalletUnbondingLock[]
+  snapshots      WalletStakingSnapshot[]
+
+  @@unique([userId, address, chainId])
+  @@index([userId])
+  @@schema("plugin_wallet")
+}
+
+model WalletUnbondingLock {
+  id              String    @id @default(cuid())
+  walletAddressId String
+  lockId          Int
+  amount          Decimal   @db.Decimal(78, 0)
+  withdrawRound   Int
+  status          String    @default("pending") // pending | withdrawable | withdrawn | rebonded
+  createdAt       DateTime  @default(now())
+  resolvedAt      DateTime?
+  txHash          String?
+  walletAddress   WalletAddress @relation(fields: [walletAddressId], references: [id], onDelete: Cascade)
+
+  @@unique([walletAddressId, lockId])
+  @@index([status])
+  @@schema("plugin_wallet")
+}
+
+model WalletStakingSnapshot {
+  id               String   @id @default(cuid())
+  walletAddressId  String
+  orchestratorAddr String
+  bondedAmount     Decimal  @db.Decimal(78, 0)
+  pendingStake     Decimal  @db.Decimal(78, 0)
+  pendingFees      Decimal  @db.Decimal(78, 0)
+  round            Int
+  snapshotAt       DateTime @default(now())
+  walletAddress    WalletAddress @relation(fields: [walletAddressId], references: [id], onDelete: Cascade)
+
+  @@index([walletAddressId, round])
+  @@index([snapshotAt])
+  @@schema("plugin_wallet")
+}
+
+model WalletAlert {
+  id               String    @id @default(cuid())
+  userId           String
+  type             String    // reward_cut_change | missed_reward | deactivation | unbonding_ready
+  orchestratorAddr String?
+  threshold        String?   // JSON config
+  enabled          Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  history          WalletAlertHistory[]
+
+  @@index([userId, type])
+  @@schema("plugin_wallet")
+}
+
+model WalletAlertHistory {
+  id        String    @id @default(cuid())
+  alertId   String
+  message   String
+  data      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  alert     WalletAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([alertId, createdAt])
+  @@schema("plugin_wallet")
+}
+
+model WalletPriceCache {
+  id        String   @id @default(cuid())
+  symbol    String
+  priceUsd  Decimal  @db.Decimal(20, 8)
+  source    String   @default("coingecko")
+  fetchedAt DateTime @default(now())
+
+  @@unique([symbol, fetchedAt])
+  @@index([symbol, fetchedAt])
   @@schema("plugin_wallet")
 }
 

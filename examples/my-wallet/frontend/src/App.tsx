@@ -3,16 +3,15 @@
  */
 
 import React, { useCallback } from 'react';
-import type { ReactNode } from 'react';
 import { MemoryRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { createPlugin, useShell, useNotify, useEvents, getPluginBackendUrl } from '@naap/plugin-sdk';
-import type { ShellContext } from '@naap/plugin-sdk';
 import { WalletProvider } from './context/WalletContext';
 import { ConnectPage } from './pages/Connect';
-import { DashboardPage } from './pages/Dashboard';
+import { PortfolioPage } from './pages/Portfolio';
 import { StakingPage } from './pages/Staking';
 import { TransactionsPage } from './pages/Transactions';
 import { SettingsPage } from './pages/Settings';
+import { ComparePage } from './pages/Compare';
 import './globals.css';
 
 // Wallet App Component -- now uses SDK hooks instead of getShellContext()
@@ -60,7 +59,9 @@ const WalletApp: React.FC = () => {
         <MemoryRouter>
           <Routes>
             <Route path="/" element={<ConnectPage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/dashboard" element={<Navigate to="/portfolio" replace />} />
+            <Route path="/portfolio" element={<PortfolioPage />} />
+            <Route path="/compare" element={<ComparePage />} />
             <Route path="/staking" element={<StakingPage />} />
             <Route path="/transactions" element={<TransactionsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
