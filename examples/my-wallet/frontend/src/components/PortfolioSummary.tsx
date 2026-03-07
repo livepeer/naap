@@ -34,8 +34,8 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <div className="glass-card p-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" role="region" aria-label="Portfolio summary">
+      <div className="glass-card p-6" aria-label="Total staked amount">
         <p className="text-sm text-text-secondary mb-1">Total Staked</p>
         <p className="text-2xl font-bold font-mono text-accent-purple">
           {formatBalance(totalStaked)} <span className="text-sm font-normal text-text-secondary">LPT</span>
