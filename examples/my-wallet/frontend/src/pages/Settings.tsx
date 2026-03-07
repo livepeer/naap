@@ -3,9 +3,11 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Settings, Globe, Zap, Eye, RefreshCw, Save, CheckCircle, Shield } from 'lucide-react';
+import { Settings, Globe, Zap, Eye, RefreshCw, Save, CheckCircle, Shield, Bell } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { usePermissions } from '../hooks/usePermissions';
+import { useAutoClaim } from '../hooks/useAutoClaim';
+import { useWalletAddresses } from '../hooks/useWalletAddresses';
 import { PageHeader } from '../components/PageHeader';
 import { NETWORKS, NetworkId } from '../lib/contracts';
 
@@ -28,6 +30,9 @@ const defaultSettings: PluginSettings = {
 export const SettingsPage: React.FC = () => {
   const { isConnected, chainId, switchNetwork, networkName, disconnect } = useWallet();
   const { isAdmin } = usePermissions();
+  const { addresses } = useWalletAddresses();
+  const primaryAddressId = addresses.length > 0 ? addresses[0].id : undefined;
+  const autoClaim = useAutoClaim(primaryAddressId);
   const [settings, setSettings] = useState<PluginSettings>(defaultSettings);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -249,6 +254,60 @@ export const SettingsPage: React.FC = () => {
               </button>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Auto-Claim Settings (S17) */}
+      <div className="glass-card p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <Bell className="w-5 h-5 text-accent-purple" />
+          <h2 className="text-lg font-semibold text-text-primary">Auto-Claim Notifications</h2>
+        </div>
+
+        <div className="space-y-4">
+          <p className="text-sm text-text-secondary">
+            Get notified when your staking rewards exceed a threshold so you can claim them.
+          </p>
+
+          <div className="flex items-center justify-between p-4 bg-bg-tertiary rounded-lg">
+            <div className="flex items-center gap-3">
+              <Bell className="w-5 h-5 text-text-secondary" />
+              <div>
+                <p className="font-medium text-text-primary">Enable Auto-Claim Alerts</p>
+                <p className="text-sm text-text-secondary">Notify when rewards are claimable</p>
+              </div>
+            </div>
+            <Toggle
+              checked={autoClaim.config?.enabled ?? false}
+              onChange={checked => autoClaim.setAutoClaimConfig(checked, autoClaim.config?.minRewardLpt ?? '1')}
+            />
+          </div>
+
+          {autoClaim.config?.enabled && (
+            <div className="p-4 bg-bg-tertiary rounded-lg space-y-3">
+              <label className="text-sm text-text-secondary">
+                Minimum Reward Threshold (LPT)
+              </label>
+              <input
+                type="number"
+                value={autoClaim.config?.minRewardLpt ?? '1'}
+                onChange={e => autoClaim.setAutoClaimConfig(autoClaim.config?.enabled ?? false, e.target.value)}
+                min="0.01"
+                step="0.1"
+                className="w-full p-2 bg-bg-secondary border border-white/10 rounded-lg text-text-primary font-mono"
+              />
+              <p className="text-xs text-text-muted">
+                You will be notified when pending rewards exceed this amount.
+                Claiming still requires your manual approval via MetaMask.
+              </p>
+              {autoClaim.config?.lastClaimedAt && (
+                <p className="text-xs text-text-secondary">
+                  Last claimed: {new Date(autoClaim.config.lastClaimedAt).toLocaleDateString()}
+                </p>
+              )}
+            </div>
+          )}
+
         </div>
       </div>
 
