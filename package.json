@@ -12,6 +12,7 @@
     "validate": "./bin/start.sh validate",
     "build": "nx run-many --target=build --all",
     "build:plugins": "./bin/build-plugins.sh",
+    "validate:dm-routes": "npx tsx scripts/validate-dm-routes.ts",
     "ci-check": "./bin/pre-push-validate.sh",
     "ci-check:full": "./bin/pre-push-validate.sh --full",
     "test": "nx run-many --target=test --all",

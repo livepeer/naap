@@ -3,7 +3,7 @@ import { validateSession } from '@/lib/api/auth';
 import { getAuthToken } from '@/lib/api/response';
 import { getServices } from '@/lib/deployment-manager';
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const token = getAuthToken(request);
     if (!token) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
