@@ -1122,10 +1122,11 @@ model WalletAddress {
   connectedAt   DateTime  @default(now())
   lastSyncedAt  DateTime?
 
-  stakingStates  WalletStakingState[] @relation("AddressStakingStates")
-  transactions   WalletTransactionLog[] @relation("AddressTransactions")
-  unbondingLocks WalletUnbondingLock[]
-  snapshots      WalletStakingSnapshot[]
+  stakingStates   WalletStakingState[] @relation("AddressStakingStates")
+  transactions    WalletTransactionLog[] @relation("AddressTransactions")
+  unbondingLocks  WalletUnbondingLock[]
+  snapshots       WalletStakingSnapshot[]
+  autoClaimConfig WalletAutoClaimConfig?
 
   @@unique([userId, address, chainId])
   @@index([userId])
@@ -1201,6 +1202,91 @@ model WalletPriceCache {
 
   @@unique([symbol, fetchedAt])
   @@index([symbol, fetchedAt])
+  @@schema("plugin_wallet")
+}
+
+model WalletWatchlist {
+  id               String   @id @default(cuid())
+  userId           String
+  orchestratorAddr String
+  label            String?
+  notes            String?
+  addedAt          DateTime @default(now())
+
+  @@unique([userId, orchestratorAddr])
+  @@index([userId])
+  @@schema("plugin_wallet")
+}
+
+model WalletGovernanceProposal {
+  id           String   @id @default(cuid())
+  proposalId   BigInt   @unique
+  title        String
+  description  String?
+  status       String   // active | passed | defeated | queued | executed
+  votesFor     Decimal  @db.Decimal(78, 0)
+  votesAgainst Decimal  @db.Decimal(78, 0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  votes        WalletGovernanceVote[]
+
+  @@index([status])
+  @@schema("plugin_wallet")
+}
+
+model WalletGovernanceVote {
+  id               String   @id @default(cuid())
+  proposalId       String
+  orchestratorAddr String
+  support          Boolean
+  weight           Decimal  @db.Decimal(78, 0)
+  createdAt        DateTime @default(now())
+  proposal         WalletGovernanceProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, orchestratorAddr])
+  @@index([orchestratorAddr])
+  @@schema("plugin_wallet")
+}
+
+model WalletAutoClaimConfig {
+  id              String    @id @default(cuid())
+  walletAddressId String    @unique
+  enabled         Boolean   @default(false)
+  minRewardLpt    Decimal   @db.Decimal(78, 0)
+  lastClaimedAt   DateTime?
+  walletAddress   WalletAddress @relation(fields: [walletAddressId], references: [id], onDelete: Cascade)
+
+  @@schema("plugin_wallet")
+}
+
+model WalletOrchestratorRoundHistory {
+  id               String   @id @default(cuid())
+  orchestratorAddr String
+  round            Int
+  calledReward     Boolean
+  rewardCut        Int
+  feeShare         Int
+  totalStake       String   @default("0")
+  recordedAt       DateTime @default(now())
+
+  @@unique([orchestratorAddr, round])
+  @@index([orchestratorAddr, round])
+  @@schema("plugin_wallet")
+}
+
+model WalletNetworkSnapshot {
+  id                 String   @id @default(cuid())
+  round              Int      @unique
+  totalBonded        String   @default("0")
+  participationRate  Float    @default(0)
+  inflation          String   @default("0")
+  activeOrchestrators Int     @default(0)
+  avgRewardCut       Float    @default(0)
+  avgFeeShare        Float    @default(0)
+  snapshotAt         DateTime @default(now())
+
+  @@index([round])
+  @@index([snapshotAt])
   @@schema("plugin_wallet")
 }
 
