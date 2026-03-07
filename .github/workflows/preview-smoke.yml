@@ -139,6 +139,11 @@ jobs:
           smoke_check GET "/api/v1/deployment-manager/providers/runpod/gpu-options"
 
           echo ""
+          echo "--- Deployment Manager: Templates ---"
+          smoke_check GET "/api/v1/deployment-manager/templates/scope/versions"
+          smoke_check GET "/api/v1/deployment-manager/cost/estimate?provider=runpod&gpu=NVIDIA+L4&count=1"
+
+          echo ""
           echo "--- Deployment Manager: Config Check ---"
           smoke_check GET "/api/v1/deployment-manager/config-check"
 
