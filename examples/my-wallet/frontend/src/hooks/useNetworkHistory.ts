@@ -1,10 +1,9 @@
 /**
- * Network history hook (S21)
+ * Network history hook — fetches from backend (RPC fallback when subgraph unavailable)
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { getApiUrl } from '../App';
-import { useWallet } from '../context/WalletContext';
 
 interface NetworkHistoryPoint {
   round: number;
@@ -29,12 +28,10 @@ interface NetworkTrends {
 }
 
 export function useNetworkHistory(limit = 90) {
-  const { isConnected } = useWallet();
   const [data, setData] = useState<NetworkTrends | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const fetch_ = useCallback(async () => {
-    if (!isConnected) return;
     setIsLoading(true);
     try {
       const res = await fetch(`${getApiUrl()}/network/history?limit=${limit}`);
@@ -47,7 +44,7 @@ export function useNetworkHistory(limit = 90) {
     } finally {
       setIsLoading(false);
     }
-  }, [isConnected, limit]);
+  }, [limit]);
 
   useEffect(() => { fetch_(); }, [fetch_]);
 

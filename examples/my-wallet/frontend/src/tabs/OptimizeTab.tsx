@@ -1,34 +1,28 @@
 /**
  * Optimize Tab - "What if" analysis & insights-to-action
  *
- * Rebalancing Simulator
- * Reward Consistency checker
+ * Rebalancing Simulator (uses cached orchestrators, no Prisma)
+ * Reward Health: top/bottom N orchestrators with export
  * Governance tracking
- * Network Trends overview
+ * Network Trends (RPC fallback)
  */
 
-import React, { useState, useEffect } from 'react';
-import { Sliders, BarChart3, Vote, Activity, ArrowRight, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Sliders, BarChart3, Vote, Activity, ArrowRight, CheckCircle, XCircle, AlertTriangle, Download, Search } from 'lucide-react';
 import { useSimulator } from '../hooks/useSimulator';
-import { useRewardConsistency } from '../hooks/useRewardConsistency';
 import { useGovernance } from '../hooks/useGovernance';
 import { useNetworkHistory } from '../hooks/useNetworkHistory';
+import { useOrchestratorCache, CachedOrchestrator } from '../hooks/useOrchestratorCache';
 import { formatAddress, formatBalance } from '../lib/utils';
 import { getApiUrl } from '../App';
 
 type SubView = 'simulator' | 'consistency' | 'governance' | 'network';
-
-interface OrchestratorOption {
-  address: string;
-  name: string | null;
-}
 
 export const OptimizeTab: React.FC = () => {
   const [subView, setSubView] = useState<SubView>('simulator');
 
   return (
     <div className="space-y-6">
-      {/* Sub-navigation */}
       <div className="flex gap-1 bg-[var(--bg-tertiary)] p-1 rounded-lg w-fit flex-wrap">
         {([
           { id: 'simulator' as SubView, label: 'Simulator', icon: <Sliders className="w-3.5 h-3.5" /> },
@@ -52,30 +46,28 @@ export const OptimizeTab: React.FC = () => {
       </div>
 
       {subView === 'simulator' && <SimulatorView />}
-      {subView === 'consistency' && <ConsistencyView />}
+      {subView === 'consistency' && <RewardHealthView />}
       {subView === 'governance' && <GovernanceView />}
       {subView === 'network' && <NetworkView />}
     </div>
   );
 };
 
-/** Rebalancing Simulator */
+/** Rebalancing Simulator — uses cached orchestrators */
 const SimulatorView: React.FC = () => {
   const simulator = useSimulator();
-  const [orchestrators, setOrchestrators] = useState<OrchestratorOption[]>([]);
+  const { orchestrators } = useOrchestratorCache();
   const [fromAddr, setFromAddr] = useState('');
   const [toAddr, setToAddr] = useState('');
   const [amount, setAmount] = useState('');
+  const [searchFrom, setSearchFrom] = useState('');
+  const [searchTo, setSearchTo] = useState('');
 
-  useEffect(() => {
-    fetch(`${getApiUrl()}/staking/orchestrators?activeOnly=true`)
-      .then(r => r.json())
-      .then(json => {
-        const data = json.data ?? json;
-        setOrchestrators(data.orchestrators || []);
-      })
-      .catch(() => {});
-  }, []);
+  const filterOrch = (list: CachedOrchestrator[], query: string) => {
+    if (!query) return list;
+    const q = query.toLowerCase();
+    return list.filter(o => o.name?.toLowerCase().includes(q) || o.address.toLowerCase().includes(q));
+  };
 
   const handleSimulate = () => {
     if (!fromAddr || !toAddr || !amount) return;
@@ -92,35 +84,48 @@ const SimulatorView: React.FC = () => {
         <p className="text-xs text-text-tertiary">Compare moving your stake to a different orchestrator</p>
       </div>
 
-      {/* Input Form */}
       <div className="glass-card p-4 space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="text-[11px] text-text-secondary mb-1 block">From Orchestrator</label>
+            <input
+              type="text"
+              value={searchFrom}
+              onChange={e => setSearchFrom(e.target.value)}
+              placeholder="Search..."
+              className="w-full mb-1 p-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-xs text-text-primary placeholder:text-text-tertiary"
+            />
             <select
               value={fromAddr}
               onChange={e => setFromAddr(e.target.value)}
               className="w-full p-2.5 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-sm text-text-primary"
             >
               <option value="">Select current...</option>
-              {orchestrators.map(o => (
+              {filterOrch(orchestrators, searchFrom).map(o => (
                 <option key={o.address} value={o.address}>
-                  {o.name || formatAddress(o.address)}
+                  {o.name || formatAddress(o.address, 8)} — Cut: {o.rewardCut.toFixed(1)}%
                 </option>
               ))}
             </select>
           </div>
           <div>
             <label className="text-[11px] text-text-secondary mb-1 block">To Orchestrator</label>
+            <input
+              type="text"
+              value={searchTo}
+              onChange={e => setSearchTo(e.target.value)}
+              placeholder="Search..."
+              className="w-full mb-1 p-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-xs text-text-primary placeholder:text-text-tertiary"
+            />
             <select
               value={toAddr}
               onChange={e => setToAddr(e.target.value)}
               className="w-full p-2.5 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-sm text-text-primary"
             >
               <option value="">Select target...</option>
-              {orchestrators.filter(o => o.address !== fromAddr).map(o => (
+              {filterOrch(orchestrators, searchTo).filter(o => o.address !== fromAddr).map(o => (
                 <option key={o.address} value={o.address}>
-                  {o.name || formatAddress(o.address)}
+                  {o.name || formatAddress(o.address, 8)} — Cut: {o.rewardCut.toFixed(1)}%
                 </option>
               ))}
             </select>
@@ -141,7 +146,7 @@ const SimulatorView: React.FC = () => {
         <button
           onClick={handleSimulate}
           disabled={!fromAddr || !toAddr || !amount || simulator.isSimulating}
-          className="w-full py-2.5 bg-accent-purple text-white text-sm font-medium rounded-lg hover:bg-accent-purple/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+          className="w-full py-2.5 bg-accent-emerald text-white text-sm font-medium rounded-lg hover:bg-accent-emerald/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
         >
           {simulator.isSimulating ? (
             <>
@@ -157,14 +162,12 @@ const SimulatorView: React.FC = () => {
         </button>
       </div>
 
-      {/* Error */}
       {simulator.error && (
         <div className="glass-card p-4 border-accent-rose/30">
           <p className="text-sm text-accent-rose">{simulator.error}</p>
         </div>
       )}
 
-      {/* Result */}
       {result && (
         <div className="glass-card p-4 space-y-4">
           <div className="flex items-center gap-2">
@@ -193,13 +196,12 @@ const SimulatorView: React.FC = () => {
           <div className="grid grid-cols-2 gap-3">
             <StatBlock label="Projected Yield Delta" value={`${result.projectedYieldDelta > 0 ? '+' : ''}${result.projectedYieldDelta.toFixed(2)}%`} color={result.projectedYieldDelta > 0 ? 'text-accent-emerald' : 'text-accent-rose'} />
             <StatBlock label="Unbonding Cost" value={`${result.unbondingOpportunityCost.toFixed(2)} LPT`} color="text-accent-amber" />
-            <StatBlock label="Reward Cut Diff" value={`${result.rewardCutDiff > 0 ? '+' : ''}${result.rewardCutDiff}%`} color="text-text-primary" />
+            <StatBlock label="Reward Cut Diff" value={`${result.rewardCutDiff > 0 ? '+' : ''}${result.rewardCutDiff.toFixed(2)}%`} color="text-text-primary" />
             <StatBlock label="Net Benefit" value={`${result.netBenefit > 0 ? '+' : ''}${result.netBenefit.toFixed(2)} LPT`} color={result.netBenefit > 0 ? 'text-accent-emerald' : 'text-accent-rose'} />
           </div>
         </div>
       )}
 
-      {/* Empty state */}
       {!result && !simulator.isSimulating && !simulator.error && (
         <div className="glass-card p-8 text-center">
           <Sliders className="w-8 h-8 text-text-tertiary mx-auto mb-2" />
@@ -210,109 +212,154 @@ const SimulatorView: React.FC = () => {
   );
 };
 
-/** Reward Consistency View */
-const ConsistencyView: React.FC = () => {
-  const [orchestrators, setOrchestrators] = useState<OrchestratorOption[]>([]);
-  const [selectedAddr, setSelectedAddr] = useState('');
-  const consistency = useRewardConsistency(selectedAddr || undefined);
+/** Reward Health View — Top N best/worst + export */
+const RewardHealthView: React.FC = () => {
+  const { orchestrators } = useOrchestratorCache();
+  const [topN, setTopN] = useState(10);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [rewardHealth, setRewardHealth] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    fetch(`${getApiUrl()}/staking/orchestrators?activeOnly=true`)
+  // Fetch reward health from backend
+  React.useEffect(() => {
+    setIsLoading(true);
+    fetch(`${getApiUrl()}/orchestrators/reward-health?topN=${topN}`)
       .then(r => r.json())
-      .then(json => {
-        const data = json.data ?? json;
-        const list = data.orchestrators || [];
-        setOrchestrators(list);
-        if (list.length > 0) setSelectedAddr(list[0].address);
-      })
-      .catch(() => {});
-  }, []);
+      .then(json => setRewardHealth(json.data))
+      .catch(err => console.error('Reward health fetch failed:', err))
+      .finally(() => setIsLoading(false));
+  }, [topN]);
 
-  const data = consistency.data;
-  const callRateColor = data
-    ? data.callRate >= 95 ? 'text-accent-emerald'
-      : data.callRate >= 80 ? 'text-accent-amber'
-        : 'text-accent-rose'
-    : 'text-text-tertiary';
+  const exportData = (format: 'json' | 'csv') => {
+    if (!rewardHealth) return;
+    const allData = [...(rewardHealth.best || []), ...(rewardHealth.worst || [])];
+
+    if (format === 'json') {
+      const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
+      downloadBlob(blob, 'reward-health.json');
+    } else {
+      const headers = 'Address,Health Score,Reward Cut,Fee Share,Total Stake,Last Reward Round,Rounds Since Reward\n';
+      const rows = allData.map(o =>
+        `${o.address},${o.healthScore},${o.rewardCut},${o.feeShare},${o.totalStake},${o.lastRewardRound},${o.roundsSinceLastReward}`
+      ).join('\n');
+      const blob = new Blob([headers + rows], { type: 'text/csv' });
+      downloadBlob(blob, 'reward-health.csv');
+    }
+  };
+
+  // Filter search within displayed orchestrators
+  const filterBySearch = (list: any[]) => {
+    if (!searchQuery) return list;
+    const q = searchQuery.toLowerCase();
+    return list.filter((o: any) => o.address.toLowerCase().includes(q));
+  };
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-sm font-semibold text-text-primary mb-1">Reward Health Check</h2>
-        <p className="text-xs text-text-tertiary">How consistently does this orchestrator call rewards?</p>
-      </div>
-
-      <div>
-        <select
-          value={selectedAddr}
-          onChange={e => setSelectedAddr(e.target.value)}
-          className="w-full p-2.5 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-sm text-text-primary"
-        >
-          <option value="">Select orchestrator...</option>
-          {orchestrators.map(o => (
-            <option key={o.address} value={o.address}>
-              {o.name || formatAddress(o.address)}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {consistency.isLoading ? (
-        <div className="glass-card p-6 animate-pulse h-40" />
-      ) : data ? (
-        <div className="space-y-3">
-          {/* Hero call rate */}
-          <div className="glass-card p-6 text-center">
-            <p className={`text-4xl font-bold font-mono ${callRateColor}`}>
-              {data.callRate.toFixed(1)}%
-            </p>
-            <p className="text-xs text-text-tertiary mt-1">Reward Call Rate ({data.totalRounds} rounds)</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="glass-card p-4">
-              <p className="text-[11px] text-text-tertiary mb-1">Rewards Called</p>
-              <p className="text-lg font-bold font-mono text-accent-emerald">{data.rewardsCalled}</p>
-            </div>
-            <div className="glass-card p-4">
-              <p className="text-[11px] text-text-tertiary mb-1">Rewards Missed</p>
-              <p className="text-lg font-bold font-mono text-accent-rose">{data.rewardsMissed}</p>
-            </div>
-            <div className="glass-card p-4">
-              <p className="text-[11px] text-text-tertiary mb-1">Current Miss Streak</p>
-              <p className={`text-lg font-bold font-mono ${data.currentMissStreak > 0 ? 'text-accent-rose' : 'text-accent-emerald'}`}>
-                {data.currentMissStreak}
-              </p>
-            </div>
-            <div className="glass-card p-4">
-              <p className="text-[11px] text-text-tertiary mb-1">Longest Miss Streak</p>
-              <p className="text-lg font-bold font-mono text-text-primary">{data.longestMissStreak}</p>
-            </div>
-          </div>
-
-          {/* Recent History - visual blocks */}
-          {data.recentHistory.length > 0 && (
-            <div className="glass-card p-4">
-              <p className="text-[11px] text-text-tertiary mb-2">Recent Rounds (newest first)</p>
-              <div className="flex flex-wrap gap-1">
-                {data.recentHistory.slice(0, 50).map(r => (
-                  <div
-                    key={r.round}
-                    title={`Round ${r.round}: ${r.called ? 'Called' : 'Missed'}`}
-                    className={`w-3 h-3 rounded-sm ${r.called ? 'bg-accent-emerald' : 'bg-accent-rose'}`}
-                  />
-                ))}
-              </div>
-              <div className="flex items-center gap-3 mt-2 text-[10px] text-text-tertiary">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-accent-emerald inline-block" /> Called</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-accent-rose inline-block" /> Missed</span>
-              </div>
-            </div>
-          )}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-text-primary mb-1">Reward Health Summary</h2>
+          <p className="text-xs text-text-tertiary">
+            Top {topN} best and worst orchestrators by reward calling consistency
+            {rewardHealth?.totalOrchestrators ? ` (${rewardHealth.totalOrchestrators} total)` : ''}
+          </p>
         </div>
-      ) : selectedAddr ? (
-        <div className="glass-card p-8 text-center text-text-tertiary text-sm">No data available</div>
-      ) : null}
+        <div className="flex items-center gap-2">
+          <label className="text-[11px] text-text-tertiary">Top N:</label>
+          <select
+            value={topN}
+            onChange={e => setTopN(Number(e.target.value))}
+            className="text-[11px] bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded px-1.5 py-1 text-text-primary"
+          >
+            {[5, 10, 15, 20, 30, 50].map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Search + Export */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-text-tertiary" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Filter by address..."
+            className="w-full pl-8 pr-3 py-2 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-text-primary text-xs placeholder:text-text-tertiary"
+          />
+        </div>
+        <button
+          onClick={() => exportData('json')}
+          className="flex items-center gap-1 px-2.5 py-2 text-[11px] bg-[var(--bg-tertiary)] text-text-secondary hover:text-text-primary rounded-lg transition-colors"
+        >
+          <Download className="w-3 h-3" /> JSON
+        </button>
+        <button
+          onClick={() => exportData('csv')}
+          className="flex items-center gap-1 px-2.5 py-2 text-[11px] bg-[var(--bg-tertiary)] text-text-secondary hover:text-text-primary rounded-lg transition-colors"
+        >
+          <Download className="w-3 h-3" /> CSV
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-3">
+          {[1,2,3].map(i => <div key={i} className="glass-card p-4 h-16 animate-pulse" />)}
+        </div>
+      ) : rewardHealth ? (
+        <div className="space-y-4">
+          {/* Best orchestrators */}
+          <div>
+            <h3 className="text-xs font-semibold text-accent-emerald mb-2 uppercase tracking-wide">
+              Best ({filterBySearch(rewardHealth.best || []).length})
+            </h3>
+            <div className="space-y-1">
+              {filterBySearch(rewardHealth.best || []).map((o: any, i: number) => (
+                <HealthRow key={o.address} rank={i + 1} data={o} type="best" />
+              ))}
+            </div>
+          </div>
+
+          {/* Worst orchestrators */}
+          <div>
+            <h3 className="text-xs font-semibold text-accent-rose mb-2 uppercase tracking-wide">
+              Worst ({filterBySearch(rewardHealth.worst || []).length})
+            </h3>
+            <div className="space-y-1">
+              {filterBySearch(rewardHealth.worst || []).map((o: any, i: number) => (
+                <HealthRow key={o.address} rank={i + 1} data={o} type="worst" />
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="glass-card p-8 text-center">
+          <BarChart3 className="w-8 h-8 text-text-tertiary mx-auto mb-2" />
+          <p className="text-sm text-text-secondary">Loading reward health data...</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const HealthRow: React.FC<{ rank: number; data: any; type: 'best' | 'worst' }> = ({ rank, data, type }) => {
+  const scoreColor = data.healthScore >= 80 ? 'text-accent-emerald'
+    : data.healthScore >= 50 ? 'text-accent-amber'
+    : 'text-accent-rose';
+
+  return (
+    <div className="glass-card p-3 flex items-center gap-3">
+      <span className={`text-[11px] font-bold w-6 text-center ${type === 'best' ? 'text-accent-emerald' : 'text-accent-rose'}`}>
+        #{rank}
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-mono text-text-primary truncate">{formatAddress(data.address, 8)}</p>
+      </div>
+      <div className="flex items-center gap-4 text-[11px]">
+        <span className="text-text-tertiary">Cut: <span className="text-text-primary">{data.rewardCut?.toFixed(1)}%</span></span>
+        <span className="text-text-tertiary">Stake: <span className="text-text-primary">{formatBalance(data.totalStake)}</span></span>
+        <span className={`font-bold font-mono ${scoreColor}`}>{data.healthScore}/100</span>
+      </div>
     </div>
   );
 };
@@ -336,7 +383,7 @@ const GovernanceView: React.FC = () => {
               onClick={() => { setFilter(s); governance.fetchProposals(s || undefined); }}
               className={`px-2.5 py-1 text-[10px] rounded-full capitalize ${
                 filter === s
-                  ? 'bg-accent-purple text-white'
+                  ? 'bg-accent-emerald text-white'
                   : 'bg-[var(--bg-tertiary)] text-text-secondary'
               }`}
             >
@@ -353,7 +400,8 @@ const GovernanceView: React.FC = () => {
       ) : governance.proposals.length === 0 ? (
         <div className="glass-card p-8 text-center">
           <Vote className="w-8 h-8 text-text-tertiary mx-auto mb-2" />
-          <p className="text-sm text-text-secondary">No proposals found</p>
+          <p className="text-sm text-text-secondary">No governance proposals found</p>
+          <p className="text-xs text-text-tertiary mt-1">Proposal data requires The Graph subgraph access</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -367,7 +415,7 @@ const GovernanceView: React.FC = () => {
                   </p>
                 </div>
                 <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ml-2 ${
-                  p.status === 'active' ? 'bg-accent-blue/15 text-accent-blue'
+                  p.status === 'active' ? 'bg-accent-emerald/15 text-accent-emerald'
                     : p.status === 'passed' ? 'bg-accent-emerald/15 text-accent-emerald'
                       : 'bg-accent-rose/15 text-accent-rose'
                 }`}>
@@ -375,7 +423,6 @@ const GovernanceView: React.FC = () => {
                 </span>
               </div>
 
-              {/* Vote bar */}
               <div className="mt-3">
                 <div className="flex justify-between text-[10px] text-text-tertiary mb-1">
                   <span>For: {formatBalance(p.votesFor)} LPT</span>
@@ -397,7 +444,6 @@ const GovernanceView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Orchestrator votes */}
               {p.votes.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {p.votes.map((v, i) => (
@@ -416,34 +462,6 @@ const GovernanceView: React.FC = () => {
               )}
             </div>
           ))}
-        </div>
-      )}
-
-      {/* My Orchestrators Governance */}
-      {governance.myOrchestrators.length > 0 && (
-        <div>
-          <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-2">
-            Your Orchestrators' Participation
-          </h3>
-          <div className="space-y-2">
-            {governance.myOrchestrators.map(o => (
-              <div key={o.orchestratorAddr} className="glass-card p-3 flex items-center justify-between">
-                <span className="text-xs font-mono text-text-primary">{formatAddress(o.orchestratorAddr, 6)}</span>
-                <div className="flex items-center gap-3 text-[11px]">
-                  <span className="text-text-secondary">
-                    {o.totalVotes}/{o.totalProposals} voted
-                  </span>
-                  <span className={`font-mono font-semibold ${
-                    o.participationRate >= 80 ? 'text-accent-emerald'
-                      : o.participationRate >= 50 ? 'text-accent-amber'
-                        : 'text-accent-rose'
-                  }`}>
-                    {o.participationRate.toFixed(0)}%
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       )}
     </div>
@@ -466,31 +484,43 @@ const NetworkView: React.FC = () => {
         <div className="grid grid-cols-2 gap-3">
           {[1,2,3,4].map(i => <div key={i} className="glass-card p-4 h-24 animate-pulse" />)}
         </div>
-      ) : data ? (
+      ) : data && data.dataPoints.length > 0 ? (
         <>
-          {/* Summary cards */}
           <div className="grid grid-cols-2 gap-3">
             <div className="glass-card p-4">
-              <p className="text-[11px] text-text-tertiary mb-1">Total Bonded</p>
-              <p className="text-lg font-bold font-mono text-accent-purple">
-                {formatBalance(data.summary.bondedChange)}
+              <p className="text-[11px] text-text-tertiary mb-1">Active Orchestrators</p>
+              <p className="text-lg font-bold font-mono text-accent-emerald">
+                {data.dataPoints[0].activeOrchestrators}
               </p>
-              <p className="text-[10px] text-text-tertiary">LPT change over period</p>
             </div>
             <div className="glass-card p-4">
               <p className="text-[11px] text-text-tertiary mb-1">Participation Rate</p>
-              <p className={`text-lg font-bold font-mono ${
-                data.summary.participationChange >= 0 ? 'text-accent-emerald' : 'text-accent-rose'
-              }`}>
-                {data.summary.participationChange >= 0 ? '+' : ''}{(data.summary.participationChange * 100).toFixed(2)}%
+              <p className="text-lg font-bold font-mono text-accent-emerald">
+                {typeof data.dataPoints[0].participationRate === 'number'
+                  ? `${data.dataPoints[0].participationRate.toFixed(2)}%`
+                  : 'N/A'}
               </p>
             </div>
+            {data.dataPoints[0].totalBonded && data.dataPoints[0].totalBonded !== '0' && (
+              <div className="glass-card p-4">
+                <p className="text-[11px] text-text-tertiary mb-1">Total Bonded</p>
+                <p className="text-lg font-bold font-mono text-text-primary">
+                  {formatBalance(data.dataPoints[0].totalBonded)} LPT
+                </p>
+              </div>
+            )}
+            {data.dataPoints[0].avgRewardCut > 0 && (
+              <div className="glass-card p-4">
+                <p className="text-[11px] text-text-tertiary mb-1">Avg Reward Cut</p>
+                <p className="text-lg font-bold font-mono text-text-primary">
+                  {data.dataPoints[0].avgRewardCut.toFixed(1)}%
+                </p>
+              </div>
+            )}
             <div className="glass-card p-4">
-              <p className="text-[11px] text-text-tertiary mb-1">Active Orchestrators</p>
-              <p className={`text-lg font-bold font-mono ${
-                data.summary.orchestratorCountChange >= 0 ? 'text-accent-emerald' : 'text-accent-rose'
-              }`}>
-                {data.summary.orchestratorCountChange >= 0 ? '+' : ''}{data.summary.orchestratorCountChange}
+              <p className="text-[11px] text-text-tertiary mb-1">Current Round</p>
+              <p className="text-lg font-bold font-mono text-text-primary">
+                {data.dataPoints[0].round}
               </p>
             </div>
             <div className="glass-card p-4">
@@ -500,8 +530,7 @@ const NetworkView: React.FC = () => {
             </div>
           </div>
 
-          {/* Mini sparkline table */}
-          {data.dataPoints.length > 0 && (
+          {data.dataPoints.length > 1 && (
             <div className="glass-card overflow-hidden">
               <div className="p-3 border-b border-[var(--border-color)]">
                 <p className="text-xs font-semibold text-text-primary">Recent Snapshots</p>
@@ -516,9 +545,11 @@ const NetworkView: React.FC = () => {
                     <span className="text-text-secondary">
                       {(dp.participationRate * 100).toFixed(1)}% part.
                     </span>
-                    <span className="text-text-secondary">
-                      Avg cut: {dp.avgRewardCut.toFixed(1)}%
-                    </span>
+                    {dp.avgRewardCut > 0 && (
+                      <span className="text-text-secondary">
+                        Avg cut: {dp.avgRewardCut.toFixed(1)}%
+                      </span>
+                    )}
                     <span className="text-text-tertiary ml-auto">
                       {new Date(dp.snapshotAt).toLocaleDateString()}
                     </span>
@@ -531,7 +562,8 @@ const NetworkView: React.FC = () => {
       ) : (
         <div className="glass-card p-8 text-center">
           <Activity className="w-8 h-8 text-text-tertiary mx-auto mb-2" />
-          <p className="text-sm text-text-secondary">Connect wallet to view network trends</p>
+          <p className="text-sm text-text-secondary">Loading network data...</p>
+          <p className="text-xs text-text-tertiary mt-1">Data sourced from Arbitrum RPC</p>
         </div>
       )}
     </div>
@@ -544,3 +576,12 @@ const StatBlock: React.FC<{ label: string; value: string; color: string }> = ({ 
     <p className={`text-sm font-bold font-mono ${color}`}>{value}</p>
   </div>
 );
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
