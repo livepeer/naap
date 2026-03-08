@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-
-const API_BASE = '/api/v1/deployment-manager';
+import { apiFetch } from '../lib/apiFetch';
 
 interface CostEstimate {
   gpuCostPerHour: number;
@@ -27,7 +26,7 @@ export const CostPreview: React.FC<CostPreviewProps> = ({ providerSlug, gpuModel
   useEffect(() => {
     if (!providerSlug || !gpuModel) { setEstimate(null); return; }
     setLoading(true);
-    fetch(`${API_BASE}/cost/estimate?provider=${providerSlug}&gpu=${encodeURIComponent(gpuModel)}&count=${gpuCount}`)
+    apiFetch(`/cost/estimate?provider=${providerSlug}&gpu=${encodeURIComponent(gpuModel)}&count=${gpuCount}`)
       .then(res => res.json())
       .then(data => { if (data.success) setEstimate(data.data); })
       .catch(() => {})
@@ -55,29 +54,35 @@ export const CostPreview: React.FC<CostPreviewProps> = ({ providerSlug, gpuModel
     );
   }
 
-  if (!estimate) return null;
+  if (!estimate || estimate.totalCostPerHour == null) return null;
 
-  const costColor = estimate.totalCostPerHour < 1 ? '#166534' : estimate.totalCostPerHour < 3 ? '#a16207' : '#dc2626';
-  const bgClass = estimate.totalCostPerHour < 1 ? 'bg-green-50' : estimate.totalCostPerHour < 3 ? 'bg-amber-50' : 'bg-red-50';
-  const borderClass = estimate.totalCostPerHour < 1 ? 'border-green-200' : estimate.totalCostPerHour < 3 ? 'border-amber-200' : 'border-red-200';
+  const hourly = estimate.totalCostPerHour ?? 0;
+  const daily = estimate.totalCostPerDay ?? 0;
+  const monthly = estimate.totalCostPerMonth ?? 0;
+  const gpu = estimate.breakdown?.gpu ?? 0;
+  const storage = estimate.breakdown?.storage ?? 0;
+
+  const costColor = hourly < 1 ? '#166534' : hourly < 3 ? '#a16207' : '#dc2626';
+  const bgClass = hourly < 1 ? 'bg-green-50' : hourly < 3 ? 'bg-amber-50' : 'bg-red-50';
+  const borderClass = hourly < 1 ? 'border-green-200' : hourly < 3 ? 'border-amber-200' : 'border-red-200';
 
   return (
     <div className={`p-4 rounded-lg border mt-4 ${bgClass} ${borderClass}`}>
       <div className="flex justify-between items-baseline">
         <div>
           <span className="font-bold text-xl" style={{ color: costColor }}>
-            ${estimate.totalCostPerHour.toFixed(2)}
+            ${hourly.toFixed(2)}
           </span>
           <span className="text-[0.8rem] text-muted-foreground">/hour</span>
         </div>
         <div className="text-right text-[0.8rem] text-muted-foreground">
-          <div>${estimate.totalCostPerDay.toFixed(2)}/day</div>
-          <div>${estimate.totalCostPerMonth.toFixed(0)}/month</div>
+          <div>${daily.toFixed(2)}/day</div>
+          <div>${monthly.toFixed(0)}/month</div>
         </div>
       </div>
       <div className="text-xs text-muted-foreground/70 mt-2 flex gap-4">
-        <span>GPU: ${estimate.breakdown.gpu.toFixed(2)}</span>
-        {estimate.breakdown.storage > 0 && <span>Storage: ${estimate.breakdown.storage.toFixed(2)}</span>}
+        <span>GPU: ${gpu.toFixed(2)}</span>
+        {storage > 0 && <span>Storage: ${storage.toFixed(2)}</span>}
       </div>
     </div>
   );

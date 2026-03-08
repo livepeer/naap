@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Play, Clock, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { apiFetch } from '../lib/apiFetch';
 
 interface RequestTabProps {
   deploymentId: string;
@@ -22,8 +23,6 @@ interface HistoryEntry {
   error?: string;
   body?: unknown;
 }
-
-const API_BASE = '/api/v1/deployment-manager';
 
 function getDisplayUrl(endpointUrl: string | undefined, providerSlug: string): string {
   if (!endpointUrl) return 'No endpoint URL';
@@ -55,7 +54,7 @@ export const RequestTab: React.FC<RequestTabProps> = ({ deploymentId, endpointUr
 
     const start = Date.now();
     try {
-      const res = await fetch(`${API_BASE}/deployments/${deploymentId}/invoke?timeout=60000`, {
+      const res = await apiFetch(`/deployments/${deploymentId}/invoke?timeout=60000`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: requestBody,

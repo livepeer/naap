@@ -12,8 +12,7 @@ import { DeploymentLogs } from '../components/DeploymentLogs';
 import { CostPreview } from '../components/CostPreview';
 import { EnvVarsEditor } from '../components/EnvVarsEditor';
 import { LivepeerConfigForm, type LivepeerConfig } from '../components/LivepeerConfigForm';
-
-const API_BASE = '/api/v1/deployment-manager';
+import { apiFetch } from '../lib/apiFetch';
 
 interface SelectedTemplate {
   id: string;
@@ -151,7 +150,7 @@ export const DeploymentWizard: React.FC = () => {
   const testSshConnection = async () => {
     try {
       setSshTestResult(null);
-      const res = await fetch(`${API_BASE}/credentials/ssh-bridge/test-connection`, {
+      const res = await apiFetch('/credentials/ssh-bridge/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -204,7 +203,7 @@ export const DeploymentWizard: React.FC = () => {
     }
 
     try {
-      const createRes = await fetch(`${API_BASE}/deployments`, {
+      const createRes = await apiFetch('/deployments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -216,7 +215,7 @@ export const DeploymentWizard: React.FC = () => {
       setDeployedId(id);
       setDeployStatus('Deploying...');
 
-      const deployRes = await fetch(`${API_BASE}/deployments/${id}/deploy`, { method: 'POST' });
+      const deployRes = await apiFetch(`/deployments/${id}/deploy`, { method: 'POST' });
       const deployData = await deployRes.json();
 
       if (deployData.success) {
@@ -241,10 +240,10 @@ export const DeploymentWizard: React.FC = () => {
     const poll = async () => {
       try {
         const inProgress = ['PROVISIONING', 'DEPLOYING', 'VALIDATING'].includes(deployStatus);
-        const url = inProgress
-          ? `${API_BASE}/deployments/${deployedId}/sync-status`
-          : `${API_BASE}/deployments/${deployedId}`;
-        const res = await fetch(url, inProgress ? { method: 'POST' } : undefined);
+        const path = inProgress
+          ? `/deployments/${deployedId}/sync-status`
+          : `/deployments/${deployedId}`;
+        const res = await apiFetch(path, inProgress ? { method: 'POST' } : undefined);
         const data = await res.json();
         if (data.success && data.data) {
           setDeployStatus(data.data.status);
@@ -489,7 +488,7 @@ export const DeploymentWizard: React.FC = () => {
                   setDeploying(true);
                   setDeployError(null);
                   try {
-                    const res = await fetch(`${API_BASE}/deployments/${deployedId}/retry`, { method: 'POST' });
+                    const res = await apiFetch(`/deployments/${deployedId}/retry`, { method: 'POST' });
                     const data = await res.json();
                     if (data.success) {
                       setDeployStatus(data.data.status);
@@ -529,7 +528,7 @@ export const DeploymentWizard: React.FC = () => {
                     if (!confirm('Destroy this deployment? This cannot be undone.')) return;
                     setDestroying(true);
                     try {
-                      await fetch(`${API_BASE}/deployments/${deployedId}`, { method: 'DELETE' });
+                      await apiFetch(`/deployments/${deployedId}`, { method: 'DELETE' });
                       setDeployStatus('DESTROYED');
                     } catch { /* ignore */ }
                     setDestroying(false);

@@ -1860,7 +1860,13 @@ model DmDeployment {
   artifactType           String
   artifactVersion        String
   dockerImage            String
+  healthPort             Int?
+  healthEndpoint         String?
   artifactConfig         Json?
+  envVars                Json?
+  concurrency            Int?
+  estimatedCostPerHour   Float?
+  templateId             String?
   status                 String    @default("PENDING")
   healthStatus           String    @default("UNKNOWN")
   providerDeploymentId   String?

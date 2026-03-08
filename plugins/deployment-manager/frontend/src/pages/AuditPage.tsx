@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Filter } from 'lucide-react';
-
-const API_BASE = '/api/v1/deployment-manager';
+import { apiFetch } from '../lib/apiFetch';
 
 interface AuditEntry {
   id: string;
@@ -35,7 +34,7 @@ export const AuditPage: React.FC = () => {
       params.set('limit', String(limit));
       params.set('offset', String(page * limit));
 
-      const res = await fetch(`${API_BASE}/audit?${params}`);
+      const res = await apiFetch(`/audit?${params}`);
       const data = await res.json();
       if (data.success) {
         setEntries(data.data);

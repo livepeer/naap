@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { BarChart3, RefreshCw } from 'lucide-react';
+import { apiFetch } from '../lib/apiFetch';
 
 interface UsageBucket {
   timestamp: number;
@@ -21,8 +22,6 @@ interface UsageTabProps {
   deploymentId: string;
 }
 
-const API_BASE = '/api/v1/deployment-manager';
-
 export const UsageTab: React.FC<UsageTabProps> = ({ deploymentId }) => {
   const [range, setRange] = useState<'hour' | 'day'>('hour');
   const [stats, setStats] = useState<UsageStats | null>(null);
@@ -30,7 +29,7 @@ export const UsageTab: React.FC<UsageTabProps> = ({ deploymentId }) => {
 
   const fetchUsage = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/deployments/${deploymentId}/usage?range=${range}`);
+      const res = await apiFetch(`/deployments/${deploymentId}/usage?range=${range}`);
       const data = await res.json();
       if (data.success) setStats(data.data);
     } catch { /* ignore */ }

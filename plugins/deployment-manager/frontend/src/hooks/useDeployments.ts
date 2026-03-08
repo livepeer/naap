@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-
-const API_BASE = '/api/v1/deployment-manager';
+import { apiFetch } from '../lib/apiFetch';
 
 const IN_PROGRESS_STATES = ['PROVISIONING', 'DEPLOYING', 'VALIDATING', 'DESTROYING'];
 
@@ -34,7 +33,7 @@ export function useDeployments() {
   const refresh = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/deployments`);
+      const res = await apiFetch('/deployments');
       const data = await res.json();
       if (data.success) {
         setDeployments(data.data);
@@ -62,7 +61,7 @@ export function useDeployment(id: string) {
   const refresh = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/deployments/${id}`);
+      const res = await apiFetch(`/deployments/${id}`);
       const data = await res.json();
       if (data.success) setDeployment(data.data);
     } catch {
@@ -83,7 +82,7 @@ export function useDeployment(id: string) {
 
     const poll = async () => {
       try {
-        const syncRes = await fetch(`${API_BASE}/deployments/${id}/sync-status`, { method: 'POST' });
+        const syncRes = await apiFetch(`/deployments/${id}/sync-status`, { method: 'POST' });
         const syncData = await syncRes.json();
         if (syncData.success && syncData.data) {
           setDeployment(syncData.data);

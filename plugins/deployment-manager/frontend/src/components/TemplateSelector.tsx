@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus } from 'lucide-react';
-
-const API_BASE = '/api/v1/deployment-manager';
+import { apiFetch } from '../lib/apiFetch';
 
 interface Template {
   id: string;
@@ -54,7 +53,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
   const [isCustom, setIsCustom] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_BASE}/templates`)
+    apiFetch('/templates')
       .then((r) => r.json())
       .then((d) => { if (d.success) setTemplates(d.data); })
       .catch(() => {});
@@ -62,7 +61,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
 
   useEffect(() => {
     if (!selectedTemplateId || isCustom) { setVersions([]); return; }
-    fetch(`${API_BASE}/templates/${selectedTemplateId}/versions`)
+    apiFetch(`/templates/${selectedTemplateId}/versions`)
       .then((r) => r.json())
       .then((d) => { if (d.success) setVersions(d.data); })
       .catch(() => {});

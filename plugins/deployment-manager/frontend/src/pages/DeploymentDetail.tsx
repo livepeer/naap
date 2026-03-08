@@ -12,8 +12,7 @@ import { OverviewTab } from '../components/OverviewTab';
 import { UsageTab } from '../components/UsageTab';
 import { RequestTab } from '../components/RequestTab';
 import { InferencePlayground } from '../components/InferencePlayground';
-
-const API_BASE = '/api/v1/deployment-manager';
+import { apiFetch } from '../lib/apiFetch';
 
 type TabId = 'overview' | 'usage' | 'request' | 'pipeline' | 'timeline' | 'logs' | 'health' | 'audit';
 
@@ -38,7 +37,7 @@ export const DeploymentDetail: React.FC<DeploymentDetailProps> = ({ deploymentId
     if (!confirm('Destroy this deployment? This will delete all remote resources.')) return;
     setDestroying(true);
     try {
-      const res = await fetch(`${API_BASE}/deployments/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/deployments/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         setActiveTab('logs');
@@ -52,7 +51,7 @@ export const DeploymentDetail: React.FC<DeploymentDetailProps> = ({ deploymentId
     if (!confirm('Force destroy this deployment? This will attempt to clean up all remote resources and mark it as destroyed.')) return;
     setDestroying(true);
     try {
-      const res = await fetch(`${API_BASE}/deployments/${id}/force-destroy`, { method: 'POST' });
+      const res = await apiFetch(`/deployments/${id}/force-destroy`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         setActiveTab('logs');
@@ -65,7 +64,7 @@ export const DeploymentDetail: React.FC<DeploymentDetailProps> = ({ deploymentId
   const handleRetryCleanup = async () => {
     setRetryingCleanup(true);
     try {
-      const res = await fetch(`${API_BASE}/deployments/${id}/retry-cleanup`, { method: 'POST' });
+      const res = await apiFetch(`/deployments/${id}/retry-cleanup`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         setActiveTab('logs');
@@ -82,7 +81,7 @@ export const DeploymentDetail: React.FC<DeploymentDetailProps> = ({ deploymentId
       if (newVersion) body.artifactVersion = newVersion;
       if (newDockerImage) body.dockerImage = newDockerImage;
 
-      const res = await fetch(`${API_BASE}/deployments/${id}`, {
+      const res = await apiFetch(`/deployments/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -99,7 +98,7 @@ export const DeploymentDetail: React.FC<DeploymentDetailProps> = ({ deploymentId
 
   const handleRetry = async () => {
     try {
-      const res = await fetch(`${API_BASE}/deployments/${id}/retry`, { method: 'POST' });
+      const res = await apiFetch(`/deployments/${id}/retry`, { method: 'POST' });
       const data = await res.json();
       if (data.success) refresh();
     } catch { /* ignore */ }

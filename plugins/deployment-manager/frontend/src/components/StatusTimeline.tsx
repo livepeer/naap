@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-
-const API_BASE = '/api/v1/deployment-manager';
+import { apiFetch } from '../lib/apiFetch';
 
 interface StatusEntry {
   id: string;
@@ -59,7 +58,7 @@ export const StatusTimeline: React.FC<StatusTimelineProps> = ({ deploymentId }) 
   useEffect(() => {
     let active = true;
     const fetchHistory = () => {
-      fetch(`${API_BASE}/deployments/${deploymentId}/history`)
+      apiFetch(`/deployments/${deploymentId}/history`)
         .then((r) => r.json())
         .then((d) => { if (d.success && active) setEntries(d.data); })
         .catch(() => {});

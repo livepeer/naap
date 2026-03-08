@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-
-const API_BASE = '/api/v1/deployment-manager';
+import { apiFetch } from '../lib/apiFetch';
 
 export interface Provider {
   slug: string;
@@ -39,7 +38,7 @@ export function useProviders() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API_BASE}/providers`)
+    apiFetch('/providers')
       .then((res) => res.json())
       .then((data) => { if (data.success) setProviders(data.data); })
       .catch(() => {})
@@ -56,7 +55,7 @@ export function useGpuOptions(providerSlug: string | null) {
   useEffect(() => {
     if (!providerSlug) { setGpuOptions([]); return; }
     setLoading(true);
-    fetch(`${API_BASE}/providers/${providerSlug}/gpu-options`)
+    apiFetch(`/providers/${providerSlug}/gpu-options`)
       .then((res) => res.json())
       .then((data) => { if (data.success) setGpuOptions(data.data); })
       .catch(() => {})
@@ -74,7 +73,7 @@ export function useCredentialStatus(providerSlug: string | null) {
     if (!providerSlug) { setStatus(null); return; }
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/credentials/${providerSlug}/credential-status`);
+      const res = await apiFetch(`/credentials/${providerSlug}/credential-status`);
       const data = await res.json();
       if (data.success) setStatus(data.data);
     } catch {
@@ -94,7 +93,7 @@ export async function saveCredentials(
   secrets: Record<string, string>,
 ): Promise<{ success: boolean; message: string }> {
   try {
-    const res = await fetch(`${API_BASE}/credentials/${providerSlug}/credentials`, {
+    const res = await apiFetch(`/credentials/${providerSlug}/credentials`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ secrets }),
@@ -114,7 +113,7 @@ export async function testProviderConnection(
   providerSlug: string,
 ): Promise<{ success: boolean; latencyMs?: number; error?: string; statusCode?: number }> {
   try {
-    const res = await fetch(`${API_BASE}/credentials/${providerSlug}/test-connection`, {
+    const res = await apiFetch(`/credentials/${providerSlug}/test-connection`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });

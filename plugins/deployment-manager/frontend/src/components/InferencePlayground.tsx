@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Play, Clock, AlertTriangle, CheckCircle, XCircle, Activity } from 'lucide-react';
-
-const API_BASE = '/api/v1/deployment-manager';
+import { apiFetch } from '../lib/apiFetch';
 
 interface PipelineStatus {
   capabilityName: string;
@@ -42,7 +41,7 @@ export const InferencePlayground: React.FC<InferencePlaygroundProps> = ({ deploy
   useEffect(() => {
     const fetchPipeline = async () => {
       try {
-        const res = await fetch(`${API_BASE}/deployments/${deploymentId}/pipeline-status`);
+        const res = await apiFetch(`/deployments/${deploymentId}/pipeline-status`);
         const data = await res.json();
         if (data.success) setPipelineStatus(data.data);
       } catch { /* ignore */ }
@@ -65,7 +64,7 @@ export const InferencePlayground: React.FC<InferencePlaygroundProps> = ({ deploy
     }
 
     try {
-      const res = await fetch(`${API_BASE}/deployments/${deploymentId}/invoke?timeout=60000`, {
+      const res = await apiFetch(`/deployments/${deploymentId}/invoke?timeout=60000`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: requestBody,

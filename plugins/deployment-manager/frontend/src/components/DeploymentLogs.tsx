@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal } from 'lucide-react';
+import { apiFetch } from '../lib/apiFetch';
 
 interface DestroyStep {
   resource: string;
@@ -22,8 +23,6 @@ interface DeploymentLogsProps {
   deploymentId: string;
   autoScroll?: boolean;
 }
-
-const API_BASE = '/api/v1/deployment-manager';
 
 const stepIcon = (status: string) => {
   if (status === 'ok') return { symbol: '\u2713', color: '#4ade80' };
@@ -103,7 +102,7 @@ export const DeploymentLogs: React.FC<DeploymentLogsProps> = ({ deploymentId, au
 
     const fetchLogs = async () => {
       try {
-        const res = await fetch(`${API_BASE}/deployments/${deploymentId}/history`);
+        const res = await apiFetch(`/deployments/${deploymentId}/history`);
         const data = await res.json();
         if (data.success && active) {
           setEntries(data.data);

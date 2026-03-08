@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-
-const API_BASE = '/api/v1/deployment-manager';
+import { apiFetch } from '../lib/apiFetch';
 
 interface ArtifactInfo {
   type: string;
@@ -33,7 +32,7 @@ export const ArtifactSelector: React.FC<ArtifactSelectorProps> = ({
   const [versions, setVersions] = useState<ArtifactVersion[]>([]);
 
   useEffect(() => {
-    fetch(`${API_BASE}/artifacts`)
+    apiFetch('/artifacts')
       .then((r) => r.json())
       .then((d) => { if (d.success) setArtifacts(d.data); })
       .catch(() => {});
@@ -41,7 +40,7 @@ export const ArtifactSelector: React.FC<ArtifactSelectorProps> = ({
 
   useEffect(() => {
     if (!selectedType) { setVersions([]); return; }
-    fetch(`${API_BASE}/artifacts/${selectedType}/versions`)
+    apiFetch(`/artifacts/${selectedType}/versions`)
       .then((r) => r.json())
       .then((d) => { if (d.success) setVersions(d.data); })
       .catch(() => {});

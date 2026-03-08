@@ -19,13 +19,12 @@
 
 import { test, expect, type Page } from '@playwright/test';
 
-const BASE = 'http://localhost:3000';
+const BASE = 'http://127.0.0.1:3000';
 const API = `${BASE}/api/v1/deployment-manager`;
 const AUTH_API = `${BASE}/api/v1/auth`;
 
-const TEST_EMAIL = 'e2e-pw-runpod@naap.local';
-const TEST_PASSWORD = 'PwTest1234!';
-const TEST_NAME = 'E2E Playwright RunPod';
+const TEST_EMAIL = process.env.TEST_EMAIL ?? 'developer@livepeer.org';
+const TEST_PASSWORD = process.env.TEST_PASSWORD ?? 'livepeer';
 const RUNPOD_KEY = process.env.RUNPOD_KEY ?? '';
 
 let authToken = '';
@@ -41,42 +40,46 @@ test.describe.serial('RunPod E2E Deployment', () => {
   test.setTimeout(300_000); // 5 min global timeout for real infra
 
   test.beforeAll(async ({ request }) => {
-    // Register or login
+    // Login
     const t0 = Date.now();
-    let res = await request.post(`${AUTH_API}/register`, {
-      data: { email: TEST_EMAIL, password: TEST_PASSWORD, name: TEST_NAME },
+    const res = await request.post(`${AUTH_API}/login`, {
+      data: { email: TEST_EMAIL, password: TEST_PASSWORD },
     });
-    let body = await res.json();
+    const body = await res.json();
 
-    if (!body.success) {
-      res = await request.post(`${AUTH_API}/login`, {
-        data: { email: TEST_EMAIL, password: TEST_PASSWORD },
-      });
-      body = await res.json();
-    }
-
-    authToken = body.data.token;
+    authToken = body.data?.token || body.token;
     expect(authToken).toBeTruthy();
     record('auth', true, Date.now() - t0, `token=${authToken.slice(0, 12)}...`);
 
-    // Save RunPod credentials via API
-    const t1 = Date.now();
-    const credRes = await request.put(`${API}/credentials/runpod/credentials`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-      data: { secrets: { 'api-key': RUNPOD_KEY } },
-    });
-    const credBody = await credRes.json();
-    expect(credBody.success).toBe(true);
-    record('save-credentials', true, Date.now() - t1);
+    // Save RunPod credentials if provided via env
+    if (RUNPOD_KEY) {
+      const t1 = Date.now();
+      const credRes = await request.put(`${API}/credentials/runpod/credentials`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+        data: { secrets: { 'api-key': RUNPOD_KEY } },
+      });
+      const credBody = await credRes.json();
+      expect(credBody.success).toBe(true);
+      record('save-credentials', true, Date.now() - t1);
+    }
 
-    // Verify test connection
+    // Verify credentials are configured
     const t2 = Date.now();
+    const statusRes = await request.get(`${API}/credentials/runpod/credential-status`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    const statusBody = await statusRes.json();
+    expect(statusBody.data.configured).toBe(true);
+    record('verify-credentials', true, Date.now() - t2);
+
+    // Test connection
+    const t3 = Date.now();
     const testRes = await request.post(`${API}/credentials/runpod/test-connection`, {
       headers: { Authorization: `Bearer ${authToken}` },
     });
     const testBody = await testRes.json();
     expect(testBody.data.success).toBe(true);
-    record('test-connection', true, Date.now() - t2, `latency=${testBody.data.latencyMs}ms`);
+    record('test-connection', true, Date.now() - t3, `latency=${testBody.data.latencyMs}ms`);
   });
 
   test.afterAll(async ({ request }) => {
@@ -117,6 +120,7 @@ test.describe.serial('RunPod E2E Deployment', () => {
     if (await emailInput.isVisible({ timeout: 5000 }).catch(() => false)) {
       await emailInput.fill(TEST_EMAIL);
       await passwordInput.fill(TEST_PASSWORD);
+      await page.waitForTimeout(500);
       await page.locator('button[type="submit"], button:has-text("Sign in"), button:has-text("Log in")').click();
       await page.waitForURL(/.*(?:dashboard|deployments|home|\/).*/, { timeout: 15000 });
     } else {
@@ -186,10 +190,15 @@ test.describe.serial('RunPod E2E Deployment', () => {
     const t0 = Date.now();
     let finalStatus = 'UNKNOWN';
     let finalHealth = 'UNKNOWN';
-    const maxPolls = 24; // 24 * 10s = 240s max
+    const maxPolls = 30; // 30 * 10s = 300s max
 
     for (let i = 1; i <= maxPolls; i++) {
       await new Promise((r) => setTimeout(r, 10_000));
+
+      // Call syncStatus to advance state (serverless adapters stay at DEPLOYING until synced)
+      await request.post(`${API}/deployments/${deploymentId}/sync-status`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      }).catch(() => {});
 
       const res = await request.get(`${API}/deployments/${deploymentId}`, {
         headers: { Authorization: `Bearer ${authToken}` },

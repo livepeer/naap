@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-
-const API_BASE = '/api/v1/deployment-manager';
+import { apiFetch } from '../lib/apiFetch';
 
 export interface HealthDetails {
   endpointStatus?: string;
@@ -21,7 +20,7 @@ export function useHealthPolling(deploymentId: string | null, intervalMs = 30000
 
     const check = async () => {
       try {
-        const res = await fetch(`${API_BASE}/health/${deploymentId}/check`, { method: 'POST' });
+        const res = await apiFetch(`/health/${deploymentId}/check`, { method: 'POST' });
         const data = await res.json();
         if (data.success) {
           setHealthStatus(data.data.status);

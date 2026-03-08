@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-
-const API_BASE = '/api/v1/deployment-manager';
+import { apiFetch } from '../lib/apiFetch';
 
 interface AuditEntry {
   id: string;
@@ -26,7 +25,7 @@ export const AuditTable: React.FC<AuditTableProps> = ({ deploymentId, limit = 20
     if (deploymentId) params.set('deploymentId', deploymentId);
     params.set('limit', String(limit));
 
-    fetch(`${API_BASE}/audit?${params}`)
+    apiFetch(`/audit?${params}`)
       .then((r) => r.json())
       .then((d) => { if (d.success) setEntries(d.data); })
       .catch(() => {});
