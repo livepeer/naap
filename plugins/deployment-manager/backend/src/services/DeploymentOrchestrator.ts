@@ -3,6 +3,7 @@ import type { ProviderAdapterRegistry } from './ProviderAdapterRegistry.js';
 import type { AuditService } from './AuditService.js';
 import type { IProviderAdapter, DestroyResult } from '../adapters/IProviderAdapter.js';
 import type { IDeploymentStore, DeploymentFilters, StatusLogEntry } from '../store/IDeploymentStore.js';
+import { setSystemUserId } from '../lib/providerFetch.js';
 
 export type { DeploymentRecord } from '../store/IDeploymentStore.js';
 import type { DeploymentRecord } from '../store/IDeploymentStore.js';
@@ -399,6 +400,10 @@ export class DeploymentOrchestrator {
     if (!inProgressStates.includes(record.status)) return record;
 
     const adapter = this.registry.get(record.providerSlug);
+
+    // Set system userId so background adapter calls (health monitor, polling)
+    // can authenticate with the provider using the deployment owner's credentials.
+    setSystemUserId(record.ownerUserId);
     try {
       const providerStatus = await adapter.getStatus(record.providerDeploymentId);
       console.log(`[syncStatus] ${id}: provider reported status="${providerStatus.status}", current="${record.status}"`);
@@ -472,6 +477,8 @@ export class DeploymentOrchestrator {
     } catch (err: any) {
       console.error(`[syncStatus] Failed to sync ${id}: ${err.message}`, err.stack);
       return record;
+    } finally {
+      setSystemUserId(null);
     }
   }
 
@@ -491,14 +498,30 @@ export class DeploymentOrchestrator {
     return this.store.getStatusLogs(deploymentId);
   }
 
-  async updateHealthStatus(id: string, healthStatus: HealthStatus): Promise<void> {
+  async updateHealthStatus(id: string, healthStatus: HealthStatus, healthDetails?: Record<string, unknown>): Promise<void> {
     const record = await this.store.get(id);
     if (!record) return;
 
-    await this.store.update(id, {
+    const data: Partial<DeploymentRecord> = {
       healthStatus,
       lastHealthCheck: new Date(),
-    });
+    };
+
+    // Serverless endpoints scaled to zero report ORANGE — that's normal, don't degrade
+    const isServerlessIdle = healthDetails?.isServerless === true && healthDetails?.note != null;
+
+    if (record.status === 'ONLINE' && healthStatus === 'ORANGE' && !isServerlessIdle) {
+      data.status = 'DEGRADED';
+      await this.recordTransition(id, 'ONLINE', 'DEGRADED', 'Health degraded', 'system');
+    } else if (record.status === 'ONLINE' && healthStatus === 'RED') {
+      data.status = 'OFFLINE';
+      await this.recordTransition(id, 'ONLINE', 'OFFLINE', 'Health check failed', 'system');
+    } else if ((record.status === 'DEGRADED' || record.status === 'OFFLINE') && healthStatus === 'GREEN') {
+      data.status = 'ONLINE';
+      await this.recordTransition(id, record.status, 'ONLINE', 'Health recovered', 'system');
+    }
+
+    await this.store.update(id, data);
   }
 
   private async runValidation(

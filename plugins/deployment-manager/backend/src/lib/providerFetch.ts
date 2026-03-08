@@ -17,6 +17,18 @@ export function getAuthContext(): AuthContext {
   return globalAuthContext;
 }
 
+// System-level userId override for background tasks (health monitor, syncStatus)
+// that don't have an HTTP request auth context.
+let systemUserIdOverride: string | null = null;
+
+export function setSystemUserId(userId: string | null): void {
+  systemUserIdOverride = userId;
+}
+
+export function getSystemUserId(): string | null {
+  return systemUserIdOverride;
+}
+
 const AUTH_BASE = process.env.SHELL_URL || 'http://localhost:3000';
 
 let cachedUserId: { token: string; userId: string | null; expiresAt: number } | null = null;
@@ -72,21 +84,28 @@ export async function authenticatedProviderFetch(
   apiConfig: ProviderApiConfig,
   path: string,
   options: RequestInit = {},
+  overrideUserId?: string,
 ): Promise<Response> {
   let injector: SecretInjector | undefined;
 
   if (apiConfig.authType !== 'none') {
-    const userId = await resolveUserId();
+    const resolvedId = await resolveUserId();
+    const userId = overrideUserId || resolvedId || systemUserIdOverride;
     if (userId) {
       const secrets = await secretStore.getSecrets(userId, providerSlug);
-      const secretValue = secrets[apiConfig.secretNames[0]];
+      const secretName = apiConfig.secretNames[0];
+      const secretValue = secrets[secretName];
       if (secretValue && apiConfig.authHeaderTemplate) {
         const headerName = apiConfig.authHeaderName || 'Authorization';
         const headerValue = apiConfig.authHeaderTemplate.replace('{{secret}}', secretValue);
         injector = (headers: Headers) => {
           headers.set(headerName, headerValue);
         };
+      } else if (!secretValue) {
+        console.warn(`[authFetch] No secret "${secretName}" for userId=${userId} provider=${providerSlug} — request will be unauthenticated`);
       }
+    } else {
+      console.warn(`[authFetch] No userId resolved (resolved=${resolvedId}, override=${overrideUserId}, system=${systemUserIdOverride}) — request to ${providerSlug} will be unauthenticated`);
     }
   }
 

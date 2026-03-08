@@ -1942,3 +1942,17 @@ model DmUsageRecord {
   @@index([deploymentId, createdAt])
   @@schema("plugin_deployment_manager")
 }
+
+model DmProviderAuthConfig {
+  id            String   @id @default(uuid())
+  ownerUserId   String
+  providerSlug  String
+  authType      String   @default("api-key")
+  credentials   Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([ownerUserId, providerSlug])
+  @@index([ownerUserId])
+  @@schema("plugin_deployment_manager")
+}

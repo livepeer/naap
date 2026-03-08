@@ -148,11 +148,15 @@ export class SshBridgeAdapter implements IProviderAdapter {
     const host = url.hostname;
     const port = parseInt(url.port || '8080', 10);
 
+    // Extract custom health endpoint from providerDeploymentId (host:container:jobId:port:endpoint)
+    const parts = _providerDeploymentId.split(':');
+    const healthEndpoint = parts[4] || '/health';
+
     try {
       const start = Date.now();
       const res = await this.fetch('/exec', {
         method: 'POST',
-        body: JSON.stringify({ host, port: 22, username: 'deploy', command: `curl -sf -o /dev/null -w "%{http_code}" http://localhost:${port}/health`, timeout: 15000 }),
+        body: JSON.stringify({ host, port: 22, username: 'deploy', command: `curl -sf -o /dev/null -w "%{http_code}" http://localhost:${port}${healthEndpoint}`, timeout: 15000 }),
       });
       const responseTimeMs = Date.now() - start;
       if (!res.ok) return { healthy: false, status: 'RED', responseTimeMs };

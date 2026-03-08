@@ -10,6 +10,11 @@ import type {
 } from '../types/index.js';
 import { authenticatedProviderFetch } from '../lib/providerFetch.js';
 
+// RunPod has two APIs:
+// - Management API: https://rest.runpod.io/v1  (CRUD for templates, endpoints)
+// - Serverless API: https://api.runpod.ai/v2   (health, status, run jobs)
+const RUNPOD_SERVERLESS_BASE = 'https://api.runpod.ai/v2';
+
 export class RunPodAdapter implements IProviderAdapter {
   readonly slug = 'runpod';
   readonly displayName = 'RunPod Serverless GPU';
@@ -23,6 +28,15 @@ export class RunPodAdapter implements IProviderAdapter {
     authHeaderTemplate: 'Bearer {{secret}}',
     secretNames: ['api-key'],
     healthCheckPath: '/endpoints',
+  };
+
+  // Separate config for the serverless API (health/status checks)
+  private readonly serverlessApiConfig: ProviderApiConfig = {
+    upstreamBaseUrl: RUNPOD_SERVERLESS_BASE,
+    authType: 'bearer',
+    authHeaderTemplate: 'Bearer {{secret}}',
+    secretNames: ['api-key'],
+    healthCheckPath: '',
   };
 
   async getGpuOptions(): Promise<GpuOption[]> {
@@ -90,55 +104,68 @@ export class RunPodAdapter implements IProviderAdapter {
   }
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
-    const res = await authenticatedProviderFetch(this.slug, this.apiConfig, `/endpoints/${providerDeploymentId}`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      console.error(`[RunPodAdapter.getStatus] API returned ${res.status} for ${providerDeploymentId}: ${body}`);
-      // 404/5xx on a newly created endpoint is transient — don't mark as FAILED.
-      // Only 410 (Gone) or explicit deletion should be FAILED.
-      if (res.status === 410) {
+    // Use the serverless API health endpoint — it returns worker and job status.
+    // The management API (rest.runpod.io) only returns config data, not operational status.
+    const [healthRes, configRes] = await Promise.allSettled([
+      authenticatedProviderFetch(this.slug, this.serverlessApiConfig, `/${providerDeploymentId}/health`),
+      authenticatedProviderFetch(this.slug, this.apiConfig, `/endpoints/${providerDeploymentId}`),
+    ]);
+
+    const healthOk = healthRes.status === 'fulfilled' && healthRes.value.ok;
+    const configOk = configRes.status === 'fulfilled' && configRes.value.ok;
+
+    if (!healthOk && !configOk) {
+      const httpStatus = healthRes.status === 'fulfilled' ? healthRes.value.status : 0;
+      const body = healthRes.status === 'fulfilled' ? await healthRes.value.text().catch(() => '') : '';
+      console.error(`[RunPodAdapter.getStatus] Both APIs failed for ${providerDeploymentId}: health=${httpStatus}`);
+      if (httpStatus === 410) {
         return { status: 'FAILED', metadata: { error: 'Endpoint has been deleted (410 Gone)', body } };
       }
-      return { status: 'DEPLOYING', metadata: { error: `RunPod API returned ${res.status} (transient)`, body, httpStatus: res.status } };
+      return { status: 'DEPLOYING', metadata: { error: `RunPod API returned ${httpStatus} (transient)`, body, httpStatus } };
     }
-    const data = await res.json();
-    const rawStatus = data.status || 'UNKNOWN';
-    console.log(`[RunPodAdapter.getStatus] ${providerDeploymentId}: rawStatus=${rawStatus}, workers=${JSON.stringify({ running: data.workersRunning, total: data.workersTotal, min: data.workersMin })}`);
 
-    if (rawStatus === 'INITIALIZING' && data.workersTotal > 0) {
-      const hasRunning = (data.workersRunning || 0) > 0;
-      if (!hasRunning) {
-        const createdAt = data.createdAt ? new Date(data.createdAt).getTime() : 0;
-        const ageMinutes = createdAt ? (Date.now() - createdAt) / 60_000 : 0;
-        if (ageMinutes > 10) {
-          return {
-            status: 'FAILED',
-            endpointUrl: `https://api.runpod.ai/v2/${providerDeploymentId}`,
-            metadata: { ...data, error: 'Stuck initializing for >10 minutes — likely image pull failure. Check the Docker image name and tag.' },
-          };
-        }
+    const healthData = healthOk ? await (healthRes as PromiseFulfilledResult<Response>).value.json() : {};
+    const configData = configOk ? await (configRes as PromiseFulfilledResult<Response>).value.json() : {};
+
+    const workers = healthData.workers || {};
+    const workersMin = configData.workersMin ?? 0;
+    const isServerless = workersMin === 0;
+
+    console.log(`[RunPodAdapter.getStatus] ${providerDeploymentId}: workers=${JSON.stringify(workers)}, workersMin=${workersMin}`);
+
+    // Determine status from worker state
+    const hasReady = (workers.ready ?? 0) > 0;
+    const hasIdle = (workers.idle ?? 0) > 0;
+    const hasRunning = (workers.running ?? 0) > 0;
+    const hasInitializing = (workers.initializing ?? 0) > 0;
+    const hasUnhealthy = (workers.unhealthy ?? 0) > 0;
+    const totalWorkers = (workers.ready ?? 0) + (workers.idle ?? 0) + (workers.running ?? 0) + (workers.initializing ?? 0);
+
+    let status: ProviderStatus['status'];
+
+    if (hasReady || hasIdle || hasRunning) {
+      // Workers are operational
+      status = hasUnhealthy ? 'DEGRADED' : 'ONLINE';
+    } else if (isServerless && totalWorkers === 0 && !hasInitializing) {
+      // Serverless scaled to zero — this is normal, endpoint is ready for cold-start
+      status = 'ONLINE';
+    } else if (hasInitializing) {
+      // Workers still starting up
+      const createdAt = configData.createdAt ? new Date(configData.createdAt).getTime() : 0;
+      const ageMinutes = createdAt ? (Date.now() - createdAt) / 60_000 : 0;
+      if (ageMinutes > 10) {
+        status = 'FAILED';
+      } else {
+        status = 'DEPLOYING';
       }
+    } else {
+      status = 'DEPLOYING';
     }
 
-    const statusMap: Record<string, ProviderStatus['status']> = {
-      READY: 'ONLINE',
-      INITIALIZING: 'DEPLOYING',
-      UNHEALTHY: 'DEGRADED',
-      OFFLINE: 'ONLINE',
-      RUNNING: 'ONLINE',
-      SCALING: 'DEPLOYING',
-      PENDING: 'DEPLOYING',
-      CREATING: 'DEPLOYING',
-    };
-
-    const mapped = statusMap[rawStatus] || statusMap[rawStatus.toUpperCase()];
-    if (!mapped) {
-      console.warn(`[RunPodAdapter.getStatus] Unknown RunPod status "${rawStatus}" for ${providerDeploymentId}, defaulting to DEPLOYING`);
-    }
     return {
-      status: mapped || 'DEPLOYING',
+      status,
       endpointUrl: `https://api.runpod.ai/v2/${providerDeploymentId}`,
-      metadata: { ...data, rawStatus },
+      metadata: { ...configData, workers, jobs: healthData.jobs, workerStatus: status },
     };
   }
 
@@ -249,30 +276,31 @@ export class RunPodAdapter implements IProviderAdapter {
   async healthCheck(providerDeploymentId: string): Promise<HealthResult> {
     try {
       const start = Date.now();
-      const [healthRes, endpointRes] = await Promise.all([
-        authenticatedProviderFetch(this.slug, this.apiConfig, `/endpoints/${providerDeploymentId}/health`),
+      const [healthRes, configRes] = await Promise.all([
+        authenticatedProviderFetch(this.slug, this.serverlessApiConfig, `/${providerDeploymentId}/health`),
         authenticatedProviderFetch(this.slug, this.apiConfig, `/endpoints/${providerDeploymentId}`),
       ]);
       const responseTimeMs = Date.now() - start;
 
-      if (!healthRes.ok && !endpointRes.ok) {
+      if (!healthRes.ok && !configRes.ok) {
         return { healthy: false, status: 'RED', responseTimeMs, statusCode: healthRes.status };
       }
 
       const healthData = healthRes.ok ? await healthRes.json() : {};
-      const endpointData = endpointRes.ok ? await endpointRes.json() : {};
+      const configData = configRes.ok ? await configRes.json() : {};
 
       const workers = healthData.workers || {};
-      const endpointStatus = endpointData.status || healthData.status || 'UNKNOWN';
-      const workersMin = endpointData.workersMin ?? 0;
-
+      const workersMin = configData.workersMin ?? 0;
       const isServerless = workersMin === 0;
-      const isReady = endpointStatus === 'READY' || workers.running > 0;
-      const isIdleServerless = isServerless && (endpointStatus === 'OFFLINE' || endpointStatus === 'INITIALIZING');
-      const healthy = isReady || isIdleServerless;
+
+      const hasReady = (workers.ready ?? 0) > 0;
+      const hasIdle = (workers.idle ?? 0) > 0;
+      const hasRunning = (workers.running ?? 0) > 0;
+      const isScaledToZero = isServerless && !hasReady && !hasIdle && !hasRunning;
+      const healthy = hasReady || hasIdle || hasRunning || isScaledToZero;
 
       let status: 'GREEN' | 'ORANGE' | 'RED';
-      if (isIdleServerless && !isReady) {
+      if (isScaledToZero) {
         status = 'ORANGE';
       } else if (healthy) {
         status = responseTimeMs > 5000 ? 'ORANGE' : 'GREEN';
@@ -286,21 +314,23 @@ export class RunPodAdapter implements IProviderAdapter {
         responseTimeMs,
         statusCode: healthRes.status,
         details: {
-          endpointStatus,
           isServerless,
           workers: {
-            running: workers.running ?? 0,
+            ready: workers.ready ?? 0,
             idle: workers.idle ?? 0,
-            total: workers.total ?? endpointData.workersTotal ?? 0,
+            running: workers.running ?? 0,
+            initializing: workers.initializing ?? 0,
+            unhealthy: workers.unhealthy ?? 0,
             min: workersMin,
-            max: endpointData.workersMax ?? 0,
+            max: configData.workersMax ?? 0,
           },
           jobs: {
             completed: healthData.jobs?.completed ?? 0,
+            failed: healthData.jobs?.failed ?? 0,
             inQueue: healthData.jobs?.inQueue ?? 0,
             inProgress: healthData.jobs?.inProgress ?? 0,
           },
-          note: isIdleServerless && !isReady
+          note: isScaledToZero
             ? 'Serverless endpoint scaled to zero — workers spin up on demand'
             : undefined,
         },

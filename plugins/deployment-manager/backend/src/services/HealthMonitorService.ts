@@ -1,6 +1,7 @@
 import type { ProviderAdapterRegistry } from './ProviderAdapterRegistry.js';
 import type { DeploymentOrchestrator, DeploymentRecord } from './DeploymentOrchestrator.js';
 import type { HealthStatus, HealthResult } from '../types/index.js';
+import { setSystemUserId } from '../lib/providerFetch.js';
 
 export interface HealthLogEntry {
   id: string;
@@ -54,8 +55,8 @@ export class HealthMonitorService {
   async checkAll(): Promise<void> {
     const deployments = await this.orchestrator.list();
 
-    // Monitor ONLINE deployments for health, and sync in-progress deployments to advance state
-    const online = deployments.filter((d) => d.status === 'ONLINE');
+    // Monitor ONLINE/DEGRADED/OFFLINE deployments for health, and sync in-progress deployments to advance state
+    const online = deployments.filter((d) => ['ONLINE', 'DEGRADED', 'OFFLINE'].includes(d.status));
     const inProgress = deployments.filter(
       (d) => ['DEPLOYING', 'VALIDATING'].includes(d.status) && d.providerDeploymentId,
     );
@@ -77,6 +78,9 @@ export class HealthMonitorService {
   async checkOne(deployment: DeploymentRecord): Promise<HealthResult> {
     const adapter = this.registry.get(deployment.providerSlug);
 
+    // Set system userId so authenticatedProviderFetch can look up credentials
+    setSystemUserId(deployment.ownerUserId);
+
     let result: HealthResult;
     try {
       result = await adapter.healthCheck(
@@ -85,6 +89,8 @@ export class HealthMonitorService {
       );
     } catch {
       result = { healthy: false, status: 'RED' };
+    } finally {
+      setSystemUserId(null);
     }
 
     const computedStatus = this.computeStatus(deployment.id, result);
@@ -103,7 +109,7 @@ export class HealthMonitorService {
     // Evict old logs (keep last 1000 per deployment)
     this.evictOldLogs(deployment.id, 1000);
 
-    await this.orchestrator.updateHealthStatus(deployment.id, computedStatus);
+    await this.orchestrator.updateHealthStatus(deployment.id, computedStatus, result.details);
     return result;
   }
 

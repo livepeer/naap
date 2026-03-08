@@ -20,6 +20,15 @@ export function createHealthRouter(
     res.json({ success: true, data: summary });
   });
 
+  router.post('/check-all', async (_req, res) => {
+    try {
+      await healthMonitor.checkAll();
+      res.json({ success: true, message: 'Health check completed' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/:deploymentId', (req, res) => {
     const logs = healthMonitor.getHealthLogs(
       req.params.deploymentId,

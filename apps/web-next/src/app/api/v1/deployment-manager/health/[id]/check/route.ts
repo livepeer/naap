@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken } from '@/lib/api/response';
-import { getServices } from '@/lib/deployment-manager';
+
+const PLUGIN_BACKEND = process.env.DEPLOYMENT_MANAGER_URL || 'http://localhost:4117';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -11,10 +12,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!user) return NextResponse.json({ success: false, error: 'Invalid session' }, { status: 401 });
 
     const { id } = await params;
-    const { healthMonitor } = getServices();
-    const result = await healthMonitor.checkById(id);
-    if (!result) return NextResponse.json({ success: false, error: 'Deployment not found' }, { status: 404 });
-    return NextResponse.json({ success: true, data: result });
+    const res = await fetch(`${PLUGIN_BACKEND}/api/v1/deployment-manager/health/${id}/check`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: request.headers.get('authorization') || '',
+      },
+    });
+
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }

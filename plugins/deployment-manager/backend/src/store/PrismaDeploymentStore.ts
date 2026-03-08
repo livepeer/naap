@@ -197,7 +197,7 @@ export class PrismaDeploymentStore implements IDeploymentStore {
 
   async addStatusLog(entry: StatusLogEntry): Promise<void> {
     const prisma = await getPrisma();
-    await prisma.dmDeploymentStatusLog.create({
+    await prisma.dmStatusLog.create({
       data: {
         id: entry.id,
         deploymentId: entry.deploymentId,
@@ -212,7 +212,7 @@ export class PrismaDeploymentStore implements IDeploymentStore {
 
   async getStatusLogs(deploymentId: string): Promise<StatusLogEntry[]> {
     const prisma = await getPrisma();
-    const rows = await prisma.dmDeploymentStatusLog.findMany({
+    const rows = await prisma.dmStatusLog.findMany({
       where: { deploymentId },
       orderBy: { createdAt: 'desc' },
     });

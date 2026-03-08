@@ -61,31 +61,41 @@ async function getPrisma() {
 
 export class PrismaSecretStore implements SecretStore {
   async getSecrets(userId: string, providerSlug: string): Promise<Record<string, string>> {
-    const prisma = await getPrisma();
-    const record = await prisma.dmProviderAuthConfig.findUnique({
-      where: { ownerUserId_providerSlug: { ownerUserId: userId, providerSlug } },
-    });
-    return (record?.credentials as Record<string, string>) || {};
+    try {
+      const prisma = await getPrisma();
+      const record = await prisma.dmProviderAuthConfig.findUnique({
+        where: { ownerUserId_providerSlug: { ownerUserId: userId, providerSlug } },
+      });
+      return (record?.credentials as Record<string, string>) || {};
+    } catch (err: any) {
+      console.error(`[secret-store] getSecrets failed for ${providerSlug}: ${err.message}`);
+      return {};
+    }
   }
 
   async setSecrets(userId: string, providerSlug: string, secrets: Record<string, string>): Promise<void> {
-    const prisma = await getPrisma();
-    const existing = await this.getSecrets(userId, providerSlug);
-    const merged = { ...existing, ...secrets };
+    try {
+      const prisma = await getPrisma();
+      const existing = await this.getSecrets(userId, providerSlug);
+      const merged = { ...existing, ...secrets };
 
-    await prisma.dmProviderAuthConfig.upsert({
-      where: { ownerUserId_providerSlug: { ownerUserId: userId, providerSlug } },
-      create: {
-        ownerUserId: userId,
-        providerSlug,
-        authType: 'api-key',
-        credentials: merged,
-      },
-      update: {
-        credentials: merged,
-        updatedAt: new Date(),
-      },
-    });
+      await prisma.dmProviderAuthConfig.upsert({
+        where: { ownerUserId_providerSlug: { ownerUserId: userId, providerSlug } },
+        create: {
+          ownerUserId: userId,
+          providerSlug,
+          authType: 'api-key',
+          credentials: merged,
+        },
+        update: {
+          credentials: merged,
+          updatedAt: new Date(),
+        },
+      });
+    } catch (err: any) {
+      console.error(`[secret-store] setSecrets failed for ${providerSlug}: ${err.message}`);
+      throw err;
+    }
   }
 
   async hasSecrets(
