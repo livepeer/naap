@@ -526,6 +526,7 @@ import governanceRoutes from './routes/governance.js';
 import networkHistoryRoutes from './routes/networkHistory.js';
 import aiRecommendRoutes from './routes/aiRecommend.js';
 import stakingHistoryRoutes from './routes/stakingHistory.js';
+import snapshotsRoutes from './routes/snapshots.js';
 
 app.use(yieldRoutes);
 app.use(pricesRoutes);
@@ -548,6 +549,7 @@ app.use(governanceRoutes);
 app.use(networkHistoryRoutes);
 app.use(aiRecommendRoutes);
 app.use(stakingHistoryRoutes);
+app.use(snapshotsRoutes);
 
 // Sync Now endpoint (on-demand for current user)
 import { snapshotStaking } from './jobs/snapshotStaking.js';
@@ -587,50 +589,52 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 import { startScheduler, stopScheduler } from './jobs/scheduler.js';
 
-const server = app.listen(PORT, () => {
-  console.log(`My Wallet backend running on http://localhost:${PORT}`);
-  console.log(`   Health: http://localhost:${PORT}/healthz`);
-  console.log(`   API: http://localhost:${PORT}/api/v1/wallet/*`);
+if (process.env.VERCEL !== '1') {
+  const server = app.listen(PORT, () => {
+    console.log(`My Wallet backend running on http://localhost:${PORT}`);
+    console.log(`   Health: http://localhost:${PORT}/healthz`);
+    console.log(`   API: http://localhost:${PORT}/api/v1/wallet/*`);
 
-  // Start cron jobs in Express mode
-  if (process.env.DISABLE_CRON !== 'true') {
-    startScheduler();
-  }
-});
-
-// Graceful shutdown
-async function shutdown() {
-  console.log('Shutting down gracefully...');
-  stopScheduler();
-
-  server.close(async () => {
-    console.log('HTTP server closed');
-
-    try {
-      await closeRedis();
-      console.log('Redis connection closed');
-    } catch (err) {
-      console.error('Error closing Redis:', err);
+    // Start cron jobs in Express mode (not on Vercel — timers die between invocations)
+    if (process.env.DISABLE_CRON !== 'true') {
+      startScheduler();
     }
-
-    try {
-      await prisma.$disconnect();
-      console.log('Database connection closed');
-    } catch (err) {
-      console.error('Error closing database:', err);
-    }
-
-    process.exit(0);
   });
 
-  // Force close after 30s
-  setTimeout(() => {
-    console.error('Forced shutdown after timeout');
-    process.exit(1);
-  }, 30000);
-}
+  // Graceful shutdown
+  async function shutdown() {
+    console.log('Shutting down gracefully...');
+    stopScheduler();
 
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+    server.close(async () => {
+      console.log('HTTP server closed');
+
+      try {
+        await closeRedis();
+        console.log('Redis connection closed');
+      } catch (err) {
+        console.error('Error closing Redis:', err);
+      }
+
+      try {
+        await prisma.$disconnect();
+        console.log('Database connection closed');
+      } catch (err) {
+        console.error('Error closing database:', err);
+      }
+
+      process.exit(0);
+    });
+
+    // Force close after 30s
+    setTimeout(() => {
+      console.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, 30000);
+  }
+
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+}
 
 export default app;

@@ -5,6 +5,7 @@
 
 import { getDelegator, getStakingHistory, getPrices, getProtocol, estimateDailyReward, type StakingEvent } from './livepeer.js';
 import { buildCsv, type CsvColumn } from './csvBuilder.js';
+import { prisma } from '../db/client.js';
 
 export interface PnlRow {
   address: string;
@@ -65,7 +66,61 @@ export async function calculatePnl(
   let totalDailyReward = 0;
   let aprSum = 0;
 
-  if (delegator && delegator.bondedAmount !== '0') {
+  // Try snapshot-based P&L when date range is provided
+  let usedSnapshots = false;
+  if (startDate && delegator && delegator.bondedAmount !== '0') {
+    try {
+      const snapshots = await prisma.walletStakingSnapshot.findMany({
+        where: {
+          address: addr,
+          createdAt: { gte: start, lte: now },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      if (snapshots.length >= 2) {
+        const earliest = snapshots[0];
+        const latest = snapshots[snapshots.length - 1];
+        const periodReward = (BigInt(latest.pendingStake) - BigInt(earliest.pendingStake));
+        const periodDays = (latest.createdAt.getTime() - earliest.createdAt.getTime()) / 86400000;
+        const staked = parseFloat(latest.pendingStake) / 1e18;
+        const principal = parseFloat(latest.bondedAmount) / 1e18;
+        const accumulated = Number(periodReward) / 1e18;
+        const fees = parseFloat(latest.pendingFees) / 1e18;
+        const dailyReward = periodDays > 0 ? accumulated / periodDays : 0;
+        const apr = principal > 0 && periodDays > 0
+          ? (accumulated / principal) * (365 / periodDays) * 100
+          : 0;
+
+        rows.push({
+          address: addr,
+          orchestrator: latest.orchestrator || delegator.delegateAddress || 'None',
+          totalStaked: staked.toFixed(4),
+          principal: principal.toFixed(4),
+          accumulatedRewards: accumulated.toFixed(4),
+          pendingFees: fees.toFixed(8),
+          dailyRewardRate: dailyReward.toFixed(4),
+          roundsElapsed: latest.round - earliest.round,
+          annualizedAPR: apr.toFixed(2),
+          periodStart: earliest.createdAt.toISOString(),
+          periodEnd: latest.createdAt.toISOString(),
+        });
+
+        totalStaked += staked;
+        totalPrincipal += principal;
+        totalRewards += accumulated;
+        totalFees += fees;
+        totalDailyReward += dailyReward;
+        aprSum += apr;
+        usedSnapshots = true;
+      }
+    } catch {
+      // Snapshots unavailable — fall through to live-only
+    }
+  }
+
+  // Fall back to live-only P&L
+  if (!usedSnapshots && delegator && delegator.bondedAmount !== '0') {
     const staked = parseFloat(delegator.bondedAmount) / 1e18;
     const principal = parseFloat(delegator.principal || '0') / 1e18;
     const fees = parseFloat(delegator.fees || '0') / 1e18;

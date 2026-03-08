@@ -4,8 +4,10 @@
  * Layer 1: Subgraph (GraphQL) — orchestrators, protocol, delegator state, rounds
  * Layer 2: CoinGecko API — LPT/ETH prices + chart history
  *
- * All data is cached in-memory with configurable TTL.
+ * Cached via @naap/cache (Redis-backed with in-memory fallback).
  */
+
+import { cacheGetOrSet } from '@naap/cache';
 
 // ---------------------------------------------------------------------------
 // Subgraph
@@ -138,18 +140,11 @@ function decodeAddressAt(hex: string, slot: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Simple in-memory cache
+// Cache helper — delegates to @naap/cache (Redis + in-memory fallback)
 // ---------------------------------------------------------------------------
 
-const cache = new Map<string, { data: any; expiresAt: number }>();
-
 function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
-  const entry = cache.get(key);
-  if (entry && Date.now() < entry.expiresAt) return Promise.resolve(entry.data as T);
-  return fn().then(data => {
-    cache.set(key, { data, expiresAt: Date.now() + ttlMs });
-    return data;
-  });
+  return cacheGetOrSet(key, fn, { ttl: Math.round(ttlMs / 1000), prefix: 'wallet' });
 }
 
 // ---------------------------------------------------------------------------
