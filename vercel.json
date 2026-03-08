@@ -102,11 +102,6 @@
   ],
   "redirects": [],
   "crons": [
-    { "path": "/api/v1/gw/admin/health/check", "schedule": "*/5 * * * *" },
-    { "path": "/api/v1/wallet/jobs/prices", "schedule": "*/5 * * * *" },
-    { "path": "/api/v1/wallet/jobs/unbonding", "schedule": "*/5 * * * *" },
-    { "path": "/api/v1/wallet/jobs/snapshot", "schedule": "0 * * * *" },
-    { "path": "/api/v1/wallet/jobs/alerts", "schedule": "*/5 * * * *" },
-    { "path": "/api/v1/wallet/jobs/network-snapshot", "schedule": "0 */6 * * *" }
+    { "path": "/api/v1/gw/admin/health/check", "schedule": "*/5 * * * *" }
   ]
 }
