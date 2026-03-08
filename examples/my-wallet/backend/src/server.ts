@@ -189,31 +189,41 @@ app.get('/api/v1/wallet/transactions', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'address or userId is required' });
     }
 
-    const where: any = {};
-    if (address) where.address = address;
-    if (userId) where.userId = userId;
-    if (type) where.type = type;
-    if (status) where.status = status;
+    try {
+      const where: any = {};
+      if (address) where.address = address;
+      if (userId) where.userId = userId;
+      if (type) where.type = type;
+      if (status) where.status = status;
 
-    const [transactions, total] = await Promise.all([
-      prisma.walletTransactionLog.findMany({
-        where,
-        orderBy: { timestamp: 'desc' },
-        take: parseInt(limit as string, 10),
-        skip: parseInt(offset as string, 10),
-      }),
-      prisma.walletTransactionLog.count({ where }),
-    ]);
+      const [transactions, total] = await Promise.all([
+        prisma.walletTransactionLog.findMany({
+          where,
+          orderBy: { timestamp: 'desc' },
+          take: parseInt(limit as string, 10),
+          skip: parseInt(offset as string, 10),
+        }),
+        prisma.walletTransactionLog.count({ where }),
+      ]);
 
-    res.json({
-      transactions,
-      total,
-      limit: parseInt(limit as string, 10),
-      offset: parseInt(offset as string, 10),
-    });
+      res.json({
+        transactions,
+        total,
+        limit: parseInt(limit as string, 10),
+        offset: parseInt(offset as string, 10),
+      });
+    } catch {
+      // DB unavailable — return empty
+      res.json({
+        transactions: [],
+        total: 0,
+        limit: parseInt(limit as string, 10),
+        offset: parseInt(offset as string, 10),
+      });
+    }
   } catch (error: any) {
     console.error('Error fetching transactions:', error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
+    res.json({ transactions: [], total: 0 });
   }
 });
 
@@ -349,14 +359,17 @@ app.get('/api/v1/wallet/staking/state', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'address is required' });
     }
 
-    const state = await prisma.walletStakingState.findUnique({
-      where: { address: address as string },
-    });
-
-    res.json({ state: state || null });
+    try {
+      const state = await prisma.walletStakingState.findUnique({
+        where: { address: address as string },
+      });
+      res.json({ state: state || null });
+    } catch {
+      res.json({ state: null });
+    }
   } catch (error: any) {
     console.error('Error fetching staking state:', error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
+    res.json({ state: null });
   }
 });
 
@@ -512,6 +525,7 @@ import autoClaimRoutes from './routes/autoClaim.js';
 import governanceRoutes from './routes/governance.js';
 import networkHistoryRoutes from './routes/networkHistory.js';
 import aiRecommendRoutes from './routes/aiRecommend.js';
+import stakingHistoryRoutes from './routes/stakingHistory.js';
 
 app.use(yieldRoutes);
 app.use(pricesRoutes);
@@ -533,6 +547,7 @@ app.use(autoClaimRoutes);
 app.use(governanceRoutes);
 app.use(networkHistoryRoutes);
 app.use(aiRecommendRoutes);
+app.use(stakingHistoryRoutes);
 
 // Sync Now endpoint (on-demand for current user)
 import { snapshotStaking } from './jobs/snapshotStaking.js';

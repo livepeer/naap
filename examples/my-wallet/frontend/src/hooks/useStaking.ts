@@ -24,11 +24,13 @@ export interface DelegatorInfo {
 
 export interface StakingState {
   lptBalance: bigint;
-  stakedAmount: bigint;
-  pendingRewards: bigint;
+  stakedAmount: bigint;      // Total staked including accumulated rewards (= pendingStake)
+  pendingRewards: bigint;    // Accumulated rewards only (= pendingStake - principal)
   pendingFees: bigint;
   delegatedTo: string | null;
   currentRound: bigint;
+  lastClaimRound: bigint;    // Round when earnings were last claimed
+  principal: bigint;         // Original bonded amount (at last claim)
   isLoading: boolean;
   error: string | null;
 }
@@ -48,6 +50,8 @@ const initialState: StakingState = {
   pendingFees: 0n,
   delegatedTo: null,
   currentRound: 0n,
+  lastClaimRound: 0n,
+  principal: 0n,
   isLoading: false,
   error: null,
 };
@@ -102,29 +106,34 @@ export function useStaking(): UseStakingReturn {
         currentRound = await roundsManager.currentRound();
       }
 
-      // Get delegator info
+      // Get delegator info: bondedAmount, fees, delegateAddress, delegatedAmount, startRound, lastClaimRound, nextUnbondingLockId
       const delegatorInfo = await bondingManager.getDelegator(address);
-      const [bondedAmount, fees, delegateAddress] = delegatorInfo;
+      const [bondedAmount, fees, delegateAddress, , , lastClaimRound] = delegatorInfo;
 
       // Get pending stake and fees
-      let pendingRewards = 0n;
+      let pendingStake = bondedAmount; // fallback to principal
       let pendingFees = 0n;
       if (currentRound > 0n) {
         try {
-          pendingRewards = await bondingManager.pendingStake(address, currentRound);
+          pendingStake = await bondingManager.pendingStake(address, currentRound);
           pendingFees = await bondingManager.pendingFees(address, currentRound);
         } catch {
           // Some networks may not support these calls
         }
       }
 
+      // Normalize: stakedAmount = total (pendingStake), pendingRewards = accumulated only
+      const accumulatedRewards = pendingStake > bondedAmount ? pendingStake - bondedAmount : 0n;
+
       setState({
         lptBalance,
-        stakedAmount: bondedAmount,
-        pendingRewards,
+        stakedAmount: pendingStake,           // Total staked including rewards
+        pendingRewards: accumulatedRewards,    // Just accumulated rewards
         pendingFees: pendingFees > 0n ? pendingFees : fees,
         delegatedTo: delegateAddress !== '0x0000000000000000000000000000000000000000' ? delegateAddress : null,
         currentRound,
+        lastClaimRound: lastClaimRound || 0n,
+        principal: bondedAmount,               // Original bonded amount
         isLoading: false,
         error: null,
       });
@@ -141,13 +150,16 @@ export function useStaking(): UseStakingReturn {
         const portfolio = (await portfolioRes.json()).data;
         const protocol = (await protocolRes.json()).data;
 
+        const pos = portfolio?.positions?.[0];
         setState({
           lptBalance: 0n, // Can't get LPT balance without direct RPC
           stakedAmount: BigInt(portfolio?.totalStaked || '0'),
           pendingRewards: BigInt(portfolio?.totalPendingRewards || '0'),
           pendingFees: BigInt(portfolio?.totalPendingFees || '0'),
-          delegatedTo: portfolio?.positions?.[0]?.orchestrator || null,
+          delegatedTo: pos?.orchestrator || null,
           currentRound: BigInt(protocol?.currentRound || 0),
+          lastClaimRound: BigInt(pos?.lastClaimRound || '0'),
+          principal: BigInt(portfolio?.totalStaked || '0') - BigInt(portfolio?.totalPendingRewards || '0'),
           isLoading: false,
           error: null,
         });

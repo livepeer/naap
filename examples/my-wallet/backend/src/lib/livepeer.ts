@@ -54,30 +54,37 @@ export async function querySubgraph<T = any>(query: string, variables?: Record<s
 
 const ARBITRUM_RPC = process.env.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc';
 
-async function ethCall(to: string, data: string, retries = 3): Promise<string> {
+async function ethCall(to: string, data: string, retries = 5): Promise<string> {
   for (let attempt = 0; attempt < retries; attempt++) {
-    const res = await fetch(ARBITRUM_RPC, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0', id: 1, method: 'eth_call',
-        params: [{ to, data }, 'latest'],
-      }),
-    });
-    if (res.status === 429) {
-      // Rate limited — wait and retry
-      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-      continue;
-    }
-    const json = await res.json();
-    if (json.error) {
-      if (json.error.message?.includes('Too Many') && attempt < retries - 1) {
-        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+    try {
+      const res = await fetch(ARBITRUM_RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1, method: 'eth_call',
+          params: [{ to, data }, 'latest'],
+        }),
+      });
+      if (res.status === 429) {
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
         continue;
       }
-      throw new Error(json.error.message);
+      const json = await res.json();
+      if (json.error) {
+        if ((json.error.message?.includes('Too Many') || json.error.message?.includes('rate limit')) && attempt < retries - 1) {
+          await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+          continue;
+        }
+        throw new Error(json.error.message);
+      }
+      return json.result;
+    } catch (err: any) {
+      if (attempt < retries - 1 && (err.message?.includes('fetch') || err.message?.includes('ECONNRESET'))) {
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
+      }
+      throw err;
     }
-    return json.result;
   }
   throw new Error('ethCall: max retries exceeded');
 }
@@ -305,7 +312,7 @@ export interface OrchestratorData {
 }
 
 export function getOrchestrators(): Promise<OrchestratorData[]> {
-  return cached('orchestrators', 3 * 60_000, async () => { try {
+  return cached('orchestrators', 60 * 60_000, async () => { try {
     const protocol = await getProtocol();
     const round = protocol.currentRound;
 
@@ -383,17 +390,22 @@ async function getOrchestratorsFromRPC(): Promise<OrchestratorData[]> {
   const firstAddr = decodeAddressAt(firstResult, 0);
   if (!firstAddr || firstAddr === '0x' + '0'.repeat(40)) return [];
 
+  const addressSet = new Set<string>();
   const addresses: string[] = [firstAddr];
+  addressSet.add(firstAddr.toLowerCase());
   let current = firstAddr;
   for (let i = 0; i < 150; i++) { // safety limit
     const calldata = SELECTORS.getNextTranscoderInPool + padAddress(current).slice(2);
     const nextResult = await ethCall(BM, calldata);
     const nextAddr = decodeAddressAt(nextResult, 0);
     if (!nextAddr || nextAddr === '0x' + '0'.repeat(40) || nextAddr === firstAddr) break;
+    // Skip duplicates
+    if (addressSet.has(nextAddr.toLowerCase())) break;
+    addressSet.add(nextAddr.toLowerCase());
     addresses.push(nextAddr);
     current = nextAddr;
-    // Small delay every 10 calls to avoid rate limiting
-    if (i % 10 === 9) await new Promise(r => setTimeout(r, 200));
+    // Delay every 5 calls to avoid rate limiting
+    if (i % 5 === 4) await new Promise(r => setTimeout(r, 500));
   }
 
   // Batch fetch details in groups of 5 to avoid rate limiting
@@ -432,8 +444,8 @@ async function getOrchestratorsFromRPC(): Promise<OrchestratorData[]> {
       })
     );
     orchestrators.push(...results);
-    // Delay between batches
-    if (i + BATCH_SIZE < addresses.length) await new Promise(r => setTimeout(r, 300));
+    // Delay between batches to avoid rate limiting
+    if (i + BATCH_SIZE < addresses.length) await new Promise(r => setTimeout(r, 500));
   }
 
   // Sort by totalStake descending
@@ -665,6 +677,291 @@ export function getPolls(): Promise<PollData[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Staking History (events for a delegator)
+// ---------------------------------------------------------------------------
+
+export interface StakingEvent {
+  type: 'bond' | 'unbond' | 'rebond' | 'reward' | 'withdrawFees' | 'withdrawStake';
+  timestamp: number;
+  round: number;
+  amount: string;        // LPT wei for staking, ETH wei for fees
+  orchestrator: string | null;
+  txHash: string | null;
+}
+
+export async function getStakingHistory(address: string): Promise<StakingEvent[]> {
+  const addr = address.toLowerCase();
+  return cached(`staking-history-${addr}`, 5 * 60_000, async () => {
+    // Try subgraph first
+    try {
+      return await getStakingHistoryFromSubgraph(addr);
+    } catch {
+      console.warn('Subgraph unavailable for staking history, using state-derived fallback');
+      return getStakingHistoryFromState(addr);
+    }
+  });
+}
+
+async function getStakingHistoryFromSubgraph(addr: string): Promise<StakingEvent[]> {
+  const data = await querySubgraph<{
+    bondEvents: Array<{ timestamp: string; round: { id: string }; additionalAmount: string; newDelegate: { id: string }; transaction: { id: string } }>;
+    unbondEvents: Array<{ timestamp: string; round: { id: string }; amount: string; delegate: { id: string }; transaction: { id: string } }>;
+    rebondEvents: Array<{ timestamp: string; round: { id: string }; amount: string; delegate: { id: string }; transaction: { id: string } }>;
+    earningsClaimedEvents: Array<{ timestamp: string; round: { id: string }; rewardTokens: string; fees: string; delegate: { id: string }; transaction: { id: string } }>;
+    withdrawStakeEvents: Array<{ timestamp: string; round: { id: string }; amount: string; transaction: { id: string } }>;
+    withdrawFeesEvents: Array<{ timestamp: string; round: { id: string }; amount: string; transaction: { id: string } }>;
+  }>(`{
+    bondEvents(first: 50, where: { delegator: "${addr}" }, orderBy: timestamp, orderDirection: desc) {
+      timestamp round { id } additionalAmount newDelegate { id } transaction { id }
+    }
+    unbondEvents(first: 50, where: { delegator: "${addr}" }, orderBy: timestamp, orderDirection: desc) {
+      timestamp round { id } amount delegate { id } transaction { id }
+    }
+    rebondEvents(first: 50, where: { delegator: "${addr}" }, orderBy: timestamp, orderDirection: desc) {
+      timestamp round { id } amount delegate { id } transaction { id }
+    }
+    earningsClaimedEvents: earningsClaimedEvents(first: 50, where: { delegator: "${addr}" }, orderBy: timestamp, orderDirection: desc) {
+      timestamp round { id } rewardTokens fees delegate { id } transaction { id }
+    }
+    withdrawStakeEvents(first: 20, where: { delegator: "${addr}" }, orderBy: timestamp, orderDirection: desc) {
+      timestamp round { id } amount transaction { id }
+    }
+    withdrawFeesEvents: withdrawFeesEvents(first: 20, where: { delegator: "${addr}" }, orderBy: timestamp, orderDirection: desc) {
+      timestamp round { id } amount transaction { id }
+    }
+  }`);
+
+  const events: StakingEvent[] = [];
+
+  for (const e of (data.bondEvents || [])) {
+    events.push({
+      type: 'bond',
+      timestamp: parseInt(e.timestamp),
+      round: parseInt(e.round?.id || '0'),
+      amount: e.additionalAmount,
+      orchestrator: e.newDelegate?.id || null,
+      txHash: e.transaction?.id || null,
+    });
+  }
+
+  for (const e of (data.unbondEvents || [])) {
+    events.push({
+      type: 'unbond',
+      timestamp: parseInt(e.timestamp),
+      round: parseInt(e.round?.id || '0'),
+      amount: e.amount,
+      orchestrator: e.delegate?.id || null,
+      txHash: e.transaction?.id || null,
+    });
+  }
+
+  for (const e of (data.rebondEvents || [])) {
+    events.push({
+      type: 'rebond',
+      timestamp: parseInt(e.timestamp),
+      round: parseInt(e.round?.id || '0'),
+      amount: e.amount,
+      orchestrator: e.delegate?.id || null,
+      txHash: e.transaction?.id || null,
+    });
+  }
+
+  for (const e of (data.earningsClaimedEvents || [])) {
+    if (e.rewardTokens && e.rewardTokens !== '0') {
+      events.push({
+        type: 'reward',
+        timestamp: parseInt(e.timestamp),
+        round: parseInt(e.round?.id || '0'),
+        amount: e.rewardTokens,
+        orchestrator: e.delegate?.id || null,
+        txHash: e.transaction?.id || null,
+      });
+    }
+    if (e.fees && e.fees !== '0') {
+      events.push({
+        type: 'withdrawFees',
+        timestamp: parseInt(e.timestamp),
+        round: parseInt(e.round?.id || '0'),
+        amount: e.fees,
+        orchestrator: e.delegate?.id || null,
+        txHash: e.transaction?.id || null,
+      });
+    }
+  }
+
+  for (const e of (data.withdrawStakeEvents || [])) {
+    events.push({
+      type: 'withdrawStake',
+      timestamp: parseInt(e.timestamp),
+      round: parseInt(e.round?.id || '0'),
+      amount: e.amount,
+      orchestrator: null,
+      txHash: e.transaction?.id || null,
+    });
+  }
+
+  for (const e of (data.withdrawFeesEvents || [])) {
+    events.push({
+      type: 'withdrawFees',
+      timestamp: parseInt(e.timestamp),
+      round: parseInt(e.round?.id || '0'),
+      amount: e.amount,
+      orchestrator: null,
+      txHash: e.transaction?.id || null,
+    });
+  }
+
+  // Sort by timestamp desc
+  events.sort((a, b) => b.timestamp - a.timestamp);
+  return events;
+}
+
+async function getStakingHistoryFromState(addr: string): Promise<StakingEvent[]> {
+  // Build minimal history from current delegator state
+  const delegator = await getDelegator(addr);
+  if (!delegator) return [];
+
+  const protocol = await getProtocol();
+  const events: StakingEvent[] = [];
+  const now = Math.floor(Date.now() / 1000);
+
+  // Current delegation as a "bond" event
+  if (delegator.bondedAmount && delegator.bondedAmount !== '0') {
+    events.push({
+      type: 'bond',
+      timestamp: now,
+      round: protocol.currentRound,
+      amount: delegator.principal || delegator.bondedAmount,
+      orchestrator: delegator.delegateAddress,
+      txHash: null,
+    });
+
+    // Accumulated rewards (difference between bonded and principal)
+    const bonded = BigInt(delegator.bondedAmount);
+    const principal = BigInt(delegator.principal || '0');
+    if (principal > 0n && bonded > principal) {
+      events.push({
+        type: 'reward',
+        timestamp: now,
+        round: protocol.currentRound,
+        amount: (bonded - principal).toString(),
+        orchestrator: delegator.delegateAddress,
+        txHash: null,
+      });
+    }
+  }
+
+  // Pending fees
+  if (delegator.fees && delegator.fees !== '0') {
+    events.push({
+      type: 'withdrawFees',
+      timestamp: now,
+      round: protocol.currentRound,
+      amount: delegator.fees,
+      orchestrator: delegator.delegateAddress,
+      txHash: null,
+    });
+  }
+
+  // Unbonding locks
+  for (const lock of delegator.unbondingLocks || []) {
+    events.push({
+      type: 'unbond',
+      timestamp: now,
+      round: parseInt(lock.withdrawRound),
+      amount: lock.amount,
+      orchestrator: lock.delegateAddress || null,
+      txHash: null,
+    });
+  }
+
+  return events;
+}
+
+// ---------------------------------------------------------------------------
+// Daily Reward Rate Estimation
+// ---------------------------------------------------------------------------
+
+export interface DailyRewardEstimate {
+  dailyRewardLpt: number;
+  method: 'observed' | 'estimated';
+  apr: number;
+}
+
+/**
+ * Estimate daily reward for a delegator.
+ * Uses observed rate when accumulated rewards are available,
+ * otherwise estimates from network inflation and orchestrator pool data.
+ * Accepts pre-fetched delegator/protocol to avoid duplicate RPC calls.
+ */
+export async function estimateDailyReward(
+  address: string,
+  prefetchedDelegator?: DelegatorData | null,
+  prefetchedProtocol?: ProtocolData,
+): Promise<DailyRewardEstimate> {
+  const addr = address.toLowerCase();
+  const delegator = prefetchedDelegator !== undefined ? prefetchedDelegator : await getDelegator(addr);
+  if (!delegator || delegator.bondedAmount === '0') {
+    return { dailyRewardLpt: 0, method: 'estimated', apr: 0 };
+  }
+
+  const protocol = prefetchedProtocol || await getProtocol();
+  const totalStaked = parseFloat(delegator.bondedAmount) / 1e18;
+  const principal = parseFloat(delegator.principal || '0') / 1e18;
+  const accumulated = totalStaked - principal;
+  const currentRound = protocol.currentRound;
+  const lastClaimRound = parseInt(delegator.lastClaimRound || '0');
+  const roundsElapsed = currentRound - lastClaimRound;
+
+  // Method 1: Observed rate (if rewards have accumulated)
+  if (accumulated > 0 && roundsElapsed > 0) {
+    const dailyRate = accumulated / roundsElapsed;
+    const apr = principal > 0 ? (accumulated / principal) * (365 / roundsElapsed) * 100 : 0;
+    return { dailyRewardLpt: dailyRate, method: 'observed', apr };
+  }
+
+  // Method 2: Estimate from network inflation
+  // Get total bonded and the orchestrator's pool stake
+  try {
+    const orchAddr = delegator.delegateAddress;
+    if (!orchAddr) return { dailyRewardLpt: 0, method: 'estimated', apr: 0 };
+
+    const [totalBondedHex, orchPoolStakeHex, orchDataHex] = await Promise.all([
+      ethCall(CONTRACTS.BondingManager, SELECTORS.getTotalBonded),
+      ethCall(CONTRACTS.BondingManager, SELECTORS.transcoderTotalStake + padAddress(orchAddr).slice(2)),
+      ethCall(CONTRACTS.BondingManager, SELECTORS.getTranscoder + padAddress(orchAddr).slice(2)),
+    ]);
+
+    const totalBonded = Number(decodeUint256(totalBondedHex)) / 1e18;
+    const orchPoolStake = Number(decodeUint256(orchPoolStakeHex)) / 1e18;
+    const rewardCut = Number(decodeUint256At(orchDataHex, 1)) / 10000; // percentage
+
+    if (totalBonded <= 0 || orchPoolStake <= 0) {
+      return { dailyRewardLpt: 0, method: 'estimated', apr: 0 };
+    }
+
+    // Livepeer daily inflation rate (~0.097% per round/day based on observed data)
+    // This varies with participation rate but is relatively stable
+    const dailyInflationRate = 0.00097;
+
+    // Total pool daily reward
+    const poolDailyReward = totalBonded * dailyInflationRate * (orchPoolStake / totalBonded);
+    // = orchPoolStake * dailyInflationRate
+
+    // Orchestrator takes rewardCut% of total, delegators share the rest
+    const delegatorPoolReward = poolDailyReward * (1 - rewardCut / 100);
+    const userShare = totalStaked / orchPoolStake;
+    const dailyReward = delegatorPoolReward * userShare;
+
+    const apr = totalStaked > 0 ? (dailyReward * 365 / totalStaked) * 100 : 0;
+    return { dailyRewardLpt: dailyReward, method: 'estimated', apr };
+  } catch (err) {
+    console.warn('Failed to estimate daily reward:', err);
+    return { dailyRewardLpt: 0, method: 'estimated', apr: 0 };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Prices (CoinGecko)
 // ---------------------------------------------------------------------------
 
@@ -694,7 +991,13 @@ export function getPrices(): Promise<PriceInfo> {
       `${CG_BASE}/simple/price?ids=livepeer,ethereum&vs_currencies=usd&include_24hr_change=true&include_7d_change=true&include_market_cap=true&include_24hr_vol=true`,
       { headers: cgHeaders() },
     );
-    if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
+    if (!res.ok) {
+      console.warn(`CoinGecko ${res.status}, returning cached/default prices`);
+      return {
+        lptUsd: 0, ethUsd: 0, lptChange24h: 0, lptChange7d: 0,
+        ethChange24h: 0, lptMarketCap: 0, lptVolume24h: 0, fetchedAt: new Date().toISOString(),
+      } as PriceInfo;
+    }
     const data = await res.json();
     return {
       lptUsd: data.livepeer?.usd ?? 0,

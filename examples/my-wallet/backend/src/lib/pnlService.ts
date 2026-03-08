@@ -1,20 +1,21 @@
 /**
- * P&L calculation and export service
- * S13: Comprehensive P&L with cost basis, rewards, fees, gas
+ * P&L calculation service — computed from on-chain staking data
+ * No database required: uses Livepeer subgraph/RPC data
  */
 
-import { prisma } from '../db/client.js';
+import { getDelegator, getStakingHistory, getPrices, getProtocol, estimateDailyReward, type StakingEvent } from './livepeer.js';
 import { buildCsv, type CsvColumn } from './csvBuilder.js';
 
 export interface PnlRow {
   address: string;
   orchestrator: string;
-  bondedAmount: string;
-  totalRewardsEarned: string;
-  totalFeesEarned: string;
-  totalGasCostEth: string;
-  netReturnLpt: string;
-  netReturnPct: number;
+  totalStaked: string;       // Current total stake (LPT, human-readable)
+  principal: string;         // Original bonded amount
+  accumulatedRewards: string; // Rewards earned
+  pendingFees: string;       // ETH fees
+  dailyRewardRate: string;   // LPT per day
+  roundsElapsed: number;
+  annualizedAPR: string;     // Percentage
   periodStart: string;
   periodEnd: string;
 }
@@ -22,93 +23,109 @@ export interface PnlRow {
 export interface PnlSummary {
   rows: PnlRow[];
   totals: {
-    totalBonded: string;
+    totalStaked: string;
+    totalPrincipal: string;
     totalRewards: string;
     totalFees: string;
-    totalGas: string;
-    netReturn: string;
+    avgDailyReward: string;
+    avgAPR: string;
   };
+  prices: {
+    lptUsd: number;
+    ethUsd: number;
+  };
+  stakingEvents: StakingEvent[];
 }
 
 /**
- * Calculate P&L for a user over a time range
+ * Calculate P&L for an address using on-chain data
  */
 export async function calculatePnl(
-  userId: string,
+  address: string,
   startDate?: Date,
   endDate?: Date,
 ): Promise<PnlSummary> {
+  const addr = address.toLowerCase();
   const now = endDate || new Date();
   const start = startDate || new Date(now.getTime() - 365 * 86400000);
 
-  const addresses = await prisma.walletAddress.findMany({
-    where: { userId },
-    include: {
-      stakingStates: true,
-      transactions: {
-        where: {
-          status: 'confirmed',
-          timestamp: { gte: start, lte: now },
-        },
-        select: { type: true, value: true, gasUsed: true, gasPrice: true },
-      },
-    },
-  });
+  const [delegator, protocol, prices, events, rewardEstimate] = await Promise.all([
+    getDelegator(addr),
+    getProtocol(),
+    getPrices(),
+    getStakingHistory(addr),
+    estimateDailyReward(addr),
+  ]);
 
   const rows: PnlRow[] = [];
-  let totalBonded = 0n;
-  let totalRewards = 0n;
-  let totalFees = 0n;
-  let totalGas = 0n;
+  let totalStaked = 0;
+  let totalPrincipal = 0;
+  let totalRewards = 0;
+  let totalFees = 0;
+  let totalDailyReward = 0;
+  let aprSum = 0;
 
-  for (const addr of addresses) {
-    for (const state of addr.stakingStates) {
-      const bonded = BigInt(state.stakedAmount || '0');
-      const rewards = BigInt(state.pendingRewards || '0');
-      const fees = BigInt(state.pendingFees || '0');
+  if (delegator && delegator.bondedAmount !== '0') {
+    const staked = parseFloat(delegator.bondedAmount) / 1e18;
+    const principal = parseFloat(delegator.principal || '0') / 1e18;
+    const fees = parseFloat(delegator.fees || '0') / 1e18;
+    const accumulated = staked - principal;
+    const currentRound = protocol.currentRound;
+    const lastClaimRound = parseInt(delegator.lastClaimRound || '0');
+    const roundsElapsed = currentRound - lastClaimRound;
+    // Use observed rate if available, otherwise backend estimate
+    const dailyReward = (accumulated > 0 && roundsElapsed > 0)
+      ? accumulated / roundsElapsed
+      : rewardEstimate.dailyRewardLpt;
+    const apr = (accumulated > 0 && roundsElapsed > 0 && principal > 0)
+      ? (accumulated / principal) * (365 / roundsElapsed) * 100
+      : rewardEstimate.apr;
 
-      // Sum gas costs for this address
-      let addrGas = 0n;
-      for (const tx of addr.transactions) {
-        const gasUsed = BigInt(tx.gasUsed || '0');
-        const gasPrice = BigInt(tx.gasPrice || '0');
-        addrGas += gasUsed * gasPrice;
-      }
+    rows.push({
+      address: addr,
+      orchestrator: delegator.delegateAddress || 'None',
+      totalStaked: staked.toFixed(4),
+      principal: principal.toFixed(4),
+      accumulatedRewards: accumulated.toFixed(4),
+      pendingFees: fees.toFixed(8),
+      dailyRewardRate: dailyReward.toFixed(4),
+      roundsElapsed,
+      annualizedAPR: apr.toFixed(2),
+      periodStart: start.toISOString(),
+      periodEnd: now.toISOString(),
+    });
 
-      const netReturn = rewards + fees; // in LPT wei
-      const netPct = bonded > 0n
-        ? parseFloat(((Number(netReturn) / Number(bonded)) * 100).toFixed(4))
-        : 0;
-
-      rows.push({
-        address: addr.address,
-        orchestrator: state.delegatedTo || 'Unknown',
-        bondedAmount: bonded.toString(),
-        totalRewardsEarned: rewards.toString(),
-        totalFeesEarned: fees.toString(),
-        totalGasCostEth: (Number(addrGas) / 1e18).toFixed(8),
-        netReturnLpt: netReturn.toString(),
-        netReturnPct: netPct,
-        periodStart: start.toISOString(),
-        periodEnd: now.toISOString(),
-      });
-
-      totalBonded += bonded;
-      totalRewards += rewards;
-      totalFees += fees;
-      totalGas += addrGas;
-    }
+    totalStaked += staked;
+    totalPrincipal += principal;
+    totalRewards += accumulated;
+    totalFees += fees;
+    totalDailyReward += dailyReward;
+    aprSum += apr;
   }
+
+  // Filter events by time period
+  const startTs = Math.floor(start.getTime() / 1000);
+  const endTs = Math.floor(now.getTime() / 1000);
+  const filteredEvents = events.filter(e => {
+    if (e.timestamp <= 0) return true; // state-derived events have no real timestamp
+    return e.timestamp >= startTs && e.timestamp <= endTs;
+  });
 
   return {
     rows,
     totals: {
-      totalBonded: totalBonded.toString(),
-      totalRewards: totalRewards.toString(),
-      totalFees: totalFees.toString(),
-      totalGas: (Number(totalGas) / 1e18).toFixed(8),
-      netReturn: (totalRewards + totalFees).toString(),
+      totalStaked: totalStaked.toFixed(4),
+      totalPrincipal: totalPrincipal.toFixed(4),
+      totalRewards: totalRewards.toFixed(4),
+      totalFees: totalFees.toFixed(8),
+      avgDailyReward: totalDailyReward.toFixed(4),
+      avgAPR: aprSum.toFixed(2),
     },
+    prices: {
+      lptUsd: prices.lptUsd,
+      ethUsd: prices.ethUsd,
+    },
+    stakingEvents: filteredEvents,
   };
 }
 
@@ -119,12 +136,13 @@ export function pnlToCsv(pnl: PnlSummary): string {
   const columns: CsvColumn<PnlRow>[] = [
     { header: 'Address', accessor: r => r.address },
     { header: 'Orchestrator', accessor: r => r.orchestrator },
-    { header: 'Bonded (wei)', accessor: r => r.bondedAmount },
-    { header: 'Rewards Earned (wei)', accessor: r => r.totalRewardsEarned },
-    { header: 'Fees Earned (wei)', accessor: r => r.totalFeesEarned },
-    { header: 'Gas Cost (ETH)', accessor: r => r.totalGasCostEth },
-    { header: 'Net Return (wei)', accessor: r => r.netReturnLpt },
-    { header: 'Net Return %', accessor: r => r.netReturnPct },
+    { header: 'Total Staked (LPT)', accessor: r => r.totalStaked },
+    { header: 'Principal (LPT)', accessor: r => r.principal },
+    { header: 'Rewards Earned (LPT)', accessor: r => r.accumulatedRewards },
+    { header: 'Pending Fees (ETH)', accessor: r => r.pendingFees },
+    { header: 'Daily Reward Rate (LPT)', accessor: r => r.dailyRewardRate },
+    { header: 'Rounds Elapsed', accessor: r => r.roundsElapsed },
+    { header: 'Annualized APR %', accessor: r => r.annualizedAPR },
     { header: 'Period Start', accessor: r => r.periodStart },
     { header: 'Period End', accessor: r => r.periodEnd },
   ];

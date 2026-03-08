@@ -1,5 +1,5 @@
 /**
- * P&L export routes (S13)
+ * P&L export routes — on-chain data, no database needed
  */
 
 import { Router, Request, Response } from 'express';
@@ -9,13 +9,24 @@ const router = Router();
 
 router.get('/api/v1/wallet/export/pnl', async (req: Request, res: Response) => {
   try {
-    const { userId, format = 'json', startDate, endDate } = req.query;
-    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    const address = (req.query.address || req.query.userId) as string;
+    const { format = 'json', startDate, endDate } = req.query;
+
+    if (!address) {
+      return res.json({
+        data: {
+          rows: [],
+          totals: { totalStaked: '0', totalPrincipal: '0', totalRewards: '0', totalFees: '0', avgDailyReward: '0', avgAPR: '0' },
+          prices: { lptUsd: 0, ethUsd: 0 },
+          stakingEvents: [],
+        },
+      });
+    }
 
     const start = startDate ? new Date(startDate as string) : undefined;
     const end = endDate ? new Date(endDate as string) : undefined;
 
-    const pnl = await calculatePnl(userId as string, start, end);
+    const pnl = await calculatePnl(address as string, start, end);
 
     if (format === 'csv') {
       res.setHeader('Content-Type', 'text/csv');

@@ -12,13 +12,14 @@
  * - usePrices for USD conversion
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Gift, Clock, ChevronRight, ChevronDown, Plus, TrendingUp, TrendingDown, ExternalLink, RefreshCw, Wallet } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Gift, Clock, ChevronRight, ChevronDown, Plus, TrendingUp, TrendingDown, ExternalLink, RefreshCw, Wallet, Calculator } from 'lucide-react';
 import { formatUnits } from 'ethers';
 import { useWallet } from '../context/WalletContext';
 import { useStakingOps } from '../hooks/useStakingOps';
 import { usePrices, usePriceChart } from '../hooks/usePrices';
 import { useUnbondingLocks } from '../hooks/useUnbondingLocks';
+import { useOrchestratorCache } from '../hooks/useOrchestratorCache';
 import { formatAddress } from '../lib/utils';
 import { getApiUrl } from '../App';
 import type { TabId } from '../components/AppLayout';
@@ -29,12 +30,15 @@ interface EarnTabProps {
 
 interface WalletStakingData {
   address: string;
-  stakedAmount: bigint;
-  pendingRewards: bigint;
+  stakedAmount: bigint;      // Total staked including accumulated rewards
+  pendingRewards: bigint;    // Accumulated rewards only
   pendingFees: bigint;
   lptBalance: bigint;
   delegatedTo: string | null;
   currentRound: bigint;
+  lastClaimRound: bigint;    // Round when earnings were last claimed
+  principal: bigint;         // Original bonded amount
+  dailyRewardEstimate: number; // Backend-computed daily reward estimate (LPT)
   isLoading: boolean;
   error: string | null;
 }
@@ -73,15 +77,21 @@ async function fetchWalletDataFromAPI(addr: string): Promise<WalletStakingData> 
     ]);
     const portfolio = (await portfolioRes.json()).data;
     const protocol = (await protocolRes.json()).data;
+    const pos = portfolio?.positions?.[0];
+    const totalStaked = BigInt(portfolio?.totalStaked || '0');
+    const totalPendingRewards = BigInt(portfolio?.totalPendingRewards || '0');
 
     return {
       address: addr,
-      stakedAmount: BigInt(portfolio?.totalStaked || '0'),
-      pendingRewards: BigInt(portfolio?.totalPendingRewards || '0'),
+      stakedAmount: totalStaked,
+      pendingRewards: totalPendingRewards,
       pendingFees: BigInt(portfolio?.totalPendingFees || '0'),
       lptBalance: 0n,
-      delegatedTo: portfolio?.positions?.[0]?.orchestrator || null,
+      delegatedTo: pos?.orchestrator || null,
       currentRound: BigInt(protocol?.currentRound || 0),
+      lastClaimRound: BigInt(pos?.lastClaimRound || '0'),
+      principal: totalStaked - totalPendingRewards,
+      dailyRewardEstimate: portfolio?.dailyRewardEstimate || 0,
       isLoading: false,
       error: null,
     };
@@ -89,7 +99,8 @@ async function fetchWalletDataFromAPI(addr: string): Promise<WalletStakingData> 
     return {
       address: addr,
       stakedAmount: 0n, pendingRewards: 0n, pendingFees: 0n, lptBalance: 0n,
-      delegatedTo: null, currentRound: 0n, isLoading: false, error: err?.message,
+      delegatedTo: null, currentRound: 0n, lastClaimRound: 0n, principal: 0n,
+      dailyRewardEstimate: 0, isLoading: false, error: err?.message,
     };
   }
 }
@@ -99,12 +110,24 @@ export const EarnTab: React.FC<EarnTabProps> = ({ onNavigate }) => {
   const staking = useStakingOps();
   const prices = usePrices();
   const { locks } = useUnbondingLocks();
+  const { orchestrators: cachedOrchestrators } = useOrchestratorCache();
   const [claimingAddr, setClaimingAddr] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedWallet, setExpandedWallet] = useState<string | null>(null);
 
   // Multi-wallet staking data (non-active wallets fetched from API)
   const [otherWallets, setOtherWallets] = useState<WalletStakingData[]>([]);
+
+  // Fetch daily reward estimate for active wallet from backend
+  const [activeDailyReward, setActiveDailyReward] = useState(0);
+  useEffect(() => {
+    if (!address) return;
+    const apiUrl = getApiUrl();
+    fetch(`${apiUrl}/portfolio?address=${address}`)
+      .then(r => r.json())
+      .then(json => setActiveDailyReward(json.data?.dailyRewardEstimate || 0))
+      .catch(() => {});
+  }, [address]);
 
   // Active wallet data (from useStaking hook which uses MetaMask provider)
   const activeData: WalletStakingData = {
@@ -115,6 +138,9 @@ export const EarnTab: React.FC<EarnTabProps> = ({ onNavigate }) => {
     lptBalance: staking.lptBalance,
     delegatedTo: staking.delegatedTo,
     currentRound: staking.currentRound,
+    lastClaimRound: staking.lastClaimRound,
+    principal: staking.principal,
+    dailyRewardEstimate: activeDailyReward,
     isLoading: staking.isLoading,
     error: staking.error,
   };
@@ -147,7 +173,8 @@ export const EarnTab: React.FC<EarnTabProps> = ({ onNavigate }) => {
   const totalRewardsUsd = weiToUsd(totalRewards, prices.lptUsd);
   const totalFeesUsd = weiToUsd(totalFees, prices.ethUsd);
   const totalBalanceUsd = weiToUsd(totalBalance, prices.lptUsd);
-  const totalValueUsd = totalStakedUsd + totalRewardsUsd + totalFeesUsd + totalBalanceUsd;
+  // stakedAmount already includes pendingRewards (it's pendingStake), so don't add rewards again
+  const totalValueUsd = totalStakedUsd + totalFeesUsd + totalBalanceUsd;
 
   const hasPendingRewards = staking.pendingRewards > 0n;
   const withdrawableLocks = locks.filter(l => l.status === 'withdrawable');
@@ -380,6 +407,16 @@ export const EarnTab: React.FC<EarnTabProps> = ({ onNavigate }) => {
         </div>
       )}
 
+      {/* Projected Earnings */}
+      {totalStaked > 0n && (
+        <ProjectedEarnings
+          allWallets={allWallets}
+          cachedOrchestrators={cachedOrchestrators}
+          lptUsd={prices.lptUsd}
+          ethUsd={prices.ethUsd}
+        />
+      )}
+
       {/* No Stake CTA */}
       {totalStaked === 0n && (
         <div className="glass-card p-5 text-center">
@@ -435,6 +472,158 @@ const MiniStat: React.FC<{
     <p className="text-[9px] text-text-tertiary font-mono">{sub}</p>
   </div>
 );
+
+/** Projected Earnings — monthly, quarterly, yearly based on observed reward rate */
+const ProjectedEarnings: React.FC<{
+  allWallets: WalletStakingData[];
+  cachedOrchestrators: Array<{ address: string; rewardCut: number; feeShare: number }>;
+  lptUsd: number;
+  ethUsd: number;
+}> = ({ allWallets, cachedOrchestrators, lptUsd, ethUsd }) => {
+  const projections = useMemo(() => {
+    let totalDailyRewardsLpt = 0;
+    let totalAnnualFeesEth = 0;
+    let hasObservedRate = false;
+
+    // First pass: compute observed per-LPT daily yield from wallets with data
+    let observedYieldPerLpt = 0;
+    let observedStakeForYield = 0;
+    for (const w of allWallets) {
+      const stakedLpt = parseFloat(formatUnits(w.stakedAmount, 18));
+      const accumulatedRewards = parseFloat(formatUnits(w.pendingRewards, 18));
+      const roundsElapsed = Number(w.currentRound) - Number(w.lastClaimRound);
+      if (accumulatedRewards > 0 && roundsElapsed > 0 && stakedLpt > 0) {
+        const dailyReward = accumulatedRewards / roundsElapsed;
+        // Use average stake (midpoint between principal and current) for yield calc
+        const avgStake = (stakedLpt + parseFloat(formatUnits(w.principal, 18))) / 2;
+        if (avgStake > 0) {
+          observedYieldPerLpt += dailyReward;
+          observedStakeForYield += avgStake;
+        }
+      }
+    }
+    const perLptDailyYield = observedStakeForYield > 0 ? observedYieldPerLpt / observedStakeForYield : 0;
+
+    for (const w of allWallets) {
+      const stakedLpt = parseFloat(formatUnits(w.stakedAmount, 18));
+      if (stakedLpt <= 0) continue;
+
+      const accumulatedRewards = parseFloat(formatUnits(w.pendingRewards, 18));
+      const currentRound = Number(w.currentRound);
+      const lastClaimRound = Number(w.lastClaimRound);
+      const roundsElapsed = currentRound - lastClaimRound;
+
+      if (accumulatedRewards > 0 && roundsElapsed > 0) {
+        // Observed daily reward rate (1 round ≈ 1 day on Livepeer Arbitrum)
+        const dailyReward = accumulatedRewards / roundsElapsed;
+        totalDailyRewardsLpt += dailyReward;
+        hasObservedRate = true;
+      } else if (w.dailyRewardEstimate > 0) {
+        // Backend-computed estimate (uses orchestrator pool data and network inflation)
+        totalDailyRewardsLpt += w.dailyRewardEstimate;
+        hasObservedRate = true;
+      } else if (stakedLpt > 0 && perLptDailyYield > 0) {
+        // Fallback: per-LPT yield from other wallets
+        totalDailyRewardsLpt += stakedLpt * perLptDailyYield;
+        hasObservedRate = true;
+      }
+
+      // Fee projection from pending fees over elapsed rounds
+      const pendingFeesEth = parseFloat(formatUnits(w.pendingFees, 18));
+      if (pendingFeesEth > 0) {
+        if (roundsElapsed > 0) {
+          totalAnnualFeesEth += (pendingFeesEth / roundsElapsed) * 365;
+        } else {
+          totalAnnualFeesEth += pendingFeesEth * 12;
+        }
+      }
+    }
+
+    const monthly = {
+      rewardsLpt: totalDailyRewardsLpt * 30,
+      feesEth: totalAnnualFeesEth / 12,
+    };
+    const quarterly = {
+      rewardsLpt: totalDailyRewardsLpt * 91,
+      feesEth: totalAnnualFeesEth / 4,
+    };
+    const yearly = {
+      rewardsLpt: totalDailyRewardsLpt * 365,
+      feesEth: totalAnnualFeesEth,
+    };
+
+    return { monthly, quarterly, yearly, dailyRate: totalDailyRewardsLpt, hasObservedRate };
+  }, [allWallets, cachedOrchestrators]);
+
+  const fmtNum = (n: number, dec = 2) => {
+    if (n < 0.01) return '< 0.01';
+    return n.toLocaleString(undefined, { maximumFractionDigits: dec });
+  };
+
+  const toUsd = (lpt: number, eth: number) => {
+    return lpt * lptUsd + eth * ethUsd;
+  };
+
+  const periods = [
+    { label: 'Monthly', data: projections.monthly },
+    { label: 'Quarterly', data: projections.quarterly },
+    { label: 'Yearly', data: projections.yearly },
+  ];
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <Calculator className="w-3.5 h-3.5 text-accent-emerald" />
+        <h3 className="text-[11px] font-semibold text-text-secondary uppercase tracking-wide">
+          Projected Earnings
+        </h3>
+      </div>
+      <div className="glass-card p-4">
+        {projections.dailyRate > 0 && (
+          <div className="text-center mb-3 pb-3 border-b border-[var(--border-color)]">
+            <p className="text-[10px] text-text-tertiary mb-0.5">Daily Rate</p>
+            <p className="text-lg font-bold font-mono text-accent-emerald">
+              {fmtNum(projections.dailyRate)} <span className="text-xs font-normal text-text-tertiary">LPT/day</span>
+            </p>
+            {lptUsd > 0 && (
+              <p className="text-[11px] font-mono text-text-tertiary">
+                {fmtUsd(projections.dailyRate * lptUsd)}/day
+              </p>
+            )}
+          </div>
+        )}
+        <div className="grid grid-cols-3 gap-3">
+          {periods.map(({ label, data }) => {
+            const totalUsd = toUsd(data.rewardsLpt, data.feesEth);
+            return (
+              <div key={label} className="text-center">
+                <p className="text-[10px] text-text-tertiary mb-1">{label}</p>
+                <p className="text-sm font-bold font-mono text-accent-emerald">
+                  {fmtNum(data.rewardsLpt)} <span className="text-[10px] font-normal text-text-tertiary">LPT</span>
+                </p>
+                {data.feesEth > 0.0001 && (
+                  <p className="text-[11px] font-mono text-accent-blue mt-0.5">
+                    + {fmtNum(data.feesEth, 4)} <span className="text-[10px] text-text-tertiary">ETH</span>
+                  </p>
+                )}
+                {lptUsd > 0 && (
+                  <p className="text-[10px] font-mono text-text-tertiary mt-1">
+                    {fmtUsd(totalUsd)}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-[9px] text-text-tertiary text-center mt-3">
+          {projections.hasObservedRate
+            ? 'Based on actual observed reward rate from on-chain data (accumulated rewards / rounds elapsed).'
+            : 'Estimated from network inflation rate. Connect wallet for accurate projections.'}
+        </p>
+      </div>
+    </div>
+  );
+};
 
 /** LPT Price widget with sparkline */
 const PriceWidget: React.FC<{ prices: ReturnType<typeof usePrices> }> = ({ prices }) => {

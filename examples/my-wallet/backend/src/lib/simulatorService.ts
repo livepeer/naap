@@ -1,9 +1,10 @@
 /**
  * Rebalancing simulator service
  * S8: "What-if" scenario for moving stake between orchestrators
+ * Uses live orchestrator data from RPC/subgraph instead of Prisma DB
  */
 
-import { prisma } from '../db/client.js';
+import { getOrchestrators, OrchestratorData } from './livepeer.js';
 
 export interface SimulationInput {
   fromOrchestrator: string;
@@ -38,10 +39,10 @@ export interface SimulationResult {
  * Simulate rebalancing from one O to another
  */
 export async function simulateRebalance(input: SimulationInput): Promise<SimulationResult> {
-  const [fromO, toO] = await Promise.all([
-    prisma.walletOrchestrator.findUnique({ where: { address: input.fromOrchestrator } }),
-    prisma.walletOrchestrator.findUnique({ where: { address: input.toOrchestrator } }),
-  ]);
+  const orchestrators = await getOrchestrators();
+
+  const fromO = orchestrators.find(o => o.address.toLowerCase() === input.fromOrchestrator.toLowerCase());
+  const toO = orchestrators.find(o => o.address.toLowerCase() === input.toOrchestrator.toLowerCase());
 
   if (!fromO) throw new Error(`Orchestrator ${input.fromOrchestrator} not found`);
   if (!toO) throw new Error(`Orchestrator ${input.toOrchestrator} not found`);
@@ -49,23 +50,17 @@ export async function simulateRebalance(input: SimulationInput): Promise<Simulat
   const amountWei = BigInt(input.amountWei);
   const amountLpt = Number(amountWei) / 1e18;
 
-  // Reward cut is a percentage of rewards kept by O (higher = less for delegator)
-  // Delegator gets (100 - rewardCut)% of rewards
   const fromDelegatorPct = (100 - fromO.rewardCut) / 100;
   const toDelegatorPct = (100 - toO.rewardCut) / 100;
 
-  // Approximate annual reward rate: ~10-15% APR for typical LPT staking
-  // Use a baseline of 12% and adjust by delegator percentage
   const baselineApr = 0.12;
   const fromYield = baselineApr * fromDelegatorPct * 100;
   const toYield = baselineApr * toDelegatorPct * 100;
   const yieldDelta = toYield - fromYield;
 
-  // Unbonding opportunity cost: rewards missed during unbonding period
   const dailyReward = (amountLpt * baselineApr * toDelegatorPct) / 365;
   const opportunityCost = dailyReward * input.unbondingPeriodDays;
 
-  // First-year net benefit
   const annualGain = amountLpt * (yieldDelta / 100);
   const netBenefit = annualGain - opportunityCost;
 
@@ -81,13 +76,13 @@ export async function simulateRebalance(input: SimulationInput): Promise<Simulat
   return {
     fromOrchestrator: {
       address: fromO.address,
-      name: fromO.name,
+      name: null,
       currentRewardCut: fromO.rewardCut,
       currentFeeShare: fromO.feeShare,
     },
     toOrchestrator: {
       address: toO.address,
-      name: toO.name,
+      name: null,
       currentRewardCut: toO.rewardCut,
       currentFeeShare: toO.feeShare,
     },

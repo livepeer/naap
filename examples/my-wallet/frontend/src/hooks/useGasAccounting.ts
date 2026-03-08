@@ -15,6 +15,15 @@ interface GasSummary {
   byType: Record<string, { count: number; totalGasWei: string }>;
 }
 
+const emptySummary: GasSummary = {
+  totalGasUsed: '0',
+  totalGasCostWei: '0',
+  totalGasCostEth: 0,
+  transactionCount: 0,
+  avgGasPerTx: 0,
+  byType: {},
+};
+
 export function useGasAccounting() {
   const { isConnected } = useWallet();
   const [summary, setSummary] = useState<GasSummary | null>(null);
@@ -27,10 +36,21 @@ export function useGasAccounting() {
       const res = await fetch(`${getApiUrl()}/gas-summary`);
       if (res.ok) {
         const json = await res.json();
-        setSummary(json.data);
+        const d = json.data || {};
+        setSummary({
+          totalGasUsed: d.totalGasUsed || '0',
+          totalGasCostWei: d.totalGasCostWei || '0',
+          totalGasCostEth: d.totalGasCostEth ?? (parseFloat(d.totalGasETH || '0') || 0),
+          transactionCount: d.transactionCount || 0,
+          avgGasPerTx: d.avgGasPerTx || 0,
+          byType: d.byType || {},
+        });
+      } else {
+        setSummary(emptySummary);
       }
     } catch (err) {
       console.error('Failed to fetch gas summary:', err);
+      setSummary(emptySummary);
     } finally {
       setIsLoading(false);
     }

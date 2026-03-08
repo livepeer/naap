@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { X, Globe, Zap, Eye, Bell } from 'lucide-react';
+import { X, Globe, Zap, Eye, Bell, RefreshCw } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { useAutoClaim } from '../hooks/useAutoClaim';
 import { useWalletAddresses } from '../hooks/useWalletAddresses';
@@ -21,6 +21,7 @@ interface PluginSettings {
   showTestnets: boolean;
   showUsdPrices: boolean;
   gasStrategy: 'slow' | 'standard' | 'fast';
+  orchestratorCacheMins: number;
 }
 
 const defaults: PluginSettings = {
@@ -29,6 +30,7 @@ const defaults: PluginSettings = {
   showTestnets: false,
   showUsdPrices: true,
   gasStrategy: 'standard',
+  orchestratorCacheMins: 60,
 };
 
 export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({ isOpen, onClose, onDisconnect }) => {
@@ -148,6 +150,25 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({ isOpen, onClose,
                 />
               </div>
             )}
+          </Section>
+
+          {/* Data Refresh */}
+          <Section icon={<RefreshCw className="w-4 h-4" />} title="Data Refresh">
+            <div>
+              <label className="text-xs text-text-secondary">Orchestrator cache duration (minutes)</label>
+              <select
+                value={settings.orchestratorCacheMins}
+                onChange={e => save({ orchestratorCacheMins: Number(e.target.value) })}
+                className="w-full mt-1 p-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-text-primary text-sm"
+              >
+                <option value={15}>15 min</option>
+                <option value={30}>30 min</option>
+                <option value={60}>1 hour (default)</option>
+                <option value={120}>2 hours</option>
+                <option value={360}>6 hours</option>
+              </select>
+              <p className="text-[10px] text-text-tertiary mt-1">Orchestrator list is cached locally. Lower values = more API calls.</p>
+            </div>
           </Section>
 
           {/* Connection */}

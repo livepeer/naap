@@ -3,7 +3,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { getDelegator, getProtocol, getPrices } from '../lib/livepeer.js';
+import { getDelegator, getProtocol, getPrices, estimateDailyReward } from '../lib/livepeer.js';
 
 const router = Router();
 
@@ -17,6 +17,9 @@ router.get('/api/v1/wallet/portfolio', async (req: Request, res: Response) => {
       getProtocol(),
       getPrices(),
     ]);
+
+    // Compute daily reward estimate using already-fetched data
+    const dailyReward = await estimateDailyReward(address, delegator, protocol);
 
     if (!delegator) {
       return res.json({
@@ -41,6 +44,9 @@ router.get('/api/v1/wallet/portfolio', async (req: Request, res: Response) => {
       addressCount: 1,
       currentRound: protocol.currentRound,
       lptUsd: prices.lptUsd,
+      dailyRewardEstimate: dailyReward.dailyRewardLpt,
+      dailyRewardMethod: dailyReward.method,
+      estimatedAPR: dailyReward.apr,
       positions: delegator.delegateAddress ? [{
         address,
         orchestrator: delegator.delegateAddress,
