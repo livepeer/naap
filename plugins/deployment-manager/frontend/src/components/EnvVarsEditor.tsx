@@ -1,4 +1,5 @@
 import React from 'react';
+import { X } from 'lucide-react';
 
 interface EnvVarsEditorProps {
   envVars: Record<string, string>;
@@ -33,53 +34,39 @@ export const EnvVarsEditor: React.FC<EnvVarsEditorProps> = ({ envVars, onChange 
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-        <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Environment Variables</label>
+      <div className="flex justify-between items-center mb-3">
+        <label className="text-xs font-medium text-foreground">Environment Variables</label>
         <button
           onClick={addEntry}
-          style={{
-            padding: '0.25rem 0.75rem', fontSize: '0.75rem', background: 'var(--dm-accent-blue)',
-            color: '#fff', border: 'none', borderRadius: '0.25rem', cursor: 'pointer',
-          }}
+          className="h-7 px-3 text-xs bg-secondary text-foreground border border-border rounded-md cursor-pointer font-medium hover:bg-muted transition-colors"
         >
           + Add Variable
         </button>
       </div>
       {entries.length === 0 && (
-        <p style={{ fontSize: '0.8rem', color: 'var(--dm-text-tertiary)' }}>No environment variables configured.</p>
+        <p className="text-xs text-muted-foreground">No environment variables configured.</p>
       )}
       {entries.map(([key, value], idx) => (
-        <div key={idx} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+        <div key={idx} className="flex gap-2 mb-2 items-center">
           <input
             type="text"
             value={key}
             onChange={(e) => updateKey(key, e.target.value)}
             placeholder="KEY"
-            style={{
-              flex: 1, padding: '0.375rem 0.5rem', border: '1px solid var(--dm-border-input)',
-              borderRadius: '0.25rem', fontSize: '0.8rem', fontFamily: 'monospace',
-              color: 'var(--dm-text-primary)', backgroundColor: 'var(--dm-bg-input)',
-            }}
+            className="flex-1 h-8 px-2.5 border border-border rounded-md text-xs font-mono text-foreground bg-background"
           />
           <input
             type="text"
             value={value}
             onChange={(e) => updateValue(key, e.target.value)}
             placeholder="value"
-            style={{
-              flex: 2, padding: '0.375rem 0.5rem', border: '1px solid var(--dm-border-input)',
-              borderRadius: '0.25rem', fontSize: '0.8rem', fontFamily: 'monospace',
-              color: 'var(--dm-text-primary)', backgroundColor: 'var(--dm-bg-input)',
-            }}
+            className="flex-[2] h-8 px-2.5 border border-border rounded-md text-xs font-mono text-foreground bg-background"
           />
           <button
             onClick={() => removeEntry(key)}
-            style={{
-              padding: '0.25rem 0.5rem', background: '#fef2f2', color: '#dc2626',
-              border: '1px solid #fecaca', borderRadius: '0.25rem', cursor: 'pointer', fontSize: '0.8rem',
-            }}
+            className="h-8 w-8 flex items-center justify-center bg-red-50 dark:bg-red-950/30 text-red-500 border border-red-200 dark:border-red-800 rounded-md cursor-pointer shrink-0"
           >
-            X
+            <X size={12} />
           </button>
         </div>
       ))}

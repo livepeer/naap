@@ -39,7 +39,6 @@ export const ProviderCredentialConfig: React.FC<ProviderCredentialConfigProps> =
     }
   }, [credentialStatus?.configured]);
 
-  // Auto-show edit form when no credentials exist
   useEffect(() => {
     if (!credentialLoading && !isConfigured) {
       setEditing(true);
@@ -72,19 +71,14 @@ export const ProviderCredentialConfig: React.FC<ProviderCredentialConfigProps> =
 
   if (provider.mode === 'ssh-bridge') {
     return (
-      <div style={{
-        padding: compact ? '0.75rem' : '1rem',
-        background: 'var(--dm-bg-secondary)',
-        borderRadius: '0.5rem',
-        border: '1px solid var(--dm-border)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-          <KeyRound size={16} color="var(--dm-accent-blue)" />
-          <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--dm-text-primary)' }}>
+      <div className={`${compact ? 'p-3' : 'p-4'} bg-secondary rounded-lg border border-border`}>
+        <div className="flex items-center gap-2 mb-2">
+          <KeyRound size={14} className="text-muted-foreground" />
+          <span className="text-sm font-medium text-foreground">
             SSH Credentials
           </span>
         </div>
-        <p style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)', margin: 0 }}>
+        <p className="text-xs text-muted-foreground m-0">
           SSH credentials are configured per-deployment in the deployment wizard below.
           You'll provide host, port, and username when setting up SSH Bridge deployments.
         </p>
@@ -95,115 +89,63 @@ export const ProviderCredentialConfig: React.FC<ProviderCredentialConfigProps> =
   const inputLabel = provider.authMethod === 'token' ? 'Bearer Token' : 'API Key';
 
   return (
-    <div style={{
-      padding: compact ? '0.75rem' : '1.25rem',
-      background: 'var(--dm-bg-secondary)',
-      borderRadius: '0.75rem',
-      border: '1px solid var(--dm-border)',
-    }}>
+    <div className={`${compact ? 'p-3' : 'p-5'} bg-secondary rounded-lg border border-border`}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Shield size={compact ? 16 : 18} color="var(--dm-accent-blue)" />
-          <span style={{
-            fontSize: compact ? '0.875rem' : '1rem',
-            fontWeight: 600,
-            color: 'var(--dm-text-primary)',
-          }}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Shield size={compact ? 14 : 16} className="text-muted-foreground" />
+          <span className={`${compact ? 'text-sm' : 'text-sm'} font-medium text-foreground`}>
             {compact ? 'Credentials' : `${provider.displayName} Credentials`}
           </span>
         </div>
 
         {/* Status badge */}
         {credentialLoading ? (
-          <span style={{
-            fontSize: '0.7rem',
-            padding: '0.2rem 0.5rem',
-            borderRadius: '1rem',
-            background: 'var(--dm-bg-tertiary)',
-            color: 'var(--dm-text-tertiary)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.25rem',
-          }}>
-            <Loader size={10} style={{ animation: 'spin 1s linear infinite' }} /> Checking...
+          <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground flex items-center gap-1">
+            <Loader size={10} className="dm-spin" /> Checking...
           </span>
         ) : credentialStatus?.configured ? (
-          <span style={{
-            fontSize: '0.7rem',
-            padding: '0.2rem 0.5rem',
-            borderRadius: '1rem',
-            background: '#dcfce7',
-            color: '#166534',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.25rem',
-          }}>
+          <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
             <Check size={10} /> Configured
           </span>
         ) : (
-          <span style={{
-            fontSize: '0.7rem',
-            padding: '0.2rem 0.5rem',
-            borderRadius: '1rem',
-            background: '#fef3c7',
-            color: '#92400e',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.25rem',
-          }}>
+          <span className="text-xs px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 flex items-center gap-1">
             <AlertTriangle size={10} /> Not Configured
           </span>
         )}
       </div>
 
-      {/* Configured state — show masked keys */}
+      {/* Configured state */}
       {isConfigured && !editing && (
-        <div style={{ marginBottom: '0.75rem' }}>
+        <div className="mb-3">
           {credentialStatus!.secrets.map((s) => (
-            <div key={s.name} style={{
-              display: 'flex', alignItems: 'center', gap: '0.5rem',
-              padding: '0.5rem 0.75rem', marginBottom: '0.35rem',
-              background: 'var(--dm-bg-tertiary)', borderRadius: '0.375rem',
-              border: '1px solid var(--dm-border)',
-            }}>
-              <KeyRound size={14} color="var(--dm-accent-blue)" />
-              <span style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)', minWidth: '4rem' }}>
+            <div key={s.name} className="flex items-center gap-2 px-3 py-2 mb-1.5 bg-background rounded-md border border-border">
+              <KeyRound size={12} className="text-muted-foreground" />
+              <span className="text-xs text-muted-foreground min-w-[4rem]">
                 {secretRefs.length === 1 ? inputLabel : s.name.replace(/-/g, ' ')}
               </span>
-              <code style={{
-                flex: 1, fontSize: '0.82rem', fontFamily: 'monospace',
-                color: 'var(--dm-text-primary)', letterSpacing: '0.02em',
-              }}>
-                {s.maskedValue || '••••••••'}
+              <code className="flex-1 text-xs font-mono text-foreground tracking-wide">
+                {s.maskedValue || '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}
               </code>
-              <Check size={14} color="#16a34a" />
+              <Check size={12} className="text-emerald-500" />
             </div>
           ))}
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+          <div className="flex gap-2 mt-2">
             <button
               onClick={() => setEditing(true)}
-              style={{
-                padding: '0.35rem 0.75rem', background: 'transparent',
-                color: 'var(--dm-text-secondary)', border: '1px solid var(--dm-border)',
-                borderRadius: '0.375rem', cursor: 'pointer', fontSize: '0.78rem',
-                display: 'flex', alignItems: 'center', gap: '0.3rem',
-              }}
+              className="h-8 px-3 bg-transparent text-muted-foreground border border-border rounded-md cursor-pointer text-xs flex items-center gap-1 hover:bg-muted transition-colors"
             >
               <Pencil size={11} /> Update Key
             </button>
             <button
               onClick={handleTest}
               disabled={testing}
-              style={{
-                padding: '0.35rem 0.75rem', background: 'transparent',
-                color: 'var(--dm-accent-blue-text)', border: '1px solid var(--dm-accent-blue)',
-                borderRadius: '0.375rem', cursor: testing ? 'not-allowed' : 'pointer',
-                fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.3rem',
-              }}
+              className={`h-8 px-3 bg-transparent text-foreground border border-border rounded-md text-xs flex items-center gap-1 ${
+                testing ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-muted'
+              } transition-colors`}
             >
               {testing ? (
-                <><Loader size={11} style={{ animation: 'spin 1s linear infinite' }} /> Testing...</>
+                <><Loader size={11} className="dm-spin" /> Testing...</>
               ) : (
                 <><Wifi size={11} /> Test Connection</>
               )}
@@ -212,15 +154,12 @@ export const ProviderCredentialConfig: React.FC<ProviderCredentialConfigProps> =
         </div>
       )}
 
-      {/* Edit mode — input fields */}
+      {/* Edit mode */}
       {editing && (
         <>
           {secretRefs.map((ref) => (
-            <div key={ref} style={{ marginBottom: '0.75rem' }}>
-              <label style={{
-                display: 'block', fontSize: '0.8rem', fontWeight: 500,
-                marginBottom: '0.25rem', color: 'var(--dm-text-secondary)',
-              }}>
+            <div key={ref} className="mb-3">
+              <label className="block text-xs font-medium mb-1.5 text-muted-foreground">
                 {secretRefs.length === 1
                   ? inputLabel
                   : `${ref.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}`}
@@ -234,33 +173,23 @@ export const ProviderCredentialConfig: React.FC<ProviderCredentialConfigProps> =
                     ? `Enter new ${inputLabel} to update`
                     : `Enter ${inputLabel} for ${provider.displayName}`
                 }
-                style={{
-                  width: '100%', padding: '0.5rem 0.75rem',
-                  border: '1px solid var(--dm-border-input)', borderRadius: '0.375rem',
-                  fontFamily: 'monospace', fontSize: '0.85rem',
-                  color: 'var(--dm-text-primary)', backgroundColor: 'var(--dm-bg-input)',
-                  boxSizing: 'border-box',
-                }}
+                className="w-full h-9 px-3 border border-border rounded-md font-mono text-sm text-foreground bg-background box-border"
               />
             </div>
           ))}
 
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="flex gap-2 flex-wrap items-center">
             <button
               onClick={handleSave}
               disabled={!hasValues || saving}
-              style={{
-                padding: '0.45rem 1rem',
-                background: hasValues && !saving ? 'var(--dm-accent-blue)' : 'var(--dm-bg-tertiary)',
-                color: hasValues && !saving ? '#fff' : 'var(--dm-text-tertiary)',
-                border: 'none', borderRadius: '0.375rem',
-                cursor: hasValues && !saving ? 'pointer' : 'not-allowed',
-                fontSize: '0.8rem', fontWeight: 500,
-                display: 'flex', alignItems: 'center', gap: '0.35rem',
-              }}
+              className={`h-9 px-4 border-none rounded-md text-sm font-medium flex items-center gap-1.5 ${
+                hasValues && !saving
+                  ? 'bg-foreground text-background cursor-pointer'
+                  : 'bg-muted text-muted-foreground cursor-not-allowed'
+              }`}
             >
               {saving ? (
-                <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Saving...</>
+                <><Loader size={12} className="dm-spin" /> Saving...</>
               ) : (
                 <><KeyRound size={12} /> Save Credentials</>
               )}
@@ -269,16 +198,12 @@ export const ProviderCredentialConfig: React.FC<ProviderCredentialConfigProps> =
             <button
               onClick={handleTest}
               disabled={testing}
-              style={{
-                padding: '0.45rem 1rem', background: 'transparent',
-                color: 'var(--dm-accent-blue-text)', border: '1px solid var(--dm-accent-blue)',
-                borderRadius: '0.375rem', cursor: testing ? 'not-allowed' : 'pointer',
-                fontSize: '0.8rem', fontWeight: 500,
-                display: 'flex', alignItems: 'center', gap: '0.35rem',
-              }}
+              className={`h-9 px-4 bg-secondary text-foreground border border-border rounded-md text-sm font-medium flex items-center gap-1.5 ${
+                testing ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-muted'
+              } transition-colors`}
             >
               {testing ? (
-                <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Testing...</>
+                <><Loader size={12} className="dm-spin" /> Testing...</>
               ) : (
                 <><Wifi size={12} /> Test Connection</>
               )}
@@ -287,11 +212,7 @@ export const ProviderCredentialConfig: React.FC<ProviderCredentialConfigProps> =
             {isConfigured && (
               <button
                 onClick={() => { setEditing(false); setSecretValues({}); setSaveResult(null); }}
-                style={{
-                  padding: '0.45rem 0.75rem', background: 'transparent',
-                  color: 'var(--dm-text-secondary)', border: '1px solid var(--dm-border)',
-                  borderRadius: '0.375rem', cursor: 'pointer', fontSize: '0.8rem',
-                }}
+                className="h-9 px-3 bg-transparent text-muted-foreground border border-border rounded-md cursor-pointer text-sm hover:bg-muted transition-colors"
               >
                 Cancel
               </button>
@@ -302,34 +223,22 @@ export const ProviderCredentialConfig: React.FC<ProviderCredentialConfigProps> =
 
       {/* Results */}
       {saveResult && (
-        <div style={{
-          marginTop: '0.75rem',
-          padding: '0.5rem 0.75rem',
-          borderRadius: '0.375rem',
-          background: saveResult.success ? '#f0fdf4' : '#fef2f2',
-          color: saveResult.success ? '#16a34a' : '#dc2626',
-          fontSize: '0.8rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-        }}>
+        <div className={`mt-3 px-3 py-2 rounded-md text-sm flex items-center gap-2 ${
+          saveResult.success
+            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400'
+            : 'bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400'
+        }`}>
           {saveResult.success ? <Check size={14} /> : <X size={14} />}
           {saveResult.message}
         </div>
       )}
 
       {testResult && (
-        <div style={{
-          marginTop: '0.5rem',
-          padding: '0.5rem 0.75rem',
-          borderRadius: '0.375rem',
-          background: testResult.success ? '#f0fdf4' : '#fef2f2',
-          color: testResult.success ? '#16a34a' : '#dc2626',
-          fontSize: '0.8rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-        }}>
+        <div className={`mt-2 px-3 py-2 rounded-md text-sm flex items-center gap-2 ${
+          testResult.success
+            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400'
+            : 'bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400'
+        }`}>
           {testResult.success ? <Wifi size={14} /> : <X size={14} />}
           {testResult.success
             ? `Connection successful${testResult.latencyMs ? ` (${testResult.latencyMs}ms)` : ''}`
@@ -345,13 +254,7 @@ export const CredentialStatusBadge: React.FC<{ providerSlug: string }> = ({ prov
 
   if (credentialLoading) {
     return (
-      <span style={{
-        fontSize: '0.65rem',
-        padding: '0.1rem 0.4rem',
-        borderRadius: '1rem',
-        background: 'var(--dm-bg-tertiary)',
-        color: 'var(--dm-text-tertiary)',
-      }}>
+      <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
         ...
       </span>
     );
@@ -360,30 +263,12 @@ export const CredentialStatusBadge: React.FC<{ providerSlug: string }> = ({ prov
   if (!credentialStatus) return null;
 
   return credentialStatus.configured ? (
-    <span style={{
-      fontSize: '0.65rem',
-      padding: '0.1rem 0.4rem',
-      borderRadius: '1rem',
-      background: '#dcfce7',
-      color: '#166534',
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '0.2rem',
-    }}>
-      <Check size={8} /> Ready
+    <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-0.5">
+      <Check size={9} /> Ready
     </span>
   ) : (
-    <span style={{
-      fontSize: '0.65rem',
-      padding: '0.1rem 0.4rem',
-      borderRadius: '1rem',
-      background: '#fef3c7',
-      color: '#92400e',
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '0.2rem',
-    }}>
-      <AlertTriangle size={8} /> No Key
+    <span className="text-xs px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 inline-flex items-center gap-0.5">
+      <AlertTriangle size={9} /> No Key
     </span>
   );
 };

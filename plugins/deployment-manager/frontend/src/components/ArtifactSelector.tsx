@@ -49,25 +49,21 @@ export const ArtifactSelector: React.FC<ArtifactSelectorProps> = ({
 
   return (
     <div>
-      <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--dm-text-primary)' }}>Deployment Artifact</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+      <h3 className="text-sm font-medium mb-3 text-foreground">Deployment Artifact</h3>
+      <div className="grid grid-cols-2 gap-3 mb-5">
         {artifacts.map((a) => (
           <button
             key={a.type}
             onClick={() => onSelectType(a.type)}
-            style={{
-              padding: '1.25rem',
-              border: selectedType === a.type ? '2px solid var(--dm-accent-blue)' : '1px solid var(--dm-border)',
-              borderRadius: '0.75rem',
-              background: selectedType === a.type ? 'var(--dm-bg-selected)' : 'var(--dm-bg-primary)',
-              color: 'var(--dm-text-primary)',
-              cursor: 'pointer',
-              textAlign: 'left',
-            }}
+            className={`p-4 rounded-lg cursor-pointer text-left transition-all ${
+              selectedType === a.type
+                ? 'border-2 border-foreground bg-secondary'
+                : 'border border-border bg-card hover:border-muted-foreground/30'
+            }`}
           >
-            <div style={{ fontWeight: 600, marginBottom: '0.25rem', color: 'var(--dm-text-primary)' }}>{a.displayName}</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)' }}>{a.description}</div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--dm-text-tertiary)', marginTop: '0.5rem', fontFamily: 'monospace' }}>
+            <div className="font-medium text-sm text-foreground mb-1">{a.displayName}</div>
+            <div className="text-xs text-muted-foreground">{a.description}</div>
+            <div className="text-xs text-muted-foreground mt-1.5 font-mono truncate">
               {a.dockerImage}
             </div>
           </button>
@@ -76,24 +72,14 @@ export const ArtifactSelector: React.FC<ArtifactSelectorProps> = ({
 
       {selectedType && versions.length > 0 && (
         <div>
-          <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--dm-text-secondary)' }}>Version</label>
+          <label className="text-xs font-medium text-muted-foreground">Version</label>
           <select
             value={selectedVersion || ''}
             onChange={(e) => {
               const v = versions.find((ver) => ver.version === e.target.value);
               if (v) onSelectVersion(v.version, v.dockerImage);
             }}
-            style={{
-              display: 'block',
-              marginTop: '0.5rem',
-              padding: '0.5rem 1rem',
-              border: '1px solid var(--dm-border-input)',
-              borderRadius: '0.375rem',
-              width: '100%',
-              maxWidth: '400px',
-              color: 'var(--dm-text-primary)',
-              backgroundColor: 'var(--dm-bg-input)',
-            }}
+            className="block mt-1.5 h-9 px-3 border border-border rounded-md w-full max-w-md text-sm text-foreground bg-background"
           >
             <option value="">Select a version...</option>
             {versions.map((v) => (

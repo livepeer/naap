@@ -50,29 +50,21 @@ export const AuditPage: React.FC = () => {
 
   useEffect(() => { fetchAudit(); }, [filters, page]);
 
-  const cellStyle: React.CSSProperties = {
-    padding: '0.625rem 0.75rem',
-    fontSize: '0.8rem',
-    borderBottom: '1px solid var(--dm-bg-tertiary)',
-    verticalAlign: 'top',
-    color: 'var(--dm-text-secondary)',
-  };
-
   return (
-    <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '2rem' }}>
-        <FileText size={28} />
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 600, margin: 0, color: 'var(--dm-text-primary)' }}>Audit Log</h1>
-        <span style={{ fontSize: '0.8rem', color: 'var(--dm-text-tertiary)' }}>({total} entries)</span>
+    <div className="px-6 py-5 max-w-[1200px] mx-auto">
+      <div className="flex items-center gap-3 mb-6">
+        <FileText size={20} className="text-foreground" />
+        <h1 className="text-xl font-semibold text-foreground m-0 tracking-tight">Audit Log</h1>
+        <span className="text-xs text-muted-foreground">({total} entries)</span>
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', alignItems: 'center' }}>
-        <Filter size={16} color="#9ca3af" />
+      <div className="flex gap-3 mb-5 items-center flex-wrap">
+        <Filter size={14} className="text-muted-foreground" />
         <select
           value={filters.action}
           onChange={(e) => { setFilters({ ...filters, action: e.target.value }); setPage(0); }}
-          style={{ padding: '0.375rem 0.75rem', border: '1px solid var(--dm-border-input)', borderRadius: '0.375rem', fontSize: '0.8rem', color: 'var(--dm-text-primary)', backgroundColor: 'var(--dm-bg-input)' }}
+          className="h-8 px-3 border border-border rounded-md text-xs text-foreground bg-background"
         >
           <option value="">All Actions</option>
           {['CREATE', 'DEPLOY', 'UPDATE', 'DESTROY', 'CONFIG_CHANGE', 'HEALTH_CHECK'].map((a) => (
@@ -84,114 +76,91 @@ export const AuditPage: React.FC = () => {
           placeholder="Filter by User ID..."
           value={filters.userId}
           onChange={(e) => { setFilters({ ...filters, userId: e.target.value }); setPage(0); }}
-          style={{ padding: '0.375rem 0.75rem', border: '1px solid var(--dm-border-input)', borderRadius: '0.375rem', fontSize: '0.8rem', width: '200px', color: 'var(--dm-text-primary)', backgroundColor: 'var(--dm-bg-input)' }}
+          className="h-8 px-3 border border-border rounded-md text-xs text-foreground bg-background w-44"
         />
         <input
           type="text"
           placeholder="Filter by Deployment ID..."
           value={filters.deploymentId}
           onChange={(e) => { setFilters({ ...filters, deploymentId: e.target.value }); setPage(0); }}
-          style={{ padding: '0.375rem 0.75rem', border: '1px solid var(--dm-border-input)', borderRadius: '0.375rem', fontSize: '0.8rem', width: '250px', color: 'var(--dm-text-primary)', backgroundColor: 'var(--dm-bg-input)' }}
+          className="h-8 px-3 border border-border rounded-md text-xs text-foreground bg-background w-52"
         />
       </div>
 
       {loading ? (
-        <p style={{ color: 'var(--dm-text-secondary)' }}>Loading...</p>
+        <p className="text-muted-foreground text-sm">Loading...</p>
       ) : entries.length === 0 ? (
-        <p style={{ color: 'var(--dm-text-tertiary)' }}>No audit entries found</p>
+        <p className="text-muted-foreground text-sm">No audit entries found</p>
       ) : (
         <>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid var(--dm-border)' }}>
-                <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Time</th>
-                <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Action</th>
-                <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Resource</th>
-                <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Status</th>
-                <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>User</th>
-                <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((e) => (
-                <tr key={e.id}>
-                  <td style={{ ...cellStyle, whiteSpace: 'nowrap', color: 'var(--dm-text-secondary)' }}>
-                    {new Date(e.createdAt).toLocaleString()}
-                  </td>
-                  <td style={cellStyle}>
-                    <span style={{
-                      padding: '0.125rem 0.4rem',
-                      borderRadius: '0.25rem',
-                      background: 'var(--dm-bg-tertiary)',
-                      color: 'var(--dm-text-secondary)',
-                      fontWeight: 500,
-                      fontFamily: 'monospace',
-                    }}>
-                      {e.action}
-                    </span>
-                  </td>
-                  <td style={cellStyle}>
-                    {e.resource}
-                    {e.resourceId && (
-                      <span style={{ fontSize: '0.7rem', color: 'var(--dm-text-tertiary)', display: 'block', fontFamily: 'monospace' }}>
-                        {e.resourceId.slice(0, 8)}...
-                      </span>
-                    )}
-                  </td>
-                  <td style={cellStyle}>
-                    <span style={{ color: e.status === 'success' ? '#16a34a' : '#dc2626', fontWeight: 500 }}>
-                      {e.status}
-                    </span>
-                    {e.errorMsg && (
-                      <span style={{ display: 'block', fontSize: '0.7rem', color: '#dc2626', marginTop: '0.125rem' }}>
-                        {e.errorMsg}
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ ...cellStyle, fontFamily: 'monospace' }}>{e.userId.slice(0, 8)}</td>
-                  <td style={{ ...cellStyle, fontSize: '0.7rem', color: 'var(--dm-text-secondary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {e.details ? JSON.stringify(e.details).slice(0, 80) : '—'}
-                  </td>
+          <div className="border border-border rounded-lg overflow-hidden">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-secondary">
+                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2.5">Time</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2.5">Action</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2.5">Resource</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2.5">Status</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2.5">User</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-2.5">Details</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {entries.map((e) => (
+                  <tr key={e.id} className="border-t border-border hover:bg-muted/50 transition-colors">
+                    <td className="px-4 py-3 text-xs text-muted-foreground align-top whitespace-nowrap">
+                      {new Date(e.createdAt).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-xs align-top">
+                      <span className="px-1.5 py-0.5 rounded bg-secondary text-xs font-mono font-medium text-foreground">
+                        {e.action}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground align-top">
+                      {e.resource}
+                      {e.resourceId && (
+                        <span className="text-xs text-muted-foreground block font-mono opacity-60">
+                          {e.resourceId.slice(0, 8)}...
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs align-top">
+                      <span className={e.status === 'success' ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-red-500 dark:text-red-400 font-medium'}>
+                        {e.status}
+                      </span>
+                      {e.errorMsg && (
+                        <span className="block text-xs text-red-500 dark:text-red-400 mt-0.5 opacity-80">
+                          {e.errorMsg}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground align-top font-mono">{e.userId.slice(0, 8)}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground align-top max-w-[200px] truncate">
+                      {e.details ? JSON.stringify(e.details).slice(0, 80) : '\u2014'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
           {/* Pagination */}
           {total > limit && (
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', marginTop: '1.5rem' }}>
+            <div className="flex justify-center gap-2 mt-5">
               <button
                 onClick={() => setPage((p) => Math.max(0, p - 1))}
                 disabled={page === 0}
-                style={{
-                  padding: '0.375rem 0.75rem',
-                  border: '1px solid var(--dm-border-input)',
-                  borderRadius: '0.375rem',
-                  background: 'var(--dm-bg-primary)',
-                  color: 'var(--dm-text-secondary)',
-                  cursor: page === 0 ? 'not-allowed' : 'pointer',
-                  opacity: page === 0 ? 0.5 : 1,
-                  fontSize: '0.8rem',
-                }}
+                className="h-8 px-3 border border-border rounded-md bg-secondary text-sm text-muted-foreground cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Previous
               </button>
-              <span style={{ padding: '0.375rem', fontSize: '0.8rem', color: 'var(--dm-text-secondary)' }}>
+              <span className="h-8 px-3 flex items-center text-xs text-muted-foreground">
                 Page {page + 1} of {Math.ceil(total / limit)}
               </span>
               <button
                 onClick={() => setPage((p) => p + 1)}
                 disabled={(page + 1) * limit >= total}
-                style={{
-                  padding: '0.375rem 0.75rem',
-                  border: '1px solid var(--dm-border-input)',
-                  borderRadius: '0.375rem',
-                  background: 'var(--dm-bg-primary)',
-                  color: 'var(--dm-text-secondary)',
-                  cursor: (page + 1) * limit >= total ? 'not-allowed' : 'pointer',
-                  opacity: (page + 1) * limit >= total ? 0.5 : 1,
-                  fontSize: '0.8rem',
-                }}
+                className="h-8 px-3 border border-border rounded-md bg-secondary text-sm text-muted-foreground cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next
               </button>

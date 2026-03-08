@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 const API_BASE = '/api/v1/deployment-manager';
 
@@ -74,7 +74,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
       id: 'custom',
       name: 'Custom Docker Image',
       description: 'Deploy any Docker image',
-      icon: '📦',
+      icon: '\ud83d\udce6',
       dockerImage: '',
       healthEndpoint: '/health',
       healthPort: 8080,
@@ -82,58 +82,41 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
     });
   };
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '0.5rem 0.75rem',
-    border: '1px solid var(--dm-border-input)',
-    borderRadius: '0.375rem',
-    fontSize: '0.875rem',
-    color: 'var(--dm-text-primary)',
-    backgroundColor: 'var(--dm-bg-input)',
-  };
-
   return (
     <div>
-      <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--dm-text-primary)' }}>Choose a Template</h3>
-      <p style={{ color: 'var(--dm-text-secondary)', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
+      <h3 className="text-base font-semibold mb-1 text-foreground">Choose a Template</h3>
+      <p className="text-muted-foreground text-sm mb-5">
         Pick a curated template or deploy any Docker image.
       </p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 mb-5">
         {templates.map((t) => {
           const isSelected = selectedTemplateId === t.id && !isCustom;
           return (
             <button
               key={t.id}
               onClick={() => { setIsCustom(false); onSelectTemplate(t); }}
-              style={{
-                padding: '1.25rem',
-                border: isSelected ? '2px solid var(--dm-accent-blue)' : '1px solid var(--dm-border)',
-                borderRadius: '0.75rem',
-                background: isSelected ? 'var(--dm-bg-selected)' : 'var(--dm-bg-primary)',
-                cursor: 'pointer',
-                textAlign: 'left',
-                transition: 'all 0.15s',
-                color: 'var(--dm-text-primary)',
-              }}
+              className={`p-4 rounded-lg cursor-pointer text-left transition-all text-foreground ${
+                isSelected
+                  ? 'border-2 border-foreground bg-secondary'
+                  : 'border border-border bg-card hover:border-muted-foreground/30'
+              }`}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                <span style={{ fontSize: '1.75rem' }}>{t.icon}</span>
+              <div className="flex items-center gap-3 mb-2">
+                <span className="text-2xl">{t.icon}</span>
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--dm-text-primary)' }}>{t.name}</div>
-                  <span style={{
-                    fontSize: '0.65rem',
-                    padding: '0.1rem 0.4rem',
-                    borderRadius: '1rem',
-                    background: t.category === 'curated' ? '#dbeafe' : '#fef3c7',
-                    color: t.category === 'curated' ? 'var(--dm-accent-blue-text)' : '#92400e',
-                  }}>
+                  <div className="font-medium text-sm text-foreground">{t.name}</div>
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${
+                    t.category === 'curated'
+                      ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400'
+                      : 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300'
+                  }`}>
                     {t.category}
                   </span>
                 </div>
               </div>
-              <p style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)', margin: '0 0 0.5rem 0' }}>{t.description}</p>
-              <div style={{ fontSize: '0.7rem', color: 'var(--dm-text-tertiary)', fontFamily: 'monospace' }}>
+              <p className="text-xs text-muted-foreground mb-2 mt-0">{t.description}</p>
+              <div className="text-xs text-muted-foreground font-mono truncate">
                 {t.dockerImage}
               </div>
             </button>
@@ -142,33 +125,22 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
 
         <button
           onClick={handleSelectCustom}
-          style={{
-            padding: '1.25rem',
-            border: isCustom ? '2px solid var(--dm-accent-blue)' : '1px dashed var(--dm-border-input)',
-            borderRadius: '0.75rem',
-            background: isCustom ? 'var(--dm-bg-selected)' : 'var(--dm-bg-secondary)',
-            cursor: 'pointer',
-            textAlign: 'left',
-            transition: 'all 0.15s',
-            color: 'var(--dm-text-primary)',
-          }}
+          className={`p-4 rounded-lg cursor-pointer text-left transition-all text-foreground ${
+            isCustom
+              ? 'border-2 border-foreground bg-secondary'
+              : 'border border-dashed border-border bg-card hover:border-muted-foreground/30'
+          }`}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-            <Plus size={28} style={{ color: 'var(--dm-text-secondary)' }} />
+          <div className="flex items-center gap-3 mb-2">
+            <Plus size={24} className="text-muted-foreground" />
             <div>
-              <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--dm-text-primary)' }}>Custom Docker Image</div>
-              <span style={{
-                fontSize: '0.65rem',
-                padding: '0.1rem 0.4rem',
-                borderRadius: '1rem',
-                background: 'var(--dm-bg-tertiary)',
-                color: 'var(--dm-text-secondary)',
-              }}>
+              <div className="font-medium text-sm text-foreground">Custom Docker Image</div>
+              <span className="text-xs px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
                 any image
               </span>
             </div>
           </div>
-          <p style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)', margin: 0 }}>
+          <p className="text-xs text-muted-foreground m-0">
             Deploy any Docker image with GPU support.
           </p>
         </button>
@@ -176,9 +148,9 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
 
       {/* Custom image fields */}
       {isCustom && (
-        <div style={{ padding: '1rem', background: 'var(--dm-bg-secondary)', borderRadius: '0.5rem', marginBottom: '1.5rem' }}>
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ fontSize: '0.8rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem', color: 'var(--dm-text-secondary)' }}>
+        <div className="p-4 bg-secondary rounded-lg mb-5">
+          <div className="mb-4">
+            <label className="text-xs font-medium block mb-1.5 text-muted-foreground">
               Docker Image *
             </label>
             <input
@@ -186,23 +158,23 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
               value={customImage}
               onChange={(e) => onCustomImageChange(e.target.value)}
               placeholder="myregistry/my-model:latest"
-              style={inputStyle}
+              className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
             />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem', color: 'var(--dm-text-secondary)' }}>
+              <label className="text-xs font-medium block mb-1.5 text-muted-foreground">
                 Health Port
               </label>
               <input
                 type="number"
                 value={customHealthPort}
                 onChange={(e) => onCustomHealthPortChange(parseInt(e.target.value, 10) || 8080)}
-                style={inputStyle}
+                className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
               />
             </div>
             <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem', color: 'var(--dm-text-secondary)' }}>
+              <label className="text-xs font-medium block mb-1.5 text-muted-foreground">
                 Health Endpoint
               </label>
               <input
@@ -210,7 +182,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
                 value={customHealthEndpoint}
                 onChange={(e) => onCustomHealthEndpointChange(e.target.value)}
                 placeholder="/health"
-                style={inputStyle}
+                className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
               />
             </div>
           </div>
@@ -220,7 +192,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
       {/* Version picker for curated templates */}
       {selectedTemplateId && !isCustom && (
         <div>
-          <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--dm-text-secondary)' }}>Version</label>
+          <label className="text-xs font-medium text-muted-foreground">Version</label>
           {versions.length > 0 ? (
             <select
               value={selectedVersion || ''}
@@ -228,27 +200,17 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
                 const v = versions.find((ver) => ver.version === e.target.value);
                 if (v) onSelectVersion(v.version, v.dockerImage);
               }}
-              style={{
-                display: 'block',
-                marginTop: '0.5rem',
-                padding: '0.5rem 1rem',
-                border: '1px solid var(--dm-border-input)',
-                borderRadius: '0.375rem',
-                width: '100%',
-                maxWidth: '400px',
-                color: 'var(--dm-text-primary)',
-                backgroundColor: 'var(--dm-bg-input)',
-              }}
+              className="block mt-1.5 h-9 px-3 border border-border rounded-md w-full max-w-md text-sm text-foreground bg-background"
             >
               <option value="">Select a version...</option>
               {versions.map((v) => (
                 <option key={v.version} value={v.version}>
-                  {v.version} {v.prerelease ? '(pre-release)' : ''} {v.publishedAt ? `— ${new Date(v.publishedAt).toLocaleDateString()}` : ''}
+                  {v.version} {v.prerelease ? '(pre-release)' : ''} {v.publishedAt ? `\u2014 ${new Date(v.publishedAt).toLocaleDateString()}` : ''}
                 </option>
               ))}
             </select>
           ) : (
-            <p style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)', marginTop: '0.5rem' }}>
+            <p className="text-xs text-muted-foreground mt-1.5">
               Using latest version. Click <strong>Next</strong> to continue.
             </p>
           )}

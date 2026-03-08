@@ -13,30 +13,14 @@ export const VersionBadge: React.FC<VersionBadgeProps> = ({
   hasUpdate,
 }) => {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-      <span style={{
-        fontFamily: 'monospace',
-        fontSize: '0.8rem',
-        padding: '0.15rem 0.5rem',
-        borderRadius: '0.25rem',
-        background: 'var(--dm-bg-tertiary)',
-        color: 'var(--dm-text-secondary)',
-      }}>
+    <span className="inline-flex items-center gap-2">
+      <span className="font-mono text-xs px-2 py-0.5 rounded bg-secondary text-muted-foreground">
         {currentVersion}
       </span>
       {hasUpdate && latestVersion && (
-        <span style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '0.25rem',
-          fontSize: '0.7rem',
-          padding: '0.15rem 0.5rem',
-          borderRadius: '0.25rem',
-          background: '#fef3c7',
-          color: '#92400e',
-        }}>
-          <AlertCircle size={12} />
-          {latestVersion} available
+        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+          <AlertCircle size={11} />
+          {latestVersion}
         </span>
       )}
     </span>

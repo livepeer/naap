@@ -38,9 +38,9 @@ export const CostPreview: React.FC<CostPreviewProps> = ({ providerSlug, gpuModel
 
   if (providerSlug === 'ssh-bridge') {
     return (
-      <div style={{ padding: '1rem', background: '#f0fdf4', borderRadius: '0.5rem', border: '1px solid #bbf7d0', marginTop: '1rem' }}>
-        <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#166534' }}>Self-hosted</div>
-        <div style={{ fontSize: '0.8rem', color: '#15803d', marginTop: '0.25rem' }}>
+      <div className="p-4 bg-green-50 rounded-lg border border-green-200 mt-4">
+        <div className="font-semibold text-[0.95rem] text-green-800">Self-hosted</div>
+        <div className="text-[0.8rem] text-green-700 mt-1">
           No GPU rental charges — uses your own hardware via SSH Bridge.
         </div>
       </div>
@@ -49,8 +49,8 @@ export const CostPreview: React.FC<CostPreviewProps> = ({ providerSlug, gpuModel
 
   if (loading) {
     return (
-      <div style={{ padding: '1rem', background: 'var(--dm-bg-secondary)', borderRadius: '0.5rem', marginTop: '1rem' }}>
-        <span style={{ color: 'var(--dm-text-secondary)', fontSize: '0.875rem' }}>Estimating cost...</span>
+      <div className="p-4 bg-muted/50 rounded-lg mt-4">
+        <span className="text-muted-foreground text-sm">Estimating cost...</span>
       </div>
     );
   }
@@ -58,24 +58,24 @@ export const CostPreview: React.FC<CostPreviewProps> = ({ providerSlug, gpuModel
   if (!estimate) return null;
 
   const costColor = estimate.totalCostPerHour < 1 ? '#166534' : estimate.totalCostPerHour < 3 ? '#a16207' : '#dc2626';
-  const bgColor = estimate.totalCostPerHour < 1 ? '#f0fdf4' : estimate.totalCostPerHour < 3 ? '#fffbeb' : '#fef2f2';
-  const borderColor = estimate.totalCostPerHour < 1 ? '#bbf7d0' : estimate.totalCostPerHour < 3 ? '#fde68a' : '#fecaca';
+  const bgClass = estimate.totalCostPerHour < 1 ? 'bg-green-50' : estimate.totalCostPerHour < 3 ? 'bg-amber-50' : 'bg-red-50';
+  const borderClass = estimate.totalCostPerHour < 1 ? 'border-green-200' : estimate.totalCostPerHour < 3 ? 'border-amber-200' : 'border-red-200';
 
   return (
-    <div style={{ padding: '1rem', background: bgColor, borderRadius: '0.5rem', border: `1px solid ${borderColor}`, marginTop: '1rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+    <div className={`p-4 rounded-lg border mt-4 ${bgClass} ${borderClass}`}>
+      <div className="flex justify-between items-baseline">
         <div>
-          <span style={{ fontWeight: 700, fontSize: '1.25rem', color: costColor }}>
+          <span className="font-bold text-xl" style={{ color: costColor }}>
             ${estimate.totalCostPerHour.toFixed(2)}
           </span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)' }}>/hour</span>
+          <span className="text-[0.8rem] text-muted-foreground">/hour</span>
         </div>
-        <div style={{ textAlign: 'right', fontSize: '0.8rem', color: 'var(--dm-text-secondary)' }}>
+        <div className="text-right text-[0.8rem] text-muted-foreground">
           <div>${estimate.totalCostPerDay.toFixed(2)}/day</div>
           <div>${estimate.totalCostPerMonth.toFixed(0)}/month</div>
         </div>
       </div>
-      <div style={{ fontSize: '0.75rem', color: 'var(--dm-text-tertiary)', marginTop: '0.5rem', display: 'flex', gap: '1rem' }}>
+      <div className="text-xs text-muted-foreground/70 mt-2 flex gap-4">
         <span>GPU: ${estimate.breakdown.gpu.toFixed(2)}</span>
         {estimate.breakdown.storage > 0 && <span>Storage: ${estimate.breakdown.storage.toFixed(2)}</span>}
       </div>

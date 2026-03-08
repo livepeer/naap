@@ -26,9 +26,9 @@ interface DeploymentLogsProps {
 const API_BASE = '/api/v1/deployment-manager';
 
 const stepIcon = (status: string) => {
-  if (status === 'ok') return { symbol: '✓', color: '#4ade80' };
-  if (status === 'failed') return { symbol: '✗', color: '#f87171' };
-  return { symbol: '–', color: '#6b7280' };
+  if (status === 'ok') return { symbol: '\u2713', color: '#4ade80' };
+  if (status === 'failed') return { symbol: '\u2717', color: '#f87171' };
+  return { symbol: '\u2013', color: '#6b7280' };
 };
 
 const statusColor = (status: string) => {
@@ -44,7 +44,7 @@ const ProviderMetaLine: React.FC<{ meta: Record<string, unknown> }> = ({ meta })
 
   if (meta.providerReportedStatus) parts.push(`status=${meta.providerReportedStatus}`);
   if (meta.dockerImage) parts.push(`image=${meta.dockerImage}`);
-  if (meta.gpuModel) parts.push(`gpu=${meta.gpuModel}${meta.gpuCount ? `×${meta.gpuCount}` : ''}`);
+  if (meta.gpuModel) parts.push(`gpu=${meta.gpuModel}${meta.gpuCount ? `\u00d7${meta.gpuCount}` : ''}`);
 
   const workers = meta.workers as Record<string, number> | undefined;
   const running = meta.workersRunning ?? workers?.running;
@@ -60,8 +60,8 @@ const ProviderMetaLine: React.FC<{ meta: Record<string, unknown> }> = ({ meta })
   if (parts.length === 0) return null;
 
   return (
-    <div style={{ color: '#9ca3af', paddingLeft: '1.5rem' }}>
-      {'  └ '}{parts.join(' | ')}
+    <div className="text-gray-400 pl-6">
+      {'  \u2514 '}{parts.join(' | ')}
     </div>
   );
 };
@@ -100,35 +100,25 @@ export const DeploymentLogs: React.FC<DeploymentLogsProps> = ({ deploymentId, au
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+      <div className="flex items-center gap-2 mb-3">
         <Terminal size={16} />
-        <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Deployment Logs</span>
+        <span className="font-semibold text-sm">Deployment Logs</span>
       </div>
       <div
         ref={containerRef}
-        style={{
-          background: '#111827',
-          color: '#e5e7eb',
-          fontFamily: 'ui-monospace, monospace',
-          fontSize: '0.75rem',
-          padding: '1rem',
-          borderRadius: '0.5rem',
-          maxHeight: '400px',
-          overflowY: 'auto',
-          lineHeight: 1.8,
-        }}
+        className="bg-gray-900 text-gray-200 font-mono text-xs p-4 rounded-lg max-h-[400px] overflow-y-auto leading-[1.8]"
       >
         {entries.length === 0 ? (
-          <span style={{ color: '#6b7280' }}>Waiting for logs...</span>
+          <span className="text-gray-500">Waiting for logs...</span>
         ) : (
           entries.map((entry, i) => (
             <div key={i}>
               <div>
-                <span style={{ color: '#6b7280' }}>[{new Date(entry.createdAt).toLocaleTimeString()}]</span>
+                <span className="text-gray-500">[{new Date(entry.createdAt).toLocaleTimeString()}]</span>
                 {' '}
-                <span style={{ color: statusColor(entry.toStatus), fontWeight: 600 }}>{entry.toStatus}</span>
+                <span className="font-semibold" style={{ color: statusColor(entry.toStatus) }}>{entry.toStatus}</span>
                 {entry.fromStatus && entry.fromStatus !== entry.toStatus && (
-                  <span style={{ color: '#6b7280' }}>{' ← '}{entry.fromStatus}</span>
+                  <span className="text-gray-500">{' \u2190 '}{entry.fromStatus}</span>
                 )}
                 {entry.reason && <span>{': '}{entry.reason}</span>}
               </div>
@@ -136,15 +126,15 @@ export const DeploymentLogs: React.FC<DeploymentLogsProps> = ({ deploymentId, au
                 <ProviderMetaLine meta={entry.metadata} />
               )}
               {entry.metadata && steps(entry.metadata) && (
-                <div style={{ paddingLeft: '1.5rem' }}>
+                <div className="pl-6">
                   {steps(entry.metadata)!.map((step, j) => {
                     const icon = stepIcon(step.status);
                     return (
                       <div key={j} style={{ color: icon.color }}>
                         {icon.symbol} {step.resource}
                         {step.resourceId ? ` ${step.resourceId.substring(0, 16)}` : ''}
-                        {' — '}{step.action}
-                        {' — '}{step.detail || step.error || ''}
+                        {' \u2014 '}{step.action}
+                        {' \u2014 '}{step.detail || step.error || ''}
                       </div>
                     );
                   })}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Rocket, RefreshCw, Trash2, ExternalLink, Home } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Rocket, RefreshCw, Trash2, ExternalLink, Home, Check } from 'lucide-react';
 import { useProviders, useGpuOptions, useCredentialStatus } from '../hooks/useProviders';
 import { ProviderSelector } from '../components/ProviderSelector';
 import { ProviderCredentialConfig } from '../components/ProviderCredentialConfig';
@@ -103,16 +103,14 @@ export const DeploymentWizard: React.FC = () => {
     if (template.defaultGpuVramGb) {
       updateForm('gpuVramGb', template.defaultGpuVramGb);
     }
-    // Auto-select ssh-compose provider for livepeer template
     if (template.id === 'livepeer-inference') {
       updateForm('providerSlug', 'ssh-compose');
     }
   };
 
-  // Map logical step to content step accounting for livepeer extra step
   const resourceStep = isLivepeer ? 2 : 1;
   const deployStep = isLivepeer ? 3 : 2;
-  const livepeerStep = 1; // only used when isLivepeer
+  const livepeerStep = 1;
 
   const canProceed = (): boolean => {
     if (step === 0) {
@@ -236,7 +234,6 @@ export const DeploymentWizard: React.FC = () => {
     }
   };
 
-  // Poll deployment status after deploy — uses sync-status to reconcile with provider
   useEffect(() => {
     if (!deployedId || deploying) return;
     if (['DESTROYED', 'ONLINE', 'FAILED'].includes(deployStatus)) return;
@@ -257,7 +254,7 @@ export const DeploymentWizard: React.FC = () => {
           }
         }
       } catch {
-        // ignore network errors — will retry on next interval
+        // ignore
       }
     };
 
@@ -286,13 +283,13 @@ export const DeploymentWizard: React.FC = () => {
 
   const renderStep1 = () => (
     <div>
-      <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--dm-text-primary)' }}>Configure Resources</h3>
-      <p style={{ color: 'var(--dm-text-secondary)', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
+      <h3 className="text-base font-semibold mb-1 text-foreground">Configure Resources</h3>
+      <p className="text-muted-foreground text-sm mb-6">
         Select your compute provider, GPU, and name your deployment.
       </p>
 
-      <div style={{ marginBottom: '1.5rem' }}>
-        <label style={{ fontSize: '0.875rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem', color: 'var(--dm-text-secondary)' }}>
+      <div className="bg-secondary/50 rounded-lg p-5 mb-5">
+        <label className="text-xs font-medium block mb-1.5 text-muted-foreground">
           Deployment Name
         </label>
         <input
@@ -300,24 +297,15 @@ export const DeploymentWizard: React.FC = () => {
           value={form.name}
           onChange={(e) => updateForm('name', e.target.value)}
           placeholder="my-deployment"
-          style={{
-            width: '100%',
-            maxWidth: '400px',
-            padding: '0.5rem 0.75rem',
-            border: '1px solid var(--dm-border-input)',
-            borderRadius: '0.375rem',
-            fontSize: '0.875rem',
-            color: 'var(--dm-text-primary)',
-            backgroundColor: 'var(--dm-bg-input)',
-          }}
+          className="w-full max-w-md h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
         />
-        <p style={{ fontSize: '0.75rem', color: 'var(--dm-text-tertiary)', marginTop: '0.25rem' }}>
+        <p className="text-xs text-muted-foreground mt-1">
           Leave blank to auto-generate.
         </p>
       </div>
 
-      <div style={{ marginBottom: '1.5rem' }}>
-        <h4 style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--dm-text-primary)' }}>Provider</h4>
+      <div className="mb-5">
+        <h4 className="text-sm font-medium mb-3 text-foreground">Provider</h4>
         <ProviderSelector
           providers={providers}
           selected={form.providerSlug}
@@ -325,9 +313,8 @@ export const DeploymentWizard: React.FC = () => {
         />
       </div>
 
-      {/* Inline credential configuration */}
       {selectedProvider && (
-        <div style={{ marginBottom: '1.5rem' }}>
+        <div className="mb-5">
           <ProviderCredentialConfig
             provider={selectedProvider}
             compact
@@ -340,7 +327,7 @@ export const DeploymentWizard: React.FC = () => {
       )}
 
       {isSSH && (
-        <div style={{ marginBottom: '1.5rem' }}>
+        <div className="mb-5">
           <SshHostConfig
             host={form.sshHost}
             port={form.sshPort}
@@ -353,7 +340,7 @@ export const DeploymentWizard: React.FC = () => {
       )}
 
       {form.providerSlug && (
-        <div style={{ marginBottom: '1.5rem' }}>
+        <div className="mb-5">
           <GpuConfigForm
             gpuOptions={gpuOptions}
             selectedGpu={form.gpuModel}
@@ -373,8 +360,8 @@ export const DeploymentWizard: React.FC = () => {
         </div>
       )}
 
-      <div style={{ marginBottom: '1.5rem' }}>
-        <label style={{ fontSize: '0.875rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem', color: 'var(--dm-text-secondary)' }}>
+      <div className="bg-secondary/50 rounded-lg p-5 mb-5">
+        <label className="text-xs font-medium block mb-1.5 text-muted-foreground">
           Concurrency
         </label>
         <input
@@ -383,22 +370,14 @@ export const DeploymentWizard: React.FC = () => {
           max={32}
           value={form.concurrency}
           onChange={(e) => updateForm('concurrency', Math.max(1, parseInt(e.target.value, 10) || 1))}
-          style={{
-            width: '100px',
-            padding: '0.5rem 0.75rem',
-            border: '1px solid var(--dm-border-input)',
-            borderRadius: '0.375rem',
-            fontSize: '0.875rem',
-            color: 'var(--dm-text-primary)',
-            backgroundColor: 'var(--dm-bg-input)',
-          }}
+          className="w-24 h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
         />
-        <p style={{ fontSize: '0.75rem', color: 'var(--dm-text-tertiary)', marginTop: '0.25rem' }}>
+        <p className="text-xs text-muted-foreground mt-1">
           Max concurrent requests per replica.
         </p>
       </div>
 
-      <div style={{ marginBottom: '1.5rem' }}>
+      <div className="mb-5">
         <EnvVarsEditor
           envVars={form.envVars}
           onChange={(envVars) => updateForm('envVars', envVars)}
@@ -413,80 +392,77 @@ export const DeploymentWizard: React.FC = () => {
 
     return (
       <div>
-        <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--dm-text-primary)' }}>Deploy & Monitor</h3>
+        <h3 className="text-base font-semibold mb-4 text-foreground">Deploy & Monitor</h3>
 
         {/* Summary */}
-        <div style={{
-          padding: '1rem',
-          background: 'var(--dm-bg-secondary)',
-          borderRadius: '0.5rem',
-          fontSize: '0.875rem',
-          marginBottom: '1.5rem',
-          color: 'var(--dm-text-secondary)',
-        }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-            <div><strong style={{ color: 'var(--dm-text-primary)' }}>Template:</strong> {selectedTemplate?.name}</div>
-            <div><strong style={{ color: 'var(--dm-text-primary)' }}>Provider:</strong> {selectedProvider?.displayName}</div>
-            <div><strong style={{ color: 'var(--dm-text-primary)' }}>GPU:</strong> {form.gpuModel} x{form.gpuCount}</div>
-            <div><strong style={{ color: 'var(--dm-text-primary)' }}>Version:</strong> {isCustom ? 'latest' : (form.artifactVersion || 'latest')}</div>
-            {isSSH && <div><strong style={{ color: 'var(--dm-text-primary)' }}>Host:</strong> {form.sshHost}:{form.sshPort}</div>}
-            <div><strong style={{ color: 'var(--dm-text-primary)' }}>Concurrency:</strong> {form.concurrency}</div>
-            <div><strong style={{ color: 'var(--dm-text-primary)' }}>Env Vars:</strong> {Object.keys(form.envVars).length} configured</div>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <strong style={{ color: 'var(--dm-text-primary)' }}>Image:</strong> <code style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)' }}>{dockerImage}</code>
+        <div className="bg-secondary rounded-lg p-4 mb-6">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Template</span>
+              <span className="text-foreground font-medium">{selectedTemplate?.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Provider</span>
+              <span className="text-foreground font-medium">{selectedProvider?.displayName}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">GPU</span>
+              <span className="text-foreground font-medium">{form.gpuModel} x{form.gpuCount}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Version</span>
+              <span className="text-foreground font-medium">{isCustom ? 'latest' : (form.artifactVersion || 'latest')}</span>
+            </div>
+            {isSSH && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Host</span>
+                <span className="text-foreground font-medium">{form.sshHost}:{form.sshPort}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Concurrency</span>
+              <span className="text-foreground font-medium">{form.concurrency}</span>
+            </div>
+            <div className="col-span-2 pt-2 border-t border-border mt-1">
+              <span className="text-muted-foreground text-xs">Image</span>
+              <code className="block text-xs text-foreground font-mono mt-0.5 break-all">{dockerImage}</code>
             </div>
           </div>
         </div>
-
-        <CostPreview
-          providerSlug={form.providerSlug || null}
-          gpuModel={form.gpuModel || null}
-          gpuCount={form.gpuCount}
-        />
 
         {/* Deploy button or status */}
         {!hasDeployed ? (
           <button
             onClick={handleDeploy}
             disabled={deploying}
-            style={{
-              padding: '0.75rem 2rem',
-              background: deploying ? '#9ca3af' : '#22c55e',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '0.5rem',
-              cursor: deploying ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              fontWeight: 600,
-              fontSize: '1rem',
-            }}
+            className={`h-11 px-8 border-none rounded-md flex items-center gap-2 font-medium text-sm text-white ${
+              deploying ? 'bg-zinc-400 cursor-not-allowed' : 'bg-emerald-500 cursor-pointer hover:bg-emerald-600'
+            } transition-colors`}
           >
             {deploying ? (
-              <><RefreshCw size={18} style={{ animation: 'spin 1s linear infinite' }} /> Deploying...</>
+              <><RefreshCw size={16} className="dm-spin" /> Deploying...</>
             ) : (
-              <><Rocket size={18} /> Deploy Now</>
+              <><Rocket size={16} /> Deploy Now</>
             )}
           </button>
         ) : (
           <div>
             {/* Live status */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '1rem',
-              padding: '1rem',
-              background: deployStatus === 'ONLINE' ? '#f0fdf4' : deployStatus === 'FAILED' ? '#fef2f2' : '#f0f9ff',
-              borderRadius: '0.5rem',
-              marginBottom: '1.5rem',
-            }}>
+            <div className={`flex items-center gap-3 px-4 py-3 rounded-lg mb-5 border ${
+              deployStatus === 'ONLINE'
+                ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800'
+                : deployStatus === 'FAILED'
+                  ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800'
+                  : 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800'
+            }`}>
               <HealthIndicator
                 status={deployStatus === 'ONLINE' ? healthStatus : deployStatus === 'FAILED' ? 'RED' : 'UNKNOWN'}
-                size={20}
+                size={14}
               />
               <div>
-                <div style={{ fontWeight: 600, fontSize: '0.95rem', color: deployStatus === 'ONLINE' ? '#166534' : deployStatus === 'FAILED' ? '#dc2626' : '#1e40af' }}>
+                <div className={`font-medium text-sm ${
+                  deployStatus === 'ONLINE' ? 'text-emerald-700 dark:text-emerald-300' : deployStatus === 'FAILED' ? 'text-red-600 dark:text-red-400' : 'text-blue-700 dark:text-blue-300'
+                }`}>
                   {deployStatus === 'ONLINE' ? 'Deployment Online' :
                    deployStatus === 'FAILED' ? 'Deployment Failed' :
                    deployStatus === 'VALIDATING' ? 'Validating...' :
@@ -494,7 +470,7 @@ export const DeploymentWizard: React.FC = () => {
                    deployStatus}
                 </div>
                 {deployStatus === 'ONLINE' && (
-                  <div style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)' }}>
+                  <div className="text-xs text-muted-foreground mt-0.5">
                     Health: <HealthIndicator status={healthStatus} size={8} showLabel />
                   </div>
                 )}
@@ -502,14 +478,7 @@ export const DeploymentWizard: React.FC = () => {
             </div>
 
             {deployError && (
-              <div style={{
-                padding: '0.75rem',
-                background: '#fef2f2',
-                color: '#dc2626',
-                borderRadius: '0.375rem',
-                fontSize: '0.875rem',
-                marginBottom: '1rem',
-              }}>
+              <div className="px-4 py-3 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg text-sm mb-4">
                 {deployError}
               </div>
             )}
@@ -534,63 +503,25 @@ export const DeploymentWizard: React.FC = () => {
                   }
                 }}
                 disabled={deploying}
-                style={{
-                  padding: '0.5rem 1.5rem',
-                  background: 'var(--dm-accent-blue)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '0.375rem',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  marginBottom: '1.5rem',
-                }}
+                className="h-9 px-4 bg-foreground text-background border-none rounded-md cursor-pointer flex items-center gap-2 text-sm font-medium mb-5"
               >
-                <RefreshCw size={16} /> Retry
+                <RefreshCw size={14} /> Retry
               </button>
             )}
 
             {/* Action buttons */}
-            <div style={{
-              display: 'flex',
-              gap: '0.5rem',
-              flexWrap: 'wrap',
-              marginBottom: '1.5rem',
-            }}>
+            <div className="flex gap-2 flex-wrap mb-5">
               <button
                 onClick={() => navigate('/')}
-                style={{
-                  padding: '0.5rem 1rem',
-                  background: 'var(--dm-bg-primary)',
-                  color: 'var(--dm-text-secondary)',
-                  border: '1px solid var(--dm-border-input)',
-                  borderRadius: '0.375rem',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.35rem',
-                  fontSize: '0.8rem',
-                }}
+                className="h-8 px-3 bg-secondary text-secondary-foreground border border-border rounded-md cursor-pointer flex items-center gap-1.5 text-xs font-medium"
               >
-                <Home size={14} /> All Deployments
+                <Home size={12} /> All Deployments
               </button>
               <button
                 onClick={() => navigate(`/deployments/${deployedId}`)}
-                style={{
-                  padding: '0.5rem 1rem',
-                  background: 'var(--dm-bg-primary)',
-                  color: 'var(--dm-accent-blue-text)',
-                  border: '1px solid var(--dm-accent-blue)',
-                  borderRadius: '0.375rem',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.35rem',
-                  fontSize: '0.8rem',
-                }}
+                className="h-8 px-3 bg-secondary text-foreground border border-border rounded-md cursor-pointer flex items-center gap-1.5 text-xs font-medium"
               >
-                <ExternalLink size={14} /> View Detail
+                <ExternalLink size={12} /> View Detail
               </button>
               {!destroying && (
                 <button
@@ -603,25 +534,13 @@ export const DeploymentWizard: React.FC = () => {
                     } catch { /* ignore */ }
                     setDestroying(false);
                   }}
-                  style={{
-                    padding: '0.5rem 1rem',
-                    background: '#fef2f2',
-                    color: '#dc2626',
-                    border: '1px solid #fca5a5',
-                    borderRadius: '0.375rem',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.35rem',
-                    fontSize: '0.8rem',
-                  }}
+                  className="h-8 px-3 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-300 dark:border-red-800 rounded-md cursor-pointer flex items-center gap-1.5 text-xs font-medium"
                 >
-                  <Trash2 size={14} /> Destroy
+                  <Trash2 size={12} /> Destroy
                 </button>
               )}
             </div>
 
-            {/* Deployment Logs */}
             <DeploymentLogs deploymentId={deployedId} />
           </div>
         )}
@@ -630,50 +549,41 @@ export const DeploymentWizard: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '960px', margin: '0 auto' }}>
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-
-      <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '2rem', color: 'var(--dm-text-primary)' }}>New Deployment</h1>
+    <div className="px-6 py-5 max-w-[960px] mx-auto">
+      <h1 className="text-xl font-semibold mb-6 text-foreground tracking-tight">New Deployment</h1>
 
       {/* Step indicator */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem' }}>
+      <div className="flex mb-8">
         {STEPS.map((s, i) => (
           <div
             key={s}
-            style={{
-              flex: 1,
-              textAlign: 'center',
-              padding: '0.5rem',
-              borderBottom: i === step ? '3px solid var(--dm-accent-blue)' : '3px solid var(--dm-border)',
-              color: i === step ? 'var(--dm-accent-blue-text)' : i < step ? '#22c55e' : 'var(--dm-text-tertiary)',
-              fontSize: '0.85rem',
-              fontWeight: i === step ? 600 : 400,
-              cursor: i < step && !deployedId ? 'pointer' : 'default',
-            }}
+            className={`flex-1 flex items-center gap-2 pb-3 border-b-2 text-sm ${
+              i === step
+                ? 'border-foreground text-foreground font-medium'
+                : i < step
+                  ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
+                  : 'border-border text-muted-foreground'
+            } ${i < step && !deployedId ? 'cursor-pointer' : 'cursor-default'}`}
             onClick={() => i < step && !deployedId && setStep(i)}
           >
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '1.5rem',
-              height: '1.5rem',
-              borderRadius: '50%',
-              background: i < step ? '#22c55e' : i === step ? 'var(--dm-accent-blue)' : 'var(--dm-border)',
-              color: i <= step || i < step ? '#fff' : 'var(--dm-text-tertiary)',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              marginRight: '0.5rem',
-            }}>
-              {i + 1}
+            <span
+              className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold shrink-0 ${
+                i < step
+                  ? 'bg-emerald-500 text-white'
+                  : i === step
+                    ? 'bg-foreground text-background'
+                    : 'bg-muted text-muted-foreground'
+              }`}
+            >
+              {i < step ? <Check size={12} /> : i + 1}
             </span>
-            {s}
+            <span className="hidden sm:inline">{s}</span>
           </div>
         ))}
       </div>
 
       {/* Step content */}
-      <div style={{ minHeight: '350px', marginBottom: '2rem' }}>
+      <div className="min-h-[350px] mb-8">
         {step === 0 && renderStep0()}
         {isLivepeer && step === livepeerStep && (
           <LivepeerConfigForm
@@ -687,37 +597,22 @@ export const DeploymentWizard: React.FC = () => {
 
       {/* Navigation */}
       {!deployedId && (
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <div className="flex justify-between">
           <button
             onClick={() => setStep((s) => Math.max(0, s - 1))}
             disabled={step === 0}
-            style={{
-              padding: '0.5rem 1rem',
-              background: step === 0 ? 'var(--dm-bg-tertiary)' : 'var(--dm-bg-primary)',
-              color: 'var(--dm-text-secondary)',
-              border: '1px solid var(--dm-border-input)',
-              borderRadius: '0.375rem',
-              cursor: step === 0 ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              fontWeight: 500,
-              fontSize: '0.875rem',
-              opacity: step === 0 ? 0.4 : 1,
-            }}
+            className={`h-9 px-4 border border-border rounded-md flex items-center gap-2 font-medium text-sm text-muted-foreground ${
+              step === 0
+                ? 'bg-muted cursor-not-allowed opacity-40'
+                : 'bg-secondary cursor-pointer hover:bg-muted transition-colors'
+            }`}
           >
-            <ArrowLeft size={16} /> Back
+            <ArrowLeft size={14} /> Back
           </button>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div className="flex items-center gap-4">
             {step === 1 && form.providerSlug && !credentialsReady && (
-              <span style={{
-                fontSize: '0.75rem',
-                color: '#d97706',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.25rem',
-              }}>
+              <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
                 Configure credentials above to proceed
               </span>
             )}
@@ -725,21 +620,13 @@ export const DeploymentWizard: React.FC = () => {
               <button
                 onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
                 disabled={!canProceed()}
-                style={{
-                  padding: '0.5rem 1.5rem',
-                  background: canProceed() ? 'var(--dm-accent-blue)' : 'var(--dm-border-input)',
-                  color: canProceed() ? '#fff' : 'var(--dm-text-tertiary)',
-                  border: 'none',
-                  borderRadius: '0.375rem',
-                  cursor: canProceed() ? 'pointer' : 'not-allowed',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  fontWeight: 500,
-                  fontSize: '0.875rem',
-                }}
+                className={`h-9 px-5 border-none rounded-md flex items-center gap-2 font-medium text-sm ${
+                  canProceed()
+                    ? 'bg-foreground text-background cursor-pointer'
+                    : 'bg-muted text-muted-foreground cursor-not-allowed'
+                }`}
               >
-                Next <ArrowRight size={16} />
+                Next <ArrowRight size={14} />
               </button>
             )}
           </div>

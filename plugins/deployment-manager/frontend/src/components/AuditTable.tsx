@@ -33,42 +33,32 @@ export const AuditTable: React.FC<AuditTableProps> = ({ deploymentId, limit = 20
   }, [deploymentId, limit]);
 
   if (entries.length === 0) {
-    return <p style={{ color: 'var(--dm-text-tertiary)', fontSize: '0.875rem' }}>No audit entries</p>;
+    return <p className="text-muted-foreground/70 text-sm">No audit entries</p>;
   }
 
-  const cellStyle: React.CSSProperties = {
-    padding: '0.5rem 0.75rem',
-    fontSize: '0.8rem',
-    borderBottom: '1px solid var(--dm-bg-tertiary)',
-    color: 'var(--dm-text-secondary)',
-  };
-
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <table className="w-full border-collapse">
       <thead>
-        <tr style={{ borderBottom: '2px solid var(--dm-border)' }}>
-          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Action</th>
-          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Resource</th>
-          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Status</th>
-          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>User</th>
-          <th style={{ ...cellStyle, textAlign: 'left', fontWeight: 600, color: 'var(--dm-text-primary)' }}>Time</th>
+        <tr className="border-b-2 border-border">
+          <th className="px-3 py-2 text-[0.8rem] text-left font-semibold text-foreground border-b border-border/40">Action</th>
+          <th className="px-3 py-2 text-[0.8rem] text-left font-semibold text-foreground border-b border-border/40">Resource</th>
+          <th className="px-3 py-2 text-[0.8rem] text-left font-semibold text-foreground border-b border-border/40">Status</th>
+          <th className="px-3 py-2 text-[0.8rem] text-left font-semibold text-foreground border-b border-border/40">User</th>
+          <th className="px-3 py-2 text-[0.8rem] text-left font-semibold text-foreground border-b border-border/40">Time</th>
         </tr>
       </thead>
       <tbody>
         {entries.map((e) => (
           <tr key={e.id}>
-            <td style={cellStyle}>{e.action}</td>
-            <td style={cellStyle}>{e.resource}</td>
-            <td style={cellStyle}>
-              <span style={{
-                color: e.status === 'success' ? '#16a34a' : '#dc2626',
-                fontWeight: 500,
-              }}>
+            <td className="px-3 py-2 text-[0.8rem] text-muted-foreground border-b border-border/40">{e.action}</td>
+            <td className="px-3 py-2 text-[0.8rem] text-muted-foreground border-b border-border/40">{e.resource}</td>
+            <td className="px-3 py-2 text-[0.8rem] border-b border-border/40">
+              <span className={`font-medium ${e.status === 'success' ? 'text-green-600' : 'text-red-600'}`}>
                 {e.status}
               </span>
             </td>
-            <td style={{ ...cellStyle, fontFamily: 'monospace' }}>{e.userId.slice(0, 8)}</td>
-            <td style={{ ...cellStyle, color: 'var(--dm-text-tertiary)' }}>{new Date(e.createdAt).toLocaleString()}</td>
+            <td className="px-3 py-2 text-[0.8rem] text-muted-foreground font-mono border-b border-border/40">{e.userId.slice(0, 8)}</td>
+            <td className="px-3 py-2 text-[0.8rem] text-muted-foreground/70 border-b border-border/40">{new Date(e.createdAt).toLocaleString()}</td>
           </tr>
         ))}
       </tbody>

@@ -55,26 +55,24 @@ export const UsageTab: React.FC<UsageTabProps> = ({ deploymentId }) => {
   return (
     <div>
       {/* Header with range toggle */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <BarChart3 size={16} />
-          <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Request Usage</span>
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex items-center gap-2">
+          <BarChart3 size={14} className="text-muted-foreground" />
+          <span className="font-medium text-sm text-foreground">Request Usage</span>
         </div>
-        <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-          <button onClick={fetchUsage} style={{ padding: '0.25rem', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dm-text-secondary)' }} title="Refresh">
-            <RefreshCw size={14} />
+        <div className="flex gap-1 items-center">
+          <button onClick={fetchUsage} className="h-7 w-7 flex items-center justify-center bg-transparent border-none cursor-pointer text-muted-foreground hover:text-foreground" title="Refresh">
+            <RefreshCw size={13} />
           </button>
           {(['hour', 'day'] as const).map((r) => (
             <button
               key={r}
               onClick={() => setRange(r)}
-              style={{
-                padding: '0.25rem 0.6rem', borderRadius: '0.25rem', fontSize: '0.75rem',
-                cursor: 'pointer',
-                border: range === r ? '1px solid var(--dm-accent-blue)' : '1px solid var(--dm-border)',
-                background: range === r ? 'var(--dm-accent-blue)' : 'var(--dm-bg-secondary)',
-                color: range === r ? '#fff' : 'var(--dm-text-secondary)',
-              }}
+              className={`h-7 px-2.5 rounded-md text-xs cursor-pointer transition-all ${
+                range === r
+                  ? 'bg-foreground text-background font-medium'
+                  : 'bg-secondary text-muted-foreground hover:text-foreground'
+              }`}
             >
               Past {r === 'hour' ? 'Hour' : 'Day'}
             </button>
@@ -83,42 +81,38 @@ export const UsageTab: React.FC<UsageTabProps> = ({ deploymentId }) => {
       </div>
 
       {/* Summary counters */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '1.25rem' }}>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         {[
-          { label: 'Total Requests', value: stats?.totalRequests ?? 0, color: 'var(--dm-text-primary)' },
+          { label: 'Total Requests', value: stats?.totalRequests ?? 0, color: undefined },
           { label: 'Completed', value: stats?.totalCompleted ?? 0, color: '#22c55e' },
           { label: 'Failed', value: stats?.totalFailed ?? 0, color: '#ef4444' },
-          { label: 'Avg Response', value: `${stats?.avgResponseTimeMs ?? 0}ms`, color: 'var(--dm-text-primary)' },
+          { label: 'Avg Response', value: `${stats?.avgResponseTimeMs ?? 0}ms`, color: undefined },
         ].map((item) => (
-          <div key={item.label} style={{
-            padding: '0.75rem', background: 'var(--dm-bg-secondary)',
-            borderRadius: '0.375rem', textAlign: 'center',
-          }}>
-            <div style={{ fontSize: '0.7rem', color: 'var(--dm-text-tertiary)', marginBottom: '0.25rem' }}>{item.label}</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: item.color }}>{item.value}</div>
+          <div key={item.label} className="p-3 bg-secondary rounded-md text-center">
+            <div className="text-xs text-muted-foreground mb-1">{item.label}</div>
+            <div className={`text-lg font-semibold ${item.color ? '' : 'text-foreground'}`} style={item.color ? { color: item.color } : undefined}>
+              {item.value}
+            </div>
           </div>
         ))}
       </div>
 
       {/* SVG Chart */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--dm-text-tertiary)' }}>Loading...</div>
+        <div className="text-center p-8 text-muted-foreground text-sm">Loading...</div>
       ) : !stats || stats.totalRequests === 0 ? (
-        <div style={{
-          textAlign: 'center', padding: '3rem', color: 'var(--dm-text-tertiary)',
-          border: '1px dashed var(--dm-border)', borderRadius: '0.5rem',
-        }}>
-          <BarChart3 size={32} style={{ opacity: 0.3, marginBottom: '0.5rem' }} />
-          <p style={{ margin: 0, fontSize: '0.875rem' }}>No requests recorded yet</p>
-          <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem' }}>Send a request from the Request tab to see usage data here</p>
+        <div className="text-center p-12 text-muted-foreground border border-dashed border-border rounded-lg">
+          <BarChart3 size={28} className="opacity-20 mb-2 mx-auto" />
+          <p className="m-0 text-sm">No requests recorded yet</p>
+          <p className="mt-1 mb-0 text-xs">Send a request from the Request tab to see usage data here</p>
         </div>
       ) : (
-        <div data-testid="usage-chart" style={{ background: 'var(--dm-bg-secondary)', borderRadius: '0.5rem', padding: '1rem' }}>
-          <svg width="100%" viewBox={`0 0 ${stats.buckets.length * 20 + 40} 160`} style={{ overflow: 'visible' }}>
+        <div data-testid="usage-chart" className="bg-secondary rounded-lg p-4">
+          <svg width="100%" viewBox={`0 0 ${stats.buckets.length * 20 + 40} 160`} className="overflow-visible">
             {/* Y-axis labels */}
-            <text x="0" y="15" fontSize="9" fill="#9ca3af">{maxBucketTotal}</text>
-            <text x="0" y="80" fontSize="9" fill="#9ca3af">{Math.round(maxBucketTotal / 2)}</text>
-            <text x="0" y="145" fontSize="9" fill="#9ca3af">0</text>
+            <text x="0" y="15" fontSize="9" fill="#a1a1aa">{maxBucketTotal}</text>
+            <text x="0" y="80" fontSize="9" fill="#a1a1aa">{Math.round(maxBucketTotal / 2)}</text>
+            <text x="0" y="145" fontSize="9" fill="#a1a1aa">0</text>
 
             {/* Bars */}
             {stats.buckets.map((bucket, i) => {
@@ -157,25 +151,25 @@ export const UsageTab: React.FC<UsageTabProps> = ({ deploymentId }) => {
             })}
 
             {/* Baseline */}
-            <line x1="30" y1="140" x2={35 + stats.buckets.length * 20} y2="140" stroke="#374151" strokeWidth="1" />
+            <line x1="30" y1="140" x2={35 + stats.buckets.length * 20} y2="140" stroke="#71717a" strokeWidth="1" />
           </svg>
 
           {/* Legend */}
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '0.5rem', fontSize: '0.7rem' }}>
+          <div className="flex gap-4 justify-center mt-2 text-xs">
             {[
               { color: '#22c55e', label: 'Completed' },
               { color: '#eab308', label: 'Retried' },
               { color: '#ef4444', label: 'Failed' },
             ].map((item) => (
-              <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--dm-text-secondary)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: item.color, display: 'inline-block' }} />
+              <div key={item.label} className="flex items-center gap-1 text-muted-foreground">
+                <span className="w-2 h-2 rounded-sm inline-block" style={{ background: item.color }} />
                 {item.label}
               </div>
             ))}
           </div>
 
           {successRate > 0 && (
-            <div style={{ textAlign: 'center', marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--dm-text-tertiary)' }}>
+            <div className="text-center mt-2 text-xs text-muted-foreground">
               Success rate: {successRate}%
             </div>
           )}

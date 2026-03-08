@@ -18,43 +18,32 @@ export const GpuConfigForm: React.FC<GpuConfigFormProps> = ({
 }) => {
   return (
     <div>
-      <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--dm-text-primary)' }}>GPU Configuration</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+      <h3 className="text-sm font-medium mb-3 text-foreground">GPU Configuration</h3>
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
         {gpuOptions.filter((g) => g.available).map((gpu) => (
           <button
             key={gpu.id}
             onClick={() => onSelectGpu(gpu.id)}
-            style={{
-              padding: '1rem',
-              border: selectedGpu === gpu.id ? '2px solid var(--dm-accent-blue)' : '1px solid var(--dm-border)',
-              borderRadius: '0.5rem',
-              background: selectedGpu === gpu.id ? 'var(--dm-bg-selected)' : 'var(--dm-bg-primary)',
-              color: 'var(--dm-text-primary)',
-              cursor: 'pointer',
-              textAlign: 'left',
-            }}
+            className={`p-4 rounded-lg text-foreground cursor-pointer text-left transition-all ${
+              selectedGpu === gpu.id
+                ? 'border-2 border-foreground bg-secondary'
+                : 'border border-border bg-card hover:border-muted-foreground/30'
+            }`}
           >
-            <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--dm-text-primary)' }}>{gpu.name}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--dm-text-secondary)', marginTop: '0.25rem' }}>
+            <div className="font-medium text-sm text-foreground">{gpu.name}</div>
+            <div className="text-xs text-muted-foreground mt-1">
               {gpu.vramGb}GB VRAM
-              {gpu.pricePerHour != null && ` · $${gpu.pricePerHour.toFixed(2)}/hr`}
+              {gpu.pricePerHour != null && ` \u00b7 $${gpu.pricePerHour.toFixed(2)}/hr`}
             </div>
           </button>
         ))}
       </div>
-      <div style={{ marginTop: '1rem' }}>
-        <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--dm-text-secondary)' }}>GPU Count</label>
+      <div className="mt-4 flex items-center gap-3">
+        <label className="text-xs font-medium text-muted-foreground">GPU Count</label>
         <select
           value={gpuCount}
           onChange={(e) => onGpuCountChange(parseInt(e.target.value, 10))}
-          style={{
-            marginLeft: '0.75rem',
-            padding: '0.375rem 0.75rem',
-            border: '1px solid var(--dm-border-input)',
-            borderRadius: '0.375rem',
-            color: 'var(--dm-text-primary)',
-            backgroundColor: 'var(--dm-bg-input)',
-          }}
+          className="h-8 px-3 border border-border rounded-md text-sm text-foreground bg-background"
         >
           {[1, 2, 4, 8].map((n) => (
             <option key={n} value={n}>{n}</option>

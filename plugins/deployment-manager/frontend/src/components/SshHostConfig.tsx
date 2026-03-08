@@ -17,68 +17,50 @@ export const SshHostConfig: React.FC<SshHostConfigProps> = ({
   onTestConnection,
   testResult,
 }) => {
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '0.5rem 0.75rem',
-    border: '1px solid var(--dm-border-input)',
-    borderRadius: '0.375rem',
-    fontSize: '0.875rem',
-    color: 'var(--dm-text-primary)',
-    backgroundColor: 'var(--dm-bg-input)',
-  };
-
   return (
     <div>
-      <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--dm-text-primary)' }}>SSH Host Configuration</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+      <h3 className="text-sm font-medium mb-3 text-foreground">SSH Host Configuration</h3>
+      <div className="grid grid-cols-[2fr_1fr] gap-4 mb-4">
         <div>
-          <label style={{ fontSize: '0.8rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem', color: 'var(--dm-text-secondary)' }}>Host</label>
+          <label className="text-xs font-medium block mb-1.5 text-muted-foreground">Host</label>
           <input
             type="text"
             value={host}
             onChange={(e) => onChange('sshHost', e.target.value)}
             placeholder="10.0.1.5 or gpu-server.example.com"
-            style={inputStyle}
+            className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
           />
         </div>
         <div>
-          <label style={{ fontSize: '0.8rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem', color: 'var(--dm-text-secondary)' }}>Port</label>
+          <label className="text-xs font-medium block mb-1.5 text-muted-foreground">Port</label>
           <input
             type="number"
             value={port}
             onChange={(e) => onChange('sshPort', parseInt(e.target.value, 10))}
-            style={inputStyle}
+            className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
           />
         </div>
       </div>
-      <div style={{ marginBottom: '1rem' }}>
-        <label style={{ fontSize: '0.8rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem', color: 'var(--dm-text-secondary)' }}>Username</label>
+      <div className="mb-4">
+        <label className="text-xs font-medium block mb-1.5 text-muted-foreground">Username</label>
         <input
           type="text"
           value={username}
           onChange={(e) => onChange('sshUsername', e.target.value)}
           placeholder="deploy"
-          style={{ ...inputStyle, maxWidth: '300px' }}
+          className="w-full max-w-xs h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
         />
       </div>
       {onTestConnection && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div className="flex items-center gap-3">
           <button
             onClick={onTestConnection}
-            style={{
-              padding: '0.5rem 1rem',
-              background: 'var(--dm-accent-blue)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              fontSize: '0.875rem',
-            }}
+            className="h-9 px-4 bg-foreground text-background border-none rounded-md cursor-pointer text-sm font-medium"
           >
             Test Connection
           </button>
           {testResult && (
-            <span style={{ fontSize: '0.8rem', color: testResult.success ? '#16a34a' : '#dc2626' }}>
+            <span className={`text-sm ${testResult.success ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>
               {testResult.message}
             </span>
           )}

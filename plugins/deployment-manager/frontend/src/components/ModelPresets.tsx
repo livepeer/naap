@@ -7,10 +7,9 @@ export interface ModelPreset {
   modelId: string;
   category: string;
   description: string;
-  dockerImage?: string; // For self-hosted topologies
+  dockerImage?: string;
 }
 
-// Popular models per provider
 const MODEL_PRESETS: ModelPreset[] = [
   // --- fal.ai ---
   { id: 'fal-flux-dev', name: 'FLUX.1 Dev', provider: 'fal-ai', modelId: 'fal-ai/flux/dev', category: 'Image Generation', description: 'High-quality text-to-image, 12B params' },
@@ -27,7 +26,6 @@ const MODEL_PRESETS: ModelPreset[] = [
   { id: 'fal-kling', name: 'Kling Video', provider: 'fal-ai', modelId: 'fal-ai/kling-video/v1/standard/text-to-video', category: 'Video', description: 'High-quality text-to-video' },
   { id: 'fal-sam2', name: 'SAM 2', provider: 'fal-ai', modelId: 'fal-ai/sam2', category: 'Vision', description: 'Segment Anything Model 2' },
   { id: 'fal-florence2', name: 'Florence 2', provider: 'fal-ai', modelId: 'fal-ai/florence-2-large', category: 'Vision', description: 'Image captioning and understanding' },
-
   // --- Replicate ---
   { id: 'rep-flux-dev', name: 'FLUX.1 Dev', provider: 'replicate', modelId: 'black-forest-labs/flux-dev', category: 'Image Generation', description: 'High-quality text-to-image, 12B params' },
   { id: 'rep-flux-schnell', name: 'FLUX.1 Schnell', provider: 'replicate', modelId: 'black-forest-labs/flux-schnell', category: 'Image Generation', description: 'Fast text-to-image' },
@@ -41,7 +39,6 @@ const MODEL_PRESETS: ModelPreset[] = [
   { id: 'rep-video-crafter', name: 'Stable Video Diffusion', provider: 'replicate', modelId: 'stability-ai/stable-video-diffusion', category: 'Video', description: 'Image-to-video generation' },
   { id: 'rep-codegeex', name: 'CodeGeeX4', provider: 'replicate', modelId: 'thudm/codegeex4-all-9b', category: 'Code', description: 'Code generation model' },
   { id: 'rep-esrgan', name: 'Real-ESRGAN', provider: 'replicate', modelId: 'nightmareai/real-esrgan', category: 'Image Enhancement', description: 'Image upscaling 4x' },
-
   // --- RunPod Serverless ---
   { id: 'rp-vllm-llama-3-1-70b', name: 'Llama 3.1 70B (vLLM)', provider: 'runpod', modelId: 'meta-llama/Llama-3.1-70B-Instruct', category: 'LLM', description: 'vLLM-served Llama 3.1 on RunPod' },
   { id: 'rp-vllm-llama-3-1-8b', name: 'Llama 3.1 8B (vLLM)', provider: 'runpod', modelId: 'meta-llama/Llama-3.1-8B-Instruct', category: 'LLM', description: 'Fast vLLM Llama 3.1 8B' },
@@ -49,8 +46,7 @@ const MODEL_PRESETS: ModelPreset[] = [
   { id: 'rp-sdxl', name: 'Stable Diffusion XL', provider: 'runpod', modelId: 'stabilityai/stable-diffusion-xl-base-1.0', category: 'Image Generation', description: 'SDXL on RunPod serverless' },
   { id: 'rp-whisper', name: 'Whisper Large V3', provider: 'runpod', modelId: 'openai/whisper-large-v3', category: 'Audio', description: 'Speech-to-text on RunPod' },
   { id: 'rp-embeddings', name: 'BGE Large Embeddings', provider: 'runpod', modelId: 'BAAI/bge-large-en-v1.5', category: 'Embeddings', description: 'Text embeddings model' },
-
-  // --- Self-hosted (Docker images for all-in-one / all-on-provider) ---
+  // --- Self-hosted ---
   { id: 'self-tgi-llama-3-1-70b', name: 'Llama 3.1 70B (TGI)', provider: 'self-hosted', modelId: 'meta-llama/Llama-3.1-70B-Instruct', category: 'LLM', description: 'HuggingFace TGI, needs 80GB VRAM', dockerImage: 'ghcr.io/huggingface/text-generation-inference:latest' },
   { id: 'self-tgi-llama-3-1-8b', name: 'Llama 3.1 8B (TGI)', provider: 'self-hosted', modelId: 'meta-llama/Llama-3.1-8B-Instruct', category: 'LLM', description: 'HuggingFace TGI, needs 24GB VRAM', dockerImage: 'ghcr.io/huggingface/text-generation-inference:latest' },
   { id: 'self-tgi-mistral-7b', name: 'Mistral 7B (TGI)', provider: 'self-hosted', modelId: 'mistralai/Mistral-7B-Instruct-v0.3', category: 'LLM', description: 'HuggingFace TGI, needs 16GB VRAM', dockerImage: 'ghcr.io/huggingface/text-generation-inference:latest' },
@@ -93,7 +89,6 @@ export const ModelPresetPicker: React.FC<ModelPresetPickerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Sync external value into the input when user hasn't typed
   useEffect(() => {
     if (!open) {
       const preset = presets.find((p) => p.modelId === value);
@@ -101,7 +96,6 @@ export const ModelPresetPicker: React.FC<ModelPresetPickerProps> = ({
     }
   }, [value, presets, open]);
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -124,7 +118,6 @@ export const ModelPresetPicker: React.FC<ModelPresetPickerProps> = ({
     );
   }, [query, presets]);
 
-  // Group by category
   const grouped = useMemo(() => {
     const groups: Record<string, ModelPreset[]> = {};
     for (const p of filtered) {
@@ -134,7 +127,6 @@ export const ModelPresetPicker: React.FC<ModelPresetPickerProps> = ({
     return groups;
   }, [filtered]);
 
-  // Flat list for keyboard navigation
   const flatList = useMemo(() => {
     const items: ModelPreset[] = [];
     for (const cat of Object.keys(grouped)) {
@@ -143,7 +135,6 @@ export const ModelPresetPicker: React.FC<ModelPresetPickerProps> = ({
     return items;
   }, [grouped]);
 
-  // Scroll highlighted item into view
   useEffect(() => {
     if (highlightIdx >= 0 && listRef.current) {
       const el = listRef.current.querySelector(`[data-idx="${highlightIdx}"]`);
@@ -171,21 +162,10 @@ export const ModelPresetPicker: React.FC<ModelPresetPickerProps> = ({
     }
   };
 
-  const itemStyle = (isHighlighted: boolean): React.CSSProperties => ({
-    padding: '0.5rem 0.75rem',
-    cursor: 'pointer',
-    background: isHighlighted ? 'var(--dm-bg-selected, #e0e7ff)' : 'transparent',
-    borderRadius: '0.25rem',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '0.5rem',
-  });
-
   let flatIdx = -1;
 
   return (
-    <div ref={containerRef} style={{ position: 'relative' }}>
+    <div ref={containerRef} className="relative">
       <input
         type="text"
         value={query}
@@ -196,7 +176,6 @@ export const ModelPresetPicker: React.FC<ModelPresetPickerProps> = ({
         }}
         onFocus={() => setOpen(true)}
         onBlur={() => {
-          // If user typed a custom value not matching any preset, emit it
           const matchedPreset = presets.find((p) => p.name === query || p.modelId === query);
           if (!matchedPreset && query.trim() && query !== value && onCustomValue) {
             onCustomValue(query.trim());
@@ -205,50 +184,18 @@ export const ModelPresetPicker: React.FC<ModelPresetPickerProps> = ({
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         data-testid="model-preset-search"
-        style={{
-          width: '100%',
-          padding: '0.5rem 0.75rem',
-          border: '1px solid var(--dm-border-input)',
-          borderRadius: '0.375rem',
-          fontSize: '0.875rem',
-          color: 'var(--dm-text-primary)',
-          backgroundColor: 'var(--dm-bg-input)',
-          boxSizing: 'border-box',
-        }}
+        className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background box-border"
       />
 
       {open && filtered.length > 0 && (
         <div
           ref={listRef}
           data-testid="model-preset-dropdown"
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            maxHeight: '320px',
-            overflowY: 'auto',
-            background: 'var(--dm-bg-primary, #fff)',
-            border: '1px solid var(--dm-border, #e5e7eb)',
-            borderRadius: '0.5rem',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            zIndex: 50,
-            marginTop: '0.25rem',
-            padding: '0.25rem',
-          }}
+          className="absolute top-full left-0 right-0 max-h-[320px] overflow-y-auto bg-card border border-border rounded-lg shadow-lg z-50 mt-1 p-1"
         >
           {Object.entries(grouped).map(([category, items]) => (
             <div key={category}>
-              <div
-                style={{
-                  padding: '0.35rem 0.75rem',
-                  fontSize: '0.65rem',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  color: 'var(--dm-text-tertiary, #9ca3af)',
-                }}
-              >
+              <div className="px-3 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {category}
               </div>
               {items.map((preset) => {
@@ -264,17 +211,19 @@ export const ModelPresetPicker: React.FC<ModelPresetPickerProps> = ({
                       setOpen(false);
                     }}
                     onMouseEnter={() => setHighlightIdx(idx)}
-                    style={itemStyle(highlightIdx === idx)}
+                    className={`px-3 py-2 cursor-pointer rounded-md flex justify-between items-center gap-2 transition-colors ${
+                      highlightIdx === idx ? 'bg-muted' : 'bg-transparent hover:bg-muted/50'
+                    }`}
                   >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 500, fontSize: '0.85rem', color: 'var(--dm-text-primary)' }}>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-foreground">
                         {preset.name}
                       </div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--dm-text-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div className="text-xs text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis">
                         {preset.modelId}
                       </div>
                     </div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--dm-text-secondary)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                    <div className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
                       {preset.description}
                     </div>
                   </div>
@@ -286,24 +235,8 @@ export const ModelPresetPicker: React.FC<ModelPresetPickerProps> = ({
       )}
 
       {open && filtered.length === 0 && query.trim() && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            background: 'var(--dm-bg-primary, #fff)',
-            border: '1px solid var(--dm-border, #e5e7eb)',
-            borderRadius: '0.5rem',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            zIndex: 50,
-            marginTop: '0.25rem',
-            padding: '0.75rem',
-            fontSize: '0.8rem',
-            color: 'var(--dm-text-secondary)',
-          }}
-        >
-          No presets match. Using custom model ID: <strong>{query}</strong>
+        <div className="absolute top-full left-0 right-0 bg-card border border-border rounded-lg shadow-lg z-50 mt-1 p-3 text-sm text-muted-foreground">
+          No presets match. Using custom model ID: <strong className="text-foreground">{query}</strong>
         </div>
       )}
     </div>

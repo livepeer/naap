@@ -6,13 +6,13 @@ import { HealthIndicator } from '../components/HealthIndicator';
 import { VersionBadge } from '../components/VersionBadge';
 
 const STATUS_COLORS: Record<string, string> = {
-  PENDING: '#9ca3af',
-  DEPLOYING: '#3b82f6',
-  VALIDATING: '#8b5cf6',
-  ONLINE: '#22c55e',
-  UPDATING: '#3b82f6',
-  FAILED: '#ef4444',
-  DESTROYED: '#6b7280',
+  PENDING: 'bg-zinc-400',
+  DEPLOYING: 'bg-blue-500',
+  VALIDATING: 'bg-violet-500',
+  ONLINE: 'bg-emerald-500',
+  UPDATING: 'bg-blue-500',
+  FAILED: 'bg-red-500',
+  DESTROYED: 'bg-zinc-500',
 };
 
 const STATUS_FILTERS = [
@@ -45,57 +45,39 @@ export const DeploymentList: React.FC = () => {
   }, [deployments]);
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <Rocket size={28} />
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 600, margin: 0, color: 'var(--dm-text-primary)' }}>Deployments</h1>
+    <div className="font-sans px-6 py-5 max-w-[1200px] mx-auto">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
+        <div className="flex items-center gap-3">
+          <Rocket size={20} className="text-foreground" />
+          <h1 className="text-xl font-semibold text-foreground m-0 tracking-tight">
+            Deployments
+          </h1>
           {deployments.length > 0 && (
-            <span style={{ fontSize: '0.8rem', color: 'var(--dm-text-tertiary)', marginLeft: '0.25rem' }}>
-              ({filtered.length}{statusFilter !== 'ALL' ? ` of ${deployments.length}` : ''})
+            <span className="text-xs text-muted-foreground">
+              {filtered.length}{statusFilter !== 'ALL' ? ` of ${deployments.length}` : ''}
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div className="flex gap-2">
           <button
             onClick={refresh}
-            style={{
-              padding: '0.5rem 1rem',
-              background: 'var(--dm-bg-tertiary)',
-              color: 'var(--dm-text-secondary)',
-              border: '1px solid var(--dm-border)',
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              fontSize: '0.875rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-            }}
+            className="h-9 px-3 bg-secondary text-secondary-foreground border border-border rounded-md text-sm font-medium flex items-center gap-1.5 cursor-pointer hover:bg-muted transition-colors"
           >
             <RefreshCw size={14} /> Refresh
           </button>
           <button
             onClick={() => navigate('/new')}
-            style={{
-              padding: '0.5rem 1rem',
-              background: 'var(--dm-accent-blue)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              fontSize: '0.875rem',
-            }}
+            className="h-9 px-4 bg-foreground text-background border-none rounded-md text-sm font-medium flex items-center gap-1.5 cursor-pointer hover:opacity-90 transition-opacity"
           >
-            <Plus size={16} /> New Deployment
+            <Plus size={14} /> New Deployment
           </button>
         </div>
       </div>
 
+      {/* Status filters */}
       {deployments.length > 0 && (
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+        <div className="flex gap-1.5 mb-5 flex-wrap">
           {STATUS_FILTERS.map((f) => {
             const isActive = statusFilter === f.value;
             const matchStatuses = f.statuses || (f.value === 'ALL' ? undefined : [f.value]);
@@ -107,137 +89,90 @@ export const DeploymentList: React.FC = () => {
               <button
                 key={f.value}
                 onClick={() => setStatusFilter(f.value)}
-                style={{
-                  padding: '0.3rem 0.75rem',
-                  borderRadius: '1rem',
-                  fontSize: '0.78rem',
-                  fontWeight: isActive ? 600 : 400,
-                  cursor: 'pointer',
-                  border: isActive ? '1.5px solid var(--dm-accent-blue)' : '1px solid var(--dm-border)',
-                  background: isActive ? 'var(--dm-accent-blue)' : 'var(--dm-bg-secondary)',
-                  color: isActive ? '#fff' : 'var(--dm-text-secondary)',
-                  transition: 'all 0.15s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.35rem',
-                }}
+                className={`h-7 px-3 rounded-full text-xs font-medium cursor-pointer transition-all flex items-center gap-1.5 ${
+                  isActive
+                    ? 'bg-foreground text-background border-[1.5px] border-foreground'
+                    : 'bg-transparent text-muted-foreground border border-border hover:bg-muted/60'
+                }`}
               >
-                {f.value !== 'ALL' && f.value !== 'ACTIVE' && f.value !== 'DEPLOYING' && (
-                  <span style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: STATUS_COLORS[f.value] || '#9ca3af',
-                    display: 'inline-block',
-                  }} />
-                )}
                 {f.label}
-                <span style={{
-                  fontSize: '0.7rem',
-                  opacity: 0.75,
-                  marginLeft: '0.1rem',
-                }}>
-                  {count}
-                </span>
+                <span className="opacity-60 text-[11px]">{count}</span>
               </button>
             );
           })}
         </div>
       )}
 
-      {loading && <p style={{ color: 'var(--dm-text-secondary)' }}>Loading deployments...</p>}
-      {error && <p style={{ color: '#ef4444' }}>Error: {error}</p>}
+      {/* Loading / Error */}
+      {loading && <p className="text-muted-foreground text-sm">Loading deployments...</p>}
+      {error && <p className="text-red-500 text-sm">Error: {error}</p>}
 
+      {/* Empty state */}
       {!loading && deployments.length === 0 && (
-        <div style={{
-          padding: '4rem',
-          border: '1px dashed var(--dm-border-input)',
-          borderRadius: '0.75rem',
-          textAlign: 'center',
-          color: 'var(--dm-text-tertiary)',
-        }}>
-          <Rocket size={48} style={{ marginBottom: '1rem', opacity: 0.3 }} />
-          <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>No deployments yet</p>
-          <p style={{ fontSize: '0.875rem' }}>Choose a template and deploy to a GPU provider to get started.</p>
+        <div className="py-20 border border-dashed border-border rounded-lg text-center">
+          <Rocket size={36} className="text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-foreground font-medium text-sm mb-1">No deployments yet</p>
+          <p className="text-muted-foreground text-xs">Choose a template and deploy to a GPU provider to get started.</p>
         </div>
       )}
 
+      {/* Filter empty */}
       {!loading && deployments.length > 0 && filtered.length === 0 && (
-        <div style={{
-          padding: '3rem',
-          border: '1px dashed var(--dm-border-input)',
-          borderRadius: '0.75rem',
-          textAlign: 'center',
-          color: 'var(--dm-text-tertiary)',
-        }}>
-          <Filter size={32} style={{ marginBottom: '0.75rem', opacity: 0.3 }} />
-          <p style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>No {statusFilter.toLowerCase()} deployments</p>
-          <p style={{ fontSize: '0.8rem' }}>
-            <button onClick={() => setStatusFilter('ALL')} style={{
-              background: 'none', border: 'none', color: 'var(--dm-accent-blue)',
-              cursor: 'pointer', textDecoration: 'underline', fontSize: '0.8rem',
-            }}>Show all deployments</button>
-          </p>
+        <div className="py-16 border border-dashed border-border rounded-lg text-center">
+          <Filter size={24} className="text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-foreground text-sm mb-1">No {statusFilter.toLowerCase()} deployments</p>
+          <button
+            onClick={() => setStatusFilter('ALL')}
+            className="bg-transparent border-none text-dm-blue cursor-pointer text-xs hover:underline"
+          >Show all deployments</button>
         </div>
       )}
 
+      {/* Deployment list */}
       {filtered.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
           {filtered.map((d) => (
             <div
               key={d.id}
               onClick={() => navigate(`/${d.id}`)}
-              style={{
-                padding: '1.25rem',
-                border: '1px solid var(--dm-border)',
-                borderRadius: '0.75rem',
-                background: 'var(--dm-bg-primary)',
-                cursor: 'pointer',
-                transition: 'box-shadow 0.15s',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)')}
-              onMouseLeave={(e) => (e.currentTarget.style.boxShadow = 'none')}
+              className="flex justify-between items-center px-4 py-3 bg-card cursor-pointer hover:bg-muted/50 transition-colors"
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <HealthIndicator status={d.healthStatus} size={14} />
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--dm-text-primary)' }}>{d.name}</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.25rem' }}>
-                      <span style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <Server size={12} /> {d.providerSlug}
-                      </span>
-                      <span style={{ fontSize: '0.8rem', color: 'var(--dm-text-secondary)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <Cpu size={12} /> {d.gpuModel} ({d.gpuVramGb}GB)
-                      </span>
-                    </div>
+              <div className="flex items-center gap-3 min-w-0">
+                <HealthIndicator status={d.healthStatus} size={8} />
+                <div className="min-w-0">
+                  <div className="font-medium text-sm text-foreground truncate">
+                    {d.name}
+                  </div>
+                  <div className="flex items-center gap-1 mt-0.5 text-xs text-muted-foreground">
+                    <Server size={11} className="shrink-0" />
+                    <span>{d.providerSlug}</span>
+                    <span className="mx-1 opacity-40">&middot;</span>
+                    <Cpu size={11} className="shrink-0" />
+                    <span>{d.gpuModel} {d.gpuVramGb}GB</span>
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <VersionBadge
-                    currentVersion={d.artifactVersion}
-                    latestVersion={d.latestAvailableVersion}
-                    hasUpdate={d.hasUpdate}
-                  />
-                  <span style={{
-                    padding: '0.2rem 0.6rem',
-                    borderRadius: '1rem',
-                    fontSize: '0.7rem',
-                    fontWeight: 600,
-                    color: '#fff',
-                    background: STATUS_COLORS[d.status] || '#9ca3af',
-                  }}>
-                    {d.status}
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <VersionBadge
+                  currentVersion={d.artifactVersion}
+                  latestVersion={d.latestAvailableVersion}
+                  hasUpdate={d.hasUpdate}
+                />
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-semibold text-white leading-none ${STATUS_COLORS[d.status] || 'bg-zinc-400'}`}
+                >
+                  {d.status}
+                </span>
+                {d.status === 'FAILED' && (
+                  <span className="flex items-center gap-1 text-[11px] text-red-500 font-medium">
+                    <AlertTriangle size={11} /> Action needed
                   </span>
-                  {d.status === 'FAILED' && (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.65rem', color: '#dc2626' }}>
-                      <AlertTriangle size={11} /> Action required
-                    </span>
-                  )}
-                  {d.status === 'DESTROYED' && (
-                    (d as any).providerConfig?.cleanupPending
-                      ? <AlertTriangle size={12} color="#d97706" title="Remote cleanup incomplete" />
-                      : <CheckCircle size={12} color="#16a34a" title="Cleanly removed" />
-                  )}
-                </div>
+                )}
+                {d.status === 'DESTROYED' && (
+                  (d as any).providerConfig?.cleanupPending
+                    ? <span title="Remote cleanup incomplete"><AlertTriangle size={12} className="text-amber-500" /></span>
+                    : <span title="Cleanly removed"><CheckCircle size={12} className="text-emerald-500" /></span>
+                )}
               </div>
             </div>
           ))}

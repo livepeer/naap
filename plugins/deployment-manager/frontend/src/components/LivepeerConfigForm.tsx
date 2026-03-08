@@ -46,25 +46,6 @@ const SERVERLESS_PROVIDERS = [
   { id: 'custom', name: 'Custom Endpoint' },
 ];
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '0.5rem 0.75rem',
-  border: '1px solid var(--dm-border-input)',
-  borderRadius: '0.375rem',
-  fontSize: '0.875rem',
-  color: 'var(--dm-text-primary)',
-  backgroundColor: 'var(--dm-bg-input)',
-  boxSizing: 'border-box',
-};
-
-const labelStyle: React.CSSProperties = {
-  fontSize: '0.8rem',
-  fontWeight: 500,
-  display: 'block',
-  marginBottom: '0.25rem',
-  color: 'var(--dm-text-secondary)',
-};
-
 export const LivepeerConfigForm: React.FC<LivepeerConfigFormProps> = ({ config, onChange }) => {
   const isServerless = config.topology === 'split-cpu-serverless';
   const needsModel = config.topology === 'all-in-one' || config.topology === 'all-on-provider';
@@ -72,34 +53,30 @@ export const LivepeerConfigForm: React.FC<LivepeerConfigFormProps> = ({ config, 
 
   return (
     <div>
-      <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--dm-text-primary)' }}>
+      <h3 className="text-base font-semibold mb-1 text-foreground">
         Livepeer Inference Configuration
       </h3>
-      <p style={{ color: 'var(--dm-text-secondary)', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
+      <p className="text-muted-foreground text-sm mb-5">
         Configure how your AI inference service connects to the Livepeer network.
       </p>
 
       {/* Topology selection */}
-      <div style={{ marginBottom: '1.5rem' }}>
-        <label style={labelStyle}>Deployment Topology *</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      <div className="mb-5">
+        <label className="text-xs font-medium block mb-2 text-muted-foreground">Deployment Topology *</label>
+        <div className="flex flex-col gap-2">
           {TOPOLOGIES.map((t) => (
             <button
               key={t.id}
               data-testid={`topology-${t.id}`}
               onClick={() => onChange('topology', t.id)}
-              style={{
-                padding: '0.75rem 1rem',
-                border: config.topology === t.id ? '2px solid var(--dm-accent-blue)' : '1px solid var(--dm-border)',
-                borderRadius: '0.5rem',
-                background: config.topology === t.id ? 'var(--dm-bg-selected)' : 'var(--dm-bg-primary)',
-                cursor: 'pointer',
-                textAlign: 'left',
-                color: 'var(--dm-text-primary)',
-              }}
+              className={`py-3 px-4 rounded-lg cursor-pointer text-left text-foreground transition-all ${
+                config.topology === t.id
+                  ? 'border-2 border-foreground bg-secondary'
+                  : 'border border-border bg-card hover:border-muted-foreground/30'
+              }`}
             >
-              <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{t.name}</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--dm-text-secondary)', marginTop: '0.2rem' }}>{t.description}</div>
+              <div className="font-medium text-sm">{t.name}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{t.description}</div>
             </button>
           ))}
         </div>
@@ -107,14 +84,14 @@ export const LivepeerConfigForm: React.FC<LivepeerConfigFormProps> = ({ config, 
 
       {/* Serverless provider config */}
       {isServerless && (
-        <div style={{ padding: '1rem', background: 'var(--dm-bg-secondary)', borderRadius: '0.5rem', marginBottom: '1.5rem' }}>
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={labelStyle}>Inference Provider *</label>
+        <div className="p-4 bg-secondary rounded-lg mb-5">
+          <div className="mb-4">
+            <label className="text-xs font-medium block mb-1.5 text-muted-foreground">Inference Provider *</label>
             <select
               value={config.serverlessProvider}
               onChange={(e) => onChange('serverlessProvider', e.target.value)}
               data-testid="serverless-provider"
-              style={{ ...inputStyle, maxWidth: '300px' }}
+              className="w-full max-w-xs h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
             >
               <option value="">Select provider...</option>
               {SERVERLESS_PROVIDERS.map((p) => (
@@ -125,8 +102,8 @@ export const LivepeerConfigForm: React.FC<LivepeerConfigFormProps> = ({ config, 
 
           {config.serverlessProvider && !isCustomProvider && (
             <>
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={labelStyle}>Model *</label>
+              <div className="mb-4">
+                <label className="text-xs font-medium block mb-1.5 text-muted-foreground">Model *</label>
                 <ModelPresetPicker
                   presets={getPresetsForProvider(config.serverlessProvider)}
                   value={config.serverlessModelId}
@@ -135,20 +112,20 @@ export const LivepeerConfigForm: React.FC<LivepeerConfigFormProps> = ({ config, 
                   placeholder="Search models or type a custom model ID..."
                 />
                 {config.serverlessModelId && (
-                  <div style={{ fontSize: '0.7rem', color: 'var(--dm-text-tertiary)', marginTop: '0.25rem', fontFamily: 'monospace' }}>
+                  <div className="text-xs text-muted-foreground mt-1 font-mono">
                     {config.serverlessModelId}
                   </div>
                 )}
               </div>
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={labelStyle}>API Key *</label>
+              <div className="mb-4">
+                <label className="text-xs font-medium block mb-1.5 text-muted-foreground">API Key *</label>
                 <input
                   type="password"
                   value={config.serverlessApiKey}
                   onChange={(e) => onChange('serverlessApiKey', e.target.value)}
                   placeholder="Your provider API key"
                   data-testid="serverless-api-key"
-                  style={inputStyle}
+                  className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
                 />
               </div>
             </>
@@ -156,25 +133,25 @@ export const LivepeerConfigForm: React.FC<LivepeerConfigFormProps> = ({ config, 
 
           {isCustomProvider && (
             <>
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={labelStyle}>Endpoint URL *</label>
+              <div className="mb-4">
+                <label className="text-xs font-medium block mb-1.5 text-muted-foreground">Endpoint URL *</label>
                 <input
                   type="text"
                   value={config.serverlessEndpointUrl}
                   onChange={(e) => onChange('serverlessEndpointUrl', e.target.value)}
                   placeholder="https://your-service.example.com/api"
                   data-testid="serverless-endpoint-url"
-                  style={inputStyle}
+                  className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
                 />
               </div>
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={labelStyle}>Model ID (optional)</label>
+              <div className="mb-4">
+                <label className="text-xs font-medium block mb-1.5 text-muted-foreground">Model ID (optional)</label>
                 <input
                   type="text"
                   value={config.serverlessModelId}
                   onChange={(e) => onChange('serverlessModelId', e.target.value)}
                   placeholder="Model identifier"
-                  style={inputStyle}
+                  className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
                 />
               </div>
             </>
@@ -184,9 +161,9 @@ export const LivepeerConfigForm: React.FC<LivepeerConfigFormProps> = ({ config, 
 
       {/* Model image for self-hosted */}
       {needsModel && (
-        <div style={{ padding: '1rem', background: 'var(--dm-bg-secondary)', borderRadius: '0.5rem', marginBottom: '1.5rem' }}>
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={labelStyle}>Model *</label>
+        <div className="p-4 bg-secondary rounded-lg mb-5">
+          <div className="mb-4">
+            <label className="text-xs font-medium block mb-1.5 text-muted-foreground">Model *</label>
             <ModelPresetPicker
               presets={getSelfHostedPresets()}
               value={config.serverlessModelId}
@@ -198,23 +175,23 @@ export const LivepeerConfigForm: React.FC<LivepeerConfigFormProps> = ({ config, 
               placeholder="Search models or type a custom model ID..."
             />
             {config.serverlessModelId && (
-              <div style={{ fontSize: '0.7rem', color: 'var(--dm-text-tertiary)', marginTop: '0.25rem', fontFamily: 'monospace' }}>
+              <div className="text-xs text-muted-foreground mt-1 font-mono">
                 {config.serverlessModelId}
               </div>
             )}
           </div>
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={labelStyle}>Docker Image {config.modelImage ? '' : '*'}</label>
+          <div className="mb-4">
+            <label className="text-xs font-medium block mb-1.5 text-muted-foreground">Docker Image {config.modelImage ? '' : '*'}</label>
             <input
               type="text"
               value={config.modelImage}
               onChange={(e) => onChange('modelImage', e.target.value)}
               placeholder="ghcr.io/huggingface/text-generation-inference:latest"
               data-testid="model-image"
-              style={inputStyle}
+              className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
             />
             {config.modelImage && (
-              <div style={{ fontSize: '0.7rem', color: 'var(--dm-text-tertiary)', marginTop: '0.25rem' }}>
+              <div className="text-xs text-muted-foreground mt-1">
                 Auto-filled from preset. Override if needed.
               </div>
             )}
@@ -223,14 +200,14 @@ export const LivepeerConfigForm: React.FC<LivepeerConfigFormProps> = ({ config, 
       )}
 
       {/* Advanced settings */}
-      <div style={{ marginBottom: '1.5rem' }}>
+      <div className="mb-5">
         <details>
-          <summary style={{ cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, color: 'var(--dm-text-secondary)', marginBottom: '0.75rem' }}>
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground mb-3">
             Advanced Settings
           </summary>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', padding: '0.5rem 0' }}>
+          <div className="grid grid-cols-2 gap-4 py-2">
             <div>
-              <label style={labelStyle}>Capacity</label>
+              <label className="text-xs font-medium block mb-1.5 text-muted-foreground">Capacity</label>
               <input
                 type="number"
                 min={1}
@@ -238,38 +215,38 @@ export const LivepeerConfigForm: React.FC<LivepeerConfigFormProps> = ({ config, 
                 value={config.capacity}
                 onChange={(e) => onChange('capacity', parseInt(e.target.value, 10) || 1)}
                 data-testid="capacity"
-                style={inputStyle}
+                className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
               />
             </div>
             <div>
-              <label style={labelStyle}>Price Per Unit</label>
+              <label className="text-xs font-medium block mb-1.5 text-muted-foreground">Price Per Unit</label>
               <input
                 type="number"
                 min={0}
                 value={config.pricePerUnit}
                 onChange={(e) => onChange('pricePerUnit', parseInt(e.target.value, 10) || 0)}
-                style={inputStyle}
+                className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
               />
             </div>
             <div>
-              <label style={labelStyle}>Public Address</label>
+              <label className="text-xs font-medium block mb-1.5 text-muted-foreground">Public Address</label>
               <input
                 type="text"
                 value={config.publicAddress}
                 onChange={(e) => onChange('publicAddress', e.target.value)}
                 placeholder="203.0.113.1:7935"
-                style={inputStyle}
+                className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
               />
             </div>
             <div>
-              <label style={labelStyle}>Capability Name (auto-derived)</label>
+              <label className="text-xs font-medium block mb-1.5 text-muted-foreground">Capability Name (auto-derived)</label>
               <input
                 type="text"
                 value={config.capabilityName}
                 onChange={(e) => onChange('capabilityName', e.target.value)}
                 placeholder="Leave blank to auto-derive from model"
                 data-testid="capability-name"
-                style={inputStyle}
+                className="w-full h-9 px-3 border border-border rounded-md text-sm text-foreground bg-background"
               />
             </div>
           </div>

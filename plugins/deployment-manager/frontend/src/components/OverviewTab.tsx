@@ -133,24 +133,18 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ deployment }) => {
   return (
     <div>
       {/* Deployment metadata summary */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-        gap: '0.75rem', marginBottom: '1.5rem',
-      }}>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3 mb-6">
         {[
-          { icon: <Globe size={14} />, label: 'Endpoint', value: getRunUrl(deployment) },
-          { icon: <Server size={14} />, label: 'Docker Image', value: deployment.dockerImage },
-          { icon: <Cpu size={14} />, label: 'GPU', value: `${deployment.gpuModel} (${deployment.gpuVramGb}GB) x${deployment.gpuCount}` },
-          { icon: <Clock size={14} />, label: 'Created', value: new Date(deployment.createdAt).toLocaleDateString() },
+          { icon: <Globe size={13} />, label: 'Endpoint', value: getRunUrl(deployment) },
+          { icon: <Server size={13} />, label: 'Docker Image', value: deployment.dockerImage },
+          { icon: <Cpu size={13} />, label: 'GPU', value: `${deployment.gpuModel} (${deployment.gpuVramGb}GB) x${deployment.gpuCount}` },
+          { icon: <Clock size={13} />, label: 'Created', value: new Date(deployment.createdAt).toLocaleDateString() },
         ].map((item) => (
-          <div key={item.label} style={{
-            padding: '0.75rem', background: 'var(--dm-bg-secondary)',
-            borderRadius: '0.375rem', fontSize: '0.8rem',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--dm-text-tertiary)', marginBottom: '0.25rem' }}>
+          <div key={item.label} className="p-3 bg-secondary rounded-md">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
               {item.icon} {item.label}
             </div>
-            <div style={{ color: 'var(--dm-text-primary)', fontWeight: 500, wordBreak: 'break-all', fontFamily: item.label === 'Endpoint' ? 'monospace' : 'inherit', fontSize: item.label === 'Endpoint' ? '0.7rem' : '0.8rem' }}>
+            <div className={`text-sm text-foreground font-medium break-all ${item.label === 'Endpoint' ? 'font-mono text-xs' : ''}`}>
               {item.value}
             </div>
           </div>
@@ -158,54 +152,38 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ deployment }) => {
       </div>
 
       {/* Code snippets */}
-      <div style={{ marginBottom: '0.75rem' }}>
-        <h3 style={{ fontSize: '0.95rem', fontWeight: 600, margin: '0 0 0.75rem 0', color: 'var(--dm-text-primary)' }}>
+      <div className="mb-3">
+        <h3 className="text-sm font-medium mb-3 text-foreground">
           Quick Start
         </h3>
 
-        <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.75rem' }}>
+        <div className="flex gap-1 mb-3">
           {LANGUAGES.map((lang) => (
             <button
               key={lang.id}
               data-testid={`lang-${lang.id}`}
               onClick={() => setSelectedLang(lang.id)}
-              style={{
-                padding: '0.3rem 0.75rem',
-                borderRadius: '1rem',
-                fontSize: '0.78rem',
-                fontWeight: selectedLang === lang.id ? 600 : 400,
-                cursor: 'pointer',
-                border: selectedLang === lang.id ? '1.5px solid var(--dm-accent-blue)' : '1px solid var(--dm-border)',
-                background: selectedLang === lang.id ? 'var(--dm-accent-blue)' : 'var(--dm-bg-secondary)',
-                color: selectedLang === lang.id ? '#fff' : 'var(--dm-text-secondary)',
-                transition: 'all 0.15s',
-              }}
+              className={`h-7 px-3 rounded-md text-xs cursor-pointer transition-all ${
+                selectedLang === lang.id
+                  ? 'bg-foreground text-background font-medium'
+                  : 'bg-secondary text-muted-foreground hover:text-foreground'
+              }`}
             >
               {lang.label}
             </button>
           ))}
         </div>
 
-        <div style={{ position: 'relative' }}>
-          <pre style={{
-            background: '#111827', color: '#e5e7eb',
-            fontFamily: 'ui-monospace, monospace', fontSize: '0.75rem',
-            padding: '1rem', borderRadius: '0.5rem',
-            overflowX: 'auto', lineHeight: 1.7, margin: 0,
-          }}>
+        <div className="relative">
+          <pre className="bg-zinc-900 dark:bg-zinc-950 text-zinc-100 font-mono text-xs p-4 rounded-lg overflow-x-auto leading-relaxed m-0">
             {snippet}
           </pre>
           <button
             onClick={handleCopy}
             data-testid="copy-snippet"
-            style={{
-              position: 'absolute', top: '0.5rem', right: '0.5rem',
-              padding: '0.35rem', background: 'rgba(255,255,255,0.1)',
-              border: '1px solid rgba(255,255,255,0.2)',
-              borderRadius: '0.25rem', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: '0.25rem',
-              color: copied ? '#4ade80' : '#9ca3af', fontSize: '0.7rem',
-            }}
+            className={`absolute top-2 right-2 h-7 px-2 bg-zinc-800 border border-zinc-700 rounded-md cursor-pointer flex items-center gap-1 text-xs ${
+              copied ? 'text-emerald-400' : 'text-zinc-400 hover:text-zinc-200'
+            } transition-colors`}
           >
             {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
           </button>

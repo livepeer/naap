@@ -1,51 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* ============================================
-   Light Mode (Default) - Professional Palette
+   Deployment Manager Plugin Theme
+   Vercel-inspired design system.
    ============================================ */
+
 :root {
-  --dm-bg-primary: #ffffff;
-  --dm-bg-secondary: #f8fafc;
-  --dm-bg-tertiary: #f1f5f9;
-  --dm-bg-input: #ffffff;
-  --dm-bg-selected: #eff6ff;
-  --dm-bg-hover: rgba(0, 0, 0, 0.03);
+  /* Surface colors */
+  --dm-bg-primary: var(--bg-primary, #ffffff);
+  --dm-bg-secondary: var(--bg-secondary, #fafafa);
+  --dm-bg-tertiary: var(--bg-tertiary, #f4f4f5);
 
-  --dm-text-primary: #0f172a;
-  --dm-text-secondary: #475569;
-  --dm-text-tertiary: #94a3b8;
-
+  /* Accent */
   --dm-accent-blue: #3b82f6;
-  --dm-accent-blue-text: #1d4ed8;
-  --dm-accent-emerald: #059669;
-  --dm-accent-amber: #d97706;
-  --dm-accent-rose: #dc2626;
+  --dm-accent-blue-text: #2563eb;
 
-  --dm-border: #e2e8f0;
+  /* Semantic status */
+  --dm-accent-emerald: var(--accent-emerald, #18794E);
+  --dm-accent-amber: var(--accent-amber, #f59e0b);
+  --dm-accent-rose: var(--accent-rose, #dc2626);
+
+  /* Border */
+  --dm-border: var(--border-color, #e4e4e7);
   --dm-border-selected: #3b82f6;
-  --dm-border-input: #d1d5db;
+  --dm-border-input: var(--border-color, #d4d4d8);
 }
 
-/* ============================================
-   Dark Mode - Matches NaaP Shell Theme
-   ============================================ */
 .dark {
-  --dm-bg-primary: #0a0f1a;
-  --dm-bg-secondary: #111827;
-  --dm-bg-tertiary: #1f2937;
-  --dm-bg-input: #1f2937;
-  --dm-bg-selected: rgba(59, 130, 246, 0.12);
-  --dm-bg-hover: rgba(255, 255, 255, 0.04);
-
-  --dm-text-primary: #f9fafb;
-  --dm-text-secondary: #9ca3af;
-  --dm-text-tertiary: #6b7280;
-
   --dm-accent-blue: #60a5fa;
   --dm-accent-blue-text: #93c5fd;
-  --dm-accent-emerald: #34d399;
-  --dm-accent-amber: #fbbf24;
-  --dm-accent-rose: #f87171;
+}
 
-  --dm-border: rgba(255, 255, 255, 0.1);
-  --dm-border-selected: #3b82f6;
-  --dm-border-input: rgba(255, 255, 255, 0.15);
+/* Focus ring for interactive elements */
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(var(--background, 0 0% 100%)), 0 0 0 4px hsl(var(--ring, 217 91% 60%));
+}
+
+button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(var(--background, 0 0% 100%)), 0 0 0 4px hsl(var(--ring, 217 91% 60%));
+}
+
+/* Pulse animation for health indicators */
+@keyframes dm-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
+}
+
+/* Spin animation */
+@keyframes dm-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.dm-spin {
+  animation: dm-spin 1s linear infinite;
 }

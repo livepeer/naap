@@ -84,88 +84,61 @@ export const InferencePlayground: React.FC<InferencePlaygroundProps> = ({ deploy
   }, [deploymentId, requestBody]);
 
   if (loadingPipeline) {
-    return <p style={{ color: 'var(--dm-text-secondary)', fontSize: '0.875rem' }}>Loading pipeline status...</p>;
+    return <p className="text-muted-foreground text-sm">Loading pipeline status...</p>;
   }
 
   return (
     <div>
       {/* Pipeline status card */}
       {pipelineStatus && (
-        <div data-testid="pipeline-status" style={{
-          padding: '1rem',
-          background: 'var(--dm-bg-secondary)',
-          borderRadius: '0.5rem',
-          marginBottom: '1.5rem',
-        }}>
-          <h4 style={{ fontSize: '0.9rem', fontWeight: 600, margin: '0 0 0.75rem', color: 'var(--dm-text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div data-testid="pipeline-status" className="p-4 bg-muted/50 rounded-lg mb-6">
+          <h4 className="text-[0.9rem] font-semibold mb-3 text-foreground flex items-center gap-2">
             <Activity size={16} /> Pipeline Status
           </h4>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.8rem' }}>
+          <div className="grid grid-cols-2 gap-2 text-[0.8rem]">
             <div>
-              <span style={{ color: 'var(--dm-text-tertiary)' }}>Capability:</span>{' '}
-              <strong style={{ color: 'var(--dm-text-primary)' }}>{pipelineStatus.capabilityName}</strong>
+              <span className="text-muted-foreground/70">Capability:</span>{' '}
+              <strong className="text-foreground">{pipelineStatus.capabilityName}</strong>
             </div>
             <div>
-              <span style={{ color: 'var(--dm-text-tertiary)' }}>Topology:</span>{' '}
-              <strong style={{ color: 'var(--dm-text-primary)' }}>{pipelineStatus.topology}</strong>
+              <span className="text-muted-foreground/70">Topology:</span>{' '}
+              <strong className="text-foreground">{pipelineStatus.topology}</strong>
             </div>
             <div>
-              <span style={{ color: 'var(--dm-text-tertiary)' }}>Adapter:</span>{' '}
+              <span className="text-muted-foreground/70">Adapter:</span>{' '}
               {pipelineStatus.adapterHealthy
-                ? <span style={{ color: '#16a34a', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}><CheckCircle size={12} /> Healthy</span>
-                : <span style={{ color: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}><XCircle size={12} /> Unhealthy</span>
+                ? <span className="text-green-600 inline-flex items-center gap-1"><CheckCircle size={12} /> Healthy</span>
+                : <span className="text-red-600 inline-flex items-center gap-1"><XCircle size={12} /> Unhealthy</span>
               }
             </div>
             <div>
-              <span style={{ color: 'var(--dm-text-tertiary)' }}>Secret:</span>{' '}
-              <span style={{ color: 'var(--dm-text-secondary)' }}>{pipelineStatus.orchestratorSecret || 'N/A'}</span>
+              <span className="text-muted-foreground/70">Secret:</span>{' '}
+              <span className="text-muted-foreground">{pipelineStatus.orchestratorSecret || 'N/A'}</span>
             </div>
           </div>
         </div>
       )}
 
       {/* Endpoint display */}
-      <div style={{ marginBottom: '1rem' }}>
-        <label style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--dm-text-tertiary)', display: 'block', marginBottom: '0.25rem' }}>
+      <div className="mb-4">
+        <label className="text-xs font-medium text-muted-foreground/70 block mb-1">
           Inference Endpoint
         </label>
-        <div style={{
-          padding: '0.5rem 0.75rem',
-          background: 'var(--dm-bg-secondary)',
-          border: '1px solid var(--dm-border)',
-          borderRadius: '0.375rem',
-          fontFamily: 'monospace',
-          fontSize: '0.8rem',
-          color: 'var(--dm-text-primary)',
-          wordBreak: 'break-all',
-        }}>
+        <div className="px-3 py-2 bg-muted/50 border border-border rounded-md font-mono text-[0.8rem] text-foreground break-all">
           {endpointUrl || 'No endpoint URL'}
         </div>
       </div>
 
       {/* Request body */}
-      <div style={{ marginBottom: '1rem' }}>
-        <label style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--dm-text-tertiary)', display: 'block', marginBottom: '0.25rem' }}>
+      <div className="mb-4">
+        <label className="text-xs font-medium text-muted-foreground/70 block mb-1">
           Inference Request (JSON)
         </label>
         <textarea
           value={requestBody}
           onChange={(e) => setRequestBody(e.target.value)}
           data-testid="inference-request-body"
-          style={{
-            width: '100%',
-            minHeight: '120px',
-            padding: '0.75rem',
-            fontFamily: 'ui-monospace, monospace',
-            fontSize: '0.75rem',
-            background: '#111827',
-            color: '#e5e7eb',
-            border: '1px solid var(--dm-border)',
-            borderRadius: '0.375rem',
-            resize: 'vertical',
-            lineHeight: 1.6,
-            boxSizing: 'border-box',
-          }}
+          className="w-full min-h-[120px] p-3 font-mono text-xs bg-gray-900 text-gray-200 border border-border rounded-md resize-y leading-relaxed box-border"
         />
       </div>
 
@@ -174,20 +147,9 @@ export const InferencePlayground: React.FC<InferencePlaygroundProps> = ({ deploy
         onClick={handleRun}
         disabled={running || !endpointUrl}
         data-testid="run-inference"
-        style={{
-          padding: '0.5rem 1.25rem',
-          background: running ? '#6b7280' : '#8b5cf6',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '0.375rem',
-          cursor: running ? 'not-allowed' : 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          fontSize: '0.875rem',
-          fontWeight: 500,
-          marginBottom: '1rem',
-        }}
+        className={`px-5 py-2 border-none rounded-md flex items-center gap-2 text-sm font-medium mb-4 text-white ${
+          running ? 'bg-gray-500 cursor-not-allowed' : 'bg-purple-500 cursor-pointer'
+        }`}
       >
         <Play size={14} />
         {running ? 'Running Inference...' : 'Run Inference'}
@@ -195,52 +157,30 @@ export const InferencePlayground: React.FC<InferencePlaygroundProps> = ({ deploy
 
       {/* Error */}
       {error && (
-        <div style={{
-          padding: '0.75rem',
-          marginBottom: '1rem',
-          background: '#fef2f2',
-          border: '1px solid #fca5a5',
-          borderRadius: '0.375rem',
-          color: '#dc2626',
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: '0.5rem',
-          fontSize: '0.8rem',
-        }}>
-          <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
+        <div className="p-3 mb-4 bg-red-50 border border-red-300 rounded-md text-red-600 flex items-start gap-2 text-[0.8rem]">
+          <AlertTriangle size={16} className="shrink-0 mt-0.5" />
           {error}
         </div>
       )}
 
       {/* Response */}
       {result && (
-        <div data-testid="inference-response" style={{ marginBottom: '1rem' }}>
-          <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
-            <span style={{
-              padding: '0.2rem 0.5rem',
-              borderRadius: '0.25rem',
-              fontWeight: 600,
-              background: result.status >= 200 && result.status < 300 ? '#dcfce7' : '#fef2f2',
-              color: result.status >= 200 && result.status < 300 ? '#166534' : '#dc2626',
-            }}>
+        <div data-testid="inference-response" className="mb-4">
+          <div className="flex gap-4 mb-2 text-[0.8rem]">
+            <span
+              className={`px-2 py-0.5 rounded font-semibold ${
+                result.status >= 200 && result.status < 300
+                  ? 'bg-green-100 text-green-800'
+                  : 'bg-red-50 text-red-600'
+              }`}
+            >
               {result.status} {result.statusText}
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--dm-text-secondary)' }}>
+            <span className="flex items-center gap-1 text-muted-foreground">
               <Clock size={12} /> {result.responseTimeMs}ms
             </span>
           </div>
-          <pre style={{
-            background: '#111827',
-            color: '#e5e7eb',
-            fontFamily: 'ui-monospace, monospace',
-            fontSize: '0.7rem',
-            padding: '0.75rem',
-            borderRadius: '0.375rem',
-            maxHeight: '300px',
-            overflowY: 'auto',
-            margin: 0,
-            lineHeight: 1.6,
-          }}>
+          <pre className="bg-gray-900 text-gray-200 font-mono text-[0.7rem] p-3 rounded-md max-h-[300px] overflow-y-auto m-0 leading-relaxed">
             {typeof result.body === 'string' ? result.body : JSON.stringify(result.body, null, 2)}
           </pre>
         </div>
