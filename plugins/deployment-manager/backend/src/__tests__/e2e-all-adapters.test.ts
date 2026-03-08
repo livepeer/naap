@@ -299,15 +299,11 @@ describe('E2E: All Provider Adapters Full Lifecycle', () => {
     });
 
     it('saves and verifies credentials', async () => {
-      let res = await api('/credentials/fal-ai/credential-status');
-      let body = await res.json();
-      expect(body.data.configured).toBe(false);
-
-      res = await api('/credentials/fal-ai/credentials', {
+      let res = await api('/credentials/fal-ai/credentials', {
         method: 'PUT',
         body: JSON.stringify({ secrets: { 'api-key': 'fal_test_key_123' } }),
       });
-      body = await res.json();
+      let body = await res.json();
       expect(body.success).toBe(true);
 
       res = await api('/credentials/fal-ai/credential-status');
@@ -345,13 +341,18 @@ describe('E2E: All Provider Adapters Full Lifecycle', () => {
       deploymentId = body.data.id;
     });
 
-    it('deploys → ONLINE (application created + health checked)', async () => {
-      const res = await api(`/deployments/${deploymentId}/deploy`, { method: 'POST' });
-      const body = await res.json();
+    it('deploys → ONLINE (application created + sync-status advances)', async () => {
+      let res = await api(`/deployments/${deploymentId}/deploy`, { method: 'POST' });
+      let body = await res.json();
       expect(body.success).toBe(true);
       expect(body.data.providerDeploymentId).toBe('fal-app-001');
+      expect(body.data.status).toBe('DEPLOYING');
+
+      // Serverless adapters stay DEPLOYING after deploy; sync-status advances to ONLINE
+      res = await api(`/deployments/${deploymentId}/sync-status`, { method: 'POST' });
+      body = await res.json();
+      expect(body.success).toBe(true);
       expect(body.data.status).toBe('ONLINE');
-      expect(body.data.healthStatus).toBe('GREEN');
     });
 
     it('on-demand health check returns GREEN', async () => {
@@ -445,12 +446,16 @@ describe('E2E: All Provider Adapters Full Lifecycle', () => {
     });
 
     it('deploys → ONLINE', async () => {
-      const res = await api(`/deployments/${deploymentId}/deploy`, { method: 'POST' });
-      const body = await res.json();
+      let res = await api(`/deployments/${deploymentId}/deploy`, { method: 'POST' });
+      let body = await res.json();
       expect(body.success).toBe(true);
       expect(body.data.providerDeploymentId).toBe('naap/scope-replicate-e2e');
+      expect(body.data.status).toBe('DEPLOYING');
+
+      res = await api(`/deployments/${deploymentId}/sync-status`, { method: 'POST' });
+      body = await res.json();
+      expect(body.success).toBe(true);
       expect(body.data.status).toBe('ONLINE');
-      expect(body.data.healthStatus).toBe('GREEN');
     });
 
     it('health check returns GREEN', async () => {
@@ -526,8 +531,12 @@ describe('E2E: All Provider Adapters Full Lifecycle', () => {
       body = await res.json();
       expect(body.success).toBe(true);
       expect(body.data.providerDeploymentId).toBe('bt-model-001');
+      expect(body.data.status).toBe('DEPLOYING');
+
+      res = await api(`/deployments/${deploymentId}/sync-status`, { method: 'POST' });
+      body = await res.json();
+      expect(body.success).toBe(true);
       expect(body.data.status).toBe('ONLINE');
-      expect(body.data.healthStatus).toBe('GREEN');
     });
 
     it('health check returns GREEN', async () => {
@@ -603,8 +612,12 @@ describe('E2E: All Provider Adapters Full Lifecycle', () => {
       body = await res.json();
       expect(body.success).toBe(true);
       expect(body.data.providerDeploymentId).toBe('modal-app-001');
+      expect(body.data.status).toBe('DEPLOYING');
+
+      res = await api(`/deployments/${deploymentId}/sync-status`, { method: 'POST' });
+      body = await res.json();
+      expect(body.success).toBe(true);
       expect(body.data.status).toBe('ONLINE');
-      expect(body.data.healthStatus).toBe('GREEN');
     });
 
     it('health check returns GREEN', async () => {

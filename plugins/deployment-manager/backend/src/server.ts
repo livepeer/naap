@@ -17,13 +17,15 @@ import { createDeploymentsRouter } from './routes/deployments.js';
 import { createTemplatesRouter } from './routes/templates.js';
 import { createHealthRouter } from './routes/health.js';
 import { createAuditRouter } from './routes/audit.js';
-import { setAuthContext } from './lib/providerFetch.js';
+import { runWithAuthContext } from './lib/providerFetch.js';
 import { PrismaDeploymentStore } from './store/PrismaDeploymentStore.js';
 import { InMemoryDeploymentStore } from './store/InMemoryDeploymentStore.js';
 import type { IDeploymentStore } from './store/IDeploymentStore.js';
 import { CostEstimationService } from './services/CostEstimationService.js';
 import { createCostRouter } from './routes/cost.js';
 import { createCredentialsRouter } from './routes/credentials.js';
+import { createArtifactsRouter } from './routes/artifacts.js';
+import { ArtifactRegistry } from './services/ArtifactRegistry.js';
 
 const PORT = parseInt(process.env.PORT || '4117', 10);
 const API_PREFIX = '/api/v1/deployment-manager';
@@ -39,6 +41,7 @@ registry.register(new SshComposeAdapter());
 
 const audit = new AuditService();
 const templateRegistry = new TemplateRegistry();
+const artifactRegistry = new ArtifactRegistry();
 
 let store: IDeploymentStore;
 try {
@@ -67,12 +70,11 @@ const app = express();
 app.use(express.json());
 
 app.use((req, _res, next) => {
-  setAuthContext({
+  runWithAuthContext({
     authorization: req.headers.authorization,
     cookie: req.headers.cookie,
     teamId: req.headers['x-team-id'] as string | undefined,
-  });
-  next();
+  }, next);
 });
 
 app.get('/healthz', (_req, res) => {
@@ -92,6 +94,7 @@ app.use(`${API_PREFIX}/health`, createHealthRouter(healthMonitor, orchestrator))
 app.use(`${API_PREFIX}/audit`, createAuditRouter(audit));
 app.use(`${API_PREFIX}/cost`, createCostRouter(costService));
 app.use(`${API_PREFIX}/credentials`, createCredentialsRouter(registry));
+app.use(`${API_PREFIX}/artifacts`, createArtifactsRouter(artifactRegistry));
 
 app.get(`${API_PREFIX}/status`, async (_req, res) => {
   const all = await orchestrator.list();
@@ -103,7 +106,28 @@ app.get(`${API_PREFIX}/status`, async (_req, res) => {
     updating: all.filter((d) => d.status === 'UPDATING').length,
     destroyed: all.filter((d) => d.status === 'DESTROYED').length,
   };
-  res.json({ status: 'ok', providers: registry.listSlugs(), deployments: counts });
+  res.json({ success: true, data: counts });
+});
+
+app.post(`${API_PREFIX}/versions/check`, async (_req, res) => {
+  try {
+    await versionChecker.checkAll();
+    res.json({ success: true, message: 'Version check completed' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get(`${API_PREFIX}/config-check`, (_req, res) => {
+  res.json({
+    success: true,
+    environment: process.env.NODE_ENV || 'development',
+    checks: {
+      DATABASE: { ok: !!store },
+      PROVIDERS: { ok: true, detail: `${registry.listSlugs().length} providers registered` },
+      HEALTH_MONITOR: { ok: healthMonitor !== null },
+    },
+  });
 });
 
 const server = app.listen(PORT, () => {

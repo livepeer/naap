@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { secretStore } from './SecretStore.js';
 import type { ProviderApiConfig } from '../types/index.js';
 
@@ -7,15 +8,23 @@ export interface AuthContext {
   teamId?: string;
 }
 
-let globalAuthContext: AuthContext = {};
+// Request-scoped auth context using AsyncLocalStorage (safe for concurrent requests)
+const authStorage = new AsyncLocalStorage<AuthContext>();
 
 export function setAuthContext(ctx: AuthContext): void {
-  globalAuthContext = ctx;
+  // For background tasks and tests that don't use runWithAuthContext
+  _fallbackAuthContext = ctx;
+}
+
+export function runWithAuthContext<T>(ctx: AuthContext, fn: () => T): T {
+  return authStorage.run(ctx, fn);
 }
 
 export function getAuthContext(): AuthContext {
-  return globalAuthContext;
+  return authStorage.getStore() || _fallbackAuthContext;
 }
+
+let _fallbackAuthContext: AuthContext = {};
 
 // System-level userId override for background tasks (health monitor, syncStatus)
 // that don't have an HTTP request auth context.
@@ -31,14 +40,16 @@ export function getSystemUserId(): string | null {
 
 const AUTH_BASE = process.env.SHELL_URL || 'http://localhost:3000';
 
-let cachedUserId: { token: string; userId: string | null; expiresAt: number } | null = null;
+const userIdCache = new Map<string, { userId: string | null; expiresAt: number }>();
+const MAX_CACHE_ENTRIES = 100;
 
 export async function resolveUserId(): Promise<string | null> {
-  const ctx = globalAuthContext;
+  const ctx = getAuthContext();
   if (!ctx.authorization) return null;
 
-  if (cachedUserId && cachedUserId.token === ctx.authorization && Date.now() < cachedUserId.expiresAt) {
-    return cachedUserId.userId;
+  const cached = userIdCache.get(ctx.authorization);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.userId;
   }
 
   try {
@@ -48,7 +59,12 @@ export async function resolveUserId(): Promise<string | null> {
     if (!res.ok) return null;
     const data = await res.json();
     const userId = data.data?.user?.id || data.data?.id || data.id || null;
-    cachedUserId = { token: ctx.authorization, userId, expiresAt: Date.now() + 30_000 };
+    // Evict oldest entries if cache grows too large
+    if (userIdCache.size >= MAX_CACHE_ENTRIES) {
+      const firstKey = userIdCache.keys().next().value;
+      if (firstKey) userIdCache.delete(firstKey);
+    }
+    userIdCache.set(ctx.authorization, { userId, expiresAt: Date.now() + 30_000 });
     return userId;
   } catch {
     return null;

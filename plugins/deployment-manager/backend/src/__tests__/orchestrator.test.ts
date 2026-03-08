@@ -101,10 +101,13 @@ describe('DeploymentOrchestrator', () => {
   it('should run full deploy+validate flow and reach ONLINE', async () => {
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     const deployed = await orchestrator.deploy(deployment.id, 'user-1');
-    expect(deployed.status).toBe('ONLINE');
+    // Serverless adapters stay at DEPLOYING after deploy(); syncStatus advances to ONLINE
     expect(deployed.providerDeploymentId).toBe('mock-deploy-123');
     expect(deployed.endpointUrl).toBe('https://mock.provider/endpoint');
-    expect(deployed.healthStatus).toBe('GREEN');
+
+    const synced = await orchestrator.syncStatus(deployment.id, 'user-1');
+    expect(synced.status).toBe('ONLINE');
+    expect(synced.healthStatus).toBe('GREEN');
   });
 
   it('should transition to FAILED when deploy throws', async () => {
@@ -124,6 +127,7 @@ describe('DeploymentOrchestrator', () => {
   it('should destroy an ONLINE deployment', async () => {
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     await orchestrator.deploy(deployment.id, 'user-1');
+    await orchestrator.syncStatus(deployment.id, 'user-1');
     const record = await orchestrator.get(deployment.id);
     expect(record?.status).toBe('ONLINE');
     const destroyed = await orchestrator.destroy(deployment.id, 'user-1');
@@ -133,8 +137,8 @@ describe('DeploymentOrchestrator', () => {
   it('should record status history', async () => {
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     await orchestrator.deploy(deployment.id, 'user-1');
+    await orchestrator.syncStatus(deployment.id, 'user-1');
     const history = await orchestrator.getStatusHistory(deployment.id);
-    // PENDING -> DEPLOYING -> VALIDATING -> ONLINE = 4 entries
     expect(history.length).toBeGreaterThanOrEqual(4);
   });
 
@@ -145,16 +149,45 @@ describe('DeploymentOrchestrator', () => {
     expect(logs.data[0].action).toBe('CREATE');
   });
 
-  it('should update health status without changing deployment state', async () => {
+  it('should transition ONLINE to OFFLINE when health is RED', async () => {
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     await orchestrator.deploy(deployment.id, 'user-1');
+    await orchestrator.syncStatus(deployment.id, 'user-1');
     const record = await orchestrator.get(deployment.id);
     expect(record?.status).toBe('ONLINE');
 
     await orchestrator.updateHealthStatus(deployment.id, 'RED');
     const updated = await orchestrator.get(deployment.id);
-    expect(updated?.status).toBe('ONLINE');
+    expect(updated?.status).toBe('OFFLINE');
     expect(updated?.healthStatus).toBe('RED');
+  });
+
+  it('should transition OFFLINE back to ONLINE when health recovers', async () => {
+    const deployment = await orchestrator.create(baseConfig, 'user-1');
+    await orchestrator.deploy(deployment.id, 'user-1');
+    await orchestrator.syncStatus(deployment.id, 'user-1');
+    await orchestrator.updateHealthStatus(deployment.id, 'RED');
+    const offline = await orchestrator.get(deployment.id);
+    expect(offline?.status).toBe('OFFLINE');
+
+    await orchestrator.updateHealthStatus(deployment.id, 'GREEN');
+    const recovered = await orchestrator.get(deployment.id);
+    expect(recovered?.status).toBe('ONLINE');
+    expect(recovered?.healthStatus).toBe('GREEN');
+  });
+
+  it('should not degrade serverless endpoints on ORANGE (scaled to zero)', async () => {
+    const deployment = await orchestrator.create(baseConfig, 'user-1');
+    await orchestrator.deploy(deployment.id, 'user-1');
+    await orchestrator.syncStatus(deployment.id, 'user-1');
+
+    await orchestrator.updateHealthStatus(deployment.id, 'ORANGE', {
+      isServerless: true,
+      note: 'Serverless endpoint scaled to zero — workers spin up on demand',
+    });
+    const updated = await orchestrator.get(deployment.id);
+    expect(updated?.status).toBe('ONLINE');
+    expect(updated?.healthStatus).toBe('ORANGE');
   });
 
   it('should allow retry from FAILED state', async () => {
@@ -166,6 +199,9 @@ describe('DeploymentOrchestrator', () => {
 
     mockAdapter.shouldFail = false;
     const retried = await orchestrator.retry(deployment.id, 'user-1');
-    expect(retried.status).toBe('ONLINE');
+    // Retry calls deploy() which stays at DEPLOYING for serverless
+    expect(retried.status).toBe('DEPLOYING');
+    const synced = await orchestrator.syncStatus(deployment.id, 'user-1');
+    expect(synced.status).toBe('ONLINE');
   });
 });

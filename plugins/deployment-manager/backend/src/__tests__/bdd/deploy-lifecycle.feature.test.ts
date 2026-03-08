@@ -49,13 +49,15 @@ describe('Feature: Full Deployment Lifecycle', () => {
     orchestrator = new DeploymentOrchestrator(registry, audit, new InMemoryDeploymentStore());
   });
 
-  it('Given a valid deploy config, When the operator deploys, Then the deployment transitions PENDING -> DEPLOYING -> VALIDATING -> ONLINE', async () => {
+  it('Given a valid deploy config, When the operator deploys, Then the deployment transitions PENDING -> DEPLOYING -> ONLINE', async () => {
     // Given
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     expect(deployment.status).toBe('PENDING');
 
-    // When
-    const result = await orchestrator.deploy(deployment.id, 'user-1');
+    // When — deploy returns DEPLOYING for serverless adapters
+    await orchestrator.deploy(deployment.id, 'user-1');
+    // syncStatus advances serverless DEPLOYING -> ONLINE
+    const result = await orchestrator.syncStatus(deployment.id, 'user-1');
 
     // Then
     expect(result.status).toBe('ONLINE');
@@ -67,10 +69,8 @@ describe('Feature: Full Deployment Lifecycle', () => {
 
     const history = await orchestrator.getStatusHistory(deployment.id);
     const statuses = history.map((h) => h.toStatus);
-    expect(statuses).toHaveLength(4);
     expect(statuses).toContain('PENDING');
     expect(statuses).toContain('DEPLOYING');
-    expect(statuses).toContain('VALIDATING');
     expect(statuses).toContain('ONLINE');
   });
 
@@ -79,7 +79,9 @@ describe('Feature: Full Deployment Lifecycle', () => {
     adapter.healthResult = { healthy: false, status: 'RED', responseTimeMs: 100 };
     const deployment = await orchestrator.create(baseConfig, 'user-1');
 
-    const result = await orchestrator.deploy(deployment.id, 'user-1');
+    await orchestrator.deploy(deployment.id, 'user-1');
+    // Use validate() which runs the health check; syncStatus would skip it
+    const result = await orchestrator.validate(deployment.id, 'user-1');
 
     expect(result.status).toBe('ONLINE');
     expect(result.healthStatus).toBe('ORANGE');
@@ -100,7 +102,9 @@ describe('Feature: Full Deployment Lifecycle', () => {
 
     const config = { ...baseConfig, providerSlug: 'mock-dedicated' };
     const deployment = await dedicatedOrchestrator.create(config, 'user-1');
-    const result = await dedicatedOrchestrator.deploy(deployment.id, 'user-1');
+    await dedicatedOrchestrator.deploy(deployment.id, 'user-1');
+    // Use validate() which runs the health check and fails non-serverless unhealthy deployments
+    const result = await dedicatedOrchestrator.validate(deployment.id, 'user-1');
 
     expect(result.status).toBe('FAILED');
     expect(result.healthStatus).toBe('RED');

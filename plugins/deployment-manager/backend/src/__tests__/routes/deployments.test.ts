@@ -189,7 +189,7 @@ describe('Deployments Router', () => {
   describe('DELETE /:id', () => {
     it('destroys deployment', async () => {
       const deployment = { id: 'd1', status: 'destroyed' };
-      mockOrchestrator.destroy.mockResolvedValue(deployment);
+      mockOrchestrator.destroy.mockResolvedValue({ record: deployment, destroyResult: undefined });
 
       const res = await request(app).delete('/d1');
       expect(res.status).toBe(200);

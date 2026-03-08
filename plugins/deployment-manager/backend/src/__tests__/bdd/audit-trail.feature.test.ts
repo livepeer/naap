@@ -53,6 +53,7 @@ describe('Feature: Audit Trail Integrity', () => {
     // Given — run the full lifecycle
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     await orchestrator.deploy(deployment.id, 'user-1');
+    await orchestrator.syncStatus(deployment.id, 'user-1');
     await orchestrator.updateDeployment(
       deployment.id,
       { artifactVersion: 'v2.0.0', dockerImage: 'livepeer/ai-runner:v2.0.0' },
@@ -117,9 +118,11 @@ describe('Feature: Audit Trail Integrity', () => {
     // Given
     const d1 = await orchestrator.create(baseConfig, 'alice');
     await orchestrator.deploy(d1.id, 'alice');
+    await orchestrator.syncStatus(d1.id, 'alice');
 
     const d2 = await orchestrator.create({ ...baseConfig, name: 'test-2' }, 'bob');
     await orchestrator.deploy(d2.id, 'bob');
+    await orchestrator.syncStatus(d2.id, 'bob');
     await orchestrator.destroy(d2.id, 'bob');
 
     // When — filter by user

@@ -124,7 +124,8 @@ describe('Feature: Environment Variables and Concurrency', () => {
     };
 
     const record = await orchestrator.create(config, 'user-1');
-    const deployed = await orchestrator.deploy(record.id, 'user-1');
+    await orchestrator.deploy(record.id, 'user-1');
+    const deployed = await orchestrator.syncStatus(record.id, 'user-1');
 
     expect(deployed.status).toBe('ONLINE');
     expect(deployed.envVars).toEqual({ KEY: 'value' });

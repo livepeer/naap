@@ -6,6 +6,68 @@ import { resolveUserId } from '../lib/providerFetch.js';
 export function createCredentialsRouter(registry: ProviderAdapterRegistry): Router {
   const router = Router();
 
+  // GET /:slug — simple configured check (used by frontend credential panel)
+  router.get('/:slug', async (req, res) => {
+    const { slug } = req.params;
+    if (!registry.has(slug)) {
+      res.json({ success: true, data: { configured: false, providerId: slug } });
+      return;
+    }
+
+    try {
+      const userId = await resolveUserId();
+      if (!userId) {
+        res.status(401).json({ success: false, error: 'Unable to resolve user identity' });
+        return;
+      }
+
+      const adapter = registry.get(slug);
+      const secretName = adapter.apiConfig.secretNames[0];
+      const secretStatus = await secretStore.hasSecrets(userId, slug, [secretName]);
+
+      res.json({
+        success: true,
+        data: {
+          configured: secretStatus[0]?.configured ?? false,
+          providerId: slug,
+          maskedValue: secretStatus[0]?.maskedValue,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // POST /:slug — save a single apiKey (legacy endpoint used by credential panel)
+  router.post('/:slug', async (req, res) => {
+    const { slug } = req.params;
+    if (!registry.has(slug)) {
+      res.status(404).json({ success: false, error: `Unknown provider: ${slug}` });
+      return;
+    }
+
+    const { apiKey } = req.body as { apiKey?: string };
+    if (!apiKey) {
+      res.status(400).json({ success: false, error: 'apiKey is required' });
+      return;
+    }
+
+    try {
+      const userId = await resolveUserId();
+      if (!userId) {
+        res.status(401).json({ success: false, error: 'Unable to resolve user identity' });
+        return;
+      }
+
+      const adapter = registry.get(slug);
+      const secretName = adapter.apiConfig.secretNames[0];
+      await secretStore.setSecrets(userId, slug, { [secretName]: apiKey });
+      res.json({ success: true, data: { configured: true, providerId: slug } });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/:slug/credential-status', async (req, res) => {
     const { slug } = req.params;
     if (!registry.has(slug)) {

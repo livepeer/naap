@@ -54,6 +54,7 @@ describe('Feature: Deployment Destruction', () => {
     // Given
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     await orchestrator.deploy(deployment.id, 'user-1');
+    await orchestrator.syncStatus(deployment.id, 'user-1');
     const online = await orchestrator.get(deployment.id);
     expect(online?.status).toBe('ONLINE');
 
@@ -79,6 +80,7 @@ describe('Feature: Deployment Destruction', () => {
     // Given
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     await orchestrator.deploy(deployment.id, 'user-1');
+    await orchestrator.syncStatus(deployment.id, 'user-1');
     await orchestrator.destroy(deployment.id, 'user-1');
     const destroyed = await orchestrator.get(deployment.id);
     expect(destroyed?.status).toBe('DESTROYED');

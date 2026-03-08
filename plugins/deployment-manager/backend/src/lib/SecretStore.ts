@@ -119,22 +119,6 @@ export class PrismaSecretStore implements SecretStore {
   }
 }
 
-// ─── Default export: try Prisma, fall back to in-memory ──────────────
-
-let _secretStore: SecretStore | null = null;
-
-export function getSecretStore(): SecretStore {
-  if (!_secretStore) {
-    try {
-      _secretStore = new PrismaSecretStore();
-      // Test the connection synchronously by returning — actual DB call happens lazily
-      console.log('[secret-store] Using Prisma persistent storage');
-    } catch {
-      _secretStore = new InMemorySecretStore();
-      console.log('[secret-store] Using in-memory storage (no database)');
-    }
-  }
-  return _secretStore;
-}
+// ─── Default export: Prisma with lazy connection (falls back gracefully per-call) ──
 
 export const secretStore: SecretStore = new PrismaSecretStore();

@@ -1,20 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { validateSession } from '@/lib/api/auth';
-import { getAuthToken } from '@/lib/api/response';
-import { getServices } from '@/lib/deployment-manager';
+import { NextRequest } from 'next/server';
+import { proxyToBackend } from '@/lib/deployment-manager/proxy';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const token = getAuthToken(request);
-    if (!token) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    const user = await validateSession(token);
-    if (!user) return NextResponse.json({ success: false, error: 'Invalid session' }, { status: 401 });
-
-    const { id } = await params;
-    const { orchestrator } = getServices();
-    const deployment = await orchestrator.deploy(id, user.id);
-    return NextResponse.json({ success: true, data: deployment });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 400 });
-  }
+  const { id } = await params;
+  return proxyToBackend(request, `/deployments/${id}/deploy`);
 }

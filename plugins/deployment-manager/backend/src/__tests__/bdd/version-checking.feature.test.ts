@@ -63,6 +63,7 @@ describe('Feature: Version Checking', () => {
     // Given
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     await orchestrator.deploy(deployment.id, 'user-1');
+    await orchestrator.syncStatus(deployment.id, 'user-1');
     const record = await orchestrator.get(deployment.id);
     expect(record?.status).toBe('ONLINE');
     expect(record?.artifactVersion).toBe('v1.0.0');
@@ -92,6 +93,7 @@ describe('Feature: Version Checking', () => {
     // Given
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     await orchestrator.deploy(deployment.id, 'user-1');
+    await orchestrator.syncStatus(deployment.id, 'user-1');
     const record = await orchestrator.get(deployment.id);
     expect(record?.status).toBe('ONLINE');
 
@@ -119,6 +121,7 @@ describe('Feature: Version Checking', () => {
     // Given — one ONLINE and one PENDING deployment
     const onlineDeploy = await orchestrator.create(baseConfig, 'user-1');
     await orchestrator.deploy(onlineDeploy.id, 'user-1');
+    await orchestrator.syncStatus(onlineDeploy.id, 'user-1');
     const pendingDeploy = await orchestrator.create({ ...baseConfig, name: 'pending-test' }, 'user-2');
     expect((await orchestrator.get(pendingDeploy.id))?.status).toBe('PENDING');
 
