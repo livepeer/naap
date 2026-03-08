@@ -4,6 +4,7 @@
 
 import { Router, Request, Response } from 'express';
 import { getDelegator, getProtocol, getPrices, estimateDailyReward } from '../lib/livepeer.js';
+import { prisma } from '../db/client.js';
 
 const router = Router();
 
@@ -68,6 +69,36 @@ router.get('/api/v1/wallet/portfolio', async (req: Request, res: Response) => {
     };
 
     res.json({ data: portfolio });
+
+    // Fire-and-forget: save snapshot for historical tracking
+    if (delegator && delegator.delegateAddress) {
+      prisma.walletStakingSnapshot.upsert({
+        where: {
+          address_round: {
+            address: address.toLowerCase(),
+            round: protocol.currentRound,
+          },
+        },
+        update: {
+          pendingStake: delegator.bondedAmount,
+          pendingFees: delegator.fees || '0',
+          lptPriceUsd: prices.lptUsd,
+          ethPriceUsd: prices.ethUsd,
+        },
+        create: {
+          address: address.toLowerCase(),
+          orchestrator: delegator.delegateAddress,
+          round: protocol.currentRound,
+          bondedAmount: delegator.principal || '0',
+          pendingStake: delegator.bondedAmount,
+          pendingFees: delegator.fees || '0',
+          lptPriceUsd: prices.lptUsd,
+          ethPriceUsd: prices.ethUsd,
+        },
+      }).catch(err => {
+        console.warn('[snapshot] opportunistic save failed:', err.message);
+      });
+    }
   } catch (err: any) {
     console.error('Error fetching portfolio:', err);
     res.status(500).json({ error: 'Failed to fetch portfolio' });

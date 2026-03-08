@@ -1,52 +1,59 @@
 /**
- * Snapshot all user positions to WalletStakingSnapshot
+ * Snapshot all tracked positions to WalletStakingSnapshot
  * Runs periodically via cron or on-demand via Sync Now
+ *
+ * Uses live Livepeer data (subgraph/RPC) + prices from CoinGecko.
  */
 
 import { prisma } from '../db/client.js';
-import { getProtocolParams } from '../lib/protocolService.js';
+import { getDelegator, getProtocol, getPrices } from '../lib/livepeer.js';
 
 export async function snapshotStaking(userId?: string): Promise<number> {
-  const params = await getProtocolParams();
-  const currentRound = params.currentRound;
+  const [protocol, prices] = await Promise.all([getProtocol(), getPrices()]);
+  const currentRound = protocol.currentRound;
 
-  const whereClause = userId
-    ? { userId, stakingStates: { some: {} } }
-    : { stakingStates: { some: {} } };
-
-  const addresses = await prisma.walletAddress.findMany({
-    where: whereClause,
-    include: { stakingStates: true },
-  });
+  // Find addresses to snapshot: either from a specific user's staking states or all known states
+  const where: any = {};
+  if (userId) where.address = userId.toLowerCase();
+  const states = await prisma.walletStakingState.findMany({ where, select: { address: true } });
 
   let count = 0;
 
-  for (const addr of addresses) {
-    for (const state of addr.stakingStates) {
-      // Skip if we already have a snapshot for this round
-      const existing = await prisma.walletStakingSnapshot.findFirst({
-        where: {
-          walletAddressId: addr.id,
-          orchestratorAddr: state.delegatedTo || '',
-          round: currentRound,
-        },
-      });
-      if (existing) continue;
+  for (const state of states) {
+    try {
+      const delegator = await getDelegator(state.address);
+      if (!delegator || delegator.bondedAmount === '0' || !delegator.delegateAddress) continue;
 
-      await prisma.walletStakingSnapshot.create({
-        data: {
-          walletAddressId: addr.id,
-          orchestratorAddr: state.delegatedTo || '',
-          bondedAmount: state.stakedAmount || '0',
-          pendingStake: state.pendingRewards || '0',
-          pendingFees: state.pendingFees || '0',
+      await prisma.walletStakingSnapshot.upsert({
+        where: {
+          address_round: {
+            address: state.address.toLowerCase(),
+            round: currentRound,
+          },
+        },
+        update: {
+          pendingStake: delegator.bondedAmount,
+          pendingFees: delegator.fees || '0',
+          lptPriceUsd: prices.lptUsd,
+          ethPriceUsd: prices.ethUsd,
+        },
+        create: {
+          address: state.address.toLowerCase(),
+          orchestrator: delegator.delegateAddress,
           round: currentRound,
+          bondedAmount: delegator.principal || '0',
+          pendingStake: delegator.bondedAmount,
+          pendingFees: delegator.fees || '0',
+          lptPriceUsd: prices.lptUsd,
+          ethPriceUsd: prices.ethUsd,
         },
       });
       count++;
+    } catch (err: any) {
+      console.warn(`[snapshot] failed for ${state.address}:`, err.message);
     }
   }
 
-  console.log(`[snapshot] Created ${count} snapshots for round ${currentRound}`);
+  console.log(`[snapshot] Upserted ${count} snapshots for round ${currentRound}`);
   return count;
 }

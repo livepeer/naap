@@ -1106,6 +1106,24 @@ model WalletSettings {
   @@schema("plugin_wallet")
 }
 
+model WalletStakingSnapshot {
+  id             String   @id @default(uuid())
+  address        String                          // delegator address (lowercase)
+  orchestrator   String                          // delegate address
+  round          Int                             // Livepeer protocol round
+  bondedAmount   String   @default("0")          // principal (wei string)
+  pendingStake   String   @default("0")          // total stake incl. rewards (wei string)
+  pendingFees    String   @default("0")          // ETH fees (wei string)
+  lptPriceUsd    Float    @default(0)
+  ethPriceUsd    Float    @default(0)
+  createdAt      DateTime @default(now())
+
+  @@unique([address, round])
+  @@index([address, createdAt])
+  @@index([orchestrator, createdAt])
+  @@schema("plugin_wallet")
+}
+
 // ============================================
 // PLUGIN: MY DASHBOARD
 // ============================================
