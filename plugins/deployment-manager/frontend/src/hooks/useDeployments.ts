@@ -2,6 +2,19 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch } from '../lib/apiFetch';
 
 const IN_PROGRESS_STATES = ['PROVISIONING', 'DEPLOYING', 'VALIDATING', 'DESTROYING'];
+const CACHE_KEY_LIST = 'dm:deployments';
+const CACHE_KEY_DETAIL = 'dm:deployment:';
+
+function readCache<T>(key: string): T | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function writeCache(key: string, value: unknown): void {
+  try { sessionStorage.setItem(key, JSON.stringify(value)); } catch { /* quota */ }
+}
 
 export interface Deployment {
   id: string;
@@ -26,8 +39,8 @@ export interface Deployment {
 }
 
 export function useDeployments() {
-  const [deployments, setDeployments] = useState<Deployment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [deployments, setDeployments] = useState<Deployment[]>(() => readCache(CACHE_KEY_LIST) ?? []);
+  const [loading, setLoading] = useState(!readCache(CACHE_KEY_LIST));
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -37,6 +50,7 @@ export function useDeployments() {
       const data = await res.json();
       if (data.success) {
         setDeployments(data.data);
+        writeCache(CACHE_KEY_LIST, data.data);
       } else {
         const err = data.error;
         setError(typeof err === 'string' ? err : err?.message || 'Request failed');
@@ -54,8 +68,8 @@ export function useDeployments() {
 }
 
 export function useDeployment(id: string) {
-  const [deployment, setDeployment] = useState<Deployment | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [deployment, setDeployment] = useState<Deployment | null>(() => readCache(`${CACHE_KEY_DETAIL}${id}`));
+  const [loading, setLoading] = useState(!readCache(`${CACHE_KEY_DETAIL}${id}`));
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async () => {
@@ -63,7 +77,10 @@ export function useDeployment(id: string) {
       setLoading(true);
       const res = await apiFetch(`/deployments/${id}`);
       const data = await res.json();
-      if (data.success) setDeployment(data.data);
+      if (data.success) {
+        setDeployment(data.data);
+        writeCache(`${CACHE_KEY_DETAIL}${id}`, data.data);
+      }
     } catch {
       // ignore
     } finally {
@@ -86,6 +103,7 @@ export function useDeployment(id: string) {
         const syncData = await syncRes.json();
         if (syncData.success && syncData.data) {
           setDeployment(syncData.data);
+          writeCache(`${CACHE_KEY_DETAIL}${id}`, syncData.data);
           if (!IN_PROGRESS_STATES.includes(syncData.data.status)) {
             if (timerRef.current) clearInterval(timerRef.current);
             timerRef.current = null;

@@ -1,6 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../lib/apiFetch';
 
+const HEALTH_CACHE_KEY = 'dm:health:';
+
+function readHealthCache(id: string): { status: string; lastCheck: string | null; details: HealthDetails | null } | null {
+  try {
+    const raw = sessionStorage.getItem(`${HEALTH_CACHE_KEY}${id}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function writeHealthCache(id: string, status: string, lastCheck: string | null, details: HealthDetails | null): void {
+  try { sessionStorage.setItem(`${HEALTH_CACHE_KEY}${id}`, JSON.stringify({ status, lastCheck, details })); } catch { /* quota */ }
+}
+
 export interface HealthDetails {
   endpointStatus?: string;
   isServerless?: boolean;
@@ -10,9 +23,10 @@ export interface HealthDetails {
 }
 
 export function useHealthPolling(deploymentId: string | null, intervalMs = 30000) {
-  const [healthStatus, setHealthStatus] = useState<string>('UNKNOWN');
-  const [lastCheck, setLastCheck] = useState<string | null>(null);
-  const [healthDetails, setHealthDetails] = useState<HealthDetails | null>(null);
+  const cached = deploymentId ? readHealthCache(deploymentId) : null;
+  const [healthStatus, setHealthStatus] = useState<string>(cached?.status ?? 'UNKNOWN');
+  const [lastCheck, setLastCheck] = useState<string | null>(cached?.lastCheck ?? null);
+  const [healthDetails, setHealthDetails] = useState<HealthDetails | null>(cached?.details ?? null);
   const timerRef = useRef<ReturnType<typeof setInterval>>();
 
   useEffect(() => {
@@ -23,11 +37,13 @@ export function useHealthPolling(deploymentId: string | null, intervalMs = 30000
         const res = await apiFetch(`/health/${deploymentId}/check`, { method: 'POST' });
         const data = await res.json();
         if (data.success) {
-          setHealthStatus(data.data.status);
-          setLastCheck(new Date().toISOString());
-          if (data.data.details) {
-            setHealthDetails(data.data.details);
-          }
+          const status = data.data.status;
+          const now = new Date().toISOString();
+          const details = data.data.details ?? null;
+          setHealthStatus(status);
+          setLastCheck(now);
+          setHealthDetails(details);
+          writeHealthCache(deploymentId, status, now, details);
         }
       } catch {
         // ignore
