@@ -226,8 +226,12 @@ async function handleRequest(
   // scope (the admin who configured the key), not the caller's scope.
   const token = getAuthToken(request);
   let secretScopeId = scopeId;
-  if (config.connector.visibility === 'public' && config.connector.ownerUserId) {
-    secretScopeId = `personal:${config.connector.ownerUserId}`;
+  if (config.connector.visibility === 'public') {
+    if (config.connector.ownerUserId) {
+      secretScopeId = `personal:${config.connector.ownerUserId}`;
+    } else if (config.connector.teamId) {
+      secretScopeId = config.connector.teamId;
+    }
   }
   const secrets = await resolveSecrets(secretScopeId, config.connector.secretRefs, token, config.connector.slug);
 
