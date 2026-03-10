@@ -406,7 +406,7 @@ export function RequireAuth({
   requiredRoles?: string[];
   fallback?: ReactNode;
 }) {
-  const { isAuthenticated, isLoading, hasAnyRole } = useAuth();
+  const { user, isAuthenticated, isLoading, authErrorStatus, hasAnyRole } = useAuth();
   const pathname = usePathname();
 
   useEffect(() => {
@@ -430,7 +430,7 @@ export function RequireAuth({
         window.location.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
       }
     }
-  }, [isLoading, isAuthenticated, pathname]);
+  }, [isLoading, isAuthenticated, authErrorStatus, user, pathname]);
 
   if (isLoading) {
     return fallback ?? (
