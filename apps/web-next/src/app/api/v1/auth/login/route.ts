@@ -6,9 +6,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { login } from '@/lib/api/auth';
 import { success, errors, getClientIP, isDatabaseError } from '@/lib/api/response';
+import { enforceRateLimit } from '@/lib/api/rate-limit';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const rateLimitResponse = enforceRateLimit(request, { keyPrefix: 'auth:login' });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     const body = await request.json();
     const { email, password } = body;
 
@@ -46,11 +52,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const error = err as Error & { code?: string; lockedUntil?: Date };
+    console.error('[AUTH] Login failure:', { code: error.code, message: error.message });
 
     if (error.code === 'ACCOUNT_LOCKED' && error.lockedUntil) {
       return errors.accountLocked(error.lockedUntil);
     }
 
-    return errors.unauthorized(error.message || 'Invalid email or password');
+    return errors.unauthorized('Invalid email or password');
   }
 }

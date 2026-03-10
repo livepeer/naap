@@ -6,9 +6,15 @@
 import {NextRequest, NextResponse } from 'next/server';
 import { resetPassword } from '@/lib/api/auth';
 import { success, errors } from '@/lib/api/response';
+import { enforceRateLimit } from '@/lib/api/rate-limit';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const rateLimitResponse = enforceRateLimit(request, { keyPrefix: 'auth:reset-password' });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     const body = await request.json();
     const { token, password } = body;
 
@@ -35,7 +41,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return response;
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Password reset failed';
-    return errors.badRequest(message);
+    const message = err instanceof Error ? err.message : '';
+    if (message.includes('expired') || message.includes('invalid') || message.includes('token')) {
+      return errors.badRequest('Invalid or expired reset token');
+    }
+    console.error('[AUTH] Reset password error:', err);
+    return errors.internal('Unable to reset password. Please try again later.');
   }
 }

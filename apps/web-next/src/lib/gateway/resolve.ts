@@ -172,6 +172,7 @@ export async function resolveConfig(
     upstreamQueryParams: endpoint.upstreamQueryParams as Record<string, string>,
     upstreamStaticBody: endpoint.upstreamStaticBody,
     bodyTransform: endpoint.bodyTransform,
+    responseBodyTransform: endpoint.responseBodyTransform,
     headerMapping: endpoint.headerMapping as Record<string, string>,
     rateLimit: endpoint.rateLimit,
     timeout: endpoint.timeout,

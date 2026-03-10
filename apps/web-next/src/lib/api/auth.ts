@@ -12,6 +12,9 @@ import {
   sendPasswordResetEmail as sendEmailPasswordReset,
 } from '../email';
 
+const RESEND_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+const resendCooldownMap = new Map<string, number>();
+
 /** Sanitize a value for safe log output (prevents log injection) */
 function sanitizeForLog(value: unknown): string {
   return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f\u2028\u2029]/g, '');
@@ -28,7 +31,11 @@ async function verifyPassword(password: string, storedHash: string): Promise<boo
   const [salt, hash] = storedHash.split(':');
   if (!salt || !hash) return false;
   const verifyHash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-  return hash === verifyHash;
+  if (hash.length !== verifyHash.length) return false;
+  return crypto.timingSafeEqual(
+    Buffer.from(hash, 'hex'),
+    Buffer.from(verifyHash, 'hex')
+  );
 }
 
 function generateToken(): string {
@@ -43,6 +50,10 @@ export interface AuthResult {
   user: AuthUser;
   token: string;
   expiresAt: Date;
+}
+
+export interface RegisterResult {
+  created: boolean;
 }
 
 export interface OAuthConfig {
@@ -240,7 +251,7 @@ export async function register(
   email: string,
   password: string,
   displayName?: string
-): Promise<AuthResult> {
+): Promise<RegisterResult> {
   if (!email || !password) {
     throw new Error('Email and password are required');
   }
@@ -255,7 +266,18 @@ export async function register(
   });
 
   if (existing) {
-    throw new Error('Email already registered');
+    // Preserve a uniform external response while still helping legitimate users
+    // who may have an unverified account. Throttle resend to prevent inbox flooding.
+    const cooldownKey = `resend:${email}`;
+    const lastSent = resendCooldownMap.get(cooldownKey);
+    const now = Date.now();
+    if (!lastSent || now - lastSent >= RESEND_COOLDOWN_MS) {
+      resendCooldownMap.set(cooldownKey, now);
+      resendVerificationEmail(email).catch((err) => {
+        console.error('[AUTH] Failed to handle existing-email registration:', (err as Error).message);
+      });
+    }
+    return { created: false };
   }
 
   // Hash password
@@ -280,16 +302,7 @@ export async function register(
     console.error('[AUTH] Failed to send verification email:', (err as Error).message);
   });
 
-  // Create session
-  const { token, expiresAt } = await createSession(user.id);
-
-  // Get user with roles
-  const authUser = await getUserWithRoles(user.id);
-  if (!authUser) {
-    throw new Error('Failed to create user');
-  }
-
-  return { user: authUser, token, expiresAt };
+  return { created: true };
 }
 
 /**
@@ -303,14 +316,8 @@ export async function login(email: string, password: string, ipAddress?: string)
   // Check if account is locked
   const lockStatus = await isAccountLocked(email);
   if (lockStatus.locked) {
-    const remainingMinutes = Math.ceil(
-      (lockStatus.lockedUntil!.getTime() - Date.now()) / 60000
-    );
-    const err = new Error(
-      `Account is temporarily locked. Try again in ${remainingMinutes} minutes.`
-    ) as Error & { code?: string; lockedUntil?: Date };
+    const err = new Error('Invalid email or password') as Error & { code?: string };
     err.code = 'ACCOUNT_LOCKED';
-    err.lockedUntil = lockStatus.lockedUntil;
     throw err;
   }
 
@@ -328,17 +335,6 @@ export async function login(email: string, password: string, ipAddress?: string)
   const valid = await verifyPassword(password, user.passwordHash);
   if (!valid) {
     await recordLoginAttempt(email, false, user.id, ipAddress);
-
-    // Check if this attempt triggers lockout
-    const failedCount = await countFailedAttempts(email);
-    const remainingAttempts = LOCKOUT_THRESHOLD - failedCount;
-
-    if (remainingAttempts > 0 && remainingAttempts <= 2) {
-      throw new Error(
-        `Invalid email or password. ${remainingAttempts} attempt${remainingAttempts === 1 ? '' : 's'} remaining before account lockout.`
-      );
-    }
-
     throw new Error('Invalid email or password');
   }
 
@@ -676,10 +672,16 @@ export async function requestPasswordReset(email: string): Promise<{ success: bo
   const resetUrl = `${appUrl}/reset-password?token=${token}`;
   const result = await sendEmailPasswordReset(email, resetUrl);
 
-  if (!result.success && process.env.NODE_ENV !== 'production') {
+  if (!result.success) {
     const safeEmail = sanitizeForLog(email);
-    console.log(`[PASSWORD RESET] Token for ${safeEmail}: ${token}`);
-    console.log(`[PASSWORD RESET] Reset URL: ${resetUrl}`);
+    if (process.env.NODE_ENV === 'production') {
+      console.error(
+        `[PASSWORD RESET] Failed to send reset email to ${safeEmail}: ${result.error || 'unknown error'}`
+      );
+    } else {
+      console.log(`[PASSWORD RESET] Token for ${safeEmail}: ${token}`);
+      console.log(`[PASSWORD RESET] Reset URL: ${resetUrl}`);
+    }
   }
 
   return { success: true, message: 'If an account exists, a reset link has been sent.' };
@@ -707,11 +709,11 @@ export async function resetPassword(token: string, newPassword: string): Promise
 
   if (new Date(resetToken.expiresAt) < new Date()) {
     await prisma.passwordResetToken.delete({ where: { id: resetToken.id } });
-    throw new Error('Reset token has expired');
+    throw new Error('Invalid or expired reset token');
   }
 
   if (resetToken.usedAt) {
-    throw new Error('Reset token has already been used');
+    throw new Error('Invalid or expired reset token');
   }
 
   // Hash new password
@@ -814,16 +816,16 @@ export async function verifyEmail(token: string): Promise<{ success: boolean; us
   });
 
   if (!verifyToken) {
-    throw new Error('Invalid verification token');
+    throw new Error('Invalid or expired verification token');
   }
 
   if (new Date(verifyToken.expiresAt) < new Date()) {
     await prisma.emailVerificationToken.delete({ where: { id: verifyToken.id } });
-    throw new Error('Verification token has expired');
+    throw new Error('Invalid or expired verification token');
   }
 
   if (verifyToken.usedAt) {
-    throw new Error('Verification token has already been used');
+    throw new Error('Invalid or expired verification token');
   }
 
   // Verify email

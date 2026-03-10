@@ -8,6 +8,7 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getSafeErrorMessage } from '@naap/plugin-sdk';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
 import { SecretField } from '../components/SecretField';
 
@@ -250,7 +251,7 @@ export const ConnectorWizardPage: React.FC = () => {
         }
       }
     } catch (err) {
-      setBatchError(err instanceof Error ? err.message : 'Batch create failed');
+      setBatchError(getSafeErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -259,6 +260,7 @@ export const ConnectorWizardPage: React.FC = () => {
   const handleSave = async (publish: boolean) => {
     setSaving(true);
     setSaveError(null);
+    const warnings: string[] = [];
     try {
       const connRes = await api.post<{ success: boolean; data: { id: string } }>('/connectors', {
         slug,
@@ -275,19 +277,53 @@ export const ConnectorWizardPage: React.FC = () => {
       if (!connRes.success) return;
       const connectorId = connRes.data.id;
 
-      for (const ep of endpoints) {
-        await api.post(`/connectors/${connectorId}/endpoints`, ep);
+      const secretEntries = secretRefs
+        .map((name) => [name, secrets[name] ?? ''] as const)
+        .filter(([, value]) => value.trim());
+      if (secretEntries.length > 0) {
+        try {
+          await api.put(`/connectors/${connectorId}/secrets`, Object.fromEntries(secretEntries));
+        } catch (secErr: unknown) {
+          warnings.push(`Secrets could not be saved: ${getSafeErrorMessage(secErr)}. You can add them from the connector detail page.`);
+        }
+      }
+
+      const results = await Promise.allSettled(
+        endpoints.map((ep) => api.post(`/connectors/${connectorId}/endpoints`, ep))
+      );
+      const failedEndpoints: string[] = [];
+      results.forEach((r, i) => {
+        if (r.status === 'rejected') {
+          const epStatus = (r.reason as { status?: number }).status;
+          if (epStatus === 409) return;
+          failedEndpoints.push(`${endpoints[i].method} ${endpoints[i].path}: ${getSafeErrorMessage(r.reason)}`);
+        }
+      });
+
+      if (failedEndpoints.length > 0 && failedEndpoints.length === endpoints.length) {
+        warnings.push(`All endpoint creations failed:\n${failedEndpoints.join('\n')}`);
+        navigate(`/connectors/${connectorId}`, { state: { warnings } });
+        return;
+      }
+
+      if (failedEndpoints.length > 0) {
+        warnings.push(`Some endpoints failed (connector was still created):\n${failedEndpoints.join('\n')}`);
       }
 
       if (publish) {
-        await api.post(`/connectors/${connectorId}/publish`);
+        try {
+          await api.post(`/connectors/${connectorId}/publish`);
+        } catch (pubErr: unknown) {
+          warnings.push(`Publish failed: ${getSafeErrorMessage(pubErr)}. You can publish later from the connector detail page.`);
+          navigate(`/connectors/${connectorId}`, { state: { warnings } });
+          return;
+        }
       }
 
-      navigate(`/connectors/${connectorId}`);
+      navigate(`/connectors/${connectorId}`, warnings.length > 0 ? { state: { warnings } } : undefined);
     } catch (err: unknown) {
-      const apiErr = err as { message?: string; status?: number; code?: string };
-      const status = apiErr.status;
-      const msg = apiErr.message || (err instanceof Error ? err.message : 'Save failed');
+      const status = (err as { status?: number }).status;
+      const msg = getSafeErrorMessage(err);
       if (status === 409 || msg.toLowerCase().includes('already exists')) {
         setSaveError(`A connector with slug "${slug}" already exists. Please choose a different slug.`);
         setStep(1);

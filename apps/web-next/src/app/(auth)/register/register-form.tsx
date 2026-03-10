@@ -49,13 +49,16 @@ export default function RegisterForm() {
         }),
       });
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Registration failed');
+        if (response.status === 429) {
+          throw new Error('Too many attempts. Please wait and try again.');
+        }
+        throw new Error('Unable to create account. Please try again later.');
       }
       sessionStorage.setItem('pendingVerificationEmail', formData.email);
       router.push('/verify-email');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
+      const msg = err instanceof Error ? err.message : '';
+      setError(msg.includes('Too many') ? msg : 'Unable to create account. Please try again later.');
     } finally {
       setIsLoading(false);
     }
