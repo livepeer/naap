@@ -1931,7 +1931,6 @@ model ConnectorMetrics {
   computedAt            DateTime @default(now())
 
   @@unique([connectorId, period, periodStart])
-  @@index([connectorId, period, periodStart])
   @@schema("plugin_service_gateway")
 }
 

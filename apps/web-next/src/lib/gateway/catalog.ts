@@ -48,9 +48,9 @@ export interface PerformanceMetrics {
   errorRate: number;
   successRate: number;
   latencyMeanMs: number;
-  latencyP50Ms: number;
-  latencyP95Ms: number;
-  latencyP99Ms: number;
+  latencyP50Ms: number | null;
+  latencyP95Ms: number | null;
+  latencyP99Ms: number | null;
   upstreamLatencyMeanMs: number;
   gatewayOverheadMs: number;
   availabilityPercent: number;
@@ -104,7 +104,10 @@ export async function buildToolCatalog(
   const { category, page = 1, pageSize = 50 } = options || {};
   const skip = (page - 1) * pageSize;
 
-  const where: Record<string, unknown> = { status: 'published' };
+  const where: Record<string, unknown> = {
+    status: 'published',
+    OR: [{ visibility: 'public' }, { teamId }],
+  };
   if (category) where.category = category;
 
   const [connectors, total] = await Promise.all([
@@ -114,7 +117,7 @@ export async function buildToolCatalog(
         endpoints: { where: { enabled: true }, orderBy: { createdAt: 'asc' } },
         pricing: true,
         healthChecks: { orderBy: { checkedAt: 'desc' }, take: 1 },
-        metrics: { where: { period: 'daily' }, orderBy: { periodStart: 'desc' }, take: 1 },
+        metrics: { where: { period: 'hourly' }, orderBy: { periodStart: 'desc' }, take: 1 },
         rankings: { orderBy: { qualityRank: 'asc' } },
       },
       orderBy: { displayName: 'asc' },
@@ -191,7 +194,7 @@ export function buildToolDescriptor(
   baseUrl: string
 ): ToolDescriptor {
   const endpoints: EndpointDescriptor[] = connector.endpoints.map((ep) => {
-    const inputSchema = (connector.inputSchema as object) || (ep.bodySchema as object) || undefined;
+    const inputSchema = (ep.bodySchema as object) || (connector.inputSchema as object) || undefined;
     const outputSchema = (connector.outputSchema as object) || undefined;
     const examples = Array.isArray(ep.examples) ? (ep.examples as EndpointExample[]) : undefined;
 

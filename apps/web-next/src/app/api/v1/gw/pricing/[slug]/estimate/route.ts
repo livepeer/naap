@@ -17,10 +17,11 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  const requestId = request.headers.get('x-request-id');
+  const traceId = request.headers.get('x-trace-id');
+
   const auth = await authorize(request);
   if (!auth) {
-    const requestId = request.headers.get('x-request-id');
-    const traceId = request.headers.get('x-trace-id');
     return buildErrorResponse('UNAUTHORIZED', 'Authentication required', 401, requestId, traceId);
   }
 
@@ -28,8 +29,6 @@ export async function GET(
   const { searchParams } = request.nextUrl;
   const unitsParam = searchParams.get('units');
   const feature = searchParams.get('feature') || undefined;
-  const requestId = request.headers.get('x-request-id');
-  const traceId = request.headers.get('x-trace-id');
 
   if (!unitsParam) {
     return buildErrorResponse(

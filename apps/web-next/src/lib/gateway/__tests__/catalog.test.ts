@@ -116,7 +116,7 @@ describe('buildToolDescriptor', () => {
     expect(result.endpoints[0].examples![0].description).toBe('Hello');
   });
 
-  it('falls back bodySchema to inputSchema when inputSchema not set', () => {
+  it('uses endpoint bodySchema as inputSchema when connector inputSchema not set', () => {
     const result = buildToolDescriptor(makeConnector(), '/api/v1/gw');
     expect(result.endpoints[0].inputSchema).toEqual({
       type: 'object',

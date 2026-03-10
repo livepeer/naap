@@ -184,9 +184,10 @@ async function handleRequest(
   // ── 9b. Idempotency Check (mutating methods only) ──
   const idempotencyKey = request.headers.get('idempotency-key');
   if (idempotencyKey && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    const cached = await checkIdempotency(scopeId, slug, consumerPath, idempotencyKey);
+    const cached = await checkIdempotency(scopeId, slug, consumerPath, idempotencyKey, method);
     if (cached) {
-      return new Response(cached.body, {
+      const buf = Buffer.from(cached.body, 'base64');
+      return new Response(buf, {
         status: cached.status,
         headers: { ...cached.headers, 'X-Idempotent-Replayed': 'true' },
       });
@@ -325,10 +326,11 @@ async function handleRequest(
   // ── 15b. Store Idempotency Response ──
   if (idempotencyKey && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
     const clonedForIdempotency = response.clone();
-    const idempotencyBody = await clonedForIdempotency.text();
+    const idempotencyBuffer = await clonedForIdempotency.arrayBuffer();
+    const idempotencyBody = Buffer.from(idempotencyBuffer).toString('base64');
     const idempotencyHeaders: Record<string, string> = {};
     clonedForIdempotency.headers.forEach((v, k) => { idempotencyHeaders[k] = v; });
-    storeIdempotency(scopeId, slug, consumerPath, idempotencyKey, {
+    storeIdempotency(scopeId, slug, consumerPath, idempotencyKey, method, {
       status: clonedForIdempotency.status,
       body: idempotencyBody,
       headers: idempotencyHeaders,

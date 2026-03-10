@@ -17,14 +17,14 @@ describe('checkIdempotency', () => {
 
   it('returns null on cache miss', async () => {
     mockCacheGet.mockResolvedValue(null);
-    const result = await checkIdempotency('team1', 'openai', '/chat', 'key-123');
+    const result = await checkIdempotency('team1', 'openai', '/chat', 'key-123', 'POST');
     expect(result).toBeNull();
   });
 
   it('returns cached response on hit', async () => {
     const cached = { status: 200, body: '{"ok":true}', headers: { 'content-type': 'application/json' } };
     mockCacheGet.mockResolvedValue(cached);
-    const result = await checkIdempotency('team1', 'openai', '/chat', 'key-123');
+    const result = await checkIdempotency('team1', 'openai', '/chat', 'key-123', 'POST');
     expect(result).toEqual(cached);
   });
 });
@@ -37,9 +37,9 @@ describe('storeIdempotency', () => {
   it('stores response with correct key and TTL', async () => {
     mockCacheSet.mockResolvedValue(undefined);
     const response = { status: 200, body: '{"ok":true}', headers: {} };
-    await storeIdempotency('team1', 'openai', '/chat', 'key-123', response);
+    await storeIdempotency('team1', 'openai', '/chat', 'key-123', 'POST', response);
     expect(mockCacheSet).toHaveBeenCalledWith(
-      'team1:openai:/chat:key-123',
+      'team1:openai:POST:/chat:key-123',
       response,
       { prefix: 'gw:idempotency', ttl: 300 }
     );

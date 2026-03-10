@@ -29,7 +29,7 @@ export async function GET(
   const traceId = request.headers.get('x-trace-id');
 
   const connector = await prisma.serviceConnector.findFirst({
-    where: { slug, status: 'published' },
+    where: { slug, status: 'published', OR: [{ visibility: 'public' }, { teamId: auth.teamId }] },
     include: { pricing: true },
   });
 

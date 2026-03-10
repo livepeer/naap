@@ -28,8 +28,15 @@ export async function GET(request: NextRequest) {
   }
 
   const rows = await prisma.connectorCapabilityRanking.findMany({
-    where: { category },
+    where: {
+      category,
+      connector: {
+        status: 'published',
+        OR: [{ visibility: 'public' }, { teamId: auth.teamId }],
+      },
+    },
     orderBy: { qualityRank: 'asc' },
+    take: 100,
     include: {
       connector: {
         select: { slug: true, displayName: true },

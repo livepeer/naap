@@ -52,8 +52,8 @@ export const createConnectorSchema = z.object({
   tags: z.array(z.string().max(32)).default([]),
   agentDescription: z.string().max(2048).optional(),
   agentNotFor: z.string().max(1024).optional(),
-  inputSchema: z.record(z.unknown()).optional(),
-  outputSchema: z.record(z.unknown()).optional(),
+  inputSchema: z.record(z.string(), z.unknown()).optional(),
+  outputSchema: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const updateConnectorSchema = createConnectorSchema.partial().omit({ slug: true }).extend({
@@ -90,12 +90,12 @@ export const createEndpointSchema = z.object({
   retries: z.number().int().min(0).max(5).default(0),
   bodyPattern: z.string().max(1024).optional(),
   bodyBlacklist: z.array(z.string().max(128)).default([]),
-  bodySchema: z.record(z.unknown()).optional(),
+  bodySchema: z.record(z.string(), z.unknown()).optional(),
   requiredHeaders: z.array(z.string().max(128)).default([]),
   examples: z.array(z.object({
     description: z.string().max(256),
-    input: z.record(z.unknown()),
-    output: z.record(z.unknown()),
+    input: z.record(z.string(), z.unknown()),
+    output: z.record(z.string(), z.unknown()),
   })).max(5).optional(),
 });
 

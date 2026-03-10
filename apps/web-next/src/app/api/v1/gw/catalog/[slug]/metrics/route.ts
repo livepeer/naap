@@ -28,7 +28,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const validWindow = ['1h', '24h', '7d'].includes(window) ? window : '24h';
 
   const connector = await prisma.serviceConnector.findFirst({
-    where: { slug, status: 'published' },
+    where: { slug, status: 'published', OR: [{ visibility: 'public' }, { teamId: auth.teamId }] },
     select: { id: true, slug: true, displayName: true },
   });
 

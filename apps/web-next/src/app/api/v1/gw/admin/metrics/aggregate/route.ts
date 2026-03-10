@@ -18,11 +18,9 @@ import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard
 
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
-  const idx = Math.min(
-    Math.floor((p / 100) * sorted.length),
-    sorted.length - 1
-  );
-  return sorted[idx] ?? 0;
+  const rank = Math.ceil((p / 100) * sorted.length);
+  const index = Math.max(0, Math.min(rank - 1, sorted.length - 1));
+  return sorted[index] ?? 0;
 }
 
 export async function GET(request: NextRequest) {
@@ -136,6 +134,66 @@ export async function GET(request: NextRequest) {
         throughputRpm,
       },
     });
+
+    // ── Daily rollup: aggregate all hourly rows for the calendar day ──
+    const dayStart = new Date(periodStart);
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+
+    const hourlyRows = await prisma.connectorMetrics.findMany({
+      where: {
+        connectorId: connector.id,
+        period: 'hourly',
+        periodStart: { gte: dayStart, lt: dayEnd },
+      },
+    });
+
+    if (hourlyRows.length > 0) {
+      const dayTotalRequests = hourlyRows.reduce((s, r) => s + r.totalRequests, 0);
+      const dayErrorCount = hourlyRows.reduce((s, r) => s + r.errorCount, 0);
+      const dayErrorRate = dayTotalRequests > 0 ? dayErrorCount / dayTotalRequests : 0;
+      const daySuccessRate = 1 - dayErrorRate;
+
+      const dayWeightedAvg = (field: 'latencyMeanMs' | 'upstreamLatencyMeanMs' | 'gatewayOverheadMs') => {
+        if (dayTotalRequests === 0) return 0;
+        return hourlyRows.reduce((s, r) => s + r[field] * r.totalRequests, 0) / dayTotalRequests;
+      };
+
+      const dayHCCount = hourlyRows.reduce((s, r) => s + r.healthCheckCount, 0);
+      const dayHCPassed = hourlyRows.reduce((s, r) => s + r.healthChecksPassed, 0);
+      const dayAvailability = dayHCCount > 0 ? (dayHCPassed / dayHCCount) * 100 : 100;
+      const dayThroughput = hourlyRows.reduce((s, r) => s + r.throughputRpm, 0) / hourlyRows.length;
+
+      const dailyData = {
+        totalRequests: dayTotalRequests,
+        errorCount: dayErrorCount,
+        errorRate: dayErrorRate,
+        successRate: daySuccessRate,
+        latencyMeanMs: dayWeightedAvg('latencyMeanMs'),
+        latencyP50Ms: 0,
+        latencyP95Ms: 0,
+        latencyP99Ms: 0,
+        upstreamLatencyMeanMs: dayWeightedAvg('upstreamLatencyMeanMs'),
+        gatewayOverheadMs: dayWeightedAvg('gatewayOverheadMs'),
+        availabilityPercent: dayAvailability,
+        healthCheckCount: dayHCCount,
+        healthChecksPassed: dayHCPassed,
+        throughputRpm: dayThroughput,
+      };
+
+      await prisma.connectorMetrics.upsert({
+        where: {
+          connectorId_period_periodStart: {
+            connectorId: connector.id,
+            period: 'daily',
+            periodStart: dayStart,
+          },
+        },
+        create: { connectorId: connector.id, period: 'daily', periodStart: dayStart, ...dailyData },
+        update: dailyData,
+      });
+    }
 
     aggregated.push({ slug: connector.slug, requests: totalRequests, errorCount });
   }
