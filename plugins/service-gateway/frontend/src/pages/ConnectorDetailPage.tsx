@@ -52,7 +52,7 @@ interface ApiKey {
   createdAt: string;
 }
 
-const TABS = ['Overview', 'API Spec', 'API Keys', 'Play', 'Usage', 'Settings'] as const;
+const TABS = ['Overview', 'API Spec', 'API Keys', 'Play', 'Usage', 'Pricing', 'Performance', 'Settings'] as const;
 type Tab = (typeof TABS)[number];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -1069,6 +1069,16 @@ export const ConnectorDetailPage: React.FC = () => {
           </div>
         )}
 
+        {/* Tab: Performance */}
+        {activeTab === 'Performance' && (
+          <PerformanceTab connectorSlug={connector.slug} api={api} />
+        )}
+
+        {/* Tab: Pricing */}
+        {activeTab === 'Pricing' && (
+          <PricingTab connectorId={id!} api={api} />
+        )}
+
         {/* Tab: Settings */}
         {activeTab === 'Settings' && (
           <div className="space-y-4">
@@ -1103,6 +1113,9 @@ export const ConnectorDetailPage: React.FC = () => {
                 </div>
               );
             })()}
+
+            {/* Agent Metadata */}
+            <AgentMetadataSection connectorId={id!} api={api} />
 
             {/* Upstream Secrets (owner-only) */}
             {secretsLoaded && secrets.length > 0 && (
@@ -1188,3 +1201,301 @@ export const ConnectorDetailPage: React.FC = () => {
       </div>
   );
 };
+
+// ── Performance Tab Component ──
+
+interface PerformanceMetrics {
+  errorRate: number;
+  successRate: number;
+  latencyMeanMs: number;
+  latencyP50Ms: number;
+  latencyP95Ms: number;
+  latencyP99Ms: number;
+  upstreamLatencyMeanMs: number;
+  gatewayOverheadMs: number;
+  availabilityPercent: number;
+  throughputRpm: number;
+  sampleSize: number;
+}
+
+function PerformanceTab({ connectorSlug, api }: { connectorSlug: string; api: ReturnType<typeof useGatewayApi> }) {
+  const [metrics, setMetrics] = useState<PerformanceMetrics | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [window, setWindow] = useState<'1h' | '24h' | '7d'>('24h');
+
+  useEffect(() => {
+    setLoaded(false);
+    const origin = typeof globalThis.window !== 'undefined' ? globalThis.window.location.origin : '';
+    fetch(`${origin}/api/v1/gw/catalog/${connectorSlug}/metrics?window=${window}`)
+      .then(r => r.json())
+      .then((data) => {
+        setMetrics(data.metrics || null);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, [connectorSlug, window, api]);
+
+  if (!loaded) return <div className="text-gray-500 text-sm">Loading performance data...</div>;
+
+  if (!metrics) {
+    return (
+      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-8 text-center">
+        <p className="text-gray-400 text-sm">No performance data available yet.</p>
+        <p className="text-gray-500 text-xs mt-1">Metrics are computed hourly from real usage data.</p>
+      </div>
+    );
+  }
+
+  const statCard = (label: string, value: string | number, sub?: string) => (
+    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+      <div className="text-xs text-gray-400 mb-1">{label}</div>
+      <div className="text-xl font-bold text-gray-100">{value}</div>
+      {sub && <div className="text-xs text-gray-500 mt-0.5">{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        {(['1h', '24h', '7d'] as const).map((w) => (
+          <button
+            key={w}
+            onClick={() => setWindow(w)}
+            className={`px-3 py-1.5 text-xs rounded-lg ${window === w ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+          >
+            {w}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-4 gap-3">
+        {statCard('Error Rate', `${(metrics.errorRate * 100).toFixed(2)}%`, `${metrics.sampleSize} requests`)}
+        {statCard('Availability', `${metrics.availabilityPercent.toFixed(1)}%`)}
+        {statCard('Latency (Mean)', `${Math.round(metrics.latencyMeanMs)}ms`)}
+        {statCard('Throughput', `${metrics.throughputRpm.toFixed(0)} rpm`)}
+      </div>
+      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-300">Latency Distribution</h3>
+        <div className="grid grid-cols-4 gap-4 text-sm">
+          <div>
+            <span className="text-gray-400 text-xs">P50</span>
+            <div className="text-gray-200 font-mono">{Math.round(metrics.latencyP50Ms)}ms</div>
+          </div>
+          <div>
+            <span className="text-gray-400 text-xs">P95</span>
+            <div className="text-gray-200 font-mono">{Math.round(metrics.latencyP95Ms)}ms</div>
+          </div>
+          <div>
+            <span className="text-gray-400 text-xs">P99</span>
+            <div className="text-gray-200 font-mono">{Math.round(metrics.latencyP99Ms)}ms</div>
+          </div>
+          <div>
+            <span className="text-gray-400 text-xs">Gateway Overhead</span>
+            <div className="text-gray-200 font-mono">{Math.round(metrics.gatewayOverheadMs)}ms</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Pricing Tab Component ──
+
+interface PricingFormData {
+  upstreamCostPerUnit: string;
+  upstreamUnit: string;
+  upstreamNotes: string;
+  costPerUnit: string;
+  unit: string;
+  currency: string;
+  billingModel: string;
+  freeQuota: string;
+}
+
+const UNIT_OPTIONS = ['request', 'token', '1k-tokens', 'second', 'minute', 'MB', 'GB', 'image', 'custom'];
+
+function PricingTab({ connectorId, api }: { connectorId: string; api: ReturnType<typeof useGatewayApi> }) {
+  const [form, setForm] = useState<PricingFormData>({
+    upstreamCostPerUnit: '', upstreamUnit: '', upstreamNotes: '',
+    costPerUnit: '0', unit: 'request', currency: 'USD', billingModel: 'per-unit', freeQuota: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    api.get(`/connectors/${connectorId}/pricing`).then((res: { success: boolean; data: Record<string, unknown> | null }) => {
+      if (res.data) {
+        const p = res.data;
+        setForm({
+          upstreamCostPerUnit: p.upstreamCostPerUnit != null ? String(p.upstreamCostPerUnit) : '',
+          upstreamUnit: (p.upstreamUnit as string) || '',
+          upstreamNotes: (p.upstreamNotes as string) || '',
+          costPerUnit: String(p.costPerUnit ?? 0),
+          unit: (p.unit as string) || 'request',
+          currency: (p.currency as string) || 'USD',
+          billingModel: (p.billingModel as string) || 'per-unit',
+          freeQuota: p.freeQuota != null ? String(p.freeQuota) : '',
+        });
+      }
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, [api, connectorId]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/connectors/${connectorId}/pricing`, {
+        upstreamCostPerUnit: form.upstreamCostPerUnit ? parseFloat(form.upstreamCostPerUnit) : undefined,
+        upstreamUnit: form.upstreamUnit || undefined,
+        upstreamNotes: form.upstreamNotes || undefined,
+        costPerUnit: parseFloat(form.costPerUnit) || 0,
+        unit: form.unit,
+        currency: form.currency,
+        billingModel: form.billingModel,
+        freeQuota: form.freeQuota ? parseInt(form.freeQuota) : undefined,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!loaded) return <div className="text-gray-500 text-sm">Loading pricing...</div>;
+
+  const inputClass = 'px-3 py-1.5 bg-gray-900 border border-gray-600 rounded text-gray-200 text-sm';
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-300">Upstream Cost</h3>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Cost Per Unit</label>
+            <input type="number" step="any" value={form.upstreamCostPerUnit} onChange={(e) => setForm({ ...form, upstreamCostPerUnit: e.target.value })} className={inputClass + ' w-full'} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Unit</label>
+            <select value={form.upstreamUnit} onChange={(e) => setForm({ ...form, upstreamUnit: e.target.value })} className={inputClass + ' w-full'}>
+              <option value="">Select...</option>
+              {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Notes</label>
+            <input type="text" value={form.upstreamNotes} onChange={(e) => setForm({ ...form, upstreamNotes: e.target.value })} className={inputClass + ' w-full'} />
+          </div>
+        </div>
+      </div>
+      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-300">Connector Pricing</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Cost Per Unit</label>
+            <input type="number" step="any" value={form.costPerUnit} onChange={(e) => setForm({ ...form, costPerUnit: e.target.value })} className={inputClass + ' w-full'} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Unit</label>
+            <select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className={inputClass + ' w-full'}>
+              {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Currency</label>
+            <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className={inputClass + ' w-full'}>
+              <option value="USD">USD</option>
+              <option value="EUR">EUR</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Billing Model</label>
+            <select value={form.billingModel} onChange={(e) => setForm({ ...form, billingModel: e.target.value })} className={inputClass + ' w-full'}>
+              <option value="free">Free</option>
+              <option value="per-unit">Per Unit</option>
+              <option value="flat">Flat</option>
+              <option value="tiered">Tiered</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Free Quota</label>
+            <input type="number" value={form.freeQuota} onChange={(e) => setForm({ ...form, freeQuota: e.target.value })} className={inputClass + ' w-full'} placeholder="Unlimited" />
+          </div>
+        </div>
+      </div>
+      <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">
+        {saving ? 'Saving...' : 'Save Pricing'}
+      </button>
+    </div>
+  );
+}
+
+// ── Agent Metadata Section ──
+
+function AgentMetadataSection({ connectorId, api }: { connectorId: string; api: ReturnType<typeof useGatewayApi> }) {
+  const [agentDescription, setAgentDescription] = useState('');
+  const [agentNotFor, setAgentNotFor] = useState('');
+  const [inputSchemaStr, setInputSchemaStr] = useState('');
+  const [outputSchemaStr, setOutputSchemaStr] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    api.get(`/connectors/${connectorId}`).then((res: { success: boolean; data: Record<string, unknown> }) => {
+      const d = res.data;
+      setAgentDescription((d.agentDescription as string) || '');
+      setAgentNotFor((d.agentNotFor as string) || '');
+      setInputSchemaStr(d.inputSchema ? JSON.stringify(d.inputSchema, null, 2) : '');
+      setOutputSchemaStr(d.outputSchema ? JSON.stringify(d.outputSchema, null, 2) : '');
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, [api, connectorId]);
+
+  const handleSave = async () => {
+    let inputSchema: unknown = undefined;
+    let outputSchema: unknown = undefined;
+    if (inputSchemaStr.trim()) {
+      try { inputSchema = JSON.parse(inputSchemaStr); } catch { return; }
+    }
+    if (outputSchemaStr.trim()) {
+      try { outputSchema = JSON.parse(outputSchemaStr); } catch { return; }
+    }
+    setSaving(true);
+    try {
+      await api.put(`/connectors/${connectorId}`, {
+        agentDescription: agentDescription || undefined,
+        agentNotFor: agentNotFor || undefined,
+        inputSchema,
+        outputSchema,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!loaded) return null;
+
+  const inputClass = 'w-full px-3 py-1.5 bg-gray-900 border border-gray-600 rounded text-gray-200 text-sm';
+
+  return (
+    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
+      <h3 className="text-sm font-semibold text-gray-300">Agent Metadata</h3>
+      <p className="text-xs text-gray-500">Provide metadata to help AI agents understand and use this connector.</p>
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Agent Description</label>
+        <textarea value={agentDescription} onChange={(e) => setAgentDescription(e.target.value)} rows={2} className={inputClass} placeholder="Describe what this tool does for an AI agent..." />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Not For (what the tool should NOT be used for)</label>
+        <textarea value={agentNotFor} onChange={(e) => setAgentNotFor(e.target.value)} rows={2} className={inputClass} placeholder="e.g. Not for web browsing or file system access" />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Input Schema (JSON)</label>
+        <textarea value={inputSchemaStr} onChange={(e) => setInputSchemaStr(e.target.value)} rows={4} className={inputClass + ' font-mono text-xs'} placeholder='{"type":"object","properties":{...}}' />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Output Schema (JSON)</label>
+        <textarea value={outputSchemaStr} onChange={(e) => setOutputSchemaStr(e.target.value)} rows={4} className={inputClass + ' font-mono text-xs'} placeholder='{"type":"object","properties":{...}}' />
+      </div>
+      <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">
+        {saving ? 'Saving...' : 'Save Agent Metadata'}
+      </button>
+    </div>
+  );
+}

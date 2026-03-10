@@ -64,7 +64,26 @@ function resolveResponseMode(
 }
 
 /**
+ * Error recovery metadata for agent-friendly error handling.
+ * Agents use retryable + suggestedAction to decide next steps automatically.
+ */
+const ERROR_RECOVERY: Record<string, { retryable: boolean; suggestedAction: string; retryAfterMs?: number }> = {
+  RATE_LIMITED:          { retryable: true,  suggestedAction: 'retry', retryAfterMs: 5000 },
+  UPSTREAM_TIMEOUT:      { retryable: true,  suggestedAction: 'retry' },
+  UPSTREAM_UNAVAILABLE:  { retryable: true,  suggestedAction: 'retry' },
+  UPSTREAM_ERROR:        { retryable: true,  suggestedAction: 'retry' },
+  CIRCUIT_OPEN:          { retryable: true,  suggestedAction: 'retry', retryAfterMs: 30000 },
+  VALIDATION_ERROR:      { retryable: false, suggestedAction: 'reformulate' },
+  UNAUTHORIZED:          { retryable: false, suggestedAction: 'authenticate' },
+  FORBIDDEN:             { retryable: false, suggestedAction: 'abort' },
+  NOT_FOUND:             { retryable: false, suggestedAction: 'abort' },
+  PAYLOAD_TOO_LARGE:     { retryable: false, suggestedAction: 'reformulate' },
+  SSRF_BLOCKED:          { retryable: false, suggestedAction: 'abort' },
+};
+
+/**
  * Build a gateway error response in NaaP envelope format.
+ * Includes agent-friendly recovery metadata (retryable, suggestedAction).
  */
 export function buildErrorResponse(
   code: string,
@@ -74,11 +93,15 @@ export function buildErrorResponse(
   traceId: string | null,
   details?: unknown
 ): NextResponse {
+  const recovery = ERROR_RECOVERY[code] || { retryable: false, suggestedAction: 'abort' };
   const body = {
     success: false,
     error: {
       code,
       message,
+      retryable: recovery.retryable,
+      suggestedAction: recovery.suggestedAction,
+      ...(recovery.retryAfterMs ? { retryAfterMs: recovery.retryAfterMs } : {}),
       ...(details ? { details } : {}),
     },
     meta: {
@@ -89,6 +112,9 @@ export function buildErrorResponse(
   const headers: Record<string, string> = {};
   if (requestId) headers['x-request-id'] = requestId;
   if (traceId) headers['x-trace-id'] = traceId;
+  if (recovery.retryable && recovery.retryAfterMs) {
+    headers['Retry-After'] = String(Math.ceil(recovery.retryAfterMs / 1000));
+  }
 
   return NextResponse.json(body, { status: statusCode, headers });
 }

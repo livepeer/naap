@@ -14,6 +14,10 @@ vi.mock('@/lib/db', () => ({
       findUnique: vi.fn(),
       update: vi.fn().mockResolvedValue({}),
     },
+    gatewayMasterKey: {
+      findUnique: vi.fn(),
+      update: vi.fn().mockResolvedValue({}),
+    },
     teamMember: {
       findFirst: vi.fn().mockResolvedValue({ id: 'member-1' }),
     },
@@ -45,6 +49,7 @@ import { authorize, extractTeamContext, verifyConnectorAccess } from '../authori
 import type { AuthResult } from '../types';
 
 const mockFindUnique = prisma.gatewayApiKey.findUnique as ReturnType<typeof vi.fn>;
+const mockMasterKeyFindUnique = (prisma as unknown as { gatewayMasterKey: { findUnique: ReturnType<typeof vi.fn> } }).gatewayMasterKey.findUnique;
 const mockValidateSession = validateSession as ReturnType<typeof vi.fn>;
 const mockGetAuthToken = getAuthToken as ReturnType<typeof vi.fn>;
 
@@ -220,6 +225,123 @@ describe('authorize', () => {
 
       const result = await authorize(request);
       expect(result).toBeNull();
+    });
+  });
+
+  describe('Master key auth path', () => {
+    const rawMasterKey = 'gwm_test-master-key-12345';
+    const masterKeyHash = createHash('sha256').update(rawMasterKey).digest('hex');
+
+    it('authenticates with valid gwm_ key', async () => {
+      mockMasterKeyFindUnique.mockResolvedValue({
+        id: 'mk-1',
+        keyHash: masterKeyHash,
+        status: 'active',
+        teamId: 'team-1',
+        ownerUserId: null,
+        createdBy: 'user-1',
+        expiresAt: null,
+        scopes: ['proxy'],
+        allowedIPs: [],
+      });
+
+      const request = new Request('https://example.com/api/v1/gw/test', {
+        headers: { authorization: `Bearer ${rawMasterKey}` },
+      });
+
+      const result = await authorize(request);
+      expect(result).not.toBeNull();
+      expect(result!.callerType).toBe('masterKey');
+      expect(result!.isMasterKey).toBe(true);
+      expect(result!.teamId).toBe('team-1');
+    });
+
+    it('returns null for non-existent gwm_ key', async () => {
+      mockMasterKeyFindUnique.mockResolvedValue(null);
+
+      const request = new Request('https://example.com/api/v1/gw/test', {
+        headers: { authorization: 'Bearer gwm_nonexistent' },
+      });
+
+      const result = await authorize(request);
+      expect(result).toBeNull();
+    });
+
+    it('returns null for revoked gwm_ key', async () => {
+      mockMasterKeyFindUnique.mockResolvedValue({
+        id: 'mk-1',
+        keyHash: masterKeyHash,
+        status: 'revoked',
+        teamId: 'team-1',
+        ownerUserId: null,
+        createdBy: 'user-1',
+        expiresAt: null,
+      });
+
+      const request = new Request('https://example.com/api/v1/gw/test', {
+        headers: { authorization: `Bearer ${rawMasterKey}` },
+      });
+
+      const result = await authorize(request);
+      expect(result).toBeNull();
+    });
+
+    it('returns null for expired gwm_ key', async () => {
+      mockMasterKeyFindUnique.mockResolvedValue({
+        id: 'mk-1',
+        keyHash: masterKeyHash,
+        status: 'active',
+        teamId: 'team-1',
+        ownerUserId: null,
+        createdBy: 'user-1',
+        expiresAt: new Date('2020-01-01'),
+      });
+
+      const request = new Request('https://example.com/api/v1/gw/test', {
+        headers: { authorization: `Bearer ${rawMasterKey}` },
+      });
+
+      const result = await authorize(request);
+      expect(result).toBeNull();
+    });
+
+    it('resolves personal scope from ownerUserId', async () => {
+      mockMasterKeyFindUnique.mockResolvedValue({
+        id: 'mk-2',
+        keyHash: createHash('sha256').update('gwm_personal-key').digest('hex'),
+        status: 'active',
+        teamId: null,
+        ownerUserId: 'user-2',
+        createdBy: 'user-2',
+        expiresAt: null,
+      });
+
+      const request = new Request('https://example.com/api/v1/gw/test', {
+        headers: { authorization: 'Bearer gwm_personal-key' },
+      });
+
+      const result = await authorize(request);
+      expect(result).not.toBeNull();
+      expect(result!.teamId).toBe('personal:user-2');
+    });
+
+    it('gwm_ key auth is checked before gw_ key auth', async () => {
+      mockMasterKeyFindUnique.mockResolvedValue({
+        id: 'mk-1',
+        keyHash: masterKeyHash,
+        status: 'active',
+        teamId: 'team-1',
+        ownerUserId: null,
+        createdBy: 'user-1',
+        expiresAt: null,
+      });
+
+      const request = new Request('https://example.com/api/v1/gw/test', {
+        headers: { authorization: `Bearer ${rawMasterKey}` },
+      });
+
+      await authorize(request);
+      expect(mockFindUnique).not.toHaveBeenCalled();
     });
   });
 

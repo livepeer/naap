@@ -30,6 +30,7 @@ import { getAuthToken, getClientIP } from '@/lib/api/response';
 import type { UsageData } from '@/lib/gateway/types';
 import { matchIPAllowlist } from '@/lib/gateway/types';
 import { bufferUsage } from '@/lib/gateway/usage-buffer';
+import { checkIdempotency, storeIdempotency } from '@/lib/gateway/idempotency';
 import '@/lib/gateway/transforms';
 
 type RouteContext = { params: Promise<{ connector: string; path: string[] }> };
@@ -180,6 +181,18 @@ async function handleRequest(
     );
   }
 
+  // ── 9b. Idempotency Check (mutating methods only) ──
+  const idempotencyKey = request.headers.get('idempotency-key');
+  if (idempotencyKey && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const cached = await checkIdempotency(scopeId, slug, consumerPath, idempotencyKey);
+    if (cached) {
+      return new Response(cached.body, {
+        status: cached.status,
+        headers: { ...cached.headers, 'X-Idempotent-Replayed': 'true' },
+      });
+    }
+  }
+
   // ── 10. Response Cache Check (GET only) ──
   const queryString = request.nextUrl.search || '';
   const cacheKey = buildCacheKey(scopeId, slug, method, consumerPath + queryString, consumerBody);
@@ -307,6 +320,19 @@ async function handleRequest(
     setCachedResponse(cacheKey, { body: responseBodyBuffer, status: cloned.status, headers }, cacheTtl);
   } else {
     responseBytes = parseInt(response.headers.get('content-length') || '0', 10);
+  }
+
+  // ── 15b. Store Idempotency Response ──
+  if (idempotencyKey && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const clonedForIdempotency = response.clone();
+    const idempotencyBody = await clonedForIdempotency.text();
+    const idempotencyHeaders: Record<string, string> = {};
+    clonedForIdempotency.headers.forEach((v, k) => { idempotencyHeaders[k] = v; });
+    storeIdempotency(scopeId, slug, consumerPath, idempotencyKey, {
+      status: clonedForIdempotency.status,
+      body: idempotencyBody,
+      headers: idempotencyHeaders,
+    }).catch(() => {});
   }
 
   // ── 16. Log Usage (non-blocking) ──

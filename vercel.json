@@ -39,7 +39,7 @@
         { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,OPTIONS,PATCH" },
         {
           "key": "Access-Control-Allow-Headers",
-          "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, X-Request-ID, X-Trace-ID, X-Team-ID"
+          "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, X-Request-ID, X-Trace-ID, X-Team-ID, Idempotency-Key"
         },
         { "key": "Access-Control-Max-Age", "value": "86400" },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
@@ -98,10 +98,15 @@
     {
       "source": "/plugin-assets/:path*",
       "destination": "/cdn/plugins/:path*"
+    },
+    {
+      "source": "/api/v1/gw/.well-known/gateway.json",
+      "destination": "/api/v1/gw/discovery"
     }
   ],
   "redirects": [],
   "crons": [
-    { "path": "/api/v1/gw/admin/health/check", "schedule": "*/5 * * * *" }
+    { "path": "/api/v1/gw/admin/health/check", "schedule": "*/5 * * * *" },
+    { "path": "/api/v1/gw/admin/metrics/aggregate", "schedule": "5 * * * *" }
   ]
 }

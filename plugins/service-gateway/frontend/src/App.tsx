@@ -12,6 +12,7 @@ import { ConnectorListPage } from './pages/ConnectorListPage';
 import { ConnectorWizardPage } from './pages/ConnectorWizardPage';
 import { ConnectorDetailPage } from './pages/ConnectorDetailPage';
 import { ApiKeysPage } from './pages/ApiKeysPage';
+import { MasterKeysPage } from './pages/MasterKeysPage';
 import { PlansPage } from './pages/PlansPage';
 import { DashboardPage } from './pages/DashboardPage';
 import './globals.css';
@@ -25,6 +26,7 @@ const GatewayApp: React.FC = () => (
         <Route path="/connectors/:id" element={<ConnectorDetailPage />} />
         <Route path="/connectors/:id/edit" element={<ConnectorWizardPage />} />
         <Route path="/keys" element={<ApiKeysPage />} />
+        <Route path="/master-keys" element={<MasterKeysPage />} />
         <Route path="/plans" element={<PlansPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

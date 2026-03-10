@@ -22,6 +22,9 @@ export type AuditAction =
   | 'key.create'
   | 'key.revoke'
   | 'key.rotate'
+  | 'master-key.create'
+  | 'master-key.revoke'
+  | 'master-key.rotate'
   | 'plan.create'
   | 'plan.delete';
 

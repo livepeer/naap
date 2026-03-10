@@ -60,7 +60,7 @@ export interface ResolvedConfig {
 
 // ── Auth ──
 
-export type CallerType = 'jwt' | 'apiKey';
+export type CallerType = 'jwt' | 'apiKey' | 'masterKey';
 
 export type AuthResult = AuthResultAuthenticated;
 
@@ -69,6 +69,7 @@ interface AuthResultAuthenticated {
   callerType: CallerType;
   callerId: string;
   teamId: string;
+  isMasterKey?: boolean;
   apiKeyId?: string;
   connectorId?: string;
   planId?: string;

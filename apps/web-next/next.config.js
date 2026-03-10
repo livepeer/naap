@@ -99,7 +99,7 @@ const nextConfig = {
         headers: [
           { key: 'Access-Control-Allow-Origin', value: allowedOrigins[0] },
           { key: 'Access-Control-Allow-Methods', value: 'GET,POST,PUT,DELETE,OPTIONS,PATCH' },
-          { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization' },
+          { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, X-Request-ID, X-Trace-ID, X-Team-ID, Idempotency-Key' },
           { key: 'Access-Control-Max-Age', value: '86400' },
         ],
       },
@@ -125,6 +125,12 @@ const nextConfig = {
   // Rewrites for proxying
   async rewrites() {
     const rewrites = [];
+
+    // .well-known rewrite for gateway discovery
+    rewrites.push({
+      source: '/api/v1/gw/.well-known/gateway.json',
+      destination: '/api/v1/gw/discovery',
+    });
 
     // In development, proxy API calls to legacy backend
     if (process.env.NODE_ENV === 'development' && process.env.LEGACY_API_PROXY === 'true') {
