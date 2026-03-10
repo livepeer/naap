@@ -1,6 +1,6 @@
 /**
  * ConnectorDetailPage — View and manage a single connector.
- * Tabs: Overview (docs + code snippets), API Keys, Usage, Settings
+ * Tabs: Overview, API Spec, API Keys, Play, Usage, Pricing, Performance, Settings, Agent
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
@@ -52,7 +52,7 @@ interface ApiKey {
   createdAt: string;
 }
 
-const TABS = ['Overview', 'API Spec', 'API Keys', 'Play', 'Usage', 'Pricing', 'Performance', 'Settings'] as const;
+const TABS = ['Overview', 'API Spec', 'API Keys', 'Play', 'Usage', 'Pricing', 'Performance', 'Settings', 'Agent'] as const;
 type Tab = (typeof TABS)[number];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -509,12 +509,14 @@ export const ConnectorDetailPage: React.FC = () => {
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 border-b border-gray-700 mb-6">
+        <div className="flex gap-1 border-b border-gray-700 mb-6 overflow-x-auto" role="tablist" aria-label="Connector details">
           {TABS.map((tab) => (
             <button
               key={tab}
+              role="tab"
+              aria-selected={activeTab === tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab
                   ? 'border-blue-500 text-blue-400'
                   : 'border-transparent text-gray-400 hover:text-gray-200'
@@ -1186,9 +1188,6 @@ export const ConnectorDetailPage: React.FC = () => {
               );
             })()}
 
-            {/* Agent Metadata */}
-            <AgentMetadataSection connectorId={id!} api={api} />
-
             {/* Upstream Secrets (owner-only) */}
             {secretsLoaded && secrets.length > 0 && (
               <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
@@ -1269,6 +1268,11 @@ export const ConnectorDetailPage: React.FC = () => {
               </div>
             )}
           </div>
+        )}
+
+        {/* Tab: Agent */}
+        {activeTab === 'Agent' && (
+          <AgentMetadataSection connectorId={id!} api={api} />
         )}
       </div>
   );
@@ -1508,8 +1512,8 @@ function AgentMetadataSection({ connectorId, api }: { connectorId: string; api: 
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    api.get(`/connectors/${connectorId}`).then((res: { success: boolean; data: Record<string, unknown> }) => {
-      const d = res.data;
+    api.get(`/connectors/${connectorId}`).then((res: { success: boolean; data?: Record<string, unknown> }) => {
+      const d = res.data ?? {};
       setAgentDescription((d.agentDescription as string) || '');
       setAgentNotFor((d.agentNotFor as string) || '');
       setInputSchemaStr(d.inputSchema ? JSON.stringify(d.inputSchema, null, 2) : '');
@@ -1545,7 +1549,7 @@ function AgentMetadataSection({ connectorId, api }: { connectorId: string; api: 
     }
   };
 
-  if (!loaded) return null;
+  if (!loaded) return <div className="text-gray-500 text-sm">Loading agent metadata...</div>;
 
   const inputClass = 'w-full px-3 py-1.5 bg-gray-900 border border-gray-600 rounded text-gray-200 text-sm';
 
