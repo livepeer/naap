@@ -42,7 +42,7 @@ export interface UseDashboardQueryOptions {
 
 export interface UseDashboardQueryResult<T> {
   data: T | null;
-  /** True during the very first fetch (no data yet). */
+  /** True while any fetch is in-flight (initial or poll refresh). */
   loading: boolean;
   /** True when refetching while stale data is still displayed. */
   refreshing: boolean;

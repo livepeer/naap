@@ -56,6 +56,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { RawExplorer } from './components/RawExplorer';
 
 // ============================================================================
 // GraphQL Query — the ONLY place data requirements are declared
@@ -80,7 +81,7 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
       name mins color modelMins { model mins }
     }
     pipelineCatalog {
-      id name models
+      id name models regions
     }
     gpuCapacity {
       totalGPUs
@@ -1298,6 +1299,11 @@ export default function DashboardPage() {
             ? <RefreshWrap refreshing={refreshing}><PricingCard data={data.pricing} /></RefreshWrap>
             : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pricing" />}
         </div>
+      </section>
+
+      {/* Row 5: Raw Metrics Explorer */}
+      <section>
+        <RawExplorer />
       </section>
     </div>
   );

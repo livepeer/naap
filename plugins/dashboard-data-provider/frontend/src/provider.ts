@@ -27,6 +27,12 @@ import {
   type DashboardGPUCapacity,
   type DashboardOrchestrator,
   type DashboardProtocol,
+  type RawNetworkDemandRow,
+  type RawGPUMetricRow,
+  type RawSLAComplianceRow,
+  type NetworkDemandFilters,
+  type GPUMetricsFilters,
+  type SLAComplianceFilters,
 } from '@naap/plugin-sdk';
 
 import {
@@ -35,6 +41,7 @@ import {
   fetchSLACompliance,
   fetchPipelineCatalog,
   type NetworkDemandRow,
+  type GPUMetricRow,
   type SLAComplianceRow,
 } from './api/leaderboard.js';
 import {
@@ -112,22 +119,10 @@ function sortedKeys(m: Map<string, unknown[]>): string[] {
  * Weighted average of effective_success_rate by known_sessions_count.
  * Returns 0 when no sessions exist (avoids false 100%).
  */
-function weightedSuccessRate(rows: Array<{ effective_success_rate: number; known_sessions_count: number }>): number {
+function weightedSuccessRatio(rows: Array<{ startup_success_rate: number; known_sessions_count: number }>): number {
   const totalSessions = rows.reduce((s, r) => s + r.known_sessions_count, 0);
   if (totalSessions === 0) return 0;
-  return rows.reduce((s, r) => s + r.effective_success_rate * r.known_sessions_count, 0) / totalSessions;
-}
-
-function trueSuccessRate(rows: NetworkDemandRow[]): number {
-  let served = 0, totalDemand = 0, unexcused = 0, known = 0;
-  for (const r of rows) {
-    served += r.served_sessions || 0;
-    totalDemand += r.total_demand_sessions || 0;
-    unexcused += r.startup_unexcused_sessions || 0;
-    known += r.known_sessions_count || 0;
-  }
-  if (totalDemand === 0 || known === 0) return 0;
-  return (served / totalDemand) * (1 - unexcused / known) * 100;
+  return rows.reduce((s, r) => s + r.startup_success_rate * r.known_sessions_count, 0) / totalSessions;
 }
 
 /** Count distinct non-empty Ethereum addresses in an array of SLA rows */
@@ -175,23 +170,23 @@ async function resolveKPI({ timeframe }: { timeframe?: string }): Promise<Dashbo
   const latestDemand = demandWindows.get(demandKeys.at(-1) ?? '') ?? [];
   const prevDemand   = demandWindows.get(demandKeys.at(-2) ?? '') ?? [];
 
-  const currentSR = trueSuccessRate(latestDemand);
-  const prevSR    = trueSuccessRate(prevDemand);
+  const currentSR = weightedSuccessRatio(latestDemand) * 100;
+  const prevSR    = weightedSuccessRatio(prevDemand) * 100;
 
   // Orchestrators Seen: distinct addresses across the selected period
   const orchCount = countOrchestrators(slaRows) || 0;
   const orchDelta = 0;
 
-  // Usage, Sessions, and Fees: sum over the selected timeframe
-  const totalMins       = demandRows.reduce((s, r) => s + (r.total_minutes || 0), 0);
-  const totalSessions   = demandRows.reduce((s, r) => s + (r.sessions_count || 0), 0);
-  const totalFeesEth    = demandRows.reduce((s, r) => s + (r.ticket_face_value_eth || 0), 0);
+  // Usage, Streams, and Fees: sum over the selected timeframe
+  const totalMins    = demandRows.reduce((s, r) => s + (r.total_minutes || 0), 0);
+  const totalStreams = demandRows.reduce((s, r) => s + (r.sessions_count || 0), 0);
+  const totalFeesEth = demandRows.reduce((s, r) => s + (r.ticket_face_value_eth || 0), 0);
 
   return {
     successRate:        { value: round1(currentSR),         delta: round1(currentSR - prevSR) },
     orchestratorsOnline:{ value: orchCount,                  delta: orchDelta },
     dailyUsageMins:     { value: Math.round(totalMins),      delta: 0 },
-    dailySessionCount:  { value: totalSessions,              delta: 0 },
+    dailySessionCount:  { value: totalStreams,               delta: 0 },
     dailyNetworkFeesEth:{ value: round1(totalFeesEth),       delta: 0 },
     timeframeHours,
   };
@@ -248,6 +243,7 @@ async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalogEntry[]
     id: entry.id,
     name: PIPELINE_DISPLAY[entry.id] ?? entry.id,
     models: entry.models ?? [],
+    regions: entry.regions ?? [],
   }));
 }
 
@@ -402,6 +398,145 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
 }
 
 // ---------------------------------------------------------------------------
+// Raw Explorer Resolvers (API-native passthrough)
+// ---------------------------------------------------------------------------
+
+/** Transform API snake_case NetworkDemandRow to camelCase RawNetworkDemandRow */
+function transformNetworkDemandRow(row: NetworkDemandRow): RawNetworkDemandRow {
+  return {
+    windowStart: row.window_start,
+    gateway: row.gateway,
+    region: row.region,
+    pipelineId: row.pipeline_id,
+    modelId: row.model_id,
+    sessionsCount: row.sessions_count,
+    totalMinutes: row.total_minutes,
+    knownSessionsCount: row.known_sessions_count,
+    servedSessions: row.served_sessions,
+    unservedSessions: row.unserved_sessions,
+    totalDemandSessions: row.total_demand_sessions,
+    startupUnexcusedSessions: row.startup_unexcused_sessions,
+    confirmedSwappedSessions: row.confirmed_swapped_sessions,
+    inferredSwapSessions: row.inferred_swap_sessions,
+    totalSwappedSessions: row.total_swapped_sessions,
+    sessionsEndingInError: row.sessions_ending_in_error,
+    errorStatusSamples: row.error_status_samples,
+    healthSignalCoverageRatio: row.health_signal_coverage_ratio,
+    startupSuccessRate: row.startup_success_rate,
+    effectiveSuccessRate: row.effective_success_rate,
+    ticketFaceValueEth: row.ticket_face_value_eth,
+  };
+}
+
+/** Transform API snake_case GPUMetricRow to camelCase RawGPUMetricRow */
+function transformGPUMetricRow(row: GPUMetricRow): RawGPUMetricRow {
+  return {
+    windowStart: row.window_start,
+    orchestratorAddress: row.orchestrator_address,
+    pipelineId: row.pipeline_id,
+    modelId: row.model_id,
+    gpuId: row.gpu_id,
+    region: row.region,
+    gpuModelName: row.gpu_model_name,
+    gpuMemoryBytesTotal: row.gpu_memory_bytes_total,
+    runnerVersion: row.runner_version,
+    cudaVersion: row.cuda_version,
+    avgOutputFps: row.avg_output_fps,
+    p95OutputFps: row.p95_output_fps,
+    fpsJitterCoefficient: row.fps_jitter_coefficient,
+    avgPromptToFirstFrameMs: row.avg_prompt_to_first_frame_ms,
+    avgStartupLatencyMs: row.avg_startup_latency_ms,
+    avgE2eLatencyMs: row.avg_e2e_latency_ms,
+    p95PromptToFirstFrameLatencyMs: row.p95_prompt_to_first_frame_latency_ms,
+    p95StartupLatencyMs: row.p95_startup_latency_ms,
+    p95E2eLatencyMs: row.p95_e2e_latency_ms,
+    promptToFirstFrameSampleCount: row.prompt_to_first_frame_sample_count,
+    startupLatencySampleCount: row.startup_latency_sample_count,
+    e2eLatencySampleCount: row.e2e_latency_sample_count,
+    statusSamples: row.status_samples,
+    errorStatusSamples: row.error_status_samples,
+    knownSessionsCount: row.known_sessions_count,
+    startupSuccessSessions: row.startup_success_sessions,
+    startupExcusedSessions: row.startup_excused_sessions,
+    startupUnexcusedSessions: row.startup_unexcused_sessions,
+    confirmedSwappedSessions: row.confirmed_swapped_sessions,
+    inferredSwapSessions: row.inferred_swap_sessions,
+    totalSwappedSessions: row.total_swapped_sessions,
+    sessionsEndingInError: row.sessions_ending_in_error,
+    healthSignalCoverageRatio: row.health_signal_coverage_ratio,
+    startupUnexcusedRate: row.startup_unexcused_rate,
+    swapRate: row.swap_rate,
+  };
+}
+
+/** Transform API snake_case SLAComplianceRow to camelCase RawSLAComplianceRow */
+function transformSLAComplianceRow(row: SLAComplianceRow): RawSLAComplianceRow {
+  return {
+    windowStart: row.window_start,
+    orchestratorAddress: row.orchestrator_address,
+    pipelineId: row.pipeline_id,
+    modelId: row.model_id,
+    gpuId: row.gpu_id,
+    region: row.region,
+    knownSessionsCount: row.known_sessions_count,
+    startupSuccessSessions: row.startup_success_sessions,
+    startupExcusedSessions: row.startup_excused_sessions,
+    startupUnexcusedSessions: row.startup_unexcused_sessions,
+    confirmedSwappedSessions: row.confirmed_swapped_sessions,
+    inferredSwapSessions: row.inferred_swap_sessions,
+    totalSwappedSessions: row.total_swapped_sessions,
+    sessionsEndingInError: row.sessions_ending_in_error,
+    errorStatusSamples: row.error_status_samples,
+    healthSignalCoverageRatio: row.health_signal_coverage_ratio,
+    startupSuccessRate: row.startup_success_rate,
+    effectiveSuccessRate: row.effective_success_rate,
+    noSwapRate: row.no_swap_rate,
+    slaScore: row.sla_score,
+  };
+}
+
+async function resolveRawNetworkDemand(args: NetworkDemandFilters): Promise<RawNetworkDemandRow[]> {
+  const filters = {
+    interval: args.interval,
+    gateway: args.gateway,
+    region: args.region,
+    pipeline_id: args.pipelineId,
+    model_id: args.modelId,
+  };
+  const rows = await fetchNetworkDemand(filters);
+  return rows.map(transformNetworkDemandRow);
+}
+
+async function resolveRawGPUMetrics(args: GPUMetricsFilters): Promise<RawGPUMetricRow[]> {
+  const filters = {
+    time_range: args.timeRange,
+    orchestrator_address: args.orchestratorAddress,
+    pipeline_id: args.pipelineId,
+    model_id: args.modelId,
+    gpu_id: args.gpuId,
+    region: args.region,
+    gpu_model_name: args.gpuModelName,
+    runner_version: args.runnerVersion,
+    cuda_version: args.cudaVersion,
+  };
+  const rows = await fetchGPUMetrics(filters);
+  return rows.map(transformGPUMetricRow);
+}
+
+async function resolveRawSLACompliance(args: SLAComplianceFilters): Promise<RawSLAComplianceRow[]> {
+  const filters = {
+    period: args.period,
+    orchestrator_address: args.orchestratorAddress,
+    pipeline_id: args.pipelineId,
+    model_id: args.modelId,
+    gpu_id: args.gpuId,
+    region: args.region,
+  };
+  const rows = await fetchSLACompliance(filters);
+  return rows.map(transformSLAComplianceRow);
+}
+
+// ---------------------------------------------------------------------------
 // Provider registration
 // ---------------------------------------------------------------------------
 
@@ -413,6 +548,7 @@ async function resolveOrchestrators({ period = '72h' }: { period?: string }): Pr
  */
 export function registerDashboardProvider(eventBus: IEventBus): () => void {
   return createDashboardProvider(eventBus, {
+    // Optimized summary resolvers
     kpi:             ({ timeframe }: { timeframe?: string }) => resolveKPI({ timeframe }),
     protocol:        () => resolveProtocol(),
     fees:            ({ days }: { days?: number }) => resolveFees({ days }),
@@ -421,5 +557,9 @@ export function registerDashboardProvider(eventBus: IEventBus): () => void {
     gpuCapacity:     () => resolveGPUCapacity(),
     pricing:         async () => [],
     orchestrators:   ({ period }: { period?: string }) => resolveOrchestrators({ period }),
+    // Raw explorer resolvers
+    networkDemand:   (args: NetworkDemandFilters) => resolveRawNetworkDemand(args),
+    gpuMetrics:      (args: GPUMetricsFilters) => resolveRawGPUMetrics(args),
+    slaCompliance:   (args: SLAComplianceFilters) => resolveRawSLACompliance(args),
   });
 }
