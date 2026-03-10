@@ -81,9 +81,10 @@ function clearAllAuthStorage() {
   localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
   localStorage.removeItem(STORAGE_KEYS.CSRF_TOKEN);
 
-  // Clear cookies
-  document.cookie = `${STORAGE_KEYS.AUTH_TOKEN}=; path=/; max-age=0`;
-  document.cookie = `${STORAGE_KEYS.CSRF_TOKEN}=; path=/; max-age=0`;
+  // Clear cookies - use both max-age=0 and expires in the past for maximum compatibility
+  const expiredDate = 'Thu, 01 Jan 1970 00:00:00 GMT';
+  document.cookie = `${STORAGE_KEYS.AUTH_TOKEN}=; path=/; max-age=0; expires=${expiredDate}; samesite=strict`;
+  document.cookie = `${STORAGE_KEYS.CSRF_TOKEN}=; path=/; max-age=0; expires=${expiredDate}; samesite=strict`;
 
   // Clear any cached user data
   try {
@@ -408,19 +409,20 @@ export function RequireAuth({
   requiredRoles?: string[];
   fallback?: ReactNode;
 }) {
-  const { user, isAuthenticated, isLoading, authErrorStatus, hasAnyRole } = useAuth();
+  const { isAuthenticated, isLoading, hasAnyRole } = useAuth();
   const pathname = usePathname();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      const hasExplicitInvalidSession = authErrorStatus === 401 || (authErrorStatus === 200 && !user);
-      if (hasExplicitInvalidSession) {
-        // Prevent middleware redirect loops when a stale/invalid client session exists.
-        clearAllAuthStorage();
-      }
-      window.location.replace('/login?redirect=' + encodeURIComponent(pathname));
+      // Always clear auth storage before redirecting to prevent middleware redirect loops.
+      // This handles cases where cookie exists but token is invalid/expired.
+      clearAllAuthStorage();
+      // Use force=true to tell middleware to clear httpOnly cookie and allow login page access
+      // This prevents redirect loops when client-side auth fails but cookie still exists
+      const loginUrl = `/login?force=true&redirect=${encodeURIComponent(pathname)}`;
+      window.location.replace(loginUrl);
     }
-  }, [isLoading, isAuthenticated, authErrorStatus, user, pathname]);
+  }, [isLoading, isAuthenticated, pathname]);
 
   if (isLoading) {
     return fallback ?? (
