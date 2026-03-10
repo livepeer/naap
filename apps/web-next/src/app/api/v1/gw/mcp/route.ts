@@ -86,11 +86,12 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      const { method, path } = resolved;
+      const { connectorSlug, method, path } = resolved;
       const selfOrigin = process.env.NEXTAUTH_URL
         || process.env.NEXT_PUBLIC_APP_URL
         || `http://localhost:${process.env.PORT || 3000}`;
-      let url = `${selfOrigin}/api/v1/gw/${connector}${path}`;
+      const proxyPath = `/api/v1/gw/${encodeURIComponent(connectorSlug)}${path}`;
+      let url = `${selfOrigin}${proxyPath}`;
 
       const authHeader = request.headers.get('authorization');
 
@@ -141,7 +142,7 @@ function resolveEndpointFromCatalog(
   catalog: ToolDescriptor[],
   connector: string,
   endpointPath: string
-): { method: string; path: string } | null {
+): { connectorSlug: string; method: string; path: string } | null {
   const tool = catalog.find((t) => t.name === connector);
   if (!tool) return null;
 
@@ -152,5 +153,5 @@ function resolveEndpointFromCatalog(
   );
   if (!endpoint) return null;
 
-  return { method: endpoint.method, path: endpoint.path };
+  return { connectorSlug: tool.name, method: endpoint.method, path: endpoint.path };
 }
