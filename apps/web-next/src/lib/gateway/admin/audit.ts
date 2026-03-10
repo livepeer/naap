@@ -13,6 +13,7 @@ export type AuditAction =
   | 'connector.create'
   | 'connector.update'
   | 'connector.delete'
+  | 'connector.purge'
   | 'connector.publish'
   | 'endpoint.create'
   | 'endpoint.update'

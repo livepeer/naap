@@ -56,7 +56,9 @@ export const createConnectorSchema = z.object({
   outputSchema: z.record(z.unknown()).optional(),
 });
 
-export const updateConnectorSchema = createConnectorSchema.partial().omit({ slug: true });
+export const updateConnectorSchema = createConnectorSchema.partial().omit({ slug: true }).extend({
+  status: z.enum(['draft', 'published', 'archived']).optional(),
+});
 
 // ── Endpoint Schemas ──
 

@@ -106,10 +106,13 @@ export const ConnectorDetailPage: React.FC = () => {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; latencyMs?: number; error?: string; healthStatus?: string } | null>(null);
 
-  // Publish / archive action state
+  // Publish / archive / recover / purge action state
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [purging, setPurging] = useState(false);
+  const [confirmPurge, setConfirmPurge] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Play tab state
@@ -271,6 +274,35 @@ export const ConnectorDetailPage: React.FC = () => {
     }
   };
 
+  const handleRecover = async () => {
+    if (!id || recovering) return;
+    setRecovering(true);
+    setActionError(null);
+    try {
+      await api.put(`/connectors/${id}`, { status: 'draft' });
+      const { get: apiGet } = api;
+      loadConnector(() => apiGet(`/connectors/${id}`));
+    } catch (err: unknown) {
+      setActionError(getSafeErrorMessage(err));
+    } finally {
+      setRecovering(false);
+    }
+  };
+
+  const handlePurge = async () => {
+    if (!id || purging) return;
+    setPurging(true);
+    setActionError(null);
+    try {
+      await api.del(`/connectors/${id}?purge=true`);
+      navigate('/');
+    } catch (err: unknown) {
+      setActionError(getSafeErrorMessage(err));
+      setPurging(false);
+      setConfirmPurge(false);
+    }
+  };
+
   const handlePlaySend = async () => {
     if (!connector || playSending) return;
     const ep = connector.endpoints[playEndpointIdx];
@@ -406,19 +438,59 @@ export const ConnectorDetailPage: React.FC = () => {
                 ) : 'Publish'}
               </button>
             )}
-            <button
-              onClick={() => navigate(`/connectors/${id}/edit`)}
-              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm rounded-lg"
-            >
-              Edit
-            </button>
-            <button
-              onClick={handleArchive}
-              disabled={archiving}
-              className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm rounded-lg disabled:opacity-50"
-            >
-              {archiving ? 'Archiving...' : 'Archive'}
-            </button>
+            {connector.status === 'archived' && (
+              <>
+                <button
+                  onClick={handleRecover}
+                  disabled={recovering}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+                >
+                  {recovering ? 'Recovering...' : 'Recover to Draft'}
+                </button>
+                {!confirmPurge ? (
+                  <button
+                    onClick={() => setConfirmPurge(true)}
+                    className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm rounded-lg"
+                  >
+                    Purge
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-red-400 text-xs">Permanently delete?</span>
+                    <button
+                      onClick={handlePurge}
+                      disabled={purging}
+                      className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+                    >
+                      {purging ? 'Purging...' : 'Confirm Purge'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmPurge(false)}
+                      className="px-3 py-1.5 text-gray-400 hover:text-gray-200 text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+            {connector.status !== 'archived' && (
+              <>
+                <button
+                  onClick={() => navigate(`/connectors/${id}/edit`)}
+                  className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm rounded-lg"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={handleArchive}
+                  disabled={archiving}
+                  className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm rounded-lg disabled:opacity-50"
+                >
+                  {archiving ? 'Archiving...' : 'Archive'}
+                </button>
+              </>
+            )}
           </div>
         </div>
 

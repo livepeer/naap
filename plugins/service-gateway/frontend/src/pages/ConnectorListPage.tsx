@@ -66,7 +66,7 @@ export const ConnectorListPage: React.FC = () => {
   const api = useGatewayApi();
   const { data, loading, error, execute } = useAsync<ConnectorsResponse>();
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('published');
   const [scopeFilter, setScopeFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('');
 
