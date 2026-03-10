@@ -20,6 +20,7 @@ export interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   sessionExpiresAt: Date | null;
+  authErrorStatus: number | null;
 }
 
 export interface AuthContextValue extends AuthState {
@@ -103,6 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated: false,
     isLoading: true,
     sessionExpiresAt: null,
+    authErrorStatus: null,
   });
 
   const getToken = useCallback(() => {
@@ -117,9 +119,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return cookieMatch ? cookieMatch[2] : null;
   }, []);
 
-  const fetchUser = useCallback(async (): Promise<User | null> => {
+  const fetchUser = useCallback(async (): Promise<{ user: User | null; authErrorStatus: number | null }> => {
     const token = getToken();
-    if (!token) return null;
+    if (!token) {
+      return { user: null, authErrorStatus: null };
+    }
 
     try {
       const response = await fetch(`${API_BASE}/v1/auth/me`, {
@@ -136,7 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (response.status === 401) {
           // Clear ALL auth storage on unauthorized (token invalid/expired)
           clearAllAuthStorage();
-          return null;
+          return { user: null, authErrorStatus: 401 };
         }
         throw new Error('Failed to fetch user');
       }
@@ -145,7 +149,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Handle both wrapped ({ data: { user } }) and unwrapped ({ user }) responses
       const userData = data.data?.user || data.user;
-
+      if (!userData) {
+        console.warn('[auth] API returned 200 but no user data - clearing stale auth');
+        clearAllAuthStorage();
+        return { user: null, authErrorStatus: 200 };
+      }
+      
       // Ensure token is synced to localStorage if it's missing
       if (!localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN) && token) {
         localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
@@ -156,23 +165,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         fetchAndStoreCsrfToken();
       }
 
-      return userData;
+      return { user: userData, authErrorStatus: null };
     } catch (error) {
       console.error('Error fetching user:', error);
-      return null;
+      // Do not treat transient failures as invalid sessions.
+      return { user: null, authErrorStatus: null };
     }
   }, [getToken]);
 
   useEffect(() => {
     let mounted = true;
     const initAuth = async () => {
-      const user = await fetchUser();
+      const { user, authErrorStatus } = await fetchUser();
       if (mounted) {
         setState({
           user,
           isAuthenticated: !!user,
           isLoading: false,
           sessionExpiresAt: null,
+          authErrorStatus,
         });
       }
     };
@@ -218,6 +229,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: true,
         isLoading: false,
         sessionExpiresAt: expiresAtData ? new Date(expiresAtData) : null,
+        authErrorStatus: null,
       });
       router.push('/dashboard');
     } catch (error) {
@@ -281,6 +293,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: true,
         isLoading: false,
         sessionExpiresAt: expiresAtData ? new Date(expiresAtData) : null,
+        authErrorStatus: null,
       });
       router.push('/dashboard');
     } catch (error) {
@@ -309,6 +322,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: false,
       isLoading: false,
       sessionExpiresAt: null,
+      authErrorStatus: null,
     });
     // Force hard navigation to clear any cached state
     window.location.href = '/login';
@@ -394,15 +408,19 @@ export function RequireAuth({
   requiredRoles?: string[];
   fallback?: ReactNode;
 }) {
-  const { isAuthenticated, isLoading, hasAnyRole } = useAuth();
-  const router = useRouter();
+  const { user, isAuthenticated, isLoading, authErrorStatus, hasAnyRole } = useAuth();
   const pathname = usePathname();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      router.push('/login?redirect=' + encodeURIComponent(pathname));
+      const hasExplicitInvalidSession = authErrorStatus === 401 || (authErrorStatus === 200 && !user);
+      if (hasExplicitInvalidSession) {
+        // Prevent middleware redirect loops when a stale/invalid client session exists.
+        clearAllAuthStorage();
+      }
+      window.location.replace('/login?redirect=' + encodeURIComponent(pathname));
     }
-  }, [isLoading, isAuthenticated, router, pathname]);
+  }, [isLoading, isAuthenticated, authErrorStatus, user, pathname]);
 
   if (isLoading) {
     return fallback ?? (
