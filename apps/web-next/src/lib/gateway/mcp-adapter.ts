@@ -176,7 +176,9 @@ function buildMcpToolName(connectorSlug: string, endpointName: string): string {
 }
 
 function buildToolDescription(tool: ToolDescriptor, ep: EndpointDescriptor): string {
-  const parts = [ep.description || ep.name];
-  if (tool.agentDescription) parts[0] = `${ep.description || ep.name} via ${tool.displayName}`;
-  return parts[0];
+  const epDesc = ep.description || ep.name;
+  if (tool.agentDescription) {
+    return `${tool.agentDescription} — ${epDesc}`;
+  }
+  return `${epDesc} via ${tool.displayName}`;
 }

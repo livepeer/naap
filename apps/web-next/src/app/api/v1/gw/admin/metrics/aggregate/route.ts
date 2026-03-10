@@ -27,7 +27,7 @@ function percentile(sorted: number[], p: number): number {
 
 export async function GET(request: NextRequest) {
   const secret = request.headers.get('authorization')?.replace('Bearer ', '');
-  if (process.env.CRON_SECRET && secret !== process.env.CRON_SECRET) {
+  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
     const ctx = await getAdminContext(request);
     if (isErrorResponse(ctx)) return ctx;
   }

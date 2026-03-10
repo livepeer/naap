@@ -87,9 +87,10 @@ export async function POST(request: NextRequest) {
       }
 
       const { method, path } = resolved;
-      const host = request.headers.get('host') || '';
-      const protocol = host.includes('localhost') ? 'http' : 'https';
-      const url = `${protocol}://${host}/api/v1/gw/${connector}${path}`;
+      const selfOrigin = process.env.NEXTAUTH_URL
+        || process.env.NEXT_PUBLIC_APP_URL
+        || `http://localhost:${process.env.PORT || 3000}`;
+      let url = `${selfOrigin}/api/v1/gw/${connector}${path}`;
 
       const authHeader = request.headers.get('authorization');
 
@@ -101,7 +102,15 @@ export async function POST(request: NextRequest) {
         },
       };
 
-      if (method !== 'GET' && method !== 'HEAD' && Object.keys(args).length > 0) {
+      if (method === 'GET' || method === 'HEAD') {
+        if (Object.keys(args).length > 0) {
+          const qs = new URLSearchParams();
+          for (const [k, v] of Object.entries(args)) {
+            qs.set(k, typeof v === 'string' ? v : JSON.stringify(v));
+          }
+          url += `?${qs.toString()}`;
+        }
+      } else if (Object.keys(args).length > 0) {
         fetchOptions.body = JSON.stringify(args);
       }
 

@@ -111,38 +111,43 @@ export function formatPricingResponse(
 export function calculateCost(
   pricing: ConnectorPricingData,
   units: number,
-  feature?: string
+  feature?: string,
+  connectorSlug = ''
 ): CostEstimate {
   const featurePricingList = parseJsonArray<FeaturePricing>(pricing.featurePricing);
   const volumeTiers = parseJsonArray<VolumeTier>(pricing.volumeTiers);
 
   let costPerUnit = pricing.costPerUnit;
   let unit = pricing.unit;
+  let appliedTier: VolumeTier | undefined;
+  let usedFeaturePricing = false;
 
-  // Feature-specific pricing takes precedence
+  // Feature-specific pricing takes precedence over base and volume tiers
   if (feature) {
     const fp = featurePricingList.find((f) => f.feature === feature);
     if (fp) {
       costPerUnit = fp.costPerUnit;
       unit = fp.unit;
+      usedFeaturePricing = true;
     }
   }
 
-  // Find the applicable volume tier (highest minUnits that's <= requested units)
-  let appliedTier: VolumeTier | undefined;
-  const sortedTiers = [...volumeTiers].sort((a, b) => b.minUnits - a.minUnits);
-  for (const tier of sortedTiers) {
-    if (units >= tier.minUnits) {
-      costPerUnit = tier.costPerUnit;
-      appliedTier = tier;
-      break;
+  // Volume tiers only apply when feature pricing was NOT used
+  if (!usedFeaturePricing) {
+    const sortedTiers = [...volumeTiers].sort((a, b) => b.minUnits - a.minUnits);
+    for (const tier of sortedTiers) {
+      if (units >= tier.minUnits) {
+        costPerUnit = tier.costPerUnit;
+        appliedTier = tier;
+        break;
+      }
     }
   }
 
   const estimatedCost = Math.round(costPerUnit * units * 100) / 100;
 
   return {
-    connector: '',
+    connector: connectorSlug,
     requestedUnits: units,
     ...(feature ? { feature } : {}),
     estimatedCost,

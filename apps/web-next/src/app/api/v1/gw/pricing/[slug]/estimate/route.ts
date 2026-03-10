@@ -74,8 +74,7 @@ export async function GET(
     upstreamNotes: null,
   };
 
-  const estimate = calculateCost(pricing, units, feature);
-  estimate.connector = slug;
+  const estimate = calculateCost(pricing, units, feature, slug);
 
   const headers: Record<string, string> = {};
   if (requestId) headers['x-request-id'] = requestId;

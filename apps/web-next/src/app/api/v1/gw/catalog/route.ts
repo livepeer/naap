@@ -26,8 +26,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const format = searchParams.get('format') || 'native';
   const category = searchParams.get('category') || undefined;
-  const page = parseInt(searchParams.get('page') || '1', 10);
-  const pageSize = parseInt(searchParams.get('pageSize') || '50', 10);
+  const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
+  const pageSize = Math.min(200, Math.max(1, parseInt(searchParams.get('pageSize') || '50', 10) || 50));
 
   const { tools, total } = await buildToolCatalog(auth.teamId, { category, page, pageSize });
 

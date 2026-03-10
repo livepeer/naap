@@ -94,4 +94,27 @@ describe('calculateCost', () => {
     const result = calculateCost(makePricing(), 1000, 'unknown-feature');
     expect(result.estimatedCost).toBe(30);
   });
+
+  it('feature pricing takes precedence over volume tiers', () => {
+    const result = calculateCost(
+      makePricing({
+        featurePricing: [
+          { feature: 'embeddings', costPerUnit: 0.0001, unit: '1k-tokens' },
+        ],
+        volumeTiers: [
+          { minUnits: 100, costPerUnit: 0.025 },
+        ],
+      }),
+      10000,
+      'embeddings'
+    );
+    expect(result.estimatedCost).toBe(1);
+    expect(result.feature).toBe('embeddings');
+    expect(result.appliedTier).toBeUndefined();
+  });
+
+  it('passes connector slug through when provided', () => {
+    const result = calculateCost(makePricing(), 100, undefined, 'my-connector');
+    expect(result.connector).toBe('my-connector');
+  });
 });

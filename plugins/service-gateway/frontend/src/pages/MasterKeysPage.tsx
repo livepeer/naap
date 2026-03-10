@@ -33,6 +33,7 @@ export const MasterKeysPage: React.FC = () => {
   const [selectedScopes, setSelectedScopes] = useState<string[]>(['proxy']);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [actionError, setActionError] = useState('');
 
   const loadKeys = useCallback(() => {
     return execute(() => api.get('/master-keys'));
@@ -43,8 +44,9 @@ export const MasterKeysPage: React.FC = () => {
   }, [loadKeys]);
 
   const handleCreate = async () => {
-    if (!newKeyName) return;
+    if (!newKeyName || selectedScopes.length === 0) return;
     setCreating(true);
+    setActionError('');
     try {
       const res = await api.post<{ success: boolean; data: { rawKey: string } }>('/master-keys', {
         name: newKeyName,
@@ -55,28 +57,41 @@ export const MasterKeysPage: React.FC = () => {
         setNewKeyName('');
         loadKeys();
       }
+    } catch {
+      setActionError('Failed to create master key');
     } finally {
       setCreating(false);
     }
   };
 
   const handleRevoke = async (keyId: string) => {
-    await api.del(`/master-keys/${keyId}`);
-    loadKeys();
+    setActionError('');
+    try {
+      await api.del(`/master-keys/${keyId}`);
+      loadKeys();
+    } catch {
+      setActionError('Failed to revoke master key');
+    }
   };
 
   const handleRotate = async (keyId: string) => {
-    const res = await api.post<{ success: boolean; data: { rawKey: string } }>(`/master-keys/${keyId}/rotate`);
-    if (res.success) {
-      setCreatedKey(res.data.rawKey);
-      loadKeys();
+    setActionError('');
+    try {
+      const res = await api.post<{ success: boolean; data: { rawKey: string } }>(`/master-keys/${keyId}/rotate`);
+      if (res.success) {
+        setCreatedKey(res.data.rawKey);
+        loadKeys();
+      }
+    } catch {
+      setActionError('Failed to rotate master key');
     }
   };
 
   const toggleScope = (scope: string) => {
-    setSelectedScopes((prev) =>
-      prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]
-    );
+    setSelectedScopes((prev) => {
+      const next = prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope];
+      return next.length === 0 ? prev : next;
+    });
   };
 
   const keys = data?.data || [];
@@ -100,7 +115,7 @@ export const MasterKeysPage: React.FC = () => {
           />
           <button
             onClick={handleCreate}
-            disabled={!newKeyName || creating}
+            disabled={!newKeyName || selectedScopes.length === 0 || creating}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
           >
             Create Master Key
@@ -121,6 +136,12 @@ export const MasterKeysPage: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {actionError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4">
+          <p className="text-sm text-red-400">{actionError}</p>
+        </div>
+      )}
 
       {createdKey && (
         <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 mb-4">

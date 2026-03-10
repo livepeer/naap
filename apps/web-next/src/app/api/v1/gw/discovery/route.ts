@@ -16,6 +16,7 @@ const DISCOVERY = {
   endpoints: {
     catalog: '/api/v1/gw/catalog',
     pricing: '/api/v1/gw/pricing',
+    rankings: '/api/v1/gw/rankings',
     mcp: '/api/v1/gw/mcp',
     discovery: '/api/v1/gw/discovery',
     proxy: '/api/v1/gw/{connector}/{path}',

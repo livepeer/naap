@@ -1221,19 +1221,17 @@ interface PerformanceMetrics {
 function PerformanceTab({ connectorSlug, api }: { connectorSlug: string; api: ReturnType<typeof useGatewayApi> }) {
   const [metrics, setMetrics] = useState<PerformanceMetrics | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [window, setWindow] = useState<'1h' | '24h' | '7d'>('24h');
+  const [timeWindow, setTimeWindow] = useState<'1h' | '24h' | '7d'>('24h');
 
   useEffect(() => {
     setLoaded(false);
-    const origin = typeof globalThis.window !== 'undefined' ? globalThis.window.location.origin : '';
-    fetch(`${origin}/api/v1/gw/catalog/${connectorSlug}/metrics?window=${window}`)
-      .then(r => r.json())
+    api.get(`/catalog/${connectorSlug}/metrics?window=${timeWindow}`)
       .then((data) => {
         setMetrics(data.metrics || null);
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
-  }, [connectorSlug, window, api]);
+  }, [connectorSlug, timeWindow, api]);
 
   if (!loaded) return <div className="text-gray-500 text-sm">Loading performance data...</div>;
 
@@ -1260,8 +1258,8 @@ function PerformanceTab({ connectorSlug, api }: { connectorSlug: string; api: Re
         {(['1h', '24h', '7d'] as const).map((w) => (
           <button
             key={w}
-            onClick={() => setWindow(w)}
-            className={`px-3 py-1.5 text-xs rounded-lg ${window === w ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+            onClick={() => setTimeWindow(w)}
+            className={`px-3 py-1.5 text-xs rounded-lg ${timeWindow === w ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
           >
             {w}
           </button>
@@ -1447,14 +1445,17 @@ function AgentMetadataSection({ connectorId, api }: { connectorId: string; api: 
     }).catch(() => setLoaded(true));
   }, [api, connectorId]);
 
+  const [metaError, setMetaError] = useState('');
+
   const handleSave = async () => {
+    setMetaError('');
     let inputSchema: unknown = undefined;
     let outputSchema: unknown = undefined;
     if (inputSchemaStr.trim()) {
-      try { inputSchema = JSON.parse(inputSchemaStr); } catch { return; }
+      try { inputSchema = JSON.parse(inputSchemaStr); } catch { setMetaError('Input Schema is not valid JSON'); return; }
     }
     if (outputSchemaStr.trim()) {
-      try { outputSchema = JSON.parse(outputSchemaStr); } catch { return; }
+      try { outputSchema = JSON.parse(outputSchemaStr); } catch { setMetaError('Output Schema is not valid JSON'); return; }
     }
     setSaving(true);
     try {
@@ -1464,6 +1465,8 @@ function AgentMetadataSection({ connectorId, api }: { connectorId: string; api: 
         inputSchema,
         outputSchema,
       });
+    } catch {
+      setMetaError('Failed to save agent metadata');
     } finally {
       setSaving(false);
     }
@@ -1493,6 +1496,7 @@ function AgentMetadataSection({ connectorId, api }: { connectorId: string; api: 
         <label className="block text-xs text-gray-400 mb-1">Output Schema (JSON)</label>
         <textarea value={outputSchemaStr} onChange={(e) => setOutputSchemaStr(e.target.value)} rows={4} className={inputClass + ' font-mono text-xs'} placeholder='{"type":"object","properties":{...}}' />
       </div>
+      {metaError && <p className="text-red-400 text-xs">{metaError}</p>}
       <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">
         {saving ? 'Saving...' : 'Save Agent Metadata'}
       </button>
