@@ -146,6 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Handle both wrapped ({ data: { user } }) and unwrapped ({ user }) responses
       const userData = data.data?.user || data.user;
       if (!userData) {
+        console.warn('[auth] API returned 200 but no user data - clearing stale auth');
         clearAllAuthStorage();
         return null;
       }
