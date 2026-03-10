@@ -87,6 +87,17 @@ export function createDashboardProvider(
     rootValue.orchestrators = (_args: { period?: string }) => resolvers.orchestrators!(_args);
   }
 
+  // Raw explorer resolvers
+  if (resolvers.networkDemand) {
+    rootValue.networkDemand = (_args: Record<string, unknown>) => resolvers.networkDemand!(_args as Parameters<typeof resolvers.networkDemand>[0]);
+  }
+  if (resolvers.gpuMetrics) {
+    rootValue.gpuMetrics = (_args: Record<string, unknown>) => resolvers.gpuMetrics!(_args as Parameters<typeof resolvers.gpuMetrics>[0]);
+  }
+  if (resolvers.slaCompliance) {
+    rootValue.slaCompliance = (_args: Record<string, unknown>) => resolvers.slaCompliance!(_args as Parameters<typeof resolvers.slaCompliance>[0]);
+  }
+
   // Register a single handler on the event bus
   const unsubscribe = eventBus.handleRequest<DashboardQueryRequest, DashboardQueryResponse>(
     DASHBOARD_QUERY_EVENT,
