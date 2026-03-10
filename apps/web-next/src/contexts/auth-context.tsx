@@ -20,6 +20,7 @@ export interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   sessionExpiresAt: Date | null;
+  authErrorStatus: number | null;
 }
 
 export interface AuthContextValue extends AuthState {
@@ -73,20 +74,18 @@ async function fetchAndStoreCsrfToken() {
 }
 
 // Clear ALL auth-related storage (use on logout or invalid session)
+// Note: httpOnly cookies (naap_auth_token, naap_csrf_token) cannot be cleared via JavaScript.
+// The logout endpoint (/api/v1/auth/logout) handles clearing those server-side.
+// This function clears client-accessible storage only.
 function clearAllAuthStorage() {
   if (typeof window === 'undefined') return;
 
-  // Clear tokens
+  // Clear localStorage tokens
   localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
   localStorage.removeItem(STORAGE_KEYS.CSRF_TOKEN);
 
-  // Clear cookies
-  document.cookie = `${STORAGE_KEYS.AUTH_TOKEN}=; path=/; max-age=0`;
-  document.cookie = `${STORAGE_KEYS.CSRF_TOKEN}=; path=/; max-age=0`;
-
-  // Clear any cached user data
+  // Clear session storage (may contain cached user data)
   try {
-    // Clear session storage as well
     sessionStorage.clear();
   } catch {
     // Ignore errors
@@ -103,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated: false,
     isLoading: true,
     sessionExpiresAt: null,
+    authErrorStatus: null,
   });
 
   const getToken = useCallback(() => {
@@ -117,9 +117,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return cookieMatch ? cookieMatch[2] : null;
   }, []);
 
-  const fetchUser = useCallback(async (): Promise<User | null> => {
+  const fetchUser = useCallback(async (): Promise<{ user: User | null; authErrorStatus: number | null }> => {
     const token = getToken();
-    if (!token) return null;
+    if (!token) {
+      return { user: null, authErrorStatus: null };
+    }
 
     try {
       const response = await fetch(`${API_BASE}/v1/auth/me`, {
@@ -136,7 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (response.status === 401) {
           // Clear ALL auth storage on unauthorized (token invalid/expired)
           clearAllAuthStorage();
-          return null;
+          return { user: null, authErrorStatus: 401 };
         }
         throw new Error('Failed to fetch user');
       }
@@ -145,7 +147,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Handle both wrapped ({ data: { user } }) and unwrapped ({ user }) responses
       const userData = data.data?.user || data.user;
-
+      if (!userData) {
+        console.warn('[auth] API returned 200 but no user data - clearing stale auth');
+        clearAllAuthStorage();
+        return { user: null, authErrorStatus: 200 };
+      }
+      
       // Ensure token is synced to localStorage if it's missing
       if (!localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN) && token) {
         localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
@@ -156,23 +163,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         fetchAndStoreCsrfToken();
       }
 
-      return userData;
+      return { user: userData, authErrorStatus: null };
     } catch (error) {
       console.error('Error fetching user:', error);
-      return null;
+      // Do not treat transient failures as invalid sessions.
+      return { user: null, authErrorStatus: null };
     }
   }, [getToken]);
 
   useEffect(() => {
     let mounted = true;
     const initAuth = async () => {
-      const user = await fetchUser();
+      const { user, authErrorStatus } = await fetchUser();
       if (mounted) {
         setState({
           user,
           isAuthenticated: !!user,
           isLoading: false,
           sessionExpiresAt: null,
+          authErrorStatus,
         });
       }
     };
@@ -218,6 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: true,
         isLoading: false,
         sessionExpiresAt: expiresAtData ? new Date(expiresAtData) : null,
+        authErrorStatus: null,
       });
       router.push('/dashboard');
     } catch (error) {
@@ -281,6 +291,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: true,
         isLoading: false,
         sessionExpiresAt: expiresAtData ? new Date(expiresAtData) : null,
+        authErrorStatus: null,
       });
       router.push('/dashboard');
     } catch (error) {
@@ -309,6 +320,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: false,
       isLoading: false,
       sessionExpiresAt: null,
+      authErrorStatus: null,
     });
     // Force hard navigation to clear any cached state
     window.location.href = '/login';
@@ -394,15 +406,31 @@ export function RequireAuth({
   requiredRoles?: string[];
   fallback?: ReactNode;
 }) {
-  const { isAuthenticated, isLoading, hasAnyRole } = useAuth();
-  const router = useRouter();
+  const { user, isAuthenticated, isLoading, authErrorStatus, hasAnyRole } = useAuth();
   const pathname = usePathname();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      router.push('/login?redirect=' + encodeURIComponent(pathname));
+      // Only perform full cleanup when we have explicit evidence of an invalid session
+      // (401 or 200 with no user data). This preserves valid sessions during transient
+      // network errors (authErrorStatus === null).
+      const hasExplicitInvalidSession = authErrorStatus === 401 || (authErrorStatus === 200 && !user);
+      
+      if (hasExplicitInvalidSession) {
+        // Use the logout endpoint for consistent cleanup of httpOnly cookie, then redirect.
+        // Clear client-side storage first, then call logout API to clear server-side cookie.
+        clearAllAuthStorage();
+        fetch('/api/v1/auth/logout', { method: 'GET', credentials: 'include' })
+          .catch(() => {}) // Ignore errors - we're redirecting anyway
+          .finally(() => {
+            window.location.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
+          });
+      } else {
+        // Transient error or no token - redirect without cleanup to preserve any valid cookie
+        window.location.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
+      }
     }
-  }, [isLoading, isAuthenticated, router, pathname]);
+  }, [isLoading, isAuthenticated, authErrorStatus, user, pathname]);
 
   if (isLoading) {
     return fallback ?? (

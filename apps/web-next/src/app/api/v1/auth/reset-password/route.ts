@@ -34,7 +34,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     response.cookies.set('naap_auth_token', result.token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 7, // 7 days
       path: '/',
     });
