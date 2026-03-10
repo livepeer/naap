@@ -17,15 +17,15 @@ export async function getLatestMetrics(
 ): Promise<PerformanceMetrics | null> {
   if (window === '7d') {
     const rows = await prisma.connectorMetrics.findMany({
-      where: { connectorId, period: 'daily' },
+      where: { connectorId, period: 'hourly' },
       orderBy: { periodStart: 'desc' },
-      take: 7,
+      take: 168,
     });
     if (rows.length === 0) return null;
     return aggregateMetrics(rows, '7d');
   }
 
-  const period = window === '1h' ? 'hourly' : 'daily';
+  const period = 'hourly';
   const row = await prisma.connectorMetrics.findFirst({
     where: { connectorId, period },
     orderBy: { periodStart: 'desc' },
@@ -109,9 +109,9 @@ function aggregateMetrics(
     errorRate: Math.round(errorRate * 10000) / 10000,
     successRate: Math.round((1 - errorRate) * 10000) / 10000,
     latencyMeanMs: Math.round(weightedAvg('latencyMeanMs')),
-    latencyP50Ms: Math.round(weightedAvg('latencyP50Ms')),
-    latencyP95Ms: Math.round(weightedAvg('latencyP95Ms')),
-    latencyP99Ms: Math.round(weightedAvg('latencyP99Ms')),
+    latencyP50Ms: null,
+    latencyP95Ms: null,
+    latencyP99Ms: null,
     upstreamLatencyMeanMs: Math.round(weightedAvg('upstreamLatencyMeanMs')),
     gatewayOverheadMs: Math.round(weightedAvg('gatewayOverheadMs')),
     availabilityPercent: totalHC > 0 ? Math.round((passedHC / totalHC) * 10000) / 100 : 100,

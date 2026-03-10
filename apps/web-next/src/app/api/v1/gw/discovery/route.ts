@@ -33,9 +33,7 @@ export async function GET(request: NextRequest) {
   const requestId = request.headers.get('x-request-id');
   const traceId = request.headers.get('x-trace-id');
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
+  const headers: Record<string, string> = {};
   if (requestId) headers['x-request-id'] = requestId;
   if (traceId) headers['x-trace-id'] = traceId;
 

@@ -34,6 +34,8 @@ export const MasterKeysPage: React.FC = () => {
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
 
   const loadKeys = useCallback(() => {
     return execute(() => api.get('/master-keys'));
@@ -149,10 +151,16 @@ export const MasterKeysPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <code className="flex-1 px-3 py-2 bg-gray-900 rounded text-xs text-gray-200 font-mono break-all">{createdKey}</code>
             <button
-              onClick={() => navigator.clipboard.writeText(createdKey)}
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(createdKey);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                } catch { /* clipboard not available */ }
+              }}
               className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs rounded shrink-0"
             >
-              Copy
+              {copied ? 'Copied!' : 'Copy'}
             </button>
           </div>
         </div>
@@ -203,9 +211,27 @@ export const MasterKeysPage: React.FC = () => {
                       <button onClick={() => handleRotate(key.id)} className="text-xs text-blue-400 hover:text-blue-300">
                         Rotate
                       </button>
-                      <button onClick={() => handleRevoke(key.id)} className="text-xs text-red-400 hover:text-red-300">
-                        Revoke
-                      </button>
+                      {confirmRevokeId === key.id ? (
+                        <>
+                          <span className="text-xs text-red-400">Revoke?</span>
+                          <button
+                            onClick={() => { handleRevoke(key.id); setConfirmRevokeId(null); }}
+                            className="text-xs text-red-400 hover:text-red-300 font-medium"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            onClick={() => setConfirmRevokeId(null)}
+                            className="text-xs text-gray-400 hover:text-gray-200"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button onClick={() => setConfirmRevokeId(key.id)} className="text-xs text-red-400 hover:text-red-300">
+                          Revoke
+                        </button>
+                      )}
                     </>
                   )}
                 </td>

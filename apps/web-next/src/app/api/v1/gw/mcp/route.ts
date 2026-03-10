@@ -9,7 +9,6 @@ export const runtime = 'nodejs';
 
 import { NextRequest } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';
-import { buildErrorResponse } from '@/lib/gateway/respond';
 import { buildToolCatalog } from '@/lib/gateway/catalog';
 import { catalogToMcpTools, mcpToolNameToRoute } from '@/lib/gateway/mcp-adapter';
 import type { ToolDescriptor } from '@/lib/gateway/catalog';
@@ -24,9 +23,11 @@ interface JsonRpcRequest {
 export async function POST(request: NextRequest) {
   const auth = await authorize(request);
   if (!auth) {
-    const requestId = request.headers.get('x-request-id');
-    const traceId = request.headers.get('x-trace-id');
-    return buildErrorResponse('UNAUTHORIZED', 'Authentication required', 401, requestId, traceId);
+    return Response.json({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32600, message: 'Authentication required' },
+    }, { status: 401 });
   }
 
   let body: JsonRpcRequest;
@@ -94,12 +95,18 @@ export async function POST(request: NextRequest) {
       let url = `${selfOrigin}${proxyPath}`;
 
       const authHeader = request.headers.get('authorization');
+      const teamIdHeader = request.headers.get('x-team-id');
+      const reqIdHeader = request.headers.get('x-request-id');
+      const traceIdHeader = request.headers.get('x-trace-id');
 
       const fetchOptions: RequestInit = {
         method,
         headers: {
           'Content-Type': 'application/json',
           ...(authHeader ? { Authorization: authHeader } : {}),
+          ...(teamIdHeader ? { 'x-team-id': teamIdHeader } : {}),
+          ...(reqIdHeader ? { 'x-request-id': reqIdHeader } : {}),
+          ...(traceIdHeader ? { 'x-trace-id': traceIdHeader } : {}),
         },
       };
 
@@ -115,7 +122,17 @@ export async function POST(request: NextRequest) {
         fetchOptions.body = JSON.stringify(args);
       }
 
-      const response = await fetch(url, fetchOptions);
+      let response: globalThis.Response;
+      try {
+        response = await fetch(url, fetchOptions);
+      } catch (err) {
+        return Response.json({
+          jsonrpc: '2.0',
+          id: body.id,
+          error: { code: -32603, message: `Internal error: ${String(err)}` },
+        }, { status: 502 });
+      }
+
       const responseBody = await response.text();
       const isError = response.status >= 400;
 

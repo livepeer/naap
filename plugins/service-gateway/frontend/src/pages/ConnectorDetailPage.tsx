@@ -1143,7 +1143,7 @@ export const ConnectorDetailPage: React.FC = () => {
 
         {/* Tab: Performance */}
         {activeTab === 'Performance' && (
-          <PerformanceTab connectorSlug={connector.slug} api={api} />
+          <PerformanceTab connectorSlug={connector.slug} />
         )}
 
         {/* Tab: Pricing */}
@@ -1290,20 +1290,21 @@ interface PerformanceMetrics {
   sampleSize: number;
 }
 
-function PerformanceTab({ connectorSlug, api }: { connectorSlug: string; api: ReturnType<typeof useGatewayApi> }) {
+function PerformanceTab({ connectorSlug }: { connectorSlug: string }) {
   const [metrics, setMetrics] = useState<PerformanceMetrics | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [timeWindow, setTimeWindow] = useState<'1h' | '24h' | '7d'>('24h');
 
   useEffect(() => {
     setLoaded(false);
-    api.get(`/catalog/${connectorSlug}/metrics?window=${timeWindow}`)
+    fetch(`/api/v1/gw/catalog/${connectorSlug}/metrics?window=${timeWindow}`)
+      .then((res) => res.json())
       .then((data) => {
         setMetrics(data.metrics || null);
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
-  }, [connectorSlug, timeWindow, api]);
+  }, [connectorSlug, timeWindow]);
 
   if (!loaded) return <div className="text-gray-500 text-sm">Loading performance data...</div>;
 

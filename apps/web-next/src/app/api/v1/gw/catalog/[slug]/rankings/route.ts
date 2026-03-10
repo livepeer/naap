@@ -25,7 +25,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const { slug } = await context.params;
 
   const connector = await prisma.serviceConnector.findFirst({
-    where: { slug, status: 'published' },
+    where: { slug, status: 'published', OR: [{ visibility: 'public' }, { teamId: auth.teamId }] },
     select: { id: true, slug: true, displayName: true },
   });
 

@@ -14,15 +14,13 @@ import { buildErrorResponse } from '@/lib/gateway/respond';
 import { formatPricingResponse } from '@/lib/gateway/pricing';
 
 export async function GET(request: NextRequest) {
-  const auth = await authorize(request);
-  if (!auth) {
-    const requestId = request.headers.get('x-request-id');
-    const traceId = request.headers.get('x-trace-id');
-    return buildErrorResponse('UNAUTHORIZED', 'Authentication required', 401, requestId, traceId);
-  }
-
   const requestId = request.headers.get('x-request-id');
   const traceId = request.headers.get('x-trace-id');
+
+  const auth = await authorize(request);
+  if (!auth) {
+    return buildErrorResponse('UNAUTHORIZED', 'Authentication required', 401, requestId, traceId);
+  }
 
   const connectors = await prisma.serviceConnector.findMany({
     where: { status: 'published' },
