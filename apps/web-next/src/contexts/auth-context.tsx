@@ -74,21 +74,18 @@ async function fetchAndStoreCsrfToken() {
 }
 
 // Clear ALL auth-related storage (use on logout or invalid session)
+// Note: httpOnly cookies (naap_auth_token, naap_csrf_token) cannot be cleared via JavaScript.
+// The logout endpoint (/api/v1/auth/logout) handles clearing those server-side.
+// This function clears client-accessible storage only.
 function clearAllAuthStorage() {
   if (typeof window === 'undefined') return;
 
-  // Clear tokens
+  // Clear localStorage tokens
   localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
   localStorage.removeItem(STORAGE_KEYS.CSRF_TOKEN);
 
-  // Clear cookies - use both max-age=0 and expires in the past for maximum compatibility
-  const expiredDate = 'Thu, 01 Jan 1970 00:00:00 GMT';
-  document.cookie = `${STORAGE_KEYS.AUTH_TOKEN}=; path=/; max-age=0; expires=${expiredDate}; samesite=strict`;
-  document.cookie = `${STORAGE_KEYS.CSRF_TOKEN}=; path=/; max-age=0; expires=${expiredDate}; samesite=strict`;
-
-  // Clear any cached user data
+  // Clear session storage (may contain cached user data)
   try {
-    // Clear session storage as well
     sessionStorage.clear();
   } catch {
     // Ignore errors
@@ -414,13 +411,24 @@ export function RequireAuth({
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      // Always clear auth storage before redirecting to prevent middleware redirect loops.
-      // This handles cases where cookie exists but token is invalid/expired.
-      clearAllAuthStorage();
-      // Use force=true to tell middleware to clear httpOnly cookie and allow login page access
-      // This prevents redirect loops when client-side auth fails but cookie still exists
-      const loginUrl = `/login?force=true&redirect=${encodeURIComponent(pathname)}`;
-      window.location.replace(loginUrl);
+      // Only perform full cleanup when we have explicit evidence of an invalid session
+      // (401 or 200 with no user data). This preserves valid sessions during transient
+      // network errors (authErrorStatus === null).
+      const hasExplicitInvalidSession = authErrorStatus === 401 || (authErrorStatus === 200 && !user);
+      
+      if (hasExplicitInvalidSession) {
+        // Use the logout endpoint for consistent cleanup of httpOnly cookie, then redirect.
+        // Clear client-side storage first, then call logout API to clear server-side cookie.
+        clearAllAuthStorage();
+        fetch('/api/v1/auth/logout', { method: 'GET', credentials: 'include' })
+          .catch(() => {}) // Ignore errors - we're redirecting anyway
+          .finally(() => {
+            window.location.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
+          });
+      } else {
+        // Transient error or no token - redirect without cleanup to preserve any valid cookie
+        window.location.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
+      }
     }
   }, [isLoading, isAuthenticated, pathname]);
 

@@ -210,26 +210,14 @@ export function middleware(request: NextRequest) {
   }
 
   // Redirect authenticated users away from auth pages (login/register)
-  // UNLESS they have ?force=true (used when client-side auth check fails)
+  // The logout endpoint handles cookie clearing; middleware just needs to allow access
+  // when there's no valid cookie (after logout clears it)
   if (authRoutes.some(route => pathname === route || pathname.startsWith(`${route}/`))) {
-    const forceLogin = request.nextUrl.searchParams.get('force') === 'true';
-    if (token && !forceLogin) {
+    if (token) {
+      // User has a cookie - redirect to dashboard (they should use logout first)
       return NextResponse.redirect(new URL('/dashboard', request.url));
     }
-    // If force=true, clear the cookie and allow access to login
-    if (forceLogin && token) {
-      const response = NextResponse.next();
-      response.cookies.set('naap_auth_token', '', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 0,
-        path: '/',
-      });
-      response.headers.set('x-request-id', requestId);
-      response.headers.set('x-trace-id', traceId);
-      return response;
-    }
+    // No cookie - allow access to login/register pages
   }
 
   const response = NextResponse.next();
