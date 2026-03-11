@@ -263,7 +263,6 @@ function KPICard({
 
 function formatTimeframeLabel(hours: number): string {
   if (hours === 1) return '1h';
-  if (hours === 72) return '3d';
   return `${hours}h`;
 }
 
@@ -1053,8 +1052,7 @@ const TIMEFRAME_OPTIONS = [
   { label: '1h',  value: '1',  description: 'Last hour' },
   { label: '6h',  value: '6',  description: 'Last 6 hours' },
   { label: '12h', value: '12', description: 'Last 12 hours' },
-  { label: '24h', value: '24', description: 'Last 24 hours' },
-  { label: '72h', value: '72', description: 'Last 3 days' },
+  { label: '24h', value: '24', description: 'Last 24 hours (API max for demand metrics)' },
 ] as const;
 
 function getStoredTimeframe(): string {

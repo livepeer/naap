@@ -139,8 +139,8 @@ function round1(n: number): number {
 // KPI resolver
 // ---------------------------------------------------------------------------
 
-/** Valid timeframe options in hours */
-const VALID_TIMEFRAMES = [1, 6, 12, 24, 72] as const;
+/** Valid overview timeframe options in hours (aligned to network demand API max). */
+const VALID_TIMEFRAMES = [1, 6, 12, 24] as const;
 type TimeframeHours = (typeof VALID_TIMEFRAMES)[number];
 
 function parseTimeframe(input?: string | number): TimeframeHours {
@@ -153,11 +153,11 @@ function parseTimeframe(input?: string | number): TimeframeHours {
 
 async function resolveKPI({ timeframe }: { timeframe?: string }): Promise<DashboardKPI & { timeframeHours: number }> {
   const timeframeHours = parseTimeframe(timeframe);
-  
+
   // Fetch demand data for the selected timeframe
-  // For orchestrators, use the same timeframe but cap at 72h for SLA data
-  const slaPeriod = `${Math.min(timeframeHours, 72)}h`;
-  
+  // For orchestrators, keep the same cap to avoid implying support beyond demand limits.
+  const slaPeriod = `${Math.min(timeframeHours, 24)}h`;
+
   const [demandRows, slaRows] = await Promise.all([
     fetchNetworkDemand(timeframeHours),
     fetchSLACompliance(slaPeriod),
@@ -247,7 +247,7 @@ function countGPUsByPipelineFromSLA(rows: SLAComplianceRow[]): Map<string, { tot
 async function resolvePipelines({ limit = 5, timeframe }: { limit?: number; timeframe?: string }): Promise<DashboardPipelineUsage[]> {
   const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 5;
   const timeframeHours = parseTimeframe(timeframe);
-  const slaPeriod = `${Math.min(timeframeHours, 72)}h`;
+  const slaPeriod = `${Math.min(timeframeHours, 24)}h`;
   const slaRows = await fetchSLACompliance(slaPeriod);
 
   const byPipeline = countGPUsByPipelineFromSLA(slaRows);
@@ -304,7 +304,7 @@ function countTotalGPUsFromSLA(rows: SLAComplianceRow[]): number {
 
 async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
   const [slaRows, metricsWide, metricsRecent] = await Promise.all([
-    fetchSLACompliance('72h'),
+    fetchSLACompliance('24h'),
     fetchGPUMetrics('24h'),
     fetchGPUMetrics('1h'),
   ]);
@@ -340,10 +340,10 @@ async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
 // Orchestrators resolver
 // ---------------------------------------------------------------------------
 
-async function resolveOrchestrators({ period = '72h' }: { period?: string }): Promise<DashboardOrchestrator[]> {
+async function resolveOrchestrators({ period = '24h' }: { period?: string }): Promise<DashboardOrchestrator[]> {
   // Normalize period from query variable (e.g. "24" from $timeframe) to API format "24h"
   const periodHours = period && /^\d+$/.test(period) ? parseInt(period, 10) : NaN;
-  const resolvedPeriod = Number.isFinite(periodHours) ? `${Math.min(periodHours, 72)}h` : (period || '72h');
+  const resolvedPeriod = Number.isFinite(periodHours) ? `${Math.min(periodHours, 24)}h` : (period || '24h');
   const rows = await fetchSLACompliance(resolvedPeriod);
 
   type Accum = {

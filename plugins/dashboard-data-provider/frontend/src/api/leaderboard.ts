@@ -160,7 +160,7 @@ export interface GPUMetricsFilters {
 }
 
 export interface SLAComplianceFilters {
-  /** Duration window to query (e.g. "24h", "72h"). Default "24h". */
+  /** Duration window to query (e.g. "24h", "7d"). Default "24h". API supports up to 30d. */
   period?: string;
   /** Optional orchestrator address filter */
   orchestrator_address?: string;
