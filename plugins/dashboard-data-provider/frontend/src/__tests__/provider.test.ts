@@ -358,7 +358,7 @@ describe('registerDashboardProvider', () => {
     expect(response.data!.kpi!.successRate.delta).toBe(0);
   });
 
-  it('pipelines are sorted by inference minutes descending', async () => {
+  it('pipelines are sorted by GPU count descending', async () => {
     registerDashboardProvider(testEventBus as any);
 
     const response = (await testEventBus._invoke(DASHBOARD_QUERY_EVENT, {

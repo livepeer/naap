@@ -17,44 +17,55 @@ import type {
   DashboardQueryResponse,
 } from '@naap/plugin-sdk';
 import {
-  Search,
-  ChevronUp,
-  ChevronDown,
-  ChevronsUpDown,
-  Server,
-  Cpu,
-  Activity,
-  Filter,
-  Loader2,
-  AlertCircle,
-  Layers,
-  BarChart3,
+  Search, ChevronUp, ChevronDown, ChevronsUpDown,
+  Server, Cpu, Activity, Filter, Loader2, AlertCircle, Layers, BarChart3,
 } from 'lucide-react';
 
+// ─── Types & constants ───────────────────────────────────────────────────────
+
 type Dataset = 'orchestrators' | 'hardware' | 'demand' | 'models' | 'capabilities';
+type SortDir = 'asc' | 'desc' | null;
+interface SortState<T> { key: keyof T | null; dir: SortDir; }
 
 const EXPLORER_PREFIX = 'exp_';
+const ROWS_PER_PAGE = 100;
 
 const DATASET_CONFIG = {
   orchestrators: { label: 'Orchestrators', icon: Server },
-  hardware: { label: 'Hardware', icon: Cpu },
-  demand: { label: 'Demand', icon: Activity },
-  models: { label: 'By model', icon: BarChart3 },
-  capabilities: { label: 'Capabilities', icon: Layers },
+  hardware:      { label: 'Hardware',      icon: Cpu },
+  demand:        { label: 'Demand',        icon: Activity },
+  models:        { label: 'By model',      icon: BarChart3 },
+  capabilities:  { label: 'Capabilities',  icon: Layers },
 } as const;
 
 interface ExplorerFilters {
-  pipelineId?: string;
-  modelId?: string;
-  region?: string;
-  orchestratorAddress?: string;
-  gateway?: string;
-  gpuId?: string;
-  gpuModelName?: string;
-  cudaVersion?: string;
-  runnerVersion?: string;
+  pipelineId?: string; modelId?: string; region?: string;
+  orchestratorAddress?: string; gateway?: string; gpuId?: string;
+  gpuModelName?: string; cudaVersion?: string; runnerVersion?: string;
   search?: string;
 }
+
+const FILTER_PARAM_MAP: Array<[keyof ExplorerFilters, string]> = [
+  ['pipelineId',          `${EXPLORER_PREFIX}pipelineId`],
+  ['modelId',             `${EXPLORER_PREFIX}modelId`],
+  ['region',              `${EXPLORER_PREFIX}region`],
+  ['orchestratorAddress', `${EXPLORER_PREFIX}orch`],
+  ['gateway',             `${EXPLORER_PREFIX}gateway`],
+  ['gpuId',               `${EXPLORER_PREFIX}gpuId`],
+  ['gpuModelName',        `${EXPLORER_PREFIX}gpu`],
+  ['cudaVersion',         `${EXPLORER_PREFIX}cudaVer`],
+  ['runnerVersion',       `${EXPLORER_PREFIX}runnerVer`],
+  ['search',              `${EXPLORER_PREFIX}q`],
+];
+
+const PERIOD_OPTIONS = [
+  { value: '1h', label: '1 hour' },
+  { value: '6h', label: '6 hours' },
+  { value: '24h', label: '24 hours' },
+  { value: '72h', label: '72 hours' },
+];
+
+// ─── GraphQL queries ─────────────────────────────────────────────────────────
 
 const SLA_QUERY = /* GraphQL */ `
   query RawSLA($period: String, $orchestratorAddress: String, $pipelineId: String, $modelId: String, $gpuId: String, $region: String) {
@@ -92,270 +103,41 @@ const DEMAND_QUERY = /* GraphQL */ `
   }
 `;
 
-function formatPercent(v: number | null | undefined): string {
+// ─── Formatters ───────────────────────────────────────────────────────────────
+
+function formatPercent(v: number | null | undefined) {
   if (v == null) return '—';
   return `${(v * 100).toFixed(1)}%`;
 }
 
-function formatNumber(n: number | null | undefined): string {
+function formatNumber(n: number | null | undefined) {
   if (n == null) return '—';
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString();
 }
 
-function truncateAddress(addr: string): string {
+function truncateAddress(addr: string) {
   if (!addr || addr.length < 12) return addr;
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
-type SortDir = 'asc' | 'desc' | null;
+// ─── useSortedPaginated ───────────────────────────────────────────────────────
 
-interface SortState<T> {
-  key: keyof T | null;
-  dir: SortDir;
-}
-
-function SortableHeader<T>({
-  label,
-  sortKey,
-  sortState,
-  onSort,
-}: {
-  label: string;
-  sortKey: keyof T;
-  sortState: SortState<T>;
-  onSort: (key: keyof T) => void;
-}) {
-  const active = sortState.key === sortKey;
-  return (
-    <button
-      onClick={() => onSort(sortKey)}
-      className="flex items-center gap-1 text-left hover:text-foreground transition-colors"
-    >
-      <span>{label}</span>
-      {active && sortState.dir === 'asc' && <ChevronUp className="w-3 h-3" />}
-      {active && sortState.dir === 'desc' && <ChevronDown className="w-3 h-3" />}
-      {!active && <ChevronsUpDown className="w-3 h-3 opacity-40" />}
-    </button>
-  );
-}
-
-const PERIOD_OPTIONS = [
-  { value: '1h', label: '1 hour' },
-  { value: '6h', label: '6 hours' },
-  { value: '24h', label: '24 hours' },
-  { value: '72h', label: '72 hours' },
-];
-
-const ROWS_PER_PAGE = 100;
-
-function TablePagination({
-  page,
-  totalRows,
-  rowsPerPage,
-  onPageChange,
-}: {
-  page: number;
-  totalRows: number;
-  rowsPerPage: number;
-  onPageChange: (page: number) => void;
-}) {
-  const totalPages = Math.max(1, Math.ceil(totalRows / rowsPerPage));
-  const start = totalRows === 0 ? 0 : (page - 1) * rowsPerPage + 1;
-  const end = Math.min(page * rowsPerPage, totalRows);
-  const canPrev = page > 1;
-  const canNext = page < totalPages;
-
-  return (
-    <div className="flex items-center justify-between gap-4 mt-2 px-2">
-      <p className="text-xs text-muted-foreground">
-        Showing {start}–{end} of {totalRows} rows
-      </p>
-      {totalPages > 1 && (
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => onPageChange(page - 1)}
-            disabled={!canPrev}
-            className="px-2 py-1 text-xs rounded border border-border bg-muted/30 text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:enabled:bg-muted/50"
-          >
-            Previous
-          </button>
-          <span className="text-xs text-muted-foreground px-1">
-            Page {page} of {totalPages}
-          </span>
-          <button
-            type="button"
-            onClick={() => onPageChange(page + 1)}
-            disabled={!canNext}
-            className="px-2 py-1 text-xs rounded border border-border bg-muted/30 text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:enabled:bg-muted/50"
-          >
-            Next
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FilterBar({
-  filters,
-  onChange,
-  catalog,
-  showOrchestrator,
-  showGateway,
-  showGpuId,
-  showGpuModel,
-  showCudaVersion,
-  showRunnerVersion,
-  period,
-  onPeriodChange,
-}: {
-  filters: ExplorerFilters;
-  onChange: (f: ExplorerFilters) => void;
-  catalog: DashboardPipelineCatalogEntry[];
-  showOrchestrator?: boolean;
-  showGateway?: boolean;
-  showGpuId?: boolean;
-  showGpuModel?: boolean;
-  showCudaVersion?: boolean;
-  showRunnerVersion?: boolean;
-  period: string;
-  onPeriodChange: (p: string) => void;
-}) {
-  const pipelines = catalog.map((p) => p.id).sort();
-  const allModels = [...new Set(catalog.flatMap((p) => p.models))].sort();
-  const allRegions = [...new Set(catalog.flatMap((p) => p.regions))].filter(Boolean).sort();
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <select
-        value={period}
-        onChange={(e) => onPeriodChange(e.target.value)}
-        className="px-2 py-1.5 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
-      >
-        {PERIOD_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </select>
-      <div className="w-px h-4 bg-border" />
-      <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder="Search table..."
-          value={filters.search ?? ''}
-          onChange={(e) => onChange({ ...filters, search: e.target.value })}
-          className="pl-8 pr-3 py-1.5 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary w-40 text-foreground placeholder:text-muted-foreground"
-        />
-      </div>
-      <select
-        value={filters.pipelineId ?? ''}
-        onChange={(e) => onChange({ ...filters, pipelineId: e.target.value || undefined })}
-        className="px-2 py-1.5 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
-      >
-        <option value="">All Pipelines</option>
-        {pipelines.map((p) => (
-          <option key={p} value={p}>{p}</option>
-        ))}
-      </select>
-      <select
-        value={filters.modelId ?? ''}
-        onChange={(e) => onChange({ ...filters, modelId: e.target.value || undefined })}
-        className="px-2 py-1.5 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
-      >
-        <option value="">All Models</option>
-        {allModels.map((m) => (
-          <option key={m} value={m}>{m}</option>
-        ))}
-      </select>
-      {allRegions.length > 0 && (
-        <select
-          value={filters.region ?? ''}
-          onChange={(e) => onChange({ ...filters, region: e.target.value || undefined })}
-          className="px-2 py-1.5 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
-        >
-          <option value="">All Regions</option>
-          {allRegions.map((r) => (
-            <option key={r} value={r}>{r}</option>
-          ))}
-        </select>
-      )}
-      {showOrchestrator && (
-        <input
-          type="text"
-          placeholder="Orchestrator 0x..."
-          value={filters.orchestratorAddress ?? ''}
-          onChange={(e) => onChange({ ...filters, orchestratorAddress: e.target.value || undefined })}
-          className="px-2 py-1.5 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary w-32 text-foreground placeholder:text-muted-foreground"
-        />
-      )}
-      {showGateway && (
-        <input
-          type="text"
-          placeholder="Gateway..."
-          value={filters.gateway ?? ''}
-          onChange={(e) => onChange({ ...filters, gateway: e.target.value || undefined })}
-          className="px-2 py-1.5 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary w-28 text-foreground placeholder:text-muted-foreground"
-        />
-      )}
-      {showGpuId && (
-        <input
-          type="text"
-          placeholder="GPU ID..."
-          value={filters.gpuId ?? ''}
-          onChange={(e) => onChange({ ...filters, gpuId: e.target.value || undefined })}
-          className="px-2 py-1.5 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary w-24 text-foreground placeholder:text-muted-foreground"
-        />
-      )}
-      {showGpuModel && (
-        <input
-          type="text"
-          placeholder="GPU Model..."
-          value={filters.gpuModelName ?? ''}
-          onChange={(e) => onChange({ ...filters, gpuModelName: e.target.value || undefined })}
-          className="px-2 py-1.5 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary w-28 text-foreground placeholder:text-muted-foreground"
-        />
-      )}
-      {showCudaVersion && (
-        <input
-          type="text"
-          placeholder="CUDA version..."
-          value={filters.cudaVersion ?? ''}
-          onChange={(e) => onChange({ ...filters, cudaVersion: e.target.value || undefined })}
-          className="px-2 py-1.5 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary w-28 text-foreground placeholder:text-muted-foreground"
-        />
-      )}
-      {showRunnerVersion && (
-        <input
-          type="text"
-          placeholder="Runner version..."
-          value={filters.runnerVersion ?? ''}
-          onChange={(e) => onChange({ ...filters, runnerVersion: e.target.value || undefined })}
-          className="px-2 py-1.5 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary w-28 text-foreground placeholder:text-muted-foreground"
-        />
-      )}
-    </div>
-  );
-}
-
-function OrchestratorsTable({
-  data,
-  search,
-}: {
-  data: RawSLAComplianceRow[];
-  search?: string;
-}) {
-  const [sort, setSort] = useState<SortState<RawSLAComplianceRow>>({ key: 'knownSessionsCount', dir: 'desc' });
+/** Generic sort + search + pagination hook shared by all data tables. */
+function useSortedPaginated<T>(
+  data: T[],
+  matcher: (row: T, query: string) => boolean,
+  search: string | undefined,
+  initialSortKey: keyof T,
+) {
+  const [sort, setSort] = useState<SortState<T>>({ key: initialSortKey, dir: 'desc' });
   const [page, setPage] = useState(1);
 
-  const handleSort = (key: keyof RawSLAComplianceRow) => {
-    setSort((s) =>
-      s.key === key
-        ? { key, dir: s.dir === 'desc' ? 'asc' : s.dir === 'asc' ? null : 'desc' }
-        : { key, dir: 'desc' }
-    );
+  const handleSort = (key: keyof T) => {
+    setSort((s) => s.key === key
+      ? { key, dir: s.dir === 'desc' ? 'asc' : s.dir === 'asc' ? null : 'desc' }
+      : { key, dir: 'desc' });
     setPage(1);
   };
 
@@ -363,27 +145,23 @@ function OrchestratorsTable({
     let rows = data;
     if (search) {
       const q = search.toLowerCase();
-      rows = rows.filter(
-        (r) =>
-          r.orchestratorAddress?.toLowerCase().includes(q) ||
-          r.pipelineId?.toLowerCase().includes(q) ||
-          r.modelId?.toLowerCase().includes(q) ||
-          r.region?.toLowerCase().includes(q)
-      );
+      rows = rows.filter((r) => matcher(r, q));
     }
     if (sort.key && sort.dir) {
       const k = sort.key;
       const dir = sort.dir === 'asc' ? 1 : -1;
       rows = [...rows].sort((a, b) => {
-        const av = a[k];
-        const bv = b[k];
+        const av = a[k], bv = b[k];
         if (av == null && bv == null) return 0;
         if (av == null) return dir;
         if (bv == null) return -dir;
-        return av < bv ? -dir : av > bv ? dir : 0;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (av as any) < (bv as any) ? -dir : (av as any) > (bv as any) ? dir : 0;
       });
     }
     return rows;
+  // matcher is module-level and stable; excluding from deps is intentional
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, search, sort]);
 
   useEffect(() => {
@@ -393,35 +171,161 @@ function OrchestratorsTable({
 
   const paginated = useMemo(
     () => filtered.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE),
-    [filtered, page]
+    [filtered, page],
   );
 
+  return { sort, handleSort, filtered, paginated, page, setPage };
+}
+
+// ─── Shared UI primitives ─────────────────────────────────────────────────────
+
+const INPUT_CLS = 'px-2 py-1.5 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground';
+const SELECT_CLS = 'px-2 py-1.5 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary text-foreground';
+
+function FilterInput({ value, onChange, placeholder, className = '' }: {
+  value?: string; onChange: (v: string | undefined) => void;
+  placeholder: string; className?: string;
+}) {
+  return (
+    <input
+      type="text"
+      placeholder={placeholder}
+      value={value ?? ''}
+      onChange={(e) => onChange(e.target.value || undefined)}
+      className={`${INPUT_CLS}${className ? ` ${className}` : ''}`}
+    />
+  );
+}
+
+function FilterSelect({ value, onChange, placeholder, options }: {
+  value?: string; onChange: (v: string | undefined) => void;
+  placeholder: string; options: string[];
+}) {
+  return (
+    <select
+      value={value ?? ''}
+      onChange={(e) => onChange(e.target.value || undefined)}
+      className={SELECT_CLS}
+    >
+      <option value="">{placeholder}</option>
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
+function SortableHeader<T>({ label, sortKey, sortState, onSort }: {
+  label: string; sortKey: keyof T; sortState: SortState<T>; onSort: (key: keyof T) => void;
+}) {
+  const active = sortState.key === sortKey;
+  return (
+    <button onClick={() => onSort(sortKey)} className="flex items-center gap-1 text-left hover:text-foreground transition-colors">
+      <span>{label}</span>
+      {active && sortState.dir === 'asc'  && <ChevronUp   className="w-3 h-3" />}
+      {active && sortState.dir === 'desc' && <ChevronDown  className="w-3 h-3" />}
+      {!active && <ChevronsUpDown className="w-3 h-3 opacity-40" />}
+    </button>
+  );
+}
+
+function TablePagination({ page, totalRows, rowsPerPage, onPageChange }: {
+  page: number; totalRows: number; rowsPerPage: number; onPageChange: (page: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(totalRows / rowsPerPage));
+  const start = totalRows === 0 ? 0 : (page - 1) * rowsPerPage + 1;
+  const end = Math.min(page * rowsPerPage, totalRows);
+  const btnCls = 'px-2 py-1 text-xs rounded border border-border bg-muted/30 text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:enabled:bg-muted/50';
+  return (
+    <div className="flex items-center justify-between gap-4 mt-2 px-2">
+      <p className="text-xs text-muted-foreground">Showing {start}–{end} of {totalRows} rows</p>
+      {totalPages > 1 && (
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={() => onPageChange(page - 1)} disabled={page <= 1} className={btnCls}>Previous</button>
+          <span className="text-xs text-muted-foreground px-1">Page {page} of {totalPages}</span>
+          <button type="button" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages} className={btnCls}>Next</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── FilterBar ────────────────────────────────────────────────────────────────
+
+function FilterBar({ filters, onChange, catalog, showOrchestrator, showGateway,
+  showGpuId, showGpuModel, showCudaVersion, showRunnerVersion, period, onPeriodChange }: {
+  filters: ExplorerFilters; onChange: (f: ExplorerFilters) => void;
+  catalog: DashboardPipelineCatalogEntry[]; showOrchestrator?: boolean;
+  showGateway?: boolean; showGpuId?: boolean; showGpuModel?: boolean;
+  showCudaVersion?: boolean; showRunnerVersion?: boolean;
+  period: string; onPeriodChange: (p: string) => void;
+}) {
+  const pipelines = catalog.map((p) => p.id).sort();
+  const allModels = [...new Set(catalog.flatMap((p) => p.models))].sort();
+  const allRegions = [...new Set(catalog.flatMap((p) => p.regions))].filter(Boolean).sort();
+  const set = (patch: Partial<ExplorerFilters>) => onChange({ ...filters, ...patch });
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <select value={period} onChange={(e) => onPeriodChange(e.target.value)} className={SELECT_CLS}>
+        {PERIOD_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+      </select>
+      <div className="w-px h-4 bg-border" />
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+        <input
+          type="text" placeholder="Search table..." value={filters.search ?? ''}
+          onChange={(e) => set({ search: e.target.value || undefined })}
+          className={`${INPUT_CLS} pl-8 w-40`}
+        />
+      </div>
+      <FilterSelect value={filters.pipelineId} onChange={(v) => set({ pipelineId: v })} placeholder="All Pipelines" options={pipelines} />
+      <FilterSelect value={filters.modelId}    onChange={(v) => set({ modelId: v })}    placeholder="All Models"    options={allModels} />
+      {allRegions.length > 0 && (
+        <FilterSelect value={filters.region} onChange={(v) => set({ region: v })} placeholder="All Regions" options={allRegions} />
+      )}
+      {showOrchestrator && <FilterInput value={filters.orchestratorAddress} onChange={(v) => set({ orchestratorAddress: v })} placeholder="Orchestrator 0x..." className="w-32" />}
+      {showGateway      && <FilterInput value={filters.gateway}             onChange={(v) => set({ gateway: v })}             placeholder="Gateway..."          className="w-28" />}
+      {showGpuId        && <FilterInput value={filters.gpuId}               onChange={(v) => set({ gpuId: v })}               placeholder="GPU ID..."            className="w-24" />}
+      {showGpuModel     && <FilterInput value={filters.gpuModelName}        onChange={(v) => set({ gpuModelName: v })}        placeholder="GPU Model..."         className="w-28" />}
+      {showCudaVersion  && <FilterInput value={filters.cudaVersion}         onChange={(v) => set({ cudaVersion: v })}         placeholder="CUDA version..."      className="w-28" />}
+      {showRunnerVersion && <FilterInput value={filters.runnerVersion}      onChange={(v) => set({ runnerVersion: v })}       placeholder="Runner version..."    className="w-28" />}
+    </div>
+  );
+}
+
+// ─── Table row matchers (module-level = stable refs) ─────────────────────────
+
+const matchSla  = (r: RawSLAComplianceRow, q: string) =>
+  [r.orchestratorAddress, r.pipelineId, r.modelId, r.region].some(v => v?.toLowerCase().includes(q));
+
+const matchGpu  = (r: RawGPUMetricRow, q: string) =>
+  [r.orchestratorAddress, r.gpuModelName, r.pipelineId, r.region, r.cudaVersion, r.runnerVersion].some(v => v?.toLowerCase().includes(q));
+
+const matchDemand = (r: RawNetworkDemandRow, q: string) =>
+  [r.gateway, r.pipelineId, r.modelId, r.region].some(v => v?.toLowerCase().includes(q));
+
+const matchModel  = (r: ModelMetricsRow, q: string) =>
+  [r.pipelineId, r.modelId ?? ''].some(v => v.toLowerCase().includes(q));
+
+// ─── Table components ─────────────────────────────────────────────────────────
+
+function OrchestratorsTable({ data, search }: { data: RawSLAComplianceRow[]; search?: string }) {
+  const { sort, handleSort, filtered, paginated, page, setPage } = useSortedPaginated(data, matchSla, search, 'knownSessionsCount');
+  const H = <K extends keyof RawSLAComplianceRow>(label: string, k: K) =>
+    <SortableHeader label={label} sortKey={k} sortState={sort} onSort={handleSort} />;
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border text-muted-foreground">
-            <th className="py-2 px-2 text-left font-medium">
-              <SortableHeader label="Orchestrator" sortKey="orchestratorAddress" sortState={sort} onSort={handleSort} />
-            </th>
+            <th className="py-2 px-2 text-left font-medium">{H('Orchestrator', 'orchestratorAddress')}</th>
             <th className="py-2 px-2 text-left font-medium">Pipeline</th>
             <th className="py-2 px-2 text-left font-medium">Model</th>
             <th className="py-2 px-2 text-left font-medium">Region</th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Sessions" sortKey="knownSessionsCount" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Success" sortKey="startupSuccessRate" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Effective" sortKey="effectiveSuccessRate" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="No-Swap" sortKey="noSwapRate" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="SLA" sortKey="slaScore" sortState={sort} onSort={handleSort} />
-            </th>
+            <th className="py-2 px-2 text-right font-medium">{H('Sessions', 'knownSessionsCount')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('Success',   'startupSuccessRate')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('Effective', 'effectiveSuccessRate')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('No-Swap',   'noSwapRate')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('SLA',       'slaScore')}</th>
           </tr>
         </thead>
         <tbody>
@@ -441,98 +345,30 @@ function OrchestratorsTable({
         </tbody>
       </table>
       {(filtered.length > ROWS_PER_PAGE || page > 1) && (
-        <TablePagination
-          page={page}
-          totalRows={filtered.length}
-          rowsPerPage={ROWS_PER_PAGE}
-          onPageChange={setPage}
-        />
+        <TablePagination page={page} totalRows={filtered.length} rowsPerPage={ROWS_PER_PAGE} onPageChange={setPage} />
       )}
     </div>
   );
 }
 
-function HardwareTable({
-  data,
-  search,
-}: {
-  data: RawGPUMetricRow[];
-  search?: string;
-}) {
-  const [sort, setSort] = useState<SortState<RawGPUMetricRow>>({ key: 'knownSessionsCount', dir: 'desc' });
-  const [page, setPage] = useState(1);
-
-  const handleSort = (key: keyof RawGPUMetricRow) => {
-    setSort((s) =>
-      s.key === key
-        ? { key, dir: s.dir === 'desc' ? 'asc' : s.dir === 'asc' ? null : 'desc' }
-        : { key, dir: 'desc' }
-    );
-    setPage(1);
-  };
-
-  const filtered = useMemo(() => {
-    let rows = data;
-    if (search) {
-      const q = search.toLowerCase();
-      rows = rows.filter(
-        (r) =>
-          r.orchestratorAddress?.toLowerCase().includes(q) ||
-          r.gpuModelName?.toLowerCase().includes(q) ||
-          r.pipelineId?.toLowerCase().includes(q) ||
-          r.region?.toLowerCase().includes(q) ||
-          r.cudaVersion?.toLowerCase().includes(q) ||
-          r.runnerVersion?.toLowerCase().includes(q)
-      );
-    }
-    if (sort.key && sort.dir) {
-      const k = sort.key;
-      const dir = sort.dir === 'asc' ? 1 : -1;
-      rows = [...rows].sort((a, b) => {
-        const av = a[k];
-        const bv = b[k];
-        if (av == null && bv == null) return 0;
-        if (av == null) return dir;
-        if (bv == null) return -dir;
-        return av < bv ? -dir : av > bv ? dir : 0;
-      });
-    }
-    return rows;
-  }, [data, search, sort]);
-
-  useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
-    if (page > maxPage) setPage(1);
-  }, [filtered.length, page]);
-
-  const paginated = useMemo(
-    () => filtered.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE),
-    [filtered, page]
-  );
-
+function HardwareTable({ data, search }: { data: RawGPUMetricRow[]; search?: string }) {
+  const { sort, handleSort, filtered, paginated, page, setPage } = useSortedPaginated(data, matchGpu, search, 'knownSessionsCount');
+  const H = <K extends keyof RawGPUMetricRow>(label: string, k: K) =>
+    <SortableHeader label={label} sortKey={k} sortState={sort} onSort={handleSort} />;
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border text-muted-foreground">
             <th className="py-2 px-2 text-left font-medium">Orchestrator</th>
-            <th className="py-2 px-2 text-left font-medium">
-              <SortableHeader label="GPU Model" sortKey="gpuModelName" sortState={sort} onSort={handleSort} />
-            </th>
+            <th className="py-2 px-2 text-left font-medium">{H('GPU Model', 'gpuModelName')}</th>
             <th className="py-2 px-2 text-left font-medium">Pipeline</th>
+            <th className="py-2 px-2 text-left font-medium">Model</th>
             <th className="py-2 px-2 text-left font-medium">Region</th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Avg FPS" sortKey="avgOutputFps" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="P95 FPS" sortKey="p95OutputFps" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Sessions" sortKey="knownSessionsCount" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Swap Rate" sortKey="swapRate" sortState={sort} onSort={handleSort} />
-            </th>
+            <th className="py-2 px-2 text-right font-medium">{H('Avg FPS',  'avgOutputFps')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('P95 FPS',  'p95OutputFps')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('Sessions', 'knownSessionsCount')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('Swap Rate','swapRate')}</th>
             <th className="py-2 px-2 text-left font-medium">Runner</th>
             <th className="py-2 px-2 text-left font-medium">CUDA</th>
           </tr>
@@ -543,6 +379,7 @@ function HardwareTable({
               <td className="py-1.5 px-2 font-mono text-[11px] text-foreground">{truncateAddress(row.orchestratorAddress)}</td>
               <td className="py-1.5 px-2 text-foreground">{row.gpuModelName ?? '—'}</td>
               <td className="py-1.5 px-2 text-foreground">{row.pipelineId}</td>
+              <td className="py-1.5 px-2 text-muted-foreground">{row.modelId ?? '—'}</td>
               <td className="py-1.5 px-2 text-muted-foreground">{row.region ?? '—'}</td>
               <td className="py-1.5 px-2 text-right text-foreground">{row.avgOutputFps?.toFixed(1) ?? '—'}</td>
               <td className="py-1.5 px-2 text-right text-foreground">{row.p95OutputFps?.toFixed(1) ?? '—'}</td>
@@ -555,73 +392,16 @@ function HardwareTable({
         </tbody>
       </table>
       {(filtered.length > ROWS_PER_PAGE || page > 1) && (
-        <TablePagination
-          page={page}
-          totalRows={filtered.length}
-          rowsPerPage={ROWS_PER_PAGE}
-          onPageChange={setPage}
-        />
+        <TablePagination page={page} totalRows={filtered.length} rowsPerPage={ROWS_PER_PAGE} onPageChange={setPage} />
       )}
     </div>
   );
 }
 
-function DemandTable({
-  data,
-  search,
-}: {
-  data: RawNetworkDemandRow[];
-  search?: string;
-}) {
-  const [sort, setSort] = useState<SortState<RawNetworkDemandRow>>({ key: 'sessionsCount', dir: 'desc' });
-  const [page, setPage] = useState(1);
-
-  const handleSort = (key: keyof RawNetworkDemandRow) => {
-    setSort((s) =>
-      s.key === key
-        ? { key, dir: s.dir === 'desc' ? 'asc' : s.dir === 'asc' ? null : 'desc' }
-        : { key, dir: 'desc' }
-    );
-    setPage(1);
-  };
-
-  const filtered = useMemo(() => {
-    let rows = data;
-    if (search) {
-      const q = search.toLowerCase();
-      rows = rows.filter(
-        (r) =>
-          r.gateway?.toLowerCase().includes(q) ||
-          r.pipelineId?.toLowerCase().includes(q) ||
-          r.modelId?.toLowerCase().includes(q) ||
-          r.region?.toLowerCase().includes(q)
-      );
-    }
-    if (sort.key && sort.dir) {
-      const k = sort.key;
-      const dir = sort.dir === 'asc' ? 1 : -1;
-      rows = [...rows].sort((a, b) => {
-        const av = a[k];
-        const bv = b[k];
-        if (av == null && bv == null) return 0;
-        if (av == null) return dir;
-        if (bv == null) return -dir;
-        return av < bv ? -dir : av > bv ? dir : 0;
-      });
-    }
-    return rows;
-  }, [data, search, sort]);
-
-  useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
-    if (page > maxPage) setPage(1);
-  }, [filtered.length, page]);
-
-  const paginated = useMemo(
-    () => filtered.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE),
-    [filtered, page]
-  );
-
+function DemandTable({ data, search }: { data: RawNetworkDemandRow[]; search?: string }) {
+  const { sort, handleSort, filtered, paginated, page, setPage } = useSortedPaginated(data, matchDemand, search, 'sessionsCount');
+  const H = <K extends keyof RawNetworkDemandRow>(label: string, k: K) =>
+    <SortableHeader label={label} sortKey={k} sortState={sort} onSort={handleSort} />;
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
@@ -631,21 +411,11 @@ function DemandTable({
             <th className="py-2 px-2 text-left font-medium">Pipeline</th>
             <th className="py-2 px-2 text-left font-medium">Model</th>
             <th className="py-2 px-2 text-left font-medium">Region</th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Sessions" sortKey="sessionsCount" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Minutes" sortKey="totalMinutes" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Served" sortKey="servedSessions" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Success" sortKey="startupSuccessRate" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="ETH" sortKey="ticketFaceValueEth" sortState={sort} onSort={handleSort} />
-            </th>
+            <th className="py-2 px-2 text-right font-medium">{H('Sessions', 'sessionsCount')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('Minutes',  'totalMinutes')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('Served',   'servedSessions')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('Success',  'startupSuccessRate')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('ETH',      'ticketFaceValueEth')}</th>
           </tr>
         </thead>
         <tbody>
@@ -665,37 +435,21 @@ function DemandTable({
         </tbody>
       </table>
       {(filtered.length > ROWS_PER_PAGE || page > 1) && (
-        <TablePagination
-          page={page}
-          totalRows={filtered.length}
-          rowsPerPage={ROWS_PER_PAGE}
-          onPageChange={setPage}
-        />
+        <TablePagination page={page} totalRows={filtered.length} rowsPerPage={ROWS_PER_PAGE} onPageChange={setPage} />
       )}
     </div>
   );
 }
 
-function CapabilitiesTable({
-  data,
-  search,
-}: {
-  data: DashboardPipelineCatalogEntry[];
-  search?: string;
-}) {
+function CapabilitiesTable({ data, search }: { data: DashboardPipelineCatalogEntry[]; search?: string }) {
   const filtered = useMemo(() => {
-    let rows = data;
-    if (search) {
-      const q = search.toLowerCase();
-      rows = rows.filter(
-        (r) =>
-          r.id?.toLowerCase().includes(q) ||
-          r.name?.toLowerCase().includes(q) ||
-          r.models?.some((m) => m.toLowerCase().includes(q)) ||
-          r.regions?.some((reg) => reg.toLowerCase().includes(q))
-      );
-    }
-    return rows;
+    if (!search) return data;
+    const q = search.toLowerCase();
+    return data.filter((r) =>
+      r.id?.toLowerCase().includes(q) || r.name?.toLowerCase().includes(q) ||
+      r.models?.some((m: string) => m.toLowerCase().includes(q)) ||
+      r.regions?.some((reg: string) => reg.toLowerCase().includes(q))
+    );
   }, [data, search]);
 
   return (
@@ -716,29 +470,23 @@ function CapabilitiesTable({
               <td className="py-1.5 px-2 text-foreground">{row.name}</td>
               <td className="py-1.5 px-2">
                 <div className="flex flex-wrap gap-1">
-                  {row.models?.slice(0, 5).map((m) => (
+                  {row.models?.slice(0, 5).map((m: string) => (
                     <span key={m} className="px-1.5 py-0.5 rounded bg-muted/70 text-[10px] text-foreground">{m}</span>
                   ))}
                   {row.models?.length > 5 && (
-                    <span className="px-1.5 py-0.5 rounded bg-muted/50 text-[10px] text-muted-foreground">
-                      +{row.models.length - 5} more
-                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-muted/50 text-[10px] text-muted-foreground">+{row.models.length - 5} more</span>
                   )}
                 </div>
               </td>
               <td className="py-1.5 px-2">
                 <div className="flex flex-wrap gap-1">
-                  {row.regions?.length > 0 ? (
-                    row.regions.slice(0, 5).map((r) => (
-                      <span key={r} className="px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue text-[10px]">{r}</span>
-                    ))
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
+                  {row.regions?.length > 0
+                    ? row.regions.slice(0, 5).map((reg: string) => (
+                        <span key={reg} className="px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue text-[10px]">{reg}</span>
+                      ))
+                    : <span className="text-muted-foreground">—</span>}
                   {row.regions?.length > 5 && (
-                    <span className="px-1.5 py-0.5 rounded bg-muted/50 text-[10px] text-muted-foreground">
-                      +{row.regions.length - 5} more
-                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-muted/50 text-[10px] text-muted-foreground">+{row.regions.length - 5} more</span>
                   )}
                 </div>
               </td>
@@ -753,130 +501,54 @@ function CapabilitiesTable({
   );
 }
 
+// ─── By-model aggregation ─────────────────────────────────────────────────────
+
 interface ModelMetricsRow {
-  pipelineId: string;
-  modelId: string | null;
-  avgFps: number | null;
-  p95Fps: number | null;
-  swapRate: number | null;
-  successRate: number | null;
+  pipelineId: string; modelId: string | null;
+  avgFps: number | null; p95Fps: number | null;
+  swapRate: number | null; successRate: number | null;
   sessionsCount: number;
 }
 
-function aggregateByModel(
-  gpuRows: RawGPUMetricRow[],
-  slaRows: RawSLAComplianceRow[]
-): ModelMetricsRow[] {
+function aggregateByModel(gpuRows: RawGPUMetricRow[], slaRows: RawSLAComplianceRow[]): ModelMetricsRow[] {
   const key = (p: string, m: string | null) => `${p}\0${m ?? ''}`;
   const gpuByKey = new Map<string, { totalFps: number; totalP95: number; totalSwap: number; weight: number }>();
   for (const r of gpuRows) {
-    const k = key(r.pipelineId, r.modelId);
-    const w = r.knownSessionsCount ?? 0;
+    const k = key(r.pipelineId, r.modelId), w = r.knownSessionsCount ?? 0;
     const cur = gpuByKey.get(k);
-    if (cur) {
-      cur.totalFps += (r.avgOutputFps ?? 0) * w;
-      cur.totalP95 += (r.p95OutputFps ?? 0) * w;
-      cur.totalSwap += (r.swapRate ?? 0) * w;
-      cur.weight += w;
-    } else {
-      gpuByKey.set(k, {
-        totalFps: (r.avgOutputFps ?? 0) * w,
-        totalP95: (r.p95OutputFps ?? 0) * w,
-        totalSwap: (r.swapRate ?? 0) * w,
-        weight: w,
-      });
-    }
+    if (cur) { cur.totalFps += (r.avgOutputFps ?? 0) * w; cur.totalP95 += (r.p95OutputFps ?? 0) * w; cur.totalSwap += (r.swapRate ?? 0) * w; cur.weight += w; }
+    else gpuByKey.set(k, { totalFps: (r.avgOutputFps ?? 0) * w, totalP95: (r.p95OutputFps ?? 0) * w, totalSwap: (r.swapRate ?? 0) * w, weight: w });
   }
   const slaByKey = new Map<string, { totalSuccess: number; weight: number }>();
   for (const r of slaRows) {
-    const k = key(r.pipelineId, r.modelId);
-    const w = r.knownSessionsCount ?? 0;
+    const k = key(r.pipelineId, r.modelId), w = r.knownSessionsCount ?? 0;
     const rate = r.effectiveSuccessRate ?? r.startupSuccessRate ?? null;
     if (rate == null) continue;
     const cur = slaByKey.get(k);
-    if (cur) {
-      cur.totalSuccess += rate * w;
-      cur.weight += w;
-    } else {
-      slaByKey.set(k, { totalSuccess: rate * w, weight: w });
-    }
+    if (cur) { cur.totalSuccess += rate * w; cur.weight += w; }
+    else slaByKey.set(k, { totalSuccess: rate * w, weight: w });
   }
-  const keys = new Set([...gpuByKey.keys(), ...slaByKey.keys()]);
   const rows: ModelMetricsRow[] = [];
-  for (const k of keys) {
+  for (const k of new Set([...gpuByKey.keys(), ...slaByKey.keys()])) {
     const [pipelineId, modelIdStr] = k.split('\0');
-    const modelId = modelIdStr || null;
-    const gpu = gpuByKey.get(k);
-    const sla = slaByKey.get(k);
-    const gpuWeight = gpu?.weight ?? 0;
-    const slaWeight = sla?.weight ?? 0;
+    const gpu = gpuByKey.get(k), sla = slaByKey.get(k);
+    const gw = gpu?.weight ?? 0, sw = sla?.weight ?? 0;
     rows.push({
-      pipelineId,
-      modelId: modelId || null,
-      avgFps: gpuWeight > 0 && gpu ? gpu.totalFps / gpuWeight : null,
-      p95Fps: gpuWeight > 0 && gpu ? gpu.totalP95 / gpuWeight : null,
-      swapRate: gpuWeight > 0 && gpu ? gpu.totalSwap / gpuWeight : null,
-      successRate: slaWeight > 0 && sla ? sla.totalSuccess / sla.weight : null,
-      sessionsCount: Math.max(gpuWeight, slaWeight),
+      pipelineId, modelId: modelIdStr || null,
+      avgFps:      gw > 0 && gpu ? gpu.totalFps  / gw : null,
+      p95Fps:      gw > 0 && gpu ? gpu.totalP95  / gw : null,
+      swapRate:    gw > 0 && gpu ? gpu.totalSwap / gw : null,
+      successRate: sw > 0 && sla ? sla.totalSuccess / sla.weight : null,
+      sessionsCount: Math.max(gw, sw),
     });
   }
   return rows.sort((a, b) => b.sessionsCount - a.sessionsCount);
 }
 
-function ModelsTable({
-  data,
-  search,
-}: {
-  data: ModelMetricsRow[];
-  search?: string;
-}) {
-  const [sort, setSort] = useState<SortState<ModelMetricsRow>>({ key: 'sessionsCount', dir: 'desc' });
-  const [page, setPage] = useState(1);
-
-  const handleSort = (key: keyof ModelMetricsRow) => {
-    setSort((s) =>
-      s.key === key
-        ? { key, dir: s.dir === 'desc' ? 'asc' : s.dir === 'asc' ? null : 'desc' }
-        : { key, dir: 'desc' }
-    );
-    setPage(1);
-  };
-
-  const filtered = useMemo(() => {
-    let rows = data;
-    if (search) {
-      const q = search.toLowerCase();
-      rows = rows.filter(
-        (r) =>
-          r.pipelineId?.toLowerCase().includes(q) ||
-          (r.modelId ?? '').toLowerCase().includes(q)
-      );
-    }
-    if (sort.key && sort.dir) {
-      const k = sort.key;
-      const dir = sort.dir === 'asc' ? 1 : -1;
-      rows = [...rows].sort((a, b) => {
-        const av = a[k];
-        const bv = b[k];
-        if (av == null && bv == null) return 0;
-        if (av == null) return dir;
-        if (bv == null) return -dir;
-        return av < bv ? -dir : av > bv ? dir : 0;
-      });
-    }
-    return rows;
-  }, [data, search, sort]);
-
-  useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
-    if (page > maxPage) setPage(1);
-  }, [filtered.length, page]);
-
-  const paginated = useMemo(
-    () => filtered.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE),
-    [filtered, page]
-  );
-
+function ModelsTable({ data, search }: { data: ModelMetricsRow[]; search?: string }) {
+  const { sort, handleSort, filtered, paginated, page, setPage } = useSortedPaginated(data, matchModel, search, 'sessionsCount');
+  const H = <K extends keyof ModelMetricsRow>(label: string, k: K) =>
+    <SortableHeader label={label} sortKey={k} sortState={sort} onSort={handleSort} />;
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
@@ -884,21 +556,11 @@ function ModelsTable({
           <tr className="border-b border-border text-muted-foreground">
             <th className="py-2 px-2 text-left font-medium">Pipeline</th>
             <th className="py-2 px-2 text-left font-medium">Model</th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Avg FPS" sortKey="avgFps" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="P95 FPS" sortKey="p95Fps" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Swap rate" sortKey="swapRate" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Success rate" sortKey="successRate" sortState={sort} onSort={handleSort} />
-            </th>
-            <th className="py-2 px-2 text-right font-medium">
-              <SortableHeader label="Sessions" sortKey="sessionsCount" sortState={sort} onSort={handleSort} />
-            </th>
+            <th className="py-2 px-2 text-right font-medium">{H('Avg FPS',      'avgFps')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('P95 FPS',      'p95Fps')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('Swap rate',    'swapRate')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('Success rate', 'successRate')}</th>
+            <th className="py-2 px-2 text-right font-medium">{H('Sessions',     'sessionsCount')}</th>
           </tr>
         </thead>
         <tbody>
@@ -919,56 +581,22 @@ function ModelsTable({
         <p className="text-xs text-muted-foreground mt-4 text-center">No metrics by model in this period. Try Orchestrators or Hardware for raw rows.</p>
       )}
       {(filtered.length > ROWS_PER_PAGE || page > 1) && (
-        <TablePagination
-          page={page}
-          totalRows={filtered.length}
-          rowsPerPage={ROWS_PER_PAGE}
-          onPageChange={setPage}
-        />
+        <TablePagination page={page} totalRows={filtered.length} rowsPerPage={ROWS_PER_PAGE} onPageChange={setPage} />
       )}
     </div>
   );
 }
 
-function parseFiltersFromParams(params: URLSearchParams): ExplorerFilters {
-  return {
-    pipelineId: params.get(`${EXPLORER_PREFIX}pipelineId`) || undefined,
-    modelId: params.get(`${EXPLORER_PREFIX}modelId`) || undefined,
-    region: params.get(`${EXPLORER_PREFIX}region`) || undefined,
-    orchestratorAddress: params.get(`${EXPLORER_PREFIX}orch`) || undefined,
-    gateway: params.get(`${EXPLORER_PREFIX}gateway`) || undefined,
-    gpuId: params.get(`${EXPLORER_PREFIX}gpuId`) || undefined,
-    gpuModelName: params.get(`${EXPLORER_PREFIX}gpu`) || undefined,
-    cudaVersion: params.get(`${EXPLORER_PREFIX}cudaVer`) || undefined,
-    runnerVersion: params.get(`${EXPLORER_PREFIX}runnerVer`) || undefined,
-    search: params.get(`${EXPLORER_PREFIX}q`) || undefined,
-  };
-}
+// ─── useDashboardQuery ────────────────────────────────────────────────────────
 
-interface DashboardError {
-  type: string;
-  message: string;
-}
-
-interface QueryState<T> {
-  data: T | null;
-  loading: boolean;
-  error: DashboardError | null;
-}
+interface DashboardError { type: string; message: string; }
+interface QueryState<T> { data: T | null; loading: boolean; error: DashboardError | null; }
 
 const NO_PROVIDER_RETRY_DELAYS = [1000, 2000, 3000, 5000];
 
-function useDashboardQuery<T>(
-  query: string,
-  variables?: Record<string, unknown>
-): QueryState<T> & { refetch: () => void } {
+function useDashboardQuery<T>(query: string, variables?: Record<string, unknown>): QueryState<T> & { refetch: () => void } {
   const { request } = usePluginEvent();
-  const [state, setState] = useState<QueryState<T>>({
-    data: null,
-    loading: true,
-    error: null,
-  });
-
+  const [state, setState] = useState<QueryState<T>>({ data: null, loading: true, error: null });
   const mountedRef = useRef(true);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -977,69 +605,35 @@ function useDashboardQuery<T>(
   const fetchData = useCallback(async () => {
     if (!mountedRef.current) return;
     setState((s) => ({ ...s, loading: true }));
-
     try {
       const response = await request<DashboardQueryRequest, DashboardQueryResponse>(
-        DASHBOARD_QUERY_EVENT,
-        { query, variables },
-        { timeout: 8000 }
+        DASHBOARD_QUERY_EVENT, { query, variables }, { timeout: 8000 }
       );
-
       if (!mountedRef.current) return;
       retryCountRef.current = 0;
-
-      if (response.errors && response.errors.length > 0 && !response.data) {
-        setState({
-          data: null,
-          loading: false,
-          error: {
-            type: 'query-error',
-            message: response.errors.map((e) => e.message).join('; '),
-          },
-        });
+      if (response.errors?.length && !response.data) {
+        setState({ data: null, loading: false, error: { type: 'query-error', message: response.errors.map((e: { message: string }) => e.message).join('; ') } });
       } else {
-        setState({
-          data: (response.data as T) ?? null,
-          loading: false,
-          error: null,
-        });
+        setState({ data: (response.data as T) ?? null, loading: false, error: null });
       }
     } catch (err: unknown) {
       if (!mountedRef.current) return;
-
       const code = (err as any)?.code;
       if (code === 'NO_HANDLER') {
-        const retryIndex = retryCountRef.current;
-        if (retryIndex < NO_PROVIDER_RETRY_DELAYS.length) {
-          const delay = NO_PROVIDER_RETRY_DELAYS[retryIndex];
-          retryCountRef.current = retryIndex + 1;
-          retryTimerRef.current = setTimeout(() => {
-            if (mountedRef.current) fetchData();
-          }, delay);
+        const idx = retryCountRef.current;
+        if (idx < NO_PROVIDER_RETRY_DELAYS.length) {
+          retryCountRef.current = idx + 1;
+          retryTimerRef.current = setTimeout(() => { if (mountedRef.current) fetchData(); }, NO_PROVIDER_RETRY_DELAYS[idx]);
           return;
         }
-        setState({
-          data: null,
-          loading: false,
-          error: { type: 'no-provider', message: 'No dashboard data provider is registered' },
-        });
+        setState({ data: null, loading: false, error: { type: 'no-provider', message: 'No dashboard data provider is registered' } });
       } else if (code === 'TIMEOUT') {
-        setState({
-          data: null,
-          loading: false,
-          error: { type: 'timeout', message: 'Dashboard data provider did not respond in time' },
-        });
+        setState({ data: null, loading: false, error: { type: 'timeout', message: 'Dashboard data provider did not respond in time' } });
       } else {
-        setState({
-          data: null,
-          loading: false,
-          error: {
-            type: 'unknown',
-            message: (err as Error)?.message ?? 'Unknown error fetching dashboard data',
-          },
-        });
+        setState({ data: null, loading: false, error: { type: 'unknown', message: (err as Error)?.message ?? 'Unknown error' } });
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request, query, variablesKey]);
 
   useEffect(() => {
@@ -1048,134 +642,59 @@ function useDashboardQuery<T>(
     fetchData();
     return () => {
       mountedRef.current = false;
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
-      }
+      if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
     };
   }, [fetchData]);
 
   return { ...state, refetch: fetchData };
 }
 
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export const RawExplorerPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const initialDataset = (searchParams.get(`${EXPLORER_PREFIX}ds`) as Dataset) || 'orchestrators';
-  const initialPeriod = searchParams.get(`${EXPLORER_PREFIX}period`) || '24h';
-  const initialFilters = parseFiltersFromParams(searchParams);
+  const initialPeriod  = searchParams.get(`${EXPLORER_PREFIX}period`) || '24h';
+  const initialFilters = useMemo(() => {
+    const out: ExplorerFilters = {};
+    FILTER_PARAM_MAP.forEach(([key, param]) => { const v = searchParams.get(param); if (v) out[key] = v; });
+    return out;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [dataset, setDataset] = useState<Dataset>(initialDataset);
   const [filters, setFilters] = useState<ExplorerFilters>(initialFilters);
-  const [period, setPeriod] = useState(initialPeriod);
+  const [period,  setPeriod]  = useState(initialPeriod);
 
-  const updateUrl = useCallback(
-    (newFilters: ExplorerFilters, newDataset: Dataset, newPeriod: string) => {
-      const params = new URLSearchParams();
-      params.set(`${EXPLORER_PREFIX}ds`, newDataset);
-      params.set(`${EXPLORER_PREFIX}period`, newPeriod);
-      if (newFilters.pipelineId) params.set(`${EXPLORER_PREFIX}pipelineId`, newFilters.pipelineId);
-      if (newFilters.modelId) params.set(`${EXPLORER_PREFIX}modelId`, newFilters.modelId);
-      if (newFilters.region) params.set(`${EXPLORER_PREFIX}region`, newFilters.region);
-      if (newFilters.orchestratorAddress) params.set(`${EXPLORER_PREFIX}orch`, newFilters.orchestratorAddress);
-      if (newFilters.gateway) params.set(`${EXPLORER_PREFIX}gateway`, newFilters.gateway);
-      if (newFilters.gpuId) params.set(`${EXPLORER_PREFIX}gpuId`, newFilters.gpuId);
-      if (newFilters.gpuModelName) params.set(`${EXPLORER_PREFIX}gpu`, newFilters.gpuModelName);
-      if (newFilters.cudaVersion) params.set(`${EXPLORER_PREFIX}cudaVer`, newFilters.cudaVersion);
-      if (newFilters.runnerVersion) params.set(`${EXPLORER_PREFIX}runnerVer`, newFilters.runnerVersion);
-      if (newFilters.search) params.set(`${EXPLORER_PREFIX}q`, newFilters.search);
-      setSearchParams(params, { replace: true });
-    },
-    [setSearchParams]
-  );
+  const updateUrl = useCallback((f: ExplorerFilters, ds: Dataset, p: string) => {
+    const params = new URLSearchParams();
+    params.set(`${EXPLORER_PREFIX}ds`, ds);
+    params.set(`${EXPLORER_PREFIX}period`, p);
+    FILTER_PARAM_MAP.forEach(([key, param]) => { if (f[key]) params.set(param, f[key]!); });
+    setSearchParams(params, { replace: true });
+  }, [setSearchParams]);
 
-  const handleFiltersChange = useCallback(
-    (newFilters: ExplorerFilters) => {
-      setFilters(newFilters);
-      updateUrl(newFilters, dataset, period);
-    },
-    [dataset, period, updateUrl]
-  );
+  const handleFiltersChange = useCallback((f: ExplorerFilters) => { setFilters(f); updateUrl(f, dataset, period); }, [dataset, period, updateUrl]);
+  const handleDatasetChange = useCallback((ds: Dataset)        => { setDataset(ds); updateUrl(filters, ds, period); }, [filters, period, updateUrl]);
+  const handlePeriodChange  = useCallback((p: string)          => { setPeriod(p);  updateUrl(filters, dataset, p); }, [dataset, filters, updateUrl]);
 
-  const handleDatasetChange = useCallback(
-    (newDataset: Dataset) => {
-      setDataset(newDataset);
-      updateUrl(filters, newDataset, period);
-    },
-    [filters, period, updateUrl]
-  );
-
-  const handlePeriodChange = useCallback(
-    (newPeriod: string) => {
-      setPeriod(newPeriod);
-      updateUrl(filters, dataset, newPeriod);
-    },
-    [dataset, filters, updateUrl]
-  );
-
-  const slaVars = {
-    period,
-    orchestratorAddress: filters.orchestratorAddress,
-    pipelineId: filters.pipelineId,
-    modelId: filters.modelId,
-    gpuId: filters.gpuId,
-    region: filters.region,
-  };
-
-  const gpuTimeRange = period === '1h' ? '1h' : '24h';
-  const gpuVars = {
-    timeRange: gpuTimeRange,
-    orchestratorAddress: filters.orchestratorAddress,
-    pipelineId: filters.pipelineId,
-    modelId: filters.modelId,
-    gpuId: filters.gpuId,
-    region: filters.region,
-    gpuModelName: filters.gpuModelName,
-    runnerVersion: filters.runnerVersion,
-    cudaVersion: filters.cudaVersion,
-  };
-
+  const gpuTimeRange   = period === '1h' ? '1h' : '24h';
   const demandInterval = period === '1h' ? '5m' : period === '6h' ? '30m' : period === '24h' ? '2h' : '6h';
-  const demandVars = {
-    interval: demandInterval,
-    gateway: filters.gateway,
-    pipelineId: filters.pipelineId,
-    modelId: filters.modelId,
-    region: filters.region,
-  };
 
-  const { data: slaData, loading: slaLoading, error: slaError } = useDashboardQuery<{
-    slaCompliance: RawSLAComplianceRow[];
-    pipelineCatalog: DashboardPipelineCatalogEntry[];
-  }>(SLA_QUERY, slaVars);
+  const slaVars    = { period, orchestratorAddress: filters.orchestratorAddress, pipelineId: filters.pipelineId, modelId: filters.modelId, gpuId: filters.gpuId, region: filters.region };
+  const gpuVars    = { timeRange: gpuTimeRange, ...slaVars, gpuModelName: filters.gpuModelName, runnerVersion: filters.runnerVersion, cudaVersion: filters.cudaVersion };
+  const demandVars = { interval: demandInterval, gateway: filters.gateway, pipelineId: filters.pipelineId, modelId: filters.modelId, region: filters.region };
 
-  const { data: gpuData, loading: gpuLoading, error: gpuError } = useDashboardQuery<{
-    gpuMetrics: RawGPUMetricRow[];
-    pipelineCatalog: DashboardPipelineCatalogEntry[];
-  }>(GPU_QUERY, gpuVars);
+  const { data: slaData,    loading: slaLoading,    error: slaError    } = useDashboardQuery<{ slaCompliance: RawSLAComplianceRow[];   pipelineCatalog: DashboardPipelineCatalogEntry[] }>(SLA_QUERY,    slaVars);
+  const { data: gpuData,    loading: gpuLoading,    error: gpuError    } = useDashboardQuery<{ gpuMetrics:    RawGPUMetricRow[];        pipelineCatalog: DashboardPipelineCatalogEntry[] }>(GPU_QUERY,    gpuVars);
+  const { data: demandData, loading: demandLoading, error: demandError } = useDashboardQuery<{ networkDemand: RawNetworkDemandRow[];     pipelineCatalog: DashboardPipelineCatalogEntry[] }>(DEMAND_QUERY, demandVars);
 
-  const { data: demandData, loading: demandLoading, error: demandError } = useDashboardQuery<{
-    networkDemand: RawNetworkDemandRow[];
-    pipelineCatalog: DashboardPipelineCatalogEntry[];
-  }>(DEMAND_QUERY, demandVars);
+  const catalog    = slaData?.pipelineCatalog ?? gpuData?.pipelineCatalog ?? demandData?.pipelineCatalog ?? [];
+  const modelsData = useMemo(() => gpuData?.gpuMetrics && slaData?.slaCompliance ? aggregateByModel(gpuData.gpuMetrics, slaData.slaCompliance) : [], [gpuData?.gpuMetrics, slaData?.slaCompliance]);
 
-  const catalog = slaData?.pipelineCatalog ?? gpuData?.pipelineCatalog ?? demandData?.pipelineCatalog ?? [];
-
-  const modelsData = useMemo(() => {
-    if (!gpuData?.gpuMetrics || !slaData?.slaCompliance) return [];
-    return aggregateByModel(gpuData.gpuMetrics, slaData.slaCompliance);
-  }, [gpuData?.gpuMetrics, slaData?.slaCompliance]);
-
-  const loading = dataset === 'orchestrators' ? slaLoading
-    : dataset === 'hardware' ? gpuLoading
-    : dataset === 'demand' ? demandLoading
-    : dataset === 'models' ? slaLoading || gpuLoading
-    : slaLoading;
-  const error = dataset === 'orchestrators' ? slaError
-    : dataset === 'hardware' ? gpuError
-    : dataset === 'demand' ? demandError
-    : dataset === 'models' ? slaError ?? gpuError
-    : slaError;
+  const loading = dataset === 'demand' ? demandLoading : dataset === 'hardware' ? gpuLoading : dataset === 'models' ? slaLoading || gpuLoading : slaLoading;
+  const error   = dataset === 'demand' ? demandError   : dataset === 'hardware' ? gpuError   : dataset === 'models' ? slaError ?? gpuError   : slaError;
 
   return (
     <div className="space-y-6 max-w-[1440px] mx-auto">
@@ -1195,34 +714,24 @@ export const RawExplorerPage: React.FC = () => {
               {(Object.entries(DATASET_CONFIG) as [Dataset, typeof DATASET_CONFIG[Dataset]][]).map(([key, cfg]) => {
                 const Icon = cfg.icon;
                 return (
-                  <button
-                    key={key}
-                    onClick={() => handleDatasetChange(key)}
+                  <button key={key} onClick={() => handleDatasetChange(key)}
                     className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors ${
-                      dataset === key
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
+                      dataset === key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
-                    <Icon className="w-3 h-3" />
-                    {cfg.label}
+                    <Icon className="w-3 h-3" />{cfg.label}
                   </button>
                 );
               })}
             </div>
           </div>
           <FilterBar
-            filters={filters}
-            onChange={handleFiltersChange}
-            catalog={catalog}
+            filters={filters} onChange={handleFiltersChange} catalog={catalog}
             showOrchestrator={dataset === 'orchestrators' || dataset === 'hardware'}
             showGateway={dataset === 'demand'}
             showGpuId={dataset === 'orchestrators' || dataset === 'hardware'}
-            showGpuModel={dataset === 'hardware'}
-            showCudaVersion={dataset === 'hardware'}
-            showRunnerVersion={dataset === 'hardware'}
-            period={period}
-            onPeriodChange={handlePeriodChange}
+            showGpuModel={dataset === 'hardware'} showCudaVersion={dataset === 'hardware'} showRunnerVersion={dataset === 'hardware'}
+            period={period} onPeriodChange={handlePeriodChange}
           />
         </div>
 
@@ -1239,21 +748,11 @@ export const RawExplorerPage: React.FC = () => {
             </div>
           ) : (
             <>
-              {dataset === 'orchestrators' && slaData?.slaCompliance && (
-                <OrchestratorsTable data={slaData.slaCompliance} search={filters.search} />
-              )}
-              {dataset === 'hardware' && gpuData?.gpuMetrics && (
-                <HardwareTable data={gpuData.gpuMetrics} search={filters.search} />
-              )}
-              {dataset === 'demand' && demandData?.networkDemand && (
-                <DemandTable data={demandData.networkDemand} search={filters.search} />
-              )}
-              {dataset === 'models' && (
-                <ModelsTable data={modelsData} search={filters.search} />
-              )}
-              {dataset === 'capabilities' && catalog.length > 0 && (
-                <CapabilitiesTable data={catalog} search={filters.search} />
-              )}
+              {dataset === 'orchestrators' && slaData?.slaCompliance    && <OrchestratorsTable data={slaData.slaCompliance}    search={filters.search} />}
+              {dataset === 'hardware'      && gpuData?.gpuMetrics        && <HardwareTable      data={gpuData.gpuMetrics}        search={filters.search} />}
+              {dataset === 'demand'        && demandData?.networkDemand  && <DemandTable        data={demandData.networkDemand}  search={filters.search} />}
+              {dataset === 'models'                                       && <ModelsTable        data={modelsData}                search={filters.search} />}
+              {dataset === 'capabilities' && catalog.length > 0          && <CapabilitiesTable  data={catalog}                  search={filters.search} />}
             </>
           )}
         </div>

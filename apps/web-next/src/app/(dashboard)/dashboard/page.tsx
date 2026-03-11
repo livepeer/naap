@@ -586,7 +586,7 @@ function PipelinesCard({
                   {p.name}
                 </div>
               </div>
-              <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">{formatNumber(p.mins)} mins</span>
+              <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">{formatNumber(p.mins)} GPUs</span>
             </div>
             {p.modelMins && p.modelMins.length > 0 ? (
               <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
@@ -622,7 +622,7 @@ function PipelinesCard({
               className="w-full flex items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:text-muted-foreground transition-colors group"
               aria-expanded={availableExpanded}
             >
-              <span>Available (no usage in timeframe)</span>
+              <span>Available (no GPUs in timeframe)</span>
               <span className="transition-transform group-hover:opacity-100">
                 {availableExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               </span>
@@ -642,7 +642,7 @@ function PipelinesCard({
                           {p.name}
                         </div>
                       </div>
-                      <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">0 mins</span>
+                      <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">0</span>
                     </div>
                     {p.models && p.models.length > 0 && (
                       <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
