@@ -83,8 +83,6 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
     }
     gpuCapacity {
       totalGPUs
-      availableCapacity
-      models { model count }
     }
     pricing {
       pipeline unit price outputPerDollar
@@ -662,102 +660,19 @@ function PipelinesCard({
   );
 }
 
-const GPU_MODEL_COLORS = [
-  '#3b82f6', // blue
-  '#8b5cf6', // violet
-  '#f59e0b', // amber
-  '#10b981', // emerald
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#f97316', // orange
-  '#84cc16', // lime
-];
-
 function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
-  const radius = 40;
-  const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference - (data.availableCapacity / 100) * circumference;
-  const totalGPUs = data.totalGPUs || 1;
-
   return (
     <div className="p-4 rounded-lg bg-card border border-border">
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-3">
         <div className="p-1 rounded-md bg-muted text-muted-foreground">
           <Cpu className="w-3.5 h-3.5" />
         </div>
-        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">GPU Capacity</span>
+        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Network GPUs</span>
       </div>
-      <div className="flex items-center gap-5">
-        <div className="relative w-24 h-24 flex-shrink-0">
-          <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-            <circle cx="50" cy="50" r={radius} fill="none" stroke="currentColor" className="text-muted" strokeWidth="8" />
-            <circle
-              cx="50" cy="50" r={radius} fill="none"
-              stroke="currentColor"
-              className="text-emerald-500"
-              strokeWidth="8"
-              strokeLinecap="round"
-              strokeDasharray={circumference}
-              strokeDashoffset={dashOffset}
-              style={{ transition: 'stroke-dashoffset 1s ease-out' }}
-            />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-lg font-bold text-foreground">{data.availableCapacity}%</span>
-            <span className="text-[9px] text-muted-foreground">Available</span>
-          </div>
-        </div>
-        <div className="space-y-2">
-          <div>
-            <span className="text-xl font-semibold font-mono text-foreground">{data.totalGPUs}</span>
-            <span className="text-xs text-muted-foreground ml-1">GPUs</span>
-          </div>
-        </div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-3xl font-semibold font-mono text-foreground">{data.totalGPUs}</span>
+        <span className="text-sm text-muted-foreground">total GPUs</span>
       </div>
-      {data.models && data.models.length > 0 && (
-        <div className="mt-4 pt-3 border-t border-border">
-          <div className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wider">Capacity by model</div>
-          <div
-            className="flex h-2 rounded-full overflow-hidden bg-muted/50"
-            role="img"
-            aria-label="GPU capacity breakdown by model"
-          >
-            {data.models.map((m, i) => {
-              const pct = (m.count / totalGPUs) * 100;
-              const color = GPU_MODEL_COLORS[i % GPU_MODEL_COLORS.length];
-              return (
-                <div
-                  key={m.model}
-                  className="transition-all duration-300 first:rounded-l-full last:rounded-r-full"
-                  style={{
-                    width: `${pct}%`,
-                    backgroundColor: color,
-                  }}
-                  title={`${m.model}: ${m.count} GPU${m.count !== 1 ? 's' : ''} (${pct.toFixed(1)}%)`}
-                />
-              );
-            })}
-          </div>
-          <div className="space-y-1.5 mt-2">
-            {data.models.map((m, i) => {
-              const color = GPU_MODEL_COLORS[i % GPU_MODEL_COLORS.length];
-              return (
-                <div key={m.model} className="flex items-center justify-between text-xs">
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    <span
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: color }}
-                      aria-hidden
-                    />
-                    <span className="text-muted-foreground truncate" title={m.model}>{m.model}</span>
-                  </span>
-                  <span className="font-mono text-foreground flex-shrink-0">{m.count}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1164,6 +1079,7 @@ function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: 
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
+    return undefined;
   }, [open]);
 
   return (
