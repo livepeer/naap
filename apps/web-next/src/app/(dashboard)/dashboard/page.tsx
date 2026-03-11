@@ -56,8 +56,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { RawExplorer } from './components/RawExplorer';
-
 // ============================================================================
 // GraphQL Query — the ONLY place data requirements are declared
 // ============================================================================
@@ -768,7 +766,17 @@ function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
 // Row 3: Live Job Feed & Pipeline Pricing
 // ============================================================================
 
-function JobFeedCard({ jobs, connected }: { jobs: JobFeedEntry[]; connected: boolean }) {
+function JobFeedCard({
+  jobs,
+  connected,
+  pollInterval,
+  onPollIntervalChange,
+}: {
+  jobs: JobFeedEntry[];
+  connected: boolean;
+  pollInterval: number;
+  onPollIntervalChange: (ms: number) => void;
+}) {
   const statusStyles: Record<string, string> = {
     running: 'bg-emerald-500/15 text-emerald-400',
     completed: 'bg-blue-500/10 text-blue-400',
@@ -784,12 +792,15 @@ function JobFeedCard({ jobs, connected }: { jobs: JobFeedEntry[]; connected: boo
           </div>
           <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Live Job Feed</span>
         </div>
-        {connected && (
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[10px] text-emerald-400 font-medium">LIVE</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <JobFeedPollIntervalSelector value={pollInterval} onChange={onPollIntervalChange} />
+          {connected && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[10px] text-emerald-400 font-medium">LIVE</span>
+            </div>
+          )}
+        </div>
       </div>
       <div className="overflow-hidden">
         {jobs.length === 0 ? (
@@ -1078,26 +1089,28 @@ function OrchestratorTableCard({
 const POLL_INTERVAL_KEY = 'naap_dashboard_poll_interval';
 const DEFAULT_POLL_INTERVAL = 15_000;
 
-const POLL_OPTIONS = [
+/** Fixed poll interval for overview/fees — not useful to refresh more often. */
+
+const JOB_FEED_POLL_OPTIONS = [
   { label: '5s',  value: 5_000  },
   { label: '15s', value: 15_000 },
   { label: '30s', value: 30_000 },
   { label: '90s', value: 90_000 },
 ] as const;
 
-function getStoredPollInterval(): number {
+function getStoredJobFeedPollInterval(): number {
   if (typeof window === 'undefined') return DEFAULT_POLL_INTERVAL;
   const stored = localStorage.getItem(POLL_INTERVAL_KEY);
   if (!stored) return DEFAULT_POLL_INTERVAL;
   const parsed = Number(stored);
-  return POLL_OPTIONS.some((o) => o.value === parsed) ? parsed : DEFAULT_POLL_INTERVAL;
+  return JOB_FEED_POLL_OPTIONS.some((o) => o.value === parsed) ? parsed : DEFAULT_POLL_INTERVAL;
 }
 
-function PollIntervalSelector({ value, onChange }: { value: number; onChange: (ms: number) => void }) {
+function JobFeedPollIntervalSelector({ value, onChange }: { value: number; onChange: (ms: number) => void }) {
   return (
     <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-md bg-muted/30 border border-border">
       <Timer className="w-3 h-3 text-muted-foreground ml-1" />
-      {POLL_OPTIONS.map((opt) => (
+      {JOB_FEED_POLL_OPTIONS.map((opt) => (
         <button
           key={opt.value}
           onClick={() => onChange(opt.value)}
@@ -1203,11 +1216,11 @@ function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: 
 export default function DashboardPage() {
   useAuth();
 
-  const [pollInterval, setPollInterval] = useState(getStoredPollInterval);
+  const [jobFeedPollInterval, setJobFeedPollInterval] = useState(getStoredJobFeedPollInterval);
   const [timeframe, setTimeframe] = useState(getStoredTimeframe);
 
-  const handlePollIntervalChange = (ms: number) => {
-    setPollInterval(ms);
+  const handleJobFeedPollIntervalChange = (ms: number) => {
+    setJobFeedPollInterval(ms);
     localStorage.setItem(POLL_INTERVAL_KEY, String(ms));
   };
 
@@ -1219,21 +1232,21 @@ export default function DashboardPage() {
   const { data, loading, refreshing, error } = useDashboardQuery<DashboardData>(
     NETWORK_OVERVIEW_QUERY,
     { timeframe },
-    { pollInterval, timeout: 8000 }
+    { timeout: 8000 }
   );
-  const { data: feesData, loading: feesLoading, refreshing: feesRefreshing } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
+  const { data: feesData, loading: feesLoading } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
-    { pollInterval, timeout: 8000 }
+    { timeout: 8000 }
   );
 
-  const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8 });
+  const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8, pollInterval: jobFeedPollInterval });
 
   // No provider installed (only after retries exhausted)
   if (error?.type === 'no-provider' && !data) {
     return (
       <div className="space-y-6 max-w-[1440px] mx-auto">
-        <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
+        <DashboardHeader timeframe={timeframe} onTimeframeChange={handleTimeframeChange} />
         <NoProviderMessage />
       </div>
     );
@@ -1241,14 +1254,14 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 max-w-[1440px] mx-auto">
-      <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
+      <DashboardHeader
+        timeframe={timeframe}
+        onTimeframeChange={handleTimeframeChange}
+      />
 
       {/* Row 1: KPI tiles */}
       <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-muted-foreground">Network Metrics</h2>
-          <TimeframeSelector value={timeframe} onChange={handleTimeframeChange} />
-        </div>
+        <h2 className="text-sm font-medium text-muted-foreground">Network Metrics</h2>
         {data?.kpi ? (
           <RefreshWrap refreshing={refreshing}>
             <KPIRow data={data.kpi} />
@@ -1294,27 +1307,27 @@ export default function DashboardPage() {
       {/* Row 4: Live Job Feed & Pipeline Pricing */}
       <section className="space-y-3">
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
-          <JobFeedCard jobs={jobs} connected={jobFeedConnected} />
+          <JobFeedCard
+            jobs={jobs}
+            connected={jobFeedConnected}
+            pollInterval={jobFeedPollInterval}
+            onPollIntervalChange={handleJobFeedPollIntervalChange}
+          />
           {data?.pricing
             ? <RefreshWrap refreshing={refreshing}><PricingCard data={data.pricing} /></RefreshWrap>
             : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pricing" />}
         </div>
-      </section>
-
-      {/* Row 5: Raw Metrics Explorer */}
-      <section>
-        <RawExplorer />
       </section>
     </div>
   );
 }
 
 function DashboardHeader({
-  pollInterval,
-  onPollIntervalChange,
+  timeframe,
+  onTimeframeChange,
 }: {
-  pollInterval: number;
-  onPollIntervalChange: (ms: number) => void;
+  timeframe: string;
+  onTimeframeChange: (tf: string) => void;
 }) {
   return (
     <div className="flex items-end justify-between">
@@ -1325,7 +1338,7 @@ function DashboardHeader({
         </p>
       </div>
       <div className="flex items-center gap-2">
-        <PollIntervalSelector value={pollInterval} onChange={onPollIntervalChange} />
+        <TimeframeSelector value={timeframe} onChange={onTimeframeChange} />
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/50 border border-border">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-[11px] font-medium text-muted-foreground">Online</span>

@@ -29,6 +29,8 @@ export interface UseJobFeedStreamOptions {
   maxItems?: number;
   /** Timeout for the subscription discovery request in ms (default: 5000). */
   timeout?: number;
+  /** Re-subscribe to the job feed every N ms. Set to 0 or omit to keep a single subscription. */
+  pollInterval?: number;
   /** Whether to skip connecting (useful for conditional rendering). */
   skip?: boolean;
 }
@@ -53,7 +55,7 @@ const NO_PROVIDER_RETRY_DELAYS = [1000, 2000, 3000, 5000];
 export function useJobFeedStream(
   options?: UseJobFeedStreamOptions
 ): UseJobFeedStreamResult {
-  const { maxItems = 8, timeout = 5000, skip = false } = options ?? {};
+  const { maxItems = 8, timeout = 5000, pollInterval: pollIntervalMs = 0, skip = false } = options ?? {};
   const shell = useShell();
 
   const [jobs, setJobs] = useState<JobFeedEntry[]>([]);
@@ -64,6 +66,8 @@ export function useJobFeedStream(
   const jobsRef = useRef<JobFeedEntry[]>([]);
   const maxItemsRef = useRef(maxItems);
   maxItemsRef.current = maxItems;
+  const cleanupRef = useRef<(() => void) | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Add a new job to the rolling buffer (deduplicates by id)
   const addJob = useCallback((entry: JobFeedEntry) => {
@@ -119,6 +123,21 @@ export function useJobFeedStream(
           setConnected(true);
           setError(null);
         }
+
+        cleanupRef.current = eventBusCleanup;
+
+        // When pollInterval is set, re-subscribe periodically to refresh the feed connection
+        if (pollIntervalMs > 0 && mountedRef.current) {
+          if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+          pollTimerRef.current = setTimeout(() => {
+            pollTimerRef.current = null;
+            if (!mountedRef.current) return;
+            cleanupRef.current?.();
+            cleanupRef.current = null;
+            eventBusCleanup = null;
+            connect();
+          }, pollIntervalMs);
+        }
       } catch (err: unknown) {
         if (!mountedRef.current) return;
 
@@ -160,17 +179,23 @@ export function useJobFeedStream(
 
     return () => {
       mountedRef.current = false;
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
       if (retryTimer) {
         clearTimeout(retryTimer);
         retryTimer = null;
       }
+      cleanupRef.current?.();
+      cleanupRef.current = null;
       if (eventBusCleanup) {
         eventBusCleanup();
         eventBusCleanup = null;
       }
       setConnected(false);
     };
-  }, [shell.eventBus, timeout, skip, addJob]);
+  }, [shell.eventBus, timeout, pollIntervalMs, skip, addJob]);
 
   return { jobs, connected, error };
 }

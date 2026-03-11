@@ -507,6 +507,19 @@ async function resolveRawNetworkDemand(args: NetworkDemandFilters): Promise<RawN
   return rows.map(transformNetworkDemandRow);
 }
 
+/**
+ * Normalize CUDA version for API: many backends store/filter as integer major (e.g. 12).
+ * "12.2" / "12.0" / "12" -> "12" to avoid text/int mismatch.
+ */
+function normalizeCudaVersionForApi(value: string | undefined): string | undefined {
+  if (value == null || value === '') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const major = parseInt(trimmed, 10);
+  if (!Number.isNaN(major) && major >= 0) return String(major);
+  return trimmed;
+}
+
 async function resolveRawGPUMetrics(args: GPUMetricsFilters): Promise<RawGPUMetricRow[]> {
   const filters = {
     time_range: args.timeRange,
@@ -517,7 +530,7 @@ async function resolveRawGPUMetrics(args: GPUMetricsFilters): Promise<RawGPUMetr
     region: args.region,
     gpu_model_name: args.gpuModelName,
     runner_version: args.runnerVersion,
-    cuda_version: args.cudaVersion,
+    cuda_version: normalizeCudaVersionForApi(args.cudaVersion),
   };
   const rows = await fetchGPUMetrics(filters);
   return rows.map(transformGPUMetricRow);
