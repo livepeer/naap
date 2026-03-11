@@ -14,7 +14,10 @@ import { PrismaClient as GeneratedPrismaClient, Prisma } from './generated/clien
 export * from './generated/client/index.js';
 
 // Re-export catalog constants
-export { BILLING_PROVIDERS } from './billing-providers';
+export { BILLING_PROVIDERS, type BillingProviderConfig } from './billing-providers';
+
+// OIDC utilities for relying party integration
+export * from './oidc';
 
 // Shared developer-api utilities
 export { DevApiProjectResolutionError, resolveDevApiProjectId } from './dev-api/resolveDevApiProject';

@@ -33,7 +33,8 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@prisma/client": "^5.20.0"
+    "@prisma/client": "^5.20.0",
+    "jose": "^6.2.1"
   },
   "devDependencies": {
     "@types/node": "^20.19.35",

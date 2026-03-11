@@ -1,6 +1,7 @@
 /**
  * POST /api/v1/auth/providers/:providerSlug/start
  * Start a brokered billing-provider authentication session.
+ * Supports both legacy OAuth and OIDC auth flows.
  */
 
 import * as crypto from 'crypto';
@@ -8,6 +9,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
+import {
+  BILLING_PROVIDERS,
+  fetchDiscoveryDocument,
+  generateCodeVerifier,
+  generateCodeChallenge,
+  generateNonce,
+  encryptToken,
+} from '@naap/database';
 
 const DAYDREAM_AUTH_URL =
   process.env.DAYDREAM_AUTH_URL || 'https://app.daydream.live/sign-in/local';
@@ -43,7 +52,6 @@ function resolveAppUrl(request: NextRequest): string {
   const isProduction =
     process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
 
-  // Dedicated override for OAuth callback origin (e.g. local dev through a plugin shell)
   if (isProduction) {
     if (!process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN) {
       throw new Error('BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN must be set in production');
@@ -76,7 +84,6 @@ function resolveAppUrl(request: NextRequest): string {
     return `${protocol}://${resolvedHost}`;
   }
 
-  // Last-resort/dev fallback: only trust forwarded headers for localhost/127.*
   if (forwardedHost && isLocalHost(forwardedHost)) {
     const protocol = forwardedProto || 'http';
     return `${protocol}://${forwardedHost}`;
@@ -85,9 +92,46 @@ function resolveAppUrl(request: NextRequest): string {
   return 'http://localhost:3000';
 }
 
-function resolveProviderAuthUrl(providerSlug: string): string | null {
+function getProviderConfig(providerSlug: string) {
+  return BILLING_PROVIDERS.find((p) => p.slug === providerSlug);
+}
+
+async function buildOidcAuthorizeUrl(
+  providerConfig: (typeof BILLING_PROVIDERS)[number],
+  callbackUrl: string,
+  state: string,
+  nonce: string,
+  codeChallenge: string
+): Promise<string> {
+  const discoveryUrl = providerConfig.oidcDiscoveryUrl;
+  if (!discoveryUrl) {
+    throw new Error('OIDC discovery URL not configured for provider');
+  }
+
+  const discovery = await fetchDiscoveryDocument(discoveryUrl);
+  const authEndpoint = discovery.authorization_endpoint;
+
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: providerConfig.oidcClientId || '',
+    redirect_uri: callbackUrl,
+    scope: providerConfig.oidcScopes || 'openid profile email',
+    state,
+    nonce,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+  });
+
+  return `${authEndpoint}?${params.toString()}`;
+}
+
+function buildLegacyOauthUrl(
+  providerSlug: string,
+  callbackUrl: string,
+  state: string
+): string | null {
   if (providerSlug === 'daydream') {
-    return DAYDREAM_AUTH_URL;
+    return `${DAYDREAM_AUTH_URL}?redirect_url=${encodeURIComponent(callbackUrl)}&state=${encodeURIComponent(state)}`;
   }
   return null;
 }
@@ -109,9 +153,9 @@ export async function POST(
           );
     }
 
-    const providerAuthUrl = resolveProviderAuthUrl(providerSlug);
-    if (!providerAuthUrl) {
-      return errors.badRequest(`Unsupported billing provider for OAuth: ${providerSlug}`);
+    const providerConfig = getProviderConfig(providerSlug);
+    if (!providerConfig || !providerConfig.enabled) {
+      return errors.badRequest(`Unsupported or disabled billing provider: ${providerSlug}`);
     }
 
     const body = await request.json().catch(() => ({}));
@@ -123,15 +167,41 @@ export async function POST(
     const naapUserId = authenticatedUser?.id ?? null;
 
     const loginSessionId = crypto.randomBytes(32).toString('hex');
-
-    // Build the callback URL that provider will redirect the browser to
     const appUrl = resolveAppUrl(request);
     const callbackUrl = `${appUrl}/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/callback`;
-
     const state = crypto.randomBytes(16).toString('hex');
 
-    // Build auth URL with redirect back to NAAP callback
-    const authUrl = `${providerAuthUrl}?redirect_url=${encodeURIComponent(callbackUrl)}&state=${encodeURIComponent(state)}`;
+    let authUrl: string;
+    let nonce: string | null = null;
+    let codeVerifier: string | null = null;
+
+    if (providerConfig.authType === 'oidc') {
+      // OIDC flow with PKCE
+      nonce = generateNonce();
+      codeVerifier = generateCodeVerifier();
+      const codeChallenge = generateCodeChallenge(codeVerifier);
+
+      authUrl = await buildOidcAuthorizeUrl(
+        providerConfig,
+        callbackUrl,
+        state,
+        nonce,
+        codeChallenge
+      );
+
+      console.log(`[billing-auth:${providerSlug}] Starting OIDC flow for session ${loginSessionId.slice(0, 8)}...`);
+    } else {
+      // Legacy OAuth flow
+      const legacyUrl = buildLegacyOauthUrl(providerSlug, callbackUrl, state);
+      if (!legacyUrl) {
+        return errors.badRequest(`Unsupported billing provider for OAuth: ${providerSlug}`);
+      }
+      authUrl = legacyUrl;
+
+      console.log(`[billing-auth:${providerSlug}] Starting legacy OAuth flow for session ${loginSessionId.slice(0, 8)}...`);
+    }
+
+    // Store session with OIDC-specific fields
     await prisma.billingProviderOAuthSession.create({
       data: {
         loginSessionId,
@@ -145,16 +215,19 @@ export async function POST(
         providerUserId: null,
         redeemedAt: null,
         expiresAt: new Date(Date.now() + LOGIN_SESSION_TTL_MS),
+        nonce,
+        codeVerifier: codeVerifier ? encryptToken(codeVerifier) : null,
+        idTokenSub: null,
+        idTokenClaims: null,
       },
     });
-
-    console.log(`[billing-auth:${providerSlug}] Started login session ${loginSessionId.slice(0, 8)}...`);
 
     return success({
       auth_url: authUrl,
       login_session_id: loginSessionId,
       expires_in: Math.floor(LOGIN_SESSION_TTL_MS / 1000),
       poll_after_ms: 1500,
+      auth_type: providerConfig.authType,
     });
   } catch (err) {
     console.error('[billing-auth] Error starting login:', err);

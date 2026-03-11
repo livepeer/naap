@@ -169,11 +169,18 @@ model BillingProvider {
   displayName String
   description String?
   icon        String?
-  authType    String   @default("oauth")
+  authType    String   @default("oauth") // oauth | oidc
   enabled     Boolean  @default(true)
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  // OIDC-specific configuration (used when authType = "oidc")
+  oidcIssuer       String? // e.g., "https://pymthouse.example"
+  oidcClientId     String?
+  oidcClientSecret String? // encrypted at rest
+  oidcScopes       String? @default("openid profile email plan")
+  oidcDiscoveryUrl String? // e.g., "https://pymthouse.example/.well-known/openid-configuration"
 
   devApiKeys DevApiKey[]
 
@@ -189,12 +196,18 @@ model BillingProviderOAuthSession {
   gatewayInstanceId String?
   naapUserId        String?
   status            String    @default("pending")
-  accessToken       String?
+  accessToken       String?   // encrypted, for legacy oauth or OIDC access_token
   providerUserId    String?
   redeemedAt        DateTime?
   expiresAt         DateTime
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
+
+  // OIDC-specific session fields
+  nonce             String?   // OIDC nonce for id_token validation
+  codeVerifier      String?   // PKCE code_verifier, encrypted
+  idTokenSub        String?   // OIDC subject from validated id_token
+  idTokenClaims     Json?     // snapshot of verified id_token claims
 
   @@index([expiresAt])
   @@index([providerSlug])
@@ -1406,6 +1419,12 @@ model DevApiKey {
   lastUsedAt        DateTime?
   revokedAt         DateTime?
 
+  // OIDC identity binding (populated when key is created via OIDC flow)
+  oidcSub           String?             // OIDC subject identifier from id_token
+  oidcIssuer        String?             // OIDC issuer for this identity
+  oidcPlan          String?             // Plan claim from id_token for entitlement mapping
+  oidcEntitlements  String[]            // Entitlements array from id_token claims
+
   usageLogs DevApiUsageLog[]
 
   @@index([userId])
@@ -1414,6 +1433,7 @@ model DevApiKey {
   @@index([status])
   @@index([keyHash])
   @@index([keyLookupId])
+  @@index([oidcSub])
   @@schema("plugin_developer_api")
 }
 

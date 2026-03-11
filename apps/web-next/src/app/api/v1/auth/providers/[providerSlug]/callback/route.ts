@@ -1,11 +1,20 @@
 /**
  * GET /api/v1/auth/providers/:providerSlug/callback
  * Provider redirects the browser here after user authentication.
+ * Supports both legacy OAuth (token param) and OIDC (code param) flows.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { encryptToken } from '@naap/database';
+import {
+  encryptToken,
+  decryptToken,
+  BILLING_PROVIDERS,
+  fetchDiscoveryDocument,
+  exchangeCodeForTokens,
+  validateIdToken,
+  type IdTokenPayload,
+} from '@naap/database';
 
 const DAYDREAM_API_BASE = process.env.DAYDREAM_API_BASE || 'https://api.daydream.live';
 
@@ -16,6 +25,10 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function getProviderConfig(providerSlug: string) {
+  return BILLING_PROVIDERS.find((p) => p.slug === providerSlug);
 }
 
 async function exchangeTokenForApiKey(providerSlug: string, token: string): Promise<string> {
@@ -58,14 +71,62 @@ async function exchangeTokenForApiKey(providerSlug: string, token: string): Prom
   return apiKey;
 }
 
+async function handleOidcCallback(
+  providerConfig: (typeof BILLING_PROVIDERS)[number],
+  code: string,
+  redirectUri: string,
+  session: {
+    loginSessionId: string;
+    nonce: string | null;
+    codeVerifier: string | null;
+  }
+): Promise<{ accessToken: string; idTokenClaims: IdTokenPayload }> {
+  const discoveryUrl = providerConfig.oidcDiscoveryUrl;
+  if (!discoveryUrl) {
+    throw new Error('OIDC discovery URL not configured');
+  }
+
+  const discovery = await fetchDiscoveryDocument(discoveryUrl);
+
+  const codeVerifier = session.codeVerifier ? decryptToken(session.codeVerifier) : undefined;
+
+  const tokens = await exchangeCodeForTokens({
+    tokenEndpoint: discovery.token_endpoint,
+    code,
+    redirectUri,
+    clientId: providerConfig.oidcClientId || '',
+    clientSecret: providerConfig.oidcClientSecret || undefined,
+    codeVerifier,
+  });
+
+  if (!tokens.id_token) {
+    throw new Error('No id_token in token response');
+  }
+
+  const idTokenClaims = await validateIdToken(tokens.id_token, {
+    discoveryUrl,
+    clientId: providerConfig.oidcClientId || '',
+    nonce: session.nonce || undefined,
+  });
+
+  return {
+    accessToken: tokens.access_token,
+    idTokenClaims,
+  };
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ providerSlug: string }> }
 ): Promise<NextResponse> {
   const { providerSlug } = await params;
   const searchParams = request.nextUrl.searchParams;
+
+  const code = searchParams.get('code');
   const token = searchParams.get('token');
   const state = searchParams.get('state');
+  const error = searchParams.get('error');
+  const errorDescription = searchParams.get('error_description');
 
   const htmlResponse = (title: string, message: string, isError = false) => {
     const safeTitle = escapeHtml(title);
@@ -88,10 +149,20 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
     );
   };
 
-  if (!token || !state) {
+  // Handle OIDC error response
+  if (error) {
+    console.error(`[billing-auth:${providerSlug}] OIDC error: ${error} - ${errorDescription}`);
     return htmlResponse(
       'Authentication Failed',
-      'Missing token or state parameter from billing provider.',
+      errorDescription || error,
+      true
+    );
+  }
+
+  if (!state) {
+    return htmlResponse(
+      'Authentication Failed',
+      'Missing state parameter from provider.',
       true
     );
   }
@@ -129,22 +200,64 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
     );
   }
 
+  const providerConfig = getProviderConfig(providerSlug);
+
   try {
-    const apiKey = await exchangeTokenForApiKey(providerSlug, token);
+    if (providerConfig?.authType === 'oidc' && code) {
+      // OIDC flow: exchange code for tokens and validate id_token
+      const redirectUri = `${request.nextUrl.origin}/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/callback`;
 
-    await prisma.billingProviderOAuthSession.update({
-      where: { loginSessionId: session.loginSessionId },
-      data: {
-        status: 'complete',
-        accessToken: encryptToken(apiKey),
-      },
-    });
+      const { accessToken, idTokenClaims } = await handleOidcCallback(
+        providerConfig,
+        code,
+        redirectUri,
+        {
+          loginSessionId: session.loginSessionId,
+          nonce: session.nonce,
+          codeVerifier: session.codeVerifier,
+        }
+      );
 
-    console.log(
-      `[billing-auth:${providerSlug}] Callback complete for session ${session.loginSessionId.slice(0, 8)}...`
-    );
+      await prisma.billingProviderOAuthSession.update({
+        where: { loginSessionId: session.loginSessionId },
+        data: {
+          status: 'complete',
+          accessToken: encryptToken(accessToken),
+          idTokenSub: idTokenClaims.sub,
+          idTokenClaims: idTokenClaims as unknown as Record<string, unknown>,
+          providerUserId: idTokenClaims.sub,
+        },
+      });
 
-    return htmlResponse('Authentication Complete', 'You can close this tab and return to NaaP.');
+      console.log(
+        `[billing-auth:${providerSlug}] OIDC callback complete for session ${session.loginSessionId.slice(0, 8)}..., sub=${idTokenClaims.sub}`
+      );
+
+      return htmlResponse('Authentication Complete', 'You can close this tab and return to NaaP.');
+    } else if (token) {
+      // Legacy OAuth flow: exchange token for API key
+      const apiKey = await exchangeTokenForApiKey(providerSlug, token);
+
+      await prisma.billingProviderOAuthSession.update({
+        where: { loginSessionId: session.loginSessionId },
+        data: {
+          status: 'complete',
+          accessToken: encryptToken(apiKey),
+        },
+      });
+
+      console.log(
+        `[billing-auth:${providerSlug}] Legacy OAuth callback complete for session ${session.loginSessionId.slice(0, 8)}...`
+      );
+
+      return htmlResponse('Authentication Complete', 'You can close this tab and return to NaaP.');
+    } else {
+      return htmlResponse(
+        'Authentication Failed',
+        'Missing code or token parameter from provider.',
+        true
+      );
+    }
   } catch (err) {
     console.error(`[billing-auth:${providerSlug}] Callback error:`, err);
     return htmlResponse(
