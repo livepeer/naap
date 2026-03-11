@@ -1216,8 +1216,17 @@ function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: 
 export default function DashboardPage() {
   useAuth();
 
-  const [jobFeedPollInterval, setJobFeedPollInterval] = useState(getStoredJobFeedPollInterval);
-  const [timeframe, setTimeframe] = useState(getStoredTimeframe);
+  const [jobFeedPollInterval, setJobFeedPollInterval] = useState(DEFAULT_POLL_INTERVAL);
+  const [timeframe, setTimeframe] = useState(DEFAULT_TIMEFRAME);
+
+  useEffect(() => {
+    const storedPollInterval = getStoredJobFeedPollInterval();
+    const storedTimeframe = getStoredTimeframe();
+    setJobFeedPollInterval(storedPollInterval);
+    setTimeframe(storedTimeframe);
+    localStorage.setItem(POLL_INTERVAL_KEY, String(storedPollInterval));
+    localStorage.setItem(TIMEFRAME_KEY, storedTimeframe);
+  }, []);
 
   const handleJobFeedPollIntervalChange = (ms: number) => {
     setJobFeedPollInterval(ms);
