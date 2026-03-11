@@ -193,38 +193,73 @@ async function resolveKPI({ timeframe }: { timeframe?: string }): Promise<Dashbo
 }
 
 // ---------------------------------------------------------------------------
-// Pipelines resolver
+// Pipelines resolver (GPU counts per pipeline and per pipeline+model from SLA)
 // ---------------------------------------------------------------------------
+
+/** Count distinct GPUs per pipeline and per (pipeline, model) from SLA rows with sessions. */
+function countGPUsByPipelineFromSLA(rows: SLAComplianceRow[]): Map<string, { total: number; byModel: Map<string, number> }> {
+  const byPipeline = new Map<string, { gpuIds: Set<string>; rowsNoGpu: number; byModel: Map<string, { gpuIds: Set<string>; rowsNoGpu: number }> }>();
+
+  for (const row of rows) {
+    const knownSessions = row.known_sessions_count ?? 0;
+    if (knownSessions <= 0) continue;
+
+    const pipelineId = row.pipeline_id?.trim();
+    if (!pipelineId || PIPELINE_DISPLAY[pipelineId] === null) continue;
+
+    const modelId = row.model_id?.trim() ?? '';
+
+    if (!byPipeline.has(pipelineId)) {
+      byPipeline.set(pipelineId, {
+        gpuIds: new Set(),
+        rowsNoGpu: 0,
+        byModel: new Map(),
+      });
+    }
+    const pipelineAcc = byPipeline.get(pipelineId)!;
+    if (!pipelineAcc.byModel.has(modelId)) {
+      pipelineAcc.byModel.set(modelId, { gpuIds: new Set(), rowsNoGpu: 0 });
+    }
+    const modelAcc = pipelineAcc.byModel.get(modelId)!;
+
+    if (row.gpu_id) {
+      pipelineAcc.gpuIds.add(row.gpu_id);
+      modelAcc.gpuIds.add(row.gpu_id);
+    } else {
+      pipelineAcc.rowsNoGpu += 1;
+      modelAcc.rowsNoGpu += 1;
+    }
+  }
+
+  const result = new Map<string, { total: number; byModel: Map<string, number> }>();
+  for (const [pipelineId, acc] of byPipeline.entries()) {
+    const total = acc.gpuIds.size + acc.rowsNoGpu;
+    const byModel = new Map<string, number>();
+    for (const [modelId, ma] of acc.byModel.entries()) {
+      const count = ma.gpuIds.size + ma.rowsNoGpu;
+      if (count > 0) byModel.set(modelId || '(no model)', count);
+    }
+    result.set(pipelineId, { total, byModel });
+  }
+  return result;
+}
 
 async function resolvePipelines({ limit = 5, timeframe }: { limit?: number; timeframe?: string }): Promise<DashboardPipelineUsage[]> {
   const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 5;
   const timeframeHours = parseTimeframe(timeframe);
-  const demand = await fetchNetworkDemand(timeframeHours);
+  const slaPeriod = `${Math.min(timeframeHours, 72)}h`;
+  const slaRows = await fetchSLACompliance(slaPeriod);
 
-  type Accum = { mins: number; modelMins: Map<string, number> };
-  const byPipeline = new Map<string, Accum>();
-
-  for (const row of demand) {
-    const pipelineName = row.pipeline_id?.trim();
-    if (!pipelineName || PIPELINE_DISPLAY[pipelineName] === null) continue;
-    const acc = byPipeline.get(pipelineName) ?? { mins: 0, modelMins: new Map<string, number>() };
-    const mins = row.total_minutes ?? 0;
-    acc.mins += mins;
-    const modelId = row.model_id?.trim();
-    if (modelId) {
-      acc.modelMins.set(modelId, (acc.modelMins.get(modelId) ?? 0) + mins);
-    }
-    byPipeline.set(pipelineName, acc);
-  }
+  const byPipeline = countGPUsByPipelineFromSLA(slaRows);
 
   return [...byPipeline.entries()]
-    .map(([pipeline, acc]) => ({
-      name:  PIPELINE_DISPLAY[pipeline] ?? pipeline,
-      mins:  Math.round(acc.mins),
-      color: PIPELINE_COLOR[pipeline] ?? DEFAULT_PIPELINE_COLOR,
-      modelMins: acc.modelMins.size > 0
-        ? [...acc.modelMins.entries()]
-            .map(([model, m]) => ({ model, mins: Math.round(m) }))
+    .map(([pipelineId, acc]) => ({
+      name:  PIPELINE_DISPLAY[pipelineId] ?? pipelineId,
+      mins:  acc.total,
+      color: PIPELINE_COLOR[pipelineId] ?? DEFAULT_PIPELINE_COLOR,
+      modelMins: acc.byModel.size > 0
+        ? [...acc.byModel.entries()]
+            .map(([model, count]) => ({ model, mins: count }))
             .sort((a, b) => b.mins - a.mins)
         : undefined,
     }))
