@@ -19,7 +19,7 @@ import { GatewayNav } from './components/GatewayNav';
 import './globals.css';
 
 const GatewayApp: React.FC = () => (
-  <div className="h-full w-full min-h-[600px] flex flex-col">
+  <div className="h-full w-full min-h-[600px] flex">
     <MemoryRouter>
       <GatewayNav />
       <div className="flex-1 overflow-y-auto">

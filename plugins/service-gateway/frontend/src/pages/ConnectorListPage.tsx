@@ -107,8 +107,7 @@ export const ConnectorListPage: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-100">Service Gateway</h1>
-            <p className="text-sm text-gray-400 mt-1">Manage your API connectors</p>
+            <h1 className="text-xl font-bold text-gray-100">Connectors</h1>
           </div>
           <button
             onClick={() => navigate('/new')}
