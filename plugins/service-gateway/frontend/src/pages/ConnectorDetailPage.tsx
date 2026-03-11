@@ -5,7 +5,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { getSafeErrorMessage } from '@naap/plugin-sdk';
+import { getSafeErrorMessage, useTeam } from '@naap/plugin-sdk';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
 import { QuickStart } from '../components/QuickStart';
 import { HealthDot } from '../components/HealthDot';
@@ -69,6 +69,8 @@ export const ConnectorDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const api = useGatewayApi();
+  const teamContext = useTeam();
+  const teamId = teamContext?.currentTeam?.id;
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
   const navWarnings = (location.state as { warnings?: string[] } | null)?.warnings;
   const { data: connectorRes, loading, execute: loadConnector } = useAsync<{ success: boolean; data: Connector }>();
@@ -331,7 +333,8 @@ export const ConnectorDetailPage: React.FC = () => {
     const url = `${window.location.origin}/api/v1/gw/${connector.slug}${resolvedPath}`;
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (playApiKey) headers['x-api-key'] = playApiKey;
+    if (playApiKey) headers['Authorization'] = `Bearer ${playApiKey}`;
+    if (!playApiKey && teamId) headers['x-team-id'] = teamId;
     if (playHeaders.trim()) {
       for (const line of playHeaders.split('\n')) {
         const idx = line.indexOf(':');
@@ -343,7 +346,7 @@ export const ConnectorDetailPage: React.FC = () => {
 
     const start = performance.now();
     try {
-      const fetchOpts: RequestInit = { method: ep.method, headers };
+      const fetchOpts: RequestInit = { method: ep.method, headers, credentials: 'include' };
       if (ep.method !== 'GET' && ep.method !== 'DELETE' && playBody.trim()) {
         fetchOpts.body = playBody;
       }
@@ -886,9 +889,10 @@ export const ConnectorDetailPage: React.FC = () => {
                       type="text"
                       value={playApiKey}
                       onChange={(e) => setPlayApiKey(e.target.value)}
-                      placeholder="Paste your API key here"
+                      placeholder="Optional — uses your session if blank"
                       className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm font-mono"
                     />
+                    <p className="text-[11px] text-gray-500 mt-1">Leave blank to authenticate with your current session, or paste a gw_ API key.</p>
                   </div>
                 </div>
 
@@ -1175,7 +1179,7 @@ export const ConnectorDetailPage: React.FC = () => {
 
         {/* Tab: Performance */}
         {activeTab === 'Performance' && (
-          <PerformanceTab connectorSlug={connector.slug} />
+          <PerformanceTab connectorSlug={connector.slug} teamId={teamId} />
         )}
 
         {/* Tab: Pricing */}
@@ -1324,21 +1328,26 @@ interface PerformanceMetrics {
   sampleSize: number;
 }
 
-function PerformanceTab({ connectorSlug }: { connectorSlug: string }) {
+function PerformanceTab({ connectorSlug, teamId }: { connectorSlug: string; teamId?: string }) {
   const [metrics, setMetrics] = useState<PerformanceMetrics | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [timeWindow, setTimeWindow] = useState<'1h' | '24h' | '7d'>('24h');
 
   useEffect(() => {
     setLoaded(false);
-    fetch(`/api/v1/gw/catalog/${connectorSlug}/metrics?window=${timeWindow}`)
+    const headers: Record<string, string> = {};
+    if (teamId) headers['x-team-id'] = teamId;
+    fetch(`/api/v1/gw/catalog/${connectorSlug}/metrics?window=${timeWindow}`, {
+      credentials: 'include',
+      headers,
+    })
       .then((res) => res.json())
       .then((data) => {
         setMetrics(data.metrics || null);
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
-  }, [connectorSlug, timeWindow]);
+  }, [connectorSlug, timeWindow, teamId]);
 
   if (!loaded) return <div className="text-gray-500 text-sm">Loading performance data...</div>;
 
