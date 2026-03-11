@@ -358,14 +358,31 @@ function countUniqueGPUIds(rows: SLAComplianceRow[]): number {
   return gpuIds.size;
 }
 
+/** Dedicated query to /api/gpu/metrics for hardware breakdown (gpu_model_name counts). */
+async function fetchHardwareBreakdownFromGPUMetrics(): Promise<Array<{ model: string; count: number }>> {
+  const rows = await fetchGPUMetrics('24h');
+  const modelCounts = new Map<string, Set<string>>();
+  for (const m of rows) {
+    if (!m.gpu_model_name || !m.gpu_id) continue;
+    if (!modelCounts.has(m.gpu_model_name)) {
+      modelCounts.set(m.gpu_model_name, new Set());
+    }
+    modelCounts.get(m.gpu_model_name)!.add(m.gpu_id);
+  }
+  return [...modelCounts.entries()]
+    .map(([model, ids]) => ({ model, count: ids.size }))
+    .sort((a, b) => b.count - a.count);
+}
+
 async function resolveGPUCapacity({ timeframe }: { timeframe?: string }): Promise<DashboardGPUCapacity> {
   const timeframeHours = parseTimeframe(timeframe);
   const slaPeriod = `${timeframeHours}h`;
 
-  const [slaRows, metricsWide, metricsRecent] = await Promise.all([
+  const [slaRows, metricsWide, metricsRecent, models] = await Promise.all([
     getSLAComplianceRows(slaPeriod),
     fetchGPUMetrics('24h'),
     fetchGPUMetrics('1h'),
+    fetchHardwareBreakdownFromGPUMetrics(),
   ]);
 
   const totalGPUs = countUniqueGPUIds(slaRows);
@@ -383,19 +400,6 @@ async function resolveGPUCapacity({ timeframe }: { timeframe?: string }): Promis
         (1 - sample.reduce((s, m) => s + m.startup_unexcused_rate, 0) / sample.length) * 100
       )
     : 100;
-
-  // GPU model breakdown from GPU metrics (24h max)
-  const modelCounts = new Map<string, Set<string>>();
-  for (const m of metricsWide) {
-    if (!m.gpu_model_name || !m.gpu_id) continue;
-    if (!modelCounts.has(m.gpu_model_name)) {
-      modelCounts.set(m.gpu_model_name, new Set());
-    }
-    modelCounts.get(m.gpu_model_name)!.add(m.gpu_id);
-  }
-  const models = [...modelCounts.entries()]
-    .map(([model, ids]) => ({ model, count: ids.size }))
-    .sort((a, b) => b.count - a.count);
 
   // Pipeline GPU breakdown from SLA (timeframe-scoped)
   const byPipeline = countGPUsByPipelineFromSLA(slaRows);

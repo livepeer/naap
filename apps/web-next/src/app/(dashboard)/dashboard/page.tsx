@@ -359,7 +359,7 @@ function ProtocolCard({ data }: { data: DashboardProtocol }) {
 }
 
 function FeesCard({ data }: { data: DashboardFeesInfo }) {
-  const [grouping, setGrouping] = useState<'day' | 'week'>('week');
+  const [grouping, setGrouping] = useState<'day' | 'week'>('day');
   const [hovered, setHovered] = useState<{ x: number; y: number } | null>(null);
   const [rawOpen, setRawOpen] = useState(false);
 
@@ -1104,7 +1104,7 @@ function JobFeedPollIntervalSelector({ value, onChange }: { value: number; onCha
 // ============================================================================
 
 const TIMEFRAME_KEY = 'naap_dashboard_timeframe';
-const DEFAULT_TIMEFRAME = '168';
+const DEFAULT_TIMEFRAME = '24';
 
 const TIMEFRAME_OPTIONS = [
   { label: '1d',  value: '24',  description: 'Last 24 hours' },
