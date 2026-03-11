@@ -317,8 +317,12 @@ describe('registerDashboardProvider', () => {
         protocol { currentRound blockProgress totalBlocks totalStakedLPT }
         fees(days: 7) { totalEth totalUsd oneDayVolumeUsd dayData { dateS volumeEth volumeUsd } weeklyData { date weeklyVolumeUsd weeklyVolumeEth } }
         pipelines { name mins color }
+        pipelineCatalog { id name models regions }
         gpuCapacity { totalGPUs availableCapacity }
         pricing { pipeline unit price outputPerDollar }
+        networkDemand(interval: "24h") { windowStart sessionsCount totalMinutes effectiveSuccessRate }
+        gpuMetrics(timeRange: "24h") { windowStart avgOutputFps p95OutputFps knownSessionsCount }
+        slaCompliance(period: "24h") { windowStart knownSessionsCount effectiveSuccessRate slaScore }
       }`,
     };
 
@@ -366,6 +370,25 @@ describe('registerDashboardProvider', () => {
 
     // Pricing: static fallback
     expect(response.data!.pricing).toBeDefined();
+
+    // Raw explorer fields: should resolve with data when requested
+    expect(response.data!.networkDemand).toBeDefined();
+    expect(Array.isArray(response.data!.networkDemand)).toBe(true);
+    expect(response.data!.networkDemand!.length).toBeGreaterThan(0);
+    expect(typeof response.data!.networkDemand![0].sessionsCount).toBe('number');
+
+    expect(response.data!.gpuMetrics).toBeDefined();
+    expect(Array.isArray(response.data!.gpuMetrics)).toBe(true);
+    expect(response.data!.gpuMetrics!.length).toBeGreaterThan(0);
+    expect(typeof response.data!.gpuMetrics![0].avgOutputFps).toBe('number');
+
+    expect(response.data!.slaCompliance).toBeDefined();
+    expect(Array.isArray(response.data!.slaCompliance)).toBe(true);
+    expect(response.data!.slaCompliance!.length).toBeGreaterThan(0);
+    expect(typeof response.data!.slaCompliance![0].knownSessionsCount).toBe('number');
+
+    expect(response.data!.pipelineCatalog).toBeDefined();
+    expect(response.data!.pipelineCatalog!.every((entry) => Array.isArray(entry.regions))).toBe(true);
   });
 
   it('returns protocol null and errors when subgraph or protocol-block fails', async () => {

@@ -86,7 +86,7 @@ export function useJobFeedStream(
     let retryCount = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    async function connect() {
+    async function connect(oldCleanup?: (() => void) | null) {
       try {
         // Discover the channel from the provider plugin
         const channelInfo = await shell.eventBus.request<
@@ -125,6 +125,9 @@ export function useJobFeedStream(
         }
 
         cleanupRef.current = eventBusCleanup;
+        if (oldCleanup && oldCleanup !== cleanupRef.current) {
+          oldCleanup();
+        }
 
         // When pollInterval is set, re-subscribe periodically to refresh the feed connection
         if (pollIntervalMs > 0 && mountedRef.current) {
@@ -132,10 +135,8 @@ export function useJobFeedStream(
           pollTimerRef.current = setTimeout(() => {
             pollTimerRef.current = null;
             if (!mountedRef.current) return;
-            cleanupRef.current?.();
-            cleanupRef.current = null;
-            eventBusCleanup = null;
-            connect();
+            const oldCleanup = cleanupRef.current;
+            void connect(oldCleanup);
           }, pollIntervalMs);
         }
       } catch (err: unknown) {
@@ -187,12 +188,10 @@ export function useJobFeedStream(
         clearTimeout(retryTimer);
         retryTimer = null;
       }
-      cleanupRef.current?.();
+      const finalCleanup = cleanupRef.current ?? eventBusCleanup;
+      finalCleanup?.();
       cleanupRef.current = null;
-      if (eventBusCleanup) {
-        eventBusCleanup();
-        eventBusCleanup = null;
-      }
+      eventBusCleanup = null;
       setConnected(false);
     };
   }, [shell.eventBus, timeout, pollIntervalMs, skip, addJob]);
