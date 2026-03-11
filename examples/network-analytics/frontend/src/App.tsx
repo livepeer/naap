@@ -1,20 +1,13 @@
 import React from 'react';
-import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { createPlugin } from '@naap/plugin-sdk';
-import { AnalyticsPage } from './pages/Analytics';
-import { LeaderboardPage } from './pages/Leaderboard';
+import { RawExplorerPage } from './pages/RawExplorer';
 import './globals.css';
-
-const AppRoutes: React.FC = () => {
-  const location = useLocation();
-  const isLeaderboard = location.pathname.includes('leaderboard');
-  return isLeaderboard ? <LeaderboardPage /> : <AnalyticsPage />;
-};
 
 const AnalyticsApp: React.FC = () => (
   <MemoryRouter>
     <Routes>
-      <Route path="/*" element={<AppRoutes />} />
+      <Route path="/*" element={<RawExplorerPage />} />
     </Routes>
   </MemoryRouter>
 );
@@ -22,7 +15,7 @@ const AnalyticsApp: React.FC = () => (
 const plugin = createPlugin({
   name: 'network-analytics',
   version: '1.0.0',
-  routes: ['/analytics', '/analytics/*', '/leaderboard', '/leaderboard/*'],
+  routes: ['/analytics', '/analytics/*'],
   App: AnalyticsApp,
 });
 
