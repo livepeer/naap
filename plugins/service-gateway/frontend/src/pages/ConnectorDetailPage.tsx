@@ -50,6 +50,7 @@ interface ApiKey {
   status: string;
   lastUsedAt: string | null;
   createdAt: string;
+  plan?: { id: string; name: string; displayName: string } | null;
 }
 
 const TABS = ['Overview', 'API Spec', 'API Keys', 'Play', 'Usage', 'Pricing', 'Performance', 'Settings', 'Agent'] as const;
@@ -73,8 +74,10 @@ export const ConnectorDetailPage: React.FC = () => {
   const { data: connectorRes, loading, execute: loadConnector } = useAsync<{ success: boolean; data: Connector }>();
   const { data: keysRes, execute: loadKeys } = useAsync<{ success: boolean; data: ApiKey[] }>();
   const [newKeyName, setNewKeyName] = useState('');
+  const [newKeyPlanId, setNewKeyPlanId] = useState('');
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [keyCreating, setKeyCreating] = useState(false);
+  const [plans, setPlans] = useState<Array<{ id: string; name: string; displayName: string }>>([]);
   const [openApiSpec, setOpenApiSpec] = useState<Record<string, unknown> | null>(null);
   const [specLoading, setSpecLoading] = useState(false);
   const [specCopied, setSpecCopied] = useState(false);
@@ -163,6 +166,13 @@ export const ConnectorDetailPage: React.FC = () => {
   }, [fetchConnector, fetchKeys]);
 
   useEffect(() => {
+    if (activeTab !== 'API Keys') return;
+    api.get<{ success: boolean; data: Array<{ id: string; name: string; displayName: string }> }>('/plans')
+      .then((res) => setPlans(res.data || []))
+      .catch(() => {});
+  }, [activeTab, api]);
+
+  useEffect(() => {
     if (activeTab !== 'API Spec' || !id || openApiSpec) return;
     setSpecLoading(true);
     api.get<{ openapi: string }>(`/connectors/${id}/openapi`)
@@ -231,10 +241,12 @@ export const ConnectorDetailPage: React.FC = () => {
       const res = await api.post<{ success: boolean; data: { rawKey: string } }>('/keys', {
         name: newKeyName,
         connectorId: id,
+        ...(newKeyPlanId ? { planId: newKeyPlanId } : {}),
       });
       if (res.success) {
         setCreatedKey(res.data.rawKey);
         setNewKeyName('');
+        setNewKeyPlanId('');
         fetchKeys();
       }
     } finally {
@@ -728,14 +740,30 @@ export const ConnectorDetailPage: React.FC = () => {
         {activeTab === 'API Keys' && (
           <div className="space-y-4">
             {/* Create Key */}
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={newKeyName}
-                onChange={(e) => setNewKeyName(e.target.value)}
-                placeholder="Key name (e.g., mobile-app)"
-                className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm"
-              />
+            <div className="flex gap-3 items-end">
+              <div className="flex-1 space-y-1">
+                <label className="block text-xs text-gray-400">Key Name</label>
+                <input
+                  type="text"
+                  value={newKeyName}
+                  onChange={(e) => setNewKeyName(e.target.value)}
+                  placeholder="e.g., mobile-app"
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm"
+                />
+              </div>
+              <div className="w-48 space-y-1">
+                <label className="block text-xs text-gray-400">Plan</label>
+                <select
+                  value={newKeyPlanId}
+                  onChange={(e) => setNewKeyPlanId(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm"
+                >
+                  <option value="">No plan (unlimited)</option>
+                  {plans.map((p) => (
+                    <option key={p.id} value={p.id}>{p.displayName}</option>
+                  ))}
+                </select>
+              </div>
               <button
                 onClick={handleCreateKey}
                 disabled={!newKeyName || keyCreating}
@@ -770,6 +798,7 @@ export const ConnectorDetailPage: React.FC = () => {
                   <tr className="border-b border-gray-700">
                     <th className="px-4 py-2 text-left text-gray-400 font-medium">Name</th>
                     <th className="px-4 py-2 text-left text-gray-400 font-medium">Key</th>
+                    <th className="px-4 py-2 text-left text-gray-400 font-medium">Plan</th>
                     <th className="px-4 py-2 text-left text-gray-400 font-medium">Status</th>
                     <th className="px-4 py-2 text-left text-gray-400 font-medium">Last Used</th>
                     <th className="px-4 py-2 text-right text-gray-400 font-medium">Actions</th>
@@ -778,7 +807,7 @@ export const ConnectorDetailPage: React.FC = () => {
                 <tbody>
                   {keys.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-gray-500 text-sm">
+                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500 text-sm">
                         No API keys yet. Create one above.
                       </td>
                     </tr>
@@ -787,6 +816,7 @@ export const ConnectorDetailPage: React.FC = () => {
                     <tr key={key.id} className="border-b border-gray-700/50">
                       <td className="px-4 py-2 text-gray-200">{key.name}</td>
                       <td className="px-4 py-2 font-mono text-gray-400 text-xs">{key.keyPrefix}...</td>
+                      <td className="px-4 py-2 text-gray-300 text-xs">{key.plan?.displayName || <span className="text-gray-500">—</span>}</td>
                       <td className="px-4 py-2">
                         <span className={`px-2 py-0.5 text-xs rounded ${STATUS_COLORS[key.status]}`}>{key.status}</span>
                       </td>
