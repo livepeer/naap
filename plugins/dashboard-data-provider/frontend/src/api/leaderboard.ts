@@ -13,6 +13,7 @@
 
 /** Use server proxy so requests use LEADERBOARD_API_URL, timeout, and path validation. */
 const BASE_URL = '/api/v1/leaderboard';
+const LEADERBOARD_REQUEST_TIMEOUT_MS = 20_000;
 
 // ---------------------------------------------------------------------------
 // Response shapes (mirror models/metrics.go JSON tags)
@@ -27,6 +28,7 @@ export interface NetworkDemandRow {
   model_id: string | null;
   // Demand/Capacity
   sessions_count: number;
+  avg_output_fps: number;
   total_minutes: number;
   known_sessions_count: number;
   served_sessions: number;
@@ -159,6 +161,13 @@ export interface GPUMetricsFilters {
   cuda_version?: string;
 }
 
+interface PaginationInfo {
+  page?: number;
+  page_size?: number;
+  total_count?: number;
+  total_pages?: number;
+}
+
 export interface SLAComplianceFilters {
   /** Duration window to query (e.g. "24h", "7d"). Default "24h". API supports up to 30d. */
   period?: string;
@@ -189,7 +198,7 @@ export interface PipelineCatalogFilters {
 
 async function apiFetch<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(LEADERBOARD_REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`leaderboard API ${path} failed: ${res.status}`);
   return res.json() as Promise<T>;
@@ -214,23 +223,69 @@ export async function fetchNetworkDemand(filtersOrLookbackHours: NetworkDemandFi
   let filters: NetworkDemandFilters;
 
   if (typeof filtersOrLookbackHours === 'number') {
-    // Backward compat: convert lookbackHours to interval
     const lookbackHours = filtersOrLookbackHours;
     if (!Number.isFinite(lookbackHours) || lookbackHours <= 0) {
       throw new Error(`fetchNetworkDemand: lookbackHours must be a finite number > 0, got ${lookbackHours}`);
     }
-    // The API uses a quirk where it multiplies the interval by 12 to get the total lookback window.
     const intervalMinutes = (lookbackHours * 60) / 12;
     filters = { interval: `${intervalMinutes}m` };
   } else {
     filters = filtersOrLookbackHours;
   }
 
-  const params = buildParams(filters);
-  const data = await apiFetch<{ demand: NetworkDemandRow[] }>(
-    `/network/demand?${params.toString()}`
+  const pageSize = 500;
+  const firstPageParams = buildParams({
+    ...filters,
+    page: 1,
+    page_size: pageSize,
+  });
+  const firstPage = await apiFetch<{ demand: NetworkDemandRow[]; pagination?: PaginationInfo }>(
+    `/network/demand?${firstPageParams.toString()}`
   );
-  return data.demand ?? [];
+
+  const allDemand: NetworkDemandRow[] = [...(firstPage.demand ?? [])];
+  const reportedTotalPages = firstPage.pagination?.total_pages;
+  const totalPages = Number.isFinite(reportedTotalPages) && (reportedTotalPages ?? 0) > 0
+    ? Number(reportedTotalPages)
+    : 1;
+
+  if (totalPages <= 1) return allDemand;
+
+  const pageBatchSize = 2;
+  const remainingPages = Array.from({ length: totalPages - 1 }, (_, idx) => idx + 2);
+  let hadPartialPageFailures = false;
+
+  for (let i = 0; i < remainingPages.length; i += pageBatchSize) {
+    const batch = remainingPages.slice(i, i + pageBatchSize);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (page) => {
+        const params = buildParams({
+          ...filters,
+          page,
+          page_size: pageSize,
+        });
+        const data = await apiFetch<{ demand: NetworkDemandRow[] }>(
+          `/network/demand?${params.toString()}`
+        );
+        return data.demand ?? [];
+      })
+    );
+
+    for (const result of batchResults) {
+      if (result.status === 'fulfilled') {
+        allDemand.push(...result.value);
+      } else {
+        hadPartialPageFailures = true;
+        console.warn('[leaderboard] Network demand page fetch failed; continuing with partial data:', result.reason);
+      }
+    }
+  }
+
+  if (hadPartialPageFailures) {
+    console.warn('[leaderboard] Returning partial network demand dataset due to page-level failures.');
+  }
+
+  return allDemand;
 }
 
 /**
@@ -242,11 +297,32 @@ export async function fetchGPUMetrics(filtersOrTimeRange: GPUMetricsFilters | st
     ? { time_range: filtersOrTimeRange }
     : filtersOrTimeRange;
 
-  const params = buildParams(filters);
-  const data = await apiFetch<{ metrics: GPUMetricRow[] }>(
-    `/gpu/metrics?${params.toString()}`
-  );
-  return data.metrics ?? [];
+  const pageSize = 400;
+  let page = 1;
+  let totalPages = 1;
+  const allMetrics: GPUMetricRow[] = [];
+
+  // Fetch all result pages so overview/aggregates are based on the full dataset.
+  do {
+    const params = buildParams({
+      ...filters,
+      page,
+      page_size: pageSize,
+    });
+    const data = await apiFetch<{ metrics: GPUMetricRow[]; pagination?: PaginationInfo }>(
+      `/gpu/metrics?${params.toString()}`
+    );
+
+    allMetrics.push(...(data.metrics ?? []));
+
+    const reportedTotalPages = data.pagination?.total_pages;
+    totalPages = Number.isFinite(reportedTotalPages) && (reportedTotalPages ?? 0) > 0
+      ? Number(reportedTotalPages)
+      : 1;
+    page += 1;
+  } while (page <= totalPages);
+
+  return allMetrics;
 }
 
 /**
@@ -258,11 +334,61 @@ export async function fetchSLACompliance(filtersOrPeriod: SLAComplianceFilters |
     ? { period: filtersOrPeriod }
     : filtersOrPeriod;
 
-  const params = buildParams(filters);
-  const data = await apiFetch<{ compliance: SLAComplianceRow[] }>(
-    `/sla/compliance?${params.toString()}`
+  const pageSize = 500;
+  const firstPageParams = buildParams({
+    ...filters,
+    page: 1,
+    page_size: pageSize,
+  });
+  const firstPage = await apiFetch<{ compliance: SLAComplianceRow[]; pagination?: PaginationInfo }>(
+    `/sla/compliance?${firstPageParams.toString()}`
   );
-  return data.compliance ?? [];
+
+  const allCompliance: SLAComplianceRow[] = [...(firstPage.compliance ?? [])];
+  const reportedTotalPages = firstPage.pagination?.total_pages;
+  const totalPages = Number.isFinite(reportedTotalPages) && (reportedTotalPages ?? 0) > 0
+    ? Number(reportedTotalPages)
+    : 1;
+
+  if (totalPages <= 1) return allCompliance;
+
+  // Fetch remaining pages in small batches. This keeps request latency down
+  // while still allowing progressive accumulation if later pages fail.
+  const pageBatchSize = 2;
+  const remainingPages = Array.from({ length: totalPages - 1 }, (_, idx) => idx + 2);
+  let hadPartialPageFailures = false;
+
+  for (let i = 0; i < remainingPages.length; i += pageBatchSize) {
+    const batch = remainingPages.slice(i, i + pageBatchSize);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (page) => {
+        const params = buildParams({
+          ...filters,
+          page,
+          page_size: pageSize,
+        });
+        const data = await apiFetch<{ compliance: SLAComplianceRow[] }>(
+          `/sla/compliance?${params.toString()}`
+        );
+        return data.compliance ?? [];
+      })
+    );
+
+    for (const result of batchResults) {
+      if (result.status === 'fulfilled') {
+        allCompliance.push(...result.value);
+      } else {
+        hadPartialPageFailures = true;
+        console.warn('[leaderboard] SLA compliance page fetch failed; continuing with partial data:', result.reason);
+      }
+    }
+  }
+
+  if (hadPartialPageFailures) {
+    console.warn('[leaderboard] Returning partial SLA compliance dataset due to page-level failures.');
+  }
+
+  return allCompliance;
 }
 
 /**
