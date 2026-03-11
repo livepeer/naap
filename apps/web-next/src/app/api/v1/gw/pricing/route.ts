@@ -23,7 +23,10 @@ export async function GET(request: NextRequest) {
   }
 
   const connectors = await prisma.serviceConnector.findMany({
-    where: { status: 'published' },
+    where: {
+      status: 'published',
+      OR: [{ visibility: 'public' }, { teamId: auth.teamId }],
+    },
     include: { pricing: true },
     orderBy: { displayName: 'asc' },
   });

@@ -70,6 +70,7 @@ interface AuthResultAuthenticated {
   callerId: string;
   teamId: string;
   isMasterKey?: boolean;
+  masterKeyScopes?: string[];
   apiKeyId?: string;
   connectorId?: string;
   planId?: string;
