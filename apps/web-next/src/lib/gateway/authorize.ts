@@ -13,6 +13,7 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken, getClientIP } from '@/lib/api/response';
 import { personalScopeId, isPersonalScope } from './scope';
+import { getOrCreateDefaultPlan } from './default-plan';
 import type { AuthResult, TeamContext } from './types';
 
 type RateLimiter = { consume: (key: string, points?: number) => Promise<{ allowed: boolean }> };
@@ -208,6 +209,23 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
 
   if (!resolvedTeamId) return null;
 
+  let rateLimit = apiKey.plan?.rateLimit;
+  let dailyQuota = apiKey.plan?.dailyQuota;
+  let monthlyQuota = apiKey.plan?.monthlyQuota;
+  let maxRequestSize = apiKey.plan?.maxRequestSize;
+
+  if (!apiKey.planId) {
+    try {
+      const defaults = await getOrCreateDefaultPlan(resolvedTeamId);
+      rateLimit = defaults.rateLimit;
+      dailyQuota = defaults.dailyQuota;
+      monthlyQuota = defaults.monthlyQuota;
+      maxRequestSize = defaults.maxRequestSize;
+    } catch {
+      // Fall through — policy.ts hardcoded fallback still applies
+    }
+  }
+
   return {
     authenticated: true,
     callerType: 'apiKey',
@@ -218,10 +236,10 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
     planId: apiKey.planId || undefined,
     allowedEndpoints: apiKey.allowedEndpoints.length > 0 ? apiKey.allowedEndpoints : undefined,
     allowedIPs: apiKey.allowedIPs.length > 0 ? apiKey.allowedIPs : undefined,
-    rateLimit: apiKey.plan?.rateLimit,
-    dailyQuota: apiKey.plan?.dailyQuota,
-    monthlyQuota: apiKey.plan?.monthlyQuota,
-    maxRequestSize: apiKey.plan?.maxRequestSize,
+    rateLimit,
+    dailyQuota,
+    monthlyQuota,
+    maxRequestSize,
   };
 }
 

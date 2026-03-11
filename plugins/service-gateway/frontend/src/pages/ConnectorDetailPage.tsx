@@ -816,7 +816,7 @@ export const ConnectorDetailPage: React.FC = () => {
                     <tr key={key.id} className="border-b border-gray-700/50">
                       <td className="px-4 py-2 text-gray-200">{key.name}</td>
                       <td className="px-4 py-2 font-mono text-gray-400 text-xs">{key.keyPrefix}...</td>
-                      <td className="px-4 py-2 text-gray-300 text-xs">{key.plan?.displayName || <span className="text-gray-500">—</span>}</td>
+                      <td className="px-4 py-2 text-gray-300 text-xs">{key.plan?.displayName || <span className="text-gray-500 italic">Default</span>}</td>
                       <td className="px-4 py-2">
                         <span className={`px-2 py-0.5 text-xs rounded ${STATUS_COLORS[key.status]}`}>{key.status}</span>
                       </td>
