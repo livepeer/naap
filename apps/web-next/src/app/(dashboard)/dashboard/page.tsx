@@ -1258,6 +1258,12 @@ export default function DashboardPage() {
         timeframe={timeframe}
         onTimeframeChange={handleTimeframeChange}
       />
+      {error && error.type !== 'no-provider' && (
+        <div className="text-xs text-amber-700 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400 px-3 py-1.5 rounded-md border border-amber-200/70 dark:border-amber-800/40 flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5" />
+          Dashboard data may be stale - {error.message}
+        </div>
+      )}
 
       {/* Row 1: KPI tiles */}
       <section className="space-y-3">

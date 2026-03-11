@@ -23,12 +23,13 @@ import {
 } from '@naap/plugin-sdk';
 import { registerDashboardProvider } from '../provider.js';
 import { registerJobFeedEmitter } from '../job-feed-emitter.js';
+import type { NetworkDemandRow } from '../api/leaderboard.js';
 
 // ============================================================================
 // Leaderboard API stub data
 // ============================================================================
 
-const STUB_DEMAND_1H = [
+const STUB_DEMAND_1H: NetworkDemandRow[] = [
   { window_start: '2026-02-24T22:00:00Z', gateway: 'gw-a', region: null,
     pipeline_id: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
     sessions_count: 3, total_minutes: 1.5, known_sessions_count: 3,
@@ -55,7 +56,7 @@ const STUB_DEMAND_1H = [
     ticket_face_value_eth: 0 },
 ];
 
-const STUB_DEMAND_2H = [
+const STUB_DEMAND_2H: NetworkDemandRow[] = [
   { window_start: '2026-02-24T20:00:00Z', gateway: 'gw-a', region: null,
     pipeline_id: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
     sessions_count: 10, total_minutes: 5.0, known_sessions_count: 10,

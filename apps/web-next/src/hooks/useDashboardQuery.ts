@@ -136,6 +136,7 @@ export function useDashboardQuery<T = Record<string, unknown>>(
         }
         // All retries exhausted
         setError({ type: 'no-provider', message: 'No dashboard data provider is registered' });
+        setData(null);
       } else if (code === 'TIMEOUT') {
         setError({ type: 'timeout', message: 'Dashboard data provider did not respond in time' });
       } else {
@@ -144,7 +145,6 @@ export function useDashboardQuery<T = Record<string, unknown>>(
           message: (err as Error)?.message ?? 'Unknown error fetching dashboard data',
         });
       }
-      setData(null);
     } finally {
       if (mountedRef.current) {
         setLoading(false);

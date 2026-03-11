@@ -119,10 +119,10 @@ function sortedKeys(m: Map<string, unknown[]>): string[] {
  * Weighted average of effective_success_rate by known_sessions_count.
  * Returns 0 when no sessions exist (avoids false 100%).
  */
-function weightedSuccessRatio(rows: Array<{ startup_success_rate: number; known_sessions_count: number }>): number {
+function weightedSuccessRate(rows: Array<{ effective_success_rate: number; known_sessions_count: number }>): number {
   const totalSessions = rows.reduce((s, r) => s + r.known_sessions_count, 0);
   if (totalSessions === 0) return 0;
-  return rows.reduce((s, r) => s + r.startup_success_rate * r.known_sessions_count, 0) / totalSessions;
+  return rows.reduce((s, r) => s + r.effective_success_rate * r.known_sessions_count, 0) / totalSessions;
 }
 
 /** Count distinct non-empty Ethereum addresses in an array of SLA rows */
@@ -170,8 +170,8 @@ async function resolveKPI({ timeframe }: { timeframe?: string }): Promise<Dashbo
   const latestDemand = demandWindows.get(demandKeys.at(-1) ?? '') ?? [];
   const prevDemand   = demandWindows.get(demandKeys.at(-2) ?? '') ?? [];
 
-  const currentSR = weightedSuccessRatio(latestDemand) * 100;
-  const prevSR    = weightedSuccessRatio(prevDemand) * 100;
+  const currentSR = weightedSuccessRate(latestDemand) * 100;
+  const prevSR    = weightedSuccessRate(prevDemand) * 100;
 
   // Orchestrators Seen: distinct addresses across the selected period
   const orchCount = countOrchestrators(slaRows) || 0;
