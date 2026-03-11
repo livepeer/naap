@@ -3,7 +3,7 @@
   "name": "network-analytics",
   "displayName": "Network Analytics",
   "version": "1.0.0",
-  "description": "Raw metrics explorer for SLA compliance, GPU metrics, network demand, and aggregated model performance data.",
+  "description": "Real-time network performance metrics, charts, and leaderboards for the AI compute network.",
   "author": {
     "name": "NAAP Team",
     "email": "team@naap.io",
@@ -11,7 +11,7 @@
   },
   "repository": "https://github.com/naap/plugins/tree/main/network-analytics",
   "license": "MIT",
-  "keywords": ["analytics", "metrics", "sla", "gpu", "demand", "performance"],
+  "keywords": ["analytics", "metrics", "charts", "leaderboard", "performance"],
   "category": "analytics",
   
   "shell": {
@@ -24,10 +24,12 @@
     "devPort": 3004,
     "routes": [
       "/analytics",
-      "/analytics/*"
+      "/analytics/*",
+      "/leaderboard",
+      "/leaderboard/*"
     ],
     "navigation": {
-      "label": "Raw Metrics",
+      "label": "Analytics",
       "icon": "BarChart3",
       "order": 40,
       "group": "analytics"
