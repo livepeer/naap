@@ -57,7 +57,7 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     fees(days: Int): FeesInfo
     pipelines(limit: Int, timeframe: String): [PipelineUsage!]
     pipelineCatalog: [PipelineCatalogEntry!]
-    gpuCapacity: GPUCapacity
+    gpuCapacity(timeframe: String): GPUCapacity
     pricing: [PipelinePricing!]
     orchestrators(period: String): [OrchestratorRow!]
 
@@ -118,11 +118,15 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
   type PipelineModelMins {
     model: String!
     mins: Int!
+    sessions: Int!
+    avgFps: Float!
   }
 
   type PipelineUsage {
     name: String!
     mins: Int!
+    sessions: Int!
+    avgFps: Float!
     color: String
     modelMins: [PipelineModelMins!]
   }
@@ -139,10 +143,23 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     count: Int!
   }
 
+  type GPUCapacityPipelineModel {
+    model: String!
+    gpus: Int!
+  }
+
+  type GPUCapacityPipeline {
+    name: String!
+    gpus: Int!
+    models: [GPUCapacityPipelineModel!]
+  }
+
   type GPUCapacity {
     totalGPUs: Int!
+    activeGPUs: Int!
     availableCapacity: Float!
     models: [GPUModelCapacity!]!
+    pipelineGPUs: [GPUCapacityPipeline!]!
   }
 
   type PipelinePricing {
@@ -319,20 +336,28 @@ export interface DashboardFeesInfo {
 /** Pipeline usage entry */
 export interface DashboardPipelineModelMins {
   model: string;
-  /** @deprecated Use `gpus` instead — this field now represents GPU count, not minutes */
+  /** Minutes of demand for this model (from Network Demand, always 24h) */
   mins: number;
-  /** Number of GPUs running this model */
-  gpus: number;
+  /** Session count for this model (from Network Demand, always 24h) */
+  sessions: number;
+  /** Weighted average output FPS for this model (from Network Demand, always 24h) */
+  avgFps: number;
+  /** @deprecated GPU counts moved to GPUCapacity.pipelineGPUs */
+  gpus?: number;
 }
 
 export interface DashboardPipelineUsage {
   name: string;
-  /** @deprecated Use `gpus` instead — this field now represents GPU count, not minutes */
+  /** Minutes of demand for this pipeline (from Network Demand, always 24h) */
   mins: number;
-  /** Number of GPUs running this pipeline */
-  gpus: number;
+  /** Session count for this pipeline (from Network Demand, always 24h) */
+  sessions: number;
+  /** Weighted average output FPS for this pipeline (from Network Demand, always 24h) */
+  avgFps: number;
+  /** @deprecated GPU counts moved to GPUCapacity.pipelineGPUs */
+  gpus?: number;
   color?: string;
-  /** Per-model GPU counts (when available) */
+  /** Per-model minute breakdown (when available) */
   modelMins?: DashboardPipelineModelMins[];
 }
 
@@ -354,11 +379,27 @@ export interface DashboardGPUModelCapacity {
   count: number;
 }
 
+/** Model-level GPU breakdown inside a pipeline entry */
+export interface DashboardGPUCapacityPipelineModel {
+  model: string;
+  gpus: number;
+}
+
+/** Pipeline-level GPU breakdown */
+export interface DashboardGPUCapacityPipeline {
+  name: string;
+  gpus: number;
+  models?: DashboardGPUCapacityPipelineModel[];
+}
+
 /** GPU capacity widget data */
 export interface DashboardGPUCapacity {
   totalGPUs: number;
+  /** GPUs that had at least one known session in the period */
+  activeGPUs: number;
   availableCapacity: number;
   models: DashboardGPUModelCapacity[];
+  pipelineGPUs: DashboardGPUCapacityPipeline[];
 }
 
 /** Pipeline pricing entry */
@@ -583,7 +624,7 @@ export interface DashboardResolvers {
   fees?: (args: { days?: number }) => DashboardFeesInfo | Promise<DashboardFeesInfo>;
   pipelines?: (args: { limit?: number; timeframe?: string }) => DashboardPipelineUsage[] | Promise<DashboardPipelineUsage[]>;
   pipelineCatalog?: () => DashboardPipelineCatalogEntry[] | Promise<DashboardPipelineCatalogEntry[]>;
-  gpuCapacity?: () => DashboardGPUCapacity | Promise<DashboardGPUCapacity>;
+  gpuCapacity?: (args: { timeframe?: string }) => DashboardGPUCapacity | Promise<DashboardGPUCapacity>;
   pricing?: () => DashboardPipelinePricing[] | Promise<DashboardPipelinePricing[]>;
   orchestrators?: (args: { period?: string }) => DashboardOrchestrator[] | Promise<DashboardOrchestrator[]>;
   // Raw explorer resolvers

@@ -4,10 +4,10 @@
  * Registers as the dashboard data provider via createDashboardProvider().
  *
  * Live data sources:
- *   kpi.successRate         ← Leaderboard /api/network/demand  (weighted effective_success_rate)
+ *   kpi.successRate         ← Leaderboard /api/network/demand  (served_sessions / total_demand_sessions)
  *   kpi.orchestratorsOnline ← Leaderboard /api/sla/compliance  (distinct addresses, 72 h)
  *   kpi.dailyUsageMins      ← Leaderboard /api/network/demand  (sum total_minutes, 24 h)
- *   kpi.dailySessionCount   ← Leaderboard /api/network/demand  (sum sessions_count, 24 h)
+ *   kpi.dailySessionCount   ← Leaderboard /api/network/demand  (sum total_demand_sessions, 24 h)
  *   pipelines               ← Leaderboard /api/network/demand  (grouped by pipeline, 24 h)
  *   gpuCapacity.totalGPUs   ← Leaderboard /api/gpu/metrics     (distinct gpu_id, 24 h)
  *   orchestrators            ← Leaderboard /api/sla/compliance  (per-address aggregation)
@@ -99,30 +99,16 @@ async function resolveFees({ days }: { days?: number }) {
 // Shared aggregation helpers
 // ---------------------------------------------------------------------------
 
-/** Group rows by their window_start ISO string */
-function byWindow<T extends { window_start: string }>(rows: T[]): Map<string, T[]> {
-  const m = new Map<string, T[]>();
-  for (const r of rows) {
-    const bucket = m.get(r.window_start) ?? [];
-    bucket.push(r);
-    m.set(r.window_start, bucket);
-  }
-  return m;
-}
-
-/** Sorted window keys (ascending) from a grouped map */
-function sortedKeys(m: Map<string, unknown[]>): string[] {
-  return [...m.keys()].sort();
-}
-
 /**
- * Weighted average of effective_success_rate by known_sessions_count.
- * Returns 0 when no sessions exist (avoids false 100%).
+ * Demand-served rate: served_sessions / total_demand_sessions across rows.
+ * Uses demand API fields for real session counts (served vs unserved).
+ * Returns 0 when no demand exists.
  */
-function weightedSuccessRate(rows: Array<{ effective_success_rate: number; known_sessions_count: number }>): number {
-  const totalSessions = rows.reduce((s, r) => s + r.known_sessions_count, 0);
-  if (totalSessions === 0) return 0;
-  return rows.reduce((s, r) => s + r.effective_success_rate * r.known_sessions_count, 0) / totalSessions;
+function demandServedRate(rows: Array<{ served_sessions: number; total_demand_sessions: number }>): number {
+  const totalDemand = rows.reduce((s, r) => s + (r.total_demand_sessions ?? 0), 0);
+  if (totalDemand === 0) return 0;
+  const served = rows.reduce((s, r) => s + (r.served_sessions ?? 0), 0);
+  return served / totalDemand;
 }
 
 /** Count distinct non-empty Ethereum addresses in an array of SLA rows */
@@ -135,12 +121,56 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
+const NETWORK_SLA_CACHE_TTL_MS = 30_000;
+
+interface SlaCacheEntry {
+  rows: SLAComplianceRow[];
+  cachedAtMs: number;
+}
+
+const slaCacheByPeriod = new Map<string, SlaCacheEntry>();
+const slaInFlightByPeriod = new Map<string, Promise<SLAComplianceRow[]>>();
+
+/**
+ * Shared SLA rows keyed by period string (e.g. "168h").
+ * Reuses in-flight work and short-TTL cache to avoid duplicate long requests.
+ */
+async function getSLAComplianceRows(period: string): Promise<SLAComplianceRow[]> {
+  const now = Date.now();
+  const cached = slaCacheByPeriod.get(period);
+  if (cached && now - cached.cachedAtMs < NETWORK_SLA_CACHE_TTL_MS) {
+    return cached.rows;
+  }
+
+  const inFlight = slaInFlightByPeriod.get(period);
+  if (inFlight) return inFlight;
+
+  const promise = (async () => {
+    try {
+      const rows = await fetchSLACompliance({ period });
+      slaCacheByPeriod.set(period, { rows, cachedAtMs: Date.now() });
+      return rows;
+    } catch (err) {
+      if (cached) {
+        console.warn(`[dashboard-data-provider] SLA refresh (${period}) failed; serving cached rows:`, err);
+        return cached.rows;
+      }
+      throw err;
+    } finally {
+      slaInFlightByPeriod.delete(period);
+    }
+  })();
+
+  slaInFlightByPeriod.set(period, promise);
+  return promise;
+}
+
 // ---------------------------------------------------------------------------
 // KPI resolver
 // ---------------------------------------------------------------------------
 
-/** Valid overview timeframe options in hours (aligned to network demand API max). */
-const VALID_TIMEFRAMES = [1, 6, 12, 24] as const;
+/** Valid overview timeframe options in hours (aligned to SLA compliance API max 720h). */
+const VALID_TIMEFRAMES = [24, 168, 336, 720] as const;
 type TimeframeHours = (typeof VALID_TIMEFRAMES)[number];
 
 function parseTimeframe(input?: string | number): TimeframeHours {
@@ -148,42 +178,33 @@ function parseTimeframe(input?: string | number): TimeframeHours {
   if (hours && VALID_TIMEFRAMES.includes(hours as TimeframeHours)) {
     return hours as TimeframeHours;
   }
-  return 24; // default
+  return 168; // default 7 days
 }
 
 async function resolveKPI({ timeframe }: { timeframe?: string }): Promise<DashboardKPI & { timeframeHours: number }> {
   const timeframeHours = parseTimeframe(timeframe);
+  const slaPeriod = `${timeframeHours}h`;
 
-  // Fetch demand data for the selected timeframe
-  // For orchestrators, keep the same cap to avoid implying support beyond demand limits.
-  const slaPeriod = `${Math.min(timeframeHours, 24)}h`;
-
+  // Demand API is capped at 24h; SLA uses the full selected timeframe.
   const [demandRows, slaRows] = await Promise.all([
-    fetchNetworkDemand(timeframeHours),
-    fetchSLACompliance(slaPeriod),
+    fetchNetworkDemand(Math.min(timeframeHours, 24)),
+    getSLAComplianceRows(slaPeriod),
   ]);
 
-  // Success Rate: compare latest window vs the previous one
-  const demandWindows = byWindow<NetworkDemandRow>(demandRows);
-  const demandKeys    = sortedKeys(demandWindows);
-
-  const latestDemand = demandWindows.get(demandKeys.at(-1) ?? '') ?? [];
-  const prevDemand   = demandWindows.get(demandKeys.at(-2) ?? '') ?? [];
-
-  const currentSR = weightedSuccessRate(latestDemand) * 100;
-  const prevSR    = weightedSuccessRate(prevDemand) * 100;
+  // Success Rate: served_sessions / total_demand_sessions (demand API has real served vs unserved counts)
+  const currentSR = demandServedRate(demandRows) * 100;
 
   // Orchestrators Seen: distinct addresses across the selected period
   const orchCount = countOrchestrators(slaRows) || 0;
   const orchDelta = 0;
 
-  // Usage, Streams, and Fees: sum over the selected timeframe
-  const totalMins    = demandRows.reduce((s, r) => s + (r.total_minutes || 0), 0);
-  const totalStreams = demandRows.reduce((s, r) => s + (r.sessions_count || 0), 0);
+  // Usage, Sessions, Fees: aggregate from demand API (24h max; real served/unserved counts)
+  const totalMins    = demandRows.reduce((s, r) => s + (r.total_minutes ?? 0), 0);
+  const totalStreams = demandRows.reduce((s, r) => s + (r.total_demand_sessions ?? 0), 0);
   const totalFeesEth = demandRows.reduce((s, r) => s + (r.ticket_face_value_eth || 0), 0);
 
   return {
-    successRate:        { value: round1(currentSR),         delta: round1(currentSR - prevSR) },
+    successRate:        { value: round1(currentSR),         delta: 0 },
     orchestratorsOnline:{ value: orchCount,                  delta: orchDelta },
     dailyUsageMins:     { value: Math.round(totalMins),      delta: 0 },
     dailySessionCount:  { value: totalStreams,               delta: 0 },
@@ -196,13 +217,13 @@ async function resolveKPI({ timeframe }: { timeframe?: string }): Promise<Dashbo
 // Pipelines resolver (GPU counts per pipeline and per pipeline+model from SLA)
 // ---------------------------------------------------------------------------
 
-/** Count distinct GPUs per pipeline and per (pipeline, model) from SLA rows with sessions. */
+/** Count unique GPU IDs per pipeline and per (pipeline, model) from SLA rows. */
 function countGPUsByPipelineFromSLA(rows: SLAComplianceRow[]): Map<string, { total: number; byModel: Map<string, number> }> {
-  const byPipeline = new Map<string, { gpuIds: Set<string>; rowsNoGpu: number; byModel: Map<string, { gpuIds: Set<string>; rowsNoGpu: number }> }>();
+  const byPipeline = new Map<string, { gpuIds: Set<string>; byModel: Map<string, Set<string>> }>();
 
   for (const row of rows) {
-    const knownSessions = row.known_sessions_count ?? 0;
-    if (knownSessions <= 0) continue;
+    const gpuId = row.gpu_id?.trim();
+    if (!gpuId) continue;
 
     const pipelineId = row.pipeline_id?.trim();
     if (!pipelineId || PIPELINE_DISPLAY[pipelineId] === null) continue;
@@ -210,61 +231,101 @@ function countGPUsByPipelineFromSLA(rows: SLAComplianceRow[]): Map<string, { tot
     const modelId = row.model_id?.trim() ?? '';
 
     if (!byPipeline.has(pipelineId)) {
-      byPipeline.set(pipelineId, {
-        gpuIds: new Set(),
-        rowsNoGpu: 0,
-        byModel: new Map(),
-      });
+      byPipeline.set(pipelineId, { gpuIds: new Set(), byModel: new Map() });
     }
     const pipelineAcc = byPipeline.get(pipelineId)!;
-    if (!pipelineAcc.byModel.has(modelId)) {
-      pipelineAcc.byModel.set(modelId, { gpuIds: new Set(), rowsNoGpu: 0 });
-    }
-    const modelAcc = pipelineAcc.byModel.get(modelId)!;
+    pipelineAcc.gpuIds.add(gpuId);
 
-    if (row.gpu_id) {
-      pipelineAcc.gpuIds.add(row.gpu_id);
-      modelAcc.gpuIds.add(row.gpu_id);
-    } else {
-      pipelineAcc.rowsNoGpu += 1;
-      modelAcc.rowsNoGpu += 1;
+    if (!pipelineAcc.byModel.has(modelId)) {
+      pipelineAcc.byModel.set(modelId, new Set());
     }
+    pipelineAcc.byModel.get(modelId)!.add(gpuId);
   }
 
   const result = new Map<string, { total: number; byModel: Map<string, number> }>();
   for (const [pipelineId, acc] of byPipeline.entries()) {
-    const total = acc.gpuIds.size + acc.rowsNoGpu;
     const byModel = new Map<string, number>();
-    for (const [modelId, ma] of acc.byModel.entries()) {
-      const count = ma.gpuIds.size + ma.rowsNoGpu;
-      if (count > 0) byModel.set(modelId || '(no model)', count);
+    for (const [modelId, gpuIds] of acc.byModel.entries()) {
+      if (gpuIds.size > 0) byModel.set(modelId || '(no model)', gpuIds.size);
     }
-    result.set(pipelineId, { total, byModel });
+    result.set(pipelineId, { total: acc.gpuIds.size, byModel });
   }
   return result;
 }
 
-async function resolvePipelines({ limit = 5, timeframe }: { limit?: number; timeframe?: string }): Promise<DashboardPipelineUsage[]> {
-  const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 5;
-  const timeframeHours = parseTimeframe(timeframe);
-  const slaPeriod = `${Math.min(timeframeHours, 24)}h`;
-  const slaRows = await fetchSLACompliance(slaPeriod);
+interface PipelineModelAccum {
+  mins: number;
+  sessions: number;
+  fpsWeighted: number;
+}
 
-  const byPipeline = countGPUsByPipelineFromSLA(slaRows);
+interface PipelineAccum {
+  mins: number;
+  sessions: number;
+  fpsWeighted: number;
+  byModel: Map<string, PipelineModelAccum>;
+}
+
+async function resolvePipelines({ limit = 5 }: { limit?: number; timeframe?: string }): Promise<DashboardPipelineUsage[]> {
+  const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 5;
+
+  const demandRows = await fetchNetworkDemand(24);
+
+  const byPipeline = new Map<string, PipelineAccum>();
+  for (const row of demandRows) {
+    const pipelineId = row.pipeline_id?.trim();
+    if (!pipelineId || PIPELINE_DISPLAY[pipelineId] === null) continue;
+    const mins = row.total_minutes ?? 0;
+    const sessionsCt = row.sessions_count ?? 0;
+    if (mins <= 0 && sessionsCt <= 0) continue;
+
+    let entry = byPipeline.get(pipelineId);
+    if (!entry) {
+      entry = { mins: 0, sessions: 0, fpsWeighted: 0, byModel: new Map() };
+      byPipeline.set(pipelineId, entry);
+    }
+    entry.mins += mins;
+    entry.sessions += sessionsCt;
+    if (sessionsCt > 0) {
+      entry.fpsWeighted += (row.avg_output_fps ?? 0) * sessionsCt;
+    }
+
+    const modelId = row.model_id?.trim();
+    if (modelId) {
+      let modelAcc = entry.byModel.get(modelId);
+      if (!modelAcc) {
+        modelAcc = { mins: 0, sessions: 0, fpsWeighted: 0 };
+        entry.byModel.set(modelId, modelAcc);
+      }
+      modelAcc.mins += mins;
+      modelAcc.sessions += sessionsCt;
+      if (sessionsCt > 0) {
+        modelAcc.fpsWeighted += (row.avg_output_fps ?? 0) * sessionsCt;
+      }
+    }
+  }
 
   return [...byPipeline.entries()]
     .map(([pipelineId, acc]) => ({
-      name:  PIPELINE_DISPLAY[pipelineId] ?? pipelineId,
-      mins:  acc.total, // deprecated, kept for backward compatibility
-      gpus:  acc.total,
-      color: PIPELINE_COLOR[pipelineId] ?? DEFAULT_PIPELINE_COLOR,
+      name:     PIPELINE_DISPLAY[pipelineId] ?? pipelineId,
+      mins:     Math.round(acc.mins),
+      sessions: acc.sessions,
+      avgFps:   acc.sessions > 0 ? Math.round((acc.fpsWeighted / acc.sessions) * 10) / 10 : 0,
+      gpus:     0,
+      color:    PIPELINE_COLOR[pipelineId] ?? DEFAULT_PIPELINE_COLOR,
       modelMins: acc.byModel.size > 0
         ? [...acc.byModel.entries()]
-            .map(([model, count]) => ({ model, mins: count, gpus: count }))
-            .sort((a, b) => b.gpus - a.gpus)
+            .map(([model, m]) => ({
+              model,
+              mins:     Math.round(m.mins),
+              sessions: m.sessions,
+              avgFps:   m.sessions > 0 ? Math.round((m.fpsWeighted / m.sessions) * 10) / 10 : 0,
+              gpus:     0,
+            }))
+            .sort((a, b) => b.mins - a.mins)
         : undefined,
     }))
-    .sort((a, b) => b.gpus - a.gpus)
+    .sort((a, b) => b.mins - a.mins)
     .slice(0, safeLimit);
 }
 
@@ -287,31 +348,34 @@ async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalogEntry[]
 // GPU Capacity resolver
 // ---------------------------------------------------------------------------
 
-/** Count total GPUs from SLA compliance (same source as orchestrators): distinct GPUs with sessions + rows with sessions but no gpu_id. */
-function countTotalGPUsFromSLA(rows: SLAComplianceRow[]): number {
+/** Count unique GPU IDs from SLA compliance rows (matching count-compliance-gpu-ids.sh). */
+function countUniqueGPUIds(rows: SLAComplianceRow[]): number {
   const gpuIds = new Set<string>();
-  let rowsWithoutGpuIdWithSessions = 0;
   for (const row of rows) {
-    const knownSessions = row.known_sessions_count ?? 0;
-    if (knownSessions <= 0) continue;
-    if (row.gpu_id) {
-      gpuIds.add(row.gpu_id);
-    } else {
-      rowsWithoutGpuIdWithSessions += 1;
-    }
+    const id = row.gpu_id?.trim();
+    if (id) gpuIds.add(id);
   }
-  return gpuIds.size + rowsWithoutGpuIdWithSessions;
+  return gpuIds.size;
 }
 
-async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
+async function resolveGPUCapacity({ timeframe }: { timeframe?: string }): Promise<DashboardGPUCapacity> {
+  const timeframeHours = parseTimeframe(timeframe);
+  const slaPeriod = `${timeframeHours}h`;
+
   const [slaRows, metricsWide, metricsRecent] = await Promise.all([
-    fetchSLACompliance('24h'),
+    getSLAComplianceRows(slaPeriod),
     fetchGPUMetrics('24h'),
     fetchGPUMetrics('1h'),
   ]);
 
-  // Total GPUs from SLA (same logic as orchestrator table) so the tile matches the sum of orchestrator GPUs
-  const totalGPUs = countTotalGPUsFromSLA(slaRows);
+  const totalGPUs = countUniqueGPUIds(slaRows);
+
+  const activeGpuIds = new Set<string>();
+  for (const row of slaRows) {
+    const id = row.gpu_id?.trim();
+    if (id && (row.known_sessions_count ?? 0) > 0) activeGpuIds.add(id);
+  }
+  const activeGPUs = activeGpuIds.size;
 
   const sample = metricsRecent.length > 0 ? metricsRecent : metricsWide;
   const avgAvailable = sample.length > 0
@@ -320,6 +384,7 @@ async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
       )
     : 100;
 
+  // GPU model breakdown from GPU metrics (24h max)
   const modelCounts = new Map<string, Set<string>>();
   for (const m of metricsWide) {
     if (!m.gpu_model_name || !m.gpu_id) continue;
@@ -328,24 +393,36 @@ async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
     }
     modelCounts.get(m.gpu_model_name)!.add(m.gpu_id);
   }
+  const models = [...modelCounts.entries()]
+    .map(([model, ids]) => ({ model, count: ids.size }))
+    .sort((a, b) => b.count - a.count);
 
-  const models = [...modelCounts.entries()].map(([model, ids]) => ({
-    model,
-    count: ids.size,
-  })).sort((a, b) => b.count - a.count);
+  // Pipeline GPU breakdown from SLA (timeframe-scoped)
+  const byPipeline = countGPUsByPipelineFromSLA(slaRows);
+  const pipelineGPUs = [...byPipeline.entries()]
+    .map(([pipelineId, acc]) => ({
+      name: PIPELINE_DISPLAY[pipelineId] ?? pipelineId,
+      gpus: acc.total,
+      models: acc.byModel.size > 0
+        ? [...acc.byModel.entries()]
+            .map(([model, gpus]) => ({ model, gpus }))
+            .sort((a, b) => b.gpus - a.gpus)
+        : undefined,
+    }))
+    .sort((a, b) => b.gpus - a.gpus);
 
-  return { totalGPUs, availableCapacity: avgAvailable, models };
+  return { totalGPUs, activeGPUs: activeGPUs, availableCapacity: avgAvailable, models, pipelineGPUs };
 }
 
 // ---------------------------------------------------------------------------
 // Orchestrators resolver
 // ---------------------------------------------------------------------------
 
-async function resolveOrchestrators({ period = '24h' }: { period?: string }): Promise<DashboardOrchestrator[]> {
-  // Normalize period from query variable (e.g. "24" from $timeframe) to API format "24h"
+async function resolveOrchestrators({ period = '168h' }: { period?: string }): Promise<DashboardOrchestrator[]> {
+  // Normalize period from query variable (e.g. "168" from $timeframe) to API format "168h"
   const periodHours = period && /^\d+$/.test(period) ? parseInt(period, 10) : NaN;
-  const resolvedPeriod = Number.isFinite(periodHours) ? `${Math.min(periodHours, 24)}h` : (period || '24h');
-  const rows = await fetchSLACompliance(resolvedPeriod);
+  const resolvedPeriod = Number.isFinite(periodHours) ? `${Math.min(periodHours, 720)}h` : (period || '168h');
+  const rows = await getSLAComplianceRows(resolvedPeriod);
 
   type Accum = {
     knownSessions: number;
@@ -603,7 +680,7 @@ export function registerDashboardProvider(eventBus: IEventBus): () => void {
     fees:            ({ days }: { days?: number }) => resolveFees({ days }),
     pipelines:       ({ limit, timeframe }: { limit?: number; timeframe?: string }) => resolvePipelines({ limit, timeframe }),
     pipelineCatalog: () => resolvePipelineCatalog(),
-    gpuCapacity:     () => resolveGPUCapacity(),
+    gpuCapacity:     (args?: { timeframe?: string }) => resolveGPUCapacity({ timeframe: args?.timeframe }),
     pricing:         async () => [],
     orchestrators:   ({ period }: { period?: string }) => resolveOrchestrators({ period }),
     // Raw explorer resolvers
