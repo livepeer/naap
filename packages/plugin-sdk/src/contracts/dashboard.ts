@@ -319,14 +319,20 @@ export interface DashboardFeesInfo {
 /** Pipeline usage entry */
 export interface DashboardPipelineModelMins {
   model: string;
+  /** @deprecated Use `gpus` instead — this field now represents GPU count, not minutes */
   mins: number;
+  /** Number of GPUs running this model */
+  gpus: number;
 }
 
 export interface DashboardPipelineUsage {
   name: string;
+  /** @deprecated Use `gpus` instead — this field now represents GPU count, not minutes */
   mins: number;
+  /** Number of GPUs running this pipeline */
+  gpus: number;
   color?: string;
-  /** Per-model inference minutes (when available) */
+  /** Per-model GPU counts (when available) */
   modelMins?: DashboardPipelineModelMins[];
 }
 

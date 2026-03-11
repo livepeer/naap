@@ -255,15 +255,16 @@ async function resolvePipelines({ limit = 5, timeframe }: { limit?: number; time
   return [...byPipeline.entries()]
     .map(([pipelineId, acc]) => ({
       name:  PIPELINE_DISPLAY[pipelineId] ?? pipelineId,
-      mins:  acc.total,
+      mins:  acc.total, // deprecated, kept for backward compatibility
+      gpus:  acc.total,
       color: PIPELINE_COLOR[pipelineId] ?? DEFAULT_PIPELINE_COLOR,
       modelMins: acc.byModel.size > 0
         ? [...acc.byModel.entries()]
-            .map(([model, count]) => ({ model, mins: count }))
-            .sort((a, b) => b.mins - a.mins)
+            .map(([model, count]) => ({ model, mins: count, gpus: count }))
+            .sort((a, b) => b.gpus - a.gpus)
         : undefined,
     }))
-    .sort((a, b) => b.mins - a.mins)
+    .sort((a, b) => b.gpus - a.gpus)
     .slice(0, safeLimit);
 }
 
