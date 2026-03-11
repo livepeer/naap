@@ -59,6 +59,16 @@ async function handleRequest(
     );
   }
 
+  if (auth.masterKeyScopes && !auth.masterKeyScopes.includes('proxy')) {
+    return buildErrorResponse(
+      'FORBIDDEN',
+      'This master key does not have the "proxy" scope required for API calls.',
+      403,
+      requestId,
+      traceId
+    );
+  }
+
   const scopeId = auth.teamId;
 
   // ── 2. Resolve Connector + Endpoint Config ──

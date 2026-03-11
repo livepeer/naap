@@ -41,19 +41,42 @@ export async function GET(request: NextRequest) {
   const periodStart = new Date(periodEnd);
   periodStart.setUTCHours(periodStart.getUTCHours() - 1);
 
+  const connectorIds = connectors.map((c) => c.id);
+
+  const [allRecords, allHealthChecks] = await Promise.all([
+    prisma.gatewayUsageRecord.findMany({
+      where: {
+        connectorId: { in: connectorIds },
+        timestamp: { gte: periodStart, lt: periodEnd },
+      },
+      select: { connectorId: true, statusCode: true, latencyMs: true, upstreamLatencyMs: true },
+    }),
+    prisma.gatewayHealthCheck.findMany({
+      where: {
+        connectorId: { in: connectorIds },
+        checkedAt: { gte: periodStart, lt: periodEnd },
+      },
+      select: { connectorId: true, status: true },
+    }),
+  ]);
+
+  const recordsByConnector = new Map<string, typeof allRecords>();
+  for (const r of allRecords) {
+    const arr = recordsByConnector.get(r.connectorId) || [];
+    arr.push(r);
+    recordsByConnector.set(r.connectorId, arr);
+  }
+  const healthByConnector = new Map<string, typeof allHealthChecks>();
+  for (const h of allHealthChecks) {
+    const arr = healthByConnector.get(h.connectorId) || [];
+    arr.push(h);
+    healthByConnector.set(h.connectorId, arr);
+  }
+
   const aggregated: { slug: string; requests: number; errorCount: number }[] = [];
 
   for (const connector of connectors) {
-    const records = await prisma.gatewayUsageRecord.findMany({
-      where: {
-        connectorId: connector.id,
-        timestamp: {
-          gte: periodStart,
-          lt: periodEnd,
-        },
-      },
-      select: { statusCode: true, latencyMs: true, upstreamLatencyMs: true },
-    });
+    const records = recordsByConnector.get(connector.id) || [];
 
     const totalRequests = records.length;
     const errorCount = records.filter((r) => r.statusCode >= 500).length;
@@ -71,16 +94,7 @@ export async function GET(request: NextRequest) {
       : 0;
     const gatewayOverheadMs = Math.max(0, latencyMeanMs - upstreamLatencyMeanMs);
 
-    const healthChecks = await prisma.gatewayHealthCheck.findMany({
-      where: {
-        connectorId: connector.id,
-        checkedAt: {
-          gte: periodStart,
-          lt: periodEnd,
-        },
-      },
-      select: { status: true },
-    });
+    const healthChecks = healthByConnector.get(connector.id) || [];
     const healthCheckCount = healthChecks.length;
     const healthChecksPassed = healthChecks.filter((h) => h.status === 'up').length;
     const availabilityPercent = healthCheckCount > 0

@@ -33,12 +33,16 @@ export async function GET(
   const traceId = request.headers.get('x-trace-id');
 
   const connector = await prisma.serviceConnector.findFirst({
-    where: { slug, status: 'published' },
+    where: {
+      slug,
+      status: 'published',
+      OR: [{ visibility: 'public' }, { teamId: auth.teamId }],
+    },
     include: {
       endpoints: { where: { enabled: true }, orderBy: { createdAt: 'asc' } },
       pricing: true,
       healthChecks: { orderBy: { checkedAt: 'desc' }, take: 1 },
-      metrics: { where: { period: 'daily' }, orderBy: { periodStart: 'desc' }, take: 1 },
+      metrics: { where: { period: 'hourly' }, orderBy: { periodStart: 'desc' }, take: 1 },
       rankings: { orderBy: { qualityRank: 'asc' } },
     },
   });

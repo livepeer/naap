@@ -161,12 +161,17 @@ async function authorizeMasterKey(rawKey: string): Promise<AuthResult | null> {
 
   if (!resolvedTeamId) return null;
 
+  const scopes = (masterKey.scopes as string[]) || [];
+  const allowedIPs = (masterKey.allowedIPs as string[]) || [];
+
   return {
     authenticated: true,
     callerType: 'masterKey',
     callerId: masterKey.createdBy,
     teamId: resolvedTeamId,
     isMasterKey: true,
+    masterKeyScopes: scopes,
+    ...(allowedIPs.length > 0 ? { allowedIPs } : {}),
   };
 }
 

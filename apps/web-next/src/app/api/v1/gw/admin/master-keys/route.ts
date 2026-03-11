@@ -123,12 +123,12 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  await logAudit(ctx, {
+  logAudit(ctx, {
     action: 'master-key.create',
     resourceId: masterKey.id,
     details: { name: parsed.data.name, keyPrefix },
     request,
-  });
+  }).catch(() => {});
 
   const { keyHash: _, ...safeKey } = masterKey;
   return success({
