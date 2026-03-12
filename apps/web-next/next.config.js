@@ -97,7 +97,7 @@ const nextConfig = {
       {
         source: '/api/:path*',
         headers: [
-          { key: 'Access-Control-Allow-Origin', value: allowedOrigins[0] },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
           { key: 'Access-Control-Allow-Methods', value: 'GET,POST,PUT,DELETE,OPTIONS,PATCH' },
           { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, X-Request-ID, X-Trace-ID, X-Team-ID, Idempotency-Key' },
           { key: 'Access-Control-Max-Age', value: '86400' },

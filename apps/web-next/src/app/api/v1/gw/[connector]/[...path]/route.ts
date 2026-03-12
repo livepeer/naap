@@ -407,3 +407,15 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 export async function HEAD(request: NextRequest, context: RouteContext) {
   return handleRequest(request, context);
 }
+
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,PATCH,HEAD,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID, X-Trace-ID, X-Team-ID, Idempotency-Key',
+      'Access-Control-Max-Age': '86400',
+    },
+  });
+}
