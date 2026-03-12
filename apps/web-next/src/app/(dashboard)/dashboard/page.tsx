@@ -114,6 +114,7 @@ const FEES_OVERVIEW_QUERY = /* GraphQL */ `
     }
   }
 `;
+const DASHBOARD_QUERY_TIMEOUT_MS = 70_000;
 
 // ============================================================================
 // Utility Components
@@ -1213,12 +1214,12 @@ export default function DashboardPage() {
   const { data, loading, refreshing, error } = useDashboardQuery<DashboardData>(
     NETWORK_OVERVIEW_QUERY,
     { timeframe },
-    { timeout: 20000 }
+    { timeout: DASHBOARD_QUERY_TIMEOUT_MS }
   );
   const { data: feesData, loading: feesLoading } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
-    { timeout: 8000 }
+    { timeout: DASHBOARD_QUERY_TIMEOUT_MS }
   );
 
   const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8, pollInterval: jobFeedPollInterval });

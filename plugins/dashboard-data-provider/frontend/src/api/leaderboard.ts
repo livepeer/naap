@@ -13,7 +13,16 @@
 
 /** Use server proxy so requests use LEADERBOARD_API_URL, timeout, and path validation. */
 const BASE_URL = '/api/v1/leaderboard';
-const LEADERBOARD_REQUEST_TIMEOUT_MS = 20_000;
+const LEADERBOARD_CLIENT_TIMEOUT_MS = 60_000;
+const LEADERBOARD_RESPONSE_CACHE_TTL_MS = 5_000;
+
+type CacheEntry = {
+  expiresAt: number;
+  data: unknown;
+};
+
+const responseCache = new Map<string, CacheEntry>();
+const inFlightRequests = new Map<string, Promise<unknown>>();
 
 // ---------------------------------------------------------------------------
 // Response shapes (mirror models/metrics.go JSON tags)
@@ -197,11 +206,40 @@ export interface PipelineCatalogFilters {
 // ---------------------------------------------------------------------------
 
 async function apiFetch<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    signal: AbortSignal.timeout(LEADERBOARD_REQUEST_TIMEOUT_MS),
+  const url = `${BASE_URL}${path}`;
+  const now = Date.now();
+
+  const cached = responseCache.get(url);
+  if (cached && cached.expiresAt > now) {
+    return cached.data as T;
+  }
+  if (cached) {
+    responseCache.delete(url);
+  }
+
+  const inFlight = inFlightRequests.get(url);
+  if (inFlight) {
+    return inFlight as Promise<T>;
+  }
+
+  const requestPromise = (async (): Promise<T> => {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(LEADERBOARD_CLIENT_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`leaderboard API ${path} failed: ${res.status}`);
+
+    const data = await res.json() as T;
+    responseCache.set(url, {
+      expiresAt: Date.now() + LEADERBOARD_RESPONSE_CACHE_TTL_MS,
+      data,
+    });
+    return data;
+  })().finally(() => {
+    inFlightRequests.delete(url);
   });
-  if (!res.ok) throw new Error(`leaderboard API ${path} failed: ${res.status}`);
-  return res.json() as Promise<T>;
+
+  inFlightRequests.set(url, requestPromise);
+  return requestPromise;
 }
 
 /** Build URLSearchParams from filter object, omitting undefined/null values */
