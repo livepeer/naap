@@ -42,7 +42,10 @@ export interface UseDashboardQueryOptions {
 
 export interface UseDashboardQueryResult<T> {
   data: T | null;
+  /** True while any fetch is in-flight (initial or poll refresh). */
   loading: boolean;
+  /** True when refetching while stale data is still displayed. */
+  refreshing: boolean;
   error: DashboardError | null;
   refetch: () => void;
 }
@@ -133,6 +136,7 @@ export function useDashboardQuery<T = Record<string, unknown>>(
         }
         // All retries exhausted
         setError({ type: 'no-provider', message: 'No dashboard data provider is registered' });
+        setData(null);
       } else if (code === 'TIMEOUT') {
         setError({ type: 'timeout', message: 'Dashboard data provider did not respond in time' });
       } else {
@@ -141,7 +145,6 @@ export function useDashboardQuery<T = Record<string, unknown>>(
           message: (err as Error)?.message ?? 'Unknown error fetching dashboard data',
         });
       }
-      setData(null);
     } finally {
       if (mountedRef.current) {
         setLoading(false);
@@ -176,5 +179,6 @@ export function useDashboardQuery<T = Record<string, unknown>>(
     return () => clearInterval(intervalId);
   }, [fetchData, pollInterval, skip]);
 
-  return { data, loading, error, refetch: fetchData };
+  const refreshing = loading && data !== null;
+  return { data, loading, refreshing, error, refetch: fetchData };
 }

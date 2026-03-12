@@ -23,63 +23,117 @@ import {
 } from '@naap/plugin-sdk';
 import { registerDashboardProvider } from '../provider.js';
 import { registerJobFeedEmitter } from '../job-feed-emitter.js';
+import type { NetworkDemandRow } from '../api/leaderboard.js';
 
 // ============================================================================
 // Leaderboard API stub data
 // ============================================================================
 
-const STUB_DEMAND_1H = [
-  { window_start: '2026-02-24T22:00:00Z', gateway: 'gw-a', region: null, pipeline: 'streamdiffusion-sdxl',
-    total_sessions: 3, total_streams: 3, avg_output_fps: 7.5, total_inference_minutes: 1.5,
-    known_sessions: 3, served_sessions: 3, unserved_sessions: 0, total_demand_sessions: 3,
-    unexcused_sessions: 0, swapped_sessions: 0, missing_capacity_count: 0,
-    success_ratio: 1.0, fee_payment_eth: 0 },
-  { window_start: '2026-02-24T22:00:00Z', gateway: 'gw-a', region: null, pipeline: 'streamdiffusion-sdxl-v2v',
-    total_sessions: 2, total_streams: 2, avg_output_fps: 7.0, total_inference_minutes: 0.8,
-    known_sessions: 2, served_sessions: 2, unserved_sessions: 0, total_demand_sessions: 2,
-    unexcused_sessions: 0, swapped_sessions: 0, missing_capacity_count: 0,
-    success_ratio: 1.0, fee_payment_eth: 0 },
-  { window_start: '2026-02-24T21:00:00Z', gateway: 'gw-a', region: null, pipeline: 'streamdiffusion-sdxl',
-    total_sessions: 4, total_streams: 4, avg_output_fps: 7.2, total_inference_minutes: 2.0,
-    known_sessions: 4, served_sessions: 4, unserved_sessions: 0, total_demand_sessions: 4,
-    unexcused_sessions: 0, swapped_sessions: 0, missing_capacity_count: 0,
-    success_ratio: 0.9, fee_payment_eth: 0 },
+const STUB_DEMAND_1H: NetworkDemandRow[] = [
+  { window_start: '2026-02-24T22:00:00Z', gateway: 'gw-a', region: null,
+    pipeline_id: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
+    sessions_count: 3, total_minutes: 1.5, known_sessions_count: 3,
+    served_sessions: 3, unserved_sessions: 0, total_demand_sessions: 3,
+    startup_unexcused_sessions: 0, confirmed_swapped_sessions: 0, inferred_swap_sessions: 0,
+    total_swapped_sessions: 0, sessions_ending_in_error: 0, error_status_samples: 0,
+    health_signal_coverage_ratio: 1.0, startup_success_rate: 1.0, effective_success_rate: 1.0,
+    ticket_face_value_eth: 0 },
+  { window_start: '2026-02-24T22:00:00Z', gateway: 'gw-a', region: null,
+    pipeline_id: 'streamdiffusion-sdxl-v2v', model_id: 'streamdiffusion-sdxl-v2v',
+    sessions_count: 2, total_minutes: 0.8, known_sessions_count: 2,
+    served_sessions: 2, unserved_sessions: 0, total_demand_sessions: 2,
+    startup_unexcused_sessions: 0, confirmed_swapped_sessions: 0, inferred_swap_sessions: 0,
+    total_swapped_sessions: 0, sessions_ending_in_error: 0, error_status_samples: 0,
+    health_signal_coverage_ratio: 1.0, startup_success_rate: 1.0, effective_success_rate: 1.0,
+    ticket_face_value_eth: 0 },
+  { window_start: '2026-02-24T21:00:00Z', gateway: 'gw-a', region: null,
+    pipeline_id: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
+    sessions_count: 4, total_minutes: 2.0, known_sessions_count: 4,
+    served_sessions: 4, unserved_sessions: 0, total_demand_sessions: 4,
+    startup_unexcused_sessions: 0, confirmed_swapped_sessions: 0, inferred_swap_sessions: 0,
+    total_swapped_sessions: 0, sessions_ending_in_error: 0, error_status_samples: 0,
+    health_signal_coverage_ratio: 1.0, startup_success_rate: 0.9, effective_success_rate: 0.9,
+    ticket_face_value_eth: 0 },
 ];
 
-const STUB_DEMAND_2H = [
-  { window_start: '2026-02-24T20:00:00Z', gateway: 'gw-a', region: null, pipeline: 'streamdiffusion-sdxl',
-    total_sessions: 10, total_streams: 10, avg_output_fps: 7.5, total_inference_minutes: 5.0,
-    known_sessions: 10, served_sessions: 10, unserved_sessions: 0, total_demand_sessions: 10,
-    unexcused_sessions: 0, swapped_sessions: 0, missing_capacity_count: 0,
-    success_ratio: 1.0, fee_payment_eth: 0 },
-  { window_start: '2026-02-24T20:00:00Z', gateway: 'gw-a', region: null, pipeline: 'streamdiffusion-sdxl-v2v',
-    total_sessions: 7, total_streams: 7, avg_output_fps: 7.0, total_inference_minutes: 8.5,
-    known_sessions: 7, served_sessions: 7, unserved_sessions: 0, total_demand_sessions: 7,
-    unexcused_sessions: 0, swapped_sessions: 0, missing_capacity_count: 0,
-    success_ratio: 1.0, fee_payment_eth: 0 },
+const STUB_DEMAND_2H: NetworkDemandRow[] = [
+  { window_start: '2026-02-24T20:00:00Z', gateway: 'gw-a', region: null,
+    pipeline_id: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
+    sessions_count: 10, total_minutes: 5.0, known_sessions_count: 10,
+    served_sessions: 10, unserved_sessions: 0, total_demand_sessions: 10,
+    startup_unexcused_sessions: 0, confirmed_swapped_sessions: 0, inferred_swap_sessions: 0,
+    total_swapped_sessions: 0, sessions_ending_in_error: 0, error_status_samples: 0,
+    health_signal_coverage_ratio: 1.0, startup_success_rate: 1.0, effective_success_rate: 1.0,
+    ticket_face_value_eth: 0 },
+  { window_start: '2026-02-24T20:00:00Z', gateway: 'gw-a', region: null,
+    pipeline_id: 'streamdiffusion-sdxl-v2v', model_id: 'streamdiffusion-sdxl-v2v',
+    sessions_count: 7, total_minutes: 8.5, known_sessions_count: 7,
+    served_sessions: 7, unserved_sessions: 0, total_demand_sessions: 7,
+    startup_unexcused_sessions: 0, confirmed_swapped_sessions: 0, inferred_swap_sessions: 0,
+    total_swapped_sessions: 0, sessions_ending_in_error: 0, error_status_samples: 0,
+    health_signal_coverage_ratio: 1.0, startup_success_rate: 1.0, effective_success_rate: 1.0,
+    ticket_face_value_eth: 0 },
+  { window_start: '2026-02-24T18:00:00Z', gateway: 'gw-a', region: null,
+    pipeline_id: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
+    sessions_count: 8, total_minutes: 4.0, known_sessions_count: 8,
+    served_sessions: 8, unserved_sessions: 0, total_demand_sessions: 8,
+    startup_unexcused_sessions: 0, confirmed_swapped_sessions: 0, inferred_swap_sessions: 0,
+    total_swapped_sessions: 0, sessions_ending_in_error: 0, error_status_samples: 0,
+    health_signal_coverage_ratio: 1.0, startup_success_rate: 1.0, effective_success_rate: 1.0,
+    ticket_face_value_eth: 0 },
 ];
 
 const STUB_SLA = [
-  { window_start: '2026-02-24T22:00:00Z', orchestrator_address: '0xaaa', pipeline: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
-    gpu_id: 'GPU-1', known_sessions: 3, success_sessions: 3,
-    success_ratio: 1.0, no_swap_ratio: 1.0, sla_score: 100 },
-  { window_start: '2026-02-24T22:00:00Z', orchestrator_address: '0xbbb', pipeline: 'streamdiffusion-sdxl-v2v', model_id: 'streamdiffusion-sdxl-v2v',
-    gpu_id: 'GPU-2', known_sessions: 2, success_sessions: 2,
-    success_ratio: 1.0, no_swap_ratio: 1.0, sla_score: 100 },
-  { window_start: '2026-02-24T21:00:00Z', orchestrator_address: '0xaaa', pipeline: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
-    gpu_id: 'GPU-1', known_sessions: 4, success_sessions: 4,
-    success_ratio: 1.0, no_swap_ratio: 1.0, sla_score: 100 },
+  { window_start: '2026-02-24T22:00:00Z', orchestrator_address: '0xaaa',
+    pipeline_id: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
+    gpu_id: 'GPU-1', region: null, known_sessions_count: 3, startup_success_sessions: 3,
+    startup_excused_sessions: 0, startup_unexcused_sessions: 0,
+    confirmed_swapped_sessions: 0, inferred_swap_sessions: 0, total_swapped_sessions: 0,
+    sessions_ending_in_error: 0, error_status_samples: 0, health_signal_coverage_ratio: 1.0,
+    startup_success_rate: 1.0, effective_success_rate: 1.0, no_swap_rate: 1.0, sla_score: 100 },
+  { window_start: '2026-02-24T22:00:00Z', orchestrator_address: '0xbbb',
+    pipeline_id: 'streamdiffusion-sdxl-v2v', model_id: 'streamdiffusion-sdxl-v2v',
+    gpu_id: 'GPU-2', region: null, known_sessions_count: 2, startup_success_sessions: 2,
+    startup_excused_sessions: 0, startup_unexcused_sessions: 0,
+    confirmed_swapped_sessions: 0, inferred_swap_sessions: 0, total_swapped_sessions: 0,
+    sessions_ending_in_error: 0, error_status_samples: 0, health_signal_coverage_ratio: 1.0,
+    startup_success_rate: 1.0, effective_success_rate: 1.0, no_swap_rate: 1.0, sla_score: 100 },
+  { window_start: '2026-02-24T21:00:00Z', orchestrator_address: '0xaaa',
+    pipeline_id: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
+    gpu_id: 'GPU-1', region: null, known_sessions_count: 4, startup_success_sessions: 4,
+    startup_excused_sessions: 0, startup_unexcused_sessions: 0,
+    confirmed_swapped_sessions: 0, inferred_swap_sessions: 0, total_swapped_sessions: 0,
+    sessions_ending_in_error: 0, error_status_samples: 0, health_signal_coverage_ratio: 1.0,
+    startup_success_rate: 1.0, effective_success_rate: 1.0, no_swap_rate: 1.0, sla_score: 100 },
 ];
 
 const STUB_GPU = [
   { window_start: '2026-02-24T22:00:00Z', orchestrator_address: '0xaaa',
-    pipeline: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
-    gpu_id: 'GPU-1', region: null, avg_output_fps: 7.5, p95_output_fps: 12.0,
-    known_sessions: 3, success_sessions: 3, failure_rate: 0, swap_rate: 0 },
+    pipeline_id: 'streamdiffusion-sdxl', model_id: 'streamdiffusion-sdxl',
+    gpu_id: 'GPU-1', region: null, gpu_model_name: 'NVIDIA RTX 3090', gpu_memory_bytes_total: null,
+    runner_version: null, cuda_version: null,
+    avg_output_fps: 7.5, p95_output_fps: 12.0, fps_jitter_coefficient: null,
+    avg_prompt_to_first_frame_ms: null, avg_startup_latency_ms: null, avg_e2e_latency_ms: null,
+    p95_prompt_to_first_frame_latency_ms: null, p95_startup_latency_ms: null, p95_e2e_latency_ms: null,
+    prompt_to_first_frame_sample_count: 0, startup_latency_sample_count: 0,
+    e2e_latency_sample_count: 0, status_samples: 3, error_status_samples: 0,
+    known_sessions_count: 3, startup_success_sessions: 3, startup_excused_sessions: 0,
+    startup_unexcused_sessions: 0, confirmed_swapped_sessions: 0, inferred_swap_sessions: 0,
+    total_swapped_sessions: 0, sessions_ending_in_error: 0, health_signal_coverage_ratio: 1.0,
+    startup_unexcused_rate: 0, swap_rate: 0 },
   { window_start: '2026-02-24T22:00:00Z', orchestrator_address: '0xbbb',
-    pipeline: 'streamdiffusion-sdxl-v2v', model_id: 'streamdiffusion-sdxl-v2v',
-    gpu_id: 'GPU-2', region: null, avg_output_fps: 7.0, p95_output_fps: 11.0,
-    known_sessions: 2, success_sessions: 2, failure_rate: 0, swap_rate: 0 },
+    pipeline_id: 'streamdiffusion-sdxl-v2v', model_id: 'streamdiffusion-sdxl-v2v',
+    gpu_id: 'GPU-2', region: null, gpu_model_name: 'NVIDIA RTX 3090', gpu_memory_bytes_total: null,
+    runner_version: null, cuda_version: null,
+    avg_output_fps: 7.0, p95_output_fps: 11.0, fps_jitter_coefficient: null,
+    avg_prompt_to_first_frame_ms: null, avg_startup_latency_ms: null, avg_e2e_latency_ms: null,
+    p95_prompt_to_first_frame_latency_ms: null, p95_startup_latency_ms: null, p95_e2e_latency_ms: null,
+    prompt_to_first_frame_sample_count: 0, startup_latency_sample_count: 0,
+    e2e_latency_sample_count: 0, status_samples: 2, error_status_samples: 0,
+    known_sessions_count: 2, startup_success_sessions: 2, startup_excused_sessions: 0,
+    startup_unexcused_sessions: 0, confirmed_swapped_sessions: 0, inferred_swap_sessions: 0,
+    total_swapped_sessions: 0, sessions_ending_in_error: 0, health_signal_coverage_ratio: 1.0,
+    startup_unexcused_rate: 0, swap_rate: 0 },
 ];
 
 // ============================================================================
@@ -259,12 +313,16 @@ describe('registerDashboardProvider', () => {
 
     const request: DashboardQueryRequest = {
       query: `{
-        kpi { successRate { value delta } orchestratorsOnline { value delta } dailyUsageMins { value delta } dailyStreamCount { value delta } }
+        kpi { successRate { value delta } orchestratorsOnline { value delta } dailyUsageMins { value delta } dailySessionCount { value delta } }
         protocol { currentRound blockProgress totalBlocks totalStakedLPT }
         fees(days: 7) { totalEth totalUsd oneDayVolumeUsd dayData { dateS volumeEth volumeUsd } weeklyData { date weeklyVolumeUsd weeklyVolumeEth } }
         pipelines { name mins color }
+        pipelineCatalog { id name models regions }
         gpuCapacity { totalGPUs availableCapacity }
         pricing { pipeline unit price outputPerDollar }
+        networkDemand(interval: "24h") { windowStart sessionsCount totalMinutes effectiveSuccessRate }
+        gpuMetrics(timeRange: "24h") { windowStart avgOutputFps p95OutputFps knownSessionsCount }
+        slaCompliance(period: "24h") { windowStart knownSessionsCount effectiveSuccessRate slaScore }
       }`,
     };
 
@@ -284,7 +342,7 @@ describe('registerDashboardProvider', () => {
     expect(typeof response.data!.kpi!.orchestratorsOnline.value).toBe('number');
     expect(response.data!.kpi!.orchestratorsOnline.value).toBeGreaterThan(0);
     expect(response.data!.kpi!.dailyUsageMins.value).toBeGreaterThanOrEqual(0);
-    expect(response.data!.kpi!.dailyStreamCount.value).toBeGreaterThanOrEqual(0);
+    expect(response.data!.kpi!.dailySessionCount.value).toBeGreaterThanOrEqual(0);
 
     // Protocol (live from subgraph + protocol-block)
     expect(response.data!.protocol).toBeDefined();
@@ -312,6 +370,25 @@ describe('registerDashboardProvider', () => {
 
     // Pricing: static fallback
     expect(response.data!.pricing).toBeDefined();
+
+    // Raw explorer fields: should resolve with data when requested
+    expect(response.data!.networkDemand).toBeDefined();
+    expect(Array.isArray(response.data!.networkDemand)).toBe(true);
+    expect(response.data!.networkDemand!.length).toBeGreaterThan(0);
+    expect(typeof response.data!.networkDemand![0].sessionsCount).toBe('number');
+
+    expect(response.data!.gpuMetrics).toBeDefined();
+    expect(Array.isArray(response.data!.gpuMetrics)).toBe(true);
+    expect(response.data!.gpuMetrics!.length).toBeGreaterThan(0);
+    expect(typeof response.data!.gpuMetrics![0].avgOutputFps).toBe('number');
+
+    expect(response.data!.slaCompliance).toBeDefined();
+    expect(Array.isArray(response.data!.slaCompliance)).toBe(true);
+    expect(response.data!.slaCompliance!.length).toBeGreaterThan(0);
+    expect(typeof response.data!.slaCompliance![0].knownSessionsCount).toBe('number');
+
+    expect(response.data!.pipelineCatalog).toBeDefined();
+    expect(response.data!.pipelineCatalog!.every((entry) => Array.isArray(entry.regions))).toBe(true);
   });
 
   it('returns protocol null and errors when subgraph or protocol-block fails', async () => {
@@ -358,7 +435,7 @@ describe('registerDashboardProvider', () => {
     expect(response.data!.kpi!.successRate.delta).toBe(0);
   });
 
-  it('pipelines are sorted by inference minutes descending', async () => {
+  it('pipelines are sorted by GPU count descending', async () => {
     registerDashboardProvider(testEventBus as any);
 
     const response = (await testEventBus._invoke(DASHBOARD_QUERY_EVENT, {
@@ -390,7 +467,7 @@ describe('registerDashboardProvider', () => {
     registerDashboardProvider(testEventBus as any);
 
     const response = (await testEventBus._invoke(DASHBOARD_QUERY_EVENT, {
-      query: '{ orchestrators { address knownSessions successSessions successRatio noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount } }',
+      query: '{ orchestrators { address knownSessions successSessions successRatio effectiveSuccessRate noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount } }',
     })) as DashboardQueryResponse;
 
     expect(response.errors).toBeUndefined();
@@ -404,6 +481,7 @@ describe('registerDashboardProvider', () => {
     expect(orchA.knownSessions).toBe(7);
     expect(orchA.successSessions).toBe(7);
     expect(orchA.successRatio).toBe(100);
+    expect(orchA.effectiveSuccessRate).toBe(100);
     expect(orchA.noSwapRatio).toBe(100);
     expect(orchA.slaScore).toBe(100);
     expect(orchA.gpuCount).toBe(1);

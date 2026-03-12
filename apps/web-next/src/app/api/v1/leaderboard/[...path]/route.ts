@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const LEADERBOARD_API_URL = process.env.LEADERBOARD_API_URL || 'https://leaderboard-api.livepeer.cloud';
 
+
+function parseProxyTimeoutMs(raw: string | undefined): number {
+  const parsed = Number(raw ?? 60000);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 60000;
+}
+
+const LEADERBOARD_PROXY_TIMEOUT_MS = parseProxyTimeoutMs(process.env.LEADERBOARD_PROXY_TIMEOUT_MS);
+
 async function handleRequest(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -25,7 +33,7 @@ async function handleRequest(
         Accept: 'application/json',
       },
       cache: 'no-store',
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(LEADERBOARD_PROXY_TIMEOUT_MS),
     });
 
     const responseBody = await response.text();

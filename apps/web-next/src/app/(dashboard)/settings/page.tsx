@@ -11,7 +11,7 @@ import {
   User, Bell, Palette, Shield, LogOut, Save, Globe,
   Eye, EyeOff, Pin, GripVertical, Trash2, Settings as SettingsIcon,
   Users, ExternalLink, Loader2, AlertTriangle, Info,
-  X, Plus, Pencil, Camera
+  X, Plus, Pencil, Camera,
 } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import { Button, Input, Textarea, Label, Modal } from '@naap/ui';
