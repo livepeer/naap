@@ -11,6 +11,8 @@ import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard';
 import { z } from 'zod';
+import { getOrCreateDefaultPlan } from '@/lib/gateway/default-plan';
+import { personalScopeId } from '@/lib/gateway/scope';
 
 const createPlanSchema = z.object({
   name: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/, 'Plan name must be lowercase alphanumeric with hyphens'),
@@ -33,6 +35,9 @@ function ownerWhere(ctx: { teamId: string; userId: string; isPersonal: boolean }
 export async function GET(request: NextRequest) {
   const ctx = await getAdminContext(request);
   if (isErrorResponse(ctx)) return ctx;
+
+  const scopeId = ctx.isPersonal ? personalScopeId(ctx.userId) : ctx.teamId;
+  await getOrCreateDefaultPlan(scopeId);
 
   const plans = await prisma.gatewayPlan.findMany({
     where: ownerWhere(ctx),

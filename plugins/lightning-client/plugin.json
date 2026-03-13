@@ -1,0 +1,52 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "lightning-client",
+  "displayName": "Lightning Client",
+  "version": "1.0.0",
+  "description": "Real-time AI video client — stream webcam frames through Livepeer's lightweight gateway for AI-processed output",
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io",
+    "url": "https://naap.io"
+  },
+  "repository": "https://github.com/naap/plugins/tree/main/lightning-client",
+  "license": "MIT",
+  "keywords": ["video", "ai", "livepeer", "realtime", "webcam", "streaming"],
+  "category": "ai",
+
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+
+  "frontend": {
+    "entry": "./frontend/dist/production/lightning-client.js",
+    "devEntry": "./frontend/src/App.tsx",
+    "devPort": 3112,
+    "routes": [
+      "/lightning",
+      "/lightning/*"
+    ],
+    "navigation": {
+      "label": "Lightning Client",
+      "icon": "Zap",
+      "order": 10,
+      "group": "ai"
+    }
+  },
+
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devEntry": "./backend/src/server.ts",
+    "devPort": 4112,
+    "port": 4212,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/lightning"
+  },
+
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme", "auth"],
+    "apis": ["base"],
+    "external": []
+  }
+}
