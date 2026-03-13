@@ -18,12 +18,23 @@ set +e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 PID_FILE="$ROOT_DIR/.pids"
+PORTS_FILE="$ROOT_DIR/.dev-ports.json"
 GRACEFUL_TIMEOUT="${GRACEFUL_TIMEOUT:-5}"
 
-# Core service ports
+# Core service ports (read from .dev-ports.json if present)
 SHELL_PORT=3000
 BASE_SVC_PORT=4000
 PLUGIN_SERVER_PORT=3100
+load_ports() {
+  if [ -f "$PORTS_FILE" ]; then
+    SHELL_PORT=$(grep -o '"shell"[[:space:]]*:[[:space:]]*[0-9]*' "$PORTS_FILE" | grep -o '[0-9]*')
+    BASE_SVC_PORT=$(grep -o '"base"[[:space:]]*:[[:space:]]*[0-9]*' "$PORTS_FILE" | grep -o '[0-9]*')
+    PLUGIN_SERVER_PORT=$(grep -o '"pluginServer"[[:space:]]*:[[:space:]]*[0-9]*' "$PORTS_FILE" | grep -o '[0-9]*')
+    [ -z "$SHELL_PORT" ] && SHELL_PORT=3000
+    [ -z "$BASE_SVC_PORT" ] && BASE_SVC_PORT=4000
+    [ -z "$PLUGIN_SERVER_PORT" ] && PLUGIN_SERVER_PORT=3100
+  fi
+}
 
 # Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'

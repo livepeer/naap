@@ -69,6 +69,7 @@ apps/web-next/public/cdn/
 .pids.tmp
 .naap.lock
 .prisma-synced
+.dev-ports.json
 
 # Plugin build cache hashes
 **/dist/production/.build-hash

@@ -15,14 +15,15 @@
 # Clone and start (~30s after npm install)
 git clone https://github.com/livepeer/naap.git
 cd naap
-./bin/start.sh
+npm install
+npm run dev
 ```
 
-Open **http://localhost:3000** when setup completes.
+Open **http://localhost:3000** when setup completes (port may vary if 3000 is in use).
 
 ## What Setup Does
 
-The `start.sh` script automatically runs setup on first use:
+The dev runner automatically runs setup on first use:
 
 | Step | What It Does |
 |------|--------------|
@@ -33,7 +34,7 @@ The `start.sh` script automatically runs setup on first use:
 | 5. Build Plugins | Builds all 12 plugin UMD bundles (with source hashing for future skip) |
 | 6. Verification | Checks critical files and workspace links |
 
-Setup runs automatically on first start. After that, `start.sh` handles everything.
+Setup runs automatically on first start. After that, `npm run dev` handles everything.
 
 ## Architecture Overview
 
@@ -47,60 +48,34 @@ There is **no Kafka**. Inter-service communication uses the in-app event bus.
 
 ## Daily Development
 
-After first-time setup, use `start.sh` for all development. Smart start
-is the default:
+After first-time setup, use `npm run dev` for development:
 
 ```bash
-# Smart start (~6s) -- auto-detects which plugins you changed
-./bin/start.sh
+# Start shell + base-svc + plugin-server (ports auto-selected)
+npm run dev
 
-# Start a specific plugin + shell (~6s)
-./bin/start.sh community
+# Stop: Ctrl+C in the terminal where dev is running
 
-# Start multiple plugins (~8s)
-./bin/start.sh gateway-manager community
-
-# Everything (~10s warm, ~25s cold)
-./bin/start.sh --all
-
-# Stop everything (~2s)
-./bin/stop.sh
+# Or stop orphaned processes by port
+npm run stop
 ```
 
-### How smart start works
+Console logs from all services appear in the terminal with prefixed output (`[shell]`, `[base-svc]`, `[plugin-server]`). Ports are allocated dynamically from conventional ranges (3000, 4000, 3100) when free; otherwise the next available port is used.
 
-1. Skips `prisma db push` (trusts existing DB state)
-2. Skips plugin CDN accessibility verification
-3. Compares source hashes of all plugins against last build
-4. Rebuilds only changed plugins (typically 0-1)
-5. Starts shell + marketplace + changed plugin backends
-
-If nothing has changed, it starts shell-only in ~6 seconds.
-
-### Add `--timing` to see where time goes
+### Status and Validation
 
 ```bash
-./bin/start.sh --all --timing
-# Output:
-#   Infrastructure    1s
-#   Plugin builds     0s   (all cached)
-#   Core services     3s
-#   Shell + backends  2s
-#   Verification      1s
-#   TOTAL             7s
+npm run status    # Show running services and health
+npm run validate  # Health-check all services
+npm run plugin:list  # List available plugins
 ```
 
 ### Working on a Plugin
 
+For full plugin development (frontend HMR + backend), use the legacy start script:
+
 ```bash
-# Option A: start shell + your plugin backend
-./bin/start.sh my-plugin
-
-# Option B: dev mode with HMR (frontend hot reload)
-./bin/start.sh dev my-plugin
-
-# Quick restart cycle
-./bin/stop.sh && ./bin/start.sh my-plugin
+./bin/legacy/start.sh.deprecated dev my-plugin
 ```
 
 ### Database Changes

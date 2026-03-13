@@ -3,13 +3,13 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "start": "./bin/start.sh --all",
-    "start:quick": "./bin/start.sh",
-    "dev": "./bin/start.sh",
+    "start": "npx tsx bin/dev-runner.ts",
+    "start:quick": "npx tsx bin/dev-runner.ts",
+    "dev": "npx tsx bin/dev-runner.ts",
     "stop": "./bin/stop.sh",
-    "restart": "./bin/start.sh restart",
-    "status": "./bin/start.sh status",
-    "validate": "./bin/start.sh validate",
+    "restart": "./bin/stop.sh && npx tsx bin/dev-runner.ts",
+    "status": "./bin/status.sh status",
+    "validate": "./bin/status.sh validate",
     "build": "nx run-many --target=build --all",
     "build:plugins": "./bin/build-plugins.sh",
     "ci-check": "./bin/pre-push-validate.sh",
@@ -25,9 +25,9 @@
     "db:reset": "./bin/db-reset.sh",
     "db:migrate": "./bin/db-migrate.sh",
     "db:cleanup-moved-plugins": "npx tsx bin/cleanup-moved-plugins.ts",
-    "infra:start": "./bin/start.sh --infra",
-    "plugin:list": "./bin/start.sh list",
-    "logs": "./bin/start.sh logs"
+    "infra:start": "docker compose up -d database",
+    "plugin:list": "./bin/status.sh list",
+    "logs": "./bin/status.sh logs"
   },
   "private": true,
   "dependencies": {
@@ -43,6 +43,8 @@
     "@rollup/rollup-darwin-arm64": "^4.59.0"
   },
   "devDependencies": {
+    "concurrently": "^9.1.2",
+    "get-port": "^6.1.2",
     "@nx/js": "22.5.3",
     "@nx/node": "22.5.3",
     "@nx/react": "22.5.3",
