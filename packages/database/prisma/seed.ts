@@ -26,6 +26,11 @@ async function seedBillingProviders() {
         authType: provider.authType,
         enabled: provider.enabled,
         sortOrder: provider.sortOrder,
+        oidcIssuer: provider.oidcIssuer ?? null,
+        oidcClientId: provider.oidcClientId ?? null,
+        oidcClientSecret: provider.oidcClientSecret ?? null,
+        oidcScopes: provider.oidcScopes ?? null,
+        oidcDiscoveryUrl: provider.oidcDiscoveryUrl ?? null,
       },
       create: provider,
     });
