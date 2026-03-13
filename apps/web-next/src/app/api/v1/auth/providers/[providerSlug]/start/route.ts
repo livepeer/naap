@@ -8,9 +8,9 @@ import * as crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
+import { resolveAppUrl } from '@/lib/api/resolve-app-url';
 import { prisma } from '@/lib/db';
 import {
-  BILLING_PROVIDERS,
   fetchDiscoveryDocument,
   generateCodeVerifier,
   generateCodeChallenge,
@@ -40,64 +40,8 @@ function checkRateLimit(key: string): boolean {
   return true;
 }
 
-function firstHeaderValue(value: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-  const first = value.split(',')[0]?.trim();
-  return first || null;
-}
-
-function resolveAppUrl(request: NextRequest): string {
-  const isProduction =
-    process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
-
-  if (isProduction) {
-    if (!process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN) {
-      throw new Error('BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN must be set in production');
-    }
-    return process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN;
-  }
-
-  if (process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN) {
-    return process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN;
-  }
-
-  const host = firstHeaderValue(request.headers.get('host'));
-  const forwardedHost = firstHeaderValue(request.headers.get('x-forwarded-host'));
-  const forwardedProto = firstHeaderValue(request.headers.get('x-forwarded-proto'));
-
-  const isLocalHost = (value: string): boolean =>
-    value.includes('localhost') ||
-    value.startsWith('127.') ||
-    value.startsWith('0.0.0.0') ||
-    value.startsWith('[::1]');
-
-  if (host) {
-    const useForwardedHost = isLocalHost(host) && !!forwardedHost;
-    const resolvedHost = useForwardedHost ? (forwardedHost as string) : host;
-
-    const protocol = isLocalHost(resolvedHost)
-      ? (forwardedProto || 'http')
-      : 'https';
-
-    return `${protocol}://${resolvedHost}`;
-  }
-
-  if (forwardedHost && isLocalHost(forwardedHost)) {
-    const protocol = forwardedProto || 'http';
-    return `${protocol}://${forwardedHost}`;
-  }
-
-  return 'http://localhost:3000';
-}
-
-function getProviderConfig(providerSlug: string) {
-  return BILLING_PROVIDERS.find((p) => p.slug === providerSlug);
-}
-
 async function buildOidcAuthorizeUrl(
-  providerConfig: (typeof BILLING_PROVIDERS)[number],
+  providerConfig: { oidcDiscoveryUrl?: string | null; oidcClientId?: string | null; oidcScopes?: string | null },
   callbackUrl: string,
   state: string,
   nonce: string,
@@ -153,7 +97,7 @@ export async function POST(
           );
     }
 
-    const providerConfig = getProviderConfig(providerSlug);
+    const providerConfig = await prisma.billingProvider.findUnique({ where: { slug: providerSlug } });
     if (!providerConfig || !providerConfig.enabled) {
       return errors.badRequest(`Unsupported or disabled billing provider: ${providerSlug}`);
     }
@@ -167,7 +111,7 @@ export async function POST(
     const naapUserId = authenticatedUser?.id ?? null;
 
     const loginSessionId = crypto.randomBytes(32).toString('hex');
-    const appUrl = resolveAppUrl(request);
+    const appUrl = resolveAppUrl(request, providerConfig.callbackOrigin);
     const callbackUrl = `${appUrl}/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/callback`;
     const state = crypto.randomBytes(16).toString('hex');
 

@@ -1,3 +1,7 @@
+// Callback origin: the public-facing NaaP base URL used in OAuth/OIDC redirect_uri values.
+// Update this when your NaaP app runs on a different origin (e.g. production).
+const DEFAULT_CALLBACK_ORIGIN = 'http://localhost:3000';
+
 export const BILLING_PROVIDERS = [
   {
     slug: 'daydream',
@@ -13,10 +17,11 @@ export const BILLING_PROVIDERS = [
     oidcClientSecret: process.env.DAYDREAM_OIDC_CLIENT_SECRET || undefined,
     oidcScopes: 'openid profile email plan entitlements',
     oidcDiscoveryUrl: process.env.DAYDREAM_OIDC_DISCOVERY_URL || 'http://localhost:3001/.well-known/openid-configuration',
+    callbackOrigin: DEFAULT_CALLBACK_ORIGIN,
   },
   {
     slug: 'pymthouse',
-    displayName: 'Pymthouse',
+    displayName: 'PymtHouse',
     description: 'Primary identity provider using OAuth 2.0 / OIDC',
     icon: 'Shield',
     authType: 'oidc',
@@ -29,7 +34,22 @@ export const BILLING_PROVIDERS = [
     oidcDiscoveryUrl:
       process.env.PYMTHOUSE_OIDC_DISCOVERY_URL ||
       'http://localhost:3001/.well-known/openid-configuration',
+    callbackOrigin: DEFAULT_CALLBACK_ORIGIN,
   },
-] as const;
+];
 
-export type BillingProviderConfig = (typeof BILLING_PROVIDERS)[number];
+export type BillingProviderConfig = {
+  slug: string;
+  displayName: string;
+  description: string;
+  icon: string;
+  authType: string;
+  enabled: boolean;
+  sortOrder: number;
+  oidcIssuer: string;
+  oidcClientId: string;
+  oidcClientSecret: string | undefined;
+  oidcScopes: string;
+  oidcDiscoveryUrl: string;
+  callbackOrigin: string | null;
+};

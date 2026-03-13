@@ -31,6 +31,7 @@ async function seedBillingProviders() {
         oidcClientSecret: provider.oidcClientSecret ?? null,
         oidcScopes: provider.oidcScopes ?? null,
         oidcDiscoveryUrl: provider.oidcDiscoveryUrl ?? null,
+        callbackOrigin: provider.callbackOrigin ?? null,
       },
       create: provider,
     });

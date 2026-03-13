@@ -182,6 +182,13 @@ model BillingProvider {
   oidcScopes       String? @default("openid profile email plan")
   oidcDiscoveryUrl String? // e.g., "https://pymthouse.example/.well-known/openid-configuration"
 
+  // OAuth callback origin: the public-facing base URL of this NaaP instance that
+  // the provider redirects back to (e.g. "https://naap.example.com").
+  // When null the server falls back to BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN or
+  // request-header detection. Set per-provider when different providers should
+  // redirect to different NaaP origins.
+  callbackOrigin   String?
+
   devApiKeys DevApiKey[]
 
   @@index([enabled])

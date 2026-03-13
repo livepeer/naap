@@ -744,13 +744,22 @@ export const DeveloperView: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <select value={selectedBillingProviderId}
-                  onChange={(e) => setSelectedBillingProviderId(e.target.value)} className={selectClassName}>
-                  <option value="">Select a billing provider...</option>
+                <div className="flex flex-wrap gap-2 justify-center">
                   {billingProviders.map(bp => (
-                    <option key={bp.id} value={bp.id}>{bp.displayName}</option>
+                    <button
+                      key={bp.id}
+                      type="button"
+                      onClick={() => setSelectedBillingProviderId(bp.id)}
+                      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all border ${
+                        selectedBillingProviderId === bp.id
+                          ? 'bg-emerald-500/10 text-text-primary border-emerald-400/60'
+                          : 'bg-bg-tertiary text-text-secondary hover:text-text-primary hover:bg-white/10 border-white/10'
+                      }`}
+                    >
+                      {bp.displayName}
+                    </button>
                   ))}
-                </select>
+                </div>
               )}
             </div>
             {createError && (

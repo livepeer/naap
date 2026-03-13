@@ -5,11 +5,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { resolveAppUrl } from '@/lib/api/resolve-app-url';
 import { prisma } from '@/lib/db';
 import {
   encryptToken,
   decryptToken,
-  BILLING_PROVIDERS,
   fetchDiscoveryDocument,
   exchangeCodeForTokens,
   validateIdToken,
@@ -27,9 +27,6 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-function getProviderConfig(providerSlug: string) {
-  return BILLING_PROVIDERS.find((p) => p.slug === providerSlug);
-}
 
 async function exchangeTokenForApiKey(providerSlug: string, token: string): Promise<string> {
   if (providerSlug !== 'daydream') {
@@ -72,7 +69,7 @@ async function exchangeTokenForApiKey(providerSlug: string, token: string): Prom
 }
 
 async function handleOidcCallback(
-  providerConfig: (typeof BILLING_PROVIDERS)[number],
+  providerConfig: { oidcDiscoveryUrl?: string | null; oidcClientId?: string | null; oidcClientSecret?: string | null },
   code: string,
   redirectUri: string,
   session: {
@@ -200,12 +197,13 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
     );
   }
 
-  const providerConfig = getProviderConfig(providerSlug);
+  const providerConfig = await prisma.billingProvider.findUnique({ where: { slug: providerSlug } });
 
   try {
     if (providerConfig?.authType === 'oidc' && code) {
       // OIDC flow: exchange code for tokens and validate id_token
-      const redirectUri = `${request.nextUrl.origin}/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/callback`;
+      const appUrl = resolveAppUrl(request, providerConfig.callbackOrigin);
+      const redirectUri = `${appUrl}/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/callback`;
 
       const { accessToken, idTokenClaims } = await handleOidcCallback(
         providerConfig,
