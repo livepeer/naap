@@ -118,6 +118,7 @@ const authRoutes = [
   '/reset-password',
 ];
 
+
 // Routes that should skip middleware entirely
 const publicRoutes = [
   '/api',
@@ -209,10 +210,14 @@ export function middleware(request: NextRequest) {
   }
 
   // Redirect authenticated users away from auth pages (login/register)
+  // The logout endpoint handles cookie clearing; middleware just needs to allow access
+  // when there's no valid cookie (after logout clears it)
   if (authRoutes.some(route => pathname === route || pathname.startsWith(`${route}/`))) {
     if (token) {
+      // User has a cookie - redirect to dashboard (they should use logout first)
       return NextResponse.redirect(new URL('/dashboard', request.url));
     }
+    // No cookie - allow access to login/register pages
   }
 
   const response = NextResponse.next();
