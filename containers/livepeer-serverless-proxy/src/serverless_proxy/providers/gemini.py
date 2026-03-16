@@ -85,6 +85,8 @@ class GeminiProvider(InferenceProvider):
         gen_config = {"responseModalities": ["TEXT", "IMAGE"]}
         if "aspect_ratio" in request_body:
             gen_config["imageConfig"] = {"aspectRatio": request_body["aspect_ratio"]}
+        if "max_output_tokens" in request_body:
+            gen_config["maxOutputTokens"] = int(request_body["max_output_tokens"])
 
         payload = {
             "contents": [{"parts": parts}],
