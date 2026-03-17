@@ -237,7 +237,7 @@ The `plugin.json` file defines your plugin's configuration:
   
   "permissions": {
     "shell": ["navigation", "notifications"],
-    "apis": ["gateway-manager"]
+    "apis": ["community"]
   }
 }
 ```

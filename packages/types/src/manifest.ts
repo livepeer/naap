@@ -89,7 +89,7 @@ export type ShellContext = LegacyWorkflowContext;
  */
 export interface WorkflowManifest {
   /**
-   * Unique name of the workflow (e.g., 'gateway-manager')
+   * Unique name of the workflow (e.g., 'community')
    */
   name: string;
   

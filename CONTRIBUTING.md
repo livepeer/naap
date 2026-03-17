@@ -188,7 +188,7 @@ Setup runs automatically on first start. Use `start.sh` for all daily developmen
 ```bash
 ./bin/start.sh                            # Smart start (~6s): auto-detects changed plugins
 ./bin/start.sh community                  # Shell + one plugin (~6s)
-./bin/start.sh gateway-manager community  # Shell + two plugins (~8s)
+./bin/start.sh capacity-planner community  # Shell + two plugins (~8s)
 ./bin/start.sh --all                      # Everything (~10s warm, ~25s cold)
 ./bin/stop.sh                             # Parallel stop (~2s)
 ```

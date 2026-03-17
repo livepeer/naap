@@ -132,7 +132,7 @@ interface RequireRoleProps {
  *   <AdminPanel />
  * </RequireRole>
  * 
- * <RequireRole roles={['system:admin', 'gateway-manager:admin']}>
+ * <RequireRole roles={['system:admin', 'community:admin']}>
  *   <DeleteButton />
  * </RequireRole>
  * 

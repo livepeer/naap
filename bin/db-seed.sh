@@ -64,7 +64,7 @@ if [ -z "$SERVICE" ]; then
   # Run seeds for all services
   log_info "Seeding all databases..."
   
-  services=("base-svc" "gateway-manager-svc" "orchestrator-manager-svc" "capacity-planner-svc" "network-analytics-svc" "marketplace-svc" "community-svc")
+  services=("base-svc" "capacity-planner-svc" "marketplace-svc" "community-svc")
   
   for service in "${services[@]}"; do
     run_seed "$service" || true

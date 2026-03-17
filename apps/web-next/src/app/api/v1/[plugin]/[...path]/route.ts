@@ -17,10 +17,7 @@ import { PLUGIN_PORTS, DEFAULT_PORT } from '@/lib/plugin-ports';
 
 /** Mapping from plugin kebab-name to its env-var override key. */
 const PLUGIN_ENV_MAP: Record<string, string> = {
-  'gateway-manager': 'GATEWAY_MANAGER_URL',
-  'orchestrator-manager': 'ORCHESTRATOR_MANAGER_URL',
   'capacity-planner': 'CAPACITY_PLANNER_URL',
-  'network-analytics': 'NETWORK_ANALYTICS_URL',
   'marketplace': 'MARKETPLACE_URL',
   'community': 'COMMUNITY_URL',
   'my-wallet': 'WALLET_URL',
@@ -32,10 +29,7 @@ const PLUGIN_ENV_MAP: Record<string, string> = {
 
 /** Short aliases so both `/api/v1/wallet/...` and `/api/v1/my-wallet/...` resolve. */
 const SHORT_ALIASES: Record<string, string> = {
-  'gateway': 'gateway-manager',
-  'orchestrator': 'orchestrator-manager',
   'capacity': 'capacity-planner',
-  'analytics': 'network-analytics',
   'wallet': 'my-wallet',
   'dashboard': 'my-dashboard',
   'daydream': 'daydream-video',

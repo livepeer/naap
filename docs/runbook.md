@@ -19,7 +19,7 @@
 ./bin/start.sh --all                     # Everything
 ./bin/start.sh                           # Shell + core only
 ./bin/start.sh dev daydream-video        # Dev mode for one plugin
-./bin/start.sh gateway-manager           # Start specific plugin
+./bin/start.sh community                 # Start specific plugin
 ```
 
 ### Stopping the Platform
@@ -76,15 +76,14 @@ docker volume rm naap-db-data    # Delete database data
 | Shell (Next.js) | 3000 | http://localhost:3000 |
 | Base Service | 4000 | http://localhost:4000/healthz |
 | Plugin Server | 3100 | http://localhost:3100/healthz |
-| Gateway Manager | 4001 | http://localhost:4001/healthz |
-| Orchestrator Manager | 4002 | http://localhost:4002/healthz |
 | Capacity Planner | 4003 | http://localhost:4003/healthz |
-| Network Analytics | 4004 | http://localhost:4004/healthz |
 | Marketplace | 4005 | http://localhost:4005/healthz |
 | Community | 4006 | http://localhost:4006/healthz |
-| Wallet | 4007 | http://localhost:4007/healthz |
-| Dashboard | 4008 | http://localhost:4008/healthz |
-| Daydream Video | 4010 | http://localhost:4010/healthz |
+| Developer API | 4007 | http://localhost:4007/healthz |
+| Wallet | 4008 | http://localhost:4008/healthz |
+| Dashboard | 4009 | http://localhost:4009/healthz |
+| Plugin Publisher | 4010 | http://localhost:4010/healthz |
+| Daydream Video | 4111 | http://localhost:4111/healthz |
 
 ## Production Architecture
 
@@ -143,6 +142,6 @@ docker compose -f docker-compose.production.yml logs -f base-svc
 All APIs follow: `/api/v1/{plugin}/{resource}`
 
 Examples:
-- `GET /api/v1/gateway-manager/gateways`
+- `GET /api/v1/capacity-planner/requests`
 - `GET /api/v1/community/posts`
 - `POST /api/v1/marketplace/packages`

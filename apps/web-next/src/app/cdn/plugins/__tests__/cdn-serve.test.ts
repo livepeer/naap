@@ -91,8 +91,8 @@ describe('CDN Serve Route — Security', () => {
 
 describe('CDN Serve Route — pluginName and version validation', () => {
   it('accepts valid plugin names (camelCase, kebab-case, alphanumeric)', () => {
-    expect(isValidPluginName('gatewayManager')).toBe(true);
-    expect(isValidPluginName('gateway-manager')).toBe(true);
+    expect(isValidPluginName('capacityPlanner')).toBe(true);
+    expect(isValidPluginName('capacity-planner')).toBe(true);
     expect(isValidPluginName('marketplace')).toBe(true);
     expect(isValidPluginName('plugin123')).toBe(true);
   });
@@ -122,10 +122,7 @@ describe('CDN Serve Route — pluginName and version validation', () => {
 describe('CDN Serve Route — toKebabCase conversion (replaces PLUGIN_DIR_MAP)', () => {
   // Verify every entry from the old PLUGIN_DIR_MAP produces identical results
   const OLD_MAP: Record<string, string> = {
-    gatewayManager: 'gateway-manager',
-    orchestratorManager: 'orchestrator-manager',
     capacityPlanner: 'capacity-planner',
-    networkAnalytics: 'network-analytics',
     marketplace: 'marketplace',
     community: 'community',
     developerApi: 'developer-api',

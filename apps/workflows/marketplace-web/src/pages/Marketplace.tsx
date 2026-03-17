@@ -156,10 +156,7 @@ export const MarketplacePage: React.FC = () => {
 
   const getIcon = (pkg: PluginPackage) => {
     const icons: Record<string, string> = {
-      'gateway-manager': '🌐',
-      'orchestrator-manager': '🎭',
       'capacity-planner': '📊',
-      'network-analytics': '📈',
       'marketplace': '🛒',
       'community': '👥',
       'developer-api': '💻',
@@ -459,12 +456,9 @@ export const MarketplacePage: React.FC = () => {
 // Mock data fallback
 function getMockPackages(): PluginPackage[] {
   return [
-    { id: '1', name: 'gateway-manager', displayName: 'Gateway Manager', description: 'Manage and monitor your AI gateway infrastructure', category: 'monitoring', author: 'NAAP Team', downloads: 1250, rating: 4.8, keywords: ['gateway', 'monitoring', 'infrastructure'] },
-    { id: '2', name: 'orchestrator-manager', displayName: 'Orchestrator Manager', description: 'Configure and orchestrate AI pipeline workflows', category: 'tool', author: 'NAAP Team', downloads: 980, rating: 4.6, keywords: ['orchestrator', 'workflow', 'pipelines'] },
-    { id: '3', name: 'capacity-planner', displayName: 'Capacity Planner', description: 'Plan and optimize resource capacity across your network', category: 'analytics', author: 'NAAP Team', downloads: 850, rating: 4.5, keywords: ['capacity', 'planning', 'resources'] },
-    { id: '4', name: 'network-analytics', displayName: 'Network Analytics', description: 'Deep analytics and insights for your network performance', category: 'analytics', author: 'NAAP Team', downloads: 1100, rating: 4.7, keywords: ['analytics', 'network', 'performance'] },
-    { id: '5', name: 'community', displayName: 'Community Hub', description: 'Connect with other operators and share knowledge', category: 'other', author: 'NAAP Team', downloads: 720, rating: 4.4, keywords: ['community', 'social', 'collaboration'] },
-    { id: '6', name: 'developer-api', displayName: 'Developer API Manager', description: 'Manage API keys, usage, and developer access', category: 'tool', author: 'NAAP Team', downloads: 650, rating: 4.3, keywords: ['api', 'developer', 'keys'] },
+    { id: '1', name: 'capacity-planner', displayName: 'Capacity Planner', description: 'Plan and optimize resource capacity across your network', category: 'analytics', author: 'NAAP Team', downloads: 850, rating: 4.5, keywords: ['capacity', 'planning', 'resources'] },
+    { id: '2', name: 'community', displayName: 'Community Hub', description: 'Connect with other operators and share knowledge', category: 'other', author: 'NAAP Team', downloads: 720, rating: 4.4, keywords: ['community', 'social', 'collaboration'] },
+    { id: '3', name: 'developer-api', displayName: 'Developer API Manager', description: 'Manage API keys, usage, and developer access', category: 'tool', author: 'NAAP Team', downloads: 650, rating: 4.3, keywords: ['api', 'developer', 'keys'] },
   ];
 }
 

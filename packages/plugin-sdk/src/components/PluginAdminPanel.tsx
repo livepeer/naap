@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { usePluginAdmin, type PluginUser } from '../hooks/usePluginAdmin';
 
 interface PluginAdminPanelProps {
-  /** Plugin name (e.g., 'gateway-manager') */
+  /** Plugin name (e.g., 'community') */
   pluginName: string;
   /** Optional title override */
   title?: string;
@@ -25,7 +25,7 @@ interface PluginAdminPanelProps {
  * import { PluginAdminPanel } from '@naap/plugin-sdk';
  * 
  * function GatewaySettings() {
- *   return <PluginAdminPanel pluginName="gateway-manager" />;
+ *   return <PluginAdminPanel pluginName="community" />;
  * }
  * ```
  */

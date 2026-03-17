@@ -376,7 +376,7 @@ describe('Deployment Type Detection', () => {
   it('should identify CDN plugin URLs by path pattern', () => {
     const cdnPathUrls = [
       'http://localhost:3000/cdn/plugins/my-wallet/1.0.0/my-wallet.js',
-      'http://localhost:3000/cdn/plugins/gateway-manager/1.0.0/gateway-manager.js',
+      'http://localhost:3000/cdn/plugins/community/1.0.0/community.js',
     ];
     
     cdnPathUrls.forEach((url) => {

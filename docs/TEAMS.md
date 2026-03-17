@@ -21,14 +21,11 @@ Owns the shell, SDK, shared packages, and infrastructure.
 
 ## Plugin Team A (3-4 engineers)
 
-Owns infrastructure and network monitoring plugins.
+Owns infrastructure monitoring plugins.
 
 | Plugin | Path | Description |
 |--------|------|-------------|
-| Gateway Manager | `plugins/gateway-manager/` | Gateway configuration |
-| Orchestrator Manager | `plugins/orchestrator-manager/` | Orchestrator management |
 | Capacity Planner | `plugins/capacity-planner/` | Capacity planning |
-| Network Analytics | `plugins/network-analytics/` | Network monitoring |
 
 ## Plugin Team B (3-4 engineers)
 

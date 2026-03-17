@@ -1,11 +1,15 @@
 /**
  * Port Allocator Service
- * 
+ *
  * Manages dynamic allocation and release of ports for plugin backends.
  * Prevents port conflicts and enables scalable deployment.
+ *
+ * Reserved ports are derived from environment variables (with canonical
+ * fallback defaults) via the pluginPorts config module.
  */
 
 import { db } from '../db/client';
+import { getReservedPortsFromEnv } from '../config/pluginPorts';
 
 export interface PortAllocation {
   port: number;
@@ -22,20 +26,13 @@ export interface PortAllocatorOptions {
 const DEFAULT_MIN_PORT = 4100;
 const DEFAULT_MAX_PORT = 4999;
 
-// Well-known ports that should not be allocated
-const RESERVED_PORTS = [
-  4000, // base-svc
-  4001, // gateway-manager
-  4002, // marketplace
-  4003, // orchestrator-manager
-  4004, // network-analytics
-  4005, // capacity-planner
-  4006, // developer-api
-  4007, // community
-  4008, // my-wallet
-  4009, // my-dashboard
-  4010, // plugin-publisher
-];
+/**
+ * Get reserved ports dynamically from env + canonical defaults.
+ * Re-exported for use in tests and other modules.
+ */
+export function getReservedPorts(): number[] {
+  return getReservedPortsFromEnv();
+}
 
 // In-memory tracking of allocated ports
 const allocatedPorts = new Map<string, number>();
@@ -77,7 +74,7 @@ export async function allocatePort(
   const {
     minPort = DEFAULT_MIN_PORT,
     maxPort = DEFAULT_MAX_PORT,
-    reservedPorts = RESERVED_PORTS,
+    reservedPorts = getReservedPorts(),
   } = options;
 
   // Check if plugin already has a port allocated
@@ -141,10 +138,10 @@ export function getAllAllocations(): PortAllocation[] {
 }
 
 /**
- * Check if a specific port is allocated
+ * Check if a specific port is allocated or reserved
  */
 export function isPortAllocated(port: number): boolean {
-  return portToPlugin.has(port) || RESERVED_PORTS.includes(port);
+  return portToPlugin.has(port) || getReservedPorts().includes(port);
 }
 
 /**
@@ -154,7 +151,7 @@ export async function reservePort(
   pluginName: string,
   port: number
 ): Promise<boolean> {
-  if (RESERVED_PORTS.includes(port)) {
+  if (getReservedPorts().includes(port)) {
     return false;
   }
 

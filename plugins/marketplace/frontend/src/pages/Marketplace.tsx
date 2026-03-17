@@ -687,10 +687,7 @@ export const MarketplacePage: React.FC = () => {
   const getIcon = (pkg: PluginPackage) => {
     // Map plugin names (camelCase) to meaningful emoji icons
     const icons: Record<string, string> = {
-      'gatewayManager': '🌐',
-      'orchestratorManager': '🎛️',
       'capacityPlanner': '📊',
-      'networkAnalytics': '📈',
       'marketplace': '🛒',
       'community': '👥',
       'developerApi': '🔧',
@@ -929,10 +926,7 @@ export const MarketplacePage: React.FC = () => {
 
 function getMockPackages(): PluginPackage[] {
   return [
-    { id: '1', name: 'gatewayManager', displayName: 'Gateway Manager', description: 'Manage and monitor your AI gateway infrastructure', category: 'monitoring', author: 'NAAP Team', downloads: 1250, rating: 4.8, keywords: ['gateway', 'monitoring'] },
-    { id: '2', name: 'orchestratorManager', displayName: 'Orchestrator Manager', description: 'Configure and orchestrate AI pipeline workflows', category: 'monitoring', author: 'NAAP Team', downloads: 980, rating: 4.6, keywords: ['orchestrator', 'workflow'] },
-    { id: '3', name: 'capacityPlanner', displayName: 'Capacity Planner', description: 'Plan and optimize resource capacity', category: 'monitoring', author: 'NAAP Team', downloads: 850, rating: 4.5, keywords: ['capacity', 'planning'] },
-    { id: '4', name: 'networkAnalytics', displayName: 'Network Analytics', description: 'Analytics and insights for network performance', category: 'analytics', author: 'NAAP Team', downloads: 1100, rating: 4.7, keywords: ['analytics', 'network'] },
+    { id: '1', name: 'capacityPlanner', displayName: 'Capacity Planner', description: 'Plan and optimize resource capacity', category: 'monitoring', author: 'NAAP Team', downloads: 850, rating: 4.5, keywords: ['capacity', 'planning'] },
     { id: '5', name: 'community', displayName: 'Community Hub', description: 'Connect with other operators', category: 'social', author: 'NAAP Team', downloads: 720, rating: 4.4, keywords: ['community', 'social'] },
     { id: '6', name: 'developerApi', displayName: 'Developer API Manager', description: 'Manage API keys and developer access', category: 'developer', author: 'NAAP Team', downloads: 650, rating: 4.3, keywords: ['api', 'developer'] },
     { id: '7', name: 'myWallet', displayName: 'My Wallet', description: 'MetaMask wallet integration for staking and Web3 transactions', category: 'finance', author: 'NAAP Team', downloads: 300, rating: 4.5, keywords: ['wallet', 'metamask', 'staking'] },

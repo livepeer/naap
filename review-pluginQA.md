@@ -137,7 +137,7 @@
 | SDK unit tests | 242 | ✅ All passing |
 | BDD lifecycle tests | 19 | ✅ All passing |
 | CDN serve tests | 19 | ✅ All passing |
-| Plugin builds verified | 6/14 | ✅ hello-world, marketplace, community, plugin-publisher, capacity-planner, gateway-manager |
+| Plugin builds verified | 4/8 | ✅ marketplace, community, plugin-publisher, capacity-planner |
 | Regression guard | 8/8 | ✅ No regressions |
 
 **Baseline (main):** 218 SDK + 19 BDD = 237 tests

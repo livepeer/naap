@@ -50,7 +50,6 @@ Expected output:
  plugin_dashboard      | postgres
  plugin_daydream       | postgres
  plugin_developer_api  | postgres
- plugin_gateway        | postgres
  plugin_wallet         | postgres
  public                | postgres
 ```
@@ -81,7 +80,6 @@ datasource db {
     "plugin_wallet",
     "plugin_dashboard",
     "plugin_daydream",
-    "plugin_gateway",
     "plugin_capacity",
     "plugin_developer_api",
     "plugin_analytics"          // ← Add here
@@ -97,7 +95,6 @@ PLUGIN_SCHEMAS=(
   plugin_wallet
   plugin_dashboard
   plugin_daydream
-  plugin_gateway
   plugin_capacity
   plugin_developer_api
   plugin_analytics               # ← Add here
@@ -295,7 +292,6 @@ To prevent collisions across plugins, prefix every model:
 | community | `Community` | `CommunityPost`, `CommunityComment` |
 | my-wallet | `Wallet` | `WalletConnection`, `WalletTransactionLog` |
 | daydream-video | `Daydream` | `DaydreamSession`, `DaydreamSettings` |
-| gateway-manager | `Gateway` | `Gateway`, `GatewayOrchestratorConnection` |
 | capacity-planner | `Capacity` | `CapacityRequest`, `CapacitySoftCommit` |
 | developer-api | `DevApi` | `DevApiKey`, `DevApiAIModel` |
 | dashboard | `Dashboard` | `Dashboard`, `DashboardUserPreference` |
