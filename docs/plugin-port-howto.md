@@ -98,7 +98,7 @@ NaaP uses a **hybrid deployment model** (defined in `apps/web-next/src/lib/env.t
 
 Plugin APIs are implemented as **Next.js API route handlers** under `apps/web-next/src/app/api/v1/`. Each deploys as a Vercel Serverless Function — no ports, no Express servers.
 
-```
+```text
 Browser
   → https://your-app.vercel.app/api/v1/wallet/portfolio
   → Next.js route handler (apps/web-next/src/app/api/v1/wallet/portfolio/route.ts)
@@ -135,7 +135,7 @@ Short aliases also work (e.g., `/api/v1/wallet/...` resolves to `my-wallet`).
 
 When running on Vercel (`VERCEL === '1'`), if a request reaches the catch-all and the resolved URL is still `localhost`, it **returns 501** instead of attempting the proxy:
 
-```
+```text
 501 Not Implemented
 "Endpoint /api/v1/{plugin}/{path} is not yet available in this environment.
  A dedicated Next.js route handler is needed."

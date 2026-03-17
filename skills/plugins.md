@@ -22,7 +22,7 @@ Do **not** use this skill for changes to the shell app itself (`apps/web-next` l
 
 NaaP plugins are **UMD micro-frontends** loaded at runtime by the shell.
 
-```
+```text
 Shell (apps/web-next)
  ├── Sidebar reads plugin metadata from DB
  ├── PluginLoader fetches UMD bundle from CDN route
@@ -47,7 +47,7 @@ The **plugin folder** (`plugins/{name}/`) is self-contained. Three categories of
 
 Every plugin must have this minimum file tree:
 
-```
+```text
 plugins/{name}/
 ├── plugin.json                          # Manifest (required)
 ├── frontend/
@@ -824,7 +824,7 @@ Before starting local dev, ensure:
 
 ### 10.3 How Plugin Loading Works Locally
 
-```
+```text
 Browser → http://localhost:3000/{prefix}
   → middleware rewrites to /plugins/{camelCaseName}
   → PluginLoader fetches /cdn/plugins/{name}/1.0.0/{name}.js
@@ -838,7 +838,7 @@ The CDN route at `apps/web-next/src/app/cdn/plugins/[pluginName]/[version]/[...f
 
 Plugin frontends call `/api/v1/{plugin-name}/*` on the shell origin. The catch-all route at `apps/web-next/src/app/api/v1/[plugin]/[...path]/route.ts` proxies these requests to the plugin backend:
 
-```
+```text
 Frontend fetch('/api/v1/my-plugin/items')
   → Next.js catch-all route
   → Reads PLUGIN_PORTS config for 'myPlugin'
@@ -918,7 +918,7 @@ CI caches `dist/plugins/` by content hash. When the cache hits, steps 1-2 are sk
 
 On Vercel, the catch-all proxy route (`/api/v1/[plugin]/[...path]`) returns **501 Not Implemented** for any plugin whose URL resolves to `localhost`. Every plugin endpoint that must work in production **must** have a dedicated Next.js API route handler in `apps/web-next/src/app/api/v1/{plugin-name}/`.
 
-```
+```text
                     ┌─────────────────────────┐
                     │     Plugin Backend       │
                     │  (Express, standalone)   │
@@ -981,7 +981,7 @@ Plugin UMD bundles are served from `apps/web-next/public/cdn/plugins/` as static
 
 The URL pattern is identical across environments:
 
-```
+```text
 /cdn/plugins/{name}/1.0.0/{name}.js
 /cdn/plugins/{name}/1.0.0/{name}.css
 ```
@@ -1110,14 +1110,14 @@ To fully remove a plugin:
 
 ## Appendix A: Port Allocation
 
-Check `packages/plugin-sdk/src/config/ports.ts` for the authoritative backend port map. Frontend dev ports are defined in individual `plugin.json` files.
+The file `packages/plugin-sdk/src/config/ports.ts` contains the authoritative **backend port map**. Individual `plugin.json` files are the source of truth for **frontend dev ports** and may also contain plugin-specific backend devPort overrides.
 
 General ranges:
-- Frontend dev ports: `3001`-`3199` (check existing `plugin.json` files for used ports)
+- Frontend dev ports: `3001`-`3199` (check existing `plugin.json` files for collisions)
 - Backend dev ports: `4000`-`4199` (core services at `4000-4099`, extended plugins at `4100-4199`)
 - Backend production ports: `4100`-`4299`
 
-Always check both `packages/plugin-sdk/src/config/ports.ts` and existing `plugin.json` files before picking a port.
+Always check both `packages/plugin-sdk/src/config/ports.ts` and all existing `plugin.json` files before picking a new port.
 
 ## Appendix B: Naming Conventions
 
