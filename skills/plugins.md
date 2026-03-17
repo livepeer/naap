@@ -149,11 +149,18 @@ plugins/{name}/
     "defaultRole": "{kebab-name}:user"
   },
 
+  "isolation": "none",
+
   "config": {
     "schema": {}
   }
 }
 ```
+
+**Isolation modes** control plugin sandboxing:
+- `"none"` (default) — plugin runs in the same context as the shell. Use for trusted, first-party plugins.
+- `"iframe"` — plugin runs in a sandboxed iframe with `postMessage` communication. Use for untrusted or marketplace plugins.
+- `"worker"` — plugin runs in a Web Worker (future, maximum isolation).
 
 **Rules for plugin.json:**
 
@@ -162,7 +169,7 @@ plugins/{name}/
 - `icon` must be a valid [Lucide](https://lucide.dev/icons/) icon name (PascalCase).
 - `shell.minVersion` / `maxVersion` declare shell compatibility range.
 - `frontend.routes` must follow the pattern `["/{prefix}", "/{prefix}/*"]`.
-- `frontend.devPort` and `backend.devPort` must not collide with existing plugins. Check `packages/plugin-sdk/src/config/ports.ts` and existing `plugin.json` files for reserved ports.
+- `frontend.devPort` and `backend.devPort` must not collide with existing plugins. Scan all existing `plugin.json` files as the primary source of truth for reserved ports. Optionally check `packages/plugin-sdk/src/config/ports.ts` for legacy entries (this file is incomplete and may not cover newer plugins).
 - RBAC roles follow `{plugin-name}:{role}` convention. RBAC is recommended but optional (some core plugins like `community` omit it).
 - `database.schema` uses `plugin_{snake_case_name}` and declares the PostgreSQL schema for Prisma models.
 - `config.schema` defines plugin-specific settings (e.g., default rate limits, timeouts). Leave as `{}` if not needed.

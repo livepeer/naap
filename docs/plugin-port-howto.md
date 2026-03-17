@@ -10,7 +10,7 @@ Each plugin declares its own ports in its **`plugin.json`** file with three port
 | `backend.devPort` | Backend dev server | 4001–4117 |
 | `backend.port` | Production backend | 4101–4217 |
 
-There is **no automatic port allocator** — developers manually pick a unique port number when creating a plugin and must check existing `plugin.json` files and `packages/plugin-sdk/src/config/ports.ts` to avoid collisions.
+There is **no automatic port allocator** — developers manually pick a unique port number when creating a plugin and must check existing `plugin.json` files to avoid collisions. The file `packages/plugin-sdk/src/config/ports.ts` contains a legacy/partial registry; scan all `plugin.json` files first as the primary source of truth, then optionally check `ports.ts` for legacy entries.
 
 ## How `bin/start.sh` Uses Them
 
@@ -33,11 +33,13 @@ npx vite --port "$fport" --strictPort
 
 ## Port Resolution Order in Backend Code
 
-Each plugin's backend server resolves its port in this priority:
+Most plugin backends (capacity-planner, community, developer-api, lightning-client, marketplace, plugin-publisher) resolve their port in this priority:
 
 1. **`process.env.PORT`** — set by `bin/start.sh` at launch time
 2. **`plugin.json`** — reads `backend.devPort` as fallback
 3. **Hardcoded default** — last resort (e.g., `4010`, `4112`)
+
+**Exceptions:** `deployment-manager` and `service-gateway` skip `plugin.json` and resolve directly from `process.env.PORT` to their hardcoded defaults.
 
 ## Override Points
 
@@ -55,10 +57,10 @@ For **plugin backends**, you can override by setting `PORT` before launch, but i
 
 | Plugin | Frontend devPort | Backend devPort | Backend port (prod) |
 |--------|------------------|-----------------|---------------------|
-| gateway-manager | 3001 | 4001 | 4101 |
-| orchestrator-manager | 3002 | 4002 | 4102 |
+| gateway-manager *(deprecated)* | 3001 | 4001 | 4101 |
+| orchestrator-manager *(deprecated)* | 3002 | 4002 | 4102 |
 | capacity-planner | 3003 | 4003 | 4103 |
-| network-analytics | 3004 | 4004 | 4104 |
+| network-analytics *(deprecated)* | 3004 | 4004 | 4104 |
 | marketplace | 3005 | 4005 | 4105 |
 | community | 3006 | 4006 | 4106 |
 | developer-api | 3007 | 4007 | 4107 |
@@ -70,9 +72,11 @@ For **plugin backends**, you can override by setting `PORT` before launch, but i
 | service-gateway | 3116 | 4116 | 4216 |
 | deployment-manager | 3117 | 4117 | 4217 |
 | dashboard-data-provider | 3020 | — | — |
-| hello-world | 3020 | — | — |
-| todo-list | 3021 | 4021 | 4021 |
+| hello-world *(deprecated)* | 3020 | — | — |
+| todo-list *(deprecated)* | 3021 | 4021 | 4021 |
 | intelligent-dashboard | 3025 | — | — |
+
+> **Known conflict:** `dashboard-data-provider` and `hello-world` both declare `devPort: 3020`. This is a legacy collision — `hello-world` is a deprecated example plugin and will be removed. There is no runtime collision detection; if two plugins with the same port run simultaneously, one will fail to bind.
 
 ## Vercel Production — Ports Don't Exist
 
@@ -113,10 +117,10 @@ The env-var override map:
 
 | Plugin | Env Var |
 |--------|---------|
-| gateway-manager | `GATEWAY_MANAGER_URL` |
-| orchestrator-manager | `ORCHESTRATOR_MANAGER_URL` |
+| gateway-manager *(deprecated)* | `GATEWAY_MANAGER_URL` |
+| orchestrator-manager *(deprecated)* | `ORCHESTRATOR_MANAGER_URL` |
 | capacity-planner | `CAPACITY_PLANNER_URL` |
-| network-analytics | `NETWORK_ANALYTICS_URL` |
+| network-analytics *(deprecated)* | `NETWORK_ANALYTICS_URL` |
 | marketplace | `MARKETPLACE_URL` |
 | community | `COMMUNITY_URL` |
 | my-wallet | `WALLET_URL` |
@@ -185,6 +189,6 @@ Each API route category has its own Serverless Function config:
 
 ## Notable Gaps
 
-- **`ports.ts` is incomplete** — it only covers ~11 plugins; newer ones like `service-gateway`, `lightning-client`, and `deployment-manager` are missing from the SDK's port registry.
+- **`ports.ts` is legacy/optional** — `packages/plugin-sdk/src/config/ports.ts` only covers ~11 plugins and is not the source of truth. Scan all `plugin.json` files for the authoritative port matrix. Newer plugins like `service-gateway`, `lightning-client`, and `deployment-manager` are missing from `ports.ts`.
 - **No collision detection** — if two plugins declare the same port, you'll get a bind error at runtime.
 - **No per-plugin `start.sh`** — individual plugins don't have their own start scripts; everything goes through the central `bin/start.sh`.
