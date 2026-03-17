@@ -74,6 +74,115 @@ For **plugin backends**, you can override by setting `PORT` before launch, but i
 | todo-list | 3021 | 4021 | 4021 |
 | intelligent-dashboard | 3025 | — | — |
 
+## Vercel Production — Ports Don't Exist
+
+On Vercel, **plugin backends do not run as separate servers**. There are no listening ports. The architecture is fundamentally different from local dev.
+
+### How It Works
+
+NaaP uses a **hybrid deployment model** (defined in `apps/web-next/src/lib/env.ts`):
+
+| Component | Runs on Vercel | Runs off-Vercel |
+|-----------|---------------|-----------------|
+| Next.js shell + plugin frontends | Yes | — |
+| Plugin API routes | Yes (as Serverless Functions) | — |
+| base-svc (auth, teams, RBAC) | — | Yes (port 4000) |
+| plugin-server (UMD assets) | — | Yes (port 3100) |
+| livepeer-svc, pipeline-gateway | — | Yes |
+
+### Plugin API Routing on Vercel
+
+Plugin APIs are implemented as **Next.js API route handlers** under `apps/web-next/src/app/api/v1/`. Each deploys as a Vercel Serverless Function — no ports, no Express servers.
+
+```
+Browser
+  → https://your-app.vercel.app/api/v1/wallet/portfolio
+  → Next.js route handler (apps/web-next/src/app/api/v1/wallet/portfolio/route.ts)
+  → Prisma / DB / business logic
+  → Response
+```
+
+### The Catch-All Proxy (`/api/v1/[plugin]/[...path]`)
+
+A catch-all route at `apps/web-next/src/app/api/v1/[plugin]/[...path]/route.ts` acts as a fallback proxy. It resolves plugin URLs using this logic:
+
+1. Check for an **env-var override** (e.g., `GATEWAY_MANAGER_URL`, `COMMUNITY_URL`)
+2. Fall back to `http://localhost:{devPort}` from the port map
+
+The env-var override map:
+
+| Plugin | Env Var |
+|--------|---------|
+| gateway-manager | `GATEWAY_MANAGER_URL` |
+| orchestrator-manager | `ORCHESTRATOR_MANAGER_URL` |
+| capacity-planner | `CAPACITY_PLANNER_URL` |
+| network-analytics | `NETWORK_ANALYTICS_URL` |
+| marketplace | `MARKETPLACE_URL` |
+| community | `COMMUNITY_URL` |
+| my-wallet | `WALLET_URL` |
+| my-dashboard | `DASHBOARD_URL` |
+| daydream-video | `DAYDREAM_VIDEO_URL` |
+| developer-api | `DEVELOPER_API_URL` |
+| plugin-publisher | `PLUGIN_PUBLISHER_URL` |
+
+Short aliases also work (e.g., `/api/v1/wallet/...` resolves to `my-wallet`).
+
+### The Vercel Guard
+
+When running on Vercel (`VERCEL === '1'`), if a request reaches the catch-all and the resolved URL is still `localhost`, it **returns 501** instead of attempting the proxy:
+
+```
+501 Not Implemented
+"Endpoint /api/v1/{plugin}/{path} is not yet available in this environment.
+ A dedicated Next.js route handler is needed."
+```
+
+This means every plugin endpoint that should work on Vercel **must have a dedicated route handler** under `apps/web-next/src/app/api/v1/`. The catch-all is not a production path — it's a dev convenience and a hybrid-deployment escape hatch.
+
+### base-svc Proxy
+
+The base service (auth, teams, plugin registry) is always off-Vercel. The route `apps/web-next/src/app/api/v1/base/[...path]/route.ts` proxies to it:
+
+```typescript
+const BASE_SVC_URL = process.env.BASE_SVC_URL || 'http://localhost:4000';
+```
+
+On Vercel, `BASE_SVC_URL` **must** be set to the deployed base-svc host. Without it, all auth/team/registry calls fail.
+
+### Plugin Frontend Assets
+
+Plugin UMD bundles are **not served by plugin-server** on Vercel. Instead:
+
+1. `bin/vercel-build.sh` copies built bundles to `apps/web-next/public/cdn/plugins/`
+2. Vercel serves them as static files
+3. `vercel.json` rewrites `/plugin-assets/:path*` → `/cdn/plugins/:path*`
+4. Plugin discovery uses `cdnBase: '/cdn/plugins'` for bundle URLs
+
+### `vercel.json` — Function Limits
+
+Each API route category has its own Serverless Function config:
+
+| Route Pattern | maxDuration | Memory |
+|---------------|-------------|--------|
+| `app/api/v1/auth/**` | 30s | default |
+| `app/api/v1/base/**` | 60s | default |
+| `app/api/v1/livepeer/**` | 60s | default |
+| `app/api/v1/pipelines/**` | 120s | default |
+| `app/api/v1/storage/**` | 60s | 1024 MB |
+| `app/api/v1/gw/**` | 60s | default |
+| `app/api/v1/[plugin]/**` | 30s | default |
+
+### Summary: Local Dev vs Vercel Production
+
+| Aspect | Local Dev | Vercel Production |
+|--------|-----------|-------------------|
+| Plugin backends | Separate Express servers (ports 4001–4117) | Next.js API route handlers (Serverless Functions) |
+| Port resolution | `plugin.json` → `devPort` | Not applicable — no ports |
+| Plugin frontends | plugin-server (port 3100) | Static files at `/cdn/plugins/` |
+| base-svc | `localhost:4000` | Proxied via `/api/v1/base/*` → `BASE_SVC_URL` |
+| Catch-all proxy | Proxies to `localhost:{port}` | Returns 501 if route handler is missing |
+| URL from frontend JS | `getPluginBackendUrl()` → `http://localhost:{port}` | Same-origin `/api/v1/{plugin}` |
+
 ## Notable Gaps
 
 - **`ports.ts` is incomplete** — it only covers ~11 plugins; newer ones like `service-gateway`, `lightning-client`, and `deployment-manager` are missing from the SDK's port registry.
