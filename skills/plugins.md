@@ -428,7 +428,7 @@ app.use(express.json());
 
 app.get('/healthz', (_, res) => res.json({ status: 'ok' }));
 
-const PORT = process.env.PORT || 4xxx;
+const PORT = Number(process.env.PORT ?? 4100);
 const server = app.listen(PORT);
 
 process.on('SIGTERM', () => { server.close(() => process.exit(0)); });
