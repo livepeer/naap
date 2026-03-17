@@ -47,7 +47,7 @@ This is the command you will use 90% of the time. It:
 
 ```bash
 ./bin/start.sh community                  # shell + community backend
-./bin/start.sh gateway-manager community  # shell + 2 backends
+./bin/start.sh capacity-planner community # shell + 2 backends
 ```
 
 Just type the plugin name(s) as arguments. No flags needed.
@@ -153,7 +153,7 @@ Measured on a typical dev machine (Apple Silicon, plugins already built):
 | Smart start (no changes) | **6s** | **2s** |
 | Smart start (1 plugin changed) | **8s** | **2s** |
 | Single plugin (`community`) | **6s** | **2s** |
-| Two plugins (`gw na`) | **8s** | **2s** |
+| Two plugins (`capacity community`) | **8s** | **2s** |
 | Shell only (`--no-plugins`) | **5s** | **2s** |
 | All plugins (`--all`, warm) | **10s** | **2.5s** |
 | All plugins (`--all`, cold build) | **25-27s** | **2.5s** |
@@ -214,10 +214,7 @@ git pull
 
 | Plugin | Port |
 |--------|------|
-| Gateway Manager | 4001 |
-| Orchestrator Manager | 4002 |
 | Capacity Planner | 4003 |
-| Network Analytics | 4004 |
 | Marketplace | 4005 |
 | Community Hub | 4006 |
 | Developer API | 4007 |

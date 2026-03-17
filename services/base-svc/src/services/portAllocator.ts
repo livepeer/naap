@@ -25,10 +25,7 @@ const DEFAULT_MAX_PORT = 4999;
 // Well-known ports that should not be allocated
 const RESERVED_PORTS = [
   4000, // base-svc
-  4001, // gateway-manager
   4002, // marketplace
-  4003, // orchestrator-manager
-  4004, // network-analytics
   4005, // capacity-planner
   4006, // developer-api
   4007, // community

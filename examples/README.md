@@ -13,9 +13,6 @@ excluded from builds, the marketplace seed, and CI matrices.
 
 | Directory | Description |
 |-----------|-------------|
-| `gateway-manager/` | AI gateway infrastructure monitoring |
-| `orchestrator-manager/` | Livepeer orchestrator management |
-| `network-analytics/` | Network analytics & leaderboard |
 | `my-wallet/` | MetaMask wallet / LPT staking |
 | `daydream-video/` | Real-time AI video (StreamDiffusion) |
 | `my-dashboard/` | Embedded Metabase dashboards |
@@ -24,58 +21,11 @@ To use one of these plugins in a local dev environment, copy it back into
 `plugins/` and restart:
 
 ```bash
-cp -r examples/gateway-manager plugins/gateway-manager
+cp -r examples/my-wallet plugins/my-wallet
 bin/start.sh
 ```
 
 ---
-
-### 1. Hello World (Frontend Only)
-
-A minimal plugin demonstrating shell service integration without a backend.
-
-**Location**: `hello-world/`
-
-**Features**:
-- User authentication state
-- Theme integration
-- Notification system
-- Event bus usage
-
-**Quick Start**:
-```bash
-cd hello-world/frontend
-npm install
-npm run dev
-# Runs on port 3020
-```
-
-### 2. Todo List (Full Stack)
-
-A complete plugin with frontend, backend, and RBAC.
-
-**Location**: `todo-list/`
-
-**Features**:
-- Express.js backend API
-- CRUD operations
-- Role-based access control
-- Token validation with shell
-
-**Quick Start**:
-```bash
-# Start backend
-cd todo-list/backend
-npm install
-npm run dev
-# Runs on port 4021
-
-# Start frontend (in another terminal)
-cd todo-list/frontend
-npm install
-npm run dev
-# Runs on port 3021
-```
 
 ## Registering Dev Plugins
 
@@ -84,22 +34,12 @@ To test example plugins with the shell, add them to localStorage:
 ```javascript
 // Open browser console on localhost:3000
 localStorage.setItem('naap-dev-plugins', JSON.stringify([
-  // Hello World
   {
-    name: 'helloWorld',
-    displayName: 'Hello World',
-    remoteUrl: 'http://localhost:3020/dist/production/helloWorld.js',
-    routes: ['/hello', '/hello/*'],
-    icon: 'Hand',
-    enabled: true
-  },
-  // Todo List
-  {
-    name: 'todoList',
-    displayName: 'Todo List',
-    remoteUrl: 'http://localhost:3021/dist/production/todoList.js',
-    routes: ['/todos', '/todos/*'],
-    icon: 'CheckSquare',
+    name: 'myWallet',
+    displayName: 'My Wallet',
+    remoteUrl: 'http://localhost:3020/dist/production/myWallet.js',
+    routes: ['/my-wallet', '/my-wallet/*'],
+    icon: 'Wallet',
     enabled: true
   }
 ]));
@@ -228,7 +168,7 @@ export default createPluginConfig({
 
 1. **Copy an example** as your starting point:
    ```bash
-   cp -r examples/hello-world plugins/my-plugin
+   cp -r examples/my-wallet plugins/my-plugin
    ```
 
 2. **Update plugin.json** with your plugin info

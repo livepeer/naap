@@ -16,7 +16,7 @@ import path from 'path';
  */
 export interface CreatePluginViteConfigOptions {
   /**
-   * Plugin name (kebab-case, e.g., 'my-wallet', 'gateway-manager')
+   * Plugin name (kebab-case, e.g., 'my-wallet', 'community')
    */
   name: string;
 

@@ -58,7 +58,6 @@ Benefits:
 | `plugin_wallet`      | my-wallet plugin | WalletConnection, Transactions       |
 | `plugin_dashboard`   | my-dashboard     | Dashboard, Preferences               |
 | `plugin_daydream`    | daydream-video   | DaydreamSettings, DaydreamSession    |
-| `plugin_gateway`     | gateway-manager  | Gateway, Connections, Metrics        |
 | `plugin_capacity`    | capacity-planner | CapacityRequest, SoftCommit          |
 | `plugin_developer_api` | developer-api  | AIModel, ApiKey, UsageLog            |
 

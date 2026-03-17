@@ -29,12 +29,10 @@ The NaaP platform has achieved MVP status with a working Vercel deployment. Key 
 | Plugin | Frontend | Backend | Status | Notes |
 |--------|----------|---------|--------|-------|
 | marketplace | 95% | N/A | ✅ OK | Frontend uses main registry API directly |
-| orchestrator-manager | 50% | N/A | ✅ OK | Frontend uses SDK hooks for Livepeer |
 | capacity-planner | 85% | 100% | ✅ COMPLETE | Full Prisma + Express backend |
-| network-analytics | 60% | N/A | ✅ OK | Frontend uses SDK hooks for Livepeer |
 | developer-api | 50% | 100% | ✅ COMPLETE | Full Prisma + Express backend |
 
-**Key Finding:** 3 of 5 "incomplete" backends were actually unused - frontends access data directly through main APIs or SDK hooks.
+**Key Finding:** Some "incomplete" backends were actually unused - frontends access data directly through main APIs or SDK hooks.
 
 ### ~~BLOCKER 2: Dual Shell Maintenance Burden~~ ✅ RESOLVED (Phase 0)
 
@@ -61,7 +59,7 @@ Only one shell implementation now exists:
 
 ### ~~BLOCKER 4: Vite Config Duplication~~ ✅ RESOLVED (Phase 1)
 
-**Status:** RESOLVED — All 11 plugins now use `createPluginConfig()` from `@naap/plugin-build`.
+**Status:** RESOLVED — All plugins now use `createPluginConfig()` from `@naap/plugin-build`.
 
 - Reduced ~1,430 lines of Vite config to ~120 lines total (92% reduction)
 - Single factory function handles UMD build, React externals, aliases, and manifest generation
@@ -212,10 +210,9 @@ Only one shell implementation now exists:
    - `package.json` - Package definition
    - `tsconfig.json` - TypeScript configuration
 
-3. ✅ **Updated all 11 plugin vite.config.umd.ts files:**
+3. ✅ **Updated all plugin vite.config.umd.ts files:**
    - capacity-planner, community, daydream-video, developer-api
-   - gateway-manager, marketplace, my-dashboard, my-wallet
-   - network-analytics, orchestrator-manager, plugin-publisher
+   - marketplace, my-dashboard, my-wallet, plugin-publisher
    - Each reduced from ~130 lines to ~11 lines
 
 4. ✅ **Updated plugin API files to use @naap/plugin-utils:**
@@ -248,10 +245,8 @@ Only one shell implementation now exists:
 **Status:** COMPLETE (February 2026)
 
 **Discovery & Analysis:**
-After thorough exploration, we identified that 3 of 5 "incomplete" backends are actually unused:
+After thorough exploration, we identified that some "incomplete" backends are actually unused:
 - **marketplace**: Frontend calls main registry API directly - no plugin backend needed
-- **orchestrator-manager**: Frontend uses SDK hooks for Livepeer directly - no plugin backend needed
-- **network-analytics**: Frontend uses SDK hooks for Livepeer directly - no plugin backend needed
 
 **Completed Backends:**
 
@@ -280,8 +275,6 @@ After thorough exploration, we identified that 3 of 5 "incomplete" backends are 
 | developer-api | ✅ Complete | ✅ Complete | ✅ Complete | - (existing) |
 | capacity-planner | ✅ Complete | ✅ Complete | ✅ Complete | ✅ Complete |
 | marketplace | ⏭️ Not needed | ⏭️ Not needed | - | - |
-| orchestrator-manager | ⏭️ Not needed | ⏭️ Not needed | - | - |
-| network-analytics | ⏭️ Not needed | ⏭️ Not needed | - | - |
 
 **Key Technical Patterns Used:**
 
@@ -712,7 +705,7 @@ Finalize Vercel deployment:
 | Risk | Mitigation |
 |------|------------|
 | Breaking changes during migration | Feature flags for gradual rollout |
-| Plugin backend complexity underestimated | Start with simplest (network-analytics) |
+| Plugin backend complexity underestimated | Start with simplest plugin |
 | Team bandwidth | Phases can run partially in parallel |
 | Vercel pricing surprise | Monitor usage during rollout |
 | Legacy shell has hidden features | Thorough audit before retirement |

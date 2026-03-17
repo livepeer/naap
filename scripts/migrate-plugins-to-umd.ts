@@ -28,23 +28,11 @@ const PLUGIN_CONFIGS: Record<
     routes: ['/capacity', '/capacity/*'],
     category: 'analytics',
   },
-  'orchestrator-manager': {
-    displayName: 'Orchestrator Manager',
-    globalName: 'NaapPluginOrchestratorManager',
-    routes: ['/orchestrators', '/orchestrators/*'],
-    category: 'monitoring',
-  },
   'developer-api': {
     displayName: 'Developer API',
     globalName: 'NaapPluginDeveloperApi',
     routes: ['/developer', '/developer/*'],
     category: 'developer',
-  },
-  'network-analytics': {
-    displayName: 'Network Analytics',
-    globalName: 'NaapPluginNetworkAnalytics',
-    routes: ['/analytics', '/analytics/*'],
-    category: 'analytics',
   },
   marketplace: {
     displayName: 'Marketplace',
@@ -63,12 +51,6 @@ const PLUGIN_CONFIGS: Record<
     globalName: 'NaapPluginPluginPublisher',
     routes: ['/publish', '/publish/*'],
     category: 'developer',
-  },
-  'gateway-manager': {
-    displayName: 'Gateway Manager',
-    globalName: 'NaapPluginGatewayManager',
-    routes: ['/gateway', '/gateway/*'],
-    category: 'monitoring',
   },
   'my-dashboard': {
     displayName: 'My Dashboard',

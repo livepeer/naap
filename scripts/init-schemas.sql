@@ -4,7 +4,7 @@
 
 -- Create schemas for each service/plugin
 CREATE SCHEMA IF NOT EXISTS core;        -- base-svc tables
-CREATE SCHEMA IF NOT EXISTS gateway;     -- gateway-manager plugin
+CREATE SCHEMA IF NOT EXISTS gateway;     -- service-gateway plugin
 CREATE SCHEMA IF NOT EXISTS wallet;      -- my-wallet plugin
 CREATE SCHEMA IF NOT EXISTS community;   -- community plugin
 CREATE SCHEMA IF NOT EXISTS dashboard;   -- my-dashboard plugin

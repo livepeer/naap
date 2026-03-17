@@ -476,7 +476,7 @@ PUT    /users/:id          - Update own profile
 ### Minimum Coding Effort Strategy
 
 1. **Reuse existing patterns**
-   - Copy Prisma setup from other plugins (marketplace, gateway-manager)
+   - Copy Prisma setup from other plugins (marketplace, community)
    - Use existing auth middleware from base-svc
    - Leverage @naap/ui components (Card, Badge, Button, Input)
 

@@ -40,17 +40,14 @@ naap/
 │       ├── src/app/api/v1/      # API route handlers (46+ routes)
 │       └── src/content/docs/    # Published documentation (MDX)
 │
-├── plugins/                     # 11 built-in plugins
+├── plugins/                     # 8 built-in plugins
 │   ├── capacity-planner/        # Infrastructure capacity planning
 │   ├── community/               # Discussion forums
 │   ├── daydream-video/          # Real-time AI video generation
 │   ├── developer-api/           # API key management
-│   ├── gateway-manager/         # AI gateway management
 │   ├── marketplace/             # Plugin marketplace
 │   ├── my-dashboard/            # Embedded analytics
 │   ├── my-wallet/               # Token management
-│   ├── network-analytics/       # Network statistics
-│   ├── orchestrator-manager/    # Orchestrator management
 │   └── plugin-publisher/        # Plugin publishing
 │
 ├── packages/

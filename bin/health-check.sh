@@ -64,8 +64,8 @@ while [[ $# -gt 0 ]]; do
       echo "  --help,-h     Show this help"
       echo ""
       echo "Services:"
-      echo "  vercel, base-svc, plugin-server, gateway-manager, orchestrator-manager,"
-      echo "  capacity-planner, network-analytics, marketplace, community,"
+      echo "  vercel, base-svc, plugin-server,"
+      echo "  capacity-planner, marketplace, community,"
       echo "  developer-api, my-wallet, my-dashboard, plugin-publisher, daydream-video"
       exit 0
       ;;
@@ -89,17 +89,8 @@ get_service_url() {
     plugin-server)
       echo "${PLUGIN_SERVER_URL:-http://localhost:3100}|/healthz"
       ;;
-    gateway-manager)
-      echo "${GATEWAY_MANAGER_URL:-http://localhost:4101}|/healthz"
-      ;;
-    orchestrator-manager)
-      echo "${ORCHESTRATOR_MANAGER_URL:-http://localhost:4102}|/healthz"
-      ;;
     capacity-planner)
       echo "${CAPACITY_PLANNER_URL:-http://localhost:4103}|/healthz"
-      ;;
-    network-analytics)
-      echo "${NETWORK_ANALYTICS_URL:-http://localhost:4104}|/healthz"
       ;;
     marketplace)
       echo "${MARKETPLACE_URL:-http://localhost:4105}|/healthz"
@@ -129,7 +120,7 @@ get_service_url() {
 }
 
 # All services list (core + plugin backends)
-ALL_SERVICES="vercel base-svc plugin-server gateway-manager orchestrator-manager capacity-planner network-analytics marketplace community developer-api my-wallet my-dashboard plugin-publisher daydream-video"
+ALL_SERVICES="vercel base-svc plugin-server capacity-planner marketplace community developer-api my-wallet my-dashboard plugin-publisher daydream-video"
 
 # Check a single service
 check_service() {
@@ -218,7 +209,7 @@ print_table() {
   for result in $RESULTS; do
     local name="${result%%|*}"
     case $name in
-      gateway-manager|orchestrator-manager|capacity-planner|network-analytics|marketplace|community|my-wallet|my-dashboard|daydream-video|developer-api|plugin-publisher)
+      capacity-planner|marketplace|community|my-wallet|my-dashboard|daydream-video|developer-api|plugin-publisher)
         print_row "$result"
         ;;
     esac

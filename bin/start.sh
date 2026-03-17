@@ -484,7 +484,6 @@ PLUGIN_SCHEMAS=(
   "plugin_wallet"
   "plugin_dashboard"
   "plugin_daydream"
-  "plugin_gateway"
   "plugin_service_gateway"
 )
 
@@ -1862,7 +1861,7 @@ show_help() {
   echo -e "${BOLD}Quick Start:${NC}"
   echo "  ./bin/start.sh                            # Smart start (auto-detects changes)"
   echo "  ./bin/start.sh community                  # Shell + community backend"
-  echo "  ./bin/start.sh community gateway-manager  # Shell + 2 plugins"
+  echo "  ./bin/start.sh community capacity-planner  # Shell + 2 plugins"
   echo "  ./bin/start.sh --all                      # Everything"
   echo "  ./bin/start.sh dev daydream-video          # Full dev mode (HMR)"
   echo "  SHELL_PORT=3001 ./bin/start.sh              # Shell on port 3001"
@@ -1987,7 +1986,7 @@ case "$COMMAND" in
   -h|--help|help) show_help ;;
   *)
     # Smart plugin-name shortcut: ./bin/start.sh community → start community backend
-    # Also handles multiple: ./bin/start.sh community gateway-manager
+    # Also handles multiple: ./bin/start.sh community capacity-planner
     if [ -d "$ROOT_DIR/plugins/$COMMAND" ]; then
       ONLY_PLUGINS="$COMMAND"
       for extra in "${COMMAND_ARGS[@]}"; do

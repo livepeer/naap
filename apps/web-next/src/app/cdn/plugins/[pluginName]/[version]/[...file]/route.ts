@@ -22,7 +22,7 @@ import path from 'path';
  * All plugin directories use kebab-case; DB names are camelCase.
  *
  * Examples:
- *   gatewayManager  -> gateway-manager
+ *   capacityPlanner -> capacity-planner
  *   marketplace     -> marketplace
  *   myWallet        -> my-wallet
  */
