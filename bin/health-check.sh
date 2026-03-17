@@ -76,7 +76,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Service definitions (name|url|endpoint)
+# =============================================================================
+# Service URL Resolution
+# =============================================================================
+#
+# Canonical fallback ports must match:
+#   - services/base-svc/src/config/pluginPorts.ts (CANONICAL_PORTS)
+#   - apps/web-next/src/lib/plugin-ports.ts (PLUGIN_PORTS)
+#   - plugins/*/plugin.json (backend.devPort)
+#
+# Env var URLs take precedence over canonical localhost defaults.
+# =============================================================================
+
 get_service_url() {
   local name=$1
   case $name in
@@ -90,28 +101,28 @@ get_service_url() {
       echo "${PLUGIN_SERVER_URL:-http://localhost:3100}|/healthz"
       ;;
     capacity-planner)
-      echo "${CAPACITY_PLANNER_URL:-http://localhost:4103}|/healthz"
+      echo "${CAPACITY_PLANNER_URL:-http://localhost:4003}|/healthz"
       ;;
     marketplace)
-      echo "${MARKETPLACE_URL:-http://localhost:4105}|/healthz"
+      echo "${MARKETPLACE_URL:-http://localhost:4005}|/healthz"
       ;;
     community)
-      echo "${COMMUNITY_URL:-http://localhost:4106}|/healthz"
+      echo "${COMMUNITY_URL:-http://localhost:4006}|/healthz"
       ;;
     developer-api)
-      echo "${DEVELOPER_API_URL:-http://localhost:4107}|/healthz"
+      echo "${DEVELOPER_API_URL:-http://localhost:4007}|/healthz"
       ;;
     my-wallet)
-      echo "${WALLET_URL:-http://localhost:4108}|/healthz"
+      echo "${WALLET_URL:-http://localhost:4008}|/healthz"
       ;;
     my-dashboard)
-      echo "${DASHBOARD_URL:-http://localhost:4109}|/healthz"
+      echo "${DASHBOARD_URL:-http://localhost:4009}|/healthz"
       ;;
     plugin-publisher)
-      echo "${PLUGIN_PUBLISHER_URL:-http://localhost:4110}|/healthz"
+      echo "${PLUGIN_PUBLISHER_URL:-http://localhost:4010}|/healthz"
       ;;
     daydream-video)
-      echo "${DAYDREAM_VIDEO_URL:-http://localhost:4211}|/healthz"
+      echo "${DAYDREAM_VIDEO_URL:-http://localhost:4111}|/healthz"
       ;;
     *)
       echo ""
