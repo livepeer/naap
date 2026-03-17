@@ -775,57 +775,252 @@ Minimum test scenarios:
 
 ---
 
-## 10. Build, Registry, and Deployment
+## 10. Local Development
 
-### 10.1 Build
+### 10.1 Prerequisites
+
+Before starting local dev, ensure:
+- PostgreSQL running locally (or `DATABASE_URL` pointing to a dev database)
+- `npm install` at the repo root
+- `apps/web-next/.env.local` exists (auto-created by `start.sh` if missing)
+
+### 10.2 Starting the Dev Environment
 
 ```bash
-cd plugins/{name}/frontend
-npx vite build --mode production
+# Smart start: shell + core services + only changed plugins
+./bin/start.sh
+
+# Full start: shell + core + all plugin backends
+./bin/start.sh --all
+
+# Dev mode for a specific plugin (frontend HMR + backend)
+./bin/start.sh dev {plugin-name}
+
+# Start shell + named plugin backends only
+./bin/start.sh {plugin-name} [another-plugin...]
+
+# Other commands
+./bin/start.sh status    # Check what's running
+./bin/start.sh logs      # Tail logs
+./bin/start.sh list      # List discovered plugins
+./bin/stop.sh            # Stop everything
 ```
 
-Output: `frontend/dist/production/{kebab-name}.js` and `{kebab-name}.css`
+`start.sh` performs these steps automatically:
+1. Ensures `.env.local` exists with default values
+2. Builds only plugins whose source hash has changed
+3. Copies built bundles to `dist/plugins/{name}/1.0.0/`
+4. Runs `sync-plugin-registry.ts` to update the DB
+5. Starts the Next.js shell on port 3000
+6. Starts requested plugin backends on their configured ports
+7. Verifies plugins are accessible at `http://localhost:3000/cdn/plugins/{name}/1.0.0/{name}.js`
 
-The build plugin (`createPluginConfig`) validates:
-- React is NOT bundled (it's externalized)
-- A `manifest.json` is written with bundle metadata
+### 10.3 How Plugin Loading Works Locally
 
-### 10.2 Workspace Registration
+```
+Browser → http://localhost:3000/{prefix}
+  → middleware rewrites to /plugins/{camelCaseName}
+  → PluginLoader fetches /cdn/plugins/{name}/1.0.0/{name}.js
+  → CDN route reads from dist/plugins/{name}/1.0.0/{name}.js on disk
+  → UMD bundle loads, mount(container, shellContext) called
+```
 
-Add the plugin paths to the root `package.json` workspaces:
+The CDN route at `apps/web-next/src/app/cdn/plugins/[pluginName]/[version]/[...file]/route.ts` serves bundles from the `dist/plugins/` directory at the monorepo root. In dev mode, response headers include `Cache-Control: no-cache` to avoid stale bundles.
+
+### 10.4 Plugin Backend Proxying (Local)
+
+Plugin frontends call `/api/v1/{plugin-name}/*` on the shell origin. The catch-all route at `apps/web-next/src/app/api/v1/[plugin]/[...path]/route.ts` proxies these requests to the plugin backend:
+
+```
+Frontend fetch('/api/v1/my-plugin/items')
+  → Next.js catch-all route
+  → Reads PLUGIN_PORTS config for 'myPlugin'
+  → Proxies to http://localhost:{port}/items
+```
+
+Port resolution uses `packages/plugin-sdk/src/config/ports.ts` and can be overridden with environment variables (e.g., `MY_PLUGIN_URL=http://localhost:4050`).
+
+### 10.5 Environment Variables for Local Dev
+
+The following are auto-created in `apps/web-next/.env.local` by `start.sh`:
+
+```env
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXTAUTH_SECRET=dev-secret-change-me-in-production-min-32-chars
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/naap
+BASE_SVC_URL=http://localhost:4000
+PLUGIN_SERVER_URL=http://localhost:3100
+```
+
+If your plugin backend needs a custom URL override, add:
+
+```env
+{UPPER_SNAKE_PLUGIN_NAME}_URL=http://localhost:{port}
+```
+
+### 10.6 Building Plugins Manually
+
+```bash
+# Build all plugins (with caching -- skips unchanged)
+./bin/build-plugins.sh
+
+# Build a specific plugin
+./bin/build-plugins.sh --plugin {name}
+
+# Force rebuild (ignore cache)
+./bin/build-plugins.sh --force --plugin {name}
+
+# Parallel build
+./bin/build-plugins.sh --parallel
+```
+
+Output goes to `dist/plugins/{name}/1.0.0/`. A `.build-hash` file tracks source changes to skip unchanged builds.
+
+### 10.7 Local Dev Checklist for New Plugins
+
+After scaffolding a new plugin:
+
+1. Add `plugins/{name}/frontend` (and `plugins/{name}/backend` if applicable) to root `package.json` workspaces.
+2. Run `npm install` at the repo root.
+3. Add your plugin's entry to `PLUGIN_ROUTE_MAP` in `apps/web-next/src/middleware.ts`.
+4. If the plugin has a backend, register its port in `packages/plugin-sdk/src/config/ports.ts`.
+5. Run `./bin/start.sh dev {name}` to start with HMR.
+6. Navigate to `http://localhost:3000/{prefix}` to verify the plugin loads.
+7. Check the browser console for errors.
+
+---
+
+## 11. Vercel Production Deployment
+
+### 11.1 How the Vercel Build Works
+
+`vercel.json` uses `./bin/vercel-build.sh` as the build command. The build pipeline:
+
+1. Build `@naap/plugin-build` and `@naap/plugin-utils` packages.
+2. Run `./bin/build-plugins.sh --parallel` to build all plugin UMD bundles to `dist/plugins/`.
+3. Copy `dist/plugins/*` to `apps/web-next/public/cdn/plugins/` for static serving.
+4. Run `prisma db push` to sync the database schema.
+5. Run `npx tsx bin/sync-plugin-registry.ts` to sync plugin records and generate `plugin-routes.json`.
+6. Run `next build` in `apps/web-next`.
+
+CI caches `dist/plugins/` by content hash. When the cache hits, steps 1-2 are skipped via `SKIP_PLUGIN_BUILD=true`.
+
+### 11.2 Critical: Plugin Backends on Vercel
+
+**Plugin backends (Express servers) do NOT run on Vercel.** This is the most important deployment constraint.
+
+On Vercel, the catch-all proxy route (`/api/v1/[plugin]/[...path]`) returns **501 Not Implemented** for any plugin whose URL resolves to `localhost`. Every plugin endpoint that must work in production **must** have a dedicated Next.js API route handler in `apps/web-next/src/app/api/v1/{plugin-name}/`.
+
+```
+                    ┌─────────────────────────┐
+                    │     Plugin Backend       │
+                    │  (Express, standalone)   │
+                    │   LOCAL DEV ONLY         │
+                    └──────────┬──────────────┘
+                               │ proxied via catch-all
+                               │ (localhost:{port})
+┌───────────┐     ┌────────────┴──────────────┐
+│  Browser  │────▶│  /api/v1/{plugin}/*       │
+└───────────┘     │  Next.js API Routes       │
+                  │  (works on Vercel)         │
+                  └───────────────────────────┘
+```
+
+**Two valid patterns for plugin endpoints:**
+
+| Pattern | When to use | Local dev | Vercel |
+|---|---|---|---|
+| **Next.js API routes only** (recommended) | Simple CRUD, standard request/response | Works | Works |
+| **Next.js routes + Express backend** | Long-lived connections (SSH, WS), background jobs | Routes proxy to Express backend | Routes handle logic directly; Express is for local dev convenience or runs as a separate service outside Vercel |
+
+If your plugin uses a standalone backend, the Next.js API routes in `apps/web-next/src/app/api/v1/{plugin-name}/` must implement the same endpoints independently -- they cannot rely on the Express backend being available on Vercel.
+
+### 11.3 Vercel Configuration for Plugins
+
+`vercel.json` already includes plugin-related configuration. When adding a new plugin, you typically do **not** need to modify `vercel.json`. The existing config handles:
 
 ```json
 {
-  "workspaces": [
-    "plugins/{name}/frontend",
-    "plugins/{name}/backend"
+  "functions": {
+    "app/api/v1/[plugin]/**": { "maxDuration": 30 }
+  },
+  "headers": [
+    {
+      "source": "/cdn/plugins/:name/:version/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    }
+  ],
+  "rewrites": [
+    { "source": "/plugin-assets/:path*", "destination": "/cdn/plugins/:path*" }
   ]
 }
 ```
 
-### 10.3 Registry Sync
+If your plugin API routes need a longer timeout (default is 30s), add a specific entry:
 
-`bin/sync-plugin-registry.ts` auto-discovers plugins:
-1. Scans `plugins/*/plugin.json`
-2. Upserts `WorkflowPlugin`, `PluginPackage`, `PluginVersion` records in the database
-3. Writes `apps/web-next/src/generated/plugin-routes.json` for middleware
-
-No manual edits to the sync script are needed. Run it after adding a new plugin:
-
-```bash
-npx tsx bin/sync-plugin-registry.ts
+```json
+{
+  "functions": {
+    "app/api/v1/{plugin-name}/**": { "maxDuration": 60 }
+  }
+}
 ```
 
-### 10.4 CDN Serving
+### 11.4 CDN Bundle Serving in Production
 
-Built bundles are served via the shell's CDN route:
-`apps/web-next/src/app/cdn/plugins/[pluginName]/[version]/[...file]/route.ts`
+Plugin UMD bundles are served from `apps/web-next/public/cdn/plugins/` as static files. The CDN route handler is the same as local dev -- it reads from `dist/plugins/` relative to the app root.
 
-No configuration needed -- the route dynamically resolves bundles from the file system or Vercel Blob storage.
+The URL pattern is identical across environments:
+
+```
+/cdn/plugins/{name}/1.0.0/{name}.js
+/cdn/plugins/{name}/1.0.0/{name}.css
+```
+
+For user-published plugins (via the plugin marketplace), bundles are uploaded to **Vercel Blob** storage and served from `blob.vercel-storage.com`. This requires the `BLOB_READ_WRITE_TOKEN` environment variable.
+
+### 11.5 Environment Variables on Vercel
+
+Set these in the Vercel project settings (or via `vercel env`):
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `NEXTAUTH_SECRET` | Yes | Auth secret (min 32 chars) |
+| `NEXT_PUBLIC_APP_URL` | Yes | Production URL |
+| `BLOB_READ_WRITE_TOKEN` | If using plugin publisher | Vercel Blob for CDN uploads |
+| `{PLUGIN}_URL` | If backend runs externally | Override catch-all proxy target |
+
+Plugin backends that run as external services (outside Vercel) need their URL set as an env var (e.g., `SERVICE_GATEWAY_URL=https://gw.example.com`). Without this, the catch-all returns 501.
+
+### 11.6 CI/CD Pipeline
+
+The GitHub Actions workflow (`.github/workflows/ci.yml`) handles:
+
+- **Path filters**: Changes in `plugins/**` or `packages/plugin-build/**` trigger plugin-related jobs.
+- **Plugin tests**: Per-changed-plugin test runs, plus SDK compatibility matrix.
+- **Build caching**: `dist/plugins/` is cached by content hash. Unchanged plugins skip rebuild.
+- **Deploy**: On push to `main`, runs `vercel build --prod` then `vercel deploy --prebuilt --prod`.
+
+No plugin-specific CI configuration is needed -- the existing pipeline auto-discovers and builds all plugins.
+
+### 11.7 Vercel Deployment Checklist for New Plugins
+
+After the plugin works locally, verify Vercel readiness:
+
+1. **API routes exist as Next.js handlers** -- Every endpoint the frontend calls must have a corresponding route file in `apps/web-next/src/app/api/v1/{plugin-name}/`. The catch-all proxy will **not** work on Vercel for localhost backends.
+2. **No `fs` / `path` imports in API routes** -- Vercel serverless functions support `fs` for reading bundled files, but avoid writing to the filesystem. Use the database or Vercel Blob for persistence.
+3. **No long-lived connections in API routes** -- Vercel functions are stateless and short-lived (max 30-60s). If you need WebSockets or SSH pools, those must run as a separate service outside Vercel, with its URL set as an env var.
+4. **Bundle builds successfully** -- Run `./bin/build-plugins.sh --plugin {name}` and confirm output in `dist/plugins/{name}/`.
+5. **Registry sync works** -- Run `npx tsx bin/sync-plugin-registry.ts` and verify the plugin appears in `apps/web-next/src/generated/plugin-routes.json`.
+6. **No new env vars required without defaults** -- If the plugin needs new environment variables, document them and ensure the plugin degrades gracefully when they're missing.
+7. **Function duration** -- If any API route needs more than 30s, add a `functions` entry to `vercel.json`.
 
 ---
 
-## 11. Production Readiness Checklist
+## 12. Production Readiness Checklist
 
 Before merging any plugin, verify:
 
@@ -865,6 +1060,23 @@ Before merging any plugin, verify:
 - [ ] Plugin contract test passes (`testPluginContract`).
 - [ ] No console errors or warnings in browser.
 
+### Local Dev
+
+- [ ] `./bin/start.sh dev {name}` starts the plugin successfully.
+- [ ] Plugin loads at `http://localhost:3000/{prefix}`.
+- [ ] Plugin backend (if any) responds on its configured port.
+- [ ] Hot reload works when editing frontend source.
+
+### Vercel Deployment
+
+- [ ] All plugin API endpoints have dedicated Next.js route handlers (not relying on catch-all proxy to localhost).
+- [ ] No `fs.writeFile` or persistent filesystem usage in API routes.
+- [ ] No long-lived connections (WebSocket pools, SSH) in serverless route handlers.
+- [ ] Plugin builds via `./bin/build-plugins.sh --plugin {name}` without errors.
+- [ ] Registry sync produces correct `plugin-routes.json` entry.
+- [ ] Any new environment variables are documented and have sensible defaults or graceful fallbacks.
+- [ ] Function timeout is sufficient (default 30s; add `vercel.json` entry if more is needed).
+
 ### Integration
 
 - [ ] Entry added to `PLUGIN_ROUTE_MAP` in middleware.
@@ -874,7 +1086,7 @@ Before merging any plugin, verify:
 
 ---
 
-## 12. Clean Removal Procedure
+## 13. Clean Removal Procedure
 
 To fully remove a plugin:
 
