@@ -82,7 +82,8 @@ docker volume rm naap-db-data    # Delete database data
 | Developer API | 4007 | http://localhost:4007/healthz |
 | Wallet | 4008 | http://localhost:4008/healthz |
 | Dashboard | 4009 | http://localhost:4009/healthz |
-| Daydream Video | 4010 | http://localhost:4010/healthz |
+| Plugin Publisher | 4010 | http://localhost:4010/healthz |
+| Daydream Video | 4111 | http://localhost:4111/healthz |
 
 ## Production Architecture
 
