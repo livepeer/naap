@@ -206,9 +206,10 @@ function stubFetch() {
 
       // Leaderboard API endpoints (proxy path: /api/v1/leaderboard/...)
       if (pathname.startsWith('/api/v1/leaderboard/network/demand')) {
-        const interval = parsedUrl.searchParams.get('interval') ?? '5m';
-        // fetchNetworkDemand(lookbackHours) sends interval as minutes: 24h→120m, 2h→10m, 1h→5m
-        const demand = interval === '120m' || interval === '10m' ? STUB_DEMAND_2H : STUB_DEMAND_1H;
+        const window = parsedUrl.searchParams.get('window') ?? '3h';
+        // fetchNetworkDemand(hours) sends window as hours: 168h, 24h, etc.
+        // Longer windows return more rows in the stub
+        const demand = (window === '168h' || window === '720h' || window === '24h') ? STUB_DEMAND_2H : STUB_DEMAND_1H;
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ demand }),
@@ -320,9 +321,9 @@ describe('registerDashboardProvider', () => {
         pipelineCatalog { id name models regions }
         gpuCapacity { totalGPUs availableCapacity }
         pricing { pipeline unit price outputPerDollar }
-        networkDemand(interval: "24h") { windowStart sessionsCount totalMinutes effectiveSuccessRate }
-        gpuMetrics(timeRange: "24h") { windowStart avgOutputFps p95OutputFps knownSessionsCount }
-        slaCompliance(period: "24h") { windowStart knownSessionsCount effectiveSuccessRate slaScore }
+        networkDemand(window: "24h") { windowStart sessionsCount totalMinutes effectiveSuccessRate }
+        gpuMetrics(window: "24h") { windowStart avgOutputFps p95OutputFps knownSessionsCount }
+        slaCompliance(window: "24h") { windowStart knownSessionsCount effectiveSuccessRate slaScore }
       }`,
     };
 

@@ -5,12 +5,12 @@
  *
  * Live data sources:
  *   kpi.successRate         ← Leaderboard /api/network/demand  (served_sessions / total_demand_sessions)
- *   kpi.orchestratorsOnline ← Leaderboard /api/sla/compliance  (distinct addresses, 72 h)
- *   kpi.dailyUsageMins      ← Leaderboard /api/network/demand  (sum total_minutes, 24 h)
- *   kpi.dailySessionCount   ← Leaderboard /api/network/demand  (sum total_demand_sessions, 24 h)
- *   pipelines               ← Leaderboard /api/network/demand  (grouped by pipeline, 24 h)
- *   gpuCapacity.totalGPUs   ← Leaderboard /api/gpu/metrics     (distinct gpu_id, 24 h)
- *   orchestrators            ← Leaderboard /api/sla/compliance  (per-address aggregation)
+ *   kpi.orchestratorsOnline ← Leaderboard /api/sla/compliance  (distinct addresses, timeframe-scoped)
+ *   kpi.dailyUsageMins      ← Leaderboard /api/network/demand  (sum total_minutes, up to 30d)
+ *   kpi.dailySessionCount   ← Leaderboard /api/network/demand  (sum total_demand_sessions, up to 30d)
+ *   pipelines               ← Leaderboard /api/network/demand  (grouped by pipeline, timeframe-scoped up to 30d)
+ *   gpuCapacity.totalGPUs   ← Leaderboard /api/gpu/metrics     (distinct gpu_id, 24h; max 72h)
+ *   orchestrators            ← Leaderboard /api/sla/compliance  (per-address aggregation, up to 30d)
  *   protocol                ← Livepeer subgraph + L1 RPC (via server-side proxy routes)
  *   fees                    ← Livepeer subgraph (via server-side proxy route)
  *
@@ -121,47 +121,133 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-const NETWORK_SLA_CACHE_TTL_MS = 30_000;
+const NETWORK_CACHE_TTL_MS = 30_000;
 
 interface SlaCacheEntry {
   rows: SLAComplianceRow[];
   cachedAtMs: number;
 }
 
-const slaCacheByPeriod = new Map<string, SlaCacheEntry>();
-const slaInFlightByPeriod = new Map<string, Promise<SLAComplianceRow[]>>();
+const slaCacheByWindow = new Map<string, SlaCacheEntry>();
+const slaInFlightByWindow = new Map<string, Promise<SLAComplianceRow[]>>();
 
 /**
- * Shared SLA rows keyed by period string (e.g. "168h").
+ * Shared SLA rows keyed by window string (e.g. "168h").
  * Reuses in-flight work and short-TTL cache to avoid duplicate long requests.
  */
-async function getSLAComplianceRows(period: string): Promise<SLAComplianceRow[]> {
+async function getSLAComplianceRows(windowKey: string): Promise<SLAComplianceRow[]> {
   const now = Date.now();
-  const cached = slaCacheByPeriod.get(period);
-  if (cached && now - cached.cachedAtMs < NETWORK_SLA_CACHE_TTL_MS) {
+  const cached = slaCacheByWindow.get(windowKey);
+  if (cached && now - cached.cachedAtMs < NETWORK_CACHE_TTL_MS) {
     return cached.rows;
   }
 
-  const inFlight = slaInFlightByPeriod.get(period);
+  const inFlight = slaInFlightByWindow.get(windowKey);
   if (inFlight) return inFlight;
 
   const promise = (async () => {
     try {
-      const rows = await fetchSLACompliance({ period });
-      slaCacheByPeriod.set(period, { rows, cachedAtMs: Date.now() });
+      const rows = await fetchSLACompliance({ window: windowKey });
+      slaCacheByWindow.set(windowKey, { rows, cachedAtMs: Date.now() });
       return rows;
     } catch (err) {
       if (cached) {
-        console.warn(`[dashboard-data-provider] SLA refresh (${period}) failed; serving cached rows:`, err);
+        console.warn(`[dashboard-data-provider] SLA refresh (${windowKey}) failed; serving cached rows:`, err);
         return cached.rows;
       }
       throw err;
     } finally {
-      slaInFlightByPeriod.delete(period);
+      slaInFlightByWindow.delete(windowKey);
     }
   })();
 
-  slaInFlightByPeriod.set(period, promise);
+  slaInFlightByWindow.set(windowKey, promise);
+  return promise;
+}
+
+interface DemandCacheEntry {
+  rows: NetworkDemandRow[];
+  cachedAtMs: number;
+}
+
+const demandCacheByWindow = new Map<string, DemandCacheEntry>();
+const demandInFlightByWindow = new Map<string, Promise<NetworkDemandRow[]>>();
+
+/**
+ * Shared network demand rows keyed by window string (e.g. "24h", "168h").
+ * Reuses in-flight work and short-TTL cache to avoid duplicate long requests
+ * when KPI and pipelines resolve in parallel with the same timeframe.
+ */
+async function getNetworkDemandRows(windowKey: string): Promise<NetworkDemandRow[]> {
+  const now = Date.now();
+  const cached = demandCacheByWindow.get(windowKey);
+  if (cached && now - cached.cachedAtMs < NETWORK_CACHE_TTL_MS) {
+    return cached.rows;
+  }
+
+  const inFlight = demandInFlightByWindow.get(windowKey);
+  if (inFlight) return inFlight;
+
+  const promise = (async () => {
+    try {
+      const rows = await fetchNetworkDemand({ window: windowKey });
+      demandCacheByWindow.set(windowKey, { rows, cachedAtMs: Date.now() });
+      return rows;
+    } catch (err) {
+      if (cached) {
+        console.warn(`[dashboard-data-provider] Demand refresh (${windowKey}) failed; serving cached rows:`, err);
+        return cached.rows;
+      }
+      throw err;
+    } finally {
+      demandInFlightByWindow.delete(windowKey);
+    }
+  })();
+
+  demandInFlightByWindow.set(windowKey, promise);
+  return promise;
+}
+
+interface GPUMetricsCacheEntry {
+  rows: GPUMetricRow[];
+  cachedAtMs: number;
+}
+
+const gpuMetricsCacheByWindow = new Map<string, GPUMetricsCacheEntry>();
+const gpuMetricsInFlightByWindow = new Map<string, Promise<GPUMetricRow[]>>();
+
+/**
+ * Shared GPU metrics rows keyed by window string (e.g. "24h", "1h").
+ * Reuses in-flight work and short-TTL cache to avoid duplicate fetches
+ * when resolveGPUCapacity and fetchHardwareBreakdownFromGPUMetrics run in parallel.
+ */
+async function getGPUMetricsRows(windowKey: string): Promise<GPUMetricRow[]> {
+  const now = Date.now();
+  const cached = gpuMetricsCacheByWindow.get(windowKey);
+  if (cached && now - cached.cachedAtMs < NETWORK_CACHE_TTL_MS) {
+    return cached.rows;
+  }
+
+  const inFlight = gpuMetricsInFlightByWindow.get(windowKey);
+  if (inFlight) return inFlight;
+
+  const promise = (async () => {
+    try {
+      const rows = await fetchGPUMetrics({ window: windowKey });
+      gpuMetricsCacheByWindow.set(windowKey, { rows, cachedAtMs: Date.now() });
+      return rows;
+    } catch (err) {
+      if (cached) {
+        console.warn(`[dashboard-data-provider] GPU metrics refresh (${windowKey}) failed; serving cached rows:`, err);
+        return cached.rows;
+      }
+      throw err;
+    } finally {
+      gpuMetricsInFlightByWindow.delete(windowKey);
+    }
+  })();
+
+  gpuMetricsInFlightByWindow.set(windowKey, promise);
   return promise;
 }
 
@@ -183,12 +269,13 @@ function parseTimeframe(input?: string | number): TimeframeHours {
 
 async function resolveKPI({ timeframe }: { timeframe?: string }): Promise<DashboardKPI & { timeframeHours: number }> {
   const timeframeHours = parseTimeframe(timeframe);
-  const slaPeriod = `${timeframeHours}h`;
+  const demandWindow = `${Math.min(timeframeHours, 720)}h`;
+  const slaWindow = `${timeframeHours}h`;
 
-  // Demand API is capped at 24h; SLA uses the full selected timeframe.
+  // Use cached demand + SLA rows to dedupe parallel requests from KPI/pipelines resolvers.
   const [demandRows, slaRows] = await Promise.all([
-    fetchNetworkDemand(Math.min(timeframeHours, 24)),
-    getSLAComplianceRows(slaPeriod),
+    getNetworkDemandRows(demandWindow),
+    getSLAComplianceRows(slaWindow),
   ]);
 
   // Success Rate: served_sessions / total_demand_sessions (demand API has real served vs unserved counts)
@@ -198,7 +285,7 @@ async function resolveKPI({ timeframe }: { timeframe?: string }): Promise<Dashbo
   const orchCount = countOrchestrators(slaRows) || 0;
   const orchDelta = 0;
 
-  // Usage, Sessions, Fees: aggregate from demand API (24h max; real served/unserved counts)
+  // Usage, Sessions, Fees: aggregate from demand API (timeframe-scoped, up to 30d)
   const totalMins    = demandRows.reduce((s, r) => s + (r.total_minutes ?? 0), 0);
   const totalStreams = demandRows.reduce((s, r) => s + (r.total_demand_sessions ?? 0), 0);
   const totalFeesEth = demandRows.reduce((s, r) => s + (r.ticket_face_value_eth || 0), 0);
@@ -266,10 +353,13 @@ interface PipelineAccum {
   byModel: Map<string, PipelineModelAccum>;
 }
 
-async function resolvePipelines({ limit = 5 }: { limit?: number; timeframe?: string }): Promise<DashboardPipelineUsage[]> {
+async function resolvePipelines({ limit = 5, timeframe }: { limit?: number; timeframe?: string }): Promise<DashboardPipelineUsage[]> {
   const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 5;
+  const timeframeHours = parseTimeframe(timeframe);
+  const demandWindow = `${Math.min(timeframeHours, 720)}h`;
 
-  const demandRows = await fetchNetworkDemand(24);
+  // Use cached demand rows to dedupe parallel requests from KPI/pipelines resolvers.
+  const demandRows = await getNetworkDemandRows(demandWindow);
 
   const byPipeline = new Map<string, PipelineAccum>();
   for (const row of demandRows) {
@@ -358,9 +448,8 @@ function countUniqueGPUIds(rows: SLAComplianceRow[]): number {
   return gpuIds.size;
 }
 
-/** Dedicated query to /api/gpu/metrics for hardware breakdown (gpu_model_name counts). */
-async function fetchHardwareBreakdownFromGPUMetrics(): Promise<Array<{ model: string; count: number }>> {
-  const rows = await fetchGPUMetrics('24h');
+/** Compute hardware breakdown from GPU metrics rows (gpu_model_name counts). */
+function computeHardwareBreakdown(rows: GPUMetricRow[]): Array<{ model: string; count: number }> {
   const modelCounts = new Map<string, Set<string>>();
   for (const m of rows) {
     if (!m.gpu_model_name || !m.gpu_id) continue;
@@ -376,14 +465,18 @@ async function fetchHardwareBreakdownFromGPUMetrics(): Promise<Array<{ model: st
 
 async function resolveGPUCapacity({ timeframe }: { timeframe?: string }): Promise<DashboardGPUCapacity> {
   const timeframeHours = parseTimeframe(timeframe);
-  const slaPeriod = `${timeframeHours}h`;
+  const slaWindow = `${timeframeHours}h`;
+  // GPU metrics API max is 72h; align window with selected timeframe (capped).
+  const gpuWindow = `${Math.min(timeframeHours, 72)}h`;
 
-  const [slaRows, metricsWide, metricsRecent, models] = await Promise.all([
-    getSLAComplianceRows(slaPeriod),
-    fetchGPUMetrics('24h'),
-    fetchGPUMetrics('1h'),
-    fetchHardwareBreakdownFromGPUMetrics(),
+  // Single GPU metrics fetch aligned with timeframe (was 2 fetches: 24h + 1h).
+  const [slaRows, metricsRows] = await Promise.all([
+    getSLAComplianceRows(slaWindow),
+    getGPUMetricsRows(gpuWindow),
   ]);
+
+  // Hardware breakdown derived from aligned window.
+  const models = computeHardwareBreakdown(metricsRows);
 
   const totalGPUs = countUniqueGPUIds(slaRows);
 
@@ -394,10 +487,9 @@ async function resolveGPUCapacity({ timeframe }: { timeframe?: string }): Promis
   }
   const activeGPUs = activeGpuIds.size;
 
-  const sample = metricsRecent.length > 0 ? metricsRecent : metricsWide;
-  const avgAvailable = sample.length > 0
+  const avgAvailable = metricsRows.length > 0
     ? Math.round(
-        (1 - sample.reduce((s, m) => s + m.startup_unexcused_rate, 0) / sample.length) * 100
+        (1 - metricsRows.reduce((s, m) => s + m.startup_unexcused_rate, 0) / metricsRows.length) * 100
       )
     : 100;
 
@@ -614,7 +706,7 @@ function transformSLAComplianceRow(row: SLAComplianceRow): RawSLAComplianceRow {
 
 async function resolveRawNetworkDemand(args: NetworkDemandFilters): Promise<RawNetworkDemandRow[]> {
   const filters = {
-    interval: args.interval,
+    window: args.window,
     gateway: args.gateway,
     region: args.region,
     pipeline_id: args.pipelineId,
@@ -639,7 +731,7 @@ function normalizeCudaVersionForApi(value: string | undefined): string | undefin
 
 async function resolveRawGPUMetrics(args: GPUMetricsFilters): Promise<RawGPUMetricRow[]> {
   const filters = {
-    time_range: args.timeRange,
+    window: args.window,
     orchestrator_address: args.orchestratorAddress,
     pipeline_id: args.pipelineId,
     model_id: args.modelId,
@@ -655,7 +747,7 @@ async function resolveRawGPUMetrics(args: GPUMetricsFilters): Promise<RawGPUMetr
 
 async function resolveRawSLACompliance(args: SLAComplianceFilters): Promise<RawSLAComplianceRow[]> {
   const filters = {
-    period: args.period,
+    window: args.window,
     orchestrator_address: args.orchestratorAddress,
     pipeline_id: args.pipelineId,
     model_id: args.modelId,

@@ -1189,16 +1189,15 @@ function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: 
 export default function DashboardPage() {
   useAuth();
 
-  const [jobFeedPollInterval, setJobFeedPollInterval] = useState(DEFAULT_POLL_INTERVAL);
-  const [timeframe, setTimeframe] = useState(DEFAULT_TIMEFRAME);
+  // Initialize from localStorage synchronously to avoid double-fetch on hydration.
+  // getStoredTimeframe/getStoredJobFeedPollInterval return defaults when window is undefined (SSR).
+  const [jobFeedPollInterval, setJobFeedPollInterval] = useState(getStoredJobFeedPollInterval);
+  const [timeframe, setTimeframe] = useState(getStoredTimeframe);
 
+  // Sync to localStorage on mount (normalizes invalid stored values).
   useEffect(() => {
-    const storedPollInterval = getStoredJobFeedPollInterval();
-    const storedTimeframe = getStoredTimeframe();
-    setJobFeedPollInterval(storedPollInterval);
-    setTimeframe(storedTimeframe);
-    localStorage.setItem(POLL_INTERVAL_KEY, String(storedPollInterval));
-    localStorage.setItem(TIMEFRAME_KEY, storedTimeframe);
+    localStorage.setItem(POLL_INTERVAL_KEY, String(jobFeedPollInterval));
+    localStorage.setItem(TIMEFRAME_KEY, timeframe);
   }, []);
 
   const handleJobFeedPollIntervalChange = (ms: number) => {
