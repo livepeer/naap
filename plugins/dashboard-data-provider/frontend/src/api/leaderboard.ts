@@ -5,10 +5,10 @@
  * livepeer-leaderboard-serverless. All functions return typed arrays
  * and throw on non-OK responses so callers can catch and fall back.
  *
- * Interval math (from clickhouse.go): start = end - interval * 12
- *   interval=1h  → 12 h lookback at 1 h resolution
- *   interval=2h  → 24 h lookback at 2 h resolution  (daily totals)
- *   interval=14h → 7 d  lookback at 14 h resolution (weekly fees)
+ * All time-based endpoints use `window` query param (e.g. "24h", "7d", "720h"):
+ *   /network/demand   – default 3h,  max 30d (720h)
+ *   /gpu/metrics      – default 24h, max 72h
+ *   /sla/compliance   – default 24h, max 30d (720h), min 1h
  */
 
 /** Use server proxy so requests use LEADERBOARD_API_URL, timeout, and path validation. */
@@ -137,8 +137,8 @@ export interface PipelineCatalogEntry {
 // ---------------------------------------------------------------------------
 
 export interface NetworkDemandFilters {
-  /** Aggregation interval duration (e.g. "15m", "1h"). Default "15m". */
-  interval?: string;
+  /** Duration window to query (e.g. "3h", "24h", "7d"). Default "3h", max "30d". */
+  window?: string;
   /** Optional gateway filter */
   gateway?: string;
   /** Optional region filter */
@@ -150,8 +150,8 @@ export interface NetworkDemandFilters {
 }
 
 export interface GPUMetricsFilters {
-  /** Duration window to query (e.g. "1h", "24h"). Default "1h". */
-  time_range?: string;
+  /** Duration window to query (e.g. "1h", "24h", "72h"). Default "24h", max "72h". */
+  window?: string;
   /** Optional orchestrator address filter */
   orchestrator_address?: string;
   /** Optional pipeline filter */
@@ -178,8 +178,8 @@ interface PaginationInfo {
 }
 
 export interface SLAComplianceFilters {
-  /** Duration window to query (e.g. "24h", "7d"). Default "24h". API supports up to 30d. */
-  period?: string;
+  /** Duration window to query (e.g. "24h", "7d", "720h"). Default "24h", max "30d" (720h), min 1h. */
+  window?: string;
   /** Optional orchestrator address filter */
   orchestrator_address?: string;
   /** Optional pipeline filter */
@@ -265,8 +265,7 @@ export async function fetchNetworkDemand(filtersOrLookbackHours: NetworkDemandFi
     if (!Number.isFinite(lookbackHours) || lookbackHours <= 0) {
       throw new Error(`fetchNetworkDemand: lookbackHours must be a finite number > 0, got ${lookbackHours}`);
     }
-    const intervalMinutes = (lookbackHours * 60) / 12;
-    filters = { interval: `${intervalMinutes}m` };
+    filters = { window: `${lookbackHours}h` };
   } else {
     filters = filtersOrLookbackHours;
   }
@@ -328,14 +327,14 @@ export async function fetchNetworkDemand(filtersOrLookbackHours: NetworkDemandFi
 
 /**
  * Fetch GPU metrics data with API-native filters.
- * For backward compatibility, also accepts timeRange string as first arg.
+ * For backward compatibility, also accepts window string as first arg (e.g. "24h").
  */
-export async function fetchGPUMetrics(filtersOrTimeRange: GPUMetricsFilters | string): Promise<GPUMetricRow[]> {
-  const filters: GPUMetricsFilters = typeof filtersOrTimeRange === 'string'
-    ? { time_range: filtersOrTimeRange }
-    : filtersOrTimeRange;
+export async function fetchGPUMetrics(filtersOrWindow: GPUMetricsFilters | string): Promise<GPUMetricRow[]> {
+  const filters: GPUMetricsFilters = typeof filtersOrWindow === 'string'
+    ? { window: filtersOrWindow }
+    : filtersOrWindow;
 
-  const pageSize = 400;
+  const pageSize = 500;
   let page = 1;
   let totalPages = 1;
   const allMetrics: GPUMetricRow[] = [];
@@ -365,12 +364,12 @@ export async function fetchGPUMetrics(filtersOrTimeRange: GPUMetricsFilters | st
 
 /**
  * Fetch SLA compliance data with API-native filters.
- * For backward compatibility, also accepts period string as first arg.
+ * For backward compatibility, also accepts window string as first arg (e.g. "168h").
  */
-export async function fetchSLACompliance(filtersOrPeriod: SLAComplianceFilters | string): Promise<SLAComplianceRow[]> {
-  const filters: SLAComplianceFilters = typeof filtersOrPeriod === 'string'
-    ? { period: filtersOrPeriod }
-    : filtersOrPeriod;
+export async function fetchSLACompliance(filtersOrWindow: SLAComplianceFilters | string): Promise<SLAComplianceRow[]> {
+  const filters: SLAComplianceFilters = typeof filtersOrWindow === 'string'
+    ? { window: filtersOrWindow }
+    : filtersOrWindow;
 
   const pageSize = 500;
   const firstPageParams = buildParams({

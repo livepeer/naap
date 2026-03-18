@@ -62,9 +62,9 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     orchestrators(period: String): [OrchestratorRow!]
 
     # Raw explorer queries (API-native filters)
-    networkDemand(interval: String, gateway: String, region: String, pipelineId: String, modelId: String): [RawNetworkDemandRow!]
-    gpuMetrics(timeRange: String, orchestratorAddress: String, pipelineId: String, modelId: String, gpuId: String, region: String, gpuModelName: String, runnerVersion: String, cudaVersion: String): [RawGPUMetricRow!]
-    slaCompliance(period: String, orchestratorAddress: String, pipelineId: String, modelId: String, gpuId: String, region: String): [RawSLAComplianceRow!]
+    networkDemand(window: String, gateway: String, region: String, pipelineId: String, modelId: String): [RawNetworkDemandRow!]
+    gpuMetrics(window: String, orchestratorAddress: String, pipelineId: String, modelId: String, gpuId: String, region: String, gpuModelName: String, runnerVersion: String, cudaVersion: String): [RawGPUMetricRow!]
+    slaCompliance(window: String, orchestratorAddress: String, pipelineId: String, modelId: String, gpuId: String, region: String): [RawSLAComplianceRow!]
   }
 
   type KPI {
@@ -524,7 +524,7 @@ export interface RawSLAComplianceRow {
 
 /** Filter arguments for networkDemand query */
 export interface NetworkDemandFilters {
-  interval?: string;
+  window?: string;
   gateway?: string;
   region?: string;
   pipelineId?: string;
@@ -533,7 +533,7 @@ export interface NetworkDemandFilters {
 
 /** Filter arguments for gpuMetrics query */
 export interface GPUMetricsFilters {
-  timeRange?: string;
+  window?: string;
   orchestratorAddress?: string;
   pipelineId?: string;
   modelId?: string;
@@ -546,7 +546,7 @@ export interface GPUMetricsFilters {
 
 /** Filter arguments for slaCompliance query */
 export interface SLAComplianceFilters {
-  period?: string;
+  window?: string;
   orchestratorAddress?: string;
   pipelineId?: string;
   modelId?: string;
