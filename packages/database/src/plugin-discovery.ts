@@ -175,14 +175,23 @@ export function discoverFromDir(rootDir: string, subDir: string): DiscoveredPlug
 }
 
 /**
- * Scan the `plugins/` directory and read each `plugin.json` manifest.
- * Delegates to {@link discoverFromDir} with subDir = "plugins".
+ * Scan the `plugins/` and `examples/` directories and read each `plugin.json` manifest.
+ * Plugins in `plugins/` take precedence over `examples/` when both exist.
  *
  * @param rootDir - Monorepo root directory (must contain a `plugins/` folder)
  * @returns Array of discovered plugins sorted by navigation order; empty if plugins dir not found
  */
 export function discoverPlugins(rootDir: string): DiscoveredPlugin[] {
-  return discoverFromDir(rootDir, 'plugins');
+  const pluginsDirPlugins = discoverFromDir(rootDir, 'plugins');
+  const examplesDirPlugins = discoverFromDir(rootDir, 'examples');
+
+  // Merge: plugins/ takes precedence over examples/ by name
+  const seen = new Set(pluginsDirPlugins.map(p => p.name));
+  const merged = [
+    ...pluginsDirPlugins,
+    ...examplesDirPlugins.filter(p => !seen.has(p.name)),
+  ];
+  return merged.sort((a, b) => a.order - b.order);
 }
 
 /**
@@ -212,8 +221,12 @@ export function toWorkflowPluginData(
     const srcManifest = path.join(
       root, 'plugins', plugin.dirName, 'frontend', 'dist', 'production', 'manifest.json',
     );
+    const exampleManifest = path.join(
+      root, 'examples', plugin.dirName, 'frontend', 'dist', 'production', 'manifest.json',
+    );
     const manifestPath = fs.existsSync(cdnManifest) ? cdnManifest
       : fs.existsSync(srcManifest) ? srcManifest
+      : fs.existsSync(exampleManifest) ? exampleManifest
       : null;
 
     if (manifestPath) {
