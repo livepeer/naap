@@ -15,7 +15,11 @@ import { getAuthToken } from '@/lib/api/response';
 import { PLUGIN_PORTS, DEFAULT_PORT } from '@/lib/plugin-ports';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
-import { EXAMPLES_MANIFEST } from '../../../../../generated/examples-manifest';
+import { EXAMPLES_MANIFEST as _MANIFEST } from '../../../../../generated/examples-manifest';
+
+// Module-load sanity check (visible in Vercel function logs)
+const EXAMPLES_MANIFEST = Array.isArray(_MANIFEST) ? _MANIFEST : [];
+console.log(`[catch-all] Module loaded: EXAMPLES_MANIFEST has ${EXAMPLES_MANIFEST.length} entries (raw type=${typeof _MANIFEST}, isArray=${Array.isArray(_MANIFEST)})`);
 
 // ─── Plugin service URL map ─────────────────────────────────────────────────
 // Ports come from PLUGIN_PORTS (which mirrors plugin.json devPort values).
@@ -112,7 +116,11 @@ async function handleListExamples(request: NextRequest): Promise<NextResponse> {
       manifestLength: EXAMPLES_MANIFEST.length,
       manifestType: typeof EXAMPLES_MANIFEST,
       isArray: Array.isArray(EXAMPLES_MANIFEST),
-      firstEntry: EXAMPLES_MANIFEST[0]?.name || null,
+      firstEntry: EXAMPLES_MANIFEST[0] || null,
+      rawImportType: typeof _MANIFEST,
+      rawImportIsArray: Array.isArray(_MANIFEST),
+      rawImportLength: Array.isArray(_MANIFEST) ? _MANIFEST.length : -1,
+      rawImportKeys: _MANIFEST ? Object.keys(_MANIFEST).slice(0, 5) : [],
     },
   });
 }

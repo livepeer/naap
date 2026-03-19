@@ -38,12 +38,20 @@ function toPascalCase(s) {
 function generate() {
   let entries = [];
 
+  console.log(`[examples-manifest] ROOT = ${ROOT}`);
+  console.log(`[examples-manifest] EXAMPLES_DIR = ${EXAMPLES_DIR}`);
+  console.log(`[examples-manifest] EXAMPLES_DIR exists = ${fs.existsSync(EXAMPLES_DIR)}`);
+
   if (fs.existsSync(EXAMPLES_DIR)) {
-    entries = fs
-      .readdirSync(EXAMPLES_DIR)
+    const dirs = fs.readdirSync(EXAMPLES_DIR);
+    console.log(`[examples-manifest] Subdirs in examples/: ${dirs.join(', ')}`);
+
+    entries = dirs
       .filter((d) => {
         const pj = path.join(EXAMPLES_DIR, d, 'plugin.json');
-        return fs.existsSync(pj);
+        const exists = fs.existsSync(pj);
+        console.log(`[examples-manifest]   ${d}/plugin.json exists = ${exists}`);
+        return exists;
       })
       .map((d) => {
         const manifest = JSON.parse(
@@ -79,6 +87,19 @@ function generate() {
         };
       })
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  }
+
+  console.log(`[examples-manifest] Scanned ${entries.length} example(s)`);
+
+  // Safety: if the TS file already exists with content and the scan found 0
+  // entries, keep the existing file to avoid overwriting a valid committed manifest.
+  if (entries.length === 0 && fs.existsSync(OUT_TS)) {
+    const existing = fs.readFileSync(OUT_TS, 'utf8');
+    if (existing.includes('EXAMPLES_MANIFEST') && !existing.includes('[] = [];')) {
+      console.log(`[examples-manifest] WARNING: scan found 0 examples but existing TS manifest has content — keeping existing file`);
+      console.log(`  → ${path.relative(ROOT, OUT_TS)} (preserved)`);
+      return;
+    }
   }
 
   // Write JSON (for tooling / scripts)
