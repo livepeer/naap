@@ -15,7 +15,7 @@ router.get('/api/v1/wallet/network/history', async (req: Request, res: Response)
 
     if (days.length >= 2) {
       const summary = {
-        participationChange: parseFloat(days[0].participationRate) - parseFloat(days[days.length - 1].participationRate),
+        participationChange: (parseFloat(days[0].participationRate) - parseFloat(days[days.length - 1].participationRate)) * 100,
         orchestratorCountChange: days[0].activeTranscoderCount - days[days.length - 1].activeTranscoderCount,
         bondedChange: '0',
         periodStart: new Date(days[days.length - 1].date * 86400000).toISOString(),
@@ -27,7 +27,7 @@ router.get('/api/v1/wallet/network/history', async (req: Request, res: Response)
           dataPoints: days.map(d => ({
             round: d.date,
             totalBonded: '0',
-            participationRate: parseFloat(d.participationRate),
+            participationRate: parseFloat(d.participationRate) * 100,
             inflation: d.inflation,
             activeOrchestrators: d.activeTranscoderCount,
             delegatorsCount: d.delegatorsCount,
@@ -72,7 +72,7 @@ router.get('/api/v1/wallet/network/history', async (req: Request, res: Response)
         }],
         summary: {
           bondedChange: totalStakeFormatted,
-          participationChange: protocol.participationRate / 100,
+          participationChange: 0,
           orchestratorCountChange: protocol.activeTranscoderCount,
           periodStart: protocol.lastUpdated,
           periodEnd: protocol.lastUpdated,

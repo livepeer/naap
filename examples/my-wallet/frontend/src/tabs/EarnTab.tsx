@@ -495,25 +495,6 @@ const ProjectedEarnings: React.FC<{
     let totalAnnualFeesEth = 0;
     let hasObservedRate = false;
 
-    // First pass: compute observed per-LPT daily yield from wallets with data
-    let observedYieldPerLpt = 0;
-    let observedStakeForYield = 0;
-    for (const w of allWallets) {
-      const stakedLpt = parseFloat(formatUnits(w.stakedAmount, 18));
-      const accumulatedRewards = parseFloat(formatUnits(w.pendingRewards, 18));
-      const roundsElapsed = Number(w.currentRound) - Number(w.lastClaimRound);
-      if (accumulatedRewards > 0 && roundsElapsed > 0 && stakedLpt > 0) {
-        const dailyReward = accumulatedRewards / roundsElapsed;
-        // Use average stake (midpoint between principal and current) for yield calc
-        const avgStake = (stakedLpt + parseFloat(formatUnits(w.principal, 18))) / 2;
-        if (avgStake > 0) {
-          observedYieldPerLpt += dailyReward;
-          observedStakeForYield += avgStake;
-        }
-      }
-    }
-    const perLptDailyYield = observedStakeForYield > 0 ? observedYieldPerLpt / observedStakeForYield : 0;
-
     for (const w of allWallets) {
       const stakedLpt = parseFloat(formatUnits(w.stakedAmount, 18));
       if (stakedLpt <= 0) continue;
@@ -523,18 +504,20 @@ const ProjectedEarnings: React.FC<{
       const lastClaimRound = Number(w.lastClaimRound);
       const roundsElapsed = currentRound - lastClaimRound;
 
-      if (accumulatedRewards > 0 && roundsElapsed > 0) {
-        // Observed daily reward rate (1 round ≈ 1 day on Livepeer Arbitrum)
+      if (w.dailyRewardEstimate > 0) {
+        // Prefer backend-computed estimate (uses current inflation rate, reward cut,
+        // and pool data — gives the forward-looking daily rate)
+        totalDailyRewardsLpt += w.dailyRewardEstimate;
+        hasObservedRate = true;
+      } else if (accumulatedRewards > 0 && roundsElapsed > 0 && lastClaimRound > 0 && roundsElapsed < 90) {
+        // Observed rate — only reliable for recent claim windows (< 90 rounds)
         const dailyReward = accumulatedRewards / roundsElapsed;
         totalDailyRewardsLpt += dailyReward;
         hasObservedRate = true;
-      } else if (w.dailyRewardEstimate > 0) {
-        // Backend-computed estimate (uses orchestrator pool data and network inflation)
-        totalDailyRewardsLpt += w.dailyRewardEstimate;
-        hasObservedRate = true;
-      } else if (stakedLpt > 0 && perLptDailyYield > 0) {
-        // Fallback: per-LPT yield from other wallets
-        totalDailyRewardsLpt += stakedLpt * perLptDailyYield;
+      } else if (accumulatedRewards > 0 && roundsElapsed > 0) {
+        // Lifetime average fallback (less accurate for long windows)
+        const dailyReward = accumulatedRewards / roundsElapsed;
+        totalDailyRewardsLpt += dailyReward;
         hasObservedRate = true;
       }
 

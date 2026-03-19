@@ -247,7 +247,7 @@ export const PortfolioPage: React.FC = () => {
             <div>
               <p className="text-xs text-text-muted">Participation</p>
               <p className="text-lg font-mono text-text-primary">
-                {(networkHistory.data.dataPoints[0].participationRate * 100).toFixed(1)}%
+                {networkHistory.data.dataPoints[0].participationRate.toFixed(1)}%
               </p>
             </div>
             <div>

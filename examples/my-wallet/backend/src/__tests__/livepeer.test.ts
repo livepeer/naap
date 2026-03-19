@@ -18,7 +18,7 @@ describe('toWei', () => {
     expect(toWei('0')).toBe('0');
   });
 
-  it('passes through pure integer strings unchanged', () => {
+  it('passes through pure integer strings unchanged (already wei)', () => {
     expect(toWei('1000')).toBe('1000');
     expect(toWei('999999999999999999')).toBe('999999999999999999');
   });
@@ -29,7 +29,6 @@ describe('toWei', () => {
   });
 
   it('converts a decimal string to wei via parseUnits', () => {
-    // 12295.496985577868554513 * 1e18 = 12295496985577868554513
     expect(toWei('12295.496985577868554513')).toBe('12295496985577868554513');
   });
 
@@ -43,12 +42,10 @@ describe('toWei', () => {
   });
 
   it('strips decimal portion for malformed strings that parseUnits rejects', () => {
-    // parseUnits('abc.def', 18) throws → fallback strips after dot → 'abc'
     expect(toWei('abc.def')).toBe('abc');
   });
 
   it('returns "0" for malformed string with only dot prefix like ".abc"', () => {
-    // slice(0, 0) = '' → '' || '0' = '0'
     expect(toWei('.abc')).toBe('0');
   });
 });

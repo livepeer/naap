@@ -30,8 +30,9 @@ const KPICard: React.FC<{
   </div>
 );
 
-function formatLargeNumber(wei: string): string {
-  const n = parseFloat(wei) / 1e18;
+function formatLargeNumber(value: string): string {
+  const n = parseFloat(value);
+  if (Number.isNaN(n) || n === 0) return '0';
   if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
   if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
   return n.toFixed(2);
@@ -439,12 +440,12 @@ export const NetworkOverview: React.FC = () => {
       {/* KPI Cards */}
       {current && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          <KPICard icon={Coins} label="Total Stake" value={`${formatLargeNumber(current.totalBonded)} LPT`} sub={formatUSD(prices.lptUsd * parseFloat(current.totalBonded) / 1e18)} />
+          <KPICard icon={Coins} label="Total Stake" value={`${formatLargeNumber(current.totalBonded)} LPT`} sub={formatUSD(prices.lptUsd * parseFloat(current.totalBonded))} />
           <KPICard icon={Activity} label="Participation" value={`${current.participationRate.toFixed(1)}%`} />
           <KPICard icon={Users} label="Active O's" value={current.activeOrchestrators.toString()} />
           <KPICard icon={Users} label="Delegators" value={current.delegatorsCount > 0 ? current.delegatorsCount.toLocaleString() : '—'} />
           <KPICard icon={TrendingUp} label="LPT Price" value={`$${prices.lptUsd.toFixed(2)}`} sub={`${prices.lptChange24h >= 0 ? '+' : ''}${prices.lptChange24h.toFixed(1)}% 24h`} />
-          <KPICard icon={BarChart3} label="Total Fees" value={parseFloat(current.totalVolumeETH) > 0 ? `${formatLargeNumber(current.totalVolumeETH)} ETH` : '—'} sub={parseFloat(current.totalVolumeETH) > 0 ? formatUSD(prices.ethUsd * parseFloat(current.totalVolumeETH) / 1e18) : undefined} />
+          <KPICard icon={BarChart3} label="Total Fees" value={parseFloat(current.totalVolumeETH) > 0 ? `${formatLargeNumber(current.totalVolumeETH)} ETH` : '—'} sub={parseFloat(current.totalVolumeETH) > 0 ? formatUSD(prices.ethUsd * parseFloat(current.totalVolumeETH)) : undefined} />
         </div>
       )}
 

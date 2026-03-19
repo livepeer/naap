@@ -4,7 +4,7 @@
  */
 
 import { prisma } from '../db/client.js';
-import { getOrchestrators, getProtocol } from '../lib/livepeer.js';
+import { getOrchestrators, getProtocol, deriveNameFromServiceURI } from '../lib/livepeer.js';
 
 let lastSyncedRound = 0;
 
@@ -31,7 +31,7 @@ export async function syncOrchestrators(): Promise<void> {
       const orch = await prisma.walletOrchestrator.upsert({
         where: { address: addr },
         update: {
-          name: null,
+          name: deriveNameFromServiceURI(o.serviceURI),
           serviceUri: o.serviceURI,
           totalStake: o.totalStake,
           rewardCut: Math.round(o.rewardCut * 100),
@@ -52,6 +52,7 @@ export async function syncOrchestrators(): Promise<void> {
         create: {
           address: addr,
           chainId: 42161,
+          name: deriveNameFromServiceURI(o.serviceURI),
           serviceUri: o.serviceURI,
           totalStake: o.totalStake,
           rewardCut: Math.round(o.rewardCut * 100),
