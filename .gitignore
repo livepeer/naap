@@ -64,6 +64,9 @@ logs/
 # Generated plugin bundles (built during deployment)
 apps/web-next/public/cdn/
 
+# Generated examples manifest (built by bin/generate-examples-manifest.cjs)
+apps/web-next/examples-manifest.json
+
 # Platform runtime files
 .pids
 .pids.tmp

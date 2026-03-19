@@ -55,11 +55,36 @@ function buildPluginServices(): Record<string, string> {
 
 const PLUGIN_SERVICES = buildPluginServices();
 
+/**
+ * Prefixes that have their own dedicated Next.js route handlers and must
+ * never be treated as plugin names by this catch-all proxy. If a request
+ * for one of these reaches here, it means the static route was not matched
+ * (likely a missing sub-path) — return a clear error instead of the generic
+ * "Plugin X not found" message.
+ */
+const RESERVED_PREFIXES = new Set([
+  'registry', 'auth', 'base', 'storage', 'livepeer', 'pipelines', 'gw',
+]);
+
 async function handleRequest(
   request: NextRequest,
   { params }: { params: Promise<{ plugin: string; path: string[] }> }
 ): Promise<NextResponse> {
   const { plugin, path } = await params;
+
+  if (RESERVED_PREFIXES.has(plugin)) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: 'ROUTE_MISMATCH',
+          message: `/${plugin} has dedicated routes — this catch-all should not handle it`,
+        },
+        meta: { timestamp: new Date().toISOString() },
+      },
+      { status: 404 }
+    );
+  }
 
   // Check if plugin is known
   const serviceUrl = PLUGIN_SERVICES[plugin];
