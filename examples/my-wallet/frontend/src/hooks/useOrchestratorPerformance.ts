@@ -46,19 +46,20 @@ export function useOrchestratorPerformance(mode: 'all' | 'staked' = 'all', month
   const [summary, setSummary] = useState<PerformanceSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetch_ = useCallback(async () => {
+  const fetch_ = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
     try {
       const params = new URLSearchParams({ mode, months: months.toString() });
       if (address) params.set('address', address);
 
-      const res = await fetch(`${getApiUrl()}/orchestrators/performance?${params}`);
+      const res = await fetch(`${getApiUrl()}/orchestrators/performance?${params}`, { signal });
       if (res.ok) {
         const json = await res.json();
         setOrchestrators(json.orchestrators || []);
         setSummary(json.summary || null);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('Failed to fetch orchestrator performance:', err);
     } finally {
       setIsLoading(false);
@@ -76,7 +77,11 @@ export function useOrchestratorPerformance(mode: 'all' | 'staked' = 'all', month
     }
   }, [fetch_]);
 
-  useEffect(() => { fetch_(); }, [fetch_]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch_(controller.signal);
+    return () => controller.abort();
+  }, [fetch_]);
 
   return { orchestrators, summary, isLoading, refresh: fetch_, triggerSnapshot };
 }

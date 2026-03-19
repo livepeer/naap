@@ -57,15 +57,16 @@ export function useNetworkOverview(days = 90) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetch_ = useCallback(async () => {
+  const fetch_ = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${getApiUrl()}/network/overview?days=${days}`);
+      const res = await fetch(`${getApiUrl()}/network/overview?days=${days}`, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setData(json.data);
     } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('Failed to fetch network overview:', err);
       setError(err.message);
     } finally {
@@ -73,7 +74,11 @@ export function useNetworkOverview(days = 90) {
     }
   }, [days]);
 
-  useEffect(() => { fetch_(); }, [fetch_]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch_(controller.signal);
+    return () => controller.abort();
+  }, [fetch_]);
 
   return { data, isLoading, error, refresh: fetch_ };
 }

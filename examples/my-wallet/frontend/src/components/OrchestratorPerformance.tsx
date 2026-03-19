@@ -96,6 +96,10 @@ const MonthlyBarChart: React.FC<{
       .selectAll('text')
       .attr('fill', 'rgba(255,255,255,0.4)')
       .attr('font-size', '10px');
+
+    return () => {
+      svg.selectAll('*').remove();
+    };
   }, [data, color, format]);
 
   return (

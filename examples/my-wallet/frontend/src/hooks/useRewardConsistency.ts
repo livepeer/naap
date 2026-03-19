@@ -20,25 +20,31 @@ export function useRewardConsistency(orchestratorAddr?: string) {
   const [data, setData] = useState<RewardConsistency | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetch_ = useCallback(async () => {
+  const fetch_ = useCallback(async (signal?: AbortSignal) => {
     if (!orchestratorAddr) return;
     setIsLoading(true);
     try {
       const res = await fetch(
         `${getApiUrl()}/orchestrators/consistency?address=${encodeURIComponent(orchestratorAddr)}`,
+        { signal },
       );
       if (res.ok) {
         const json = await res.json();
         setData(json.data);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('Failed to fetch reward consistency:', err);
     } finally {
       setIsLoading(false);
     }
   }, [orchestratorAddr]);
 
-  useEffect(() => { fetch_(); }, [fetch_]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch_(controller.signal);
+    return () => controller.abort();
+  }, [fetch_]);
 
   return { data, isLoading, refresh: fetch_ };
 }

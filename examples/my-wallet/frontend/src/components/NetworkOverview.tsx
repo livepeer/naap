@@ -171,6 +171,10 @@ const StackedAreaChart: React.FC<{
       crosshair.style('display', 'none');
       if (tooltipRef.current) tooltipRef.current.style.display = 'none';
     });
+
+    return () => {
+      svg.on('mousemove', null).on('mouseleave', null);
+    };
   }, [data, keys, colors]);
 
   return (
@@ -278,6 +282,10 @@ const CapabilityDonut: React.FC<{ orchestrators: TopOrchestrator[] }> = ({ orche
     g.selectAll('path').data(pie(catCounts)).join('path').attr('d', arc).attr('fill', (d) => COLORS[d.data.name] || '#6b7280').attr('stroke', 'rgba(0,0,0,0.3)').attr('stroke-width', 1);
     g.append('text').attr('text-anchor', 'middle').attr('dy', '-0.2em').attr('fill', 'rgba(255,255,255,0.8)').attr('font-size', '18px').attr('font-weight', 'bold').text(orchestrators.length);
     g.append('text').attr('text-anchor', 'middle').attr('dy', '1.2em').attr('fill', 'rgba(255,255,255,0.4)').attr('font-size', '9px').text("Orchestrators");
+
+    return () => {
+      svg.selectAll('*').remove();
+    };
   }, [catCounts, orchestrators.length]);
 
   return (

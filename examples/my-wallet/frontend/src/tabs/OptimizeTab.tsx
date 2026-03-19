@@ -13,10 +13,30 @@ import { useSimulator } from '../hooks/useSimulator';
 import { useGovernance } from '../hooks/useGovernance';
 import { useNetworkHistory } from '../hooks/useNetworkHistory';
 import { useOrchestratorCache, CachedOrchestrator } from '../hooks/useOrchestratorCache';
-import { formatAddress, formatBalance } from '../lib/utils';
+import { formatAddress, formatBalance, downloadBlob } from '../lib/utils';
 import { getApiUrl } from '../App';
 
 type SubView = 'simulator' | 'consistency' | 'governance' | 'network';
+
+interface HealthEntry {
+  address: string;
+  name: string | null;
+  rewardCallRatio: number;
+  totalStake: string;
+  rewardCut: number;
+  roundsSinceReward: number;
+  missedRewardCalls: number;
+  healthScore: number;
+  feeShare: number;
+  lastRewardRound: number;
+  roundsSinceLastReward: number;
+}
+
+interface RewardHealthData {
+  best: HealthEntry[];
+  worst: HealthEntry[];
+  totalOrchestrators?: number;
+}
 
 export const OptimizeTab: React.FC = () => {
   const [subView, setSubView] = useState<SubView>('simulator');
@@ -217,7 +237,7 @@ const RewardHealthView: React.FC = () => {
   const { orchestrators } = useOrchestratorCache();
   const [topN, setTopN] = useState(10);
   const [searchQuery, setSearchQuery] = useState('');
-  const [rewardHealth, setRewardHealth] = useState<any>(null);
+  const [rewardHealth, setRewardHealth] = useState<RewardHealthData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   // Fetch reward health from backend
@@ -248,10 +268,10 @@ const RewardHealthView: React.FC = () => {
   };
 
   // Filter search within displayed orchestrators
-  const filterBySearch = (list: any[]) => {
+  const filterBySearch = (list: HealthEntry[]) => {
     if (!searchQuery) return list;
     const q = searchQuery.toLowerCase();
-    return list.filter((o: any) => o.address.toLowerCase().includes(q));
+    return list.filter((o) => o.address.toLowerCase().includes(q));
   };
 
   return (
@@ -314,7 +334,7 @@ const RewardHealthView: React.FC = () => {
               Best ({filterBySearch(rewardHealth.best || []).length})
             </h3>
             <div className="space-y-1">
-              {filterBySearch(rewardHealth.best || []).map((o: any, i: number) => (
+              {filterBySearch(rewardHealth.best || []).map((o, i) => (
                 <HealthRow key={o.address} rank={i + 1} data={o} type="best" />
               ))}
             </div>
@@ -326,7 +346,7 @@ const RewardHealthView: React.FC = () => {
               Worst ({filterBySearch(rewardHealth.worst || []).length})
             </h3>
             <div className="space-y-1">
-              {filterBySearch(rewardHealth.worst || []).map((o: any, i: number) => (
+              {filterBySearch(rewardHealth.worst || []).map((o, i) => (
                 <HealthRow key={o.address} rank={i + 1} data={o} type="worst" />
               ))}
             </div>
@@ -342,7 +362,7 @@ const RewardHealthView: React.FC = () => {
   );
 };
 
-const HealthRow: React.FC<{ rank: number; data: any; type: 'best' | 'worst' }> = ({ rank, data, type }) => {
+const HealthRow = React.memo<{ rank: number; data: HealthEntry; type: 'best' | 'worst' }>(({ rank, data, type }) => {
   const scoreColor = data.healthScore >= 80 ? 'text-accent-emerald'
     : data.healthScore >= 50 ? 'text-accent-amber'
     : 'text-accent-rose';
@@ -362,7 +382,7 @@ const HealthRow: React.FC<{ rank: number; data: any; type: 'best' | 'worst' }> =
       </div>
     </div>
   );
-};
+});
 
 /** Governance View */
 const GovernanceView: React.FC = () => {
@@ -577,11 +597,3 @@ const StatBlock: React.FC<{ label: string; value: string; color: string }> = ({ 
   </div>
 );
 
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}

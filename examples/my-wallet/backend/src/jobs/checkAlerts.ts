@@ -110,9 +110,15 @@ async function checkDeactivation(alert: { id: string; orchestratorAddr: string |
 async function checkUnbondingReady(alert: { id: string; userId: string }): Promise<boolean> {
   const params = await getProtocolParams();
 
+  const userAddresses = await prisma.walletAddress.findMany({
+    where: { userId: alert.userId },
+    select: { address: true },
+  });
+  const addressList = userAddresses.map(a => a.address);
+
   const readyLocks = await prisma.walletUnbondingLock.findMany({
     where: {
-      walletAddress: { userId: alert.userId },
+      address: { in: addressList },
       status: 'pending',
       withdrawRound: { lte: params.currentRound },
     },

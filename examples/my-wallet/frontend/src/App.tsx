@@ -14,6 +14,7 @@ import { EarnTab } from './tabs/EarnTab';
 import { ExploreTab } from './tabs/ExploreTab';
 import { OptimizeTab } from './tabs/OptimizeTab';
 import { ReportsTab } from './tabs/ReportsTab';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './globals.css';
 
 /** Inner app that switches between connect screen and tab layout */
@@ -27,10 +28,10 @@ const AppContent: React.FC = () => {
 
   return (
     <AppLayout activeTab={activeTab} onTabChange={setActiveTab}>
-      {activeTab === 'earn' && <EarnTab onNavigate={setActiveTab} />}
-      {activeTab === 'explore' && <ExploreTab />}
-      {activeTab === 'optimize' && <OptimizeTab />}
-      {activeTab === 'reports' && <ReportsTab />}
+      {activeTab === 'earn' && <ErrorBoundary fallbackMessage="Earn tab encountered an error"><EarnTab onNavigate={setActiveTab} /></ErrorBoundary>}
+      {activeTab === 'explore' && <ErrorBoundary fallbackMessage="Explore tab encountered an error"><ExploreTab /></ErrorBoundary>}
+      {activeTab === 'optimize' && <ErrorBoundary fallbackMessage="Optimize tab encountered an error"><OptimizeTab /></ErrorBoundary>}
+      {activeTab === 'reports' && <ErrorBoundary fallbackMessage="Reports tab encountered an error"><ReportsTab /></ErrorBoundary>}
     </AppLayout>
   );
 };

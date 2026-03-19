@@ -14,6 +14,14 @@ import { parseUnits } from 'ethers';
 // Utilities
 // ---------------------------------------------------------------------------
 
+function sanitizeAddress(addr: string): string {
+  const cleaned = addr.toLowerCase().trim();
+  if (!/^0x[a-f0-9]{40}$/.test(cleaned)) {
+    throw new Error(`Invalid Ethereum address: ${addr.slice(0, 20)}`);
+  }
+  return cleaned;
+}
+
 /**
  * Convert a subgraph decimal string (ETH/LPT units like "12295.49698...")
  * to a wei string safe for BigInt. If already an integer string, passes through.
@@ -588,6 +596,7 @@ async function getDelegatorFromRPC(address: string): Promise<DelegatorData | nul
 }
 
 async function getDelegatorFromSubgraph(addr: string): Promise<DelegatorData | null> {
+  const safe = sanitizeAddress(addr);
   const data = await querySubgraph<{
     delegator: {
       bondedAmount: string;
@@ -604,7 +613,7 @@ async function getDelegatorFromSubgraph(addr: string): Promise<DelegatorData | n
       }>;
     } | null;
   }>(`{
-    delegator(id: "${addr}") {
+    delegator(id: "${safe}") {
       bondedAmount
       principal
       fees
@@ -753,6 +762,7 @@ export async function getStakingHistory(address: string): Promise<StakingEvent[]
 }
 
 async function getStakingHistoryFromSubgraph(addr: string): Promise<StakingEvent[]> {
+  const safe = sanitizeAddress(addr);
   const data = await querySubgraph<{
     bondEvents: Array<{ timestamp: string; round: { id: string }; additionalAmount: string; newDelegate: { id: string }; transaction: { id: string } }>;
     unbondEvents: Array<{ timestamp: string; round: { id: string }; amount: string; delegate: { id: string }; transaction: { id: string } }>;
@@ -761,22 +771,22 @@ async function getStakingHistoryFromSubgraph(addr: string): Promise<StakingEvent
     withdrawStakeEvents: Array<{ timestamp: string; round: { id: string }; amount: string; transaction: { id: string } }>;
     withdrawFeesEvents: Array<{ timestamp: string; round: { id: string }; amount: string; transaction: { id: string } }>;
   }>(`{
-    bondEvents(first: 50, where: { delegator: "${addr}" }, orderBy: timestamp, orderDirection: desc) {
+    bondEvents(first: 50, where: { delegator: "${safe}" }, orderBy: timestamp, orderDirection: desc) {
       timestamp round { id } additionalAmount newDelegate { id } transaction { id }
     }
-    unbondEvents(first: 50, where: { delegator: "${addr}" }, orderBy: timestamp, orderDirection: desc) {
+    unbondEvents(first: 50, where: { delegator: "${safe}" }, orderBy: timestamp, orderDirection: desc) {
       timestamp round { id } amount delegate { id } transaction { id }
     }
-    rebondEvents(first: 50, where: { delegator: "${addr}" }, orderBy: timestamp, orderDirection: desc) {
+    rebondEvents(first: 50, where: { delegator: "${safe}" }, orderBy: timestamp, orderDirection: desc) {
       timestamp round { id } amount delegate { id } transaction { id }
     }
-    earningsClaimedEvents: earningsClaimedEvents(first: 50, where: { delegator: "${addr}" }, orderBy: timestamp, orderDirection: desc) {
+    earningsClaimedEvents: earningsClaimedEvents(first: 50, where: { delegator: "${safe}" }, orderBy: timestamp, orderDirection: desc) {
       timestamp round { id } rewardTokens fees delegate { id } transaction { id }
     }
-    withdrawStakeEvents(first: 20, where: { delegator: "${addr}" }, orderBy: timestamp, orderDirection: desc) {
+    withdrawStakeEvents(first: 20, where: { delegator: "${safe}" }, orderBy: timestamp, orderDirection: desc) {
       timestamp round { id } amount transaction { id }
     }
-    withdrawFeesEvents: withdrawFeesEvents(first: 20, where: { delegator: "${addr}" }, orderBy: timestamp, orderDirection: desc) {
+    withdrawFeesEvents: withdrawFeesEvents(first: 20, where: { delegator: "${safe}" }, orderBy: timestamp, orderDirection: desc) {
       timestamp round { id } amount transaction { id }
     }
   }`);

@@ -40,12 +40,17 @@ export async function getRecommendations(
   });
 
   // Get user's current delegations to exclude
-  const addresses = await prisma.walletAddress.findMany({
+  const walletAddresses = await prisma.walletAddress.findMany({
     where: { userId },
-    include: { stakingStates: { select: { delegatedTo: true } } },
+    select: { address: true },
+  });
+  const addressList = walletAddresses.map(a => a.address);
+  const stakingStates = await prisma.walletStakingState.findMany({
+    where: { address: { in: addressList } },
+    select: { delegatedTo: true },
   });
   const currentOs = new Set(
-    addresses.flatMap(a => a.stakingStates.map(s => s.delegatedTo).filter(Boolean))
+    stakingStates.map(s => s.delegatedTo).filter(Boolean)
   );
 
   // Score each orchestrator

@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../db/client.js';
 import { monthlySnapshot } from '../jobs/monthlySnapshot.js';
+import { isValidAddress } from '../lib/validators.js';
 
 const router = Router();
 
@@ -17,6 +18,9 @@ router.get('/api/v1/wallet/orchestrators/performance', async (req: Request, res:
 
     if (mode === 'staked' && !address) {
       return res.status(400).json({ error: 'address required for staked mode' });
+    }
+    if (address && !isValidAddress(address)) {
+      return res.status(400).json({ error: 'Invalid Ethereum address format' });
     }
 
     // Get orchestrators based on mode

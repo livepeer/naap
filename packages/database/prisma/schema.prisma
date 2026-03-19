@@ -1226,6 +1226,140 @@ model WalletMonthlySnapshot {
   @@schema("plugin_wallet")
 }
 
+model WalletAddress {
+  id           String    @id @default(cuid())
+  userId       String
+  address      String
+  chainId      Int       @default(42161)
+  label        String?
+  isPrimary    Boolean   @default(false)
+  connectedAt  DateTime  @default(now())
+  lastSyncedAt DateTime?
+
+  autoClaimConfig WalletAutoClaimConfig?
+
+  @@unique([userId, address, chainId])
+  @@index([userId])
+  @@index([address])
+  @@map("WalletAddress")
+  @@schema("plugin_wallet")
+}
+
+model WalletAutoClaimConfig {
+  id              String    @id @default(cuid())
+  walletAddressId String    @unique
+  enabled         Boolean   @default(false)
+  minRewardLpt    String    @default("0")
+  lastClaimedAt   DateTime?
+  createdAt       DateTime  @default(now())
+
+  walletAddress WalletAddress @relation(fields: [walletAddressId], references: [id], onDelete: Cascade)
+
+  @@map("WalletAutoClaimConfig")
+  @@schema("plugin_wallet")
+}
+
+model WalletAlert {
+  id               String   @id @default(cuid())
+  userId           String
+  type             String
+  orchestratorAddr String?
+  threshold        String?
+  enabled          Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  history WalletAlertHistory[]
+
+  @@unique([userId, type, orchestratorAddr])
+  @@index([userId])
+  @@index([userId, enabled])
+  @@map("WalletAlert")
+  @@schema("plugin_wallet")
+}
+
+model WalletAlertHistory {
+  id        String    @id @default(cuid())
+  alertId   String
+  message   String
+  data      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  alert WalletAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([alertId])
+  @@index([alertId, readAt])
+  @@map("WalletAlertHistory")
+  @@schema("plugin_wallet")
+}
+
+model WalletUnbondingLock {
+  id              String    @id @default(cuid())
+  address         String
+  lockId          Int
+  amount          String
+  withdrawRound   Int
+  delegateAddress String?
+  status          String    @default("pending")
+  txHash          String?
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@unique([address, lockId])
+  @@index([address])
+  @@index([status])
+  @@map("WalletUnbondingLock")
+  @@schema("plugin_wallet")
+}
+
+model WalletGovernanceProposal {
+  id           String   @id @default(cuid())
+  proposalId   String   @unique
+  title        String
+  description  String?
+  status       String   @default("active")
+  votesFor     String   @default("0")
+  votesAgainst String   @default("0")
+  createdAt    DateTime @default(now())
+
+  votes WalletGovernanceVote[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("WalletGovernanceProposal")
+  @@schema("plugin_wallet")
+}
+
+model WalletGovernanceVote {
+  id               String   @id @default(cuid())
+  proposalId       String
+  orchestratorAddr String
+  support          Boolean
+  weight           String   @default("0")
+  createdAt        DateTime @default(now())
+
+  proposal WalletGovernanceProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, orchestratorAddr])
+  @@index([orchestratorAddr])
+  @@index([proposalId])
+  @@map("WalletGovernanceVote")
+  @@schema("plugin_wallet")
+}
+
+model WalletPriceCache {
+  id        String   @id @default(cuid())
+  symbol    String
+  priceUsd  Float
+  source    String   @default("coingecko")
+  fetchedAt DateTime @default(now())
+
+  @@index([symbol, fetchedAt])
+  @@map("WalletPriceCache")
+  @@schema("plugin_wallet")
+}
+
 // ============================================
 // PLUGIN: MY DASHBOARD
 // ============================================

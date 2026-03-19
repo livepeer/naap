@@ -33,17 +33,19 @@ export function useYield() {
   const [period, setPeriod] = useState<YieldPeriod>('30d');
   const [isLoading, setIsLoading] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
     try {
       const apiUrl = getApiUrl();
       const token = await shell.auth.getToken().catch(() => '');
       const res = await fetch(`${apiUrl}/yield?period=${period}&address=${address || ''}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal,
       });
       const json = await res.json();
       setData(json.data ?? json);
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('Failed to fetch yield:', err);
     } finally {
       setIsLoading(false);
@@ -52,7 +54,11 @@ export function useYield() {
 
   useEffect(() => {
     const user = shell.auth.getUser();
-    if (user) refresh();
+    if (user) {
+      const controller = new AbortController();
+      refresh(controller.signal);
+      return () => controller.abort();
+    }
   }, [shell, refresh]);
 
   return {

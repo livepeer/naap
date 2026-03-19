@@ -28,7 +28,7 @@ export function usePortfolio(): UsePortfolioReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     if (!address) return;
     setIsLoading(true);
     setError(null);
@@ -39,11 +39,13 @@ export function usePortfolio(): UsePortfolioReturn {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
+        signal,
       });
       const json = await res.json();
       const data = json.data ?? json;
       setPortfolio(data);
     } catch (err: any) {
+      if (err.name === 'AbortError') return;
       setError(err?.message || 'Failed to fetch portfolio');
     } finally {
       setIsLoading(false);
@@ -52,7 +54,11 @@ export function usePortfolio(): UsePortfolioReturn {
 
   useEffect(() => {
     const user = shell.auth.getUser();
-    if (user) refresh();
+    if (user) {
+      const controller = new AbortController();
+      refresh(controller.signal);
+      return () => controller.abort();
+    }
   }, [shell, refresh]);
 
   return { portfolio, isLoading, error, refresh };

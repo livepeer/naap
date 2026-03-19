@@ -19,17 +19,19 @@ export function useBenchmarks() {
   const [data, setData] = useState<BenchmarkData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
     try {
       const apiUrl = getApiUrl();
       const token = await shell.auth.getToken().catch(() => '');
       const res = await fetch(`${apiUrl}/network/benchmarks`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal,
       });
       const json = await res.json();
       setData(json.data ?? json);
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('Failed to fetch benchmarks:', err);
     } finally {
       setIsLoading(false);
@@ -38,7 +40,11 @@ export function useBenchmarks() {
 
   useEffect(() => {
     const user = shell.auth.getUser();
-    if (user) refresh();
+    if (user) {
+      const controller = new AbortController();
+      refresh(controller.signal);
+      return () => controller.abort();
+    }
   }, [shell, refresh]);
 
   return {

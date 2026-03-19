@@ -31,22 +31,27 @@ export function useNetworkHistory(limit = 90) {
   const [data, setData] = useState<NetworkTrends | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetch_ = useCallback(async () => {
+  const fetch_ = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
     try {
-      const res = await fetch(`${getApiUrl()}/network/history?limit=${limit}`);
+      const res = await fetch(`${getApiUrl()}/network/history?limit=${limit}`, { signal });
       if (res.ok) {
         const json = await res.json();
         setData(json.data);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('Failed to fetch network history:', err);
     } finally {
       setIsLoading(false);
     }
   }, [limit]);
 
-  useEffect(() => { fetch_(); }, [fetch_]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch_(controller.signal);
+    return () => controller.abort();
+  }, [fetch_]);
 
   return { data, isLoading, refresh: fetch_ };
 }

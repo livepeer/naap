@@ -18,7 +18,7 @@ export function useOrchestratorChanges(addresses: string[], sinceRound?: number)
   const [changes, setChanges] = useState<OrchestratorChange[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetch_ = useCallback(async () => {
+  const fetch_ = useCallback(async (signal?: AbortSignal) => {
     if (!addresses.length) {
       setChanges([]);
       return;
@@ -31,19 +31,24 @@ export function useOrchestratorChanges(addresses: string[], sinceRound?: number)
       });
       if (sinceRound) params.set('sinceRound', sinceRound.toString());
 
-      const res = await fetch(`${getApiUrl()}/orchestrators/changes?${params}`);
+      const res = await fetch(`${getApiUrl()}/orchestrators/changes?${params}`, { signal });
       if (res.ok) {
         const json = await res.json();
         setChanges(json.data || []);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('Failed to fetch orchestrator changes:', err);
     } finally {
       setIsLoading(false);
     }
   }, [addresses.join(','), sinceRound]);
 
-  useEffect(() => { fetch_(); }, [fetch_]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch_(controller.signal);
+    return () => controller.abort();
+  }, [fetch_]);
 
   return { changes, isLoading, refresh: fetch_ };
 }

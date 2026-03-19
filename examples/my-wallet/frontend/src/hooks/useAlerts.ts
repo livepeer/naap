@@ -39,32 +39,34 @@ export function useAlerts() {
     return headers;
   }, [shell]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
     try {
       const apiUrl = getApiUrl();
       const headers = await getHeaders();
-      const res = await fetch(`${apiUrl}/alerts`, { headers });
+      const res = await fetch(`${apiUrl}/alerts`, { headers, signal });
       const json = await res.json();
       const data = json.data ?? json;
       setAlerts(data.alerts || []);
       setUnreadCount(data.unreadCount || 0);
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('Failed to fetch alerts:', err);
     } finally {
       setIsLoading(false);
     }
   }, [getHeaders]);
 
-  const fetchHistory = useCallback(async (limit = 50, offset = 0) => {
+  const fetchHistory = useCallback(async (limit = 50, offset = 0, signal?: AbortSignal) => {
     try {
       const apiUrl = getApiUrl();
       const headers = await getHeaders();
-      const res = await fetch(`${apiUrl}/alerts/history?limit=${limit}&offset=${offset}`, { headers });
+      const res = await fetch(`${apiUrl}/alerts/history?limit=${limit}&offset=${offset}`, { headers, signal });
       const json = await res.json();
       const data = json.data ?? json;
       setHistory(data.items || []);
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('Failed to fetch alert history:', err);
     }
   }, [getHeaders]);
@@ -113,8 +115,10 @@ export function useAlerts() {
   useEffect(() => {
     const user = shell.auth.getUser();
     if (user) {
-      refresh();
-      fetchHistory();
+      const controller = new AbortController();
+      refresh(controller.signal);
+      fetchHistory(50, 0, controller.signal);
+      return () => controller.abort();
     }
   }, [shell, refresh, fetchHistory]);
 
