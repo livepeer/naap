@@ -1074,18 +1074,31 @@ model WalletStakingState {
 }
 
 model WalletOrchestrator {
-  id         String   @id @default(uuid())
-  address    String   @unique
-  chainId    Int
-  name       String?
-  serviceUri String?
-  totalStake String   @default("0")
-  rewardCut  Int      @default(0)
-  feeShare   Int      @default(0)
-  isActive   Boolean  @default(true)
-  lastSynced DateTime @default(now())
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id                  String   @id @default(uuid())
+  address             String   @unique
+  chainId             Int
+  name                String?
+  serviceUri          String?
+  totalStake          String   @default("0")
+  rewardCut           Int      @default(0)
+  feeShare            Int      @default(0)
+  isActive            Boolean  @default(true)
+  activationRound     Int?
+  deactivationRound   Int?
+  totalVolumeETH      String   @default("0")
+  thirtyDayVolumeETH  String   @default("0")
+  ninetyDayVolumeETH  String   @default("0")
+  totalRewardTokens   String   @default("0")
+  lastRewardRound     Int      @default(0)
+  delegatorCount      Int      @default(0)
+  rewardCallRatio     Float    @default(0)
+  syncedAtRound       Int      @default(0)
+  lastSynced          DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  roundHistory  WalletOrchestratorRoundHistory[]
+  capabilities  WalletOrchestratorCapability[]
 
   @@index([chainId, isActive])
   @@index([totalStake])
@@ -1120,6 +1133,96 @@ model WalletStakingSnapshot {
   @@unique([address, round])
   @@index([address, createdAt])
   @@index([orchestrator, createdAt])
+  @@schema("plugin_wallet")
+}
+
+model WalletOrchestratorRoundHistory {
+  id             String             @id @default(uuid())
+  orchestrator   WalletOrchestrator @relation(fields: [orchestratorId], references: [id], onDelete: Cascade)
+  orchestratorId String
+  address        String
+  round          Int
+  rewardCut      Int
+  feeShare       Int
+  totalStake     String             @default("0")
+  calledReward   Boolean            @default(false)
+  createdAt      DateTime           @default(now())
+
+  @@unique([address, round])
+  @@index([address, round])
+  @@schema("plugin_wallet")
+}
+
+model WalletOrchestratorCapability {
+  id             String             @id @default(uuid())
+  orchestrator   WalletOrchestrator @relation(fields: [orchestratorId], references: [id], onDelete: Cascade)
+  orchestratorId String
+  address        String
+  category       String             // "transcoding" | "realtime_ai" | "ai_batch" | "agent" | "other"
+  pipelineId     String?
+  serviceURI     String?
+  lastChecked    DateTime           @default(now())
+  createdAt      DateTime           @default(now())
+
+  @@unique([address, category, pipelineId])
+  @@index([address])
+  @@index([category])
+  @@schema("plugin_wallet")
+}
+
+model WalletNetworkSnapshot {
+  id                  String   @id @default(uuid())
+  round               Int      @unique
+  totalBonded         String   @default("0")
+  totalSupply         String   @default("0")
+  participationRate   Float    @default(0)
+  inflation           String   @default("0")
+  activeOrchestrators Int      @default(0)
+  delegatorsCount     Int      @default(0)
+  totalVolumeETH      String   @default("0")
+  totalVolumeUSD      String   @default("0")
+  avgRewardCut        Float    @default(0)
+  avgFeeShare         Float    @default(0)
+  lptPriceUsd         Float    @default(0)
+  ethPriceUsd         Float    @default(0)
+  snapshotAt          DateTime @default(now())
+
+  @@index([round])
+  @@schema("plugin_wallet")
+}
+
+model WalletWatchlist {
+  id               String   @id @default(uuid())
+  userId           String
+  orchestratorAddr String
+  label            String?
+  notes            String?
+  addedAt          DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([userId, orchestratorAddr])
+  @@index([userId])
+  @@schema("plugin_wallet")
+}
+
+model WalletMonthlySnapshot {
+  id                String   @id @default(uuid())
+  month             String                         // "2026-03" format
+  walletAddress     String
+  orchestratorAddr  String
+  bondedAmount      String   @default("0")
+  pendingStake      String   @default("0")
+  principal         String   @default("0")
+  lptRewardsAccrued String   @default("0")
+  ethFeesAccrued    String   @default("0")
+  lptPriceUsd       Float    @default(0)
+  ethPriceUsd       Float    @default(0)
+  round             Int
+  snapshotAt        DateTime @default(now())
+
+  @@unique([month, walletAddress, orchestratorAddr])
+  @@index([walletAddress, month])
+  @@index([orchestratorAddr, month])
   @@schema("plugin_wallet")
 }
 

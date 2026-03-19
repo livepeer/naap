@@ -7,12 +7,14 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { FileText, Fuel, Download, ExternalLink, ArrowUpRight, ArrowDownRight, Gift, RefreshCw, RotateCcw, TrendingUp, Calendar } from 'lucide-react';
+import { FileText, Fuel, Download, ExternalLink, ArrowUpRight, ArrowDownRight, Gift, RefreshCw, RotateCcw, TrendingUp, BarChart3 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { useExport } from '../hooks/useExport';
 import { usePrices } from '../hooks/usePrices';
-import { formatAddress, formatBalance } from '../lib/utils';
+import { useGasAccounting } from '../hooks/useGasAccounting';
+import { formatAddress } from '../lib/utils';
 import { getApiUrl } from '../App';
+import { OrchestratorPerformance } from '../components/OrchestratorPerformance';
 
 interface StakingEvent {
   type: 'bond' | 'unbond' | 'rebond' | 'reward' | 'withdrawFees' | 'withdrawStake';
@@ -23,7 +25,7 @@ interface StakingEvent {
   txHash: string | null;
 }
 
-type SubView = 'pnl' | 'transactions' | 'gas' | 'export';
+type SubView = 'pnl' | 'performance' | 'transactions' | 'gas' | 'export';
 
 export const ReportsTab: React.FC = () => {
   const [subView, setSubView] = useState<SubView>('pnl');
@@ -33,6 +35,7 @@ export const ReportsTab: React.FC = () => {
       <div className="flex gap-1 bg-[var(--bg-tertiary)] p-1 rounded-lg w-fit flex-wrap">
         {([
           { id: 'pnl' as SubView, label: 'P&L Report', icon: <TrendingUp className="w-3.5 h-3.5" /> },
+          { id: 'performance' as SubView, label: 'Performance', icon: <BarChart3 className="w-3.5 h-3.5" /> },
           { id: 'transactions' as SubView, label: 'Staking History', icon: <FileText className="w-3.5 h-3.5" /> },
           { id: 'gas' as SubView, label: 'Gas Costs', icon: <Fuel className="w-3.5 h-3.5" /> },
           { id: 'export' as SubView, label: 'Export', icon: <Download className="w-3.5 h-3.5" /> },
@@ -53,6 +56,7 @@ export const ReportsTab: React.FC = () => {
       </div>
 
       {subView === 'pnl' && <PnlView />}
+      {subView === 'performance' && <OrchestratorPerformance />}
       {subView === 'transactions' && <StakingHistoryView />}
       {subView === 'gas' && <GasView />}
       {subView === 'export' && <ExportView />}
@@ -172,7 +176,6 @@ const PnlView: React.FC = () => {
   };
 
   const lptUsd = pnlData?.prices?.lptUsd || prices.lptUsd;
-  const ethUsd = pnlData?.prices?.ethUsd || prices.ethUsd;
 
   return (
     <div className="space-y-4">
@@ -519,60 +522,97 @@ const StakingHistoryView: React.FC = () => {
   );
 };
 
-/** Gas Accounting — derived from event count */
+/** Gas Accounting — from transaction logs via useGasAccounting hook */
 const GasView: React.FC = () => {
-  const { address, isConnected } = useWallet();
-  const [gasData, setGasData] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const { isConnected } = useWallet();
+  const { summary, isLoading, refresh } = useGasAccounting();
 
-  useEffect(() => {
-    if (!isConnected || !address) return;
-    setIsLoading(true);
-    fetch(`${getApiUrl()}/staking/gas-summary?address=${address}`)
-      .then(r => r.json())
-      .then(json => setGasData(json.data))
-      .catch(err => console.error('Gas summary error:', err))
-      .finally(() => setIsLoading(false));
-  }, [isConnected, address]);
+  const formatEthGas = (wei: string) => {
+    const n = parseFloat(wei) / 1e18;
+    if (n === 0) return '0';
+    if (n < 0.0001) return '<0.0001';
+    return n.toFixed(6);
+  };
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-sm font-semibold text-text-primary mb-1">Gas Cost Summary</h2>
-        <p className="text-xs text-text-tertiary">Overview of transaction costs</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-text-primary mb-1">Gas Cost Summary</h2>
+          <p className="text-xs text-text-tertiary">Total gas spent on staking operations</p>
+        </div>
+        <button onClick={refresh} className="p-1 rounded hover:bg-[var(--bg-tertiary)]">
+          <RefreshCw className={`w-3.5 h-3.5 text-text-tertiary ${isLoading ? 'animate-spin' : ''}`} />
+        </button>
       </div>
 
-      {isLoading ? (
+      {isLoading && !summary ? (
         <div className="grid grid-cols-2 gap-3">
-          {[1,2].map(i => <div key={i} className="glass-card p-4 h-24 animate-pulse" />)}
+          {[1, 2, 3, 4].map(i => <div key={i} className="glass-card p-4 h-20 animate-pulse" />)}
         </div>
-      ) : gasData ? (
+      ) : summary ? (
         <>
           <div className="grid grid-cols-2 gap-3">
             <div className="glass-card p-4">
-              <p className="text-[11px] text-text-tertiary mb-1">Staking Events</p>
+              <p className="text-[11px] text-text-tertiary mb-1">Total Gas Cost</p>
               <p className="text-lg font-bold font-mono text-text-primary">
-                {gasData.estimatedTxCount || gasData.transactionCount || 0}
+                {formatEthGas(summary.totalGasCostWei)} ETH
               </p>
+              {summary.totalGasCostEth > 0 && (
+                <p className="text-[10px] text-text-tertiary font-mono">
+                  {summary.totalGasCostEth.toFixed(6)} ETH
+                </p>
+              )}
             </div>
             <div className="glass-card p-4">
-              <p className="text-[11px] text-text-tertiary mb-1">On-chain Transactions</p>
+              <p className="text-[11px] text-text-tertiary mb-1">Transactions</p>
               <p className="text-lg font-bold font-mono text-text-primary">
-                {gasData.transactionCount || 0}
+                {summary.transactionCount}
               </p>
+              {summary.avgGasPerTx > 0 && (
+                <p className="text-[10px] text-text-tertiary font-mono">
+                  Avg: {summary.avgGasPerTx.toLocaleString()} gas/tx
+                </p>
+              )}
             </div>
           </div>
 
-          {gasData.note && (
-            <div className="glass-card p-3">
-              <p className="text-[11px] text-text-tertiary">{gasData.note}</p>
+          {/* By Type breakdown */}
+          {Object.keys(summary.byType).length > 0 && (
+            <div className="glass-card overflow-hidden">
+              <div className="px-3 py-2 bg-[var(--bg-tertiary)]/50">
+                <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Cost by Transaction Type</p>
+              </div>
+              <div className="divide-y divide-[var(--border-color)]">
+                {Object.entries(summary.byType).map(([type, data]) => (
+                  <div key={type} className="flex items-center justify-between px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs capitalize text-text-primary">{type}</span>
+                      <span className="text-[10px] text-text-tertiary">({data.count} tx)</span>
+                    </div>
+                    <span className="text-xs font-mono text-text-primary">
+                      {formatEthGas(data.totalGasWei)} ETH
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {summary.transactionCount === 0 && (
+            <div className="glass-card p-4">
+              <p className="text-xs text-text-tertiary">
+                No transactions logged yet. Gas costs will accumulate as you stake, unstake, and claim rewards through the wallet.
+              </p>
             </div>
           )}
         </>
       ) : (
         <div className="glass-card p-8 text-center">
           <Fuel className="w-8 h-8 text-text-tertiary mx-auto mb-2" />
-          <p className="text-sm text-text-secondary">Connect wallet to view gas costs</p>
+          <p className="text-sm text-text-secondary">
+            {isConnected ? 'No gas data available' : 'Connect wallet to view gas costs'}
+          </p>
         </div>
       )}
     </div>

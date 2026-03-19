@@ -8,6 +8,27 @@
  */
 
 import { cacheGetOrSet } from '@naap/cache';
+import { parseUnits } from 'ethers';
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a subgraph decimal string (ETH/LPT units like "12295.49698...")
+ * to a wei string safe for BigInt. If already an integer string, passes through.
+ */
+export function toWei(val: string | undefined | null): string {
+  if (!val || val === '0') return '0';
+  try {
+    // If it's already a pure integer, return as-is
+    if (/^-?\d+$/.test(val)) return val;
+    return parseUnits(val, 18).toString();
+  } catch {
+    const dotIdx = val.indexOf('.');
+    return dotIdx >= 0 ? (val.slice(0, dotIdx) || '0') : val;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Subgraph
@@ -15,39 +36,56 @@ import { cacheGetOrSet } from '@naap/cache';
 
 const SUBGRAPH_ID = 'FE63YgkzcpVocxdCEyEYbvjYqEf2kb1A6daMYRxmejYC';
 
-function getSubgraphUrl(): string {
-  if (process.env.LIVEPEER_SUBGRAPH_URL) return process.env.LIVEPEER_SUBGRAPH_URL;
+let subgraphWarned = false;
+
+function getSubgraphUrls(): string[] {
+  if (process.env.LIVEPEER_SUBGRAPH_URL) return [process.env.LIVEPEER_SUBGRAPH_URL];
   const key = process.env.SUBGRAPH_API_KEY || process.env.NEXT_PUBLIC_SUBGRAPH_API_KEY;
-  if (key) return `https://gateway.thegraph.com/api/${key}/subgraphs/id/${SUBGRAPH_ID}`;
-  // The Graph requires an API key. Get a free one at https://thegraph.com/studio/apikeys/
-  // For now, use the Livepeer explorer's proxy which is publicly accessible
-  return `https://gateway.thegraph.com/api/subgraphs/id/${SUBGRAPH_ID}`;
+  if (key) {
+    return [
+      `https://gateway.thegraph.com/api/${key}/subgraphs/id/${SUBGRAPH_ID}`,
+      `https://gateway-arbitrum.network.thegraph.com/api/${key}/subgraphs/id/${SUBGRAPH_ID}`,
+    ];
+  }
+  if (!subgraphWarned) {
+    console.warn('[livepeer] No SUBGRAPH_API_KEY configured — subgraph queries will fail.');
+    console.warn('[livepeer] Get a free key at https://thegraph.com/studio/apikeys/');
+    console.warn('[livepeer] Set SUBGRAPH_API_KEY in examples/my-wallet/backend/.env');
+    console.warn('[livepeer] Falling back to RPC (delegator counts and volumes unavailable)');
+    subgraphWarned = true;
+  }
+  return [];
 }
 
 export async function querySubgraph<T = any>(query: string, variables?: Record<string, any>): Promise<T> {
-  const url = getSubgraphUrl();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  // Add API key as bearer token if using gateway
-  const key = process.env.SUBGRAPH_API_KEY || process.env.NEXT_PUBLIC_SUBGRAPH_API_KEY;
-  if (key && url.includes('gateway.thegraph.com')) {
-    headers['Authorization'] = `Bearer ${key}`;
+  const urls = getSubgraphUrls();
+  if (!urls.length) {
+    throw new Error('No subgraph URL configured — set SUBGRAPH_API_KEY env var');
   }
-  const res = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ query, variables }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    // If auth error, provide helpful message
-    if (text.includes('auth error')) {
-      throw new Error('Subgraph API key required. Set SUBGRAPH_API_KEY env var. Get a free key at https://thegraph.com/studio/apikeys/');
+
+  let lastErr: Error | null = null;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        if (text.includes('auth error')) {
+          throw new Error('Subgraph API key required. Set SUBGRAPH_API_KEY env var. Get a free key at https://thegraph.com/studio/apikeys/');
+        }
+        throw new Error(`Subgraph ${res.status}: ${text}`);
+      }
+      const json = await res.json();
+      if (json.errors?.length) throw new Error(json.errors[0].message);
+      return json.data as T;
+    } catch (err) {
+      lastErr = err as Error;
     }
-    throw new Error(`Subgraph ${res.status}: ${text}`);
   }
-  const json = await res.json();
-  if (json.errors?.length) throw new Error(json.errors[0].message);
-  return json.data as T;
+  throw lastErr || new Error('All subgraph endpoints failed');
 }
 
 // ---------------------------------------------------------------------------
@@ -225,18 +263,18 @@ export function getProtocol(): Promise<ProtocolData> {
       const p = data.protocol;
       return {
         currentRound: parseInt(p.currentRound?.id || '0'),
-        roundLength: parseInt(p.roundLength || '5760'),
-        lockPeriod: parseInt(p.lockPeriod || '7'),
-        totalActiveStake: p.totalActiveStake || '0',
-        totalSupply: p.totalSupply || '0',
-        participationRate: parseFloat(p.participationRate || '0'),
-        inflation: p.inflation || '0',
-        inflationChange: p.inflationChange || '0',
-        activeTranscoderCount: p.activeTranscoderCount || 0,
-        delegatorsCount: p.delegatorsCount || 0,
-        lptPriceEth: p.lptPriceEth || '0',
-        totalVolumeETH: p.totalVolumeETH || '0',
-        totalVolumeUSD: p.totalVolumeUSD || '0',
+        roundLength: parseInt(String(p.roundLength || '5760')),
+        lockPeriod: parseInt(String(p.lockPeriod || '7')),
+        totalActiveStake: String(p.totalActiveStake || '0'),
+        totalSupply: String(p.totalSupply || '0'),
+        participationRate: parseFloat(String(p.participationRate || '0')),
+        inflation: String(p.inflation || '0'),
+        inflationChange: String(p.inflationChange || '0'),
+        activeTranscoderCount: parseInt(String(p.activeTranscoderCount || '0')),
+        delegatorsCount: parseInt(String(p.delegatorsCount || '0')),
+        lptPriceEth: String(p.lptPriceEth || '0'),
+        totalVolumeETH: String(p.totalVolumeETH || '0'),
+        totalVolumeUSD: String(p.totalVolumeUSD || '0'),
         paused: p.paused || false,
         lastUpdated: new Date().toISOString(),
       };
@@ -302,6 +340,9 @@ export interface OrchestratorData {
   delegatorCount: number;
   lastRewardRound: string;
   serviceURI: string | null;
+  activationRound: number;
+  deactivationRound: number;
+  totalRewardTokens: string;
   // Computed
   rewardCallRatio: number; // 0-1 based on last 90 pools
 }
@@ -323,6 +364,8 @@ export function getOrchestrators(): Promise<OrchestratorData[]> {
         ninetyDayVolumeETH: string;
         totalVolumeETH: string;
         serviceURI: string | null;
+        activationRound: string;
+        deactivationRound: string;
         lastRewardRound: { id: string } | null;
         delegators: { id: string }[];
         pools: { rewardTokens: string }[];
@@ -344,6 +387,8 @@ export function getOrchestrators(): Promise<OrchestratorData[]> {
         ninetyDayVolumeETH
         totalVolumeETH
         serviceURI
+        activationRound
+        deactivationRound
         lastRewardRound { id }
         delegators(first: 1000) { id }
         pools(first: 90, orderBy: id, orderDirection: desc) { rewardTokens }
@@ -353,12 +398,16 @@ export function getOrchestrators(): Promise<OrchestratorData[]> {
     return data.transcoders.map(t => {
       const poolsWithReward = t.pools.filter(p => parseFloat(p.rewardTokens) > 0).length;
       const callRatio = t.pools.length > 0 ? poolsWithReward / t.pools.length : 0;
+      const totalRewardTokens = t.pools.reduce(
+        (sum, p) => sum + BigInt(Math.floor(parseFloat(p.rewardTokens || '0') * 1e18)),
+        0n,
+      );
 
       return {
         address: t.id,
         active: t.active,
         totalStake: t.totalStake,
-        rewardCut: parseInt(t.rewardCut) / 10000,    // basis points (1M = 100%) → percentage
+        rewardCut: parseInt(t.rewardCut) / 10000,
         feeShare: parseInt(t.feeShare) / 10000,
         thirtyDayVolumeETH: t.thirtyDayVolumeETH,
         sixtyDayVolumeETH: t.sixtyDayVolumeETH,
@@ -367,6 +416,9 @@ export function getOrchestrators(): Promise<OrchestratorData[]> {
         delegatorCount: t.delegators.length,
         lastRewardRound: t.lastRewardRound?.id || '0',
         serviceURI: t.serviceURI,
+        activationRound: parseInt(t.activationRound || '0'),
+        deactivationRound: Math.min(parseInt(t.deactivationRound || '0'), 2_000_000_000),
+        totalRewardTokens: totalRewardTokens.toString(),
         rewardCallRatio: callRatio,
       };
     });
@@ -434,6 +486,9 @@ async function getOrchestratorsFromRPC(): Promise<OrchestratorData[]> {
           delegatorCount: 0,
           lastRewardRound: lastRewardRound.toString(),
           serviceURI: null,
+          activationRound: 0,
+          deactivationRound: 0,
+          totalRewardTokens: '0',
           rewardCallRatio: 0,
         };
       })
@@ -832,8 +887,8 @@ async function getStakingHistoryFromState(addr: string): Promise<StakingEvent[]>
     });
 
     // Accumulated rewards (difference between bonded and principal)
-    const bonded = BigInt(delegator.bondedAmount);
-    const principal = BigInt(delegator.principal || '0');
+    const bonded = BigInt(toWei(delegator.bondedAmount));
+    const principal = BigInt(toWei(delegator.principal));
     if (principal > 0n && bonded > principal) {
       events.push({
         type: 'reward',

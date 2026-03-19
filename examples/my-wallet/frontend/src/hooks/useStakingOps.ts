@@ -35,6 +35,22 @@ export function useStakingOps() {
     return new Contract(contracts.bondingManager, EXTENDED_ABI, signer || provider);
   }, [provider, chainId, signer]);
 
+  const logTx = useCallback(async (txHash: string, type: string, receipt: any, value?: string) => {
+    try {
+      const { getApiUrl } = await import('../App');
+      await fetch(`${getApiUrl()}/transactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address, txHash, type, chainId: chainId || 42161, value,
+          gasUsed: receipt.gasUsed?.toString(),
+          gasPrice: receipt.gasPrice?.toString(),
+          status: 'confirmed',
+        }),
+      });
+    } catch { /* non-critical */ }
+  }, [address, chainId]);
+
   /** Redelegate: unbond from current O and bond to new O in one step */
   const redelegate = useCallback(async (amount: string, newOrchestrator: string): Promise<string> => {
     if (!signer || !address) throw new Error('Wallet not connected');
@@ -42,18 +58,17 @@ export function useStakingOps() {
     const contract = getExtendedContract();
     if (!contract) throw new Error('Contract not available');
 
-    // First unbond
     const amountWei = parseUnits(amount, 18);
     const unbondTx = await contract.unbond(amountWei);
     await unbondTx.wait();
 
-    // Then bond to new orchestrator
     const bondTx = await contract.bond(amountWei, newOrchestrator);
     const receipt = await bondTx.wait();
 
+    await logTx(receipt.hash, 'stake', receipt, amountWei.toString());
     await staking.refreshStakingState();
     return receipt.hash;
-  }, [signer, address, getExtendedContract, staking]);
+  }, [signer, address, getExtendedContract, staking, logTx]);
 
   /** Rebond: rebond an unbonding lock back to the current orchestrator */
   const rebond = useCallback(async (lockId: number): Promise<string> => {
@@ -65,9 +80,10 @@ export function useStakingOps() {
     const tx = await contract.rebond(lockId);
     const receipt = await tx.wait();
 
+    await logTx(receipt.hash, 'stake', receipt);
     await staking.refreshStakingState();
     return receipt.hash;
-  }, [signer, getExtendedContract, staking]);
+  }, [signer, getExtendedContract, staking, logTx]);
 
   /** Rebond from unbonded state to a specific orchestrator */
   const rebondFromUnbonded = useCallback(async (orchestrator: string, lockId: number): Promise<string> => {
@@ -79,9 +95,10 @@ export function useStakingOps() {
     const tx = await contract.rebondFromUnbonded(orchestrator, lockId);
     const receipt = await tx.wait();
 
+    await logTx(receipt.hash, 'stake', receipt);
     await staking.refreshStakingState();
     return receipt.hash;
-  }, [signer, getExtendedContract, staking]);
+  }, [signer, getExtendedContract, staking, logTx]);
 
   /** Withdraw stake from a completed unbonding lock */
   const withdrawStake = useCallback(async (lockId: number): Promise<string> => {
@@ -93,9 +110,10 @@ export function useStakingOps() {
     const tx = await contract.withdrawStake(lockId);
     const receipt = await tx.wait();
 
+    await logTx(receipt.hash, 'other', receipt);
     await staking.refreshStakingState();
     return receipt.hash;
-  }, [signer, getExtendedContract, staking]);
+  }, [signer, getExtendedContract, staking, logTx]);
 
   /** Get a specific unbonding lock's details from chain */
   const getUnbondingLock = useCallback(async (lockId: number) => {

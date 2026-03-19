@@ -3,6 +3,12 @@
  * Computes annualized yield from staking snapshots
  */
 
+function safeBigInt(val: string | undefined | null): string {
+  if (!val || val === '0') return '0';
+  const dotIdx = val.indexOf('.');
+  return dotIdx >= 0 ? (val.slice(0, dotIdx) || '0') : val;
+}
+
 export interface Snapshot {
   bondedAmount: string;
   pendingStake: string;
@@ -67,7 +73,7 @@ export function calculateYield(snapshots: Snapshot[], periodDays: number): Yield
   const first = sorted[0];
   const last = sorted[sorted.length - 1];
 
-  const startBonded = BigInt(first.bondedAmount || '0');
+  const startBonded = BigInt(safeBigInt(first.bondedAmount));
   if (startBonded === 0n) {
     return {
       rewardYield: 0,
@@ -79,8 +85,8 @@ export function calculateYield(snapshots: Snapshot[], periodDays: number): Yield
     };
   }
 
-  const stakeGain = BigInt(last.pendingStake || '0') - BigInt(first.pendingStake || '0');
-  const feeGain = BigInt(last.pendingFees || '0') - BigInt(first.pendingFees || '0');
+  const stakeGain = BigInt(safeBigInt(last.pendingStake)) - BigInt(safeBigInt(first.pendingStake));
+  const feeGain = BigInt(safeBigInt(last.pendingFees)) - BigInt(safeBigInt(first.pendingFees));
 
   // Use basis points for precision (1e8)
   const PRECISION = 100_000_000n;

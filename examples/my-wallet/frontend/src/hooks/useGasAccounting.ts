@@ -25,15 +25,15 @@ const emptySummary: GasSummary = {
 };
 
 export function useGasAccounting() {
-  const { isConnected } = useWallet();
+  const { isConnected, address } = useWallet();
   const [summary, setSummary] = useState<GasSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const fetch_ = useCallback(async () => {
-    if (!isConnected) return;
+    if (!isConnected || !address) return;
     setIsLoading(true);
     try {
-      const res = await fetch(`${getApiUrl()}/gas-summary`);
+      const res = await fetch(`${getApiUrl()}/gas-summary?userId=${address}`);
       if (res.ok) {
         const json = await res.json();
         const d = json.data || {};
@@ -54,7 +54,7 @@ export function useGasAccounting() {
     } finally {
       setIsLoading(false);
     }
-  }, [isConnected]);
+  }, [isConnected, address]);
 
   useEffect(() => { fetch_(); }, [fetch_]);
 

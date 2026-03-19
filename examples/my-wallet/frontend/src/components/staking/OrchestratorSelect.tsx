@@ -59,7 +59,7 @@ export const OrchestratorSelect: React.FC<OrchestratorSelectProps> = ({
         const s = search.toLowerCase();
         return o.address.toLowerCase().includes(s) || (o.name || '').toLowerCase().includes(s);
       })
-      .sort((a, b) => Number(BigInt(b.totalStake) - BigInt(a.totalStake)));
+      .sort((a, b) => parseFloat(b.totalStake || '0') - parseFloat(a.totalStake || '0'));
   }, [orchestrators, search, excludeAddress]);
 
   const selected = orchestrators.find(o => o.address === value);

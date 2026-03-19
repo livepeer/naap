@@ -528,6 +528,11 @@ import aiRecommendRoutes from './routes/aiRecommend.js';
 import stakingHistoryRoutes from './routes/stakingHistory.js';
 import snapshotsRoutes from './routes/snapshots.js';
 
+// Phase 4 routes — analytics, network overview, performance
+import orchestratorAnalyticsRoutes from './routes/orchestratorAnalytics.js';
+import networkOverviewRoutes from './routes/networkOverview.js';
+import orchestratorPerformanceRoutes from './routes/orchestratorPerformance.js';
+
 app.use(yieldRoutes);
 app.use(pricesRoutes);
 app.use(alertsRoutes);
@@ -550,6 +555,9 @@ app.use(networkHistoryRoutes);
 app.use(aiRecommendRoutes);
 app.use(stakingHistoryRoutes);
 app.use(snapshotsRoutes);
+app.use(orchestratorAnalyticsRoutes);
+app.use(networkOverviewRoutes);
+app.use(orchestratorPerformanceRoutes);
 
 // Sync Now endpoint (on-demand for current user)
 import { snapshotStaking } from './jobs/snapshotStaking.js';

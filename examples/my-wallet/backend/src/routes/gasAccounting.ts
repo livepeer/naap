@@ -8,7 +8,7 @@ const router = Router();
 
 router.get('/api/v1/wallet/gas-summary', async (req: Request, res: Response) => {
   try {
-    const { userId } = req.query;
+    const userId = (req.query.userId || req.query.address) as string | undefined;
     if (!userId) {
       // Return empty summary instead of 400
       return res.json({

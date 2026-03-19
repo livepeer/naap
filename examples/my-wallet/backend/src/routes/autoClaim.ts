@@ -10,8 +10,12 @@ const router = Router();
 router.get('/api/v1/wallet/auto-claim/:walletAddressId', async (req: Request, res: Response) => {
   try {
     const config = await getAutoClaimConfig(req.params.walletAddressId);
-    res.json({ data: config });
+    res.json({ data: config || null });
   } catch (error: any) {
+    // Not-found or invalid ID is not a server error — return null
+    if (error?.code === 'P2023' || error?.code === 'P2025') {
+      return res.json({ data: null });
+    }
     console.error('Error fetching auto-claim config:', error);
     res.status(500).json({ error: error.message || 'Internal server error' });
   }

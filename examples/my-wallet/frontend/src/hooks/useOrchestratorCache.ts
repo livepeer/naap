@@ -43,16 +43,24 @@ async function fetchOrchestrators(): Promise<CachedOrchestrator[]> {
   const res = await fetch(`${getApiUrl()}/staking/orchestrators?activeOnly=true`);
   const json = await res.json();
   const data = json.data ?? json;
-  const list: CachedOrchestrator[] = (data.orchestrators || []).map((o: any) => ({
-    address: o.address,
-    name: o.name || null,
-    rewardCut: o.rewardCut ?? 0,
-    feeShare: o.feeShare ?? 0,
-    totalStake: o.totalStake || '0',
-    isActive: o.isActive ?? o.active ?? true,
-    lastRewardRound: o.lastRewardRound,
-    rewardCallRatio: o.rewardCallRatio ?? 0,
-  }));
+  const seen = new Set<string>();
+  const list: CachedOrchestrator[] = (data.orchestrators || [])
+    .map((o: any) => ({
+      address: o.address,
+      name: o.name || null,
+      rewardCut: o.rewardCut ?? 0,
+      feeShare: o.feeShare ?? 0,
+      totalStake: o.totalStake || '0',
+      isActive: o.isActive ?? o.active ?? true,
+      lastRewardRound: o.lastRewardRound,
+      rewardCallRatio: o.rewardCallRatio ?? 0,
+    }))
+    .filter((o: CachedOrchestrator) => {
+      const key = o.address.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   globalCache = { orchestrators: list, fetchedAt: Date.now() };
   return list;
 }

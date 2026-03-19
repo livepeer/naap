@@ -26,8 +26,9 @@ router.get('/api/v1/wallet/export/leaderboard', async (req: Request, res: Respon
 
 router.get('/api/v1/wallet/export/positions', async (req: Request, res: Response) => {
   try {
-    const { userId, format: fmt } = req.query;
-    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    const userId = (req.query.userId || req.query.address) as string | undefined;
+    const { format: fmt } = req.query;
+    if (!userId) return res.status(400).json({ error: 'userId or address is required' });
 
     const format = (fmt as ExportFormat) || 'csv';
     if (format !== 'csv' && format !== 'json') {
