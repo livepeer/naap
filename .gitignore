@@ -66,6 +66,7 @@ apps/web-next/public/cdn/
 
 # Generated examples manifest (built by bin/generate-examples-manifest.cjs)
 apps/web-next/examples-manifest.json
+apps/web-next/src/generated/
 
 # Platform runtime files
 .pids

@@ -70,36 +70,44 @@ const RESERVED_PREFIXES = new Set([
  * Delegate registry/* requests to the dedicated route handlers.
  * On Vercel, static routes under registry/ may not take priority over this
  * catch-all due to function bundling. This function dynamically imports and
- * calls the correct handler.
+ * calls the correct handler so the right code runs regardless.
  */
 async function delegateRegistryRequest(
   request: NextRequest,
   pathSegments: string[],
 ): Promise<NextResponse> {
   try {
-    // GET /api/v1/registry/examples → registry/examples/route.ts
+    // GET /api/v1/registry/examples
     if (pathSegments[0] === 'examples' && pathSegments.length === 1 && request.method === 'GET') {
-      const mod = await import('../../registry/examples/route');
-      return mod.GET(request);
+      const { GET } = await import('../../registry/examples/route');
+      return GET(request);
     }
 
-    // POST /api/v1/registry/examples/:name/publish → registry/examples/[name]/publish/route.ts
+    // POST /api/v1/registry/examples/:name/publish
     if (
       pathSegments[0] === 'examples' &&
       pathSegments.length === 3 &&
       pathSegments[2] === 'publish' &&
       request.method === 'POST'
     ) {
-      const mod = await import('../../registry/examples/[name]/publish/route');
-      return mod.POST(request, {
+      const { POST } = await import('../../registry/examples/[name]/publish/route');
+      return POST(request, {
         params: Promise.resolve({ name: pathSegments[1] }),
       });
     }
-
-    // Other registry paths — try dynamic import for packages, etc.
-    // Fall through to the generic "dedicated routes" error.
   } catch (err) {
     console.error('[catch-all] Failed to delegate registry request:', err);
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: `Failed to handle /registry/${pathSegments.join('/')}: ${(err as Error).message}`,
+        },
+        meta: { timestamp: new Date().toISOString() },
+      },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json(
