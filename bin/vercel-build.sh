@@ -65,9 +65,17 @@ fi
 # Step 2.5: Generate examples manifest for API routes
 # The registry/examples API routes need plugin metadata at runtime.
 # On Vercel, the examples/ directory is NOT in the serverless function bundle,
-# so we pre-generate a JSON manifest that the routes can import directly.
+# so we pre-generate a TypeScript manifest that the routes can import directly.
 echo "[2.5/6] Generating examples manifest..."
 node bin/generate-examples-manifest.cjs
+# Verify the manifest has content (catch empty-file bugs early)
+if [ -f "apps/web-next/src/generated/examples-manifest.ts" ]; then
+  ENTRY_COUNT=$(grep -c '"name":' apps/web-next/src/generated/examples-manifest.ts || echo "0")
+  echo "  [verify] examples-manifest.ts has $ENTRY_COUNT name entries"
+  if [ "$ENTRY_COUNT" = "0" ]; then
+    echo "  [WARN] Manifest is empty — examples may not appear in Plugin Publisher"
+  fi
+fi
 
 # Step 3: Push schema to database
 # NOTE: prisma generate is NOT needed here — it already ran during
@@ -100,7 +108,10 @@ else
 fi
 
 # Step 5: Build Next.js app
+# Clear webpack/turbopack cache to ensure regenerated files (like the examples
+# manifest) are picked up fresh instead of using stale cached compilations.
 echo "[5/6] Building Next.js app..."
+rm -rf apps/web-next/.next/cache
 cd apps/web-next || { echo "ERROR: Failed to cd to apps/web-next"; exit 1; }
 npm run build
 cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
