@@ -966,6 +966,14 @@ ensure_plugins_built() {
       fi
     done
   else log_success "All plugins are built ($up_to_date up to date)"; fi
+
+  # Generate examples manifest so the registry/examples API route can list
+  # example plugins without runtime fs access (matches what vercel-build.sh does).
+  if [ -f "$ROOT_DIR/bin/generate-examples-manifest.cjs" ]; then
+    node "$ROOT_DIR/bin/generate-examples-manifest.cjs" 2>/dev/null && \
+      log_success "Examples manifest generated" || \
+      log_warn "Examples manifest generation failed (non-fatal)"
+  fi
 }
 
 start_shell() {

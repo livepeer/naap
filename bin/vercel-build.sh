@@ -57,6 +57,13 @@ if [ -d "dist/plugins" ]; then
   cp -r dist/plugins/* apps/web-next/public/cdn/plugins/
 fi
 
+# Step 2.5: Generate examples manifest for API routes
+# The registry/examples API routes need plugin metadata at runtime.
+# On Vercel, the examples/ directory is NOT in the serverless function bundle,
+# so we pre-generate a JSON manifest that the routes can import directly.
+echo "[2.5/6] Generating examples manifest..."
+node bin/generate-examples-manifest.cjs
+
 # Step 3: Push schema to database
 # NOTE: prisma generate is NOT needed here — it already ran during
 # npm install via packages/database postinstall hook.
