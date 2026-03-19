@@ -64,9 +64,12 @@ logs/
 # Generated plugin bundles (built during deployment)
 apps/web-next/public/cdn/
 
-# Generated examples manifest (built by bin/generate-examples-manifest.cjs)
+# Generated examples manifest JSON (built by bin/generate-examples-manifest.cjs)
 apps/web-next/examples-manifest.json
-apps/web-next/src/generated/
+
+# Generated files (EXCEPT examples-manifest.ts which must be committed for Vercel)
+apps/web-next/src/generated/*
+!apps/web-next/src/generated/examples-manifest.ts
 
 # Platform runtime files
 .pids
