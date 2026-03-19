@@ -15,7 +15,7 @@ import { getAuthToken } from '@/lib/api/response';
 import { PLUGIN_PORTS, DEFAULT_PORT } from '@/lib/plugin-ports';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
-import { EXAMPLES_MANIFEST } from '@/generated/examples-manifest';
+import { EXAMPLES_MANIFEST } from '../../../../../generated/examples-manifest';
 
 // ─── Plugin service URL map ─────────────────────────────────────────────────
 // Ports come from PLUGIN_PORTS (which mirrors plugin.json devPort values).
@@ -94,6 +94,7 @@ async function handleListExamples(request: NextRequest): Promise<NextResponse> {
   }
 
   const examples = EXAMPLES_MANIFEST;
+  console.log(`[registry/examples] Manifest has ${examples.length} entries`);
 
   const publishedPkgs = examples.length > 0
     ? await prisma.pluginPackage.findMany({
