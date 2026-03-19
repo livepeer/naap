@@ -64,8 +64,8 @@ while [[ $# -gt 0 ]]; do
       echo "  --help,-h     Show this help"
       echo ""
       echo "Services:"
-      echo "  vercel, base-svc, plugin-server, gateway-manager, orchestrator-manager,"
-      echo "  capacity-planner, network-analytics, marketplace, community,"
+      echo "  vercel, base-svc, plugin-server,"
+      echo "  capacity-planner, marketplace, community,"
       echo "  developer-api, my-wallet, my-dashboard, plugin-publisher, daydream-video"
       exit 0
       ;;
@@ -76,7 +76,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Service definitions (name|url|endpoint)
+# =============================================================================
+# Service URL Resolution
+# =============================================================================
+#
+# Canonical fallback ports must match:
+#   - services/base-svc/src/config/pluginPorts.ts (CANONICAL_PORTS)
+#   - apps/web-next/src/lib/plugin-ports.ts (PLUGIN_PORTS)
+#   - plugins/*/plugin.json (backend.devPort)
+#
+# Env var URLs take precedence over canonical localhost defaults.
+# =============================================================================
+
 get_service_url() {
   local name=$1
   case $name in
@@ -89,38 +100,29 @@ get_service_url() {
     plugin-server)
       echo "${PLUGIN_SERVER_URL:-http://localhost:3100}|/healthz"
       ;;
-    gateway-manager)
-      echo "${GATEWAY_MANAGER_URL:-http://localhost:4101}|/healthz"
-      ;;
-    orchestrator-manager)
-      echo "${ORCHESTRATOR_MANAGER_URL:-http://localhost:4102}|/healthz"
-      ;;
     capacity-planner)
-      echo "${CAPACITY_PLANNER_URL:-http://localhost:4103}|/healthz"
-      ;;
-    network-analytics)
-      echo "${NETWORK_ANALYTICS_URL:-http://localhost:4104}|/healthz"
+      echo "${CAPACITY_PLANNER_URL:-http://localhost:4003}|/healthz"
       ;;
     marketplace)
-      echo "${MARKETPLACE_URL:-http://localhost:4105}|/healthz"
+      echo "${MARKETPLACE_URL:-http://localhost:4005}|/healthz"
       ;;
     community)
-      echo "${COMMUNITY_URL:-http://localhost:4106}|/healthz"
+      echo "${COMMUNITY_URL:-http://localhost:4006}|/healthz"
       ;;
     developer-api)
-      echo "${DEVELOPER_API_URL:-http://localhost:4107}|/healthz"
+      echo "${DEVELOPER_API_URL:-http://localhost:4007}|/healthz"
       ;;
     my-wallet)
-      echo "${WALLET_URL:-http://localhost:4108}|/healthz"
+      echo "${WALLET_URL:-http://localhost:4008}|/healthz"
       ;;
     my-dashboard)
-      echo "${DASHBOARD_URL:-http://localhost:4109}|/healthz"
+      echo "${DASHBOARD_URL:-http://localhost:4009}|/healthz"
       ;;
     plugin-publisher)
-      echo "${PLUGIN_PUBLISHER_URL:-http://localhost:4110}|/healthz"
+      echo "${PLUGIN_PUBLISHER_URL:-http://localhost:4010}|/healthz"
       ;;
     daydream-video)
-      echo "${DAYDREAM_VIDEO_URL:-http://localhost:4211}|/healthz"
+      echo "${DAYDREAM_VIDEO_URL:-http://localhost:4111}|/healthz"
       ;;
     *)
       echo ""
@@ -129,7 +131,7 @@ get_service_url() {
 }
 
 # All services list (core + plugin backends)
-ALL_SERVICES="vercel base-svc plugin-server gateway-manager orchestrator-manager capacity-planner network-analytics marketplace community developer-api my-wallet my-dashboard plugin-publisher daydream-video"
+ALL_SERVICES="vercel base-svc plugin-server capacity-planner marketplace community developer-api my-wallet my-dashboard plugin-publisher daydream-video"
 
 # Check a single service
 check_service() {
@@ -218,7 +220,7 @@ print_table() {
   for result in $RESULTS; do
     local name="${result%%|*}"
     case $name in
-      gateway-manager|orchestrator-manager|capacity-planner|network-analytics|marketplace|community|my-wallet|my-dashboard|daydream-video|developer-api|plugin-publisher)
+      capacity-planner|marketplace|community|my-wallet|my-dashboard|daydream-video|developer-api|plugin-publisher)
         print_row "$result"
         ;;
     esac

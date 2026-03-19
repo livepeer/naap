@@ -7,8 +7,8 @@
  * to align the plugin registry and user preferences with PR 87's changes.
  *
  * Plugins moved to examples/ (removed from registry):
- *   - gateway-manager, orchestrator-manager, network-analytics
  *   - my-wallet, daydream-video, my-dashboard
+ *   (gateway-manager, orchestrator-manager, network-analytics were fully removed)
  *
  * Remaining plugins (6 in plugins/):
  *   - capacity-planner, community, dashboard-data-provider
@@ -59,9 +59,6 @@ async function main(): Promise<void> {
       where: {
         name: {
           in: [
-            'gatewayManager',
-            'orchestratorManager',
-            'networkAnalytics',
             'myWallet',
             'daydreamVideo',
             'myDashboard',
@@ -96,9 +93,6 @@ async function main(): Promise<void> {
     const toUnlist = packages.filter((p) => {
       const norm = p.name.toLowerCase().replace(/[-_]/g, '');
       return (
-        norm === 'gatewaymanager' ||
-        norm === 'orchestratormanager' ||
-        norm === 'networkanalytics' ||
         norm === 'mywallet' ||
         norm === 'daydreamvideo' ||
         (norm === 'mydashboard' && !p.name.includes('Provider'))
@@ -151,9 +145,6 @@ async function main(): Promise<void> {
     const prefToDelete = prefs.filter((p) => {
       const norm = p.pluginName.toLowerCase().replace(/[-_]/g, '');
       return (
-        norm === 'gatewaymanager' ||
-        norm === 'orchestratormanager' ||
-        norm === 'networkanalytics' ||
         norm === 'mywallet' ||
         norm === 'daydreamvideo' ||
         (norm === 'mydashboard' && !p.pluginName.toLowerCase().includes('provider'))

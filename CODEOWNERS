@@ -45,10 +45,7 @@
 # ============================================================================
 
 # Infrastructure plugins
-/plugins/gateway-manager/               @livepeer/plugin-infra
-/plugins/orchestrator-manager/          @livepeer/plugin-infra
 /plugins/capacity-planner/              @livepeer/plugin-infra
-/plugins/network-analytics/             @livepeer/plugin-infra
 
 # Social plugins
 /plugins/community/                     @livepeer/plugin-social

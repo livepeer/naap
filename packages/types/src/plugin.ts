@@ -52,6 +52,8 @@ export interface PluginNavigation {
 export interface PluginFrontend {
   /** Path to the built UMD bundle file */
   entry: string;
+  /** Path to the source entry file for dev mode (e.g., "./frontend/src/App.tsx") */
+  devEntry?: string;
   /** Port for development server */
   devPort?: number;
   /** Routes this plugin handles (e.g., ["/wallet", "/wallet/*"]) */
@@ -76,6 +78,8 @@ export interface PluginBackendResources {
 export interface PluginBackend {
   /** Path to the built server entry file */
   entry: string;
+  /** Path to the source entry file for dev mode (e.g., "./backend/src/server.ts") */
+  devEntry?: string;
   /** Port for development server */
   devPort?: number;
   /** Production port */

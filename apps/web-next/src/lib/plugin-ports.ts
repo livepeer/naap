@@ -17,10 +17,7 @@ export const PLUGIN_PORTS: Record<string, number> = {
   'plugin-server': 3100,
 
   // Core plugins (ports must match plugins/*/plugin.json → backend.devPort)
-  'gateway-manager': 4001,
-  'orchestrator-manager': 4002,
   'capacity-planner': 4003,
-  'network-analytics': 4004,
   'marketplace': 4005,
   'community': 4006,
   'developer-api': 4007,

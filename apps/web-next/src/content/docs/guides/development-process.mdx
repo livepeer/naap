@@ -20,9 +20,9 @@ livepeer/naap                     ← upstream (public)
 ├── packages/                     ← shared SDK, types, utils (core team)
 ├── services/                     ← core backend services (core team)
 ├── plugins/
-│   ├── gateway-manager/          ← plugin team A owns this
-│   ├── community/                ← plugin team B owns this
-│   ├── daydream-video/           ← plugin team C owns this
+│   ├── community/                ← plugin team A owns this
+│   ├── daydream-video/           ← plugin team B owns this
+│   ├── capacity-planner/         ← plugin team C owns this
 │   └── ...                       ← each team owns their directory
 ├── .github/workflows/            ← CI/CD (core team)
 ├── bin/                          ← platform scripts (core team)
@@ -499,7 +499,6 @@ npm run lint                     # Lint all packages
 |-------|----------|------|
 | `admin@livepeer.org` | `livepeer` | System Admin |
 | `viewer@livepeer.org` | `livepeer` | Read-only Viewer |
-| `gateway@livepeer.org` | `livepeer` | Gateway Manager Admin |
 | `community@livepeer.org` | `livepeer` | Community Admin |
 | `developer@livepeer.org` | `livepeer` | Developer API Admin |
 

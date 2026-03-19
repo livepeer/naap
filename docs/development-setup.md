@@ -58,7 +58,7 @@ is the default:
 ./bin/start.sh community
 
 # Start multiple plugins (~8s)
-./bin/start.sh gateway-manager community
+./bin/start.sh capacity-planner community
 
 # Everything (~10s warm, ~25s cold)
 ./bin/start.sh --all

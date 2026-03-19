@@ -74,7 +74,7 @@ if [ -z "$SERVICE" ]; then
   # Run migrations for all services
   log_info "Running migrations for all services..."
   
-  services=("base-svc" "gateway-manager-svc" "orchestrator-manager-svc" "capacity-planner-svc" "network-analytics-svc" "marketplace-svc" "community-svc")
+  services=("base-svc" "capacity-planner-svc" "marketplace-svc" "community-svc")
   
   for service in "${services[@]}"; do
     run_migration "$service" || true

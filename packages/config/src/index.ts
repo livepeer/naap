@@ -22,10 +22,7 @@ export const config = {
   // Workflow ports for local development
   ports: {
     shell: 3000,
-    gatewayManager: 3001,
-    orchestratorManager: 3002,
     capacityPlanner: 3003,
-    networkAnalytics: 3004,
     marketplace: 3005,
     community: 3006,
   },
@@ -33,10 +30,7 @@ export const config = {
   // Service ports
   servicePorts: {
     base: 4000,
-    gatewayManager: 4001,
-    orchestratorManager: 4002,
     capacityPlanner: 4003,
-    networkAnalytics: 4004,
     marketplace: 4005,
     community: 4006,
   },

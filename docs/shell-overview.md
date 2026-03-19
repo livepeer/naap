@@ -76,7 +76,7 @@ function MyComponent() {
   const { user, isAuthenticated, login, logout, hasRole } = useAuth();
   
   if (!isAuthenticated) return <Navigate to="/login" />;
-  if (!hasRole('gateway-manager:admin')) return <AccessDenied />;
+  if (!hasRole('community:admin')) return <AccessDenied />;
   
   return <AdminPanel user={user} />;
 }
@@ -100,8 +100,8 @@ system:root (database-only)
         └── system:operator (infrastructure operations)
             └── system:viewer (read-only)
 
-gateway-manager:admin
-    └── gateway-manager:user
+community:admin
+    └── community:user
 ```
 
 ### 3. Plugin Management ✅ **Fully Implemented**
@@ -181,7 +181,7 @@ function PluginComponent() {
   // Use shared services
   shell.notifications.success('Operation completed!');
   shell.eventBus.emit('plugin:data-updated', { id: 123 });
-  shell.navigate('/gateway-manager/details/1');
+  shell.navigate('/community/details/1');
 }
 ```
 
@@ -383,14 +383,6 @@ packages/plugin-sdk/
 | **Secret Management** | DONE | `/admin/secrets` - Create, rotate, delete secrets |
 | **Integrations Dashboard** | DONE | `/admin/integrations` - View and test integrations |
 
-### Plugin Examples - COMPLETED
-
-| Example | Location | Description |
-|---------|----------|-------------|
-| **Hello World** | `examples/hello-world/` | Minimal frontend-only plugin |
-| **Todo List** | `examples/todo-list/` | Full-stack with RBAC |
-| **Examples README** | `examples/README.md` | Setup guide and templates |
-
 ---
 
 ## Recently Completed Features (Phase 1-3)
@@ -458,36 +450,21 @@ The following plugins are available in the marketplace and seeded as pre-install
 
 | Plugin | Category | Description |
 |--------|----------|-------------|
-| Gateway Manager | monitoring | Manage AI gateway infrastructure |
-| Orchestrator Manager | monitoring | Monitor orchestrators on Livepeer |
 | Capacity Planner | monitoring | Plan and manage capacity |
-| Network Analytics | analytics | Comprehensive network metrics |
 | Community Hub | social | Forum and discussions |
 | Developer API Manager | developer | API key management |
 | My Wallet | finance | MetaMask wallet and staking |
-
-## Plugin Examples
-
-Two example plugins are available in the `examples/` directory:
-
-| Example | Description | Location |
-|---------|-------------|----------|
-| **Hello World** | Minimal frontend-only plugin | `examples/hello-world/` |
-| **Todo List** | Full-stack with backend and RBAC | `examples/todo-list/` |
-
-See [examples/README.md](../examples/README.md) for setup instructions.
-
----
+| Marketplace | platform | Plugin marketplace |
+| My Dashboard | analytics | Embedded analytics dashboards |
+| Daydream Video | media | Real-time AI video generation |
+| Plugin Publisher | developer | Plugin publishing tools |
 
 ## Seeded Test Users
 
 | Email | Password | Role |
 |-------|----------|------|
 | admin@livepeer.org | livepeer | system:admin |
-| gateway@livepeer.org | livepeer | gateway-manager:admin |
-| orchestrator@livepeer.org | livepeer | orchestrator-manager:admin |
 | capacity@livepeer.org | livepeer | capacity-planner:admin |
-| analytics@livepeer.org | livepeer | network-analytics:admin |
 | marketplace@livepeer.org | livepeer | marketplace:admin |
 | community@livepeer.org | livepeer | community:admin |
 | developer@livepeer.org | livepeer | developer-api:admin |
@@ -638,4 +615,4 @@ All planned phases (Security, Plugin Lifecycle, Real-time) are complete.
 
 Refer to:
 - [Plugin Developer Guide](./plugin-developer-guide.md) for plugin development
-- [Examples README](../examples/README.md) for example plugins
+- [Examples README](../examples/README.md) for reference implementations

@@ -39,7 +39,7 @@ function StatusBadge() {
   const [status, setStatus] = useState('unknown');
 
   useEffect(() => {
-    const unsubscribe = events.on('gateway:status-changed', (data) => {
+    const unsubscribe = events.on('capacity-planner:status-changed', (data) => {
       setStatus(data.status);
     });
 
@@ -142,8 +142,8 @@ Follow these conventions for custom events:
 
 Examples:
 - `task-tracker:task-created`
-- `gateway-manager:gateway-status-changed`
-- `analytics:report-generated`
+- `community:post-published`
+- `capacity-planner:plan-updated`
 
 ## Best Practices
 

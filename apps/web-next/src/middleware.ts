@@ -10,18 +10,12 @@ import type { NextRequest } from 'next/server';
 const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/wallet': 'myWallet',
   '/gateway': 'serviceGateway',
-  '/gateways': 'gatewayManager',
-  '/orchestrators': 'orchestratorManager',
   '/capacity': 'capacityPlanner',
-  '/analytics': 'networkAnalytics',
-  '/leaderboard': 'networkAnalytics',
   '/forum': 'community',
   '/developers': 'developerApi',
   '/publish': 'pluginPublisher',
   '/daydream': 'daydreamVideo',
-  '/hello': 'helloWorld',
   '/intelligent-dashboard': 'intelligentDashboard',
-  '/todos': 'todoList',
   '/deployments': 'deploymentManager',
   '/lightning-client': 'lightningClient',
 };

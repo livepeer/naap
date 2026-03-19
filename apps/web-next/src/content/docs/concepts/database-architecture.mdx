@@ -31,7 +31,7 @@ NaaP uses a **single PostgreSQL database** with **multiple schemas** for data is
 │                   Application Layer                      │
 │                                                         │
 │  ┌──────────┐ ┌───────────┐ ┌──────────┐ ┌──────────┐ │
-│  │ base-svc │ │ community │ │ daydream │ │ gateway  │ │
+│  │ base-svc │ │ community │ │ daydream │ │ capacity │ │
 │  └────┬─────┘ └─────┬─────┘ └────┬─────┘ └────┬─────┘ │
 │       └─────────────┬────────────┘             │       │
 │                     │                          │       │
@@ -58,8 +58,8 @@ NaaP uses a **single PostgreSQL database** with **multiple schemas** for data is
                     │  │ plugin_      │  │  My Wallet
                     │  │ wallet       │  │
                     │  ├──────────────┤  │
-                    │  │ plugin_      │  │  Gateway, Dashboard,
-                    │  │ gateway ...  │  │  Capacity, Dev API
+                    │  │ plugin_      │  │  Dashboard,
+                    │  │ dashboard ...│  │  Capacity, Dev API
                     │  └──────────────┘  │
                     └────────────────────┘
 ```
@@ -73,7 +73,6 @@ NaaP uses a **single PostgreSQL database** with **multiple schemas** for data is
 | `plugin_wallet` | `my-wallet` | WalletConnection, WalletTransactionLog |
 | `plugin_dashboard` | `my-dashboard` | Dashboard, DashboardUserPreference |
 | `plugin_daydream` | `daydream-video` | DaydreamSettings, DaydreamSession |
-| `plugin_gateway` | `gateway-manager` | Gateway, GatewayOrchestratorConnection |
 | `plugin_capacity` | `capacity-planner` | CapacityRequest, CapacitySoftCommit |
 | `plugin_developer_api` | `developer-api` | DevApiAIModel, DevApiKey |
 
