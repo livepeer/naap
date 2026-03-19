@@ -15,11 +15,7 @@ import { getAuthToken } from '@/lib/api/response';
 import { PLUGIN_PORTS, DEFAULT_PORT } from '@/lib/plugin-ports';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
-import { EXAMPLES_MANIFEST as _MANIFEST } from '../../../../../generated/examples-manifest';
-
-// Module-load sanity check (visible in Vercel function logs)
-const EXAMPLES_MANIFEST = Array.isArray(_MANIFEST) ? _MANIFEST : [];
-console.log(`[catch-all] Module loaded: EXAMPLES_MANIFEST has ${EXAMPLES_MANIFEST.length} entries (raw type=${typeof _MANIFEST}, isArray=${Array.isArray(_MANIFEST)})`);
+import { EXAMPLES_MANIFEST } from '../../../../../generated/examples-manifest';
 
 // ─── Plugin service URL map ─────────────────────────────────────────────────
 // Ports come from PLUGIN_PORTS (which mirrors plugin.json devPort values).
@@ -98,7 +94,6 @@ async function handleListExamples(request: NextRequest): Promise<NextResponse> {
   }
 
   const examples = EXAMPLES_MANIFEST;
-  console.log(`[registry/examples] Manifest has ${examples.length} entries`);
 
   const publishedPkgs = examples.length > 0
     ? await prisma.pluginPackage.findMany({
@@ -109,20 +104,7 @@ async function handleListExamples(request: NextRequest): Promise<NextResponse> {
   const publishedSet = new Set(publishedPkgs.map((p) => p.name));
 
   const result = examples.map((e) => ({ ...e, alreadyPublished: publishedSet.has(e.name) }));
-  return NextResponse.json({
-    success: true,
-    examples: result,
-    _debug: {
-      manifestLength: EXAMPLES_MANIFEST.length,
-      manifestType: typeof EXAMPLES_MANIFEST,
-      isArray: Array.isArray(EXAMPLES_MANIFEST),
-      firstEntry: EXAMPLES_MANIFEST[0] || null,
-      rawImportType: typeof _MANIFEST,
-      rawImportIsArray: Array.isArray(_MANIFEST),
-      rawImportLength: Array.isArray(_MANIFEST) ? _MANIFEST.length : -1,
-      rawImportKeys: _MANIFEST ? Object.keys(_MANIFEST).slice(0, 5) : [],
-    },
-  });
+  return NextResponse.json({ success: true, examples: result });
 }
 
 async function handlePublishExample(
