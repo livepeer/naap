@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
-import { EXAMPLES_MANIFEST, type ExampleManifestEntry } from '@/generated/examples-manifest';
+import { EXAMPLES_MANIFEST, type ExampleManifestEntry } from '../../../../../generated/examples-manifest';
 
 interface ExampleResponse extends ExampleManifestEntry {
   alreadyPublished: boolean;
