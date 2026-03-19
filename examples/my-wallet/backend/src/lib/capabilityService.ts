@@ -1,9 +1,20 @@
 /**
- * Orchestrator capability discovery via serviceURI probing.
- * Categorizes orchestrators into: transcoding, realtime_ai, ai_batch, agent, other.
+ * Orchestrator capability discovery.
+ *
+ * Strategy (in priority order):
+ * 1. Livepeer AI Leaderboard API — returns per-pipeline performance for
+ *    orchestrators that successfully ran AI jobs.
+ * 2. Port heuristic — orchestrators with serviceURI on port 8936 typically
+ *    expose the AI Runner and support AI pipelines.
+ * 3. Baseline — every active orchestrator with a serviceURI is assumed to
+ *    support transcoding.
+ *
+ * The old HTTP probe approach (getBroadcasterInfo / capabilities endpoints)
+ * is removed because orchestrator serviceURIs speak gRPC, not HTTP.
  */
 
 import { prisma } from '../db/client.js';
+import { cacheGetOrSet } from '@naap/cache';
 
 export type CapabilityCategory = 'transcoding' | 'realtime_ai' | 'ai_batch' | 'agent' | 'other';
 
@@ -12,6 +23,12 @@ const AI_BATCH_PIPELINES = [
   'text-to-image', 'image-to-image', 'image-to-video', 'text-to-video',
   'upscale', 'audio-to-text', 'text-to-speech', 'llm',
 ];
+
+const LEADERBOARD_BASE = 'https://leaderboard-api.livepeer.cloud/api';
+
+// -------------------------------------------------------------------------
+// Pipeline categorisation (unchanged)
+// -------------------------------------------------------------------------
 
 interface CapabilityResult {
   category: CapabilityCategory;
@@ -25,69 +42,153 @@ export function categorizePipeline(pipelineId: string): CapabilityCategory {
   return 'other';
 }
 
-export async function probeCapabilities(serviceURI: string): Promise<CapabilityResult[]> {
-  const results: CapabilityResult[] = [];
+// -------------------------------------------------------------------------
+// Leaderboard API — discover which orchestrators support which AI pipelines
+// -------------------------------------------------------------------------
 
-  // All active orchestrators with a serviceURI have transcoding capability
-  results.push({ category: 'transcoding', pipelineId: null });
+interface PipelineInfo {
+  id: string;
+  models: string[];
+}
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+/**
+ * Fetch the leaderboard across all pipeline/model combos and build
+ * address → pipelines map.  Cached for 1 hour.
+ *
+ * The API works as:
+ *   GET /api/pipelines → { pipelines: [{ id, models, regions }] }
+ *   GET /api/aggregated_stats?pipeline=X&model=Y → { "0xaddr": { region: { success_rate, ... } } }
+ */
+export async function fetchLeaderboardCapabilities(): Promise<
+  Map<string, string[]>
+> {
+  return cacheGetOrSet(
+    'leaderboard-capabilities',
+    async () => {
+      const map = new Map<string, string[]>();
 
-    const url = serviceURI.endsWith('/') ? serviceURI : serviceURI + '/';
-    const res = await fetch(`${url}getBroadcasterInfo`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
+      try {
+        // 1. Discover available pipelines and models
+        const pipelinesRes = await fetchWithTimeout(`${LEADERBOARD_BASE}/pipelines`, 10000);
+        if (!pipelinesRes.ok) {
+          console.warn(`[capabilityService] Leaderboard pipelines API returned ${pipelinesRes.status}`);
+          return map;
+        }
+        const { pipelines } = await pipelinesRes.json() as { pipelines: PipelineInfo[] };
+        if (!pipelines?.length) return map;
 
-    if (!res.ok) return results;
+        console.log(`[capabilityService] Leaderboard has ${pipelines.length} pipelines: ${pipelines.map(p => p.id).join(', ')}`);
 
-    // Try capabilities endpoint for AI pipelines
-    try {
-      const capController = new AbortController();
-      const capTimeout = setTimeout(() => capController.abort(), 5000);
+        // 2. Query each pipeline/model combo for orchestrator performance
+        for (const pipeline of pipelines) {
+          const model = pipeline.models?.[0];
+          if (!model) continue;
 
-      const capRes = await fetch(`${url}capabilities`, {
-        signal: capController.signal,
-      });
-      clearTimeout(capTimeout);
+          try {
+            const statsRes = await fetchWithTimeout(
+              `${LEADERBOARD_BASE}/aggregated_stats?pipeline=${encodeURIComponent(pipeline.id)}&model=${encodeURIComponent(model)}`,
+              10000,
+            );
+            if (!statsRes.ok) continue;
 
-      if (capRes.ok) {
-        const capData = await capRes.json();
-        const pipelines = capData?.pipelines || capData?.capabilities || [];
+            const stats = await statsRes.json() as Record<string, Record<string, { success_rate: number }>>;
 
-        if (Array.isArray(pipelines)) {
-          for (const p of pipelines) {
-            const pipelineId = typeof p === 'string' ? p : p?.pipeline || p?.id;
-            if (pipelineId) {
-              const category = categorizePipeline(pipelineId);
-              results.push({ category, pipelineId });
+            for (const [addr, regions] of Object.entries(stats)) {
+              const hasSuccess = Object.values(regions).some(r => r.success_rate > 0);
+              if (!hasSuccess) continue;
+
+              const lower = addr.toLowerCase();
+              if (!map.has(lower)) map.set(lower, []);
+              const list = map.get(lower)!;
+              if (!list.includes(pipeline.id)) {
+                list.push(pipeline.id);
+              }
             }
-          }
-        } else if (typeof pipelines === 'object') {
-          for (const [pipelineId] of Object.entries(pipelines)) {
-            const category = categorizePipeline(pipelineId);
-            results.push({ category, pipelineId });
+          } catch {
+            // Skip individual pipeline failures
           }
         }
+
+        console.log(`[capabilityService] Leaderboard: ${map.size} orchestrators with AI capabilities`);
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.warn('[capabilityService] Leaderboard fetch failed:', err.message);
+        }
+      }
+
+      return map;
+    },
+    { ttl: 3600, prefix: 'wallet' },
+  );
+}
+
+async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// -------------------------------------------------------------------------
+// Capability discovery for a single orchestrator
+// -------------------------------------------------------------------------
+
+/**
+ * Determine capabilities for a single orchestrator.
+ * Uses leaderboard data (if available) + port heuristic.
+ */
+export async function probeCapabilities(
+  serviceURI: string,
+  address?: string,
+  leaderboardMap?: Map<string, string[]>,
+): Promise<CapabilityResult[]> {
+  const results: CapabilityResult[] = [];
+
+  // Every active orchestrator has transcoding
+  results.push({ category: 'transcoding', pipelineId: null });
+
+  const addr = address?.toLowerCase();
+
+  // 1. Check leaderboard for verified AI pipelines
+  if (addr && leaderboardMap) {
+    const pipelines = leaderboardMap.get(addr);
+    if (pipelines) {
+      for (const pipelineId of pipelines) {
+        const category = categorizePipeline(pipelineId);
+        results.push({ category, pipelineId });
+      }
+    }
+  }
+
+  // 2. Port heuristic — port 8936 is the conventional AI Runner port
+  if (results.length === 1 && serviceURI) {
+    try {
+      const url = new URL(serviceURI);
+      if (url.port === '8936') {
+        results.push({ category: 'ai_batch', pipelineId: 'ai-runner-inferred' });
       }
     } catch {
-      // No capabilities endpoint — transcoding only
+      // Invalid serviceURI — skip heuristic
     }
-  } catch {
-    // Service unreachable — keep transcoding capability
   }
 
   return results;
 }
 
+// -------------------------------------------------------------------------
+// Sync capabilities for a single orchestrator into DB
+// -------------------------------------------------------------------------
+
 export async function syncCapabilitiesForOrchestrator(
   orchestratorId: string,
   address: string,
   serviceURI: string,
+  leaderboardMap?: Map<string, string[]>,
 ): Promise<void> {
-  const capabilities = await probeCapabilities(serviceURI);
+  const capabilities = await probeCapabilities(serviceURI, address, leaderboardMap);
 
   for (const cap of capabilities) {
     try {
@@ -118,6 +219,10 @@ export async function syncCapabilitiesForOrchestrator(
     }
   }
 }
+
+// -------------------------------------------------------------------------
+// Retrieve all capabilities (read path — unchanged)
+// -------------------------------------------------------------------------
 
 export async function getCapabilitiesByAddress(): Promise<
   Record<string, { categories: string[]; pipelines: string[]; lastChecked: string }>

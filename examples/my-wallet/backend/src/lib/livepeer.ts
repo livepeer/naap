@@ -23,18 +23,84 @@ function sanitizeAddress(addr: string): string {
 }
 
 /**
- * Convert a subgraph decimal string (ETH/LPT units like "12295.49698...")
- * to a wei string safe for BigInt. If already an integer string, passes through.
+ * Safely convert a value to a BigInt-safe wei string.
+ *
+ * If the value is a pure integer string, it passes through unchanged
+ * (assumed to already be in wei).  If it contains a decimal point,
+ * it is treated as a human-readable value and multiplied by 1e18.
  */
 export function toWei(val: string | undefined | null): string {
   if (!val || val === '0') return '0';
   try {
-    // If it's already a pure integer, return as-is
     if (/^-?\d+$/.test(val)) return val;
     return parseUnits(val, 18).toString();
   } catch {
     const dotIdx = val.indexOf('.');
     return dotIdx >= 0 ? (val.slice(0, dotIdx) || '0') : val;
+  }
+}
+
+/**
+ * Convert a subgraph decimal string (always in human-readable LPT/ETH
+ * units, e.g. "2420.929..." or "1") to a wei string.
+ * Unlike toWei, this ALWAYS applies the 1e18 multiplier because the
+ * Livepeer subgraph uses BigDecimal for token amounts.
+ */
+function subgraphToWei(val: string | undefined | null): string {
+  if (!val || val === '0') return '0';
+  try {
+    return parseUnits(val, 18).toString();
+  } catch {
+    const dotIdx = val.indexOf('.');
+    if (dotIdx >= 0) {
+      const intPart = val.slice(0, dotIdx) || '0';
+      try { return parseUnits(intPart, 18).toString(); } catch { return '0'; }
+    }
+    return '0';
+  }
+}
+
+/**
+ * Derive a human-readable name from an orchestrator's serviceURI domain.
+ * e.g. "https://vin-node.com:8935" → "Vin Node"
+ *      "https://livepeer.flagshipnodes.com:8935" → "Flagship Nodes"
+ *      "https://livepeer-orchestrator.prod.dcg-labs.co:8935" → "DCG Labs"
+ */
+export function deriveNameFromServiceURI(uri: string | null | undefined): string | null {
+  if (!uri) return null;
+  try {
+    const url = new URL(uri);
+    let host = url.hostname;
+
+    // Skip raw IP addresses
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return null;
+
+    // Remove common prefixes
+    host = host
+      .replace(/^(www|livepeer|orch|orchestrator|node|lpt)[\.\-]/i, '')
+      .replace(/^livepeer[\.\-]orchestrator[\.\-]/i, '')
+      .replace(/^load[\.\-]balancer[\.\-]/i, '');
+
+    // Extract the meaningful domain parts (skip TLD)
+    const parts = host.split('.');
+    let name = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+
+    // For subdomains like "prod.dcg-labs.co", prefer the more meaningful part
+    if (parts.length >= 3 && ['prod', 'staging', 'dev', 'app'].includes(parts[0])) {
+      name = parts[1];
+    }
+
+    // Clean up: remove "livepeer" prefix/suffix if still present, and humanize
+    name = name
+      .replace(/^livepeer[\-_]?/i, '')
+      .replace(/[\-_]?livepeer$/i, '')
+      .replace(/[\-_]/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase())
+      .trim();
+
+    return name || null;
+  } catch {
+    return null;
   }
 }
 
@@ -275,7 +341,7 @@ export function getProtocol(): Promise<ProtocolData> {
         lockPeriod: parseInt(String(p.lockPeriod || '7')),
         totalActiveStake: String(p.totalActiveStake || '0'),
         totalSupply: String(p.totalSupply || '0'),
-        participationRate: parseFloat(String(p.participationRate || '0')),
+        participationRate: parseFloat(String(p.participationRate || '0')) * 100,
         inflation: String(p.inflation || '0'),
         inflationChange: String(p.inflationChange || '0'),
         activeTranscoderCount: parseInt(String(p.activeTranscoderCount || '0')),
@@ -633,15 +699,15 @@ async function getDelegatorFromSubgraph(addr: string): Promise<DelegatorData | n
   const d = data.delegator;
 
   return {
-    bondedAmount: d.bondedAmount || '0',
-    principal: d.principal || '0',
-    fees: d.fees || '0',
+    bondedAmount: subgraphToWei(d.bondedAmount),
+    principal: subgraphToWei(d.principal),
+    fees: subgraphToWei(d.fees),
     delegateAddress: d.delegate?.id || null,
     startRound: d.startRound || '0',
     lastClaimRound: d.lastClaimRound || '0',
     unbondingLocks: (d.unbondingLocks || []).map(l => ({
       id: l.unbondingLockId,
-      amount: l.amount,
+      amount: subgraphToWei(l.amount),
       withdrawRound: l.withdrawRound,
       delegateAddress: l.delegate?.id || '',
     })),
@@ -973,52 +1039,66 @@ export async function estimateDailyReward(
   const lastClaimRound = parseInt(delegator.lastClaimRound || '0');
   const roundsElapsed = currentRound - lastClaimRound;
 
-  // Method 1: Observed rate (if rewards have accumulated)
+  // Always try inflation-based estimate (Method 2) first — it gives the
+  // current forward-looking daily rate accounting for reward cut.
+  // Method 1 (observed) is only reliable for recent claim windows.
+  let inflationEstimate: DailyRewardEstimate | null = null;
+  try {
+    const orchAddr = delegator.delegateAddress;
+    if (orchAddr) {
+      const [totalBondedHex, orchPoolStakeHex, orchDataHex] = await Promise.all([
+        ethCall(CONTRACTS.BondingManager, SELECTORS.getTotalBonded),
+        ethCall(CONTRACTS.BondingManager, SELECTORS.transcoderTotalStake + padAddress(orchAddr).slice(2)),
+        ethCall(CONTRACTS.BondingManager, SELECTORS.getTranscoder + padAddress(orchAddr).slice(2)),
+      ]);
+
+      const totalBonded = Number(decodeUint256(totalBondedHex)) / 1e18;
+      const orchPoolStake = Number(decodeUint256(orchPoolStakeHex)) / 1e18;
+      const rewardCut = Number(decodeUint256At(orchDataHex, 1)) / 10000; // percentage
+
+      if (totalBonded > 0 && orchPoolStake > 0) {
+        // Livepeer daily inflation rate (~0.097% per round/day based on observed data)
+        const dailyInflationRate = 0.00097;
+        const poolDailyReward = orchPoolStake * dailyInflationRate;
+
+        const isSelfDelegated = orchAddr.toLowerCase() === addr;
+        const orchCommission = poolDailyReward * (rewardCut / 100);
+        const delegatorPoolReward = poolDailyReward - orchCommission;
+        const userShare = totalStaked / orchPoolStake;
+        let dailyReward = delegatorPoolReward * userShare;
+
+        // Self-delegated orchestrators also receive the orchestrator commission
+        if (isSelfDelegated) {
+          dailyReward += orchCommission;
+        }
+
+        const apr = totalStaked > 0 ? (dailyReward * 365 / totalStaked) * 100 : 0;
+        inflationEstimate = { dailyRewardLpt: dailyReward, method: 'estimated', apr };
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to compute inflation-based reward estimate:', err);
+  }
+
+  // Method 1: Observed rate — only use when lastClaimRound is known (non-zero)
+  // and the window is recent (< 90 rounds) so the rate reflects current conditions.
+  if (accumulated > 0 && roundsElapsed > 0 && lastClaimRound > 0 && roundsElapsed < 90) {
+    const dailyRate = accumulated / roundsElapsed;
+    const apr = principal > 0 ? (accumulated / principal) * (365 / roundsElapsed) * 100 : 0;
+    return { dailyRewardLpt: dailyRate, method: 'observed', apr };
+  }
+
+  // Return inflation estimate if available
+  if (inflationEstimate) return inflationEstimate;
+
+  // Last resort: lifetime average (only if we have no better option)
   if (accumulated > 0 && roundsElapsed > 0) {
     const dailyRate = accumulated / roundsElapsed;
     const apr = principal > 0 ? (accumulated / principal) * (365 / roundsElapsed) * 100 : 0;
     return { dailyRewardLpt: dailyRate, method: 'observed', apr };
   }
 
-  // Method 2: Estimate from network inflation
-  // Get total bonded and the orchestrator's pool stake
-  try {
-    const orchAddr = delegator.delegateAddress;
-    if (!orchAddr) return { dailyRewardLpt: 0, method: 'estimated', apr: 0 };
-
-    const [totalBondedHex, orchPoolStakeHex, orchDataHex] = await Promise.all([
-      ethCall(CONTRACTS.BondingManager, SELECTORS.getTotalBonded),
-      ethCall(CONTRACTS.BondingManager, SELECTORS.transcoderTotalStake + padAddress(orchAddr).slice(2)),
-      ethCall(CONTRACTS.BondingManager, SELECTORS.getTranscoder + padAddress(orchAddr).slice(2)),
-    ]);
-
-    const totalBonded = Number(decodeUint256(totalBondedHex)) / 1e18;
-    const orchPoolStake = Number(decodeUint256(orchPoolStakeHex)) / 1e18;
-    const rewardCut = Number(decodeUint256At(orchDataHex, 1)) / 10000; // percentage
-
-    if (totalBonded <= 0 || orchPoolStake <= 0) {
-      return { dailyRewardLpt: 0, method: 'estimated', apr: 0 };
-    }
-
-    // Livepeer daily inflation rate (~0.097% per round/day based on observed data)
-    // This varies with participation rate but is relatively stable
-    const dailyInflationRate = 0.00097;
-
-    // Total pool daily reward
-    const poolDailyReward = totalBonded * dailyInflationRate * (orchPoolStake / totalBonded);
-    // = orchPoolStake * dailyInflationRate
-
-    // Orchestrator takes rewardCut% of total, delegators share the rest
-    const delegatorPoolReward = poolDailyReward * (1 - rewardCut / 100);
-    const userShare = totalStaked / orchPoolStake;
-    const dailyReward = delegatorPoolReward * userShare;
-
-    const apr = totalStaked > 0 ? (dailyReward * 365 / totalStaked) * 100 : 0;
-    return { dailyRewardLpt: dailyReward, method: 'estimated', apr };
-  } catch (err) {
-    console.warn('Failed to estimate daily reward:', err);
-    return { dailyRewardLpt: 0, method: 'estimated', apr: 0 };
-  }
+  return { dailyRewardLpt: 0, method: 'estimated', apr: 0 };
 }
 
 // ---------------------------------------------------------------------------

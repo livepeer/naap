@@ -10,6 +10,22 @@ import { getPrices, getProtocol, getOrchestrators } from '../lib/livepeer.js';
 
 const router = Router();
 
+const KNOWN_GATEWAYS: Record<string, string> = {
+  '0xc3c7c4c8f7061b7d6a72766eee5359fe4f36e61e': 'Livepeer Studio',
+  '0xca3331d67e87816adb30d9562a6e8c0623fb7fef': 'Livepeer Gateway',
+  '0x5f51c8eae3c97364613c48b42824be47aeb47ad0': 'Livepeer Gateway 2',
+  '0x5ae4e42db3671370a0c25aff451e7482aaec3d0b': 'Livepeer Gateway 3',
+  '0x012345de92b630c065dfc0cabe4eb34f74f7fc85': 'Livepeer Dev',
+  '0x847791cbf03be716a7fe9dc8c9affe17bd49ae5e': 'Livepeer AI Gateway',
+};
+
+function resolveGatewayName(address: string): string {
+  const lower = address.toLowerCase();
+  const known = KNOWN_GATEWAYS[lower];
+  if (known) return known;
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
 router.get('/api/v1/wallet/network/overview', async (req: Request, res: Response) => {
   try {
     const days = Math.min(parseInt((req.query.days as string) || '90'), 365);
@@ -216,7 +232,7 @@ router.get('/api/v1/wallet/network/fees-by-gateway', async (req: Request, res: R
     const gwIds = topGateways.broadcasters.map((b) => b.id);
     const gwLabels = new Map(topGateways.broadcasters.map((b) => [
       b.id,
-      `${b.id.slice(0, 6)}...${b.id.slice(-4)}`,
+      resolveGatewayName(b.id),
     ]));
 
     // Fetch daily volumes per gateway

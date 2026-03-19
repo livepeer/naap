@@ -563,7 +563,7 @@ const NetworkView: React.FC = () => {
                       {dp.activeOrchestrators} Os
                     </span>
                     <span className="text-text-secondary">
-                      {(dp.participationRate * 100).toFixed(1)}% part.
+                      {dp.participationRate.toFixed(1)}% part.
                     </span>
                     {dp.avgRewardCut > 0 && (
                       <span className="text-text-secondary">

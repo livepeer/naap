@@ -81,7 +81,7 @@ async function backfillFromDays(): Promise<void> {
             round: pseudoRound,
             totalVolumeETH: String(day.volumeETH || '0'),
             totalVolumeUSD: String(day.volumeUSD || '0'),
-            participationRate: parseFloat(String(day.participationRate || '0')),
+            participationRate: parseFloat(String(day.participationRate || '0')) * 100,
             inflation: String(day.inflation || '0'),
             activeOrchestrators: Number(day.activeTranscoderCount) || 0,
             delegatorsCount: Number(day.delegatorsCount) || 0,
