@@ -73,7 +73,7 @@ export async function calculateRiskScore(orchestratorAddr: string): Promise<Risk
   // Factor 4: Fee share stability (0-25)
   // Check recent round history for fee share changes
   const recentHistory = await prisma.walletOrchestratorRoundHistory.findMany({
-    where: { orchestratorAddr },
+    where: { address: orchestratorAddr },
     orderBy: { round: 'desc' },
     take: 50,
     select: { feeShare: true, rewardCut: true },

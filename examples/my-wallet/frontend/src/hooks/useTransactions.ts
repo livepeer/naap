@@ -46,7 +46,7 @@ export function useTransactions(limit = 20): UseTransactionsReturn {
   const [offset, setOffset] = useState(0);
 
   // Fetch transactions from backend
-  const fetchTransactions = useCallback(async (reset = false) => {
+  const fetchTransactions = useCallback(async (reset = false, signal?: AbortSignal) => {
     if (!isConnected || !address) {
       setTransactions([]);
       return;
@@ -58,7 +58,8 @@ export function useTransactions(limit = 20): UseTransactionsReturn {
     try {
       const currentOffset = reset ? 0 : offset;
       const response = await fetch(
-        `${apiUrl}/transactions?address=${address}&limit=${limit}&offset=${currentOffset}`
+        `${apiUrl}/transactions?address=${address}&limit=${limit}&offset=${currentOffset}`,
+        { signal },
       );
 
       if (!response.ok) {
@@ -79,6 +80,7 @@ export function useTransactions(limit = 20): UseTransactionsReturn {
       
       setTotal(json.meta?.total ?? data.total ?? 0);
     } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('Failed to fetch transactions:', err);
       setError(err?.message || 'Failed to fetch transactions');
     } finally {
@@ -87,9 +89,9 @@ export function useTransactions(limit = 20): UseTransactionsReturn {
   }, [isConnected, address, offset, limit]);
 
   // Refresh transactions (reset pagination)
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     setOffset(0);
-    await fetchTransactions(true);
+    await fetchTransactions(true, signal);
   }, [fetchTransactions]);
 
   // Load more transactions
@@ -126,7 +128,9 @@ export function useTransactions(limit = 20): UseTransactionsReturn {
   // Auto-fetch on connection
   useEffect(() => {
     if (isConnected && address) {
-      refresh();
+      const controller = new AbortController();
+      refresh(controller.signal);
+      return () => controller.abort();
     } else {
       setTransactions([]);
       setTotal(0);

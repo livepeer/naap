@@ -90,13 +90,18 @@ export async function getOrchestratorGovernance(orchestratorAddr: string): Promi
  * Get how user's orchestrators vote (for portfolio page)
  */
 export async function getUserOrchestratorVotes(userId: string): Promise<OrchestratorGovernance[]> {
-  const addresses = await prisma.walletAddress.findMany({
+  const walletAddresses = await prisma.walletAddress.findMany({
     where: { userId },
-    include: { stakingStates: { select: { delegatedTo: true } } },
+    select: { address: true },
+  });
+  const addressList = walletAddresses.map(a => a.address);
+  const stakingStates = await prisma.walletStakingState.findMany({
+    where: { address: { in: addressList } },
+    select: { delegatedTo: true },
   });
 
   const orchestratorAddrs = [...new Set(
-    addresses.flatMap(a => a.stakingStates.map(s => s.delegatedTo).filter(Boolean) as string[])
+    stakingStates.map(s => s.delegatedTo).filter(Boolean) as string[]
   )];
 
   return Promise.all(orchestratorAddrs.map(addr => getOrchestratorGovernance(addr)));

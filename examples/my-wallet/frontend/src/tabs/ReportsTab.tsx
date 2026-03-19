@@ -12,7 +12,7 @@ import { useWallet } from '../context/WalletContext';
 import { useExport } from '../hooks/useExport';
 import { usePrices } from '../hooks/usePrices';
 import { useGasAccounting } from '../hooks/useGasAccounting';
-import { formatAddress } from '../lib/utils';
+import { formatAddress, downloadBlob } from '../lib/utils';
 import { getApiUrl } from '../App';
 import { OrchestratorPerformance } from '../components/OrchestratorPerformance';
 
@@ -23,6 +23,32 @@ interface StakingEvent {
   amount: string;
   orchestrator: string | null;
   txHash: string | null;
+}
+
+interface PnlRow {
+  address: string;
+  orchestrator: string | null;
+  totalStaked: string;
+  principal: string;
+  accumulatedRewards: string;
+  dailyRewardRate: string;
+  annualizedAPR: string;
+}
+
+interface PnlData {
+  rows: PnlRow[];
+  totals: {
+    totalStaked: string;
+    totalPrincipal: string;
+    totalRewards: string;
+    totalFees: string;
+    avgDailyReward: string;
+    avgAPR: string;
+  };
+  prices: {
+    lptUsd: number;
+    ethUsd: number;
+  };
 }
 
 type SubView = 'pnl' | 'performance' | 'transactions' | 'gas' | 'export';
@@ -68,7 +94,7 @@ export const ReportsTab: React.FC = () => {
 const PnlView: React.FC = () => {
   const { address, accounts, isConnected } = useWallet();
   const prices = usePrices();
-  const [pnlData, setPnlData] = useState<any>(null);
+  const [pnlData, setPnlData] = useState<PnlData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [period, setPeriod] = useState<string>('1y');
   const [isExporting, setIsExporting] = useState(false);
@@ -289,7 +315,7 @@ const PnlView: React.FC = () => {
               <div className="px-3 py-2 bg-[var(--bg-tertiary)]/50">
                 <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Per Wallet</p>
               </div>
-              {pnlData.rows.map((row: any, i: number) => (
+              {pnlData.rows.map((row: PnlRow, i: number) => (
                 <div key={row.address || i} className="p-3 space-y-1">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-mono text-text-primary">{formatAddress(row.address, 8)}</p>
@@ -716,13 +742,13 @@ const ExportView: React.FC = () => {
   );
 };
 
-const ExportRow: React.FC<{
+const ExportRow = React.memo<{
   label: string;
   description: string;
   onCSV: () => void;
   onJSON: () => void;
   isExporting: boolean;
-}> = ({ label, description, onCSV, onJSON, isExporting }) => (
+}>(({ label, description, onCSV, onJSON, isExporting }) => (
   <div className="flex items-center justify-between py-2 border-b border-[var(--border-color)] last:border-0">
     <div>
       <p className="text-xs font-medium text-text-primary">{label}</p>
@@ -745,13 +771,4 @@ const ExportRow: React.FC<{
       </button>
     </div>
   </div>
-);
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+));

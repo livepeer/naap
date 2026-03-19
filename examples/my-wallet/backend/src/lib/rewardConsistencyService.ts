@@ -24,7 +24,7 @@ export async function getRewardConsistency(
   limit = 100,
 ): Promise<RewardConsistency> {
   const history = await prisma.walletOrchestratorRoundHistory.findMany({
-    where: { orchestratorAddr },
+    where: { address: orchestratorAddr },
     orderBy: { round: 'desc' },
     take: limit,
     select: { round: true, calledReward: true },
@@ -84,11 +84,25 @@ export async function recordRoundHistory(
   feeShare: number,
   totalStake: string,
 ): Promise<void> {
+  const orchestrator = await prisma.walletOrchestrator.findUnique({
+    where: { address: orchestratorAddr },
+    select: { id: true },
+  });
+  if (!orchestrator) throw new Error(`Orchestrator ${orchestratorAddr} not found`);
+
   await prisma.walletOrchestratorRoundHistory.upsert({
     where: {
-      orchestratorAddr_round: { orchestratorAddr, round },
+      address_round: { address: orchestratorAddr, round },
     },
     update: { calledReward, rewardCut, feeShare, totalStake },
-    create: { orchestratorAddr, round, calledReward, rewardCut, feeShare, totalStake },
+    create: {
+      orchestratorId: orchestrator.id,
+      address: orchestratorAddr,
+      round,
+      calledReward,
+      rewardCut,
+      feeShare,
+      totalStake,
+    },
   });
 }

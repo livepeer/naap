@@ -442,7 +442,7 @@ export const ExploreTab: React.FC = () => {
 };
 
 /** Unified orchestrator card with capabilities, fees, rewards, last claim */
-const OrchestratorCard: React.FC<{
+const OrchestratorCard = React.memo<{
   rank?: number;
   address: string;
   name: string | null;
@@ -461,7 +461,7 @@ const OrchestratorCard: React.FC<{
   stakeAmount: string;
   onStakeAmountChange: (v: string) => void;
   onStake: (addr: string) => void;
-}> = ({ rank, address, name, rewardCut, feeShare, totalStake, score, reasons, isActive, isWatched, onWatch, onUnwatch, notes, enhanced, stakingAddr, stakeAmount, onStakeAmountChange, onStake }) => {
+}>(({ rank, address, name, rewardCut, feeShare, totalStake, score, reasons, isActive, isWatched, onWatch, onUnwatch, notes, enhanced, stakingAddr, stakeAmount, onStakeAmountChange, onStake }) => {
   const delegatorYield = (12 * (100 - rewardCut) / 100).toFixed(1);
   const showStakeInput = stakingAddr === address;
 
@@ -565,4 +565,4 @@ const OrchestratorCard: React.FC<{
       </div>
     </div>
   );
-};
+});

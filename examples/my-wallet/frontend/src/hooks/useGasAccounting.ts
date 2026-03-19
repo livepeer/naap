@@ -29,11 +29,11 @@ export function useGasAccounting() {
   const [summary, setSummary] = useState<GasSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetch_ = useCallback(async () => {
+  const fetch_ = useCallback(async (signal?: AbortSignal) => {
     if (!isConnected || !address) return;
     setIsLoading(true);
     try {
-      const res = await fetch(`${getApiUrl()}/gas-summary?userId=${address}`);
+      const res = await fetch(`${getApiUrl()}/gas-summary?userId=${address}`, { signal });
       if (res.ok) {
         const json = await res.json();
         const d = json.data || {};
@@ -48,7 +48,8 @@ export function useGasAccounting() {
       } else {
         setSummary(emptySummary);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('Failed to fetch gas summary:', err);
       setSummary(emptySummary);
     } finally {
@@ -56,7 +57,11 @@ export function useGasAccounting() {
     }
   }, [isConnected, address]);
 
-  useEffect(() => { fetch_(); }, [fetch_]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch_(controller.signal);
+    return () => controller.abort();
+  }, [fetch_]);
 
   return { summary, isLoading, refresh: fetch_ };
 }

@@ -31,26 +31,31 @@ export function useEnhancedOrchestrators(from?: number, to?: number) {
   const [orchestrators, setOrchestrators] = useState<EnhancedOrchestrator[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetch_ = useCallback(async () => {
+  const fetch_ = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
     try {
       const params = new URLSearchParams({ activeOnly: 'true' });
       if (from) params.set('from', from.toString());
       if (to) params.set('to', to.toString());
 
-      const res = await fetch(`${getApiUrl()}/orchestrators/enhanced?${params}`);
+      const res = await fetch(`${getApiUrl()}/orchestrators/enhanced?${params}`, { signal });
       if (res.ok) {
         const json = await res.json();
         setOrchestrators(json.data || []);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('Failed to fetch enhanced orchestrators:', err);
     } finally {
       setIsLoading(false);
     }
   }, [from, to]);
 
-  useEffect(() => { fetch_(); }, [fetch_]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch_(controller.signal);
+    return () => controller.abort();
+  }, [fetch_]);
 
   return { orchestrators, isLoading, refresh: fetch_ };
 }

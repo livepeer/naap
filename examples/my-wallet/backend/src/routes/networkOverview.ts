@@ -12,7 +12,7 @@ const router = Router();
 
 router.get('/api/v1/wallet/network/overview', async (req: Request, res: Response) => {
   try {
-    const days = parseInt((req.query.days as string) || '90');
+    const days = Math.min(parseInt((req.query.days as string) || '90'), 365);
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     const [snapshots, dbOrchestrators, prices, latestSnapshot, protocol] = await Promise.all([

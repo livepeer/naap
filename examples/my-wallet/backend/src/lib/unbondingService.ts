@@ -5,21 +5,25 @@
 import { prisma } from '../db/client.js';
 
 export async function getUnbondingLocks(userId: string) {
-  return prisma.walletUnbondingLock.findMany({
-    where: {
-      walletAddress: { userId },
-    },
-    include: {
-      walletAddress: {
-        select: { address: true, label: true, chainId: true },
-      },
-    },
+  const walletAddresses = await prisma.walletAddress.findMany({
+    where: { userId },
+    select: { address: true, label: true, chainId: true },
+  });
+  const addressList = walletAddresses.map(a => a.address);
+
+  const locks = await prisma.walletUnbondingLock.findMany({
+    where: { address: { in: addressList } },
     orderBy: { createdAt: 'desc' },
   });
+
+  return locks.map(lock => ({
+    ...lock,
+    walletAddress: walletAddresses.find(a => a.address === lock.address) ?? null,
+  }));
 }
 
 export async function upsertUnbondingLock(
-  walletAddressId: string,
+  address: string,
   lockId: number,
   amount: string,
   withdrawRound: number,
@@ -27,7 +31,7 @@ export async function upsertUnbondingLock(
 ) {
   return prisma.walletUnbondingLock.upsert({
     where: {
-      walletAddressId_lockId: { walletAddressId, lockId },
+      address_lockId: { address, lockId },
     },
     update: {
       amount,
@@ -35,7 +39,7 @@ export async function upsertUnbondingLock(
       txHash: txHash || undefined,
     },
     create: {
-      walletAddressId,
+      address,
       lockId,
       amount,
       withdrawRound,
@@ -57,10 +61,10 @@ export async function markWithdrawableLocks(currentRound: number) {
   });
 }
 
-export async function markLockWithdrawn(walletAddressId: string, lockId: number, txHash?: string) {
+export async function markLockWithdrawn(address: string, lockId: number, txHash?: string) {
   return prisma.walletUnbondingLock.update({
     where: {
-      walletAddressId_lockId: { walletAddressId, lockId },
+      address_lockId: { address, lockId },
     },
     data: {
       status: 'withdrawn',
@@ -70,10 +74,10 @@ export async function markLockWithdrawn(walletAddressId: string, lockId: number,
   });
 }
 
-export async function markLockRebonded(walletAddressId: string, lockId: number, txHash?: string) {
+export async function markLockRebonded(address: string, lockId: number, txHash?: string) {
   return prisma.walletUnbondingLock.update({
     where: {
-      walletAddressId_lockId: { walletAddressId, lockId },
+      address_lockId: { address, lockId },
     },
     data: {
       status: 'rebonded',
