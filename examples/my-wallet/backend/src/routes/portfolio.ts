@@ -3,7 +3,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { getDelegator, getProtocol, getPrices, estimateDailyReward } from '../lib/livepeer.js';
+import { getDelegator, getProtocol, getPrices, estimateDailyReward, toWei } from '../lib/livepeer.js';
 import { prisma } from '../db/client.js';
 
 const router = Router();
@@ -36,12 +36,17 @@ router.get('/api/v1/wallet/portfolio', async (req: Request, res: Response) => {
       });
     }
 
+    const bondedWei = toWei(delegator.bondedAmount);
+    const principalWei = toWei(delegator.principal);
+    const feesWei = toWei(delegator.fees);
+    const pendingRewards = principalWei !== '0'
+      ? (BigInt(bondedWei) - BigInt(principalWei)).toString()
+      : '0';
+
     const portfolio = {
-      totalStaked: delegator.bondedAmount,
-      totalPendingRewards: delegator.principal !== '0'
-        ? (BigInt(delegator.bondedAmount) - BigInt(delegator.principal)).toString()
-        : '0',
-      totalPendingFees: delegator.fees,
+      totalStaked: bondedWei,
+      totalPendingRewards: pendingRewards,
+      totalPendingFees: feesWei,
       addressCount: 1,
       currentRound: protocol.currentRound,
       lptUsd: prices.lptUsd,
@@ -51,11 +56,9 @@ router.get('/api/v1/wallet/portfolio', async (req: Request, res: Response) => {
       positions: delegator.delegateAddress ? [{
         address,
         orchestrator: delegator.delegateAddress,
-        stakedAmount: delegator.bondedAmount,
-        pendingRewards: delegator.principal !== '0'
-          ? (BigInt(delegator.bondedAmount) - BigInt(delegator.principal)).toString()
-          : '0',
-        pendingFees: delegator.fees,
+        stakedAmount: bondedWei,
+        pendingRewards,
+        pendingFees: feesWei,
         startRound: delegator.startRound,
         lastClaimRound: delegator.lastClaimRound,
         orchestratorInfo: delegator.delegateInfo ? {
@@ -71,7 +74,7 @@ router.get('/api/v1/wallet/portfolio', async (req: Request, res: Response) => {
     res.json({ data: portfolio });
 
     // Fire-and-forget: save snapshot for historical tracking
-    if (delegator && delegator.delegateAddress) {
+    if (delegator && delegator.delegateAddress && prisma) {
       prisma.walletStakingSnapshot.upsert({
         where: {
           address_round: {
@@ -80,8 +83,8 @@ router.get('/api/v1/wallet/portfolio', async (req: Request, res: Response) => {
           },
         },
         update: {
-          pendingStake: delegator.bondedAmount,
-          pendingFees: delegator.fees || '0',
+          pendingStake: bondedWei,
+          pendingFees: feesWei,
           lptPriceUsd: prices.lptUsd,
           ethPriceUsd: prices.ethUsd,
         },
@@ -89,9 +92,9 @@ router.get('/api/v1/wallet/portfolio', async (req: Request, res: Response) => {
           address: address.toLowerCase(),
           orchestrator: delegator.delegateAddress,
           round: protocol.currentRound,
-          bondedAmount: delegator.principal || '0',
-          pendingStake: delegator.bondedAmount,
-          pendingFees: delegator.fees || '0',
+          bondedAmount: principalWei,
+          pendingStake: bondedWei,
+          pendingFees: feesWei,
           lptPriceUsd: prices.lptUsd,
           ethPriceUsd: prices.ethUsd,
         },
@@ -101,7 +104,9 @@ router.get('/api/v1/wallet/portfolio', async (req: Request, res: Response) => {
     }
   } catch (err: any) {
     console.error('Error fetching portfolio:', err);
-    res.status(500).json({ error: 'Failed to fetch portfolio' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch portfolio' });
+    }
   }
 });
 

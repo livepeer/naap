@@ -5,17 +5,51 @@
 import { prisma } from '../db/client.js';
 import { buildCsv, CsvColumn } from './csvBuilder.js';
 import { getPositions } from './portfolioService.js';
+import { getOrchestrators } from './livepeer.js';
 
 export type ExportFormat = 'csv' | 'json';
 
 /**
- * Export orchestrator leaderboard
+ * Export orchestrator leaderboard — reads from DB, falls back to live subgraph
  */
 export async function exportLeaderboard(format: ExportFormat): Promise<{ data: string; contentType: string; filename: string }> {
-  const orchestrators = await prisma.walletOrchestrator.findMany({
+  let orchestrators = await prisma.walletOrchestrator.findMany({
     where: { isActive: true },
     orderBy: { totalStake: 'desc' },
   });
+
+  // If DB is empty, fall back to live subgraph data
+  if (orchestrators.length === 0) {
+    try {
+      const live = await getOrchestrators();
+      orchestrators = live.map((o: any) => ({
+        id: o.address,
+        address: o.address,
+        chainId: 42161,
+        name: null,
+        serviceUri: o.serviceURI,
+        totalStake: o.totalStake,
+        rewardCut: Math.round(o.rewardCut * 100),
+        feeShare: Math.round(o.feeShare * 100),
+        isActive: o.active,
+        lastSynced: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        activationRound: o.activationRound || null,
+        deactivationRound: o.deactivationRound || null,
+        totalVolumeETH: o.totalVolumeETH || '0',
+        thirtyDayVolumeETH: o.thirtyDayVolumeETH || '0',
+        ninetyDayVolumeETH: o.ninetyDayVolumeETH || '0',
+        totalRewardTokens: o.totalRewardTokens || '0',
+        lastRewardRound: parseInt(o.lastRewardRound) || 0,
+        delegatorCount: o.delegatorCount || 0,
+        rewardCallRatio: o.rewardCallRatio || 0,
+        syncedAtRound: 0,
+      }));
+    } catch (err: any) {
+      console.warn('[exportService] Live fallback failed:', err.message);
+    }
+  }
 
   if (format === 'json') {
     return {

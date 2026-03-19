@@ -26,18 +26,23 @@ export interface ClaimablePosition {
  * Get auto-claim config for a wallet address
  */
 export async function getAutoClaimConfig(walletAddressId: string): Promise<AutoClaimConfig | null> {
-  const config = await prisma.walletAutoClaimConfig.findUnique({
-    where: { walletAddressId },
-  });
-  if (!config) return null;
+  if (!prisma) return null;
+  try {
+    const config = await (prisma as any).walletAutoClaimConfig?.findUnique({
+      where: { walletAddressId },
+    });
+    if (!config) return null;
 
-  return {
-    id: config.id,
-    walletAddressId: config.walletAddressId,
-    enabled: config.enabled,
-    minRewardLpt: config.minRewardLpt.toString(),
-    lastClaimedAt: config.lastClaimedAt?.toISOString() || null,
-  };
+    return {
+      id: config.id,
+      walletAddressId: config.walletAddressId,
+      enabled: config.enabled,
+      minRewardLpt: config.minRewardLpt.toString(),
+      lastClaimedAt: config.lastClaimedAt?.toISOString() || null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -48,19 +53,25 @@ export async function setAutoClaimConfig(
   enabled: boolean,
   minRewardLpt: string,
 ): Promise<AutoClaimConfig> {
-  const config = await prisma.walletAutoClaimConfig.upsert({
-    where: { walletAddressId },
-    update: { enabled, minRewardLpt },
-    create: { walletAddressId, enabled, minRewardLpt },
-  });
+  if (!prisma) throw new Error('Database not available');
+  try {
+    const config = await (prisma as any).walletAutoClaimConfig?.upsert({
+      where: { walletAddressId },
+      update: { enabled, minRewardLpt },
+      create: { walletAddressId, enabled, minRewardLpt },
+    });
+    if (!config) throw new Error('Auto-claim model not available');
 
-  return {
-    id: config.id,
-    walletAddressId: config.walletAddressId,
-    enabled: config.enabled,
-    minRewardLpt: config.minRewardLpt.toString(),
-    lastClaimedAt: config.lastClaimedAt?.toISOString() || null,
-  };
+    return {
+      id: config.id,
+      walletAddressId: config.walletAddressId,
+      enabled: config.enabled,
+      minRewardLpt: config.minRewardLpt.toString(),
+      lastClaimedAt: config.lastClaimedAt?.toISOString() || null,
+    };
+  } catch (err: any) {
+    throw new Error('Auto-claim configuration not yet available');
+  }
 }
 
 /**
@@ -68,13 +79,16 @@ export async function setAutoClaimConfig(
  * Called by cron job to generate alert notifications
  */
 export async function findClaimablePositions(userId: string): Promise<ClaimablePosition[]> {
-  const addresses = await prisma.walletAddress.findMany({
-    where: { userId },
-    include: {
-      stakingStates: true,
-      autoClaimConfig: true,
-    },
-  });
+  if (!prisma) return [];
+  try {
+    const addresses = await (prisma as any).walletAddress?.findMany({
+      where: { userId },
+      include: {
+        stakingStates: true,
+        autoClaimConfig: true,
+      },
+    });
+    if (!addresses) return [];
 
   const results: ClaimablePosition[] = [];
 
@@ -102,4 +116,7 @@ export async function findClaimablePositions(userId: string): Promise<ClaimableP
   }
 
   return results;
+  } catch {
+    return [];
+  }
 }

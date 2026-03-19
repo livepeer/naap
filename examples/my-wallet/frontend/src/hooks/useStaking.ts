@@ -173,6 +173,29 @@ export function useStaking(): UseStakingReturn {
     }
   }, [address, isConnected, getContracts]);
 
+  // Log confirmed transaction to backend for gas accounting
+  const logTransaction = useCallback(async (
+    txHash: string, type: string, receipt: any, value?: string,
+  ) => {
+    try {
+      const { getApiUrl } = await import('../App');
+      await fetch(`${getApiUrl()}/transactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address,
+          txHash,
+          type,
+          chainId: chainId || 42161,
+          value,
+          gasUsed: receipt.gasUsed?.toString(),
+          gasPrice: receipt.gasPrice?.toString(),
+          status: 'confirmed',
+        }),
+      });
+    } catch { /* non-critical */ }
+  }, [address, chainId]);
+
   // Stake LPT to an orchestrator
   const stake = useCallback(async (amount: string, orchestrator: string): Promise<string> => {
     if (!signer || !address) throw new Error('Wallet not connected');
@@ -194,11 +217,11 @@ export function useStaking(): UseStakingReturn {
     const tx = await bondingManager.bond(amountWei, orchestrator);
     const receipt = await tx.wait();
 
-    // Refresh state
+    await logTransaction(receipt.hash, 'stake', receipt, amountWei.toString());
     await refreshStakingState();
 
     return receipt.hash;
-  }, [signer, address, getContracts, refreshStakingState]);
+  }, [signer, address, getContracts, refreshStakingState, logTransaction]);
 
   // Unstake LPT
   const unstake = useCallback(async (amount: string): Promise<string> => {
@@ -213,10 +236,11 @@ export function useStaking(): UseStakingReturn {
     const tx = await bondingManager.unbond(amountWei);
     const receipt = await tx.wait();
 
+    await logTransaction(receipt.hash, 'unstake', receipt, amountWei.toString());
     await refreshStakingState();
 
     return receipt.hash;
-  }, [signer, getContracts, refreshStakingState]);
+  }, [signer, getContracts, refreshStakingState, logTransaction]);
 
   // Claim rewards
   const claimRewards = useCallback(async (): Promise<string> => {
@@ -230,10 +254,11 @@ export function useStaking(): UseStakingReturn {
     const tx = await bondingManager.claimEarnings(state.currentRound);
     const receipt = await tx.wait();
 
+    await logTransaction(receipt.hash, 'claim', receipt);
     await refreshStakingState();
 
     return receipt.hash;
-  }, [signer, getContracts, state.currentRound, refreshStakingState]);
+  }, [signer, getContracts, state.currentRound, refreshStakingState, logTransaction]);
 
   // Withdraw fees
   const withdrawFees = useCallback(async (): Promise<string> => {
@@ -247,10 +272,11 @@ export function useStaking(): UseStakingReturn {
     const tx = await bondingManager.withdrawFees(address, state.pendingFees);
     const receipt = await tx.wait();
 
+    await logTransaction(receipt.hash, 'claim', receipt, state.pendingFees.toString());
     await refreshStakingState();
 
     return receipt.hash;
-  }, [signer, address, getContracts, state.pendingFees, refreshStakingState]);
+  }, [signer, address, getContracts, state.pendingFees, refreshStakingState, logTransaction]);
 
   // Auto-refresh on wallet connection
   useEffect(() => {

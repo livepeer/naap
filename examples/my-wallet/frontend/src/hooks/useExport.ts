@@ -5,12 +5,14 @@
 import { useState, useCallback } from 'react';
 import { useShell } from '@naap/plugin-sdk';
 import { getApiUrl } from '../App';
+import { useWallet } from '../context/WalletContext';
 
 type ExportType = 'leaderboard' | 'positions';
 type ExportFormat = 'csv' | 'json';
 
 export function useExport() {
   const shell = useShell();
+  const { address } = useWallet();
   const [isExporting, setIsExporting] = useState(false);
 
   const doExport = useCallback(async (type: ExportType, format: ExportFormat) => {
@@ -18,7 +20,8 @@ export function useExport() {
     try {
       const apiUrl = getApiUrl();
       const token = await shell.auth.getToken().catch(() => '');
-      const res = await fetch(`${apiUrl}/export/${type}?format=${format}`, {
+      const userId = address || '';
+      const res = await fetch(`${apiUrl}/export/${type}?format=${format}&userId=${userId}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 

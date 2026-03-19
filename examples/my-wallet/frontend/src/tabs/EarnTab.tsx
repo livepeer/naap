@@ -159,8 +159,18 @@ export const EarnTab: React.FC<EarnTabProps> = ({ onNavigate }) => {
     return () => { cancelled = true; };
   }, [accounts, address]);
 
-  // All wallets: active first, then others
-  const allWallets = [activeData, ...otherWallets];
+  // All wallets: active first, then others (deduplicated by address)
+  const allWallets = useMemo(() => {
+    const seen = new Set<string>();
+    const result: WalletStakingData[] = [];
+    for (const w of [activeData, ...otherWallets]) {
+      const key = w.address.toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      result.push(w);
+    }
+    return result;
+  }, [activeData, otherWallets]);
   const hasMultipleWallets = accounts.length > 1;
 
   // Aggregated totals

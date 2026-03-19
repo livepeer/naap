@@ -16,7 +16,13 @@ export function formatAddress(address: string, chars = 4): string {
  * Format a balance from wei to human-readable
  */
 export function formatBalance(wei: bigint | string, decimals = 18, displayDecimals = 4): string {
-  const value = typeof wei === 'string' ? BigInt(wei) : wei;
+  let value: bigint;
+  if (typeof wei === 'string') {
+    const dotIdx = wei.indexOf('.');
+    value = BigInt(dotIdx >= 0 ? (wei.slice(0, dotIdx) || '0') : (wei || '0'));
+  } else {
+    value = wei;
+  }
   const formatted = formatUnits(value, decimals);
   const num = parseFloat(formatted);
   

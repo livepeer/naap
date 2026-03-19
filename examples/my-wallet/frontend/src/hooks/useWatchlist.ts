@@ -1,8 +1,10 @@
 /**
- * Watchlist hook — localStorage-based (no DB dependency)
+ * Watchlist hook — backend API-backed with localStorage fallback
  */
 
 import { useState, useCallback, useEffect } from 'react';
+import { getApiUrl } from '../App';
+import { useWallet } from '../context/WalletContext';
 
 interface WatchlistEntry {
   id: string;
@@ -21,7 +23,7 @@ interface WatchlistEntry {
 
 const STORAGE_KEY = 'my-wallet-watchlist';
 
-function loadWatchlist(): WatchlistEntry[] {
+function loadLocal(): WatchlistEntry[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored ? JSON.parse(stored) : [];
@@ -30,48 +32,92 @@ function loadWatchlist(): WatchlistEntry[] {
   }
 }
 
-function saveWatchlist(items: WatchlistEntry[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-}
-
 export function useWatchlist() {
-  const [items, setItems] = useState<WatchlistEntry[]>(loadWatchlist);
+  const { address } = useWallet();
+  const [items, setItems] = useState<WatchlistEntry[]>(loadLocal);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Sync to localStorage on change
-  useEffect(() => { saveWatchlist(items); }, [items]);
-
-  const add = useCallback((orchestratorAddr: string, label?: string, notes?: string) => {
-    setItems(prev => {
-      if (prev.some(i => i.orchestratorAddr.toLowerCase() === orchestratorAddr.toLowerCase())) {
-        return prev; // already exists
+  const fetchItems = useCallback(async () => {
+    if (!address) return;
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/watchlist?address=${address}`);
+      if (res.ok) {
+        const json = await res.json();
+        const data = json.data || [];
+        setItems(data);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       }
-      return [...prev, {
-        id: `w_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        orchestratorAddr,
-        label: label || null,
-        notes: notes || null,
-        addedAt: new Date().toISOString(),
-      }];
-    });
-  }, []);
+    } catch {
+      // Use localStorage fallback
+      setItems(loadLocal());
+    } finally {
+      setIsLoading(false);
+    }
+  }, [address]);
 
-  const remove = useCallback((id: string) => {
-    setItems(prev => prev.filter(i => i.id !== id));
-  }, []);
+  useEffect(() => { fetchItems(); }, [fetchItems]);
 
-  const update = useCallback((id: string, updates: { label?: string; notes?: string }) => {
-    setItems(prev => prev.map(i =>
-      i.id === id ? { ...i, ...updates } : i
-    ));
-  }, []);
+  const add = useCallback(async (orchestratorAddr: string, label?: string, notes?: string) => {
+    if (!address) return;
 
-  const isWatched = useCallback((addr: string) => {
-    return items.some(i => i.orchestratorAddr.toLowerCase() === addr.toLowerCase());
-  }, [items]);
+    // Optimistic update
+    const tempEntry: WatchlistEntry = {
+      id: `temp_${Date.now()}`,
+      orchestratorAddr,
+      label: label || null,
+      notes: notes || null,
+      addedAt: new Date().toISOString(),
+    };
+    setItems((prev) => [...prev, tempEntry]);
 
-  const getItem = useCallback((addr: string) => {
-    return items.find(i => i.orchestratorAddr.toLowerCase() === addr.toLowerCase());
-  }, [items]);
+    try {
+      const res = await fetch(`${getApiUrl()}/watchlist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, orchestratorAddr, label, notes }),
+      });
+      if (res.ok) {
+        await fetchItems();
+      }
+    } catch {
+      // Keep optimistic update
+    }
+  }, [address, fetchItems]);
 
-  return { items, isLoading: false, add, update, remove, isWatched, getItem, refresh: () => {} };
+  const remove = useCallback(async (id: string) => {
+    if (!address) return;
+
+    setItems((prev) => prev.filter((i) => i.id !== id));
+
+    try {
+      await fetch(`${getApiUrl()}/watchlist/${id}?address=${address}`, { method: 'DELETE' });
+    } catch { /* keep optimistic */ }
+  }, [address]);
+
+  const update = useCallback(async (id: string, updates: { label?: string; notes?: string }) => {
+    if (!address) return;
+
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...updates } : i)));
+
+    try {
+      await fetch(`${getApiUrl()}/watchlist/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, ...updates }),
+      });
+    } catch { /* keep optimistic */ }
+  }, [address]);
+
+  const isWatched = useCallback(
+    (addr: string) => items.some((i) => i.orchestratorAddr.toLowerCase() === addr.toLowerCase()),
+    [items],
+  );
+
+  const getItem = useCallback(
+    (addr: string) => items.find((i) => i.orchestratorAddr.toLowerCase() === addr.toLowerCase()),
+    [items],
+  );
+
+  return { items, isLoading, add, update, remove, isWatched, getItem, refresh: fetchItems };
 }

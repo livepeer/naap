@@ -48,10 +48,10 @@ export const PositionsTable: React.FC<PositionsTableProps> = ({
           cmp = (a.orchestrator || '').localeCompare(b.orchestrator || '');
           break;
         case 'stakedAmount':
-          cmp = Number(BigInt(a.stakedAmount) - BigInt(b.stakedAmount));
+          cmp = parseFloat(a.stakedAmount || '0') - parseFloat(b.stakedAmount || '0');
           break;
         case 'pendingRewards':
-          cmp = Number(BigInt(a.pendingRewards) - BigInt(b.pendingRewards));
+          cmp = parseFloat(a.pendingRewards || '0') - parseFloat(b.pendingRewards || '0');
           break;
         case 'rewardCut':
           cmp = (a.orchestratorInfo?.rewardCut || 0) - (b.orchestratorInfo?.rewardCut || 0);
