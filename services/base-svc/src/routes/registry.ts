@@ -8,6 +8,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
+import { execSync } from 'child_process';
 import type { AuditLogInput } from '../services/lifecycle';
 import {
   discoverFromDir,
@@ -750,16 +751,35 @@ export function createRegistryRoutes(deps: RegistryRouteDeps) {
         });
       }
 
-      // Verify the plugin has been built
+      // Auto-build the plugin if the bundle doesn't exist yet
       const bundlePath = path.join(
         MONOREPO_ROOT, 'dist', 'plugins', example.dirName,
         example.version, `${example.dirName}.js`,
       );
       if (!fs.existsSync(bundlePath)) {
-        return res.status(400).json({
-          error: `Plugin "${example.dirName}" must be built first`,
-          hint: `Run: bin/build-plugins.sh --plugin ${example.dirName}`,
-        });
+        const buildScript = path.join(MONOREPO_ROOT, 'bin', 'build-plugins.sh');
+        try {
+          console.log(`[registry] Auto-building example plugin "${example.dirName}"...`);
+          execSync(`bash "${buildScript}" --plugin "${example.dirName}"`, {
+            cwd: MONOREPO_ROOT,
+            stdio: 'pipe',
+            timeout: 120_000,
+          });
+        } catch (buildErr: any) {
+          const stderr = buildErr?.stderr?.toString()?.slice(-500) || '';
+          return res.status(500).json({
+            error: `Failed to build plugin "${example.dirName}"`,
+            details: stderr,
+            hint: `Try manually: bin/build-plugins.sh --plugin ${example.dirName}`,
+          });
+        }
+
+        if (!fs.existsSync(bundlePath)) {
+          return res.status(500).json({
+            error: `Build completed but bundle not found at expected path`,
+            expected: bundlePath,
+          });
+        }
       }
 
       // Atomic publish: package + version + workflow + deployment + install in a transaction

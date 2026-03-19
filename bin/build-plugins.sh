@@ -131,40 +131,22 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Auto-discover plugins: find all plugin directories that have a frontend vite config.
-# Scans both plugins/ and examples/ (examples/ provides plugins like my-wallet that
-# aren't symlinked into plugins/ on CI/Vercel where hardlinks aren't available).
-EXAMPLES_DIR="$ROOT_DIR/examples"
-
+# This means any new plugin with plugins/{name}/frontend/vite.config.ts is automatically included.
 if [ -n "$SPECIFIC_PLUGIN" ]; then
   PLUGINS=("$SPECIFIC_PLUGIN")
 else
   PLUGINS=()
-
-  # Scan plugins/ first (takes precedence)
   for config in "$PLUGINS_DIR"/*/frontend/vite.config.ts; do
     [ -f "$config" ] || continue
     plugin_name="$(basename "$(dirname "$(dirname "$config")")")"
     PLUGINS+=("$plugin_name")
   done
-
-  # Scan examples/ for additional plugins not already found in plugins/
-  if [ -d "$EXAMPLES_DIR" ]; then
-    for config in "$EXAMPLES_DIR"/*/frontend/vite.config.ts; do
-      [ -f "$config" ] || continue
-      plugin_name="$(basename "$(dirname "$(dirname "$config")")")"
-      # Only add if not already discovered in plugins/
-      if ! printf '%s\n' "${PLUGINS[@]}" | grep -qx "$plugin_name"; then
-        PLUGINS+=("$plugin_name")
-      fi
-    done
-  fi
-
   # Sort for deterministic output
   IFS=$'\n' PLUGINS=($(sort <<<"${PLUGINS[*]}")); unset IFS
 fi
 
 if [ ${#PLUGINS[@]} -eq 0 ]; then
-  log_warn "No plugins found in $PLUGINS_DIR or $EXAMPLES_DIR with frontend/vite.config.ts"
+  log_warn "No plugins found in $PLUGINS_DIR with frontend/vite.config.ts"
   exit 0
 fi
 
@@ -185,23 +167,16 @@ fi
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
 
-# Resolve plugin root directory (plugins/ takes precedence over examples/)
-resolve_plugin_root() {
-  local name=$1
-  if [ -d "$PLUGINS_DIR/$name/frontend" ]; then
-    echo "$PLUGINS_DIR/$name"
-  elif [ -d "$EXAMPLES_DIR/$name/frontend" ]; then
-    echo "$EXAMPLES_DIR/$name"
-  else
-    echo "$PLUGINS_DIR/$name"
-  fi
-}
-
 # Build a single plugin
 build_plugin() {
   local plugin_name=$1
-  local plugin_root
-  plugin_root="$(resolve_plugin_root "$plugin_name")"
+  local plugin_root="$PLUGINS_DIR/$plugin_name"
+
+  # Fallback: if plugin not in plugins/, check examples/ (for --plugin mode)
+  if [ ! -d "$plugin_root/frontend" ] && [ -d "$ROOT_DIR/examples/$plugin_name/frontend" ]; then
+    plugin_root="$ROOT_DIR/examples/$plugin_name"
+  fi
+
   local plugin_dir="$plugin_root/frontend"
   local output_subdir="$OUTPUT_DIR/$plugin_name/1.0.0"
 
