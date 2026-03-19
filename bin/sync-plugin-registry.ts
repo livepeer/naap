@@ -426,6 +426,14 @@ async function main(): Promise<void> {
       `[sync-plugin-registry] Generated plugin-routes.json with ${Object.keys(routeMap).length} route(s): ${Object.keys(routeMap).join(', ')}`,
     );
 
+    // Ensure critical feature flags exist
+    await prisma.featureFlag.upsert({
+      where: { key: 'enableExamplePublishing' },
+      update: {},
+      create: { key: 'enableExamplePublishing', enabled: true, description: 'Allow publishing example plugins from the Plugin Publisher UI' },
+    });
+    console.log('[sync-plugin-registry] Feature flags OK');
+
     console.log('[sync-plugin-registry] Done.');
   } finally {
     await prisma.$disconnect();
