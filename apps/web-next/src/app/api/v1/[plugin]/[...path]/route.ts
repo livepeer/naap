@@ -105,7 +105,16 @@ async function handleListExamples(request: NextRequest): Promise<NextResponse> {
   const publishedSet = new Set(publishedPkgs.map((p) => p.name));
 
   const result = examples.map((e) => ({ ...e, alreadyPublished: publishedSet.has(e.name) }));
-  return NextResponse.json({ success: true, examples: result });
+  return NextResponse.json({
+    success: true,
+    examples: result,
+    _debug: {
+      manifestLength: EXAMPLES_MANIFEST.length,
+      manifestType: typeof EXAMPLES_MANIFEST,
+      isArray: Array.isArray(EXAMPLES_MANIFEST),
+      firstEntry: EXAMPLES_MANIFEST[0]?.name || null,
+    },
+  });
 }
 
 async function handlePublishExample(
