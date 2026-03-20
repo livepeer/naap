@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
-import { EXAMPLES_MANIFEST, type ExampleManifestEntry } from '../../../../../../generated/examples-manifest';
+import { EXAMPLES_MANIFEST, type ExampleManifestEntry } from '../../../../../../../generated/examples-manifest';
 
 const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || '/cdn/plugins';
 const IS_VERCEL = process.env.VERCEL === '1';
