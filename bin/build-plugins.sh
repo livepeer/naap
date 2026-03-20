@@ -131,18 +131,20 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Auto-discover plugins: find all plugin directories that have a frontend vite config.
-# This means any new plugin with plugins/{name}/frontend/vite.config.ts is automatically included.
+# Scans both plugins/ (production plugins) and examples/ (example plugins that can
+# be published via Plugin Publisher). Deduplicates in case a symlink in plugins/
+# points to an examples/ directory.
 if [ -n "$SPECIFIC_PLUGIN" ]; then
   PLUGINS=("$SPECIFIC_PLUGIN")
 else
   PLUGINS=()
-  for config in "$PLUGINS_DIR"/*/frontend/vite.config.ts; do
+  for config in "$PLUGINS_DIR"/*/frontend/vite.config.ts "$ROOT_DIR"/examples/*/frontend/vite.config.ts; do
     [ -f "$config" ] || continue
     plugin_name="$(basename "$(dirname "$(dirname "$config")")")"
     PLUGINS+=("$plugin_name")
   done
-  # Sort for deterministic output
-  IFS=$'\n' PLUGINS=($(sort <<<"${PLUGINS[*]}")); unset IFS
+  # Sort and deduplicate (symlinks in plugins/ may point to examples/)
+  IFS=$'\n' PLUGINS=($(echo "${PLUGINS[*]}" | tr ' ' '\n' | sort -u)); unset IFS
 fi
 
 if [ ${#PLUGINS[@]} -eq 0 ]; then
