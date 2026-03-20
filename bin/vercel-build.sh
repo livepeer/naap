@@ -46,8 +46,11 @@ else
   # Step 1: Build plugin UMD bundles
   # Production and preview: build all plugins. Source-hash caching in build-plugins.sh
   # skips unchanged plugins, so --parallel is efficient for both.
+  # Non-fatal: individual plugin build failures (e.g. example plugins with missing
+  # deps) must not abort the entire pipeline. Successfully built bundles are still
+  # available in dist/plugins/ for the copy step.
   echo "[1/6] Building plugin bundles..."
-  ./bin/build-plugins.sh --parallel
+  ./bin/build-plugins.sh --parallel || echo "WARN: Some plugins failed to build (continuing with successful ones)"
 fi
 
 # Step 2: Copy built bundles to public/ for static serving
