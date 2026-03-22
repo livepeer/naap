@@ -686,7 +686,7 @@ sync_unified_database() {
       log_debug "Prisma client generated"
 
       # Step 2: Push schema to database (creates tables + adds new columns).
-      DATABASE_URL="$UNIFIED_DB_URL" npx prisma db push --skip-generate --accept-data-loss > /dev/null 2>&1 && \
+      DATABASE_URL="$UNIFIED_DB_URL" DATABASE_URL_UNPOOLED="$UNIFIED_DB_URL" npx prisma db push --skip-generate --accept-data-loss > /dev/null 2>&1 && \
         log_success "Schema pushed to database" || \
         log_warn "Schema push had issues (may be fine on first run)"
 
