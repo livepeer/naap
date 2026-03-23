@@ -166,6 +166,8 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     pipeline: String!
     unit: String!
     price: Float!
+    """Average pixelsPerUnit for this capability (billing step size in pixels)."""
+    pixelsPerUnit: Float
     outputPerDollar: String!
   }
 
@@ -407,6 +409,8 @@ export interface DashboardPipelinePricing {
   pipeline: string;
   unit: string;
   price: number;
+  /** Weighted avg pixelsPerUnit from capabilities_prices (pixel block size for price). */
+  pixelsPerUnit?: number | null;
   outputPerDollar: string;
 }
 

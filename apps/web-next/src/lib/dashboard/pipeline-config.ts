@@ -60,6 +60,7 @@ export const PIPELINE_COLOR: Record<string, string> = {
   // Implementation-specific variants
   'streamdiffusion-sdxl':     '#8b5cf6',  // violet (same as image-to-image)
   'streamdiffusion-sdxl-v2v': '#10b981',  // emerald (same as live-video-to-video)
+  'noop':                     '#9f1239',  // rose-800 — internal / placeholder
 
   // Future / experimental
   'text-to-video':            '#ec4899',  // pink
