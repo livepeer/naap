@@ -337,14 +337,26 @@ interface DeductionRuleSet {
 Plugins communicate through the A3P event bus and direct tool invocation:
 
 ```
-User Message (Telegram/Web)
+Telegram / Web Dashboard
     |
     v
-Agent Framework (skill-based intent routing)
+Interface Layer (Telegram bot / Web API)
     |
-    +-- "I spent $45 on lunch"
-    |   -> skill:expense-recording.record_expense()
+    +-- Text message: "I spent $45 on lunch"
+    |   -> Agent Framework -> skill:expense-recording.record_expense()
     |   -> agentbook-core.create_journal_entry()
+    |
+    +-- Photo message: [receipt image]
+    |   -> Agent Framework -> skill:receipt-ocr.extract_receipt()
+    |   -> { amount: 4500, vendor: "Subway", date: "2026-03-22" }
+    |   -> skill:expense-recording.record_expense()
+    |   -> Telegram: inline keyboard [Correct] [Change] [Edit] [Personal]
+    |   -> on confirm: agentbook-core.create_journal_entry()
+    |   -> receipt image stored in S3, linked to expense
+    |
+    +-- Document: [forwarded email receipt / PDF]
+    |   -> Agent Framework -> skill:receipt-ocr.extract_document()
+    |   -> same flow as photo
     |
     +-- "Invoice Acme $5,000"
     |   -> skill:invoice-creation.create_invoice()
@@ -361,6 +373,7 @@ Agent Framework (skill-based intent routing)
 
 **Event flow:**
 - `expense.recorded` -> tax plugin recalculates estimate
+- `receipt.uploaded` -> OCR pipeline triggered, expense created on completion
 - `invoice.paid` -> core plugin records journal entry -> tax recalculates
 - `period.closed` -> expense plugin stops accepting entries for that period
 
@@ -368,26 +381,104 @@ Agent Framework (skill-based intent routing)
 
 ## Phase 0: Foundation (2 weeks)
 
-**Goal:** Plugin scaffolds, agent framework with skill system, ledger database, one working end-to-end flow.
+**Goal:** Plugin scaffolds, agent framework with skill system, ledger database, **Telegram bot with receipt photo capture and OCR** — so users experience the magic from day one.
+
+> **UX-first principle:** The core differentiator of AgentBook is "snap a receipt, done." This must work in Phase 0, not be deferred. A text-only Phase 0 would feel no different from a spreadsheet. The photo-to-expense flow is what makes first-time users say "wow."
 
 ### Implementation Tasks
+
+**Agent Framework & Plugins**
 - [ ] **P0-T01** Scaffold all 4 plugins using A3P plugin template
 - [ ] **P0-T02** Implement agent framework: orchestrator, constraint engine, skill registry
-- [ ] **P0-T03** Implement first skill: `expense-recording` with skill manifest
-- [ ] **P0-T04** `agentbook-core`: PostgreSQL schema with balance CHECK constraint
-- [ ] **P0-T05** `agentbook-core`: Tenant config with `jurisdiction`, `region`, `currency`, `locale` fields
-- [ ] **P0-T06** Implement jurisdiction pack interfaces (`TaxBracketProvider`, `ChartOfAccountsTemplate`, `SalesTaxEngine`, etc.)
-- [ ] **P0-T07** Implement US jurisdiction pack: chart of accounts (Schedule C aligned), federal + state tax brackets (2025)
-- [ ] **P0-T08** Implement CA jurisdiction pack: chart of accounts (T2125 aligned), federal + provincial tax brackets (2025)
-- [ ] **P0-T09** Jurisdiction pack loader: resolve correct pack from tenant config, validate interfaces
-- [ ] **P0-T10** `agentbook-core`: `create_journal_entry` tool with constraint engine
-- [ ] **P0-T11** `agentbook-expense`: `record_expense` tool (text input only, currency from tenant config)
-- [ ] **P0-T12** `agentbook-expense`: Basic categorization (manual selection from jurisdiction-specific CoA)
-- [ ] **P0-T13** Web dashboard: Plugin shell pages with navigation (use `frontend-design` skill for A3P UI compliance)
-- [ ] **P0-T14** Docker Compose: add `plugin_agentbook_*` schemas
-- [ ] **P0-T15** End-to-end US: user types "I spent $20 on coffee" -> expense + journal entry in USD
-- [ ] **P0-T16** End-to-end CA: user types "I spent $20 on coffee" -> expense + journal entry in CAD
-- [ ] **P0-T17** Jurisdiction pack template (`_template/`) with README for adding new countries
+- [ ] **P0-T03** `agentbook-core`: PostgreSQL schema with balance CHECK constraint
+- [ ] **P0-T04** `agentbook-core`: Tenant config with `jurisdiction`, `region`, `currency`, `locale` fields
+- [ ] **P0-T05** `agentbook-core`: `create_journal_entry` tool with constraint engine
+- [ ] **P0-T06** Docker Compose: add `plugin_agentbook_*` schemas
+
+**Jurisdiction Packs**
+- [ ] **P0-T07** Implement jurisdiction pack interfaces (`TaxBracketProvider`, `ChartOfAccountsTemplate`, `SalesTaxEngine`, etc.)
+- [ ] **P0-T08** Implement US jurisdiction pack: chart of accounts (Schedule C aligned), federal + state tax brackets (2025)
+- [ ] **P0-T09** Implement CA jurisdiction pack: chart of accounts (T2125 aligned), federal + provincial tax brackets (2025)
+- [ ] **P0-T10** Jurisdiction pack loader: resolve correct pack from tenant config, validate interfaces
+- [ ] **P0-T11** Jurisdiction pack template (`_template/`) with README for adding new countries
+
+**Telegram Bot & Receipt Capture (day-one UX)**
+- [ ] **P0-T12** Telegram bot service (Grammy/TypeScript, webhook mode) connected to agent framework
+- [ ] **P0-T13** Telegram text expense: "I spent $20 on coffee" -> intent parse -> record expense -> confirm
+- [ ] **P0-T14** Telegram photo receipt: user sends photo -> OCR pipeline -> extract amount/vendor/date -> confirm
+- [ ] **P0-T15** Receipt OCR skill: photo -> cloud vision API (Google Vision or Claude vision) -> structured fields (amount, vendor, date, line items, tax/tip)
+- [ ] **P0-T16** Receipt image storage: S3/cloud storage, linked to expense record, tenant-isolated paths
+- [ ] **P0-T17** Telegram inline keyboard confirmation: [Correct] [Change category] [Edit amount] [Mark personal]
+- [ ] **P0-T18** Telegram voice note support: speech-to-text -> intent parse -> record expense (stretch goal, can defer to P1 if needed)
+- [ ] **P0-T19** Telegram PDF/document receipt: forwarded email receipt or PDF attachment -> parse -> record expense
+- [ ] **P0-T20** Confidence-gated flow: if OCR confidence < 80%, agent asks user to confirm amount/vendor before recording
+
+**Expense Recording**
+- [ ] **P0-T21** Skill: `expense-recording` with skill manifest (handles text, photo, document intents)
+- [ ] **P0-T22** Skill: `receipt-ocr` — photo/PDF -> structured data extraction via LLM vision
+- [ ] **P0-T23** `agentbook-expense`: `record_expense` tool (text + photo + document, currency from tenant config)
+- [ ] **P0-T24** `agentbook-expense`: Basic auto-categorization with LLM (confidence scoring against jurisdiction-specific CoA)
+- [ ] **P0-T25** `agentbook-expense`: Manual category override via Telegram inline keyboard
+
+**Web Dashboard**
+- [ ] **P0-T26** Web dashboard: Plugin shell pages with navigation (use `frontend-design` skill for A3P UI compliance)
+- [ ] **P0-T27** Web dashboard: receipt upload via drag-and-drop (same OCR pipeline as Telegram)
+- [ ] **P0-T28** Web dashboard: recent expenses list with receipt thumbnail preview
+
+**End-to-End Flows**
+- [ ] **P0-T29** E2E US text: user types "I spent $20 on coffee" in Telegram -> expense + journal entry in USD
+- [ ] **P0-T30** E2E CA text: user types "I spent $20 on coffee" in Telegram -> expense + journal entry in CAD
+- [ ] **P0-T31** E2E US photo: user sends receipt photo in Telegram -> OCR -> auto-categorize -> confirm -> journal entry in USD
+- [ ] **P0-T32** E2E CA photo: user sends receipt photo in Telegram -> OCR -> auto-categorize -> confirm -> journal entry in CAD
+- [ ] **P0-T33** E2E web upload: user drags receipt onto web dashboard -> same OCR flow -> expense created
+
+### Telegram Bot UX Flows (Phase 0)
+
+**Flow 1: Text expense**
+```
+User: "Spent $45 on lunch with client"
+Agent: 📝 Got it!
+       $45.00 — Meals & Entertainment
+       📅 Today
+       [✅ Correct] [📁 Change category] [✏️ Edit] [🏠 Personal]
+User: [taps ✅ Correct]
+Agent: ✅ Recorded. Journal entry posted.
+```
+
+**Flow 2: Receipt photo (the hero flow)**
+```
+User: [sends photo of restaurant receipt]
+Agent: 🧾 Reading your receipt...
+       $67.50 — The Keg Steakhouse
+       📅 Mar 22, 2026
+       Subtotal: $58.26 | Tax: $7.57 | Tip: $1.67
+       Category: Meals & Entertainment
+       [✅ Correct] [📁 Change category] [✏️ Edit] [🏠 Personal]
+User: [taps ✅ Correct]
+Agent: ✅ Recorded. Receipt saved. Journal entry posted.
+```
+
+**Flow 3: Low confidence**
+```
+User: [sends blurry receipt photo]
+Agent: 🧾 I read this receipt but I'm not very confident:
+       $347.00 — AMZN MKTP
+       I'm 62% sure this is Office Supplies. Could also be:
+       • Software & Subscriptions (25%)
+       • Personal (13%)
+       [🗂 Office Supplies] [💻 Software] [🏠 Personal] [✏️ Enter manually]
+```
+
+**Flow 4: Forwarded email receipt**
+```
+User: [forwards Amazon order confirmation email]
+Agent: 📧 Found your Amazon order:
+       $89.50 — Amazon.com
+       Order #123-456-789
+       Items: USB-C Hub ($39.50), Webcam ($50.00)
+       Category: Office Supplies
+       [✅ Correct] [📁 Change] [✂️ Split items]
+```
 
 ### Testing Tasks
 - [ ] **P0-TEST-01** Unit tests: constraint engine (balance invariant pass/fail/edge), tool schema validation
@@ -395,12 +486,19 @@ Agent Framework (skill-based intent routing)
 - [ ] **P0-TEST-03** Unit tests: jurisdiction pack loader (US pack loads, CA pack loads, unknown jurisdiction rejected)
 - [ ] **P0-TEST-04** Unit tests: US ChartOfAccountsTemplate produces Schedule C-aligned accounts
 - [ ] **P0-TEST-05** Unit tests: CA ChartOfAccountsTemplate produces T2125-aligned accounts
-- [ ] **P0-TEST-06** Integration test: US tenant expense -> journal entry in USD -> event emitted
-- [ ] **P0-TEST-07** Integration test: CA tenant expense -> journal entry in CAD -> event emitted
-- [ ] **P0-TEST-08** Accounting test: trial balance sums to zero after 100 random transactions (both US and CA tenants)
-- [ ] **P0-TEST-09** Tenant isolation test: US tenant and CA tenant data completely isolated
-- [ ] **P0-TEST-10** Debit/credit rules verified for every account type (per SKILL.md)
-- [ ] **P0-TEST-11** Jurisdiction pack interface compliance: all 9 interfaces implemented for US and CA packs
+- [ ] **P0-TEST-06** Integration test: US tenant text expense via Telegram -> journal entry in USD -> event emitted
+- [ ] **P0-TEST-07** Integration test: CA tenant text expense via Telegram -> journal entry in CAD -> event emitted
+- [ ] **P0-TEST-08** Integration test: receipt photo via Telegram -> OCR -> expense with correct amount/vendor/date
+- [ ] **P0-TEST-09** Integration test: forwarded PDF receipt via Telegram -> parsed -> expense created
+- [ ] **P0-TEST-10** Integration test: web dashboard drag-and-drop upload -> OCR -> expense created
+- [ ] **P0-TEST-11** OCR accuracy: benchmark against 30+ receipt images (target: 85% field extraction for Phase 0, 90%+ in Phase 1)
+- [ ] **P0-TEST-12** Accounting test: trial balance sums to zero after 100 random transactions (both US and CA tenants)
+- [ ] **P0-TEST-13** Tenant isolation test: US tenant and CA tenant data completely isolated
+- [ ] **P0-TEST-14** Debit/credit rules verified for every account type (per SKILL.md)
+- [ ] **P0-TEST-15** Jurisdiction pack interface compliance: all 9 interfaces implemented for US and CA packs
+- [ ] **P0-TEST-16** Telegram bot: responds to text, photo, document, and callback_query message types
+- [ ] **P0-TEST-17** Receipt storage: images stored in tenant-isolated S3 paths, retrievable, linked to expense
+- [ ] **P0-TEST-18** Confidence gating: low-confidence OCR results DO trigger confirmation, high-confidence DON'T
 
 ### Quality Gates
 - [ ] **P0-QG-01** Code review using `/code-review` plugin on all PRs
@@ -408,10 +506,14 @@ Agent Framework (skill-based intent routing)
 - [ ] **P0-QG-03** All UI components designed with `frontend-design` skill, compliant with A3P UI guidelines
 - [ ] **P0-QG-04** Architecture compliance check: verify against architecture.md checklist (Section 7)
 - [ ] **P0-QG-05** SKILL.md compliance: all tools follow Tool pattern, all constraints are declarative
+- [ ] **P0-QG-06** Telegram bot UX review: all 4 flows (text, photo, low-confidence, forwarded email) tested manually
 
 ### Verification Checklist
-- [ ] 10 expenses recorded in 5 minutes (test with both US and CA tenant)
+- [ ] 10 expenses recorded in 5 minutes via Telegram (mix of text and photos, both US and CA tenant)
+- [ ] Receipt photo -> categorized expense in < 10 seconds (the hero metric)
 - [ ] Every expense creates a balanced journal entry (verified by DB constraint)
+- [ ] Receipt images stored and linked, viewable from web dashboard
+- [ ] Low-confidence OCR triggers confirmation flow, high-confidence auto-records
 - [ ] US tenant gets Schedule C-aligned chart of accounts in USD
 - [ ] CA tenant gets T2125-aligned chart of accounts in CAD
 - [ ] Events appear in Kafka topic
@@ -425,12 +527,12 @@ Agent Framework (skill-based intent routing)
 
 | Category | Max Points | Criteria |
 |----------|-----------|----------|
-| **Feature Completeness vs QB/Wave** | 15 | Expense entry works end-to-end; matches basic manual entry of QB/Wave |
-| **Architecture Compliance** | 20 | Agent-guardrail separation, verify-then-commit, event sourcing, plugin-per-domain, skill decoupling |
+| **Feature Completeness vs QB/Wave** | 15 | Expense entry (text + photo + document) works E2E; **receipt OCR exceeds both** (neither has it) |
+| **Architecture Compliance** | 15 | Agent-guardrail separation, verify-then-commit, event sourcing, plugin-per-domain, skill decoupling |
 | **Multi-Jurisdiction** | 15 | US + CA packs load correctly, interfaces validated, adding new country requires zero framework changes |
-| **Code Quality** | 20 | No dead code/TODOs, code review passed, test coverage >= 85%, SKILL.md patterns followed |
+| **Code Quality** | 15 | No dead code/TODOs, code review passed, test coverage >= 85%, SKILL.md patterns followed |
 | **Agent Design** | 15 | Framework/skill decoupled, skill manifest validated, constraint engine is code not prompts |
-| **UI/UX Quality** | 15 | A3P UI guideline compliant, frontend-design skill used, responsive, accessible |
+| **UX Quality (Telegram + Web)** | 25 | Receipt photo flow < 10s, inline keyboard confirmations, confidence gating, web upload, receipt previews |
 
 **Pass threshold: 80/100. If below 80, identify gaps and create remediation tasks before proceeding.**
 
@@ -440,10 +542,10 @@ Agent Framework (skill-based intent routing)
 
 **Goal:** Full expense tracking with OCR, invoicing, and basic reporting. Feature parity with Wave free tier for expense and invoice basics.
 
-### Week 1-2: Expense System
-- [ ] **P1-T01** Skill: `receipt-ocr` — photo -> structured data via LLM
-- [ ] **P1-T02** Skill: `expense-categorization` — auto-categorization with confidence scoring
-- [ ] **P1-T03** Category confirmation flow (web UI inline buttons) — use `frontend-design` skill
+### Week 1-2: Expense System (build on Phase 0 OCR + Telegram foundation)
+- [ ] **P1-T01** Enhance receipt OCR skill: multi-receipt batch processing, handwritten receipt support, foreign currency detection
+- [ ] **P1-T02** Expense categorization refinement: improve accuracy to 90%+ using few-shot examples and vendor history
+- [ ] **P1-T03** Category confirmation flow in web dashboard (inline buttons) — use `frontend-design` skill
 - [ ] **P1-T04** Business vs personal expense separation (per requirements-v2 US-1.2)
 - [ ] **P1-T05** Vendor memory and pattern learning (per architecture.md Section 3.5)
 - [ ] **P1-T06** Recurring expense detection skill (per requirements-v2 US-1.3)
@@ -467,7 +569,7 @@ Agent Framework (skill-based intent routing)
 - [ ] **P1-T20** Web dashboard: expense list, invoice list, P&L view — use `frontend-design` skill
 
 ### Testing Tasks
-- [ ] **P1-TEST-01** OCR accuracy: benchmark against 50+ receipt images (target: 90% field extraction)
+- [ ] **P1-TEST-01** OCR accuracy improvement: benchmark against 100+ receipt images including edge cases (target: 92%+ field extraction, up from Phase 0's 85%)
 - [ ] **P1-TEST-02** Categorization accuracy: benchmark against 200+ labeled expenses (per SKILL.md)
 - [ ] **P1-TEST-03** Intent parsing accuracy: benchmark against 100+ diverse messages (per SKILL.md)
 - [ ] **P1-TEST-04** Invoice lifecycle: create -> send -> payment -> reconciliation
@@ -726,7 +828,8 @@ This scorecard is evaluated at each phase gate. Target: exceed 80 by Phase 2, ex
 |-----------|------|-----|-----------------|-------|
 | Manual expense entry | Yes | Yes | Yes (US + CA) | 0 |
 | Multi-jurisdiction support | US only | US + CA | US + CA (extensible to any country) | 0 |
-| Receipt OCR | No | No | Yes (agent-powered) | 1 |
+| Receipt OCR (photo/PDF) | No | No | Yes (Telegram + web, agent-powered) | **0** |
+| Telegram bot interface | No | No | Yes (text + photo + voice + documents) | **0** |
 | Auto-categorization | Rule-based | Rule-based | LLM + pattern memory | 1 |
 | Invoice creation | Yes | Yes | Yes (natural language, USD + CAD) | 1 |
 | Invoice payment | Yes (Stripe) | Yes | Yes (Stripe, US + CA) | 2 |
