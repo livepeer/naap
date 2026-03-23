@@ -50,7 +50,11 @@
       "@naap/web3": ["packages/web3/src/index.ts"],
       "@naap/web3/*": ["packages/web3/src/*"],
       "@agentbook/framework": ["packages/agentbook-framework/src/index.ts"],
-      "@agentbook/framework/*": ["packages/agentbook-framework/src/*"]
+      "@agentbook/framework/*": ["packages/agentbook-framework/src/*"],
+      "@agentbook/i18n": ["packages/agentbook-i18n/src/index.ts"],
+      "@agentbook/i18n/*": ["packages/agentbook-i18n/src/*"],
+      "@agentbook/jurisdictions": ["packages/agentbook-jurisdictions/src/index.ts"],
+      "@agentbook/jurisdictions/*": ["packages/agentbook-jurisdictions/src/*"]
     }
   },
   "exclude": ["node_modules", "dist"]

@@ -1,0 +1,15 @@
+{
+  "daily_pulse": "Aujourd'hui : {income} entrant, {expenses} sortant. Solde : {balance}. {action_count} elements necessitent votre attention.",
+  "weekly_review": "Cette semaine : {revenue} de revenus, {expenses} de depenses. Principale depense : {top_category} ({top_amount}). Taux d'imposition effectif : {tax_rate}.",
+  "receipt_reminder": "Vous avez {count} transactions bancaires cette semaine sans recus. Les photographier maintenant ?",
+  "upload_now": "Telecharger maintenant",
+  "remind_later": "Me rappeler plus tard",
+  "payment_received": "{client} vient de payer {amount} ! Net apres frais : {net_amount}.",
+  "recurring_anomaly": "Votre abonnement {vendor} a facture {actual} au lieu du montant habituel de {expected}. Augmentation de prix ?",
+  "accept_new_amount": "Accepter le nouveau montant",
+  "investigate": "Enqueter",
+  "cash_flow_warning": "Attention : votre solde descend a {low_balance} le {date}. Vous avez {bills} de factures mais seulement {income} de revenus attendus. {suggestion}",
+  "year_end_planning": "C'est novembre. Voici votre rapport d'optimisation fiscale de fin d'annee : {count} actions pourraient economiser {savings}.",
+  "view_report": "Voir le rapport",
+  "milestone_revenue": "Vous avez atteint {amount} de revenus cette annee ! A ce rythme, projection annuelle : {projection}."
+}

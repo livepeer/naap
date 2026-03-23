@@ -1,0 +1,20 @@
+{
+  "q1_estimated_tax_due": "Acompte provisionnel T1 du",
+  "q2_estimated_tax_due": "Acompte provisionnel T2 du",
+  "q3_estimated_tax_due": "Acompte provisionnel T3 du",
+  "q4_estimated_tax_due": "Acompte provisionnel T4 du",
+  "annual_tax_filing_due": "Date limite de declaration annuelle",
+  "q1_installment_due": "Acompte T1 du",
+  "q2_installment_due": "Acompte T2 du",
+  "q3_installment_due": "Acompte T3 du",
+  "q4_installment_due": "Acompte T4 du",
+  "sales_tax_filing_due": "Date limite de declaration de TPS/TVH",
+  "contractor_report_due": "Date limite de production T4A",
+  "rrsp_deadline": "Date limite de cotisation REER",
+  "fiscal_quarter_close": "Cloture du trimestre fiscal",
+  "year_end_close": "Cloture de fin d'annee",
+  "invoice_due": "Facture #{number} due — {client} ({amount})",
+  "action_pay_now": "Payer maintenant",
+  "action_file_now": "Produire maintenant",
+  "action_review": "Examiner"
+}

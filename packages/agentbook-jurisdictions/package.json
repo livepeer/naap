@@ -1,0 +1,9 @@
+{
+  "name": "@agentbook/jurisdictions",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": { "build": "tsc", "test": "vitest run" },
+  "devDependencies": { "@types/node": "^20.19.35", "typescript": "~5.9.3", "vitest": "^2.0.0" }
+}

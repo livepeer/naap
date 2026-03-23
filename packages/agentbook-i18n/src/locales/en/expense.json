@@ -1,0 +1,21 @@
+{
+  "receipt_saved": "Recorded. {amount} — {vendor}. Receipt saved.",
+  "expense_recorded": "Recorded. {amount} — {category}.",
+  "reading_receipt": "Reading your receipt...",
+  "change_category": "Change category",
+  "edit_amount": "Edit amount",
+  "split_items": "Split items",
+  "enter_manually": "Enter manually",
+  "low_confidence": "I read this receipt but I'm not very confident:",
+  "could_also_be": "Could also be:",
+  "category_label": "Category: {category}",
+  "subtotal": "Subtotal: {amount}",
+  "tax": "Tax: {amount}",
+  "tip": "Tip: {amount}",
+  "vendor_label": "{vendor}",
+  "date_label": "{date}",
+  "receipt_upload_prompt": "Drag and drop receipts here, or click to upload",
+  "no_expenses": "No expenses recorded yet. Send a receipt photo to get started!",
+  "recurring_detected": "This looks like a recurring expense from {vendor} ({amount}/month). Auto-record it? [Yes] [No]",
+  "recurring_missing": "I expected a {amount} charge from {vendor} today but didn't see it. Did you cancel?"
+}

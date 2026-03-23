@@ -1,0 +1,15 @@
+{
+  "daily_pulse": "Today: {income} in, {expenses} out. Cash balance: {balance}. {action_count} items need attention.",
+  "weekly_review": "This week: {revenue} revenue, {expenses} expenses. Top spend: {top_category} ({top_amount}). Effective tax rate: {tax_rate}.",
+  "receipt_reminder": "You have {count} bank transactions this week without receipts. Want to snap them now?",
+  "upload_now": "Upload now",
+  "remind_later": "Remind me later",
+  "payment_received": "{client} just paid {amount}! Net after fees: {net_amount}.",
+  "recurring_anomaly": "Your {vendor} subscription charged {actual} instead of the usual {expected}. Price increase?",
+  "accept_new_amount": "Accept new amount",
+  "investigate": "Investigate",
+  "cash_flow_warning": "Heads up: your cash balance drops to {low_balance} on {date}. You have {bills} in bills but only {income} expected. {suggestion}",
+  "year_end_planning": "It's November. Here's your year-end tax optimization report: {count} actions could save {savings}.",
+  "view_report": "View report",
+  "milestone_revenue": "You've hit {amount} revenue this year! At this pace, annual projection: {projection}."
+}

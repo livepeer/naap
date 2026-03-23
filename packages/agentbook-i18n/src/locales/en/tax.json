@@ -1,0 +1,20 @@
+{
+  "tax_estimate_title": "Tax Estimate",
+  "gross_revenue": "Gross revenue: {amount}",
+  "total_expenses": "Total expenses: {amount}",
+  "net_income": "Net income: {amount}",
+  "se_tax": "Self-employment tax: {amount}",
+  "income_tax": "Income tax: {amount}",
+  "total_tax": "Total estimated tax: {amount}",
+  "effective_rate": "Effective rate: {rate}",
+  "quarterly_due": "Quarterly tax payment due in {days} days. I calculated {amount} for {quarter}.",
+  "pay_now": "Pay now",
+  "adjust": "Adjust",
+  "remind_later": "Remind me in 3 days",
+  "deduction_found": "You haven't logged {category} expenses this year. {suggestion} You could save ~{savings}.",
+  "bracket_alert": "You're {amount} from the next tax bracket. Prepay expenses to save ~{savings}.",
+  "pnl_title": "Profit & Loss Statement",
+  "balance_sheet_title": "Balance Sheet",
+  "cash_flow_title": "Cash Flow Statement",
+  "trial_balance_title": "Trial Balance"
+}

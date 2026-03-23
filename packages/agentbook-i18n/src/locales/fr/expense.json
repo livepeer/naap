@@ -1,0 +1,21 @@
+{
+  "receipt_saved": "Enregistre. {amount} — {vendor}. Recu sauvegarde.",
+  "expense_recorded": "Enregistre. {amount} — {category}.",
+  "reading_receipt": "Lecture de votre recu...",
+  "change_category": "Changer la categorie",
+  "edit_amount": "Modifier le montant",
+  "split_items": "Diviser les articles",
+  "enter_manually": "Saisir manuellement",
+  "low_confidence": "J'ai lu ce recu mais je ne suis pas tres confiant :",
+  "could_also_be": "Pourrait aussi etre :",
+  "category_label": "Categorie : {category}",
+  "subtotal": "Sous-total : {amount}",
+  "tax": "Taxe : {amount}",
+  "tip": "Pourboire : {amount}",
+  "vendor_label": "{vendor}",
+  "date_label": "{date}",
+  "receipt_upload_prompt": "Glissez-deposez vos recus ici, ou cliquez pour telecharger",
+  "no_expenses": "Aucune depense enregistree. Envoyez une photo de recu pour commencer !",
+  "recurring_detected": "Cela ressemble a une depense recurrente de {vendor} ({amount}/mois). L'enregistrer automatiquement ?",
+  "recurring_missing": "J'attendais un frais de {amount} de {vendor} aujourd'hui mais je ne l'ai pas vu. Avez-vous annule ?"
+}
