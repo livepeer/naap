@@ -1215,13 +1215,19 @@ export default function DashboardPage() {
     { timeframe },
     { timeout: DASHBOARD_QUERY_TIMEOUT_MS }
   );
-  const { data: feesData, loading: feesLoading } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
+  const { data: feesData, loading: feesLoading, error: feesError } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
     { timeout: DASHBOARD_QUERY_TIMEOUT_MS }
   );
 
   const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8, pollInterval: jobFeedPollInterval });
+
+  const transientDashboardErrors = useMemo(() => {
+    return [error, feesError].filter(
+      (e): e is NonNullable<typeof e> => e != null && e.type !== 'no-provider',
+    );
+  }, [error, feesError]);
 
   // No provider installed (only after retries exhausted)
   if (error?.type === 'no-provider' && !data) {
@@ -1239,10 +1245,17 @@ export default function DashboardPage() {
         timeframe={timeframe}
         onTimeframeChange={handleTimeframeChange}
       />
-      {error && error.type !== 'no-provider' && (
-        <div className="text-xs text-amber-700 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400 px-3 py-1.5 rounded-md border border-amber-200/70 dark:border-amber-800/40 flex items-center gap-2">
-          <AlertCircle className="w-3.5 h-3.5" />
-          Dashboard data may be stale - {error.message}
+      {transientDashboardErrors.length > 0 && (
+        <div className="space-y-1.5">
+          {transientDashboardErrors.map((e, i) => (
+            <div
+              key={i}
+              className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400 px-3 py-1.5 rounded-md flex items-center gap-2"
+            >
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              Dashboard data may be stale — {e.message}
+            </div>
+          ))}
         </div>
       )}
 

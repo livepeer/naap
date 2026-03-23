@@ -4,7 +4,7 @@
  * Registers as the dashboard data provider via createDashboardProvider().
  *
  * Live data sources:
- *   kpi.successRate         ← Leaderboard /api/network/demand  (served_sessions / total_demand_sessions)
+ *   kpi.successRate         ← Leaderboard /api/network/demand  (weighted effective_success_rate by known_sessions_count)
  *   kpi.orchestratorsOnline ← Leaderboard /api/sla/compliance  (distinct addresses, timeframe-scoped)
  *   kpi.dailyUsageMins      ← Leaderboard /api/network/demand  (sum total_minutes, up to 30d)
  *   kpi.dailySessionCount   ← Leaderboard /api/network/demand  (sum total_demand_sessions, up to 30d)
@@ -100,15 +100,20 @@ async function resolveFees({ days }: { days?: number }) {
 // ---------------------------------------------------------------------------
 
 /**
- * Demand-served rate: served_sessions / total_demand_sessions across rows.
- * Uses demand API fields for real session counts (served vs unserved).
- * Returns 0 when no demand exists.
+ * Network-wide success rate (0–1) from demand rows: weighted mean of API `effective_success_rate`,
+ * weighted by `known_sessions_count`. Matches per-orchestrator weighting in resolveOrchestrators.
+ * Returns 0 when there are no known sessions in the window.
  */
-function demandServedRate(rows: Array<{ served_sessions: number; total_demand_sessions: number }>): number {
-  const totalDemand = rows.reduce((s, r) => s + (r.total_demand_sessions ?? 0), 0);
-  if (totalDemand === 0) return 0;
-  const served = rows.reduce((s, r) => s + (r.served_sessions ?? 0), 0);
-  return served / totalDemand;
+function weightedSuccessRate(
+  rows: Array<{ effective_success_rate: number; known_sessions_count: number }>,
+): number {
+  const weightTotal = rows.reduce((s, r) => s + (r.known_sessions_count ?? 0), 0);
+  if (weightTotal === 0) return 0;
+  const weightedSum = rows.reduce(
+    (s, r) => s + (r.effective_success_rate ?? 0) * (r.known_sessions_count ?? 0),
+    0,
+  );
+  return weightedSum / weightTotal;
 }
 
 /** Count distinct non-empty Ethereum addresses in an array of SLA rows */
@@ -278,8 +283,8 @@ async function resolveKPI({ timeframe }: { timeframe?: string }): Promise<Dashbo
     getSLAComplianceRows(slaWindow),
   ]);
 
-  // Success Rate: served_sessions / total_demand_sessions (demand API has real served vs unserved counts)
-  const currentSR = demandServedRate(demandRows) * 100;
+  // Success rate: API effective_success_rate (0–1), weighted by known_sessions_count → percentage
+  const currentSR = weightedSuccessRate(demandRows) * 100;
 
   // Orchestrators Seen: distinct addresses across the selected period
   const orchCount = countOrchestrators(slaRows) || 0;
