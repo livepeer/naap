@@ -28,6 +28,12 @@ export {
   type JobFeedSubscribeResponse,
   type JobFeedEntry,
   type DashboardResolvers,
+  type RawNetworkDemandRow,
+  type RawGPUMetricRow,
+  type RawSLAComplianceRow,
+  type NetworkDemandFilters,
+  type GPUMetricsFilters,
+  type SLAComplianceFilters,
 } from './dashboard.js';
 
 // Provider helper
