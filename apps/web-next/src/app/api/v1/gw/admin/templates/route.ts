@@ -118,6 +118,7 @@ async function createConnectorFromTemplate(
         bodyTransform: ep.bodyTransform || 'passthrough',
         bodyBlacklist: ep.bodyBlacklist || [],
         bodyPattern: ep.bodyPattern || null,
+        upstreamStaticBody: ep.upstreamStaticBody || null,
         cacheTtl: ep.cacheTtl || null,
         timeout: ep.timeout || null,
         retries: ep.retries || 0,

@@ -170,6 +170,7 @@ async function main() {
           upstreamPath: ep.upstreamPath,
           upstreamContentType: ep.upstreamContentType ?? 'application/json',
           bodyTransform: ep.bodyTransform ?? 'passthrough',
+          upstreamStaticBody: ep.upstreamStaticBody ?? null,
           rateLimit: ep.rateLimit,
           timeout: ep.timeout,
           cacheTtl: ep.cacheTtl,

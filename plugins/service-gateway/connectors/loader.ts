@@ -25,6 +25,7 @@ export interface ConnectorTemplateEndpoint {
   retries?: number;
   bodyBlacklist?: string[];
   bodyPattern?: string;
+  upstreamStaticBody?: string;
 }
 
 export interface ConnectorTemplateConnector {

@@ -184,6 +184,11 @@
           "bodyPattern": {
             "type": "string",
             "description": "Regex the request body must match"
+          },
+          "upstreamStaticBody": {
+            "type": "string",
+            "maxLength": 65536,
+            "description": "Static body to send to upstream (used with bodyTransform: static)"
           }
         }
       }
