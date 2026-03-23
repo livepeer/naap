@@ -1,0 +1,68 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "agentbook-expense",
+  "displayName": "AgentBook Expenses",
+  "version": "1.0.0",
+  "description": "Expense tracking, receipt OCR, auto-categorization, vendor patterns, recurring expense detection, and business/personal separation.",
+  "isCore": true,
+  "author": {
+    "name": "A3P Team",
+    "email": "team@a3p.io",
+    "url": "https://a3p.io"
+  },
+  "repository": "https://github.com/a3p/plugins/tree/main/agentbook-expense",
+  "license": "MIT",
+  "keywords": ["expense", "receipt", "ocr", "categorization", "vendor", "finance"],
+  "category": "finance",
+
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+
+  "frontend": {
+    "entry": "./frontend/dist/production/agentbook-expense.js",
+    "devPort": 3051,
+    "routes": [
+      "/agentbook/expenses",
+      "/agentbook/expenses/*",
+      "/agentbook/receipts",
+      "/agentbook/receipts/*",
+      "/agentbook/vendors",
+      "/agentbook/vendors/*"
+    ],
+    "navigation": {
+      "label": "Expenses",
+      "icon": "Receipt",
+      "order": 11,
+      "group": "finance"
+    }
+  },
+
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devPort": 4051,
+    "port": 4151,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/agentbook-expense",
+    "resources": {
+      "memory": "256Mi",
+      "cpu": "0.25"
+    }
+  },
+
+  "integrations": {
+    "required": [],
+    "optional": []
+  },
+
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme"],
+    "apis": [],
+    "external": []
+  },
+
+  "config": {
+    "schema": {}
+  }
+}

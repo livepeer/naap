@@ -1,0 +1,68 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "agentbook-tax",
+  "displayName": "AgentBook Tax & Reports",
+  "version": "1.0.0",
+  "description": "Tax estimation, quarterly installments, deduction optimization, Schedule C/T2125 generation, P&L, balance sheet, cash flow reports, and proactive tax planning.",
+  "isCore": true,
+  "author": {
+    "name": "A3P Team",
+    "email": "team@a3p.io",
+    "url": "https://a3p.io"
+  },
+  "repository": "https://github.com/a3p/plugins/tree/main/agentbook-tax",
+  "license": "MIT",
+  "keywords": ["tax", "reports", "finance", "cashflow", "deductions"],
+  "category": "finance",
+
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+
+  "frontend": {
+    "entry": "./frontend/dist/production/agentbook-tax.js",
+    "devPort": 3053,
+    "routes": [
+      "/agentbook/tax",
+      "/agentbook/tax/*",
+      "/agentbook/reports",
+      "/agentbook/reports/*",
+      "/agentbook/cashflow",
+      "/agentbook/cashflow/*"
+    ],
+    "navigation": {
+      "label": "Tax & Reports",
+      "icon": "Calculator",
+      "order": 13,
+      "group": "finance"
+    }
+  },
+
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devPort": 4053,
+    "port": 4153,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/agentbook-tax",
+    "resources": {
+      "memory": "256Mi",
+      "cpu": "0.25"
+    }
+  },
+
+  "integrations": {
+    "required": [],
+    "optional": []
+  },
+
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme"],
+    "apis": [],
+    "external": []
+  },
+
+  "config": {
+    "schema": {}
+  }
+}

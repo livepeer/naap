@@ -49,6 +49,8 @@
       "@naap/plugin-server-sdk/*": ["packages/plugin-server-sdk/src/*"],
       "@naap/web3": ["packages/web3/src/index.ts"],
       "@naap/web3/*": ["packages/web3/src/*"],
+      "@agentbook/framework": ["packages/agentbook-framework/src/index.ts"],
+      "@agentbook/framework/*": ["packages/agentbook-framework/src/*"]
     }
   },
   "exclude": ["node_modules", "dist"]

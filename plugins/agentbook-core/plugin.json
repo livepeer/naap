@@ -1,0 +1,30 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "agentbook-core",
+  "displayName": "AgentBook Core",
+  "version": "1.0.0",
+  "description": "Double-entry ledger, chart of accounts, journal entries, constraint engine, and tenant configuration for the AgentBook accounting system.",
+  "isCore": true,
+  "author": { "name": "A3P Team", "email": "team@a3p.io", "url": "https://a3p.io" },
+  "repository": "https://github.com/qianghan/a3p/tree/main/plugins/agentbook-core",
+  "license": "MIT",
+  "keywords": ["accounting", "ledger", "double-entry", "bookkeeping"],
+  "category": "finance",
+  "shell": { "minVersion": "0.1.0", "maxVersion": "2.x" },
+  "frontend": {
+    "entry": "./frontend/dist/production/agentbook-core.js",
+    "devPort": 3050,
+    "routes": ["/agentbook", "/agentbook/*"],
+    "navigation": { "label": "AgentBook", "icon": "BookOpen", "order": 10, "group": "finance" }
+  },
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devPort": 4050,
+    "port": 4150,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/agentbook-core",
+    "resources": { "memory": "256Mi", "cpu": "0.25" }
+  },
+  "permissions": { "shell": ["navigation", "notifications", "theme", "auth"], "apis": [], "external": [] },
+  "config": { "schema": {} }
+}

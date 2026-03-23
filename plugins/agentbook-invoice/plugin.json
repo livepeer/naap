@@ -1,0 +1,68 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "agentbook-invoice",
+  "displayName": "AgentBook Invoicing",
+  "version": "1.0.0",
+  "description": "Invoice creation, PDF generation, payment tracking, accounts receivable, client management, estimates, and payment follow-up.",
+  "isCore": true,
+  "author": {
+    "name": "A3P Team",
+    "email": "team@a3p.io",
+    "url": "https://a3p.io"
+  },
+  "repository": "https://github.com/a3p/plugins/tree/main/agentbook-invoice",
+  "license": "MIT",
+  "keywords": ["invoice", "billing", "payments", "finance", "estimates"],
+  "category": "finance",
+
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+
+  "frontend": {
+    "entry": "./frontend/dist/production/agentbook-invoice.js",
+    "devPort": 3052,
+    "routes": [
+      "/agentbook/invoices",
+      "/agentbook/invoices/*",
+      "/agentbook/clients",
+      "/agentbook/clients/*",
+      "/agentbook/estimates",
+      "/agentbook/estimates/*"
+    ],
+    "navigation": {
+      "label": "Invoices",
+      "icon": "FileText",
+      "order": 12,
+      "group": "finance"
+    }
+  },
+
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devPort": 4052,
+    "port": 4152,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/agentbook-invoice",
+    "resources": {
+      "memory": "256Mi",
+      "cpu": "0.25"
+    }
+  },
+
+  "integrations": {
+    "required": [],
+    "optional": []
+  },
+
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme"],
+    "apis": [],
+    "external": []
+  },
+
+  "config": {
+    "schema": {}
+  }
+}

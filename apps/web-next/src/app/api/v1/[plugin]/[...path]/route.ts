@@ -21,6 +21,10 @@ const PLUGIN_ENV_MAP: Record<string, string> = {
   'community': 'COMMUNITY_URL',
   'plugin-publisher': 'PLUGIN_PUBLISHER_URL',
   'service-gateway': 'SERVICE_GATEWAY_URL',
+  'agentbook-core': 'AGENTBOOK_CORE_URL',
+  'agentbook-expense': 'AGENTBOOK_EXPENSE_URL',
+  'agentbook-invoice': 'AGENTBOOK_INVOICE_URL',
+  'agentbook-tax': 'AGENTBOOK_TAX_URL',
 };
 
 /** Short aliases so both `/api/v1/gateway/...` and `/api/v1/service-gateway/...` resolve. */

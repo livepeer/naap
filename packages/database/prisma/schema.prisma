@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_service_gateway"]
+  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax"]
 }
 
 // ============================================
@@ -1406,4 +1406,404 @@ model GatewayHealthCheck {
 
   @@index([connectorId, checkedAt])
   @@schema("plugin_service_gateway")
+}
+
+// ============================================
+// PLUGIN: AGENTBOOK CORE
+// ============================================
+// Double-entry ledger, chart of accounts, journal entries, tenant config
+
+model AbTenantConfig {
+  id                      String   @id @default(uuid())
+  userId                  String   @unique
+  businessType            String   @default("freelancer")
+  jurisdiction            String   @default("us")       // us | ca | ...
+  region                  String   @default("")          // state/province code
+  currency                String   @default("USD")
+  locale                  String   @default("en-US")
+  timezone                String   @default("America/New_York")
+  fiscalYearStart         Int      @default(1)           // month 1-12
+  autoApproveLimitCents   Int      @default(50000)       // $500 default
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([userId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbAccount {
+  id            String   @id @default(uuid())
+  tenantId      String
+  code          String                          // e.g., "5010"
+  name          String                          // e.g., "Office Supplies"
+  accountType   String                          // asset | liability | equity | revenue | expense
+  parentId      String?
+  taxCategory   String?                         // Schedule C line / T2125 category
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  journalLines  AbJournalLine[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([tenantId, accountType])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbJournalEntry {
+  id          String   @id @default(uuid())
+  tenantId    String
+  date        DateTime
+  memo        String
+  sourceType  String                            // expense | invoice | payment | manual | adjustment
+  sourceId    String?                           // expense_id, invoice_id, etc.
+  createdBy   String   @default("agent")        // agent | human
+  verified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  lines       AbJournalLine[]
+
+  @@index([tenantId, date])
+  @@index([tenantId, sourceType])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbJournalLine {
+  id          String         @id @default(uuid())
+  entryId     String
+  entry       AbJournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  accountId   String
+  account     AbAccount      @relation(fields: [accountId], references: [id])
+  debitCents  Int            @default(0)
+  creditCents Int            @default(0)
+  description String?
+
+  @@index([entryId])
+  @@index([accountId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbFiscalPeriod {
+  id        String   @id @default(uuid())
+  tenantId  String
+  year      Int
+  month     Int
+  status    String   @default("open")           // open | closed
+  closedAt  DateTime?
+  closedBy  String?
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, year, month])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbEvent {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  eventType          String
+  actor              String   @default("agent")
+  action             Json
+  reasoning          String?
+  constraintsPassed  String[]
+  verificationResult String?
+  metadata           Json?
+  createdAt          DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, eventType])
+  @@schema("plugin_agentbook_core")
+}
+
+// ============================================
+// PLUGIN: AGENTBOOK EXPENSE
+// ============================================
+
+model AbExpense {
+  id            String   @id @default(uuid())
+  tenantId      String
+  amountCents   Int
+  vendorId      String?
+  categoryId    String?                         // AbAccount.id from core
+  date          DateTime
+  description   String?
+  receiptUrl    String?
+  confidence    Float?                          // 0-1 categorization confidence
+  isPersonal    Boolean  @default(false)
+  journalEntryId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, date])
+  @@index([tenantId, vendorId])
+  @@index([tenantId, isPersonal])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbVendor {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  name                String
+  normalizedName      String
+  defaultCategoryId   String?
+  transactionCount    Int      @default(0)
+  lastSeen            DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([tenantId, normalizedName])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbPattern {
+  id            String   @id @default(uuid())
+  tenantId      String
+  vendorPattern String
+  categoryId    String
+  confidence    Float    @default(0.5)
+  source        String   @default("agent_learned")  // agent_learned | user_corrected
+  usageCount    Int      @default(0)
+  accuracyTrailing30 Float?
+  lastUsed      DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@unique([tenantId, vendorPattern])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbRecurringRule {
+  id          String   @id @default(uuid())
+  tenantId    String
+  vendorId    String
+  amountCents Int
+  frequency   String                            // monthly | weekly | biweekly | annual
+  nextExpected DateTime
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, active])
+  @@schema("plugin_agentbook_expense")
+}
+
+// ============================================
+// PLUGIN: AGENTBOOK INVOICE
+// ============================================
+
+model AbClient {
+  id              String   @id @default(uuid())
+  tenantId        String
+  name            String
+  email           String?
+  address         String?
+  defaultTerms    String   @default("net-30")
+  avgDaysToPay    Float?
+  totalBilledCents  Int    @default(0)
+  totalPaidCents    Int    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  invoices        AbInvoice[]
+  estimates       AbEstimate[]
+
+  @@index([tenantId])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbInvoice {
+  id              String   @id @default(uuid())
+  tenantId        String
+  clientId        String
+  client          AbClient @relation(fields: [clientId], references: [id])
+  number          String                        // auto-incrementing: INV-2026-0001
+  amountCents     Int
+  issuedDate      DateTime
+  dueDate         DateTime
+  status          String   @default("draft")    // draft | sent | viewed | paid | overdue | void
+  pdfUrl          String?
+  journalEntryId  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lines           AbInvoiceLine[]
+  payments        AbPayment[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, dueDate])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbInvoiceLine {
+  id          String    @id @default(uuid())
+  invoiceId   String
+  invoice     AbInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float     @default(1)
+  rateCents   Int
+  amountCents Int
+
+  @@index([invoiceId])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbPayment {
+  id               String    @id @default(uuid())
+  tenantId         String
+  invoiceId        String?
+  invoice          AbInvoice? @relation(fields: [invoiceId], references: [id])
+  amountCents      Int
+  method           String    @default("manual")   // manual | stripe | bank_transfer
+  date             DateTime
+  stripePaymentId  String?
+  feesCents        Int       @default(0)
+  journalEntryId   String?
+  createdAt        DateTime  @default(now())
+
+  @@index([tenantId, date])
+  @@index([invoiceId])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbEstimate {
+  id              String   @id @default(uuid())
+  tenantId        String
+  clientId        String
+  client          AbClient @relation(fields: [clientId], references: [id])
+  amountCents     Int
+  description     String
+  status          String   @default("pending")  // pending | approved | declined | expired | converted
+  validUntil      DateTime
+  convertedInvoiceId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_invoice")
+}
+
+// ============================================
+// PLUGIN: AGENTBOOK TAX
+// ============================================
+
+model AbTaxEstimate {
+  id                String   @id @default(uuid())
+  tenantId          String
+  period            String                      // "2026-Q1", "2026-annual"
+  jurisdiction      String
+  region            String
+  grossRevenueCents Int
+  expensesCents     Int
+  netIncomeCents    Int
+  seTaxCents        Int                         // self-employment / CPP+EI
+  incomeTaxCents    Int
+  totalTaxCents     Int
+  calculatedAt      DateTime @default(now())
+
+  @@index([tenantId, period])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbQuarterlyPayment {
+  id              String    @id @default(uuid())
+  tenantId        String
+  year            Int
+  quarter         Int
+  jurisdiction    String
+  amountDueCents  Int
+  amountPaidCents Int       @default(0)
+  deadline        DateTime
+  paidAt          DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([tenantId, year, quarter, jurisdiction])
+  @@index([tenantId, year])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbDeductionSuggestion {
+  id                   String   @id @default(uuid())
+  tenantId             String
+  jurisdiction         String
+  category             String
+  description          String
+  estimatedSavingsCents Int
+  status               String   @default("suggested") // suggested | applied | dismissed
+  createdAt            DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbTaxConfig {
+  id                String   @id @default(uuid())
+  tenantId          String   @unique
+  filingStatus      String   @default("single")
+  region            String
+  retirementType    String?
+  homeOfficeMethod  String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbSalesTaxCollected {
+  id            String   @id @default(uuid())
+  tenantId      String
+  invoiceId     String?
+  jurisdiction  String
+  region        String
+  taxType       String                          // GST | HST | PST | state
+  rate          Float
+  amountCents   Int
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, jurisdiction])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbCalendarEvent {
+  id              String   @id @default(uuid())
+  tenantId        String
+  eventType       String                        // tax_deadline | filing_deadline | invoice_due | renewal | ...
+  titleKey        String                        // i18n key
+  date            DateTime
+  leadTimeDays    Int[]                          // [7, 3, 1, 0]
+  urgency         String   @default("important")
+  actionUrl       String?
+  actionLabelKey  String?
+  recurrence      String   @default("once")     // annual | quarterly | monthly | once
+  sourceSkill     String
+  sourceEntityId  String?
+  status          String   @default("upcoming") // upcoming | alerted | acted_on | missed | snoozed
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId, date])
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbEngagementLog {
+  id                  String    @id @default(uuid())
+  tenantId            String
+  messageType         String
+  category            String
+  urgency             String
+  sentAt              DateTime  @default(now())
+  openedAt            DateTime?
+  actedOnAt           DateTime?
+  actionTaken         String?
+  snoozed             Boolean   @default(false)
+  dismissed           Boolean   @default(false)
+  responseTimeSeconds Int?
+
+  @@index([tenantId, sentAt])
+  @@index([tenantId, category])
+  @@schema("plugin_agentbook_core")
 }

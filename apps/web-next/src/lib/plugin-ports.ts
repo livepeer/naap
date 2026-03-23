@@ -21,6 +21,12 @@ export const PLUGIN_PORTS: Record<string, number> = {
   'community': 4006,
   'plugin-publisher': 4010,
   'service-gateway': 4020,
+
+  // AgentBook plugins
+  'agentbook-core': 4050,
+  'agentbook-expense': 4051,
+  'agentbook-invoice': 4052,
+  'agentbook-tax': 4053,
 };
 
 /** Default port when plugin is not found */
