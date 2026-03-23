@@ -53,7 +53,7 @@ export function registerDashboardProvider(eventBus: IEventBus): () => void {
     },
     pipelineCatalog: () => apiFetch('/api/v1/dashboard/pipeline-catalog'),
     gpuCapacity: (args) => apiFetch(`/api/v1/dashboard/gpu-capacity${args?.timeframe != null ? `?timeframe=${args.timeframe}` : ''}`),
-    pricing: async () => [],
+    pricing: () => apiFetch('/api/v1/dashboard/pricing'),
     orchestrators: ({ period }) => apiFetch(`/api/v1/dashboard/orchestrators${period ? `?period=${encodeURIComponent(period)}` : ''}`),
     networkDemand: (args: NetworkDemandFilters) => {
       const params = new URLSearchParams();

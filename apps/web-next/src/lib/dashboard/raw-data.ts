@@ -153,21 +153,29 @@ async function fetchAllPages<T>(
     firstRes = await fetch(firstUrl, {
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(60_000),
-      // @ts-expect-error — Next.js extended fetch options
       next: { revalidate: ttlSeconds },
     });
   } catch (err) {
-    console.warn(`[dashboard/raw-data] fetch error for ${path} page 1:`, err);
-    return [];
+    throw new Error(
+      `[dashboard/raw-data] ${path} page 1 request failed against ${LEADERBOARD_API_URL}: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
   }
 
   if (!firstRes.ok) {
-    console.warn(`[dashboard/raw-data] ${path} page 1 returned ${firstRes.status}`);
-    return [];
+    throw new Error(
+      `[dashboard/raw-data] ${path} page 1 returned HTTP ${firstRes.status} from ${LEADERBOARD_API_URL}`
+    );
   }
 
   const firstBody = (await firstRes.json()) as Record<string, unknown>;
-  const firstRows = (firstBody[dataKey] as T[] | undefined) ?? [];
+  const firstRows = firstBody[dataKey] as T[] | undefined;
+  if (!Array.isArray(firstRows)) {
+    throw new Error(
+      `[dashboard/raw-data] ${path} page 1 missing expected "${dataKey}" array from ${LEADERBOARD_API_URL}`
+    );
+  }
   const pagination = firstBody.pagination as { total_pages?: number } | undefined;
   const totalPages = pagination?.total_pages ?? 1;
 
@@ -184,18 +192,27 @@ async function fetchAllPages<T>(
         const res = await fetch(url, {
           headers: { Accept: 'application/json' },
           signal: AbortSignal.timeout(60_000),
-          // @ts-expect-error — Next.js extended fetch options
           next: { revalidate: ttlSeconds },
         });
         if (!res.ok) {
-          console.warn(`[dashboard/raw-data] ${path} page ${page} returned ${res.status}`);
-          return [] as T[];
+          throw new Error(
+            `[dashboard/raw-data] ${path} page ${page} returned HTTP ${res.status} from ${LEADERBOARD_API_URL}`
+          );
         }
         const body = (await res.json()) as Record<string, unknown>;
-        return (body[dataKey] as T[] | undefined) ?? ([] as T[]);
+        const rows = body[dataKey] as T[] | undefined;
+        if (!Array.isArray(rows)) {
+          throw new Error(
+            `[dashboard/raw-data] ${path} page ${page} missing expected "${dataKey}" array from ${LEADERBOARD_API_URL}`
+          );
+        }
+        return rows;
       } catch (err) {
-        console.warn(`[dashboard/raw-data] fetch error for ${path} page ${page}:`, err);
-        return [] as T[];
+        throw new Error(
+          `[dashboard/raw-data] ${path} page ${page} request failed against ${LEADERBOARD_API_URL}: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
       }
     })
   );
@@ -240,21 +257,21 @@ export async function getRawGPUMetricsRows(): Promise<GPUMetricRow[]> {
 /** Fetch the pipeline catalog (no pagination). */
 export async function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
   const url = `${LEADERBOARD_API_URL}/api/pipelines`;
-  try {
-    const res = await fetch(url, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(60_000),
-      // @ts-expect-error — Next.js extended fetch options
-      next: { revalidate: PIPELINES_TTL },
-    });
-    if (!res.ok) {
-      console.warn(`[dashboard/raw-data] /api/pipelines returned ${res.status}`);
-      return [];
-    }
-    const body = (await res.json()) as { pipelines?: PipelineCatalogEntry[] };
-    return body.pipelines ?? [];
-  } catch (err) {
-    console.warn('[dashboard/raw-data] fetch error for /api/pipelines:', err);
-    return [];
+  const res = await fetch(url, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(60_000),
+    next: { revalidate: PIPELINES_TTL },
+  });
+  if (!res.ok) {
+    throw new Error(
+      `[dashboard/raw-data] /api/pipelines returned HTTP ${res.status} from ${LEADERBOARD_API_URL}`
+    );
   }
+  const body = (await res.json()) as { pipelines?: PipelineCatalogEntry[] };
+  if (!Array.isArray(body.pipelines)) {
+    throw new Error(
+      `[dashboard/raw-data] /api/pipelines missing expected "pipelines" array from ${LEADERBOARD_API_URL}`
+    );
+  }
+  return body.pipelines;
 }

@@ -74,6 +74,16 @@ const STUB_GPU_CAPACITY = {
   models: [],
 };
 
+const STUB_PRICING = [
+  {
+    pipeline: 'streamdiffusion-sdxl',
+    unit: 'live-video-to-video',
+    price: 2578,
+    pixelsPerUnit: 1,
+    outputPerDollar: '—',
+  },
+];
+
 const STUB_PIPELINE_CATALOG = [
   { id: 'live-video-to-video', name: 'Live Video-to-Video', models: ['streamdiffusion-sdxl'] },
   { id: 'text-to-image', name: 'Text-to-Image', models: ['black-forest-labs/FLUX.1-dev'] },
@@ -215,6 +225,13 @@ function stubFetch() {
         } as Response);
       }
 
+      if (pathname === '/api/v1/dashboard/pricing') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(STUB_PRICING),
+        } as Response);
+      }
+
       return Promise.resolve({ ok: false, status: 404 } as Response);
     })
   );
@@ -251,7 +268,7 @@ describe('registerDashboardProvider', () => {
         fees(days: 7) { totalEth totalUsd oneDayVolumeUsd dayData { dateS volumeEth volumeUsd } weeklyData { date weeklyVolumeUsd weeklyVolumeEth } }
         pipelines { name mins color }
         gpuCapacity { totalGPUs availableCapacity }
-        pricing { pipeline unit price outputPerDollar }
+        pricing { pipeline unit price pixelsPerUnit outputPerDollar }
       }`,
     };
 
@@ -297,8 +314,15 @@ describe('registerDashboardProvider', () => {
     expect(response.data!.gpuCapacity!.totalGPUs).toBe(2);
     expect(response.data!.gpuCapacity!.availableCapacity).toBe(100);
 
-    // Pricing: static fallback
+    // Pricing: BFF / ClickHouse-backed aggregate
     expect(response.data!.pricing).toBeDefined();
+    expect(response.data!.pricing!.length).toBeGreaterThan(0);
+    expect(response.data!.pricing![0]).toMatchObject({
+      pipeline: expect.any(String),
+      unit: expect.any(String),
+      price: expect.any(Number),
+      outputPerDollar: expect.any(String),
+    });
   });
 
   it('returns protocol null and errors when BFF fails', async () => {

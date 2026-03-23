@@ -56,6 +56,11 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import {
+  DEFAULT_PIPELINE_COLOR,
+  PIPELINE_COLOR,
+  PIPELINE_DISPLAY,
+} from '@/lib/dashboard/pipeline-config';
 // ============================================================================
 // GraphQL Query — the ONLY place data requirements are declared
 // ============================================================================
@@ -88,7 +93,7 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
       pipelineGPUs { name gpus models { model gpus } }
     }
     pricing {
-      pipeline unit price outputPerDollar
+      pipeline unit price pixelsPerUnit outputPerDollar
     }
     orchestrators(period: $timeframe) {
       address knownSessions successSessions successRatio effectiveSuccessRate noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount
@@ -144,6 +149,12 @@ function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
+/** Raw digits only — no locale grouping (Pipeline Unit Cost wei column). */
+function formatPlainNumber(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  return String(n);
+}
+
 function formatUsdCompact(n: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -164,6 +175,24 @@ function formatUsd(n: number): string {
 function formatTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}
+
+/** Badge color classes (bg + text) for model badges — same as orchestrator table */
+const MODEL_BADGE_COLORS = [
+  'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
+  'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+  'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+  'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
+  'bg-lime-100 text-lime-800 dark:bg-lime-900/40 dark:text-lime-200',
+  'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-200',
+  'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200',
+] as const;
+
+function modelBadgeColor(modelId: string): (typeof MODEL_BADGE_COLORS)[number] {
+  let n = 0;
+  for (let i = 0; i < modelId.length; i++) n += modelId.charCodeAt(i);
+  return MODEL_BADGE_COLORS[Math.abs(n) % MODEL_BADGE_COLORS.length];
 }
 
 // ============================================================================
@@ -197,9 +226,17 @@ function WidgetUnavailable({ label }: { label: string }) {
 }
 
 /** Wraps a widget to show a subtle refreshing indicator over stale content. */
-function RefreshWrap({ refreshing, children }: { refreshing: boolean; children: React.ReactNode }) {
+function RefreshWrap({
+  refreshing,
+  children,
+  className = '',
+}: {
+  refreshing: boolean;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="relative">
+    <div className={`relative ${className}`.trim()}>
       {children}
       {refreshing && (
         <div className="absolute inset-0 rounded-lg bg-card/60 flex items-center justify-center pointer-events-none z-10 backdrop-blur-[1px] transition-opacity duration-200">
@@ -295,7 +332,7 @@ function KPIRow({ data }: { data: DashboardKPI }) {
       <KPICard
         icon={Clock}
         iconColor="bg-muted text-muted-foreground"
-        label="Usage (24H)"
+        label={`Usage (${tfLabel})`}
         value={formatNumber(data.dailyUsageMins.value)}
         delta={data.dailyUsageMins.delta}
         deltaUnit=" mins"
@@ -304,7 +341,7 @@ function KPIRow({ data }: { data: DashboardKPI }) {
       <KPICard
         icon={Radio}
         iconColor="bg-muted text-muted-foreground"
-        label="Sessions (24H)"
+        label={`Sessions (${tfLabel})`}
         value={data.dailySessionCount.value.toLocaleString()}
         delta={data.dailySessionCount.delta}
         deltaUnit=""
@@ -360,7 +397,7 @@ function ProtocolCard({ data }: { data: DashboardProtocol }) {
 }
 
 function FeesCard({ data }: { data: DashboardFeesInfo }) {
-  const [grouping, setGrouping] = useState<'day' | 'week'>('day');
+  const [grouping, setGrouping] = useState<'day' | 'week'>('week');
   const [hovered, setHovered] = useState<{ x: number; y: number } | null>(null);
   const [rawOpen, setRawOpen] = useState(false);
 
@@ -561,8 +598,8 @@ function PipelinesCard({
   const [availableExpanded, setAvailableExpanded] = useState(false);
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border">
-      <div className="flex items-center gap-2 mb-4">
+    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
+      <div className="flex items-center gap-2 mb-4 shrink-0">
         <div className="p-1 rounded-md bg-muted text-muted-foreground">
           <Activity className="w-3.5 h-3.5" />
         </div>
@@ -570,7 +607,8 @@ function PipelinesCard({
           Pipelines (24H)
         </span>
       </div>
-      <div className="space-y-3">
+      <div className="flex-1 min-h-0 flex flex-col justify-between gap-3">
+        <div className="space-y-3 shrink-0">
         {activePipelines.map((p) => (
           <div key={p.name} className="rounded border border-border/60 overflow-hidden">
             <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-muted/20">
@@ -615,9 +653,10 @@ function PipelinesCard({
             ) : null}
           </div>
         ))}
+        </div>
 
-        {availablePipelines.length > 0 && (
-          <div className="pt-2">
+        {availablePipelines.length > 0 ? (
+          <div className="shrink-0 pt-2 border-t border-border/50">
             <button
               type="button"
               onClick={() => setAvailableExpanded((v) => !v)}
@@ -662,7 +701,7 @@ function PipelinesCard({
               </div>
             )}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -825,26 +864,73 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Pipeline Unit Cost</span>
       </div>
       <div className="overflow-hidden">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-muted-foreground border-b border-border">
-              <th className="text-left pb-2 font-medium">Pipeline</th>
-              <th className="text-left pb-2 font-medium">Unit</th>
-              <th className="text-right pb-2 font-medium">Price</th>
-              <th className="text-right pb-2 font-medium">Output / $1</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((p) => (
-              <tr key={p.pipeline} className="border-b border-border/50 last:border-0">
-                <td className="py-2 text-foreground font-medium">{p.pipeline}</td>
-                <td className="py-2 text-muted-foreground">per {p.unit}</td>
-                <td className="py-2 text-right font-mono text-foreground">${p.price}</td>
-                <td className="py-2 text-right text-emerald-400 font-medium">{p.outputPerDollar}</td>
+        {data.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-6 text-center">
+            No capability pricing in the sampled window (configure ClickHouse env or check data).
+          </p>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-muted-foreground border-b border-border">
+                <th className="text-left pb-2 font-medium">Pipeline</th>
+                <th className="text-left pb-2 font-medium">Model</th>
+                <th className="text-right pb-2 font-medium">
+                  <div>Avg price (wei)</div>
+                  <div className="text-[9px] font-normal normal-case tracking-normal text-muted-foreground/80 max-w-[140px] ml-auto">
+                    wei / unit of pixels
+                  </div>
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.map((p) => {
+                const pxUnit = p.pixelsPerUnit != null && p.pixelsPerUnit > 0 ? p.pixelsPerUnit : null;
+                const perPixel = pxUnit != null && p.price > 0 ? p.price / pxUnit : null;
+                const pixelLabel =
+                  pxUnit != null && Number.isFinite(pxUnit)
+                    ? pxUnit === 1
+                      ? 'pixel'
+                      : 'pixels'
+                    : null;
+                const pipelineId = p.unit;
+                const pipelineHex = PIPELINE_COLOR[pipelineId] ?? DEFAULT_PIPELINE_COLOR;
+                const pipelineLabel = PIPELINE_DISPLAY[pipelineId] ?? pipelineId;
+                return (
+                  <tr key={`${p.pipeline}:${p.unit}`} className="border-b border-border/50 last:border-0">
+                    <td className="py-2">
+                      <span
+                        className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium text-white max-w-[200px] truncate"
+                        style={{ backgroundColor: pipelineHex }}
+                        title={pipelineId}
+                      >
+                        {pipelineLabel}
+                      </span>
+                    </td>
+                    <td className="py-2">
+                      <span
+                        className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono break-all max-w-[200px] ${modelBadgeColor(p.pipeline)}`}
+                        title={p.pipeline}
+                      >
+                        {p.pipeline}
+                      </span>
+                    </td>
+                    <td className="py-2 text-right align-top">
+                      <div className="font-mono text-foreground">
+                        {formatPlainNumber(p.price)}{' '}
+                        <span className="text-[10px] text-muted-foreground font-sans">wei</span>
+                      </div>
+                      {perPixel != null && Number.isFinite(perPixel) && pxUnit != null && pixelLabel ? (
+                        <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                          {formatPlainNumber(perPixel)} wei / {formatPlainNumber(pxUnit)} {pixelLabel}
+                        </div>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
@@ -858,24 +944,6 @@ type OrchestratorSortCol = 'address' | 'knownSessions' | 'successRatio' | 'effec
 type SortDir = 'asc' | 'desc';
 
 const LIVE_VIDEO_TO_VIDEO_PIPELINE_ID = 'live-video-to-video';
-
-/** Badge color classes (bg + text) for model badges — high contrast for readability */
-const MODEL_BADGE_COLORS = [
-  'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
-  'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
-  'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-  'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
-  'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
-  'bg-lime-100 text-lime-800 dark:bg-lime-900/40 dark:text-lime-200',
-  'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-200',
-  'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200',
-] as const;
-
-function modelBadgeColor(modelId: string): (typeof MODEL_BADGE_COLORS)[number] {
-  let n = 0;
-  for (let i = 0; i < modelId.length; i++) n += modelId.charCodeAt(i);
-  return MODEL_BADGE_COLORS[Math.abs(n) % MODEL_BADGE_COLORS.length];
-}
 
 /** Format pipeline + models for display: "Display name (model1, model2)" using the models this orchestrator offers. */
 function formatPipelineLabel(
@@ -1105,7 +1173,7 @@ function JobFeedPollIntervalSelector({ value, onChange }: { value: number; onCha
 // ============================================================================
 
 const TIMEFRAME_KEY = 'naap_dashboard_timeframe';
-const DEFAULT_TIMEFRAME = '24';
+const DEFAULT_TIMEFRAME = '168';
 
 const TIMEFRAME_OPTIONS = [
   { label: '1d',  value: '24',  description: 'Last 24 hours' },
@@ -1189,15 +1257,15 @@ function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: 
 export default function DashboardPage() {
   useAuth();
 
-  // Initialize from localStorage synchronously to avoid double-fetch on hydration.
-  // getStoredTimeframe/getStoredJobFeedPollInterval return defaults when window is undefined (SSR).
-  const [jobFeedPollInterval, setJobFeedPollInterval] = useState(getStoredJobFeedPollInterval);
-  const [timeframe, setTimeframe] = useState(getStoredTimeframe);
+  // Hydration-safe defaults: read localStorage after mount to avoid SSR overwriting user preferences.
+  const [jobFeedPollInterval, setJobFeedPollInterval] = useState(DEFAULT_POLL_INTERVAL);
+  const [timeframe, setTimeframe] = useState(DEFAULT_TIMEFRAME);
+  const [prefsReady, setPrefsReady] = useState(false);
 
-  // Sync to localStorage on mount (normalizes invalid stored values).
   useEffect(() => {
-    localStorage.setItem(POLL_INTERVAL_KEY, String(jobFeedPollInterval));
-    localStorage.setItem(TIMEFRAME_KEY, timeframe);
+    setJobFeedPollInterval(getStoredJobFeedPollInterval());
+    setTimeframe(getStoredTimeframe());
+    setPrefsReady(true);
   }, []);
 
   const handleJobFeedPollIntervalChange = (ms: number) => {
@@ -1213,12 +1281,12 @@ export default function DashboardPage() {
   const { data, loading, refreshing, error } = useDashboardQuery<DashboardData>(
     NETWORK_OVERVIEW_QUERY,
     { timeframe },
-    { timeout: DASHBOARD_QUERY_TIMEOUT_MS }
+    { timeout: DASHBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
   const { data: feesData, loading: feesLoading, error: feesError } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
-    { timeout: DASHBOARD_QUERY_TIMEOUT_MS }
+    { timeout: DASHBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
 
   const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8, pollInterval: jobFeedPollInterval });
@@ -1277,7 +1345,10 @@ export default function DashboardPage() {
 
       {/* Row 2: Protocol, Fees, Pipelines, GPU Capacity */}
       <section className="space-y-3">
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+        <div
+          className="grid gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0"
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
+        >
           {data?.protocol
             ? <ProtocolCard data={data.protocol} />
             : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
@@ -1285,7 +1356,11 @@ export default function DashboardPage() {
             ? <FeesCard data={feesData.fees} />
             : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
           {data?.pipelines
-            ? <RefreshWrap refreshing={refreshing}><PipelinesCard data={data.pipelines} catalog={data.pipelineCatalog} /></RefreshWrap>
+            ? (
+              <RefreshWrap refreshing={refreshing} className="h-full min-h-0 flex flex-col">
+                <PipelinesCard data={data.pipelines} catalog={data.pipelineCatalog} />
+              </RefreshWrap>
+            )
             : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
           {data?.gpuCapacity && data?.kpi
             ? <RefreshWrap refreshing={refreshing}><GPUCapacityCard data={data.gpuCapacity} timeframeHours={data.kpi.timeframeHours} /></RefreshWrap>
@@ -1313,7 +1388,7 @@ export default function DashboardPage() {
             pollInterval={jobFeedPollInterval}
             onPollIntervalChange={handleJobFeedPollIntervalChange}
           />
-          {data?.pricing
+          {data?.pricing != null
             ? <RefreshWrap refreshing={refreshing}><PricingCard data={data.pricing} /></RefreshWrap>
             : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pricing" />}
         </div>
