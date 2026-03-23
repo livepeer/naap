@@ -19,7 +19,6 @@ export const PLUGIN_PORTS: Record<string, number> = {
   // Plugins (ports must match plugins/*/plugin.json → backend.devPort)
   'marketplace': 4005,
   'community': 4006,
-  'my-wallet': 4008,
   'plugin-publisher': 4010,
   'service-gateway': 4020,
 };

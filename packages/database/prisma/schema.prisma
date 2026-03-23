@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_service_gateway"]
+  schemas   = ["public", "plugin_community", "plugin_service_gateway"]
 }
 
 // ============================================
@@ -64,8 +64,6 @@ model User {
   // Plugin relations - Community
   communityProfile CommunityProfile?
 
-  // Plugin relations - Wallet
-  walletConnection WalletConnection?
 
   @@schema("public")
 }
@@ -1006,102 +1004,6 @@ model CommunityUserBadge {
   @@schema("plugin_community")
 }
 
-// ============================================
-// PLUGIN: MY WALLET
-// ============================================
-// Wallet connections, transactions, staking state
-
-model WalletConnection {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  address   String
-  chainId   Int
-  lastSeen  DateTime @default(now())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([address])
-  @@index([userId])
-  @@schema("plugin_wallet")
-}
-
-model WalletTransactionLog {
-  id          String    @id @default(uuid())
-  userId      String
-  address     String
-  txHash      String    @unique
-  type        String
-  status      String    @default("pending")
-  chainId     Int
-  value       String?
-  gasUsed     String?
-  gasPrice    String?
-  blockNumber Int?
-  toAddress   String?
-  timestamp   DateTime  @default(now())
-  confirmedAt DateTime?
-  metadata    Json?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@index([userId, timestamp])
-  @@index([address, timestamp])
-  @@index([txHash])
-  @@index([status])
-  @@schema("plugin_wallet")
-}
-
-model WalletStakingState {
-  id             String   @id @default(uuid())
-  address        String   @unique
-  chainId        Int
-  stakedAmount   String   @default("0")
-  delegatedTo    String?
-  pendingRewards String   @default("0")
-  pendingFees    String   @default("0")
-  startRound     String?
-  lastClaimRound String?
-  lastSynced     DateTime @default(now())
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  @@index([address])
-  @@index([delegatedTo])
-  @@schema("plugin_wallet")
-}
-
-model WalletOrchestrator {
-  id         String   @id @default(uuid())
-  address    String   @unique
-  chainId    Int
-  name       String?
-  serviceUri String?
-  totalStake String   @default("0")
-  rewardCut  Int      @default(0)
-  feeShare   Int      @default(0)
-  isActive   Boolean  @default(true)
-  lastSynced DateTime @default(now())
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@index([chainId, isActive])
-  @@index([totalStake])
-  @@schema("plugin_wallet")
-}
-
-model WalletSettings {
-  id             String   @id @default(uuid())
-  userId         String   @unique
-  defaultNetwork String   @default("arbitrum-one")
-  autoConnect    Boolean  @default(true)
-  showTestnets   Boolean  @default(false)
-  gasStrategy    String   @default("standard")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  @@schema("plugin_wallet")
-}
 
 
 // ============================================

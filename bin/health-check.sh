@@ -106,9 +106,6 @@ get_service_url() {
     community)
       echo "${COMMUNITY_URL:-http://localhost:4006}|/healthz"
       ;;
-    my-wallet)
-      echo "${WALLET_URL:-http://localhost:4008}|/healthz"
-      ;;
     plugin-publisher)
       echo "${PLUGIN_PUBLISHER_URL:-http://localhost:4010}|/healthz"
       ;;
@@ -122,7 +119,7 @@ get_service_url() {
 }
 
 # All services list (core + plugin backends)
-ALL_SERVICES="vercel base-svc plugin-server marketplace community my-wallet plugin-publisher service-gateway"
+ALL_SERVICES="vercel base-svc plugin-server marketplace community plugin-publisher service-gateway"
 
 # Check a single service
 check_service() {

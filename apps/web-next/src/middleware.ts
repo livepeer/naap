@@ -8,7 +8,6 @@ import type { NextRequest } from 'next/server';
 // Routes with their own page.tsx (/marketplace, /dashboard) are excluded.
 // /plugins/* paths are handled by the dynamic [pluginName] route automatically.
 const PLUGIN_ROUTE_MAP: Record<string, string> = {
-  '/wallet': 'myWallet',
   '/gateway': 'serviceGateway',
   '/forum': 'community',
   '/publish': 'pluginPublisher',

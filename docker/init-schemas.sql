@@ -8,10 +8,8 @@
 -- Architecture: Single database "a3p", multiple schemas:
 --   public                 — Core platform (users, auth, plugins, marketplace, RBAC)
 --   plugin_community       — Community hub (posts, comments, reputation, badges)
---   plugin_wallet          — My Wallet (connections, transactions, staking)
 --   plugin_service_gateway — Service Gateway (API connectors, keys, usage)
 -- ============================================================
 
 CREATE SCHEMA IF NOT EXISTS plugin_community;
-CREATE SCHEMA IF NOT EXISTS plugin_wallet;
 CREATE SCHEMA IF NOT EXISTS plugin_service_gateway;

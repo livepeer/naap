@@ -178,7 +178,6 @@ async function main() {
   const pluginAdminRoles = [
     { pluginName: 'marketplace', roleName: 'marketplace:admin', displayName: 'Marketplace Administrator' },
     { pluginName: 'community', roleName: 'community:admin', displayName: 'Community Hub Administrator' },
-    { pluginName: 'my-wallet', roleName: 'my-wallet:admin', displayName: 'Wallet Administrator' },
     { pluginName: 'plugin-publisher', roleName: 'plugin-publisher:admin', displayName: 'Plugin Publisher Administrator' },
     { pluginName: 'service-gateway', roleName: 'service-gateway:admin', displayName: 'Service Gateway Administrator' },
   ];
@@ -212,7 +211,6 @@ async function main() {
     { email: 'admin@a3p.io', displayName: 'System Admin', roles: ['system:admin'] },
     { email: 'marketplace@a3p.io', displayName: 'Marketplace Admin', roles: ['marketplace:admin'] },
     { email: 'community@a3p.io', displayName: 'Community Admin', roles: ['community:admin'] },
-    { email: 'wallet@a3p.io', displayName: 'Wallet Admin', roles: ['my-wallet:admin'] },
     { email: 'publisher@a3p.io', displayName: 'Publisher Admin', roles: ['plugin-publisher:admin'] },
     { email: 'gateway@a3p.io', displayName: 'Gateway Admin', roles: ['service-gateway:admin'] },
     { email: 'viewer@a3p.io', displayName: 'Viewer User', roles: ['system:viewer'] },
@@ -698,7 +696,6 @@ async function main() {
   console.log('   👤 Plugin Admins (same password):');
   console.log('      marketplace@a3p.io - marketplace:admin');
   console.log('      community@a3p.io   - community:admin');
-  console.log('      wallet@a3p.io      - my-wallet:admin');
   console.log('      publisher@a3p.io   - plugin-publisher:admin');
   console.log('      gateway@a3p.io     - service-gateway:admin');
   console.log('');

@@ -217,7 +217,6 @@ AgentBook plugins coexist with the retained platform plugins:
 | **marketplace** | Discover and install AgentBook plugins |
 | **plugin-publisher** | Publish AgentBook plugin updates |
 | **community** | User forum for AgentBook support and discussion |
-| **my-wallet** | Web3 wallet — future: crypto invoice payments |
 | **service-gateway** | API gateway — future: AgentBook API endpoints for third-party integrations |
 | **agentbook-core** | NEW — Ledger, chart of accounts, constraints |
 | **agentbook-expense** | NEW — Expense tracking, OCR, categorization |

@@ -19,14 +19,12 @@ import { PLUGIN_PORTS, DEFAULT_PORT } from '@/lib/plugin-ports';
 const PLUGIN_ENV_MAP: Record<string, string> = {
   'marketplace': 'MARKETPLACE_URL',
   'community': 'COMMUNITY_URL',
-  'my-wallet': 'WALLET_URL',
   'plugin-publisher': 'PLUGIN_PUBLISHER_URL',
   'service-gateway': 'SERVICE_GATEWAY_URL',
 };
 
-/** Short aliases so both `/api/v1/wallet/...` and `/api/v1/my-wallet/...` resolve. */
+/** Short aliases so both `/api/v1/gateway/...` and `/api/v1/service-gateway/...` resolve. */
 const SHORT_ALIASES: Record<string, string> = {
-  'wallet': 'my-wallet',
   'gateway': 'service-gateway',
 };
 
