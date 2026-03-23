@@ -18,10 +18,24 @@ This approach lets each domain evolve independently, enables granular permission
 
 ---
 
+## Core Design Philosophy: Your 24/7 Accounting Firm
+
+> **AgentBook is not a tool you use. It is a professional that works for you.**
+>
+> A great accounting firm doesn't wait for you to call. It monitors your bank activity, flags unusual charges, reminds you about upcoming deadlines, hunts for tax savings, follows up on overdue invoices, and surfaces insights you didn't know to ask for. AgentBook does the same — proactively, around the clock, via Telegram messages that feel like a thoughtful partner checking in.
+>
+> **The architecture has two equal halves:**
+> 1. **Reactive path** — user sends a receipt, asks a question, requests a report. Agent responds.
+> 2. **Proactive path** — agent monitors data, detects opportunities/risks, initiates contact. User responds (or ignores).
+>
+> Both paths use the same skill system, constraint engine, and verification pipeline. The proactive path is not a bolt-on — it is a **first-class architectural component** built from Phase 0.
+
+---
+
 ## Agent Architecture: Framework + Skills (Decoupled)
 
 ### Design Principle
-The agent framework is a **generic orchestration engine**. All domain knowledge lives in **loadable, updatable skills**. The system can be iterated/upgraded by improving agent skills without changing the agent framework.
+The agent framework is a **generic orchestration engine** with two execution modes: **reactive** (responding to user messages) and **proactive** (self-initiated based on schedules, events, and data analysis). All domain knowledge lives in **loadable, updatable skills**. The system can be iterated/upgraded by improving agent skills without changing the agent framework.
 
 ### Agent Framework (stable, rarely changes)
 ```
@@ -32,8 +46,67 @@ AgentFramework/
   ├── context-assembler.ts   # Typed context loading per intent
   ├── escalation-router.ts   # Human-in-the-loop routing
   ├── skill-registry.ts      # Discovers, loads, validates, hot-reloads skills
-  └── event-emitter.ts       # Kafka event emission
+  ├── event-emitter.ts       # Kafka event emission
+  └── proactive-engine.ts    # Scheduled + event-driven proactive engagement
 ```
+
+### Proactive Engagement Engine (the differentiator)
+
+This is the component that makes AgentBook feel like a professional firm, not a passive app. It runs continuously alongside the reactive path.
+
+**Architecture:**
+```
+ProactiveEngine/
+  ├── scheduler.ts           # Cron-based triggers (daily digest, weekly review, deadline reminders)
+  ├── event-watcher.ts       # Kafka consumer: reacts to data changes in real-time
+  ├── insight-generator.ts   # LLM-powered analysis: detects opportunities, risks, anomalies
+  ├── priority-ranker.ts     # Ranks insights by urgency/value to avoid notification fatigue
+  ├── delivery-manager.ts    # Routes notifications: Telegram, web dashboard, email digest
+  └── engagement-tracker.ts  # Tracks which notifications user acts on (feedback loop for relevance)
+```
+
+**Three trigger types:**
+
+| Trigger | Example | Mechanism |
+|---------|---------|-----------|
+| **Scheduled** | Weekly financial summary, quarterly tax reminder | Cron job per tenant (timezone-aware) |
+| **Event-driven** | Payment received, bank transaction imported, invoice overdue | Kafka consumer on `agentbooks.execution_events` |
+| **Analysis-driven** | Cash flow warning, deduction opportunity, spending anomaly | Periodic LLM analysis of tenant ledger data |
+
+**Proactive message categories (what the agent initiates):**
+
+| Category | Phase | Examples |
+|----------|-------|---------|
+| **Money in** | 0 | "Acme Corp just paid $5,000! Net after Stripe fees: $4,854.50." |
+| **Money out alerts** | 0 | "Unusual charge: $847 at Best Buy. Office supplies? [Yes] [No] [Split]" |
+| **Receipt reminders** | 0 | "You have 3 bank transactions this week without receipts. Want to snap them now?" |
+| **Daily pulse** | 0 | "Today: $340 in, $127 out. Cash balance: $12,450. 1 invoice due tomorrow." |
+| **Invoice follow-up** | 1 | "Acme Corp is 7 days overdue on $5,000. Want me to send a reminder? [Send] [Wait] [Call instead]" |
+| **Recurring anomaly** | 1 | "Your Figma subscription charged $59.99 instead of the usual $49.99. Price increase? [Accept new amount] [Investigate]" |
+| **Tax deadline** | 2 | "Quarterly tax payment due in 7 days. I calculated $3,200 for Q2. [Pay now via IRS Direct Pay] [Adjust] [Remind me in 3 days]" |
+| **Deduction hunting** | 2 | "You haven't logged home office expenses this year. Do you work from home? You could save ~$1,500 in taxes." |
+| **Cash flow warning** | 3 | "Heads up: your cash balance drops to $1,200 on April 3. You have $3,800 in bills but only $2,600 expected income. Follow up on overdue Acme invoice?" |
+| **Tax bracket alert** | 3 | "You're $3,000 from the next bracket. If you can prepay January rent or buy that equipment, you'd save ~$660." |
+| **Weekly review** | 1 | "This week: $4,200 revenue, $1,340 expenses. Top spend: Software ($420). Your effective tax rate is 28.3%." |
+| **Year-end planning** | 4 | "It's November. Here's your year-end tax optimization report: 4 actions could save $2,840. [View report]" |
+
+**Anti-annoyance design:**
+- Priority ranking: urgent (tax deadline) > actionable (invoice reminder) > informational (weekly digest)
+- User preference learning: if user ignores expense analytics alerts 3x, reduce frequency
+- Quiet hours: respect tenant timezone, no messages before 8am or after 9pm
+- Consolidation: batch low-priority insights into daily/weekly digest, don't send 10 separate messages
+- One-tap actions: every proactive message has inline keyboard buttons — the user should never need to type a response
+- Snooze: [Remind me tomorrow] [Remind me next week] [Don't remind me about this]
+
+**Engagement tracking (feedback loop):**
+```
+ab_engagement_log (
+  id, tenant_id, message_type, category, priority,
+  sent_at, opened_at, acted_on_at, action_taken,
+  snoozed, dismissed, response_time_seconds
+)
+```
+The engine learns: "This tenant acts on invoice reminders within 2 hours but ignores spending anomaly alerts. Increase invoice reminder priority, reduce anomaly alert frequency."
 
 ### Skill System (evolves independently)
 ```
@@ -425,6 +498,16 @@ Interface Layer (Telegram bot / Web API)
 - [ ] **P0-T27** Web dashboard: receipt upload via drag-and-drop (same OCR pipeline as Telegram)
 - [ ] **P0-T28** Web dashboard: recent expenses list with receipt thumbnail preview
 
+**Proactive Engagement Engine (Phase 0 — core architecture, not a bolt-on)**
+- [ ] **P0-T34** Proactive engine: scheduler (cron per tenant, timezone-aware) + event watcher (Kafka consumer)
+- [ ] **P0-T35** Daily pulse message: "Today: $X in, $Y out. Cash balance: $Z. N items need attention."
+- [ ] **P0-T36** Receipt reminder: "You have N bank transactions this week without receipts. Snap them now?"
+- [ ] **P0-T37** Expense confirmation follow-up: if user doesn't confirm a pending expense within 24h, nudge
+- [ ] **P0-T38** Priority ranker: urgent > actionable > informational, with quiet hours (8am-9pm tenant TZ)
+- [ ] **P0-T39** Engagement tracking table (`ab_engagement_log`) + feedback loop for notification relevance
+- [ ] **P0-T40** One-tap action buttons on every proactive message (no typing required to respond)
+- [ ] **P0-T41** Snooze/dismiss: [Remind me tomorrow] [Don't remind me about this] on all proactive messages
+
 **End-to-End Flows**
 - [ ] **P0-T29** E2E US text: user types "I spent $20 on coffee" in Telegram -> expense + journal entry in USD
 - [ ] **P0-T30** E2E CA text: user types "I spent $20 on coffee" in Telegram -> expense + journal entry in CAD
@@ -499,6 +582,11 @@ Agent: 📧 Found your Amazon order:
 - [ ] **P0-TEST-16** Telegram bot: responds to text, photo, document, and callback_query message types
 - [ ] **P0-TEST-17** Receipt storage: images stored in tenant-isolated S3 paths, retrievable, linked to expense
 - [ ] **P0-TEST-18** Confidence gating: low-confidence OCR results DO trigger confirmation, high-confidence DON'T
+- [ ] **P0-TEST-19** Proactive engine: daily pulse message fires at correct tenant timezone
+- [ ] **P0-TEST-20** Proactive engine: receipt reminder fires when unmatched bank transactions exist
+- [ ] **P0-TEST-21** Proactive engine: quiet hours respected (no messages outside 8am-9pm tenant TZ)
+- [ ] **P0-TEST-22** Proactive engine: engagement tracking logs sent/opened/acted_on correctly
+- [ ] **P0-TEST-23** Proactive engine: snooze delays next reminder by configured interval
 
 ### Quality Gates
 - [ ] **P0-QG-01** Code review using `/code-review` plugin on all PRs
@@ -521,18 +609,23 @@ Agent: 📧 Found your Amazon order:
 - [ ] Adding a mock "test-country" jurisdiction pack works without any framework/plugin changes
 - [ ] Second tenant data is completely isolated
 - [ ] Test coverage >= 85% for all new code
+- [ ] Daily pulse message delivered at 8am tenant timezone with correct numbers
+- [ ] Receipt reminder fires when bank transactions lack receipts
+- [ ] Proactive messages have one-tap action buttons (no typing needed)
+- [ ] Snooze works: snoozed reminders come back at the right time
 - [ ] Zero lint errors, zero type errors
 
 ### Phase 0 Assessment (100 points)
 
 | Category | Max Points | Criteria |
 |----------|-----------|----------|
-| **Feature Completeness vs QB/Wave** | 15 | Expense entry (text + photo + document) works E2E; **receipt OCR exceeds both** (neither has it) |
-| **Architecture Compliance** | 15 | Agent-guardrail separation, verify-then-commit, event sourcing, plugin-per-domain, skill decoupling |
-| **Multi-Jurisdiction** | 15 | US + CA packs load correctly, interfaces validated, adding new country requires zero framework changes |
+| **Feature Completeness vs QB/Wave** | 10 | Expense entry (text + photo + document) works E2E; receipt OCR exceeds both |
+| **Architecture Compliance** | 10 | Agent-guardrail separation, verify-then-commit, event sourcing, plugin-per-domain, skill decoupling |
+| **Multi-Jurisdiction** | 10 | US + CA packs load correctly, interfaces validated, adding new country requires zero framework changes |
 | **Code Quality** | 15 | No dead code/TODOs, code review passed, test coverage >= 85%, SKILL.md patterns followed |
 | **Agent Design** | 15 | Framework/skill decoupled, skill manifest validated, constraint engine is code not prompts |
-| **UX Quality (Telegram + Web)** | 25 | Receipt photo flow < 10s, inline keyboard confirmations, confidence gating, web upload, receipt previews |
+| **Proactive Engagement** | 20 | Daily pulse works, receipt reminders fire, engagement tracking logs, quiet hours respected, snooze works |
+| **UX Quality (Telegram + Web)** | 20 | Receipt photo flow < 10s, inline keyboard confirmations, confidence gating, one-tap proactive actions |
 
 **Pass threshold: 80/100. If below 80, identify gaps and create remediation tasks before proceeding.**
 
@@ -559,6 +652,14 @@ Agent: 📧 Found your Amazon order:
 - [ ] **P1-T12** AR tracking and aging report
 - [ ] **P1-T13** Client management (per requirements-v2 US-2.6)
 - [ ] **P1-T14** Estimates/quotes (per requirements-v2 US-2.2)
+
+### Proactive Engagement (Phase 1 additions)
+- [ ] **P1-T21** Proactive invoice follow-up: "Acme is 7 days overdue on $5,000. Send reminder? [Send] [Wait] [Skip]"
+- [ ] **P1-T22** Proactive recurring anomaly: "Figma charged $59.99 instead of $49.99. Price increase? [Accept] [Investigate]"
+- [ ] **P1-T23** Proactive weekly financial review: "This week: $4,200 revenue, $1,340 expenses. Top spend: Software. Tax rate: 28.3%."
+- [ ] **P1-T24** Proactive missing receipt nudge: after bank sync, "5 transactions this week have no receipts. [Upload now] [Remind me later]"
+- [ ] **P1-T25** Proactive payment received celebration: "Acme paid $5,000! Your AR is now $2,300. Nice."
+- [ ] **P1-T26** Engagement feedback loop: adjust notification frequency based on user action patterns
 
 ### Week 4: Reporting & Quality
 - [ ] **P1-T15** Skill: `report-generation` — P&L, trial balance
@@ -601,11 +702,12 @@ Agent: 📧 Found your Amazon order:
 
 | Category | Max Points | Criteria |
 |----------|-----------|----------|
-| **Feature Completeness vs QB/Wave** | 25 | Expense tracking with OCR matches Wave; invoicing matches QB Solopreneur basics; P&L available |
-| **Architecture Compliance** | 20 | Verify-then-commit on all writes, constraint engine active, event sourcing, audit trail |
-| **Code Quality** | 20 | Code review passed, >= 85% coverage, no dead code, SKILL.md patterns, production-ready error handling |
-| **Agent Design** | 20 | Skills decoupled, prompt versions tracked, confidence scoring calibrated, pattern learning works |
-| **UI/UX Quality** | 15 | Dashboard matches A3P guidelines, responsive, professional invoice PDFs, intuitive confirmation flows |
+| **Feature Completeness vs QB/Wave** | 20 | Expense tracking with OCR matches Wave; invoicing matches QB basics; P&L available |
+| **Architecture Compliance** | 15 | Verify-then-commit on all writes, constraint engine, event sourcing, LLM via service-gateway |
+| **Code Quality** | 15 | Code review passed, >= 85% coverage, no dead code, SKILL.md patterns |
+| **Agent Design** | 15 | Skills decoupled, prompt versions tracked, confidence scoring calibrated, pattern learning |
+| **Proactive Engagement** | 20 | Invoice follow-up, recurring anomaly, weekly review, payment celebration all work |
+| **UI/UX Quality** | 15 | Dashboard A3P compliant, professional invoice PDFs, one-tap proactive actions |
 
 **Pass threshold: 80/100.**
 
@@ -628,6 +730,11 @@ Agent: 📧 Found your Amazon order:
 - [ ] **P2-T09** Human escalation flow with timeout/reminder logic
 - [ ] **P2-T10** Web dashboard: bank connection, tax dashboard — use `frontend-design` skill
 - [ ] **P2-T11** Payment follow-up automation skill (per requirements-v2 US-2.5)
+- [ ] **P2-T13** Proactive tax deadline reminders: 7 and 3 days before each quarterly deadline (jurisdiction-aware)
+- [ ] **P2-T14** Proactive deduction hunting: "You haven't logged home office expenses. Work from home? Save ~$1,500."
+- [ ] **P2-T15** Proactive tax bracket alert: "You're $3,000 from the next bracket. Prepay expenses to save $660."
+- [ ] **P2-T16** Proactive bank anomaly: "Unusual $847 charge at Best Buy. Office supplies? [Yes] [No] [Split]"
+- [ ] **P2-T17** Proactive reconciliation nudge: "3 bank transactions don't match any recorded expenses. Review? [Show them]"
 
 ### Testing Tasks
 - [ ] **P2-TEST-01** Stripe webhook handling: payment, refund, dispute, payout — all generate correct journal entries
@@ -662,11 +769,12 @@ Agent: 📧 Found your Amazon order:
 
 | Category | Max Points | Criteria |
 |----------|-----------|----------|
-| **Feature Completeness vs QB/Wave** | 25 | Bank connection matches both; tax estimation exceeds Wave (none) and matches QB; payment collection works |
-| **Architecture Compliance** | 20 | Event sourcing complete, audit trail reconstructible, security architecture implemented |
-| **Code Quality** | 20 | Idempotent webhooks, no secrets in code, graceful degradation, >= 85% coverage |
-| **Agent Design** | 20 | Tax/bank skills independently deployable, anomaly detection statistical not LLM, escalation deterministic |
-| **UI/UX Quality** | 15 | Bank connection flow polished, tax dashboard clear, reconciliation UI intuitive |
+| **Feature Completeness vs QB/Wave** | 20 | Bank + tax exceeds both; Stripe payments; sales tax US + CA |
+| **Architecture Compliance** | 15 | Event sourcing, audit trail, security, LLM via service-gateway, graceful degradation |
+| **Code Quality** | 15 | Idempotent webhooks, no secrets in code, >= 85% coverage |
+| **Agent Design** | 15 | Tax/bank skills independently deployable, anomaly detection statistical |
+| **Proactive Engagement** | 20 | Tax deadline alerts, deduction hunting, bank anomaly alerts, reconciliation nudges all work |
+| **UI/UX Quality** | 15 | Bank connection polished, tax dashboard clear, one-tap proactive actions |
 
 **Pass threshold: 80/100.**
 
@@ -687,7 +795,12 @@ Agent: 📧 Found your Amazon order:
 - [ ] **P3-T08** Dashboard: interactive P&L, balance sheet, cash flow with drill-down
 - [ ] **P3-T09** Dashboard: expense analytics charts (category breakdown, vendor analysis, trends)
 - [ ] **P3-T10** Dashboard: tax dashboard (estimate, quarterly payments, deduction tracking)
-- [ ] **P3-T11** Proactive alerts skill: cash flow warnings, tax bracket alerts
+- [ ] **P3-T11** Proactive cash flow warning: "Cash drops to $1,200 on April 3. $3,800 bills vs $2,600 income. Follow up on Acme?"
+- [ ] **P3-T12** Proactive spending trend alert: "Software subscriptions up 40% vs last quarter — 3 new services totaling $127/mo"
+- [ ] **P3-T13** Proactive earnings milestone: "You've hit $100K revenue this year! At this pace, annual projection: $142K."
+- [ ] **P3-T14** Proactive client payment prediction: "Based on pattern, Acme will likely pay next Tuesday. WidgetCo usually delays — consider a nudge."
+- [ ] **P3-T15** Monthly financial health report (auto-generated, delivered via Telegram as PDF + summary)
+- [ ] **P3-T16** Engagement-driven frequency tuning: notifications the user acts on get boosted, ignored ones get demoted
 
 ### Testing Tasks
 - [ ] **P3-TEST-01** After 30 days simulated use, auto-categorization accuracy > 90%
@@ -707,11 +820,12 @@ Agent: 📧 Found your Amazon order:
 
 | Category | Max Points | Criteria |
 |----------|-----------|----------|
-| **Feature Completeness vs QB/Wave** | 25 | Pattern learning exceeds both; cash flow projection exceeds both; full dashboard matches QB |
-| **Architecture Compliance** | 20 | Pattern memory per architecture.md, event-driven learning pipeline, cache warming |
-| **Code Quality** | 20 | Performance budgets met, responsive dashboard, >= 85% coverage |
-| **Agent Design** | 20 | Learning skills improve autonomously, proactive alerts work, scenario modeling correct |
-| **UI/UX Quality** | 15 | Dashboard is production-grade, charts interactive, drill-down works, A3P compliant |
+| **Feature Completeness vs QB/Wave** | 20 | Pattern learning + cash flow projection + dashboard exceed both competitors |
+| **Architecture Compliance** | 10 | Pattern memory per architecture.md, event-driven learning, cache warming |
+| **Code Quality** | 15 | Performance budgets met, responsive dashboard, >= 85% coverage |
+| **Agent Design** | 15 | Learning skills improve autonomously, scenario modeling correct |
+| **Proactive Engagement** | 25 | Cash flow warnings, spending trends, client payment predictions, monthly health report, engagement-driven tuning |
+| **UI/UX Quality** | 15 | Dashboard production-grade, charts interactive, proactive insights surfaced in dashboard |
 
 **Pass threshold: 80/100.**
 
@@ -735,6 +849,9 @@ Agent: 📧 Found your Amazon order:
 - [ ] **P4-T10** Guided onboarding flow (per requirements-v2 US-10.1)
 - [ ] **P4-T11** Data export/import: CSV, QBO, migration tools (per requirements-v2 US-9.4)
 - [ ] **P4-T12** Year-end closing skill (per requirements-v2 US-5.5)
+- [ ] **P4-T13** Proactive year-end planning (November): "4 actions could save $2,840. [View optimization report]"
+- [ ] **P4-T14** Proactive 1099/T4A threshold warning: "You've paid Alex $550. Next payment triggers reporting."
+- [ ] **P4-T15** Proactive year-end closing checklist: "Ready to close 2026? 2 items need attention first."
 
 ### Testing Tasks
 - [ ] **P4-TEST-01** US: Schedule C matches hand-prepared for 5 test scenarios
@@ -755,11 +872,12 @@ Agent: 📧 Found your Amazon order:
 
 | Category | Max Points | Criteria |
 |----------|-----------|----------|
-| **Feature Completeness vs QB/Wave** | 25 | Tax filing exceeds both (Wave has none, QB requires TurboTax); multi-user matches QB; CPA portal unique |
-| **Architecture Compliance** | 20 | RBAC per architecture, data export/import clean, year-end closing uses period gate |
-| **Code Quality** | 20 | Tax math tested against IRS, role isolation tested, >= 85% coverage |
-| **Agent Design** | 20 | Tax skills independently updatable (IRS rate changes), onboarding is a skill |
-| **UI/UX Quality** | 15 | CPA portal polished, onboarding flow intuitive, tax package PDF professional |
+| **Feature Completeness vs QB/Wave** | 20 | Tax filing exceeds both; multi-user; CPA portal; data portability |
+| **Architecture Compliance** | 10 | RBAC, data export/import clean, year-end closing uses period gate |
+| **Code Quality** | 15 | Tax math tested against IRS/CRA, role isolation tested, >= 85% coverage |
+| **Agent Design** | 15 | Tax skills independently updatable, onboarding is a skill |
+| **Proactive Engagement** | 25 | Year-end optimization report, 1099/T4A threshold warnings, closing checklist — all agent-initiated |
+| **UI/UX Quality** | 15 | CPA portal polished, onboarding intuitive, tax package PDF professional |
 
 **Pass threshold: 80/100.**
 
@@ -800,8 +918,26 @@ Each plugin owns its own PostgreSQL schema for clean isolation while sharing the
 ### Agent framework / skill decoupling
 The agent framework is generic orchestration. All domain knowledge lives in skills. Skills are versioned, hot-reloadable, and independently testable. IRS rate changes = skill update, not framework change.
 
-### LLM cost budget
-Per architecture.md AD-6: Haiku tier for parsing/categorization, Sonnet tier for planning/verification. Target: < $5/month per active tenant at 100 transactions/month.
+### LLM via Service Gateway (configurable, not hardcoded)
+AgentBook does NOT directly call LLM provider APIs. All LLM calls route through the A3P **service-gateway** plugin, which provides:
+- **Configurable LLM backend:** tenant or platform admin can switch between Claude, GPT, open-source models, or self-hosted inference — without changing AgentBook code
+- **Model tier routing:** skill manifests declare `modelTier: "haiku" | "sonnet" | "opus"`. The service gateway maps tiers to concrete models based on its connector configuration
+- **API key management:** LLM provider keys stored in service-gateway's secret vault, never in AgentBook plugins
+- **Cost tracking:** service-gateway meters per-request token usage, enabling per-tenant cost budgets
+- **Fallback chain:** if primary provider is down, gateway can failover to secondary (e.g., Claude -> GPT -> local)
+- **Rate limiting:** gateway enforces per-tenant LLM call budgets to prevent runaway costs
+
+```typescript
+// AgentBook skill calls LLM via service-gateway, never directly
+const response = await gateway.llm({
+  tier: 'haiku',                    // mapped to concrete model by gateway config
+  tenant_id: context.tenant_id,
+  prompt: categorization_prompt,
+  max_tokens: 200,
+});
+```
+
+**LLM cost budget target:** < $5/month per active tenant at 100 transactions/month (Haiku for parsing/categorization, Sonnet for planning/verification).
 
 ---
 
@@ -850,6 +986,14 @@ This scorecard is evaluated at each phase gate. Target: exceed 80 by Phase 2, ex
 | Multi-user | Unlimited | 1 user | Role-based (owner/bookkeeper/viewer) | 4 |
 | Natural language interface | None | None | Primary interface | 0 |
 | Human-in-the-loop | None | None | Configurable escalation | 0 |
+| **Proactive daily pulse** | **None** | **None** | **Daily financial summary via Telegram** | **0** |
+| **Proactive receipt reminders** | **None** | **None** | **Nudges for unmatched transactions** | **0** |
+| **Proactive invoice follow-up** | **None** | **None** | **Auto-chase overdue invoices** | **1** |
+| **Proactive tax deadline alerts** | **None** | **None** | **7-day and 3-day reminders** | **2** |
+| **Proactive deduction hunting** | **None** | **None** | **Agent finds savings you missed** | **2** |
+| **Proactive cash flow warnings** | **None** | **None** | **Warns before balance drops** | **3** |
+| **Proactive year-end planning** | **None** | **None** | **November optimization report** | **4** |
+| Configurable LLM backend | N/A | N/A | Via service-gateway, swap providers without code change | 0 |
 | Add new country | N/A | N/A | New jurisdiction pack, zero framework changes | 5+ |
 
 ---
