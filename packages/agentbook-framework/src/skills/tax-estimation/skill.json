@@ -1,0 +1,57 @@
+{
+  "name": "tax-estimation",
+  "version": "1.0.0",
+  "description": "Tax estimation, quarterly installments, deduction suggestions, and financial reporting",
+  "intents": ["estimate_tax", "request_report"],
+  "tools": [
+    {
+      "name": "estimate_tax",
+      "description": "Calculate running tax estimate for the current year",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "gross_revenue_cents": { "type": "integer" },
+          "total_expenses_cents": { "type": "integer" },
+          "net_income_cents": { "type": "integer" },
+          "se_tax_cents": { "type": "integer" },
+          "income_tax_cents": { "type": "integer" },
+          "total_tax_cents": { "type": "integer" },
+          "effective_rate": { "type": "number" }
+        }
+      },
+      "constraints": [],
+      "model_tier": "haiku"
+    },
+    {
+      "name": "generate_report",
+      "description": "Generate financial reports (P&L, balance sheet, cash flow)",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "report_type": { "type": "string", "enum": ["pnl", "balance_sheet", "cash_flow", "trial_balance"] },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" }
+        },
+        "required": ["report_type"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "report_type": { "type": "string" },
+          "data": { "type": "object" }
+        }
+      },
+      "constraints": [],
+      "model_tier": "haiku"
+    }
+  ],
+  "prompts": {
+    "tax_summary": { "version": "1.0", "file": "prompts/tax-summary.md" }
+  },
+  "dependencies": ["agentbook-core"],
+  "calendar_providers": ["tax-deadlines"]
+}
