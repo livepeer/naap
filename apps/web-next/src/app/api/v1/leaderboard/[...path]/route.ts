@@ -10,6 +10,13 @@ function parseProxyTimeoutMs(raw: string | undefined): number {
 
 const LEADERBOARD_PROXY_TIMEOUT_MS = parseProxyTimeoutMs(process.env.LEADERBOARD_PROXY_TIMEOUT_MS);
 
+const ENDPOINT_TTL_SECONDS: Record<string, number> = {
+  'pipelines': 15 * 60,     // 15 min — catalog rarely changes
+  'gpu/metrics': 5 * 60,    // 5 min  — aggregated hardware data
+  'sla/compliance': 5 * 60, // 5 min
+  'network/demand': 3 * 60, // 3 min  — most volatile
+};
+
 async function handleRequest(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -25,6 +32,7 @@ async function handleRequest(
 
   const pathString = path.join('/');
   const targetUrl = `${LEADERBOARD_API_URL}/api/${pathString}${request.nextUrl.search}`;
+  const ttl = ENDPOINT_TTL_SECONDS[pathString] ?? 5 * 60;
 
   try {
     const response = await fetch(targetUrl, {
@@ -32,7 +40,7 @@ async function handleRequest(
       headers: {
         Accept: 'application/json',
       },
-      cache: 'no-store',
+      next: { revalidate: ttl },
       signal: AbortSignal.timeout(LEADERBOARD_PROXY_TIMEOUT_MS),
     });
 
