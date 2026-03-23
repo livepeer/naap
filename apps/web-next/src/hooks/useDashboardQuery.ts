@@ -42,7 +42,10 @@ export interface UseDashboardQueryOptions {
 
 export interface UseDashboardQueryResult<T> {
   data: T | null;
-  /** True while any fetch is in-flight (initial or poll refresh). */
+  /**
+   * True while any fetch is in-flight (initial load or poll refresh).
+   * Always set to true at the start of `fetchData()`, not only the first request.
+   */
   loading: boolean;
   /** True when refetching while stale data is still displayed. */
   refreshing: boolean;
@@ -62,6 +65,10 @@ export interface UseDashboardQueryResult<T> {
  */
 const NO_PROVIDER_RETRY_DELAYS = [1000, 2000, 3000, 5000];
 
+/**
+ * Runs a dashboard GraphQL query through the shell event bus.
+ * See {@link UseDashboardQueryResult} for `loading` vs `refreshing` semantics.
+ */
 export function useDashboardQuery<T = Record<string, unknown>>(
   query: string,
   variables?: Record<string, unknown>,
@@ -107,7 +114,7 @@ export function useDashboardQuery<T = Record<string, unknown>>(
           type: 'query-error',
           message: response.errors.map((e) => e.message).join('; '),
         });
-        setData(null);
+        // Keep stale data on refresh (poll) — same as transient errors in catch
       } else {
         setData((response.data as T) ?? null);
         // Partial errors: data is present but some fields had errors
@@ -134,16 +141,18 @@ export function useDashboardQuery<T = Record<string, unknown>>(
           }, delay);
           return; // Keep loading=true, don't set error yet
         }
-        // All retries exhausted
+        // All retries exhausted — permanent: no provider
         setError({ type: 'no-provider', message: 'No dashboard data provider is registered' });
         setData(null);
       } else if (code === 'TIMEOUT') {
         setError({ type: 'timeout', message: 'Dashboard data provider did not respond in time' });
+        // Do not clear data — keep stale dashboard visible under RefreshWrap
       } else {
         setError({
           type: 'unknown',
           message: (err as Error)?.message ?? 'Unknown error fetching dashboard data',
         });
+        // Do not clear data — keep stale dashboard visible under RefreshWrap
       }
     } finally {
       if (mountedRef.current) {

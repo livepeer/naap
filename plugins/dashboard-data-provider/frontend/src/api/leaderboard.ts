@@ -5,10 +5,17 @@
  * livepeer-leaderboard-serverless. All functions return typed arrays
  * and throw on non-OK responses so callers can catch and fall back.
  *
- * All time-based endpoints use `window` query param (e.g. "24h", "7d", "720h"):
- *   /network/demand   – default 3h,  max 30d (720h)
- *   /gpu/metrics      – default 24h, max 72h
- *   /sla/compliance   – default 24h, max 30d (720h), min 1h
+ * All time-based endpoints use `window` query param (e.g. "24h", "7d", "30d"):
+ *
+ * Existing endpoints (probe/orchestrator data):
+ *   /network/demand      – default 3h,  min 30m, max 30d
+ *   /gpu/metrics         – default 24h, min 1h,  max 72h
+ *   /sla/compliance      – default 24h, min 1h,  max 30d
+ *
+ * NaaP Platform Analytics (real production streaming events):
+ *   /platform/pipelines  – default 24h, min 1h,  max 30d  → session count, success rate, minutes per pipeline
+ *   /scope/performance   – default 24h, min 1h,  max 30d  → Scope GPU session FPS/TTFF metrics
+ *   /gpu/capabilities    – default 24h, min 1h,  max 7d   → orchestrator capability/pricing snapshot
  */
 
 /** Use server proxy so requests use LEADERBOARD_API_URL, timeout, and path validation. */

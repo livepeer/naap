@@ -425,7 +425,7 @@ describe('registerDashboardProvider', () => {
     expect(response.data!.fees).toBeUndefined();
   });
 
-  it('success rate is 100 when all sessions succeed', async () => {
+  it('success rate is 100 when weighted effective_success_rate is all 1.0', async () => {
     registerDashboardProvider(testEventBus as any);
 
     const response = (await testEventBus._invoke(DASHBOARD_QUERY_EVENT, {
