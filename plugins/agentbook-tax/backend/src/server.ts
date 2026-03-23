@@ -1,16 +1,16 @@
 /**
  * AgentBook Tax & Reports Backend - v1.0
  *
- * Stub routes for:
- * - Tax estimation & quarterly installments
- * - Deduction optimization
+ * Full implementation:
+ * - Tax estimation (US/CA brackets, SE tax)
+ * - Quarterly installment tracking
+ * - Deduction suggestions
  * - Financial reports (P&L, Balance Sheet, Cash Flow, Trial Balance)
- * - Cash flow projection & scenarios
- * - Tax form generation (Schedule C / T2125)
- * - Sales tax summary
+ * - Cash flow projection (30/60/90 day)
+ * - Tax configuration
  *
- * Migrated to @naap/plugin-server-sdk for standardized server setup.
  * Uses unified database schema (packages/database) with plugin_agentbook_tax schema.
+ * Reads from agentbook-core (accounts, journal entries, events, tenant config).
  */
 
 import 'dotenv/config';
@@ -21,6 +21,132 @@ import { db } from './db/client.js';
 const pluginConfig = JSON.parse(
   readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
 );
+
+// ============================================
+// TAX BRACKET DEFINITIONS
+// ============================================
+
+/** US 2025 Federal single filer brackets (amounts in cents) */
+const US_FEDERAL_BRACKETS = [
+  { upTo: 11_600_00, rate: 0.10 },
+  { upTo: 47_150_00, rate: 0.12 },
+  { upTo: 100_525_00, rate: 0.22 },
+  { upTo: 191_950_00, rate: 0.24 },
+  { upTo: 243_725_00, rate: 0.32 },
+  { upTo: 609_350_00, rate: 0.35 },
+  { upTo: Infinity, rate: 0.37 },
+];
+
+/** CA 2025 Federal brackets (amounts in cents) */
+const CA_FEDERAL_BRACKETS = [
+  { upTo: 57_375_00, rate: 0.15 },
+  { upTo: 114_750_00, rate: 0.205 },
+  { upTo: 158_468_00, rate: 0.26 },
+  { upTo: 221_708_00, rate: 0.29 },
+  { upTo: Infinity, rate: 0.33 },
+];
+
+/**
+ * Calculate progressive income tax from brackets.
+ * All amounts in cents.
+ */
+function calcProgressiveTax(
+  incomeCents: number,
+  brackets: { upTo: number; rate: number }[],
+): number {
+  if (incomeCents <= 0) return 0;
+  let remaining = incomeCents;
+  let tax = 0;
+  let prev = 0;
+  for (const bracket of brackets) {
+    const width = bracket.upTo === Infinity ? remaining : bracket.upTo - prev;
+    const taxable = Math.min(remaining, width);
+    tax += Math.round(taxable * bracket.rate);
+    remaining -= taxable;
+    prev = bracket.upTo;
+    if (remaining <= 0) break;
+  }
+  return tax;
+}
+
+/**
+ * Calculate self-employment tax.
+ * US: 15.3% on 92.35% of net SE income
+ * CA: CPP at 11.9% of net SE income (simplified)
+ */
+function calcSelfEmploymentTax(
+  netIncomeCents: number,
+  jurisdiction: string,
+): number {
+  if (netIncomeCents <= 0) return 0;
+  if (jurisdiction === 'us') {
+    // 92.35% of net income is subject to 15.3% SE tax
+    return Math.round(netIncomeCents * 0.9235 * 0.153);
+  }
+  if (jurisdiction === 'ca') {
+    // CPP self-employed contribution: 11.9%
+    return Math.round(netIncomeCents * 0.119);
+  }
+  return 0;
+}
+
+/**
+ * Select income tax brackets by jurisdiction.
+ */
+function getBrackets(jurisdiction: string) {
+  if (jurisdiction === 'ca') return CA_FEDERAL_BRACKETS;
+  return US_FEDERAL_BRACKETS; // default to US
+}
+
+// ============================================
+// US QUARTERLY DEADLINES
+// ============================================
+
+function getQuarterlyDeadlines(year: number, jurisdiction: string) {
+  if (jurisdiction === 'ca') {
+    // Canada: Mar 15, Jun 15, Sep 15, Dec 15
+    return [
+      { quarter: 1, deadline: new Date(`${year}-03-15`) },
+      { quarter: 2, deadline: new Date(`${year}-06-15`) },
+      { quarter: 3, deadline: new Date(`${year}-09-15`) },
+      { quarter: 4, deadline: new Date(`${year}-12-15`) },
+    ];
+  }
+  // US: Apr 15, Jun 15, Sep 15, Jan 15 of next year
+  return [
+    { quarter: 1, deadline: new Date(`${year}-04-15`) },
+    { quarter: 2, deadline: new Date(`${year}-06-15`) },
+    { quarter: 3, deadline: new Date(`${year}-09-15`) },
+    { quarter: 4, deadline: new Date(`${year + 1}-01-15`) },
+  ];
+}
+
+// ============================================
+// HELPERS
+// ============================================
+
+type TenantRequest = { tenantId: string };
+
+function getTenantId(req: any): string {
+  // From auth middleware x-tenant-id header, or user id as tenant
+  return req.headers['x-tenant-id'] as string || req.user?.id || 'default';
+}
+
+function currentPeriod(): string {
+  const now = new Date();
+  const q = Math.ceil((now.getMonth() + 1) / 3);
+  return `${now.getFullYear()}-Q${q}`;
+}
+
+function currentYear(): number {
+  return new Date().getFullYear();
+}
+
+function parseDate(val: string | undefined, fallback: Date): Date {
+  if (!val) return fallback;
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? fallback : d;
+}
 
 // ============================================
 // CREATE SERVER
@@ -35,80 +161,919 @@ const server = createPluginServer({
 
 const { router } = server;
 
+// Tenant isolation middleware for all plugin routes
+router.use((req: any, _res, next) => {
+  req.tenantId = getTenantId(req);
+  next();
+});
+
 // ============================================
 // TAX ESTIMATION
 // ============================================
 
-router.get('/agentbook-tax/tax/estimate', async (_req, res) => {
-  res.status(501).json({ error: 'Not implemented' });
+router.get('/agentbook-tax/tax/estimate', async (req: any, res) => {
+  try {
+    const tenantId: string = req.tenantId;
+
+    // 1. Read tenant config for jurisdiction + region
+    const tenantConfig = await db.abTenantConfig.findUnique({
+      where: { userId: tenantId },
+    });
+    const jurisdiction = tenantConfig?.jurisdiction || 'us';
+    const region = tenantConfig?.region || '';
+
+    // 2. Aggregate revenue and expenses from journal lines
+    // Revenue accounts = accountType 'revenue', Expense accounts = accountType 'expense'
+    const revenueAccounts = await db.abAccount.findMany({
+      where: { tenantId, accountType: 'revenue', isActive: true },
+    });
+    const expenseAccounts = await db.abAccount.findMany({
+      where: { tenantId, accountType: 'expense', isActive: true },
+    });
+
+    const revenueIds = revenueAccounts.map((a) => a.id);
+    const expenseIds = expenseAccounts.map((a) => a.id);
+
+    // Optional date filtering
+    const startDate = parseDate(req.query.startDate as string, new Date(currentYear(), 0, 1));
+    const endDate = parseDate(req.query.endDate as string, new Date());
+
+    // Sum revenue (credit - debit for revenue accounts)
+    const revenueAgg = revenueIds.length > 0
+      ? await db.abJournalLine.aggregate({
+          where: {
+            accountId: { in: revenueIds },
+            entry: { tenantId, date: { gte: startDate, lte: endDate } },
+          },
+          _sum: { creditCents: true, debitCents: true },
+        })
+      : { _sum: { creditCents: 0, debitCents: 0 } };
+
+    // Sum expenses (debit - credit for expense accounts)
+    const expenseAgg = expenseIds.length > 0
+      ? await db.abJournalLine.aggregate({
+          where: {
+            accountId: { in: expenseIds },
+            entry: { tenantId, date: { gte: startDate, lte: endDate } },
+          },
+          _sum: { creditCents: true, debitCents: true },
+        })
+      : { _sum: { creditCents: 0, debitCents: 0 } };
+
+    const grossRevenueCents = (revenueAgg._sum.creditCents || 0) - (revenueAgg._sum.debitCents || 0);
+    const expensesCents = (expenseAgg._sum.debitCents || 0) - (expenseAgg._sum.creditCents || 0);
+    const netIncomeCents = grossRevenueCents - expensesCents;
+
+    // 3. Calculate self-employment tax
+    const seTaxCents = calcSelfEmploymentTax(netIncomeCents, jurisdiction);
+
+    // 4. Calculate income tax using progressive brackets
+    // For US: SE tax deduction = 50% of SE tax
+    const seDeduction = jurisdiction === 'us' ? Math.round(seTaxCents / 2) : 0;
+    const taxableIncomeCents = Math.max(0, netIncomeCents - seDeduction);
+    const brackets = getBrackets(jurisdiction);
+    const incomeTaxCents = calcProgressiveTax(taxableIncomeCents, brackets);
+    const totalTaxCents = seTaxCents + incomeTaxCents;
+
+    const period = req.query.period as string || currentPeriod();
+
+    // 5. Store result in AbTaxEstimate
+    const estimate = await db.abTaxEstimate.create({
+      data: {
+        tenantId,
+        period,
+        jurisdiction,
+        region,
+        grossRevenueCents,
+        expensesCents,
+        netIncomeCents,
+        seTaxCents,
+        incomeTaxCents,
+        totalTaxCents,
+      },
+    });
+
+    // Audit trail
+    await db.abEvent.create({
+      data: {
+        tenantId,
+        eventType: 'tax.estimate.calculated',
+        actor: 'agent',
+        action: {
+          estimateId: estimate.id,
+          period,
+          jurisdiction,
+          region,
+          grossRevenueCents,
+          expensesCents,
+          netIncomeCents,
+          seTaxCents,
+          incomeTaxCents,
+          totalTaxCents,
+        },
+      },
+    });
+
+    // 6. Return breakdown
+    res.json({
+      success: true,
+      data: {
+        id: estimate.id,
+        period,
+        jurisdiction,
+        region,
+        grossRevenueCents,
+        expensesCents,
+        netIncomeCents,
+        seTaxCents,
+        incomeTaxCents,
+        totalTaxCents,
+        effectiveRate: netIncomeCents > 0
+          ? parseFloat((totalTaxCents / netIncomeCents * 100).toFixed(2))
+          : 0,
+        calculatedAt: estimate.calculatedAt,
+        dateRange: { startDate: startDate.toISOString(), endDate: endDate.toISOString() },
+      },
+    });
+  } catch (err) {
+    console.error('[tax/estimate] Error:', err);
+    res.status(500).json({ success: false, error: String(err) });
+  }
 });
 
 // ============================================
 // QUARTERLY INSTALLMENTS
 // ============================================
 
-router.get('/agentbook-tax/tax/quarterly', async (_req, res) => {
-  res.status(501).json({ error: 'Not implemented' });
+router.get('/agentbook-tax/tax/quarterly', async (req: any, res) => {
+  try {
+    const tenantId: string = req.tenantId;
+    const year = parseInt(req.query.year as string) || currentYear();
+
+    const tenantConfig = await db.abTenantConfig.findUnique({
+      where: { userId: tenantId },
+    });
+    const jurisdiction = tenantConfig?.jurisdiction || 'us';
+
+    // Get or create quarterly payment records for the year
+    let payments = await db.abQuarterlyPayment.findMany({
+      where: { tenantId, year, jurisdiction },
+      orderBy: { quarter: 'asc' },
+    });
+
+    // If no records exist for this year, create them from latest estimate
+    if (payments.length === 0) {
+      const latestEstimate = await db.abTaxEstimate.findFirst({
+        where: { tenantId },
+        orderBy: { calculatedAt: 'desc' },
+      });
+
+      const annualTax = latestEstimate?.totalTaxCents || 0;
+      const quarterlyAmount = Math.ceil(annualTax / 4);
+      const deadlines = getQuarterlyDeadlines(year, jurisdiction);
+
+      for (const dl of deadlines) {
+        await db.abQuarterlyPayment.upsert({
+          where: {
+            tenantId_year_quarter_jurisdiction: {
+              tenantId,
+              year,
+              quarter: dl.quarter,
+              jurisdiction,
+            },
+          },
+          update: { amountDueCents: quarterlyAmount },
+          create: {
+            tenantId,
+            year,
+            quarter: dl.quarter,
+            jurisdiction,
+            amountDueCents: quarterlyAmount,
+            deadline: dl.deadline,
+          },
+        });
+      }
+
+      payments = await db.abQuarterlyPayment.findMany({
+        where: { tenantId, year, jurisdiction },
+        orderBy: { quarter: 'asc' },
+      });
+    }
+
+    const totalDue = payments.reduce((s, p) => s + p.amountDueCents, 0);
+    const totalPaid = payments.reduce((s, p) => s + p.amountPaidCents, 0);
+
+    res.json({
+      success: true,
+      data: {
+        year,
+        jurisdiction,
+        payments,
+        summary: { totalDueCents: totalDue, totalPaidCents: totalPaid, remainingCents: totalDue - totalPaid },
+      },
+    });
+  } catch (err) {
+    console.error('[tax/quarterly] Error:', err);
+    res.status(500).json({ success: false, error: String(err) });
+  }
 });
 
-router.post('/agentbook-tax/tax/quarterly/:id/record-payment', async (_req, res) => {
-  res.status(501).json({ error: 'Not implemented' });
+router.post('/agentbook-tax/tax/quarterly/:year/:quarter/record-payment', async (req: any, res) => {
+  try {
+    const tenantId: string = req.tenantId;
+    const year = parseInt(req.params.year);
+    const quarter = parseInt(req.params.quarter);
+    const { amountPaidCents } = req.body;
+
+    if (!year || !quarter || quarter < 1 || quarter > 4) {
+      return res.status(400).json({ success: false, error: 'Invalid year or quarter (1-4)' });
+    }
+    if (!amountPaidCents || amountPaidCents <= 0) {
+      return res.status(400).json({ success: false, error: 'amountPaidCents must be a positive integer' });
+    }
+
+    const tenantConfig = await db.abTenantConfig.findUnique({
+      where: { userId: tenantId },
+    });
+    const jurisdiction = tenantConfig?.jurisdiction || 'us';
+
+    const payment = await db.abQuarterlyPayment.findUnique({
+      where: {
+        tenantId_year_quarter_jurisdiction: { tenantId, year, quarter, jurisdiction },
+      },
+    });
+
+    if (!payment) {
+      return res.status(404).json({ success: false, error: 'Quarterly payment record not found. Run GET /tax/quarterly first.' });
+    }
+
+    const updated = await db.abQuarterlyPayment.update({
+      where: { id: payment.id },
+      data: {
+        amountPaidCents: payment.amountPaidCents + amountPaidCents,
+        paidAt: new Date(),
+      },
+    });
+
+    // Audit trail
+    await db.abEvent.create({
+      data: {
+        tenantId,
+        eventType: 'tax.quarterly.payment_recorded',
+        actor: req.user?.id || 'agent',
+        action: {
+          paymentId: updated.id,
+          year,
+          quarter,
+          jurisdiction,
+          amountPaidCents,
+          newTotalPaid: updated.amountPaidCents,
+        },
+      },
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error('[tax/quarterly/record-payment] Error:', err);
+    res.status(500).json({ success: false, error: String(err) });
+  }
 });
 
 // ============================================
 // DEDUCTIONS
 // ============================================
 
-router.get('/agentbook-tax/tax/deductions', async (_req, res) => {
-  res.status(501).json({ error: 'Not implemented' });
+router.get('/agentbook-tax/tax/deductions', async (req: any, res) => {
+  try {
+    const tenantId: string = req.tenantId;
+    const status = req.query.status as string || undefined;
+
+    const where: any = { tenantId };
+    if (status) where.status = status;
+
+    const deductions = await db.abDeductionSuggestion.findMany({
+      where,
+      orderBy: { estimatedSavingsCents: 'desc' },
+    });
+
+    const totalSavingsCents = deductions
+      .filter((d) => d.status !== 'dismissed')
+      .reduce((s, d) => s + d.estimatedSavingsCents, 0);
+
+    res.json({
+      success: true,
+      data: {
+        deductions,
+        summary: {
+          total: deductions.length,
+          suggested: deductions.filter((d) => d.status === 'suggested').length,
+          applied: deductions.filter((d) => d.status === 'applied').length,
+          dismissed: deductions.filter((d) => d.status === 'dismissed').length,
+          totalEstimatedSavingsCents: totalSavingsCents,
+        },
+      },
+    });
+  } catch (err) {
+    console.error('[tax/deductions] Error:', err);
+    res.status(500).json({ success: false, error: String(err) });
+  }
 });
 
 // ============================================
-// FINANCIAL REPORTS
+// REPORTS — PROFIT & LOSS
 // ============================================
 
-router.get('/agentbook-tax/reports/pnl', async (_req, res) => {
-  res.status(501).json({ error: 'Not implemented' });
-});
+router.get('/agentbook-tax/reports/pnl', async (req: any, res) => {
+  try {
+    const tenantId: string = req.tenantId;
+    const startDate = parseDate(req.query.startDate as string, new Date(currentYear(), 0, 1));
+    const endDate = parseDate(req.query.endDate as string, new Date());
 
-router.get('/agentbook-tax/reports/balance-sheet', async (_req, res) => {
-  res.status(501).json({ error: 'Not implemented' });
-});
+    // 1. Get all revenue and expense accounts
+    const revenueAccounts = await db.abAccount.findMany({
+      where: { tenantId, accountType: 'revenue', isActive: true },
+    });
+    const expenseAccounts = await db.abAccount.findMany({
+      where: { tenantId, accountType: 'expense', isActive: true },
+    });
 
-router.get('/agentbook-tax/reports/cashflow', async (_req, res) => {
-  res.status(501).json({ error: 'Not implemented' });
-});
+    // 2. For each account, sum journal lines in date range
+    const buildLines = async (accounts: typeof revenueAccounts, isRevenue: boolean) => {
+      const lines = [];
+      for (const acct of accounts) {
+        const agg = await db.abJournalLine.aggregate({
+          where: {
+            accountId: acct.id,
+            entry: { tenantId, date: { gte: startDate, lte: endDate } },
+          },
+          _sum: { debitCents: true, creditCents: true },
+        });
+        // Revenue: credit - debit; Expense: debit - credit
+        const amount = isRevenue
+          ? (agg._sum.creditCents || 0) - (agg._sum.debitCents || 0)
+          : (agg._sum.debitCents || 0) - (agg._sum.creditCents || 0);
+        if (amount !== 0) {
+          lines.push({
+            accountId: acct.id,
+            code: acct.code,
+            name: acct.name,
+            amountCents: amount,
+          });
+        }
+      }
+      return lines;
+    };
 
-router.get('/agentbook-tax/reports/trial-balance', async (_req, res) => {
-  res.status(501).json({ error: 'Not implemented' });
+    const revenueLines = await buildLines(revenueAccounts, true);
+    const expenseLines = await buildLines(expenseAccounts, false);
+
+    const grossRevenueCents = revenueLines.reduce((s, l) => s + l.amountCents, 0);
+    const totalExpensesCents = expenseLines.reduce((s, l) => s + l.amountCents, 0);
+    const netIncomeCents = grossRevenueCents - totalExpensesCents;
+
+    // Audit trail
+    await db.abEvent.create({
+      data: {
+        tenantId,
+        eventType: 'report.pnl.generated',
+        actor: req.user?.id || 'agent',
+        action: {
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          grossRevenueCents,
+          totalExpensesCents,
+          netIncomeCents,
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        revenue: revenueLines,
+        expenses: expenseLines,
+        grossRevenueCents,
+        totalExpensesCents,
+        netIncomeCents,
+      },
+    });
+  } catch (err) {
+    console.error('[reports/pnl] Error:', err);
+    res.status(500).json({ success: false, error: String(err) });
+  }
 });
 
 // ============================================
-// CASH FLOW PROJECTION & SCENARIOS
+// REPORTS — BALANCE SHEET
 // ============================================
 
-router.get('/agentbook-tax/cashflow/projection', async (_req, res) => {
-  res.status(501).json({ error: 'Not implemented' });
+router.get('/agentbook-tax/reports/balance-sheet', async (req: any, res) => {
+  try {
+    const tenantId: string = req.tenantId;
+    const asOfDate = parseDate(req.query.asOfDate as string, new Date());
+
+    // 1. Get all asset, liability, equity accounts
+    const accounts = await db.abAccount.findMany({
+      where: {
+        tenantId,
+        accountType: { in: ['asset', 'liability', 'equity'] },
+        isActive: true,
+      },
+    });
+
+    // 2. Sum journal lines up to asOfDate
+    const lines: { accountId: string; code: string; name: string; accountType: string; balanceCents: number }[] = [];
+    for (const acct of accounts) {
+      const agg = await db.abJournalLine.aggregate({
+        where: {
+          accountId: acct.id,
+          entry: { tenantId, date: { lte: asOfDate } },
+        },
+        _sum: { debitCents: true, creditCents: true },
+      });
+      // Asset: debit - credit (debit normal)
+      // Liability & Equity: credit - debit (credit normal)
+      const balance = acct.accountType === 'asset'
+        ? (agg._sum.debitCents || 0) - (agg._sum.creditCents || 0)
+        : (agg._sum.creditCents || 0) - (agg._sum.debitCents || 0);
+
+      if (balance !== 0) {
+        lines.push({
+          accountId: acct.id,
+          code: acct.code,
+          name: acct.name,
+          accountType: acct.accountType,
+          balanceCents: balance,
+        });
+      }
+    }
+
+    const assets = lines.filter((l) => l.accountType === 'asset');
+    const liabilities = lines.filter((l) => l.accountType === 'liability');
+    const equity = lines.filter((l) => l.accountType === 'equity');
+
+    const totalAssetsCents = assets.reduce((s, l) => s + l.balanceCents, 0);
+    const totalLiabilitiesCents = liabilities.reduce((s, l) => s + l.balanceCents, 0);
+    const totalEquityCents = equity.reduce((s, l) => s + l.balanceCents, 0);
+
+    // Also include net income from revenue/expense for retained earnings
+    // (P&L accounts through asOfDate)
+    const revAccounts = await db.abAccount.findMany({ where: { tenantId, accountType: 'revenue', isActive: true } });
+    const expAccounts = await db.abAccount.findMany({ where: { tenantId, accountType: 'expense', isActive: true } });
+    const revIds = revAccounts.map((a) => a.id);
+    const expIds = expAccounts.map((a) => a.id);
+
+    const revAgg = revIds.length > 0
+      ? await db.abJournalLine.aggregate({
+          where: { accountId: { in: revIds }, entry: { tenantId, date: { lte: asOfDate } } },
+          _sum: { creditCents: true, debitCents: true },
+        })
+      : { _sum: { creditCents: 0, debitCents: 0 } };
+    const expAgg = expIds.length > 0
+      ? await db.abJournalLine.aggregate({
+          where: { accountId: { in: expIds }, entry: { tenantId, date: { lte: asOfDate } } },
+          _sum: { creditCents: true, debitCents: true },
+        })
+      : { _sum: { creditCents: 0, debitCents: 0 } };
+
+    const retainedEarningsCents =
+      ((revAgg._sum.creditCents || 0) - (revAgg._sum.debitCents || 0)) -
+      ((expAgg._sum.debitCents || 0) - (expAgg._sum.creditCents || 0));
+
+    const totalEquityWithRetainedCents = totalEquityCents + retainedEarningsCents;
+
+    // Audit trail
+    await db.abEvent.create({
+      data: {
+        tenantId,
+        eventType: 'report.balance_sheet.generated',
+        actor: req.user?.id || 'agent',
+        action: {
+          asOfDate: asOfDate.toISOString(),
+          totalAssetsCents,
+          totalLiabilitiesCents,
+          totalEquityCents: totalEquityWithRetainedCents,
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        asOfDate: asOfDate.toISOString(),
+        assets,
+        liabilities,
+        equity,
+        retainedEarningsCents,
+        totalAssetsCents,
+        totalLiabilitiesCents,
+        totalEquityCents: totalEquityWithRetainedCents,
+        balanced: totalAssetsCents === totalLiabilitiesCents + totalEquityWithRetainedCents,
+      },
+    });
+  } catch (err) {
+    console.error('[reports/balance-sheet] Error:', err);
+    res.status(500).json({ success: false, error: String(err) });
+  }
 });
 
-router.post('/agentbook-tax/cashflow/scenario', async (_req, res) => {
-  res.status(501).json({ error: 'Not implemented' });
+// ============================================
+// REPORTS — CASH FLOW
+// ============================================
+
+router.get('/agentbook-tax/reports/cashflow', async (req: any, res) => {
+  try {
+    const tenantId: string = req.tenantId;
+    const startDate = parseDate(req.query.startDate as string, new Date(currentYear(), 0, 1));
+    const endDate = parseDate(req.query.endDate as string, new Date());
+
+    // 1. Get cash account (code 1000)
+    const cashAccount = await db.abAccount.findUnique({
+      where: { tenantId_code: { tenantId, code: '1000' } },
+    });
+
+    if (!cashAccount) {
+      return res.json({
+        success: true,
+        data: { months: [], message: 'No cash account (code 1000) found.' },
+      });
+    }
+
+    // 2. Get all journal lines for cash account within range
+    const cashLines = await db.abJournalLine.findMany({
+      where: {
+        accountId: cashAccount.id,
+        entry: { tenantId, date: { gte: startDate, lte: endDate } },
+      },
+      include: { entry: { select: { date: true } } },
+    });
+
+    // 3. Group by month
+    const monthlyMap = new Map<string, { inCents: number; outCents: number }>();
+
+    for (const line of cashLines) {
+      const d = line.entry.date;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!monthlyMap.has(key)) {
+        monthlyMap.set(key, { inCents: 0, outCents: 0 });
+      }
+      const bucket = monthlyMap.get(key)!;
+      bucket.inCents += line.debitCents;    // Cash in = debit to cash account
+      bucket.outCents += line.creditCents;  // Cash out = credit to cash account
+    }
+
+    // Sort by month key
+    const months = Array.from(monthlyMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, data]) => ({
+        month,
+        inCents: data.inCents,
+        outCents: data.outCents,
+        netCents: data.inCents - data.outCents,
+      }));
+
+    // Audit trail
+    await db.abEvent.create({
+      data: {
+        tenantId,
+        eventType: 'report.cashflow.generated',
+        actor: req.user?.id || 'agent',
+        action: {
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          monthCount: months.length,
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        months,
+        totalInCents: months.reduce((s, m) => s + m.inCents, 0),
+        totalOutCents: months.reduce((s, m) => s + m.outCents, 0),
+        totalNetCents: months.reduce((s, m) => s + m.netCents, 0),
+      },
+    });
+  } catch (err) {
+    console.error('[reports/cashflow] Error:', err);
+    res.status(500).json({ success: false, error: String(err) });
+  }
 });
 
 // ============================================
-// TAX FORMS (Schedule C / T2125)
+// REPORTS — TRIAL BALANCE
 // ============================================
 
-router.get('/agentbook-tax/tax/forms', async (_req, res) => {
-  res.status(501).json({ error: 'Not implemented' });
+router.get('/agentbook-tax/reports/trial-balance', async (req: any, res) => {
+  try {
+    const tenantId: string = req.tenantId;
+    const asOfDate = parseDate(req.query.asOfDate as string, new Date());
+
+    const accounts = await db.abAccount.findMany({
+      where: { tenantId, isActive: true },
+      orderBy: { code: 'asc' },
+    });
+
+    const lines = [];
+    let totalDebitCents = 0;
+    let totalCreditCents = 0;
+
+    for (const acct of accounts) {
+      const agg = await db.abJournalLine.aggregate({
+        where: {
+          accountId: acct.id,
+          entry: { tenantId, date: { lte: asOfDate } },
+        },
+        _sum: { debitCents: true, creditCents: true },
+      });
+
+      const totalDebits = agg._sum.debitCents || 0;
+      const totalCredits = agg._sum.creditCents || 0;
+      const netBalance = totalDebits - totalCredits;
+
+      if (totalDebits !== 0 || totalCredits !== 0) {
+        const debitBalance = netBalance > 0 ? netBalance : 0;
+        const creditBalance = netBalance < 0 ? Math.abs(netBalance) : 0;
+
+        lines.push({
+          accountId: acct.id,
+          code: acct.code,
+          name: acct.name,
+          accountType: acct.accountType,
+          debitCents: debitBalance,
+          creditCents: creditBalance,
+        });
+
+        totalDebitCents += debitBalance;
+        totalCreditCents += creditBalance;
+      }
+    }
+
+    // Audit trail
+    await db.abEvent.create({
+      data: {
+        tenantId,
+        eventType: 'report.trial_balance.generated',
+        actor: req.user?.id || 'agent',
+        action: {
+          asOfDate: asOfDate.toISOString(),
+          accountCount: lines.length,
+          totalDebitCents,
+          totalCreditCents,
+          balanced: totalDebitCents === totalCreditCents,
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        asOfDate: asOfDate.toISOString(),
+        lines,
+        totalDebitCents,
+        totalCreditCents,
+        balanced: totalDebitCents === totalCreditCents,
+      },
+    });
+  } catch (err) {
+    console.error('[reports/trial-balance] Error:', err);
+    res.status(500).json({ success: false, error: String(err) });
+  }
 });
 
 // ============================================
-// SALES TAX SUMMARY
+// CASH FLOW PROJECTION
 // ============================================
 
-router.get('/agentbook-tax/sales-tax/summary', async (_req, res) => {
-  res.status(501).json({ error: 'Not implemented' });
+router.get('/agentbook-tax/cashflow/projection', async (req: any, res) => {
+  try {
+    const tenantId: string = req.tenantId;
+    const now = new Date();
+
+    // 1. Current cash balance — cash account (code 1000)
+    const cashAccount = await db.abAccount.findUnique({
+      where: { tenantId_code: { tenantId, code: '1000' } },
+    });
+
+    let currentCashCents = 0;
+    if (cashAccount) {
+      const cashAgg = await db.abJournalLine.aggregate({
+        where: {
+          accountId: cashAccount.id,
+          entry: { tenantId, date: { lte: now } },
+        },
+        _sum: { debitCents: true, creditCents: true },
+      });
+      currentCashCents = (cashAgg._sum.debitCents || 0) - (cashAgg._sum.creditCents || 0);
+    }
+
+    // 2. Known recurring expenses (from AbRecurringRule in expense schema)
+    const recurringRules = await db.abRecurringRule.findMany({
+      where: { tenantId, active: true },
+    });
+
+    // Calculate expected expenses for 30/60/90 day windows
+    const calcRecurringExpenses = (days: number): number => {
+      let total = 0;
+      const windowEnd = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+      for (const rule of recurringRules) {
+        let nextDate = new Date(rule.nextExpected);
+        while (nextDate <= windowEnd) {
+          if (nextDate >= now) {
+            total += rule.amountCents;
+          }
+          // Advance to next occurrence
+          switch (rule.frequency) {
+            case 'weekly':
+              nextDate = new Date(nextDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+              break;
+            case 'biweekly':
+              nextDate = new Date(nextDate.getTime() + 14 * 24 * 60 * 60 * 1000);
+              break;
+            case 'monthly':
+              nextDate = new Date(nextDate.getFullYear(), nextDate.getMonth() + 1, nextDate.getDate());
+              break;
+            case 'annual':
+              nextDate = new Date(nextDate.getFullYear() + 1, nextDate.getMonth(), nextDate.getDate());
+              break;
+            default:
+              // Unknown frequency, skip to avoid infinite loop
+              nextDate = new Date(windowEnd.getTime() + 1);
+          }
+        }
+      }
+      return total;
+    };
+
+    // 3. Outstanding invoices expected to be paid
+    const outstandingInvoices = await db.abInvoice.findMany({
+      where: {
+        tenantId,
+        status: { in: ['sent', 'viewed', 'overdue'] },
+      },
+    });
+
+    const calcExpectedIncome = (days: number): { totalCents: number; invoiceCount: number } => {
+      const windowEnd = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+      let total = 0;
+      let count = 0;
+      for (const inv of outstandingInvoices) {
+        // Expect payment by due date (or now if overdue)
+        const expectedPayDate = inv.status === 'overdue' ? now : inv.dueDate;
+        if (expectedPayDate <= windowEnd) {
+          total += inv.amountCents;
+          count++;
+        }
+      }
+      return { totalCents: total, invoiceCount: count };
+    };
+
+    const projection30 = {
+      days: 30,
+      expectedIncome: calcExpectedIncome(30),
+      expectedExpenses: calcRecurringExpenses(30),
+      projectedCashCents: 0,
+    };
+    projection30.projectedCashCents = currentCashCents + projection30.expectedIncome.totalCents - projection30.expectedExpenses;
+
+    const projection60 = {
+      days: 60,
+      expectedIncome: calcExpectedIncome(60),
+      expectedExpenses: calcRecurringExpenses(60),
+      projectedCashCents: 0,
+    };
+    projection60.projectedCashCents = currentCashCents + projection60.expectedIncome.totalCents - projection60.expectedExpenses;
+
+    const projection90 = {
+      days: 90,
+      expectedIncome: calcExpectedIncome(90),
+      expectedExpenses: calcRecurringExpenses(90),
+      projectedCashCents: 0,
+    };
+    projection90.projectedCashCents = currentCashCents + projection90.expectedIncome.totalCents - projection90.expectedExpenses;
+
+    // Audit trail
+    await db.abEvent.create({
+      data: {
+        tenantId,
+        eventType: 'cashflow.projection.generated',
+        actor: req.user?.id || 'agent',
+        action: {
+          currentCashCents,
+          recurringRuleCount: recurringRules.length,
+          outstandingInvoiceCount: outstandingInvoices.length,
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        asOfDate: now.toISOString(),
+        currentCashCents,
+        outstandingInvoices: outstandingInvoices.map((inv) => ({
+          id: inv.id,
+          number: inv.number,
+          amountCents: inv.amountCents,
+          dueDate: inv.dueDate,
+          status: inv.status,
+        })),
+        recurringExpenses: recurringRules.map((r) => ({
+          id: r.id,
+          amountCents: r.amountCents,
+          frequency: r.frequency,
+          nextExpected: r.nextExpected,
+        })),
+        projections: [projection30, projection60, projection90],
+      },
+    });
+  } catch (err) {
+    console.error('[cashflow/projection] Error:', err);
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ============================================
+// TAX CONFIG
+// ============================================
+
+router.get('/agentbook-tax/tax/config', async (req: any, res) => {
+  try {
+    const tenantId: string = req.tenantId;
+
+    const config = await db.abTaxConfig.findUnique({
+      where: { tenantId },
+    });
+
+    if (!config) {
+      // Return defaults
+      return res.json({
+        success: true,
+        data: {
+          tenantId,
+          filingStatus: 'single',
+          region: '',
+          retirementType: null,
+          homeOfficeMethod: null,
+        },
+      });
+    }
+
+    res.json({ success: true, data: config });
+  } catch (err) {
+    console.error('[tax/config] GET Error:', err);
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+router.put('/agentbook-tax/tax/config', async (req: any, res) => {
+  try {
+    const tenantId: string = req.tenantId;
+    const { filingStatus, region, retirementType, homeOfficeMethod } = req.body;
+
+    const config = await db.abTaxConfig.upsert({
+      where: { tenantId },
+      update: {
+        ...(filingStatus !== undefined && { filingStatus }),
+        ...(region !== undefined && { region }),
+        ...(retirementType !== undefined && { retirementType }),
+        ...(homeOfficeMethod !== undefined && { homeOfficeMethod }),
+      },
+      create: {
+        tenantId,
+        filingStatus: filingStatus || 'single',
+        region: region || '',
+        retirementType: retirementType || null,
+        homeOfficeMethod: homeOfficeMethod || null,
+      },
+    });
+
+    // Audit trail
+    await db.abEvent.create({
+      data: {
+        tenantId,
+        eventType: 'tax.config.updated',
+        actor: req.user?.id || 'agent',
+        action: {
+          filingStatus: config.filingStatus,
+          region: config.region,
+          retirementType: config.retirementType,
+          homeOfficeMethod: config.homeOfficeMethod,
+        },
+      },
+    });
+
+    res.json({ success: true, data: config });
+  } catch (err) {
+    console.error('[tax/config] PUT Error:', err);
+    res.status(500).json({ success: false, error: String(err) });
+  }
 });
 
 // ============================================
