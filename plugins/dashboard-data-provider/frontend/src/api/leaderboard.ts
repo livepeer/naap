@@ -21,7 +21,7 @@
 /** Use server proxy so requests use LEADERBOARD_API_URL, timeout, and path validation. */
 const BASE_URL = '/api/v1/leaderboard';
 const LEADERBOARD_CLIENT_TIMEOUT_MS = 60_000;
-const LEADERBOARD_RESPONSE_CACHE_TTL_MS = 5_000;
+const LEADERBOARD_RESPONSE_CACHE_TTL_MS = 60_000;
 
 type CacheEntry = {
   expiresAt: number;
