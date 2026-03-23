@@ -1,0 +1,63 @@
+{
+  "name": "expense-recording",
+  "version": "1.0.0",
+  "description": "Record, categorize, and manage expenses from text, photo, or document input",
+  "intents": ["record_expense", "categorize_expense"],
+  "tools": [
+    {
+      "name": "record_expense",
+      "description": "Record a new expense with amount, vendor, category, and optional receipt",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "amount_cents": { "type": "integer", "minimum": 1 },
+          "vendor": { "type": "string" },
+          "category_id": { "type": "string" },
+          "date": { "type": "string", "format": "date" },
+          "description": { "type": "string" },
+          "receipt_url": { "type": "string" },
+          "is_personal": { "type": "boolean", "default": false }
+        },
+        "required": ["amount_cents"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "expense_id": { "type": "string" },
+          "journal_entry_id": { "type": "string" },
+          "category_confidence": { "type": "number" }
+        }
+      },
+      "constraints": ["balance_invariant", "period_gate", "amount_threshold"],
+      "compensation": "void_expense",
+      "model_tier": "haiku"
+    },
+    {
+      "name": "categorize_expense",
+      "description": "Categorize or re-categorize an existing expense",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "expense_id": { "type": "string" },
+          "category_id": { "type": "string" }
+        },
+        "required": ["expense_id", "category_id"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "updated": { "type": "boolean" },
+          "pattern_updated": { "type": "boolean" }
+        }
+      },
+      "constraints": [],
+      "model_tier": "haiku"
+    }
+  ],
+  "prompts": {
+    "intent_parse": { "version": "1.0", "file": "prompts/intent-parse.md" },
+    "categorize": { "version": "1.0", "file": "prompts/categorize.md" }
+  },
+  "dependencies": ["agentbook-core"],
+  "calendar_providers": []
+}
