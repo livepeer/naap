@@ -85,7 +85,7 @@ const STUB_PRICING = [
 ];
 
 const STUB_PIPELINE_CATALOG = [
-  { id: 'live-video-to-video', name: 'Live Video-to-Video', models: ['streamdiffusion-sdxl'] },
+  { id: 'live-video-to-video', name: 'live-video-to-video', models: ['streamdiffusion-sdxl'] },
   { id: 'text-to-image', name: 'Text-to-Image', models: ['black-forest-labs/FLUX.1-dev'] },
 ];
 

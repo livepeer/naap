@@ -41,7 +41,7 @@ async function apiFetch<T>(path: string): Promise<T> {
  */
 export function registerDashboardProvider(eventBus: IEventBus): () => void {
   return createDashboardProvider(eventBus, {
-    kpi: ({ timeframe }) => apiFetch(`/api/v1/dashboard/kpi?timeframe=${timeframe ?? 24}`),
+    kpi: ({ timeframe }) => apiFetch(`/api/v1/dashboard/kpi?timeframe=${timeframe ?? 12}`),
     protocol: () => apiFetch('/api/v1/dashboard/protocol'),
     fees: ({ days }) => apiFetch(`/api/v1/dashboard/fees${days != null ? `?days=${days}` : ''}`),
     pipelines: ({ limit, timeframe }) => {

@@ -13,10 +13,11 @@
  *      cross-request caching in production builds.
  *
  * TTLs match ENDPOINT_TTL_SECONDS in the leaderboard proxy route:
- *   demand=180s, sla=300s, gpu=300s, pipelines=900s
+ *   demand=180s, sla=300s, pipelines=900s (gpu/metrics not fetched — dashboard GPU
+ *   inventory uses ClickHouse; see gpu-capacity-clickhouse.ts)
  *
  * Leaderboard `window=` query caps (keep in sync with /api/v1/leaderboard/warm):
- *   network/demand + sla/compliance + gpu/metrics: 24h max — pipelines: no window
+ *   network/demand + sla/compliance: 24h max — pipelines catalog: no window
  */
 
 // ---------------------------------------------------------------------------
@@ -292,17 +293,6 @@ export function clampLeaderboardLookbackHours(hours?: number): number {
 }
 
 /**
- * Returns true when dashboard GPU capacity + pipeline panels should pull from
- * ClickHouse instead of the leaderboard API.
- *
- * Set `NETWORK_DATA_SOURCE=clickhouse` in env to enable.
- * Any other value (or unset) → leaderboard API (default).
- */
-export function isNetworkDataSourceClickHouse(): boolean {
-  return process.env.NETWORK_DATA_SOURCE?.trim().toLowerCase() === 'clickhouse';
-}
-
-/**
  * Fetch demand rows for a leaderboard lookback window.
  * Omit `lookbackHours` (or pass non-finite) to use {@link DASHBOARD_LEADERBOARD_MAX_HOURS}.
  */
@@ -337,24 +327,12 @@ export function getRawSLARows(lookbackHours?: number): Promise<SLAComplianceRow[
 }
 
 /**
- * Fetch GPU metric rows for a leaderboard lookback window.
- * Omit `lookbackHours` to use {@link DASHBOARD_LEADERBOARD_MAX_HOURS}.
+ * Leaderboard `gpu/metrics` is not fetched: GPU inventory for the dashboard
+ * comes from ClickHouse (`gpu-capacity-clickhouse.ts`). This returns an empty
+ * array so raw-metrics API consumers get a stable, no-upstream shape.
  */
-export function getRawGPUMetricsRows(lookbackHours?: number): Promise<GPUMetricRow[]> {
-  if (isNetworkDataSourceClickHouse()) {
-    console.warn('[dashboard/raw-data] NETWORK_DATA_SOURCE=clickhouse — skipping gpu/metrics');
-    return Promise.resolve([]);
-  }
-  const h = clampLeaderboardLookbackHours(lookbackHours);
-  const windowStr = `${h}h`;
-  return cachedFetch(`gpu:${windowStr}`, GPU_TTL * 1000, () =>
-    fetchAllPages<GPUMetricRow>(
-      'gpu/metrics',
-      'metrics',
-      new URLSearchParams({ window: windowStr }),
-      GPU_TTL
-    ).then((r) => r.rows)
-  );
+export function getRawGPUMetricsRows(_lookbackHours?: number): Promise<GPUMetricRow[]> {
+  return Promise.resolve([]);
 }
 
 /** Fetch the pipeline catalog (no pagination). */

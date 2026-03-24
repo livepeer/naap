@@ -58,11 +58,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import {
-  DEFAULT_PIPELINE_COLOR,
-  PIPELINE_COLOR,
-  PIPELINE_DISPLAY,
-} from '@/lib/dashboard/pipeline-config';
+import { PIPELINE_DISPLAY } from '@/lib/dashboard/pipeline-config';
 // ============================================================================
 // GraphQL Query — the ONLY place data requirements are declared
 // ============================================================================
@@ -196,6 +192,9 @@ function modelBadgeColor(modelId: string): (typeof MODEL_BADGE_COLORS)[number] {
   for (let i = 0; i < modelId.length; i++) n += modelId.charCodeAt(i);
   return MODEL_BADGE_COLORS[Math.abs(n) % MODEL_BADGE_COLORS.length];
 }
+
+/** Capability id shown as a gray monospace slug (same spirit as model ids under GPU breakdown). */
+const LIVE_VIDEO_TO_VIDEO_PIPELINE_ID = 'live-video-to-video';
 
 // ============================================================================
 // Skeleton & Fallback Components
@@ -722,7 +721,14 @@ function PipelinesCard({
                             style={{ backgroundColor: p.color ?? '#6366f1', opacity: 0.5 }}
                             aria-hidden="true"
                           />
-                          <span className="font-medium text-muted-foreground truncate" title={p.name}>
+                          <span
+                            className={
+                              p.name === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID
+                                ? 'font-mono text-muted-foreground truncate'
+                                : 'font-medium text-muted-foreground truncate'
+                            }
+                            title={p.name}
+                          >
                             {p.name}
                           </span>
                         </div>
@@ -781,7 +787,14 @@ function GPUCapacityCard({ data, timeframeHours }: { data: DashboardGPUCapacity;
               {data.pipelineGPUs.map((p) => (
                 <div key={p.name} className="rounded border border-border/60 overflow-hidden">
                   <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-muted/20">
-                    <div className="text-xs font-medium text-foreground truncate" title={p.name}>
+                    <div
+                      className={
+                        p.name === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID
+                          ? 'text-xs font-mono text-muted-foreground truncate'
+                          : 'text-xs font-medium text-foreground truncate'
+                      }
+                      title={p.name}
+                    >
                       {p.name}
                     </div>
                     <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">
@@ -872,7 +885,15 @@ function JobFeedCard({
                 >
                   <td className="py-2 font-mono text-foreground">{job.id}</td>
                   <td className="py-2 text-muted-foreground">{formatTime(job.startedAt)}</td>
-                  <td className="py-2 text-foreground">{job.pipeline}</td>
+                  <td
+                    className={
+                      job.pipeline === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID
+                        ? 'py-2 font-mono text-muted-foreground'
+                        : 'py-2 text-foreground'
+                    }
+                  >
+                    {job.pipeline}
+                  </td>
                   <td className="py-2 text-right">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusStyles[job.status] ?? ''}`}>
                       {job.status}
@@ -927,14 +948,16 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
                       : 'pixels'
                     : null;
                 const pipelineId = p.unit;
-                const pipelineHex = PIPELINE_COLOR[pipelineId] ?? DEFAULT_PIPELINE_COLOR;
                 const pipelineLabel = PIPELINE_DISPLAY[pipelineId] ?? pipelineId;
                 return (
                   <tr key={`${p.pipeline}:${p.unit}`} className="border-b border-border/50 last:border-0">
-                    <td className="py-2">
+                    <td className="py-2 text-foreground">
                       <span
-                        className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium text-white max-w-[200px] truncate"
-                        style={{ backgroundColor: pipelineHex }}
+                        className={
+                          pipelineId === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID
+                            ? 'text-[10px] font-mono text-muted-foreground truncate block max-w-[200px]'
+                            : 'text-[10px] font-medium truncate block max-w-[200px]'
+                        }
                         title={pipelineId}
                       >
                         {pipelineLabel}
@@ -976,8 +999,6 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
 
 type OrchestratorSortCol = 'address' | 'knownSessions' | 'successRatio' | 'effectiveSuccessRate' | 'slaScore' | 'gpuCount';
 type SortDir = 'asc' | 'desc';
-
-const LIVE_VIDEO_TO_VIDEO_PIPELINE_ID = 'live-video-to-video';
 
 /** Format pipeline + models for display: "Display name (model1, model2)" using the models this orchestrator offers. */
 function formatPipelineLabel(
@@ -1117,11 +1138,11 @@ function OrchestratorTableCard({
                       const isLiveV2V = p === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID;
                       return (
                         <span key={p} className="inline-flex flex-wrap gap-1 items-center">
-                          {!isLiveV2V && (
-                            <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">
-                              {pipelineName}
-                            </span>
-                          )}
+                          <span
+                            className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground ${isLiveV2V ? 'font-mono' : ''}`}
+                          >
+                            {pipelineName}
+                          </span>
                           {modelIds.length > 0 ? (
                             modelIds.map((modelId) => (
                               <span
@@ -1207,7 +1228,7 @@ function JobFeedPollIntervalSelector({ value, onChange }: { value: number; onCha
 // ============================================================================
 
 const TIMEFRAME_KEY = 'naap_dashboard_timeframe';
-const DEFAULT_TIMEFRAME = '24';
+const DEFAULT_TIMEFRAME = '12';
 
 const TIMEFRAME_OPTIONS = [
   { label: '1h', value: '1', description: 'Last hour' },
@@ -1425,7 +1446,7 @@ export default function DashboardPage() {
                 <PipelinesCard
                   data={data.pipelines}
                   catalog={data.pipelineCatalog}
-                  timeframeHours={data.kpi?.timeframeHours ?? 24}
+                  timeframeHours={data.kpi?.timeframeHours ?? 12}
                 />
               </RefreshWrap>
             )
