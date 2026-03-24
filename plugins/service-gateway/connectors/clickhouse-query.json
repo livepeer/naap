@@ -11,7 +11,6 @@
     "description": "ClickHouse HTTP query interface with Basic auth and SELECT-only enforcement",
     "category": "database",
     "upstreamBaseUrl": "https://s7kh1yt2go.us-east-2.aws.clickhouse.cloud:8443",
-    "allowedHosts": ["s7kh1yt2go.us-east-2.aws.clickhouse.cloud"],
     "defaultTimeout": 30000,
     "healthCheckPath": "/ping",
     "authType": "basic",
@@ -61,6 +60,5 @@
       "upstreamPath": "/?query=SHOW+TABLES+FORMAT+JSON",
       "cacheTtl": 60
     }
-  ],
-  "envKey": "CLICKHOUSE_QUERY_API_KEY"
+  ]
 }
