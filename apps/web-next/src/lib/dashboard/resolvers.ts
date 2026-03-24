@@ -34,7 +34,6 @@ import {
   getRawSLARows,
   getRawGPUMetricsRows,
   getRawPipelineCatalog,
-  isNetworkDataSourceClickHouse,
   type NetworkDemandRow,
   type SLAComplianceRow,
   type GPUMetricRow,
@@ -257,85 +256,8 @@ export async function resolvePipelines({ limit = 5, timeframe }: { limit?: numbe
 // GPU Capacity resolver
 // ---------------------------------------------------------------------------
 
-export async function resolveGPUCapacity({ timeframe }: { timeframe?: string | number } = {}): Promise<DashboardGPUCapacity> {
-  if (isNetworkDataSourceClickHouse()) {
-    return fetchGPUCapacityFromClickHouse();
-  }
-
-  const timeframeHours = parseTimeframe(timeframe);
-
-  const [slaRows, metricsRows] = await Promise.all([
-    getRawSLARows(timeframeHours),
-    getRawGPUMetricsRows(timeframeHours),
-  ]);
-
-  // Total GPUs: distinct gpu_ids from SLA
-  const totalGPUIds = new Set<string>();
-  for (const row of slaRows) {
-    const id = row.gpu_id?.trim();
-    if (id) totalGPUIds.add(id);
-  }
-  const totalGPUs = totalGPUIds.size;
-
-  // Active GPUs: distinct gpu_ids with at least one known session
-  const activeGpuIds = new Set<string>();
-  for (const row of slaRows) {
-    const id = row.gpu_id?.trim();
-    if (id && (row.known_sessions_count ?? 0) > 0) activeGpuIds.add(id);
-  }
-  const activeGPUs = activeGpuIds.size;
-
-  const avgAvailable = metricsRows.length > 0
-    ? Math.round(
-        (1 - metricsRows.reduce((s, m) => s + m.startup_unexcused_rate, 0) / metricsRows.length) * 100
-      )
-    : 100;
-
-  // Hardware breakdown by gpu_model_name
-  const modelCounts = new Map<string, Set<string>>();
-  for (const m of metricsRows) {
-    if (!m.gpu_model_name || !m.gpu_id) continue;
-    if (!modelCounts.has(m.gpu_model_name)) {
-      modelCounts.set(m.gpu_model_name, new Set());
-    }
-    modelCounts.get(m.gpu_model_name)!.add(m.gpu_id);
-  }
-
-  const models = [...modelCounts.entries()].map(([model, ids]) => ({
-    model,
-    count: ids.size,
-  })).sort((a, b) => b.count - a.count);
-
-  // Pipeline GPU breakdown from SLA
-  const byPipelineGpus = new Map<string, { gpuIds: Set<string>; byModel: Map<string, Set<string>> }>();
-  for (const row of slaRows) {
-    const gpuId = row.gpu_id?.trim();
-    if (!gpuId) continue;
-    const pipelineId = row.pipeline_id?.trim();
-    if (!pipelineId || PIPELINE_DISPLAY[pipelineId] === null) continue;
-    const modelId = row.model_id?.trim() ?? '';
-    if (!byPipelineGpus.has(pipelineId)) {
-      byPipelineGpus.set(pipelineId, { gpuIds: new Set(), byModel: new Map() });
-    }
-    const pAcc = byPipelineGpus.get(pipelineId)!;
-    pAcc.gpuIds.add(gpuId);
-    if (!pAcc.byModel.has(modelId)) pAcc.byModel.set(modelId, new Set());
-    pAcc.byModel.get(modelId)!.add(gpuId);
-  }
-
-  const pipelineGPUs = [...byPipelineGpus.entries()]
-    .map(([pipelineId, acc]) => ({
-      name: PIPELINE_DISPLAY[pipelineId] ?? pipelineId,
-      gpus: acc.gpuIds.size,
-      models: acc.byModel.size > 0
-        ? [...acc.byModel.entries()]
-            .map(([model, gpuIds]) => ({ model: model || '(no model)', gpus: gpuIds.size }))
-            .sort((a, b) => b.gpus - a.gpus)
-        : undefined,
-    }))
-    .sort((a, b) => b.gpus - a.gpus);
-
-  return { totalGPUs, activeGPUs, availableCapacity: avgAvailable, models, pipelineGPUs };
+export async function resolveGPUCapacity(_opts: { timeframe?: string | number } = {}): Promise<DashboardGPUCapacity> {
+  return fetchGPUCapacityFromClickHouse();
 }
 
 // ---------------------------------------------------------------------------

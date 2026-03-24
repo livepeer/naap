@@ -23,7 +23,7 @@ export const PIPELINE_DISPLAY: Record<string, string | null> = {
   'segment-anything-2':       'Segment Anything 2',     // Capability_SegmentAnything2 (32)
   'llm':                      'LLM',                    // Capability_LLM (33)
   'image-to-text':            'Image-to-Text',          // Capability_ImageToText (34)
-  'live-video-to-video':      'Live Video-to-Video',    // Capability_LiveVideoToVideo (35)
+  'live-video-to-video':      'live-video-to-video',    // Capability_LiveVideoToVideo (35); slug as label
   'text-to-speech':           'Text-to-Speech',         // Capability_TextToSpeech (36)
 
   // ─────────────────────────────────────────────────────────────────────────

@@ -1,9 +1,10 @@
 // Leaderboard Cache Warmer
 // GET /api/v1/leaderboard/warm
 //
-// Pre-fetches all dashboard endpoint/window combinations so the Next.js
-// fetch cache is populated before users arrive. Paginated endpoints fetch
-// **every page** (same logic as raw-data.ts `fetchAllPages`).
+// Pre-fetches dashboard leaderboard endpoints so the Next.js fetch cache is
+// populated before users arrive. Paginated endpoints fetch **every page**
+// (same logic as raw-data.ts `fetchAllPages`). Does not warm gpu/metrics
+// (GPU inventory uses ClickHouse, not leaderboard).
 //
 // Auth: CRON_SECRET (same pattern as /api/v1/gw/admin/health/check).
 
@@ -13,7 +14,6 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from 'next/server';
 import {
   DASHBOARD_LEADERBOARD_WINDOW,
-  isNetworkDataSourceClickHouse,
   LEADERBOARD_CACHE_TTLS,
   warmLeaderboardPaginated,
   warmLeaderboardPipelines,
@@ -68,21 +68,6 @@ function buildWarmWork(): WarmWork[] {
       },
     },
   ];
-
-  if (!isNetworkDataSourceClickHouse()) {
-    work.push({
-      target: `gpu/metrics?window=${window}`,
-      run: async () => {
-        const { pages, rows } = await warmLeaderboardPaginated(
-          'gpu/metrics',
-          'metrics',
-          window,
-          ttl.gpu
-        );
-        return { ok: true, status: 200, pages, rows };
-      },
-    });
-  }
 
   return work;
 }
