@@ -201,6 +201,7 @@ describe('buildUpstreamRequest', () => {
 
       const expected = `Basic ${Buffer.from('admin:secret').toString('base64')}`;
       expect(result.headers.get('Authorization')).toBe(expected);
+      expect(result.headers.get('Authorization')).not.toContain('gw_not_forwarded');
       expect(result.headers.get('Authorization')).not.toContain('consumer-style-token');
     });
 
