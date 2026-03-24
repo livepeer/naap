@@ -17,6 +17,7 @@ import {
 } from '@/lib/gateway/connector-templates';
 import { invalidateConnectorCache } from '@/lib/gateway/resolve';
 
+/** List all available connector templates with basic metadata. */
 export async function GET() {
   const templates = await loadConnectorTemplates();
 
@@ -118,7 +119,7 @@ async function createConnectorFromTemplate(
         bodyTransform: ep.bodyTransform || 'passthrough',
         bodyBlacklist: ep.bodyBlacklist || [],
         bodyPattern: ep.bodyPattern || null,
-        upstreamStaticBody: ep.upstreamStaticBody || null,
+        upstreamStaticBody: ep.upstreamStaticBody ?? null,
         cacheTtl: ep.cacheTtl || null,
         timeout: ep.timeout || null,
         retries: ep.retries || 0,
@@ -136,6 +137,7 @@ async function createConnectorFromTemplate(
   return { connector: created };
 }
 
+/** Instantiate one or more connectors from template definitions. */
 export async function POST(request: NextRequest) {
   const ctx = await getAdminContext(request);
   if (isErrorResponse(ctx)) return ctx;
