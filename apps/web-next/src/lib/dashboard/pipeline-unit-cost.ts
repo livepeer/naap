@@ -2,9 +2,21 @@
  * Pipeline unit cost from ClickHouse `network_capabilities` events.
  *
  * Env (server-only): CLICKHOUSE_URL, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD
+ *
+ * Caching: same two-layer strategy as raw-data.ts —
+ *   1. In-process TTL cache (works in dev where Next Data Cache is off)
+ *   2. next: { revalidate } on the outbound fetch (production Data Cache)
  */
 
 import type { DashboardPipelinePricing } from '@naap/plugin-sdk';
+
+export const PIPELINE_UNIT_COST_TTL_SECONDS = 5 * 60;
+
+// ---------------------------------------------------------------------------
+// In-process TTL cache (mirrors raw-data.ts)
+// ---------------------------------------------------------------------------
+
+let pricingCache: { expiresAt: number; promise: Promise<DashboardPipelinePricing[]> } | null = null;
 
 const PIPELINE_UNIT_COST_SQL = `
 SELECT
@@ -112,7 +124,7 @@ export function aggregatePipelineUnitCost(rows: ClickHousePricingRow[]): Dashboa
   return out;
 }
 
-export async function fetchPipelineUnitCostFromClickHouse(): Promise<DashboardPipelinePricing[]> {
+async function fetchPipelineUnitCostUncached(): Promise<DashboardPipelinePricing[]> {
   const baseUrl = process.env.CLICKHOUSE_URL?.trim();
   const user = process.env.CLICKHOUSE_USER?.trim();
   const password = process.env.CLICKHOUSE_PASSWORD?.trim();
@@ -123,6 +135,7 @@ export async function fetchPipelineUnitCostFromClickHouse(): Promise<DashboardPi
 
   const url = `${baseUrl.replace(/\/$/, '')}/`;
   const auth = Buffer.from(`${user}:${password}`).toString('base64');
+  const t0 = Date.now();
 
   const res = await fetch(url, {
     method: 'POST',
@@ -132,6 +145,7 @@ export async function fetchPipelineUnitCostFromClickHouse(): Promise<DashboardPi
     },
     body: PIPELINE_UNIT_COST_SQL,
     signal: AbortSignal.timeout(60_000),
+    next: { revalidate: PIPELINE_UNIT_COST_TTL_SECONDS },
   });
 
   if (!res.ok) {
@@ -147,5 +161,23 @@ export async function fetchPipelineUnitCostFromClickHouse(): Promise<DashboardPi
     throw new Error('[pipeline-unit-cost] ClickHouse response missing data array');
   }
 
-  return aggregatePipelineUnitCost(data);
+  const result = aggregatePipelineUnitCost(data);
+  console.log(`[pipeline-unit-cost] fetched ${data.length} rows → ${result.length} aggregated in ${Date.now() - t0}ms`);
+  return result;
+}
+
+export function fetchPipelineUnitCostFromClickHouse(): Promise<DashboardPipelinePricing[]> {
+  const now = Date.now();
+  if (pricingCache && pricingCache.expiresAt > now) {
+    console.log(`[pipeline-unit-cost] CACHE HIT (expires in ${Math.round((pricingCache.expiresAt - now) / 1000)}s)`);
+    return pricingCache.promise;
+  }
+
+  console.log('[pipeline-unit-cost] CACHE MISS — fetching upstream');
+  const promise = fetchPipelineUnitCostUncached().catch((err) => {
+    pricingCache = null;
+    throw err;
+  });
+  pricingCache = { expiresAt: now + PIPELINE_UNIT_COST_TTL_SECONDS * 1000, promise };
+  return promise;
 }

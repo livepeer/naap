@@ -165,6 +165,7 @@ export {
   createDashboardProvider,
   getDashboardSchema,
   type MetricDelta,
+  type HourlyBucket,
   type DashboardKPI,
   type DashboardProtocol,
   type DashboardFeeDayData,

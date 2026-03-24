@@ -2,11 +2,21 @@
  * Server-side raw data fetchers for the dashboard BFF.
  *
  * Each function fetches the maximum available window from upstream and returns
- * the combined rows from all pages. Next.js `next: { revalidate }` on each
- * page fetch provides caching — one upstream fetch per endpoint (4 total).
+ * the combined rows from all pages.
+ *
+ * Caching strategy (two layers):
+ *   1. In-process TTL cache — guarantees at most ONE upstream fetch per
+ *      endpoint per TTL window, even in `next dev` where the Next.js Data
+ *      Cache is disabled. Multiple resolvers calling the same getter within
+ *      a TTL window share the cached Promise (coalescing concurrent calls).
+ *   2. Next.js `next: { revalidate }` on each fetch — provides persistent
+ *      cross-request caching in production builds.
  *
  * TTLs match ENDPOINT_TTL_SECONDS in the leaderboard proxy route:
  *   demand=180s, sla=300s, gpu=300s, pipelines=900s
+ *
+ * Leaderboard `window=` query caps (keep in sync with /api/v1/leaderboard/warm):
+ *   network/demand + sla/compliance + gpu/metrics: 24h max — pipelines: no window
  */
 
 // ---------------------------------------------------------------------------
@@ -129,24 +139,61 @@ const GPU_TTL = 5 * 60;         // 300 seconds
 const PIPELINES_TTL = 15 * 60;  // 900 seconds
 
 // ---------------------------------------------------------------------------
+// In-process TTL cache
+//
+// Guarantees at most one upstream fetch per endpoint per TTL window.
+// Stores the *Promise* so concurrent callers coalesce onto the same flight.
+// ---------------------------------------------------------------------------
+
+interface CacheEntry<T> {
+  expiresAt: number;
+  promise: Promise<T>;
+}
+
+const memCache = new Map<string, CacheEntry<unknown>>();
+
+function cachedFetch<T>(key: string, ttlMs: number, fetcher: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const existing = memCache.get(key) as CacheEntry<T> | undefined;
+  if (existing && existing.expiresAt > now) {
+    console.log(`[dashboard/raw-data] CACHE HIT  ${key} (expires in ${Math.round((existing.expiresAt - now) / 1000)}s)`);
+    return existing.promise;
+  }
+
+  console.log(`[dashboard/raw-data] CACHE MISS ${key} — fetching upstream`);
+  const promise = fetcher().catch((err) => {
+    memCache.delete(key);
+    throw err;
+  });
+
+  memCache.set(key, { expiresAt: now + ttlMs, promise: promise as Promise<unknown> });
+  return promise;
+}
+
+// ---------------------------------------------------------------------------
 // Internal pagination helper
 // ---------------------------------------------------------------------------
 
-/**
- * Fetch all pages of a paginated leaderboard endpoint.
- * Uses next: { revalidate: ttlSeconds } so Next.js caches each page.
- */
+/** Mirrors naap/script.sh: page_size=200, page=1..pagination.total_pages, same ?query shape as curl. */
+function parseTotalPages(pagination: { total_pages?: unknown } | undefined): number {
+  const raw = pagination?.total_pages;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.floor(n);
+}
+
 async function fetchAllPages<T>(
   path: string,
   dataKey: string,
   params: URLSearchParams,
   ttlSeconds: number
-): Promise<T[]> {
-  const pageSize = 500;
+): Promise<{ rows: T[]; totalPages: number }> {
+  const pageSize = 200;
   params.set('page', '1');
   params.set('page_size', String(pageSize));
 
   const firstUrl = `${LEADERBOARD_API_URL}/api/${path}?${params.toString()}`;
+  const t0 = Date.now();
 
   let firstRes: Response;
   try {
@@ -176,12 +223,13 @@ async function fetchAllPages<T>(
       `[dashboard/raw-data] ${path} page 1 missing expected "${dataKey}" array from ${LEADERBOARD_API_URL}`
     );
   }
-  const pagination = firstBody.pagination as { total_pages?: number } | undefined;
-  const totalPages = pagination?.total_pages ?? 1;
+  const totalPages = parseTotalPages(firstBody.pagination as { total_pages?: unknown } | undefined);
 
-  if (totalPages <= 1) return firstRows;
+  if (totalPages <= 1) {
+    console.log(`[dashboard/raw-data] ${path} fetched 1 page (${firstRows.length} rows) in ${Date.now() - t0}ms`);
+    return { rows: firstRows, totalPages };
+  }
 
-  // Fetch remaining pages in parallel
   const pageNums = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
   const pageResults = await Promise.all(
     pageNums.map(async (page) => {
@@ -217,61 +265,170 @@ async function fetchAllPages<T>(
     })
   );
 
-  return [...firstRows, ...pageResults.flat()];
+  const allRows = [...firstRows, ...pageResults.flat()];
+  console.log(`[dashboard/raw-data] ${path} fetched ${totalPages} pages (${allRows.length} rows) in ${Date.now() - t0}ms`);
+  return { rows: allRows, totalPages };
 }
 
 // ---------------------------------------------------------------------------
 // Public fetchers
 // ---------------------------------------------------------------------------
 
-/** Fetch all demand rows for the maximum 720h window. */
-export async function getRawDemandRows(): Promise<NetworkDemandRow[]> {
-  return fetchAllPages<NetworkDemandRow>(
-    'network/demand',
-    'demand',
-    new URLSearchParams({ window: '720h' }),
-    DEMAND_TTL
+/** Max lookback hours for all leaderboard time-series (demand, SLA, GPU). */
+export const DASHBOARD_LEADERBOARD_MAX_HOURS = 24;
+
+/** Upstream `window=` string for paginated leaderboard series (must match {@link DASHBOARD_LEADERBOARD_MAX_HOURS}). */
+export const DASHBOARD_LEADERBOARD_WINDOW = `${DASHBOARD_LEADERBOARD_MAX_HOURS}h`;
+
+/**
+ * Clamp lookback hours to [1, {@link DASHBOARD_LEADERBOARD_MAX_HOURS}].
+ * `undefined` → max hours (dashboard default fetch).
+ */
+export function clampLeaderboardLookbackHours(hours?: number): number {
+  if (!Number.isFinite(hours) || hours == null || hours <= 0) {
+    return DASHBOARD_LEADERBOARD_MAX_HOURS;
+  }
+  return Math.min(Math.max(Math.floor(hours), 1), DASHBOARD_LEADERBOARD_MAX_HOURS);
+}
+
+/**
+ * Returns true when dashboard GPU capacity + pipeline panels should pull from
+ * ClickHouse instead of the leaderboard API.
+ *
+ * Set `NETWORK_DATA_SOURCE=clickhouse` in env to enable.
+ * Any other value (or unset) → leaderboard API (default).
+ */
+export function isNetworkDataSourceClickHouse(): boolean {
+  return process.env.NETWORK_DATA_SOURCE?.trim().toLowerCase() === 'clickhouse';
+}
+
+/**
+ * Fetch demand rows for a leaderboard lookback window.
+ * Omit `lookbackHours` (or pass non-finite) to use {@link DASHBOARD_LEADERBOARD_MAX_HOURS}.
+ */
+export function getRawDemandRows(lookbackHours?: number): Promise<NetworkDemandRow[]> {
+  const h = clampLeaderboardLookbackHours(lookbackHours);
+  const windowStr = `${h}h`;
+  return cachedFetch(`demand:${windowStr}`, DEMAND_TTL * 1000, () =>
+    fetchAllPages<NetworkDemandRow>(
+      'network/demand',
+      'demand',
+      new URLSearchParams({ window: windowStr }),
+      DEMAND_TTL
+    ).then((r) => r.rows)
   );
 }
 
-/** Fetch all SLA compliance rows for the maximum 720h window. */
-export async function getRawSLARows(): Promise<SLAComplianceRow[]> {
-  return fetchAllPages<SLAComplianceRow>(
-    'sla/compliance',
-    'compliance',
-    new URLSearchParams({ window: '720h' }),
-    SLA_TTL
+/**
+ * Fetch SLA rows for a leaderboard lookback window.
+ * Omit `lookbackHours` to use {@link DASHBOARD_LEADERBOARD_MAX_HOURS}.
+ */
+export function getRawSLARows(lookbackHours?: number): Promise<SLAComplianceRow[]> {
+  const h = clampLeaderboardLookbackHours(lookbackHours);
+  const windowStr = `${h}h`;
+  return cachedFetch(`sla:${windowStr}`, SLA_TTL * 1000, () =>
+    fetchAllPages<SLAComplianceRow>(
+      'sla/compliance',
+      'compliance',
+      new URLSearchParams({ window: windowStr }),
+      SLA_TTL
+    ).then((r) => r.rows)
   );
 }
 
-/** Fetch all GPU metric rows for the maximum 72h window. */
-export async function getRawGPUMetricsRows(): Promise<GPUMetricRow[]> {
-  return fetchAllPages<GPUMetricRow>(
-    'gpu/metrics',
-    'metrics',
-    new URLSearchParams({ window: '72h' }),
-    GPU_TTL
+/**
+ * Fetch GPU metric rows for a leaderboard lookback window.
+ * Omit `lookbackHours` to use {@link DASHBOARD_LEADERBOARD_MAX_HOURS}.
+ */
+export function getRawGPUMetricsRows(lookbackHours?: number): Promise<GPUMetricRow[]> {
+  if (isNetworkDataSourceClickHouse()) {
+    console.warn('[dashboard/raw-data] NETWORK_DATA_SOURCE=clickhouse — skipping gpu/metrics');
+    return Promise.resolve([]);
+  }
+  const h = clampLeaderboardLookbackHours(lookbackHours);
+  const windowStr = `${h}h`;
+  return cachedFetch(`gpu:${windowStr}`, GPU_TTL * 1000, () =>
+    fetchAllPages<GPUMetricRow>(
+      'gpu/metrics',
+      'metrics',
+      new URLSearchParams({ window: windowStr }),
+      GPU_TTL
+    ).then((r) => r.rows)
   );
 }
 
 /** Fetch the pipeline catalog (no pagination). */
-export async function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
+export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
+  return cachedFetch('pipelines', PIPELINES_TTL * 1000, async () => {
+    const url = `${LEADERBOARD_API_URL}/api/pipelines`;
+    const t0 = Date.now();
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(60_000),
+      next: { revalidate: PIPELINES_TTL },
+    });
+    if (!res.ok) {
+      throw new Error(
+        `[dashboard/raw-data] /api/pipelines returned HTTP ${res.status} from ${LEADERBOARD_API_URL}`
+      );
+    }
+    const body = (await res.json()) as { pipelines?: PipelineCatalogEntry[] };
+    if (!Array.isArray(body.pipelines)) {
+      throw new Error(
+        `[dashboard/raw-data] /api/pipelines missing expected "pipelines" array from ${LEADERBOARD_API_URL}`
+      );
+    }
+    console.log(`[dashboard/raw-data] pipelines fetched (${body.pipelines.length} entries) in ${Date.now() - t0}ms`);
+    return body.pipelines;
+  });
+}
+
+/** TTL seconds per leaderboard endpoint — keep in sync with leaderboard proxy + warm route. */
+export const LEADERBOARD_CACHE_TTLS = {
+  demand: DEMAND_TTL,
+  sla: SLA_TTL,
+  gpu: GPU_TTL,
+  pipelines: PIPELINES_TTL,
+} as const;
+
+/**
+ * Fetches every page for one paginated leaderboard endpoint + window.
+ * Populates Next.js fetch cache per URL; does not use the in-process mem cache.
+ * Used by GET /api/v1/leaderboard/warm.
+ */
+export async function warmLeaderboardPaginated(
+  path: string,
+  dataKey: string,
+  window: string,
+  ttlSeconds: number
+): Promise<{ pages: number; rows: number }> {
+  const { rows, totalPages } = await fetchAllPages<unknown>(
+    path,
+    dataKey,
+    new URLSearchParams({ window }),
+    ttlSeconds
+  );
+  return { pages: totalPages, rows: rows.length };
+}
+
+/**
+ * Single fetch for /api/pipelines (no pagination). Warms Next.js fetch cache only.
+ */
+export async function warmLeaderboardPipelines(ttlSeconds: number): Promise<{
+  ok: boolean;
+  status: number;
+  count: number;
+}> {
   const url = `${LEADERBOARD_API_URL}/api/pipelines`;
   const res = await fetch(url, {
     headers: { Accept: 'application/json' },
     signal: AbortSignal.timeout(60_000),
-    next: { revalidate: PIPELINES_TTL },
+    next: { revalidate: ttlSeconds },
   });
   if (!res.ok) {
-    throw new Error(
-      `[dashboard/raw-data] /api/pipelines returned HTTP ${res.status} from ${LEADERBOARD_API_URL}`
-    );
+    return { ok: false, status: res.status, count: 0 };
   }
-  const body = (await res.json()) as { pipelines?: PipelineCatalogEntry[] };
-  if (!Array.isArray(body.pipelines)) {
-    throw new Error(
-      `[dashboard/raw-data] /api/pipelines missing expected "pipelines" array from ${LEADERBOARD_API_URL}`
-    );
-  }
-  return body.pipelines;
+  const body = (await res.json()) as { pipelines?: unknown[] };
+  const count = Array.isArray(body.pipelines) ? body.pipelines.length : 0;
+  return { ok: true, status: res.status, count };
 }

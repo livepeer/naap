@@ -67,6 +67,11 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     slaCompliance(window: String, orchestratorAddress: String, pipelineId: String, modelId: String, gpuId: String, region: String): [RawSLAComplianceRow!]
   }
 
+  type HourlyBucket {
+    hour: String!
+    value: Float!
+  }
+
   type KPI {
     successRate: MetricDelta!
     orchestratorsOnline: MetricDelta!
@@ -74,6 +79,8 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     dailySessionCount: MetricDelta!
     dailyNetworkFeesEth: MetricDelta!
     timeframeHours: Int!
+    hourlyUsage: [HourlyBucket!]
+    hourlySessions: [HourlyBucket!]
   }
 
   type MetricDelta {
@@ -286,6 +293,11 @@ export interface MetricDelta {
   delta: number;
 }
 
+export interface HourlyBucket {
+  hour: string;
+  value: number;
+}
+
 /** KPI widget data */
 export interface DashboardKPI {
   successRate: MetricDelta;
@@ -295,6 +307,8 @@ export interface DashboardKPI {
   dailyNetworkFeesEth: MetricDelta;
   /** The timeframe in hours that this KPI data covers */
   timeframeHours: number;
+  hourlyUsage?: HourlyBucket[];
+  hourlySessions?: HourlyBucket[];
 }
 
 /** Protocol widget data */

@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
-import { fetchPipelineUnitCostFromClickHouse } from '@/lib/dashboard/pipeline-unit-cost';
+import {
+  fetchPipelineUnitCostFromClickHouse,
+  PIPELINE_UNIT_COST_TTL_SECONDS,
+} from '@/lib/dashboard/pipeline-unit-cost';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
-/** Cache aggregated pricing; matches volatile-ish leaderboard TTLs */
-export const revalidate = 300;
+export const revalidate = PIPELINE_UNIT_COST_TTL_SECONDS;
 
 export async function GET(): Promise<NextResponse> {
   try {

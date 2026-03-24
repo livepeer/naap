@@ -18,6 +18,7 @@ import { useJobFeedStream } from '@/hooks/useJobFeedStream';
 import type {
   DashboardData,
   DashboardKPI,
+  HourlyBucket,
   DashboardProtocol,
   DashboardFeesInfo,
   DashboardPipelineUsage,
@@ -41,6 +42,7 @@ import {
   Minus,
   Zap,
   AlertCircle,
+  Info,
   Loader2,
   Timer,
   List,
@@ -261,6 +263,34 @@ function NoProviderMessage() {
 // Row 1: Key Performance Indicators
 // ============================================================================
 
+function HourlySparkline({ data, color = 'var(--color-muted-foreground)' }: { data: HourlyBucket[]; color?: string }) {
+  if (!data || data.length === 0) return null;
+
+  const max = Math.max(...data.map((d) => d.value), 1);
+
+  return (
+    <div className="flex items-end gap-px mt-3 h-10" title="Per-hour breakdown (oldest → newest)">
+      {data.map((bucket, i) => {
+        const pct = (bucket.value / max) * 100;
+        const hourLabel = new Date(bucket.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return (
+          <div
+            key={bucket.hour}
+            className="flex-1 min-w-0 rounded-sm transition-all hover:opacity-80 group relative"
+            style={{ height: `${Math.max(pct, 4)}%`, backgroundColor: color, opacity: pct > 0 ? 1 : 0.15 }}
+          >
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-10 pointer-events-none">
+              <div className="bg-popover text-popover-foreground text-[10px] font-mono px-1.5 py-0.5 rounded shadow-md border border-border whitespace-nowrap">
+                {hourLabel}: {bucket.value.toLocaleString()}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function KPICard({
   icon: Icon,
   iconColor,
@@ -271,6 +301,9 @@ function KPICard({
   deltaInvert,
   suffix,
   action,
+  tooltip,
+  sparkline,
+  sparklineColor,
 }: {
   icon: React.ElementType;
   iconColor: string;
@@ -281,6 +314,9 @@ function KPICard({
   deltaInvert?: boolean;
   suffix?: string;
   action?: React.ReactNode;
+  tooltip?: string;
+  sparkline?: HourlyBucket[];
+  sparklineColor?: string;
 }) {
   return (
     <div className="p-4 rounded-lg bg-card border border-border hover:border-border/80 transition-colors">
@@ -289,6 +325,16 @@ function KPICard({
           <Icon className="w-3.5 h-3.5" />
         </div>
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
+        {tooltip && (
+          <div className="relative group">
+            <Info className="w-3 h-3 text-muted-foreground/50 cursor-help" />
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-20 pointer-events-none">
+              <div className="bg-popover text-popover-foreground text-[10px] px-2 py-1 rounded shadow-md border border-border whitespace-nowrap max-w-[220px] text-wrap leading-relaxed">
+                {tooltip}
+              </div>
+            </div>
+          </div>
+        )}
         {action && <div className="ml-auto">{action}</div>}
       </div>
       <div className="flex items-end justify-between">
@@ -298,6 +344,7 @@ function KPICard({
         </div>
         <DeltaBadge value={delta} unit={deltaUnit} invert={deltaInvert} />
       </div>
+      <HourlySparkline data={sparkline ?? []} color={sparklineColor} />
     </div>
   );
 }
@@ -337,6 +384,9 @@ function KPIRow({ data }: { data: DashboardKPI }) {
         delta={data.dailyUsageMins.delta}
         deltaUnit=" mins"
         suffix="mins"
+        tooltip="Total transcoding minutes across all pipelines"
+        sparkline={data.hourlyUsage}
+        sparklineColor="hsl(var(--primary))"
       />
       <KPICard
         icon={Radio}
@@ -345,6 +395,9 @@ function KPIRow({ data }: { data: DashboardKPI }) {
         value={data.dailySessionCount.value.toLocaleString()}
         delta={data.dailySessionCount.delta}
         deltaUnit=""
+        tooltip="Served + unserved demand sessions (job starts per hour)"
+        sparkline={data.hourlySessions}
+        sparklineColor="hsl(var(--primary))"
       />
     </div>
   );
@@ -559,9 +612,11 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
 function PipelinesCard({
   data,
   catalog,
+  timeframeHours,
 }: {
   data: DashboardPipelineUsage[];
   catalog?: DashboardPipelineCatalogEntry[] | null;
+  timeframeHours: number;
 }) {
   const mergedPipelines = useMemo(() => {
     const usageByName = new Map(data.filter((p) => p.name?.trim()).map((p) => [p.name, p]));
@@ -604,56 +659,43 @@ function PipelinesCard({
           <Activity className="w-3.5 h-3.5" />
         </div>
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-          Pipelines (24H)
+          Pipelines ({formatTimeframeLabel(timeframeHours).toUpperCase()})
         </span>
       </div>
       <div className="flex-1 min-h-0 flex flex-col justify-between gap-3">
-        <div className="space-y-3 shrink-0">
-        {activePipelines.map((p) => (
-          <div key={p.name} className="rounded border border-border/60 overflow-hidden">
-            <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-muted/20">
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span
-                  className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: p.color ?? '#8b5cf6', opacity: 0.9 }}
-                  aria-hidden="true"
-                />
-                <div className="text-xs font-medium text-foreground truncate" title={p.name}>
-                  {p.name}
-                </div>
-              </div>
-              <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">
-                {formatNumber(p.mins)} mins{(p.avgFps ?? 0) > 0 ? ` · ${p.avgFps ?? 0} fps` : ''}
-              </span>
-            </div>
-            {p.modelMins && p.modelMins.length > 0 ? (
-              <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
-                {p.modelMins.map((m) => (
-                  <div key={m.model} className="flex items-center justify-between text-[10px]">
-                    <span className="text-muted-foreground pr-2 font-mono break-all">
-                      {m.model}
-                    </span>
-                    <span className="font-mono text-foreground flex-shrink-0">
-                      {formatNumber(m.mins)} mins{(m.avgFps ?? 0) > 0 ? ` · ${m.avgFps ?? 0} fps` : ''}
+        <table className="w-full text-xs shrink-0">
+          <thead>
+            <tr className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              <th className="pb-2 font-medium text-left">Pipeline</th>
+              <th className="pb-2 font-medium text-right">Mins</th>
+              <th className="pb-2 font-medium text-right">FPS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {activePipelines.map((p) => (
+              <tr key={p.name} className="border-b border-border/50 last:border-0">
+                <td className="py-1.5 pr-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: p.color ?? '#8b5cf6', opacity: 0.9 }}
+                      aria-hidden="true"
+                    />
+                    <span className="font-medium text-foreground truncate" title={p.name}>
+                      {p.name}
                     </span>
                   </div>
-                ))}
-              </div>
-            ) : p.models && p.models.length > 0 ? (
-              <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
-                {p.models.map((model) => (
-                  <div key={model} className="flex items-center justify-between text-[10px]">
-                    <span className="text-muted-foreground pr-2 font-mono break-all">
-                      {model}
-                    </span>
-                    <span className="font-mono text-muted-foreground/50 flex-shrink-0">—</span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ))}
-        </div>
+                </td>
+                <td className="py-1.5 text-right font-mono text-foreground">
+                  {formatNumber(p.mins)}
+                </td>
+                <td className="py-1.5 text-right font-mono text-foreground">
+                  {(p.avgFps ?? 0) > 0 ? p.avgFps : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
         {availablePipelines.length > 0 ? (
           <div className="shrink-0 pt-2 border-t border-border/50">
@@ -663,42 +705,34 @@ function PipelinesCard({
               className="w-full flex items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:text-muted-foreground transition-colors group"
               aria-expanded={availableExpanded}
             >
-              <span>Available (no demand in 24h)</span>
+              <span>Available (no demand in {formatTimeframeLabel(timeframeHours)})</span>
               <span className="transition-transform group-hover:opacity-100">
                 {availableExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               </span>
             </button>
             {availableExpanded && (
-              <div className="space-y-1.5 mt-1.5">
-                {availablePipelines.map((p) => (
-                  <div key={p.name} className="rounded border border-border/60 overflow-hidden">
-                    <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-muted/20">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <span
-                          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: p.color ?? '#6366f1', opacity: 0.9 }}
-                          aria-hidden="true"
-                        />
-                        <div className="text-xs font-medium text-foreground truncate" title={p.name}>
-                          {p.name}
+              <table className="w-full text-xs mt-1.5">
+                <tbody>
+                  {availablePipelines.map((p) => (
+                    <tr key={p.name} className="border-b border-border/50 last:border-0">
+                      <td className="py-1.5 pr-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: p.color ?? '#6366f1', opacity: 0.5 }}
+                            aria-hidden="true"
+                          />
+                          <span className="font-medium text-muted-foreground truncate" title={p.name}>
+                            {p.name}
+                          </span>
                         </div>
-                      </div>
-                      <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">0</span>
-                    </div>
-                    {p.models && p.models.length > 0 && (
-                      <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
-                        {p.models.map((model) => (
-                          <div key={model} className="flex items-center justify-between text-[10px]">
-                            <span className="text-muted-foreground pr-2 font-mono break-all">
-                              {model}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+                      </td>
+                      <td className="py-1.5 text-right font-mono text-muted-foreground/50">0</td>
+                      <td className="py-1.5 text-right font-mono text-muted-foreground/50">—</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
         ) : null}
@@ -775,7 +809,7 @@ function GPUCapacityCard({ data, timeframeHours }: { data: DashboardGPUCapacity;
 }
 
 // ============================================================================
-// Row 3: Live Job Feed & Pipeline Pricing
+// Live Job Feed & Pipeline Unit Cost cards
 // ============================================================================
 
 function JobFeedCard({
@@ -1173,13 +1207,14 @@ function JobFeedPollIntervalSelector({ value, onChange }: { value: number; onCha
 // ============================================================================
 
 const TIMEFRAME_KEY = 'naap_dashboard_timeframe';
-const DEFAULT_TIMEFRAME = '168';
+const DEFAULT_TIMEFRAME = '24';
 
 const TIMEFRAME_OPTIONS = [
-  { label: '1d',  value: '24',  description: 'Last 24 hours' },
-  { label: '7d',  value: '168', description: 'Last 7 days' },
-  { label: '14d', value: '336', description: 'Last 14 days' },
-  { label: '30d', value: '720', description: 'Last 30 days (max SLA period)' },
+  { label: '1h', value: '1', description: 'Last hour' },
+  { label: '6h', value: '6', description: 'Last 6 hours' },
+  { label: '12h', value: '12', description: 'Last 12 hours' },
+  { label: '18h', value: '18', description: 'Last 18 hours' },
+  { label: '24h', value: '24', description: 'Last 24 hours (max)' },
 ] as const;
 
 function getStoredTimeframe(): string {
@@ -1192,7 +1227,9 @@ function getStoredTimeframe(): string {
 function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: string) => void }) {
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const selected = TIMEFRAME_OPTIONS.find((o) => o.value === value) ?? TIMEFRAME_OPTIONS[1];
+  const selected =
+    TIMEFRAME_OPTIONS.find((o) => o.value === value) ??
+    TIMEFRAME_OPTIONS.find((o) => o.value === DEFAULT_TIMEFRAME)!;
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -1261,6 +1298,8 @@ export default function DashboardPage() {
   const [jobFeedPollInterval, setJobFeedPollInterval] = useState(DEFAULT_POLL_INTERVAL);
   const [timeframe, setTimeframe] = useState(DEFAULT_TIMEFRAME);
   const [prefsReady, setPrefsReady] = useState(false);
+  /** Hourly sparklines: loaded via same-origin KPI route so we are not blocked by stale UMD plugin GraphQL schema. */
+  const [kpiSparklines, setKpiSparklines] = useState<Pick<DashboardKPI, 'hourlyUsage' | 'hourlySessions'> | null>(null);
 
   useEffect(() => {
     setJobFeedPollInterval(getStoredJobFeedPollInterval());
@@ -1283,6 +1322,31 @@ export default function DashboardPage() {
     { timeframe },
     { timeout: DASHBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
+
+  useEffect(() => {
+    if (!prefsReady) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/v1/dashboard/kpi?timeframe=${encodeURIComponent(timeframe)}`
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as DashboardKPI;
+        if (cancelled) return;
+        setKpiSparklines({
+          hourlyUsage: json.hourlyUsage,
+          hourlySessions: json.hourlySessions,
+        });
+      } catch {
+        if (!cancelled) setKpiSparklines(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [timeframe, prefsReady]);
+
   const { data: feesData, loading: feesLoading, error: feesError } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
@@ -1332,7 +1396,7 @@ export default function DashboardPage() {
         <h2 className="text-sm font-medium text-muted-foreground">Network Metrics</h2>
         {data?.kpi ? (
           <RefreshWrap refreshing={refreshing}>
-            <KPIRow data={data.kpi} />
+            <KPIRow data={{ ...data.kpi, ...(kpiSparklines ?? {}) }} />
           </RefreshWrap>
         ) : (
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
@@ -1358,7 +1422,11 @@ export default function DashboardPage() {
           {data?.pipelines
             ? (
               <RefreshWrap refreshing={refreshing} className="h-full min-h-0 flex flex-col">
-                <PipelinesCard data={data.pipelines} catalog={data.pipelineCatalog} />
+                <PipelinesCard
+                  data={data.pipelines}
+                  catalog={data.pipelineCatalog}
+                  timeframeHours={data.kpi?.timeframeHours ?? 24}
+                />
               </RefreshWrap>
             )
             : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
@@ -1368,18 +1436,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Row 3: Orchestrators table */}
-      {data?.orchestrators ? (
-        <section>
-          <RefreshWrap refreshing={refreshing}>
-            <OrchestratorTableCard data={data.orchestrators} catalog={data.pipelineCatalog} />
-          </RefreshWrap>
-        </section>
-      ) : loading ? (
-        <section><WidgetSkeleton className="h-40" /></section>
-      ) : null}
-
-      {/* Row 4: Live Job Feed & Pipeline Pricing */}
+      {/* Row 3: Live Job Feed & Pipeline Unit Cost */}
       <section className="space-y-3">
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
           <JobFeedCard
@@ -1393,6 +1450,17 @@ export default function DashboardPage() {
             : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pricing" />}
         </div>
       </section>
+
+      {/* Row 4: Orchestrators table */}
+      {data?.orchestrators ? (
+        <section>
+          <RefreshWrap refreshing={refreshing}>
+            <OrchestratorTableCard data={data.orchestrators} catalog={data.pipelineCatalog} />
+          </RefreshWrap>
+        </section>
+      ) : loading ? (
+        <section><WidgetSkeleton className="h-40" /></section>
+      ) : null}
     </div>
   );
 }

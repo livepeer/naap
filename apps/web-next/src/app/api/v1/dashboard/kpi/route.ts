@@ -6,7 +6,7 @@ export const maxDuration = 60;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;
-  const timeframe = params.get('timeframe') ?? '168';
+  const timeframe = params.get('timeframe') ?? '24';
 
   try {
     const result = await resolveKPI({ timeframe });
