@@ -12,6 +12,7 @@ export {
   DASHBOARD_JOB_FEED_EMIT_EVENT,
   DASHBOARD_SCHEMA,
   type MetricDelta,
+  type HourlyBucket,
   type DashboardKPI,
   type DashboardProtocol,
   type DashboardFeeDayData,

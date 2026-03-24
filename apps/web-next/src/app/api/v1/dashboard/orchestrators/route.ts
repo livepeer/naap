@@ -6,7 +6,7 @@ export const maxDuration = 60;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;
-  const period = params.get('period') ?? '168h';
+  const period = params.get('period') ?? '24h';
 
   try {
     const result = await resolveOrchestrators({ period });

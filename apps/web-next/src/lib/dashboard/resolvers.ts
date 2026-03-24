@@ -8,6 +8,7 @@
 
 import {
   type DashboardKPI,
+  type HourlyBucket,
   type DashboardPipelineUsage,
   type DashboardPipelineCatalogEntry,
   type DashboardGPUCapacity,
@@ -27,14 +28,19 @@ import { createPublicClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
 
 import {
+  clampLeaderboardLookbackHours,
+  DASHBOARD_LEADERBOARD_MAX_HOURS,
   getRawDemandRows,
   getRawSLARows,
   getRawGPUMetricsRows,
   getRawPipelineCatalog,
+  isNetworkDataSourceClickHouse,
   type NetworkDemandRow,
   type SLAComplianceRow,
   type GPUMetricRow,
 } from './raw-data.js';
+
+import { fetchGPUCapacityFromClickHouse } from './gpu-capacity-clickhouse.js';
 
 import {
   PIPELINE_DISPLAY,
@@ -43,25 +49,17 @@ import {
 } from './pipeline-config.js';
 
 // ---------------------------------------------------------------------------
-// Time slicing helper
-// ---------------------------------------------------------------------------
-
-function sliceByHours<T extends { window_start: string }>(rows: T[], hours: number): T[] {
-  const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-  return rows.filter(r => r.window_start >= cutoff);
-}
-
-// ---------------------------------------------------------------------------
 // Timeframe parsing
 // ---------------------------------------------------------------------------
 
-const VALID_TIMEFRAMES = [24, 168, 336, 720] as const;
+/** Sub-24h increments; must not exceed {@link DASHBOARD_LEADERBOARD_MAX_HOURS}. */
+const VALID_TIMEFRAMES = [1, 6, 12, 18, 24] as const;
 type TimeframeHours = (typeof VALID_TIMEFRAMES)[number];
 
 function parseTimeframe(input?: string | number): TimeframeHours {
   const hours = typeof input === 'string' ? parseInt(input, 10) : input;
   if (hours && VALID_TIMEFRAMES.includes(hours as TimeframeHours)) return hours as TimeframeHours;
-  return 168;
+  return DASHBOARD_LEADERBOARD_MAX_HOURS;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,13 +162,12 @@ function getSubgraphUrl(): string {
 export async function resolveKPI({ timeframe }: { timeframe?: string | number }): Promise<DashboardKPI & { timeframeHours: number }> {
   const timeframeHours = parseTimeframe(timeframe);
 
-  const [allDemandRows, allSLARows] = await Promise.all([
-    getRawDemandRows(),
-    getRawSLARows(),
+  // Request exactly the selected lookback from upstream (`window=Nh`) so totals match API
+  // semantics instead of relying on in-memory `window_start` slicing.
+  const [demandRows, slaRows] = await Promise.all([
+    getRawDemandRows(timeframeHours),
+    getRawSLARows(timeframeHours),
   ]);
-
-  const demandRows = sliceByHours(allDemandRows, timeframeHours);
-  const slaRows = sliceByHours(allSLARows, timeframeHours);
 
   // Success rate: weighted mean of effective_success_rate by known_sessions_count → percentage
   const currentSR = weightedSuccessRate(demandRows) * 100;
@@ -184,6 +181,18 @@ export async function resolveKPI({ timeframe }: { timeframe?: string | number })
   const totalStreams = demandRows.reduce((s, r) => s + (r.total_demand_sessions || 0), 0);
   const totalFeesEth = demandRows.reduce((s, r) => s + (r.ticket_face_value_eth || 0), 0);
 
+  // Per-hour breakdowns for trend sparklines
+  const hourlyMap = byWindow(demandRows);
+  const hourKeys = sortedKeys(hourlyMap);
+  const hourlyUsage: HourlyBucket[] = hourKeys.map((h) => ({
+    hour: h,
+    value: Math.round(hourlyMap.get(h)!.reduce((s, r) => s + (r.total_minutes || 0), 0)),
+  }));
+  const hourlySessions: HourlyBucket[] = hourKeys.map((h) => ({
+    hour: h,
+    value: hourlyMap.get(h)!.reduce((s, r) => s + (r.total_demand_sessions || 0), 0),
+  }));
+
   return {
     successRate: { value: round1(currentSR), delta: 0 },
     orchestratorsOnline: { value: orchCount, delta: orchDelta },
@@ -191,6 +200,8 @@ export async function resolveKPI({ timeframe }: { timeframe?: string | number })
     dailySessionCount: { value: totalStreams, delta: 0 },
     dailyNetworkFeesEth: { value: round1(totalFeesEth), delta: 0 },
     timeframeHours,
+    hourlyUsage,
+    hourlySessions,
   };
 }
 
@@ -202,63 +213,41 @@ export async function resolvePipelines({ limit = 5, timeframe }: { limit?: numbe
   const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit as number)) : 5;
   const timeframeHours = parseTimeframe(timeframe);
 
-  const allDemandRows = await getRawDemandRows();
-  const demand = sliceByHours(allDemandRows, timeframeHours);
+  // Demand rows carry the real total_minutes + sessions_count used by the
+  // Usage KPI card. The leaderboard API currently puts the constraint name
+  // (e.g. "streamdiffusion-sdxl") in `model_id` while `pipeline_id` is empty,
+  // so we key on whichever is non-empty: model_id first, then pipeline_id.
+  const demand = await getRawDemandRows(timeframeHours);
 
-  type PipelineModelAccum = { mins: number; sessions: number; fpsWeighted: number };
-  type Accum = { mins: number; sessions: number; fpsWeighted: number; byModel: Map<string, PipelineModelAccum> };
+  type Accum = { mins: number; sessions: number; fpsWeighted: number };
   const byPipeline = new Map<string, Accum>();
 
   for (const row of demand) {
-    const pipelineId = row.pipeline_id?.trim();
-    if (!pipelineId || PIPELINE_DISPLAY[pipelineId] === null) continue;
+    const key = row.model_id?.trim() || row.pipeline_id?.trim();
+    if (!key || PIPELINE_DISPLAY[key] === null) continue;
     const mins = row.total_minutes ?? 0;
     const sessionsCt = row.sessions_count ?? 0;
     if (mins <= 0 && sessionsCt <= 0) continue;
 
-    let acc = byPipeline.get(pipelineId);
+    let acc = byPipeline.get(key);
     if (!acc) {
-      acc = { mins: 0, sessions: 0, fpsWeighted: 0, byModel: new Map() };
-      byPipeline.set(pipelineId, acc);
+      acc = { mins: 0, sessions: 0, fpsWeighted: 0 };
+      byPipeline.set(key, acc);
     }
     acc.mins += mins;
     acc.sessions += sessionsCt;
     if (sessionsCt > 0) {
       acc.fpsWeighted += (row.avg_output_fps ?? 0) * sessionsCt;
     }
-
-    const modelId = row.model_id?.trim();
-    if (modelId) {
-      let modelAcc = acc.byModel.get(modelId);
-      if (!modelAcc) {
-        modelAcc = { mins: 0, sessions: 0, fpsWeighted: 0 };
-        acc.byModel.set(modelId, modelAcc);
-      }
-      modelAcc.mins += mins;
-      modelAcc.sessions += sessionsCt;
-      if (sessionsCt > 0) {
-        modelAcc.fpsWeighted += (row.avg_output_fps ?? 0) * sessionsCt;
-      }
-    }
   }
 
   return [...byPipeline.entries()]
     .map(([pipelineId, acc]) => ({
-      name: PIPELINE_DISPLAY[pipelineId] ?? pipelineId,
+      name: pipelineId,
       mins: Math.round(acc.mins),
       sessions: acc.sessions,
       avgFps: acc.sessions > 0 ? Math.round((acc.fpsWeighted / acc.sessions) * 10) / 10 : 0,
       color: PIPELINE_COLOR[pipelineId] ?? DEFAULT_PIPELINE_COLOR,
-      modelMins: acc.byModel.size > 0
-        ? [...acc.byModel.entries()]
-            .map(([model, m]) => ({
-              model,
-              mins: Math.round(m.mins),
-              sessions: m.sessions,
-              avgFps: m.sessions > 0 ? Math.round((m.fpsWeighted / m.sessions) * 10) / 10 : 0,
-            }))
-            .sort((a, b) => b.mins - a.mins)
-        : undefined,
     }))
     .sort((a, b) => b.mins - a.mins)
     .slice(0, safeLimit);
@@ -269,16 +258,16 @@ export async function resolvePipelines({ limit = 5, timeframe }: { limit?: numbe
 // ---------------------------------------------------------------------------
 
 export async function resolveGPUCapacity({ timeframe }: { timeframe?: string | number } = {}): Promise<DashboardGPUCapacity> {
+  if (isNetworkDataSourceClickHouse()) {
+    return fetchGPUCapacityFromClickHouse();
+  }
+
   const timeframeHours = parseTimeframe(timeframe);
-  const gpuWindow = Math.min(timeframeHours, 72);
 
-  const [allSLARows, allGPURows] = await Promise.all([
-    getRawSLARows(),
-    getRawGPUMetricsRows(),
+  const [slaRows, metricsRows] = await Promise.all([
+    getRawSLARows(timeframeHours),
+    getRawGPUMetricsRows(timeframeHours),
   ]);
-
-  const slaRows = sliceByHours(allSLARows, timeframeHours);
-  const metricsRows = sliceByHours(allGPURows, gpuWindow);
 
   // Total GPUs: distinct gpu_ids from SLA
   const totalGPUIds = new Set<string>();
@@ -353,20 +342,24 @@ export async function resolveGPUCapacity({ timeframe }: { timeframe?: string | n
 // Orchestrators resolver
 // ---------------------------------------------------------------------------
 
-export async function resolveOrchestrators({ period = '168h' }: { period?: string } = {}): Promise<DashboardOrchestrator[]> {
-  // Parse period string like "168h" → 168, or plain "168" → 168
+export async function resolveOrchestrators({
+  period = `${DASHBOARD_LEADERBOARD_MAX_HOURS}h`,
+}: { period?: string } = {}): Promise<DashboardOrchestrator[]> {
+  // Parse period string like "24h" → 24, or plain "24" → 24
   let periodHours: number;
   if (/^\d+h$/.test(period)) {
     periodHours = parseInt(period, 10);
   } else if (/^\d+$/.test(period)) {
     periodHours = parseInt(period, 10);
   } else {
-    periodHours = 168;
+    periodHours = DASHBOARD_LEADERBOARD_MAX_HOURS;
   }
-  if (!Number.isFinite(periodHours) || periodHours <= 0) periodHours = 168;
+  if (!Number.isFinite(periodHours) || periodHours <= 0) {
+    periodHours = DASHBOARD_LEADERBOARD_MAX_HOURS;
+  }
+  periodHours = Math.min(periodHours, DASHBOARD_LEADERBOARD_MAX_HOURS);
 
-  const allSLARows = await getRawSLARows();
-  const rows = sliceByHours(allSLARows, periodHours);
+  const rows = await getRawSLARows(periodHours);
 
   type Accum = {
     knownSessions: number;
@@ -799,13 +792,10 @@ function parseWindowHours(window?: string): number | undefined {
 }
 
 export async function resolveRawNetworkDemand(filters: NetworkDemandFilters): Promise<RawNetworkDemandRow[]> {
-  const allRows = await getRawDemandRows();
-  let rows = allRows;
-
-  if (filters.window) {
-    const hours = parseWindowHours(filters.window);
-    if (hours != null) rows = sliceByHours(rows, hours);
-  }
+  const windowHours = filters.window ? parseWindowHours(filters.window) : undefined;
+  let rows = await getRawDemandRows(
+    windowHours != null ? clampLeaderboardLookbackHours(windowHours) : undefined
+  );
 
   if (filters.gateway) {
     rows = rows.filter(r => r.gateway === filters.gateway);
@@ -824,16 +814,10 @@ export async function resolveRawNetworkDemand(filters: NetworkDemandFilters): Pr
 }
 
 export async function resolveRawGPUMetrics(filters: GPUMetricsFilters): Promise<RawGPUMetricRow[]> {
-  const allRows = await getRawGPUMetricsRows();
-  let rows = allRows;
-
-  if (filters.window) {
-    const hours = parseWindowHours(filters.window);
-    if (hours != null) {
-      const capped = Math.min(hours, 72);
-      rows = sliceByHours(rows, capped);
-    }
-  }
+  const windowHours = filters.window ? parseWindowHours(filters.window) : undefined;
+  let rows = await getRawGPUMetricsRows(
+    windowHours != null ? clampLeaderboardLookbackHours(windowHours) : undefined
+  );
 
   if (filters.orchestratorAddress) {
     rows = rows.filter(r => r.orchestrator_address === filters.orchestratorAddress);
@@ -865,13 +849,10 @@ export async function resolveRawGPUMetrics(filters: GPUMetricsFilters): Promise<
 }
 
 export async function resolveRawSLACompliance(filters: SLAComplianceFilters): Promise<RawSLAComplianceRow[]> {
-  const allRows = await getRawSLARows();
-  let rows = allRows;
-
-  if (filters.window) {
-    const hours = parseWindowHours(filters.window);
-    if (hours != null) rows = sliceByHours(rows, hours);
-  }
+  const windowHours = filters.window ? parseWindowHours(filters.window) : undefined;
+  let rows = await getRawSLARows(
+    windowHours != null ? clampLeaderboardLookbackHours(windowHours) : undefined
+  );
 
   if (filters.orchestratorAddress) {
     rows = rows.filter(r => r.orchestrator_address === filters.orchestratorAddress);

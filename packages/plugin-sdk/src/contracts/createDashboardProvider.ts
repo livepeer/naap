@@ -78,7 +78,7 @@ export function createDashboardProvider(
     rootValue.pipelineCatalog = () => resolvers.pipelineCatalog!();
   }
   if (resolvers.gpuCapacity) {
-    rootValue.gpuCapacity = () => resolvers.gpuCapacity!();
+    rootValue.gpuCapacity = (args: { timeframe?: string }) => resolvers.gpuCapacity!(args);
   }
   if (resolvers.pricing) {
     rootValue.pricing = () => resolvers.pricing!();

@@ -33,7 +33,7 @@ const STUB_KPI = {
   dailyUsageMins: { value: 14, delta: 0 },
   dailyStreamCount: { value: 9, delta: 0 },
   dailyNetworkFeesEth: { value: 0, delta: 0 },
-  timeframeHours: 168,
+  timeframeHours: 24,
 };
 
 const STUB_PROTOCOL = {
