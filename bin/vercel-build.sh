@@ -78,9 +78,14 @@ fi
 
 # Step 4: Sync plugin registry in database (BEFORE build so generated files
 # like plugin-routes.json are available to the Next.js middleware bundler).
-# Always run — it's idempotent (upserts) and fast (~2-3s).
-echo "[4/6] Syncing plugin registry..."
-npx tsx bin/sync-plugin-registry.ts
+# Only runs on real Vercel deploys where the database is reachable.
+# CI uses a dummy DATABASE_URL with no running Postgres, so skip there.
+if [ "${VERCEL_ENV}" = "production" ] || [ "${VERCEL_ENV}" = "preview" ]; then
+  echo "[4/6] Syncing plugin registry..."
+  npx tsx bin/sync-plugin-registry.ts
+else
+  echo "[4/6] Skipping plugin registry sync (VERCEL_ENV=${VERCEL_ENV:-unset}, only runs on production/preview)"
+fi
 
 # Step 5: Build Next.js app
 echo "[5/6] Building Next.js app..."
