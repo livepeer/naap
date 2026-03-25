@@ -268,10 +268,17 @@ function HourlySparkline({ data, color = 'var(--color-muted-foreground)' }: { da
   const max = Math.max(...data.map((d) => d.value), 1);
 
   return (
-    <div className="flex items-end gap-px mt-3 h-10" title="Per-hour breakdown (oldest → newest)">
+    <div className="flex items-end gap-px mt-3 h-10" title="Per UTC hour (oldest → newest); missing hours show as zero">
       {data.map((bucket, i) => {
         const pct = (bucket.value / max) * 100;
-        const hourLabel = new Date(bucket.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const hourLabel = new Date(bucket.hour).toLocaleString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'UTC',
+          hour12: false,
+        });
         return (
           <div
             key={bucket.hour}
@@ -383,7 +390,7 @@ function KPIRow({ data }: { data: DashboardKPI }) {
         delta={data.dailyUsageMins.delta}
         deltaUnit=" mins"
         suffix="mins"
-        tooltip="Total transcoding minutes across all pipelines"
+        tooltip="Total transcoding minutes across all pipelines. Sparkline: one bar per UTC hour (full window; gaps in upstream data appear as zero)."
         sparkline={data.hourlyUsage}
         sparklineColor="hsl(var(--primary))"
       />
@@ -394,7 +401,7 @@ function KPIRow({ data }: { data: DashboardKPI }) {
         value={data.dailySessionCount.value.toLocaleString()}
         delta={data.dailySessionCount.delta}
         deltaUnit=""
-        tooltip="Served + unserved demand sessions (job starts per hour)"
+        tooltip="Served + unserved demand sessions (job starts per hour). Sparkline: one bar per UTC hour (full window; gaps in upstream data appear as zero)."
         sparkline={data.hourlySessions}
         sparklineColor="hsl(var(--primary))"
       />
