@@ -47,6 +47,8 @@ import {
   DEFAULT_PIPELINE_COLOR,
 } from './pipeline-config.js';
 
+import { buildContiguousDemandHourlyBuckets } from './hourly-buckets.js';
+
 // ---------------------------------------------------------------------------
 // Timeframe parsing
 // ---------------------------------------------------------------------------
@@ -64,22 +66,6 @@ function parseTimeframe(input?: string | number): TimeframeHours {
 // ---------------------------------------------------------------------------
 // Shared aggregation helpers
 // ---------------------------------------------------------------------------
-
-/** Group rows by their window_start ISO string */
-function byWindow<T extends { window_start: string }>(rows: T[]): Map<string, T[]> {
-  const m = new Map<string, T[]>();
-  for (const r of rows) {
-    const bucket = m.get(r.window_start) ?? [];
-    bucket.push(r);
-    m.set(r.window_start, bucket);
-  }
-  return m;
-}
-
-/** Sorted window keys (ascending) from a grouped map */
-function sortedKeys(m: Map<string, unknown[]>): string[] {
-  return [...m.keys()].sort();
-}
 
 function weightedSuccessRate(rows: Array<{ effective_success_rate: number; known_sessions_count: number }>): number {
   const weightTotal = rows.reduce((s, r) => s + (r.known_sessions_count ?? 0), 0);
@@ -180,17 +166,18 @@ export async function resolveKPI({ timeframe }: { timeframe?: string | number })
   const totalStreams = demandRows.reduce((s, r) => s + (r.total_demand_sessions || 0), 0);
   const totalFeesEth = demandRows.reduce((s, r) => s + (r.ticket_face_value_eth || 0), 0);
 
-  // Per-hour breakdowns for trend sparklines
-  const hourlyMap = byWindow(demandRows);
-  const hourKeys = sortedKeys(hourlyMap);
-  const hourlyUsage: HourlyBucket[] = hourKeys.map((h) => ({
-    hour: h,
-    value: Math.round(hourlyMap.get(h)!.reduce((s, r) => s + (r.total_minutes || 0), 0)),
-  }));
-  const hourlySessions: HourlyBucket[] = hourKeys.map((h) => ({
-    hour: h,
-    value: hourlyMap.get(h)!.reduce((s, r) => s + (r.total_demand_sessions || 0), 0),
-  }));
+  // Per-hour breakdowns: contiguous UTC hours ending at the latest bucket in the
+  // leaderboard response (missing hours are zero-filled so the chart has a full window).
+  const hourlyUsage: HourlyBucket[] = buildContiguousDemandHourlyBuckets(
+    demandRows,
+    timeframeHours,
+    'minutes'
+  );
+  const hourlySessions: HourlyBucket[] = buildContiguousDemandHourlyBuckets(
+    demandRows,
+    timeframeHours,
+    'sessions'
+  );
 
   return {
     successRate: { value: round1(currentSR), delta: 0 },
