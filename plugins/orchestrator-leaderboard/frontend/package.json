@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite --port 3008",
     "build": "vite build --mode production",
-    "build:umd": "vite build --mode production",
     "preview": "vite preview",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
@@ -26,6 +25,7 @@
     "tailwindcss": "^3.3.5",
     "typescript": "^5.6.3",
     "vite": "^6.4.1",
+    "@playwright/test": "^1.50.0",
     "vitest": "^3.0.0"
   },
   "peerDependencies": {

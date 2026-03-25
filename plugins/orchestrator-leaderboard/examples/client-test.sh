@@ -47,7 +47,7 @@ curl -s -X POST \
   "$API_URL/api/v1/orchestrator-leaderboard/rank" | jq '.data[].orchUri'
 
 echo ""
-echo "=== 5. Check cache headers ==="
+echo "=== 5. Check cache headers (requires curl >= 7.83.0) ==="
 curl -s -o /dev/null -w "X-Cache: %header{X-Cache}\nX-Cache-Age: %header{X-Cache-Age}\nX-Data-Freshness: %header{X-Data-Freshness}\nCache-Control: %header{Cache-Control}\n" \
   -X POST \
   -H "$AUTH" \

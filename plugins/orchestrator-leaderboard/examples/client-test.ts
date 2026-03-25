@@ -61,6 +61,10 @@ async function getTopOrchestrators(
     body: JSON.stringify(body),
   });
 
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}: ${await res.text().catch(() => 'unknown error')}`);
+  }
+
   const json = await res.json();
   if (!json.success) {
     throw new Error(`API error: ${json.error?.message || res.status}`);

@@ -9,7 +9,7 @@
 import type { ClickHouseLeaderboardRow, ClickHouseJSONResponse } from './types';
 import { getCached, setCached } from './cache';
 
-const MAX_QUERY_ROWS = 100;
+const MAX_QUERY_ROWS = 1000;
 
 const CAPABILITY_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
@@ -143,6 +143,18 @@ async function fetchFromClickHouse(
 
   const json = await res.json();
 
-  const chResponse = (json.data ?? json) as ClickHouseJSONResponse;
-  return chResponse.data ?? [];
+  if (Array.isArray(json)) {
+    return json;
+  }
+
+  if (Array.isArray((json as ClickHouseJSONResponse).data)) {
+    return (json as ClickHouseJSONResponse).data;
+  }
+
+  const wrapped = (json as { data?: ClickHouseJSONResponse }).data;
+  if (wrapped && Array.isArray(wrapped.data)) {
+    return wrapped.data;
+  }
+
+  throw new Error('Unexpected ClickHouse response shape');
 }

@@ -183,7 +183,7 @@ describe('POST /api/v1/orchestrator-leaderboard/rank', () => {
     const req = createRequest({ capability: 'noop' }) as any;
     const res = await POST(req);
 
-    expect(res.headers.get('Cache-Control')).toBe('public, max-age=10');
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=10');
     expect(res.headers.get('X-Cache')).toBe('MISS');
     expect(res.headers.get('X-Cache-Age')).toBeDefined();
     expect(res.headers.get('X-Data-Freshness')).toBeDefined();

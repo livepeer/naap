@@ -80,7 +80,7 @@ Returns a ranked list of orchestrator URLs with performance metrics for a given 
 
 | Header | Description |
 |---|---|
-| `Cache-Control: public, max-age=10` | SDK clients can cache the response for 10 seconds |
+| `Cache-Control: private, max-age=10` | SDK clients can cache the response for 10 seconds |
 | `X-Cache: HIT\|MISS` | Whether the server served from its in-memory cache |
 | `X-Cache-Age: <seconds>` | Age of the cached data in seconds |
 | `X-Data-Freshness: <ISO timestamp>` | When the ClickHouse data was last fetched |
@@ -106,10 +106,16 @@ Returns available capability names for the filter dropdown.
 {
   "success": true,
   "data": {
-    "capabilities": ["noop", "streamdiffusion-sdxl", "streamdiffusion-sdxl-v2v"]
+    "capabilities": ["noop", "streamdiffusion-sdxl", "streamdiffusion-sdxl-v2v"],
+    "fromFallback": false
   }
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `capabilities` | string[] | List of available capability names |
+| `fromFallback` | boolean | `true` when capabilities were sourced from a hardcoded fallback list (ClickHouse unavailable) |
 
 Cached for 60 seconds via `Cache-Control` header.
 
@@ -119,7 +125,7 @@ Cached for 60 seconds via `Cache-Control` header.
 
 The server caches ClickHouse query results **by capability name** for 10 seconds (matching the ClickHouse data update cadence of 5-10s). Multiple requests with different `topN`, `filters`, or `slaWeights` for the same capability share a single cached query result. Post-filtering and SLA scoring happen in-memory.
 
-SDK clients should respect the `Cache-Control: max-age=10` header to avoid redundant network round-trips.
+SDK clients should respect the `Cache-Control: private, max-age=10` header to avoid redundant network round-trips.
 
 ---
 

@@ -37,14 +37,16 @@ describe('Leaderboard Cache', () => {
   });
 
   it('expires entries after TTL', async () => {
+    vi.useFakeTimers();
     const rows = [makeRow()];
     setCached('test-cap', rows, 100);
 
     expect(getCached('test-cap')).not.toBeNull();
 
-    await new Promise((r) => setTimeout(r, 150));
+    await vi.advanceTimersByTimeAsync(150);
 
     expect(getCached('test-cap')).toBeNull();
+    vi.useRealTimers();
   });
 
   it('isolates entries by capability', () => {

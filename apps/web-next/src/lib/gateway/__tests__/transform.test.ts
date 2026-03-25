@@ -313,4 +313,24 @@ describe('buildUpstreamRequest', () => {
       expect(result.body).toBeUndefined();
     });
   });
+
+  describe('basic auth header handling', () => {
+    it('does not forward consumer Authorization header to upstream for basic auth', () => {
+      const config = makeConfig({
+        connector: {
+          authType: 'basic',
+          authConfig: { usernameRef: 'username', passwordRef: 'password' },
+        },
+      });
+      const secrets = { username: 'admin', password: 'secret' };
+      const request = new Request('https://example.com', {
+        headers: { Authorization: 'Bearer consumer-jwt-token' },
+      });
+      const result = buildUpstreamRequest(request, config, secrets, null, '/query');
+
+      expect(result.headers.get('Authorization')).toBe(
+        'Basic ' + btoa('admin:secret')
+      );
+    });
+  });
 });
