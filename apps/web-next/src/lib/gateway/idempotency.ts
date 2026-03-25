@@ -12,6 +12,7 @@ const PREFIX = 'gw:idempotency';
 export interface CachedResponse {
   status: number;
   body: string;
+  contentType: string;
   headers: Record<string, string>;
 }
 

@@ -14,6 +14,7 @@ import { validateSession } from '@/lib/api/auth';
 import { getAuthToken, getClientIP } from '@/lib/api/response';
 import { personalScopeId, isPersonalScope } from './scope';
 import { getOrCreateDefaultPlan } from './default-plan';
+import { matchIPAllowlist } from './types';
 import type { AuthResult, TeamContext } from './types';
 
 type RateLimiter = { consume: (key: string, points?: number) => Promise<{ allowed: boolean }> };
@@ -50,7 +51,7 @@ export async function authorize(request: Request): Promise<AuthResult | null> {
     const rl = await limiter.consume(clientIP, 0);
     if (!rl.allowed) return null;
 
-    const result = await authorizeMasterKey(authHeader.slice(7)); // strip "Bearer "
+    const result = await authorizeMasterKey(authHeader.slice(7), clientIP); // strip "Bearer "
     if (!result) {
       await limiter.consume(clientIP);
     }
@@ -135,7 +136,7 @@ async function authorizeJwt(token: string, request: Request): Promise<AuthResult
 
 // ── Master Key Auth ──
 
-async function authorizeMasterKey(rawKey: string): Promise<AuthResult | null> {
+async function authorizeMasterKey(rawKey: string, clientIP: string): Promise<AuthResult | null> {
   const keyHash = createHash('sha256').update(rawKey).digest('hex');
 
   const masterKey = await prisma.gatewayMasterKey.findUnique({
@@ -146,6 +147,13 @@ async function authorizeMasterKey(rawKey: string): Promise<AuthResult | null> {
   if (masterKey.status !== 'active') return null;
 
   if (masterKey.expiresAt && masterKey.expiresAt < new Date()) {
+    return null;
+  }
+
+  const scopes = (masterKey.scopes as string[]) || [];
+  const allowedIPs = (masterKey.allowedIPs as string[]) || [];
+
+  if (allowedIPs.length > 0 && !matchIPAllowlist(clientIP, allowedIPs)) {
     return null;
   }
 
@@ -161,9 +169,6 @@ async function authorizeMasterKey(rawKey: string): Promise<AuthResult | null> {
     ?? (masterKey.ownerUserId ? personalScopeId(masterKey.ownerUserId) : null);
 
   if (!resolvedTeamId) return null;
-
-  const scopes = (masterKey.scopes as string[]) || [];
-  const allowedIPs = (masterKey.allowedIPs as string[]) || [];
 
   return {
     authenticated: true,

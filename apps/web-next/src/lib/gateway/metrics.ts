@@ -17,17 +17,27 @@ export async function getLatestMetrics(
 ): Promise<PerformanceMetrics | null> {
   if (window === '7d') {
     const rows = await prisma.connectorMetrics.findMany({
-      where: { connectorId, period: 'hourly' },
+      where: { connectorId, period: 'daily' },
       orderBy: { periodStart: 'desc' },
-      take: 168,
+      take: 7,
     });
     if (rows.length === 0) return null;
     return aggregateMetrics(rows, '7d');
   }
 
-  const period = 'hourly';
+  if (window === '24h') {
+    const rows = await prisma.connectorMetrics.findMany({
+      where: { connectorId, period: 'hourly' },
+      orderBy: { periodStart: 'desc' },
+      take: 24,
+    });
+    if (rows.length === 0) return null;
+    if (rows.length === 1) return summarizeMetricsForDescriptor(rows[0]);
+    return aggregateMetrics(rows, '24h');
+  }
+
   const row = await prisma.connectorMetrics.findFirst({
-    where: { connectorId, period },
+    where: { connectorId, period: 'hourly' },
     orderBy: { periodStart: 'desc' },
   });
 
@@ -76,7 +86,7 @@ export function summarizeMetricsForDescriptor(
 
 function aggregateMetrics(
   rows: Array<Record<string, unknown>>,
-  period: '7d'
+  period: '24h' | '7d'
 ): PerformanceMetrics {
   const typed = rows as Array<{
     totalRequests: number;

@@ -18,8 +18,10 @@ import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard
 
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
-  const rank = Math.ceil((p / 100) * sorted.length);
-  const index = Math.max(0, Math.min(rank - 1, sorted.length - 1));
+  const index = Math.min(
+    Math.floor((p / 100) * (sorted.length - 1)),
+    sorted.length - 1
+  );
   return sorted[index] ?? 0;
 }
 
@@ -73,9 +75,9 @@ export async function GET(request: NextRequest) {
     healthByConnector.set(h.connectorId, arr);
   }
 
-  const aggregated: { slug: string; requests: number; errorCount: number }[] = [];
+  const CONCURRENCY = 5;
 
-  for (const connector of connectors) {
+  async function processConnector(connector: { id: string; slug: string }) {
     const records = recordsByConnector.get(connector.id) || [];
 
     const totalRequests = records.length;
@@ -104,6 +106,23 @@ export async function GET(request: NextRequest) {
     const periodMinutes = 60;
     const throughputRpm = periodMinutes > 0 ? (totalRequests / periodMinutes) : 0;
 
+    const hourlyData = {
+      totalRequests,
+      errorCount,
+      errorRate,
+      successRate,
+      latencyMeanMs,
+      latencyP50Ms: percentile(latencies, 50),
+      latencyP95Ms: percentile(latencies, 95),
+      latencyP99Ms: percentile(latencies, 99),
+      upstreamLatencyMeanMs,
+      gatewayOverheadMs,
+      availabilityPercent,
+      healthCheckCount,
+      healthChecksPassed,
+      throughputRpm,
+    };
+
     await prisma.connectorMetrics.upsert({
       where: {
         connectorId_period_periodStart: {
@@ -112,41 +131,8 @@ export async function GET(request: NextRequest) {
           periodStart,
         },
       },
-      create: {
-        connectorId: connector.id,
-        period: 'hourly',
-        periodStart,
-        totalRequests,
-        errorCount,
-        errorRate,
-        successRate,
-        latencyMeanMs,
-        latencyP50Ms: percentile(latencies, 50),
-        latencyP95Ms: percentile(latencies, 95),
-        latencyP99Ms: percentile(latencies, 99),
-        upstreamLatencyMeanMs,
-        gatewayOverheadMs,
-        availabilityPercent,
-        healthCheckCount,
-        healthChecksPassed,
-        throughputRpm,
-      },
-      update: {
-        totalRequests,
-        errorCount,
-        errorRate,
-        successRate,
-        latencyMeanMs,
-        latencyP50Ms: percentile(latencies, 50),
-        latencyP95Ms: percentile(latencies, 95),
-        latencyP99Ms: percentile(latencies, 99),
-        upstreamLatencyMeanMs,
-        gatewayOverheadMs,
-        availabilityPercent,
-        healthCheckCount,
-        healthChecksPassed,
-        throughputRpm,
-      },
+      create: { connectorId: connector.id, period: 'hourly', periodStart, ...hourlyData },
+      update: hourlyData,
     });
 
     // ── Daily rollup: aggregate all hourly rows for the calendar day ──
@@ -209,7 +195,19 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    aggregated.push({ slug: connector.slug, requests: totalRequests, errorCount });
+    return { slug: connector.slug, requests: totalRequests, errorCount };
+  }
+
+  const aggregated: { slug: string; requests: number; errorCount: number }[] = [];
+
+  for (let i = 0; i < connectors.length; i += CONCURRENCY) {
+    const batch = connectors.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(batch.map(processConnector));
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        aggregated.push(result.value);
+      }
+    }
   }
 
   return success({

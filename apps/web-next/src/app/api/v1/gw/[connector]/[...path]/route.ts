@@ -199,7 +199,11 @@ async function handleRequest(
       const buf = Buffer.from(cached.body, 'base64');
       return new Response(buf, {
         status: cached.status,
-        headers: { ...cached.headers, 'X-Idempotent-Replayed': 'true' },
+        headers: {
+          ...cached.headers,
+          'content-type': cached.contentType || cached.headers['content-type'] || 'application/octet-stream',
+          'X-Idempotent-Replayed': 'true',
+        },
       });
     }
   }
@@ -343,6 +347,7 @@ async function handleRequest(
     storeIdempotency(scopeId, slug, consumerPath, idempotencyKey, method, {
       status: clonedForIdempotency.status,
       body: idempotencyBody,
+      contentType: clonedForIdempotency.headers.get('content-type') || 'application/octet-stream',
       headers: idempotencyHeaders,
     }).catch(() => {});
   }

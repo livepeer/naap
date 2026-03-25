@@ -7,6 +7,7 @@
 export const runtime = 'nodejs';
 
 import { randomBytes, createHash } from 'crypto';
+import { isIP } from 'net';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, successPaginated, errors, parsePagination } from '@/lib/api/response';
@@ -14,13 +15,19 @@ import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard
 import { logAudit } from '@/lib/gateway/admin/audit';
 import { z } from 'zod';
 
-const IP_V4 = /^(\d{1,3}\.){3}\d{1,3}$/;
-const CIDR_V4 = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
-const IP_V6 = /^[0-9a-fA-F:]+$/;
-const CIDR_V6 = /^[0-9a-fA-F:]+\/\d{1,3}$/;
-
 function isValidIPOrCIDR(value: string): boolean {
-  return IP_V4.test(value) || CIDR_V4.test(value) || IP_V6.test(value) || CIDR_V6.test(value);
+  if (value.includes('/')) {
+    const slashIdx = value.lastIndexOf('/');
+    const ip = value.slice(0, slashIdx);
+    const prefixStr = value.slice(slashIdx + 1);
+    const ipVersion = isIP(ip);
+    if (ipVersion === 0) return false;
+    const prefix = Number(prefixStr);
+    if (!Number.isInteger(prefix) || prefix < 0) return false;
+    const maxPrefix = ipVersion === 4 ? 32 : 128;
+    return prefix <= maxPrefix;
+  }
+  return isIP(value) !== 0;
 }
 
 const createKeySchema = z.object({

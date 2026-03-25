@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     return Response.json({
       jsonrpc: '2.0',
       id: null,
-      error: { code: -32600, message: 'Authentication required' },
+      error: { code: -32000, message: 'Authentication required' },
     }, { status: 401 });
   }
 
@@ -88,9 +88,7 @@ export async function POST(request: NextRequest) {
       }
 
       const { connectorSlug, method, path } = resolved;
-      const selfOrigin = process.env.NEXTAUTH_URL
-        || process.env.NEXT_PUBLIC_APP_URL
-        || `http://localhost:${process.env.PORT || 3000}`;
+      const selfOrigin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
       const proxyPath = `/api/v1/gw/${encodeURIComponent(connectorSlug)}${path}`;
       let url = `${selfOrigin}${proxyPath}`;
 

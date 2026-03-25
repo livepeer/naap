@@ -25,6 +25,9 @@
       "maxDuration": 60,
       "memory": 1024
     },
+    "app/api/v1/gw/admin/metrics/aggregate/**": {
+      "maxDuration": 120
+    },
     "app/api/v1/gw/**": {
       "maxDuration": 60
     },
@@ -101,6 +104,10 @@
     },
     {
       "source": "/api/v1/gw/.well-known/gateway.json",
+      "destination": "/api/v1/gw/discovery"
+    },
+    {
+      "source": "/.well-known/gateway.json",
       "destination": "/api/v1/gw/discovery"
     }
   ],
