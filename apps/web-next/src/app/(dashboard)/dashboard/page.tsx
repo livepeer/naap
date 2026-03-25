@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useDashboardQuery } from '@/hooks/useDashboardQuery';
-import { useJobFeedStream } from '@/hooks/useJobFeedStream';
+import { useJobFeedStream, type JobFeedConnectionMeta } from '@/hooks/useJobFeedStream';
 import type {
   DashboardData,
   DashboardKPI,
@@ -170,11 +170,6 @@ function formatUsd(n: number): string {
   }).format(n);
 }
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-}
-
 /** Badge color classes (bg + text) for model badges — same as orchestrator table */
 const MODEL_BADGE_COLORS = [
   'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
@@ -195,6 +190,49 @@ function modelBadgeColor(modelId: string): (typeof MODEL_BADGE_COLORS)[number] {
 
 /** Capability id shown as a gray monospace slug (same spirit as model ids under GPU breakdown). */
 const LIVE_VIDEO_TO_VIDEO_PIPELINE_ID = 'live-video-to-video';
+
+/**
+ * Split stream_events `pipeline` slug into a dashboard pipeline label (from
+ * PIPELINE_DISPLAY when known) and a model / variant remainder.
+ */
+function jobFeedPipelineParts(pipelineSlug: string): {
+  pipelineLabel: string;
+  modelLabel: string;
+  matched: boolean;
+} {
+  const slug = pipelineSlug.trim();
+  if (!slug) return { pipelineLabel: '—', modelLabel: '—', matched: false };
+
+  // In stream events, these are model/constraint values for live-video-to-video.
+  if (slug === 'noop' || slug.startsWith('streamdiffusion')) {
+    return {
+      pipelineLabel: PIPELINE_DISPLAY[LIVE_VIDEO_TO_VIDEO_PIPELINE_ID] ?? LIVE_VIDEO_TO_VIDEO_PIPELINE_ID,
+      modelLabel: slug,
+      matched: true,
+    };
+  }
+
+  const exact = PIPELINE_DISPLAY[slug];
+  if (exact != null) {
+    return { pipelineLabel: exact, modelLabel: '—', matched: true };
+  }
+
+  const keys = Object.keys(PIPELINE_DISPLAY)
+    .filter((k) => PIPELINE_DISPLAY[k] != null)
+    .sort((a, b) => b.length - a.length);
+
+  for (const key of keys) {
+    if (slug === key) {
+      return { pipelineLabel: PIPELINE_DISPLAY[key]!, modelLabel: '—', matched: true };
+    }
+    if (slug.startsWith(`${key}-`) || slug.startsWith(`${key}_`)) {
+      const rest = slug.slice(key.length).replace(/^[-_]/, '');
+      return { pipelineLabel: PIPELINE_DISPLAY[key]!, modelLabel: rest || '—', matched: true };
+    }
+  }
+
+  return { pipelineLabel: slug, modelLabel: '—', matched: false };
+}
 
 // ============================================================================
 // Skeleton & Fallback Components
@@ -832,19 +870,80 @@ function GPUCapacityCard({ data, timeframeHours }: { data: DashboardGPUCapacity;
 // Live Job Feed & Pipeline Unit Cost cards
 // ============================================================================
 
+type JobFeedSortCol = 'pipeline' | 'model' | 'outputFps' | 'durationSeconds' | 'status';
+
 function JobFeedCard({
   jobs,
   connected,
   pollInterval,
   onPollIntervalChange,
+  feedMeta,
 }: {
   jobs: JobFeedEntry[];
   connected: boolean;
   pollInterval: number;
   onPollIntervalChange: (ms: number) => void;
+  feedMeta: JobFeedConnectionMeta | null;
 }) {
+  const [sortCol, setSortCol] = useState<JobFeedSortCol>('durationSeconds');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const toggleSort = (col: JobFeedSortCol) => {
+    if (sortCol === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortCol(col);
+      setSortDir('desc');
+    }
+  };
+
+  const sorted = useMemo(() => {
+    return [...jobs].sort((a, b) => {
+      let av: string | number = 0;
+      let bv: string | number = 0;
+      const { pipelineLabel: ap, modelLabel: am } = jobFeedPipelineParts(a.pipeline);
+      const { pipelineLabel: bp, modelLabel: bm } = jobFeedPipelineParts(b.pipeline);
+      switch (sortCol) {
+        case 'pipeline': av = ap; bv = bp; break;
+        case 'model': av = am === '—' ? '' : am; bv = bm === '—' ? '' : bm; break;
+        case 'outputFps': av = a.outputFps ?? 0; bv = b.outputFps ?? 0; break;
+        case 'durationSeconds': av = a.durationSeconds ?? 0; bv = b.durationSeconds ?? 0; break;
+        case 'status': av = a.status; bv = b.status; break;
+      }
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      }
+      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
+    });
+  }, [jobs, sortCol, sortDir]);
+
+  const SortIcon = ({ col }: { col: JobFeedSortCol }) => {
+    if (sortCol !== col) return <ChevronsUpDown className="w-3 h-3 opacity-30" />;
+    return sortDir === 'asc'
+      ? <ChevronUp className="w-3 h-3" />
+      : <ChevronDown className="w-3 h-3" />;
+  };
+
+  const TH = ({ col, label, right }: { col: JobFeedSortCol; label: string; right?: boolean }) => (
+    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'}`}>
+      <button
+        type="button"
+        onClick={() => toggleSort(col)}
+        className={`inline-flex items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'flex-row-reverse' : ''}`}
+      >
+        {label}
+        <SortIcon col={col} />
+      </button>
+    </th>
+  );
+
   const statusStyles: Record<string, string> = {
+    online: 'bg-emerald-500/15 text-emerald-400',
     running: 'bg-emerald-500/15 text-emerald-400',
+    degraded_input: 'bg-amber-500/15 text-amber-400',
+    degraded_inference: 'bg-amber-500/15 text-amber-400',
+    degraded_output: 'bg-amber-500/15 text-amber-400',
+    degraded: 'bg-amber-500/15 text-amber-400',
     completed: 'bg-blue-500/10 text-blue-400',
     failed: 'bg-red-500/15 text-red-400',
   };
@@ -868,38 +967,83 @@ function JobFeedCard({
           )}
         </div>
       </div>
-      <div className="overflow-hidden">
+      <div className="overflow-x-auto max-h-72 overflow-y-auto">
         {jobs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-center">
-            <span className="text-xs text-muted-foreground">Coming soon</span>
-            <span className="text-[10px] text-muted-foreground/70 mt-1">Real-time job feed when data is connected</span>
+          <div className="flex flex-col items-center justify-center h-32 text-center px-2">
+            <Radio className="w-5 h-5 text-muted-foreground/30 mb-2" />
+            <span className="text-xs text-muted-foreground">
+              {feedMeta?.fetchFailed
+                ? 'Could not load the job feed. Check the network or try again.'
+                : feedMeta && !feedMeta.clickhouseConfigured
+                  ? 'Live job feed needs ClickHouse (set CLICKHOUSE_URL, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD on the server).'
+                  : feedMeta?.queryFailed
+                    ? 'ClickHouse query failed. See server logs for details.'
+                    : 'No active streams'}
+            </span>
+            {feedMeta && !feedMeta.fetchFailed && !feedMeta.queryFailed && feedMeta.clickhouseConfigured ? (
+              <span className="text-[10px] text-muted-foreground/70 mt-2 max-w-sm">
+                Streams with events in the last 3 minutes are shown. If you expect rows, confirm{' '}
+                <code className="text-[10px]">semantic.stream_events</code> exists and optionally set{' '}
+                <code className="text-[10px]">JOB_FEED_PIPELINE_FILTER</code> to match your pipeline names.
+              </span>
+            ) : null}
           </div>
         ) : (
           <table className="w-full text-xs">
-            <thead>
-              <tr className="text-muted-foreground border-b border-border">
-                <th className="text-left pb-2 font-medium">Job ID</th>
-                <th className="text-left pb-2 font-medium">Time</th>
-                <th className="text-left pb-2 font-medium">Pipeline</th>
-                <th className="text-right pb-2 font-medium">Status</th>
+            <thead className="sticky top-0 bg-card z-10 text-[10px] text-muted-foreground uppercase tracking-wider">
+              <tr className="border-b border-border">
+                <TH col="pipeline" label="Pipeline" />
+                <TH col="model" label="Model" />
+                <TH col="outputFps" label="FPS" right />
+                <TH col="durationSeconds" label="Running" right />
+                <TH col="status" label="State" right />
               </tr>
             </thead>
             <tbody>
-              {jobs.map((job, i) => (
+              {sorted.map((job) => {
+                const { pipelineLabel, modelLabel } = jobFeedPipelineParts(job.pipeline);
+                const rowTooltip = [
+                  `Stream: ${job.id}`,
+                  `Pipeline: ${pipelineLabel}`,
+                  modelLabel !== '—' ? `Model: ${modelLabel}` : null,
+                  job.gateway ? `Gateway: ${job.gateway}` : null,
+                  job.orchestratorUrl ? `Orchestrator: ${job.orchestratorUrl}` : null,
+                  job.startedAt ? `First seen: ${job.startedAt}` : null,
+                  job.lastSeen ? `Last seen: ${job.lastSeen}` : null,
+                  job.durationSeconds != null ? `Duration: ${job.durationSeconds}s` : null,
+                  job.inputFps != null ? `Input FPS: ${job.inputFps}` : null,
+                  job.outputFps != null ? `Output FPS: ${job.outputFps}` : null,
+                  `Status: ${job.status}`,
+                ].filter(Boolean).join('\n');
+                return (
                 <tr
                   key={job.id}
-                  className={`border-b border-border/50 last:border-0 transition-colors ${i === 0 ? 'animate-pulse-once' : ''}`}
+                  className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors cursor-default"
+                  title={rowTooltip}
                 >
-                  <td className="py-2 font-mono text-foreground">{job.id}</td>
-                  <td className="py-2 text-muted-foreground">{formatTime(job.startedAt)}</td>
-                  <td
-                    className={
-                      job.pipeline === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID
-                        ? 'py-2 font-mono text-muted-foreground'
-                        : 'py-2 text-foreground'
-                    }
-                  >
-                    {job.pipeline}
+                  <td className="py-2">
+                    <span className="text-[10px] font-mono text-muted-foreground truncate block max-w-[200px]">
+                      {pipelineLabel}
+                    </span>
+                  </td>
+                  <td className="py-2">
+                    {modelLabel !== '—' ? (
+                      <span
+                        className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono max-w-[200px] truncate ${modelBadgeColor(modelLabel)}`}
+                      >
+                        {modelLabel}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="py-2 text-right font-mono text-foreground">
+                    {job.inputFps != null && job.outputFps != null
+                      ? `${job.inputFps} / ${job.outputFps}`
+                      : '—'}
+                  </td>
+                  <td className="py-2 text-right font-mono text-muted-foreground">
+                    {job.runningFor ?? '—'}
                   </td>
                   <td className="py-2 text-right">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusStyles[job.status] ?? ''}`}>
@@ -907,7 +1051,7 @@ function JobFeedCard({
                     </span>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         )}
@@ -918,7 +1062,7 @@ function JobFeedCard({
 
 function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
   return (
-    <div className="p-4 rounded-lg bg-card border border-border">
+    <div className="p-4 rounded-lg bg-card border border-border h-full">
       <div className="flex items-center gap-2 mb-4">
         <div className="p-1 rounded-md bg-muted text-muted-foreground">
           <Coins className="w-3.5 h-3.5" />
@@ -1381,7 +1525,10 @@ export default function DashboardPage() {
     { timeout: DASHBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
 
-  const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8, pollInterval: jobFeedPollInterval });
+  const { jobs, connected: jobFeedConnected, feedMeta: jobFeedMeta } = useJobFeedStream({
+    maxItems: 50,
+    pollInterval: jobFeedPollInterval,
+  });
 
   const transientDashboardErrors = useMemo(() => {
     return [error, feesError].filter(
@@ -1466,15 +1613,19 @@ export default function DashboardPage() {
 
       {/* Row 3: Live Job Feed & Pipeline Unit Cost */}
       <section className="space-y-3">
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
+        <div
+          className="grid gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0"
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}
+        >
           <JobFeedCard
             jobs={jobs}
             connected={jobFeedConnected}
             pollInterval={jobFeedPollInterval}
             onPollIntervalChange={handleJobFeedPollIntervalChange}
+            feedMeta={jobFeedMeta}
           />
           {data?.pricing != null
-            ? <RefreshWrap refreshing={refreshing}><PricingCard data={data.pricing} /></RefreshWrap>
+            ? <RefreshWrap refreshing={refreshing} className="h-full"><PricingCard data={data.pricing} /></RefreshWrap>
             : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pricing" />}
         </div>
       </section>

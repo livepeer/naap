@@ -25,6 +25,7 @@ export function registerJobFeedEmitter(eventBus: IEventBus): () => void {
       channelName: null,
       eventName: 'job',
       useEventBusFallback: true,
+      fetchUrl: '/api/v1/dashboard/job-feed',
     })
   );
 
