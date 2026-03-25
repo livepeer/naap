@@ -13,6 +13,7 @@ export type AuditAction =
   | 'connector.create'
   | 'connector.update'
   | 'connector.delete'
+  | 'connector.purge'
   | 'connector.publish'
   | 'endpoint.create'
   | 'endpoint.update'
@@ -22,6 +23,9 @@ export type AuditAction =
   | 'key.create'
   | 'key.revoke'
   | 'key.rotate'
+  | 'master-key.create'
+  | 'master-key.revoke'
+  | 'master-key.rotate'
   | 'plan.create'
   | 'plan.delete';
 

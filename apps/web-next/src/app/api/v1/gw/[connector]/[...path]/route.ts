@@ -30,6 +30,7 @@ import { getAuthToken, getClientIP } from '@/lib/api/response';
 import type { UsageData } from '@/lib/gateway/types';
 import { matchIPAllowlist } from '@/lib/gateway/types';
 import { bufferUsage } from '@/lib/gateway/usage-buffer';
+import { checkIdempotency, storeIdempotency } from '@/lib/gateway/idempotency';
 import '@/lib/gateway/transforms';
 
 type RouteContext = { params: Promise<{ connector: string; path: string[] }> };
@@ -53,6 +54,16 @@ async function handleRequest(
       'UNAUTHORIZED',
       'Missing or invalid authentication. Provide a JWT or gateway API key.',
       401,
+      requestId,
+      traceId
+    );
+  }
+
+  if (auth.masterKeyScopes && !auth.masterKeyScopes.includes('proxy')) {
+    return buildErrorResponse(
+      'FORBIDDEN',
+      'This master key does not have the "proxy" scope required for API calls.',
+      403,
       requestId,
       traceId
     );
@@ -178,6 +189,23 @@ async function handleRequest(
       requestId,
       traceId
     );
+  }
+
+  // ── 9b. Idempotency Check (mutating methods only) ──
+  const idempotencyKey = request.headers.get('idempotency-key');
+  if (idempotencyKey && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const cached = await checkIdempotency(scopeId, slug, consumerPath, idempotencyKey, method);
+    if (cached) {
+      const buf = Buffer.from(cached.body, 'base64');
+      return new Response(buf, {
+        status: cached.status,
+        headers: {
+          ...cached.headers,
+          'content-type': cached.contentType || cached.headers['content-type'] || 'application/octet-stream',
+          'X-Idempotent-Replayed': 'true',
+        },
+      });
+    }
   }
 
   // ── 10. Response Cache Check (GET only) ──
@@ -309,6 +337,21 @@ async function handleRequest(
     responseBytes = parseInt(response.headers.get('content-length') || '0', 10);
   }
 
+  // ── 15b. Store Idempotency Response ──
+  if (idempotencyKey && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const clonedForIdempotency = response.clone();
+    const idempotencyBuffer = await clonedForIdempotency.arrayBuffer();
+    const idempotencyBody = Buffer.from(idempotencyBuffer).toString('base64');
+    const idempotencyHeaders: Record<string, string> = {};
+    clonedForIdempotency.headers.forEach((v, k) => { idempotencyHeaders[k] = v; });
+    storeIdempotency(scopeId, slug, consumerPath, idempotencyKey, method, {
+      status: clonedForIdempotency.status,
+      body: idempotencyBody,
+      contentType: clonedForIdempotency.headers.get('content-type') || 'application/octet-stream',
+      headers: idempotencyHeaders,
+    }).catch(() => {});
+  }
+
   // ── 16. Log Usage (non-blocking) ──
   logUsage({
     teamId: scopeId,
@@ -368,4 +411,16 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
 export async function HEAD(request: NextRequest, context: RouteContext) {
   return handleRequest(request, context);
+}
+
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,PATCH,HEAD,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID, X-Trace-ID, X-Team-ID, Idempotency-Key',
+      'Access-Control-Max-Age': '86400',
+    },
+  });
 }

@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Livepeer AI Video — Standalone Demo</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #111; color: #eee; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+
+  .header { padding: 12px 20px; background: #1a1a2e; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 10px; }
+  .header h1 { font-size: 18px; font-weight: 600; }
+  .header .badge { font-size: 10px; color: #999; background: #2a2a3a; padding: 2px 8px; border-radius: 10px; }
+
+  .config { padding: 14px 20px; background: #1a1a1a; border-bottom: 1px solid #333; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+  .field input, .field select { background: #222; border: 1px solid #444; color: #eee; padding: 7px 10px; border-radius: 4px; font-size: 13px; outline: none; }
+  .field input:focus { border-color: #666; }
+  .field input[readonly] { opacity: 0.5; }
+
+  .btn { padding: 8px 20px; border: none; border-radius: 5px; font-size: 13px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: opacity 0.15s; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-start { background: #22c55e; color: #fff; }
+  .btn-stop  { background: #ef4444; color: #fff; }
+
+  .error { padding: 8px 20px; background: #2d1010; border-bottom: 1px solid #5c2020; color: #f87171; font-size: 12px; }
+
+  .panels { flex: 1; display: flex; justify-content: center; align-items: center; gap: 24px; padding: 20px; flex-wrap: wrap; min-height: 0; overflow: auto; }
+  .panel { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .panel-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+  canvas { background: #000; border-radius: 8px; border: 1px solid #333; max-width: 100%; }
+
+  .stats { padding: 8px 20px; background: #1a1a1a; border-top: 1px solid #333; display: flex; gap: 28px; font-size: 12px; color: #888; flex-wrap: wrap; }
+  .stats .val { color: #eee; font-variant-numeric: tabular-nums; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; vertical-align: middle; margin-right: 4px; }
+
+  .logs { padding: 8px 20px; background: #0a0a0a; border-top: 1px solid #222; font-size: 11px; color: #666; max-height: 90px; overflow-y: auto; font-family: "SF Mono", Menlo, Consolas, monospace; line-height: 1.5; }
+  .logs div { white-space: nowrap; }
+
+  .setup-hint { padding: 12px 20px; background: #1a1a10; border-bottom: 1px solid #444420; font-size: 12px; color: #cca; line-height: 1.6; }
+  .setup-hint code { background: #2a2a1a; padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+  <h1>Livepeer AI Video</h1>
+  <span class="badge">Standalone Demo</span>
+</div>
+
+<div id="setup-hint" class="setup-hint">
+  <strong>Setup:</strong> HTTP calls (<code>start-job</code>, <code>stop-job</code>) are routed through the
+  <strong>NaaP Service Gateway</strong> connector, which injects upstream credentials automatically.
+  The WebSocket for frame exchange connects directly to the upstream gateway (NaaP can't proxy WS upgrades).
+</div>
+
+<div class="config">
+  <div class="field">
+    <label>NaaP Platform URL</label>
+    <input id="naapUrl" type="text" value="http://localhost:3000" style="width:300px" placeholder="https://naap-platform.vercel.app">
+  </div>
+  <div class="field">
+    <label>Connector Slug</label>
+    <input id="connectorSlug" type="text" value="livepeer-gateway" style="width:160px" placeholder="livepeer-gateway">
+  </div>
+  <div class="field">
+    <label>Connector API Key (gw_...)</label>
+    <input id="apiKey" type="text" value="gw_5ec7cd90e4421631a3c260ecbde561ad534eab998a668c925170bff49a382c1c" style="width:280px" placeholder="gw_...">
+  </div>
+  <div class="field">
+    <label>Upstream WS URL</label>
+    <input id="upstreamWsUrl" type="text" value="wss://livepeer-gateway-90265565772.us-central1.run.app" style="width:340px" placeholder="wss://upstream-gateway-host">
+  </div>
+  <div class="field">
+    <label>Model ID</label>
+    <input id="modelId" type="text" value="noop" style="width:140px" placeholder="noop">
+  </div>
+  <div class="field">
+    <label>Orchestrator URL</label>
+    <input id="orchUrl" type="text" value="" style="width:180px" placeholder="optional">
+  </div>
+  <div class="field">
+    <label>FPS</label>
+    <select id="fpsSelect" style="width:70px">
+      <option value="8">8</option>
+      <option value="15">15</option>
+      <option value="24" selected>24</option>
+      <option value="30">30</option>
+    </select>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button id="btnStart" class="btn btn-start" onclick="handleStart()">&#9654; Start</button>
+    <button id="btnStop"  class="btn btn-stop" disabled onclick="handleStop()">&#9632; Stop</button>
+  </div>
+</div>
+
+<div id="errorBar" class="error" style="display:none"></div>
+
+<div class="panels">
+  <div class="panel">
+    <span class="panel-label">Camera Input</span>
+    <canvas id="inputCanvas" width="640" height="480"></canvas>
+  </div>
+  <div class="panel">
+    <span class="panel-label">AI Output</span>
+    <canvas id="outputCanvas" width="640" height="480"></canvas>
+  </div>
+</div>
+
+<div class="stats">
+  <span>Status: <span class="dot" id="statusDot" style="background:#f44336"></span><span class="val" id="statusText">Disconnected</span></span>
+  <span>Send: <span class="val" id="sendFps">0</span> fps</span>
+  <span>Recv: <span class="val" id="recvFps">0</span> fps</span>
+  <span>Latency: <span class="val" id="latency">--</span></span>
+  <span>Sent: <span class="val" id="framesSent">0</span></span>
+  <span>Recv: <span class="val" id="framesRecv">0</span></span>
+</div>
+
+<div class="logs" id="logPanel"></div>
+
+<!-- Hidden capture elements -->
+<video id="hiddenVideo" autoplay playsinline muted style="display:none"></video>
+<canvas id="captureCanvas" width="640" height="480" style="display:none"></canvas>
+
+<script>
+const W = 640, H = 480;
+
+let stream = null;
+let ws = null;
+let jobId = null;
+let sendInterval = null;
+let cameraRaf = null;
+let running = false;
+let framesSentCount = 0;
+let framesRecvCount = 0;
+let lastSendTime = 0;
+const sendTs = [], recvTs = [];
+
+const $ = id => document.getElementById(id);
+
+function log(msg) {
+  const ts = new Date().toLocaleTimeString();
+  const el = $('logPanel');
+  const d = document.createElement('div');
+  d.textContent = `[${ts}] ${msg}`;
+  el.appendChild(d);
+  if (el.children.length > 60) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setStatus(s) {
+  const colors = { disconnected: '#f44336', connecting: '#ff9800', connected: '#22c55e' };
+  $('statusDot').style.background = colors[s] || '#888';
+  $('statusText').textContent = s[0].toUpperCase() + s.slice(1);
+}
+
+function showError(msg) {
+  $('errorBar').textContent = msg;
+  $('errorBar').style.display = msg ? 'block' : 'none';
+}
+
+function getNaapBase() { return $('naapUrl').value.replace(/\/+$/, ''); }
+function getSlug() { return $('connectorSlug').value.trim() || 'livepeer-gateway'; }
+function getApiKey() { return $('apiKey').value.trim(); }
+function getUpstreamWs() { return $('upstreamWsUrl').value.replace(/\/+$/, ''); }
+function getFps() { return parseInt($('fpsSelect').value, 10) || 24; }
+
+function connectorUrl(path) {
+  return `${getNaapBase()}/api/v1/gw/${getSlug()}${path}`;
+}
+
+function gwHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  const key = getApiKey();
+  if (key) h['Authorization'] = `Bearer ${key}`;
+  return h;
+}
+
+// Stats updater
+setInterval(() => {
+  const now = Date.now(), win = 2000;
+  while (sendTs.length && now - sendTs[0] > win) sendTs.shift();
+  while (recvTs.length && now - recvTs[0] > win) recvTs.shift();
+  $('sendFps').textContent = Math.round(sendTs.length / (win / 1000));
+  $('recvFps').textContent = Math.round(recvTs.length / (win / 1000));
+  $('framesSent').textContent = framesSentCount;
+  $('framesRecv').textContent = framesRecvCount;
+}, 500);
+
+function drawCameraPreview() {
+  const video = $('hiddenVideo'), canvas = $('inputCanvas');
+  const ctx = canvas.getContext('2d');
+  if (video.readyState >= 2) ctx.drawImage(video, 0, 0, W, H);
+  if (running) cameraRaf = requestAnimationFrame(drawCameraPreview);
+}
+
+async function startCamera() {
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: W, height: H, frameRate: getFps() }, audio: false
+  });
+  const video = $('hiddenVideo');
+  video.srcObject = stream;
+  await video.play();
+  cameraRaf = requestAnimationFrame(drawCameraPreview);
+  log('Camera started');
+}
+
+function stopCamera() {
+  if (cameraRaf) { cancelAnimationFrame(cameraRaf); cameraRaf = null; }
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  $('hiddenVideo').srcObject = null;
+}
+
+function startSending() {
+  if (sendInterval) return;
+  const fps = getFps();
+  sendInterval = setInterval(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const video = $('hiddenVideo'), cap = $('captureCanvas');
+    if (video.readyState < 2) return;
+    const ctx = cap.getContext('2d');
+    ctx.drawImage(video, 0, 0, W, H);
+    cap.toBlob(blob => {
+      if (!blob || !ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(blob);
+      framesSentCount++;
+      lastSendTime = Date.now();
+      sendTs.push(lastSendTime);
+    }, 'image/jpeg', 0.8);
+  }, 1000 / fps);
+}
+
+function stopSending() {
+  if (sendInterval) { clearInterval(sendInterval); sendInterval = null; }
+}
+
+async function handleStart() {
+  showError('');
+  running = true;
+  framesSentCount = 0; framesRecvCount = 0;
+  sendTs.length = 0; recvTs.length = 0;
+  $('btnStart').disabled = true;
+  $('btnStop').disabled = false;
+  setStatus('connecting');
+  $('setup-hint').style.display = 'none';
+
+  const outCtx = $('outputCanvas').getContext('2d');
+  outCtx.clearRect(0, 0, W, H);
+
+  try {
+    await startCamera();
+
+    const naap = getNaapBase();
+    if (!naap) throw new Error('NaaP Platform URL is required');
+    const wsBase = getUpstreamWs();
+    if (!wsBase) throw new Error('Upstream WS URL is required');
+
+    const body = { model_id: $('modelId').value || 'noop' };
+    const orch = $('orchUrl').value.trim();
+    if (orch) body.orchestrator_url = orch;
+
+    const startUrl = connectorUrl('/start-job');
+    log(`Starting job via NaaP connector: ${startUrl}`);
+    const res = await fetch(startUrl, {
+      method: 'POST', headers: gwHeaders(), body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error?.message || err.error || `Start job failed: ${res.status}`);
+    }
+
+    const data = await res.json();
+    const payload = data.data ?? data;
+    jobId = payload.job_id;
+    if (!jobId) throw new Error('No job_id in response — check connector configuration');
+    log(`Job started: ${jobId}`);
+
+    const wsUrl = `${wsBase}/ws/stream?job_id=${jobId}`;
+    log(`Connecting WebSocket (direct to upstream): ${wsUrl}`);
+
+    ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      log('WebSocket connected — streaming frames');
+      setStatus('connected');
+      startSending();
+    };
+
+    ws.onmessage = (event) => {
+      framesRecvCount++;
+      recvTs.push(Date.now());
+      if (lastSendTime > 0) {
+        $('latency').textContent = (Date.now() - lastSendTime) + 'ms';
+      }
+      const blob = new Blob([event.data], { type: 'image/jpeg' });
+      createImageBitmap(blob).then(bmp => {
+        const ctx = $('outputCanvas').getContext('2d');
+        ctx.drawImage(bmp, 0, 0, W, H);
+        bmp.close();
+      }).catch(() => {});
+    };
+
+    ws.onclose = (e) => {
+      log(`WebSocket closed: ${e.reason || e.code}`);
+      setStatus('disconnected');
+      stopSending();
+    };
+
+    ws.onerror = () => log('WebSocket error');
+
+  } catch (err) {
+    log(`Error: ${err.message}`);
+    showError(err.message);
+    cleanup();
+  }
+}
+
+async function handleStop() {
+  stopSending();
+  if (ws) { ws.close(); ws = null; }
+
+  if (jobId) {
+    try {
+      const stopUrl = connectorUrl(`/stop-job/${jobId}`);
+      await fetch(stopUrl, { method: 'DELETE', headers: gwHeaders() });
+      log(`Job stopped via NaaP connector: ${jobId}`);
+    } catch (e) { log('Error stopping job'); }
+    jobId = null;
+  }
+
+  stopCamera();
+  running = false;
+  $('btnStart').disabled = false;
+  $('btnStop').disabled = true;
+  setStatus('disconnected');
+}
+
+function cleanup() {
+  stopSending();
+  if (ws) { ws.close(); ws = null; }
+  stopCamera();
+  running = false;
+  $('btnStart').disabled = false;
+  $('btnStop').disabled = true;
+  setStatus('disconnected');
+}
+</script>
+</body>
+</html>

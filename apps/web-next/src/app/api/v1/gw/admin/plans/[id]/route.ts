@@ -12,6 +12,7 @@ import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard';
 import { z } from 'zod';
+import { DEFAULT_PLAN_NAME } from '@/lib/gateway/default-plan';
 
 const updatePlanSchema = z.object({
   displayName: z.string().min(1).max(128).optional(),
@@ -80,7 +81,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
   }
 
   const plan = await prisma.gatewayPlan.update({
-    where: { id, teamId: ctx.teamId },
+    where: { id },
     data: parsed.data,
   });
 
@@ -99,6 +100,10 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
   if (!existing) {
     return errors.notFound('Plan');
+  }
+
+  if (existing.name === DEFAULT_PLAN_NAME) {
+    return errors.conflict('The default plan cannot be deleted. You can edit its limits instead.');
   }
 
   if (existing.apiKeys.length > 0) {

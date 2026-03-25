@@ -93,6 +93,20 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return errors.notFound('Connector');
   }
 
+  const purge = request.nextUrl.searchParams.get('purge') === 'true';
+
+  if (purge) {
+    if (existing.status !== 'archived') {
+      return errors.badRequest('Only archived connectors can be purged. Archive it first.');
+    }
+    await prisma.$transaction([
+      prisma.gatewayUsageRecord.deleteMany({ where: { connectorId: id } }),
+      prisma.serviceConnector.delete({ where: { id } }),
+    ]);
+    await logAudit(ctx, { action: 'connector.purge', resourceId: id, details: { slug: existing.slug }, request });
+    return success({ id, purged: true });
+  }
+
   await prisma.serviceConnector.update({
     where: { id },
     data: { status: 'archived' },
