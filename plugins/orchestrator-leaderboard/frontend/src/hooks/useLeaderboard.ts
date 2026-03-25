@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { fetchRank, type LeaderboardRequest, type OrchestratorRow, type RankResponse } from '../lib/api';
 
 interface UseLeaderboardOptions {
@@ -54,14 +54,17 @@ export function useLeaderboard(
     }
   }, []);
 
+  const filtersKey = useMemo(() => JSON.stringify(request?.filters), [request?.filters]);
+  const slaWeightsKey = useMemo(() => JSON.stringify(request?.slaWeights), [request?.slaWeights]);
+
   useEffect(() => {
     if (!request?.capability) return;
     doFetch();
   }, [
     request?.capability,
     request?.topN,
-    JSON.stringify(request?.filters),
-    JSON.stringify(request?.slaWeights),
+    filtersKey,
+    slaWeightsKey,
     doFetch,
   ]);
 

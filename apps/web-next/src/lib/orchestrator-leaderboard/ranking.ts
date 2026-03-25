@@ -51,8 +51,8 @@ export function applyFilters(
     if (filters.gpuRamGbMin != null && r.gpu_gb < filters.gpuRamGbMin) return false;
     if (filters.gpuRamGbMax != null && r.gpu_gb > filters.gpuRamGbMax) return false;
     if (filters.priceMax != null && r.price_per_unit > filters.priceMax) return false;
-    if (filters.maxAvgLatencyMs != null && r.avg_lat_ms != null && r.avg_lat_ms > filters.maxAvgLatencyMs) return false;
-    if (filters.maxSwapRatio != null && r.swap_ratio != null && r.swap_ratio > filters.maxSwapRatio) return false;
+    if (filters.maxAvgLatencyMs != null && (r.avg_lat_ms == null || r.avg_lat_ms > filters.maxAvgLatencyMs)) return false;
+    if (filters.maxSwapRatio != null && (r.swap_ratio == null || r.swap_ratio > filters.maxSwapRatio)) return false;
     return true;
   });
 }
@@ -63,12 +63,15 @@ export function applyFilters(
 
 function normalizeWeights(weights?: SLAWeights): Required<SLAWeights> {
   const w = { ...DEFAULT_WEIGHTS, ...weights };
-  const sum = (w.latency || 0) + (w.swapRate || 0) + (w.price || 0);
+  const lat = Math.max(0, w.latency || 0);
+  const swap = Math.max(0, w.swapRate || 0);
+  const price = Math.max(0, w.price || 0);
+  const sum = lat + swap + price;
   if (sum === 0) return DEFAULT_WEIGHTS;
   return {
-    latency: (w.latency || 0) / sum,
-    swapRate: (w.swapRate || 0) / sum,
-    price: (w.price || 0) / sum,
+    latency: lat / sum,
+    swapRate: swap / sum,
+    price: price / sum,
   };
 }
 

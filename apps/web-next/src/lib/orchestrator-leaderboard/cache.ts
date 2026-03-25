@@ -5,7 +5,7 @@
  * updates every 5-10s, so repeated SDK calls for the same capability within
  * that window are served from cache. The full result set (up to 100 rows) is
  * cached so that different topN / filters / slaWeights requests share one
- * cached ClickHouse query.
+ * cached ClickHouse query. Up to 1000 rows per capability.
  */
 
 import type { CacheEntry, ClickHouseLeaderboardRow } from './types';
@@ -37,10 +37,11 @@ export function setCached(
   rows: ClickHouseLeaderboardRow[],
   ttlMs: number = DEFAULT_TTL_MS
 ): void {
-  if (LEADERBOARD_CACHE.size >= MAX_ENTRIES) {
+  const replacingExisting = LEADERBOARD_CACHE.has(capability);
+  if (!replacingExisting && LEADERBOARD_CACHE.size >= MAX_ENTRIES) {
     evictExpired();
   }
-  if (LEADERBOARD_CACHE.size >= MAX_ENTRIES) {
+  if (!replacingExisting && LEADERBOARD_CACHE.size >= MAX_ENTRIES) {
     const oldest = LEADERBOARD_CACHE.keys().next().value;
     if (oldest) LEADERBOARD_CACHE.delete(oldest);
   }

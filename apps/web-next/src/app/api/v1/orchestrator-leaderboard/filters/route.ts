@@ -37,8 +37,7 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
   }
 
   const authToken = getAuthToken(request) || '';
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const url = `${baseUrl}/api/v1/gw/clickhouse-query/query`;
+  const url = new URL('/api/v1/gw/clickhouse-query/query', process.env.NEXT_PUBLIC_APP_URL || request.url).toString();
 
   let capabilities: string[];
   let fromFallback = false;
@@ -66,6 +65,6 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
   }
 
   const response = success({ capabilities, fromFallback });
-  response.headers.set('Cache-Control', 'public, max-age=60');
+  response.headers.set('Cache-Control', 'private, max-age=60');
   return response;
 }

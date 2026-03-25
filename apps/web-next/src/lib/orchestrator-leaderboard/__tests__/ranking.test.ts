@@ -61,24 +61,24 @@ describe('applyFilters', () => {
 
   it('filters by maxAvgLatencyMs', () => {
     const result = applyFilters(rows, { maxAvgLatencyMs: 300 });
-    expect(result).toHaveLength(3);
+    expect(result).toHaveLength(2);
   });
 
-  it('passes rows with null latency when maxAvgLatencyMs is set', () => {
+  it('excludes rows with null latency when maxAvgLatencyMs is set', () => {
     const result = applyFilters(rows, { maxAvgLatencyMs: 100 });
     const nullRow = result.find((r) => r.avg_lat_ms === null);
-    expect(nullRow).toBeDefined();
+    expect(nullRow).toBeUndefined();
   });
 
   it('filters by maxSwapRatio', () => {
     const result = applyFilters(rows, { maxSwapRatio: 0.3 });
-    expect(result).toHaveLength(3);
+    expect(result).toHaveLength(2);
   });
 
-  it('passes rows with null swapRatio when maxSwapRatio is set', () => {
+  it('excludes rows with null swapRatio when maxSwapRatio is set', () => {
     const result = applyFilters(rows, { maxSwapRatio: 0.1 });
     const nullRow = result.find((r) => r.swap_ratio === null);
-    expect(nullRow).toBeDefined();
+    expect(nullRow).toBeUndefined();
   });
 
   it('combines multiple filters', () => {

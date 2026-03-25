@@ -30,7 +30,7 @@ async function stubAPIs(page: Page) {
 
   await page.route('**/api/v1/orchestrator-leaderboard/rank', async (route) => {
     const request = route.request();
-    const postData = request.postDataJSON?.() ?? JSON.parse(request.postData() || '{}');
+    const postData = request.postDataJSON() ?? {};
 
     const response = postData.slaWeights ? FIXTURE_RANK_WITH_SLA : FIXTURE_RANK;
     route.fulfill({
@@ -41,7 +41,7 @@ async function stubAPIs(page: Page) {
         'X-Cache': 'MISS',
         'X-Cache-Age': '0',
         'X-Data-Freshness': new Date().toISOString(),
-        'Cache-Control': 'public, max-age=10',
+        'Cache-Control': 'private, max-age=10',
       },
     });
   });
@@ -96,9 +96,10 @@ test.describe('Orchestrator Leaderboard Page', () => {
     });
 
     await page.goto('/orchestrator-leaderboard');
-    await page.locator('select').first().selectOption('streamdiffusion-sdxl');
-
-    await page.waitForTimeout(500);
+    await Promise.all([
+      page.waitForResponse('**/api/v1/orchestrator-leaderboard/rank'),
+      page.locator('select').first().selectOption('streamdiffusion-sdxl'),
+    ]);
     expect(capturedBody?.capability).toBe('streamdiffusion-sdxl');
     expect(capturedBody?.topN).toBe(10);
   });
@@ -118,9 +119,10 @@ test.describe('Orchestrator Leaderboard Page', () => {
     const headers1 = await page.locator('thead th').allTextContents();
     expect(headers1).not.toContain('SLA Score');
 
-    await page.getByText('SLA Ranking OFF').click();
-
-    await page.waitForTimeout(500);
+    await Promise.all([
+      page.waitForResponse('**/api/v1/orchestrator-leaderboard/rank'),
+      page.getByText('SLA Ranking OFF').click(),
+    ]);
     expect(capturedBody?.slaWeights).toBeDefined();
 
     const headers2 = await page.locator('thead th').allTextContents();

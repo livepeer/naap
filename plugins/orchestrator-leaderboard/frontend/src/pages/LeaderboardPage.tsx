@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useId } from 'react';
 import {
   Trophy, Activity, Gauge, Zap, RefreshCw, ChevronDown, ChevronUp,
   SlidersHorizontal, Timer, TrendingUp, AlertCircle, Search, Loader2, Radio,
@@ -23,7 +23,12 @@ export const LeaderboardPage: React.FC = () => {
     latency: 0.4, swapRate: 0.3, price: 0.3,
   });
 
-  const hasActiveFilters = !!(filters.gpuRamGbMin || filters.gpuRamGbMax || filters.priceMax || filters.maxAvgLatencyMs || filters.maxSwapRatio);
+  const hasActiveFilters =
+    filters.gpuRamGbMin != null ||
+    filters.gpuRamGbMax != null ||
+    filters.priceMax != null ||
+    filters.maxAvgLatencyMs != null ||
+    filters.maxSwapRatio != null;
 
   const request = useMemo<LeaderboardRequest | null>(() => {
     if (!capability) return null;
@@ -41,7 +46,13 @@ export const LeaderboardPage: React.FC = () => {
   const handleWeightChange = (key: keyof SLAWeights, value: number) => {
     const updated = { ...slaWeights, [key]: value };
     const sum = (updated.latency || 0) + (updated.swapRate || 0) + (updated.price || 0);
-    if (sum > 0) {
+    if (sum <= 0) {
+      updated[key] = 1;
+      const newSum = (updated.latency || 0) + (updated.swapRate || 0) + (updated.price || 0);
+      updated.latency = Math.round(((updated.latency || 0) / newSum) * 100) / 100;
+      updated.swapRate = Math.round(((updated.swapRate || 0) / newSum) * 100) / 100;
+      updated.price = Math.round(((updated.price || 0) / newSum) * 100) / 100;
+    } else {
       updated.latency = Math.round(((updated.latency || 0) / sum) * 100) / 100;
       updated.swapRate = Math.round(((updated.swapRate || 0) / sum) * 100) / 100;
       updated.price = Math.round(((updated.price || 0) / sum) * 100) / 100;
@@ -446,17 +457,21 @@ const EmptyState: React.FC<{ icon: React.ReactNode; title: string; description: 
 const FilterInput: React.FC<{
   label: string; value: string | number; onChange: (v: string) => void;
   type?: string; min?: number; max?: number; step?: number;
-}> = ({ label, value, onChange, ...inputProps }) => (
-  <div className="min-w-[130px]">
-    <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{label}</label>
-    <input
-      {...inputProps}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/40 placeholder-gray-600 transition-all"
-    />
-  </div>
-);
+}> = ({ label, value, onChange, ...inputProps }) => {
+  const id = useId();
+  return (
+    <div className="min-w-[130px]">
+      <label htmlFor={id} className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{label}</label>
+      <input
+        id={id}
+        {...inputProps}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/40 placeholder-gray-600 transition-all"
+      />
+    </div>
+  );
+};
 
 const WEIGHT_COLORS = {
   blue: { bar: 'bg-blue-500/30', text: 'text-blue-400' },
@@ -467,14 +482,16 @@ const WEIGHT_COLORS = {
 const WeightSlider: React.FC<{
   label: string; value: number; onChange: (v: number) => void; color: keyof typeof WEIGHT_COLORS;
 }> = ({ label, value, onChange, color }) => {
+  const id = useId();
   const c = WEIGHT_COLORS[color];
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-gray-300">{label}</span>
+        <label htmlFor={id} className="text-xs font-medium text-gray-300">{label}</label>
         <span className={`text-sm font-bold ${c.text}`}>{Math.round(value * 100)}%</span>
       </div>
       <input
+        id={id}
         type="range" min={0} max={100}
         value={Math.round(value * 100)}
         onChange={(e) => onChange(Number(e.target.value) / 100)}
