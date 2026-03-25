@@ -30,6 +30,8 @@ concurrency:
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  # Keep in sync with root package.json "packageManager"
+  PACKAGE_MANAGER_SPEC: 'npm@10.9.4'
 
 jobs:
   # ===========================================================================
@@ -99,6 +101,11 @@ jobs:
       name: production
       url: https://naap.dev
     steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
 
