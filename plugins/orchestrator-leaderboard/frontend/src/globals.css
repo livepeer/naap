@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 9999px;
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: #3b82f6;
+    border: 2px solid #1e3a5f;
+    cursor: pointer;
+    box-shadow: 0 0 6px rgba(59, 130, 246, 0.4);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: #3b82f6;
+    border: 2px solid #1e3a5f;
+    cursor: pointer;
+  }
+}
+
+@layer components {
+  .stat-card {
+    @apply bg-gray-800/50 border border-gray-700/60 rounded-xl p-4 transition-colors hover:border-gray-600/60;
+  }
+  .panel {
+    @apply bg-gray-800/40 border border-gray-700/60 rounded-xl;
+  }
+  .pill-btn {
+    @apply px-3 py-1.5 text-xs font-medium rounded-full border transition-all cursor-pointer;
+  }
+  .pill-btn-active {
+    @apply bg-blue-500/20 text-blue-400 border-blue-500/40 shadow-sm shadow-blue-500/10;
+  }
+  .pill-btn-inactive {
+    @apply bg-gray-800/80 text-gray-400 border-gray-700 hover:border-gray-600 hover:text-gray-300;
+  }
+}
