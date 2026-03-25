@@ -11,6 +11,7 @@
 import { readFileSync, readdirSync } from 'fs';
 import { join, basename } from 'path';
 
+/** A single endpoint definition within a connector template. */
 export interface ConnectorTemplateEndpoint {
   name: string;
   description?: string;
@@ -25,8 +26,10 @@ export interface ConnectorTemplateEndpoint {
   retries?: number;
   bodyBlacklist?: string[];
   bodyPattern?: string;
+  upstreamStaticBody?: string;
 }
 
+/** Connector-level configuration (auth, upstream URL, timeouts, etc.). */
 export interface ConnectorTemplateConnector {
   slug: string;
   displayName: string;
@@ -44,6 +47,7 @@ export interface ConnectorTemplateConnector {
   tags?: string[];
 }
 
+/** Top-level connector template loaded from a JSON file in the connectors directory. */
 export interface ConnectorTemplate {
   id: string;
   name: string;
@@ -59,6 +63,7 @@ const CONNECTORS_DIR = __dirname;
 
 let _cache: ConnectorTemplate[] | null = null;
 
+/** Load and cache all connector templates from JSON files in the connectors directory. */
 export function loadConnectorTemplates(): ConnectorTemplate[] {
   if (_cache) return _cache;
 
@@ -93,14 +98,17 @@ export function loadConnectorTemplates(): ConnectorTemplate[] {
   return templates;
 }
 
+/** Find a connector template by its unique id. */
 export function getTemplateById(id: string): ConnectorTemplate | undefined {
   return loadConnectorTemplates().find((t) => t.id === id);
 }
 
+/** Return all connector templates matching a given category. */
 export function getTemplatesByCategory(category: string): ConnectorTemplate[] {
   return loadConnectorTemplates().filter((t) => t.category === category);
 }
 
+/** Invalidate the in-memory template cache so the next load re-reads from disk. */
 export function clearTemplateCache(): void {
   _cache = null;
 }

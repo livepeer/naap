@@ -35,7 +35,7 @@ export function buildUpstreamRequest(
   const method = endpoint.upstreamMethod || endpoint.method;
 
   // ── Headers ──
-  const headers = buildUpstreamHeaders(endpoint, secrets, request);
+  const headers = buildUpstreamHeaders(endpoint, secrets, request, connector.authType);
 
   // ── Body (registry-dispatched) ──
   const bodyStrategy = registry.getBody(endpoint.bodyTransform);
@@ -45,6 +45,12 @@ export function buildUpstreamRequest(
     consumerBodyRaw,
     upstreamStaticBody: endpoint.upstreamStaticBody,
   });
+
+  // Upstream Basic auth must use only connector secrets — never the consumer's
+  // gateway credential (JWT / gw_ API key) or a mistaken headerMapping entry.
+  if (connector.authType === 'basic') {
+    headers.delete('Authorization');
+  }
 
   // ── Auth injection (registry-dispatched, after URL + body are finalized) ──
   const authStrategy = registry.getAuth(connector.authType);
@@ -110,7 +116,8 @@ function buildUpstreamUrl(
 function buildUpstreamHeaders(
   endpoint: ResolvedConfig['endpoint'],
   secrets: ResolvedSecrets,
-  request: Request
+  request: Request,
+  connectorAuthType: ResolvedConfig['connector']['authType'],
 ): Headers {
   const headers = new Headers();
 
@@ -124,6 +131,9 @@ function buildUpstreamHeaders(
   const mapping = endpoint.headerMapping;
   if (mapping && typeof mapping === 'object') {
     for (const [key, value] of Object.entries(mapping)) {
+      if (connectorAuthType === 'basic' && key.toLowerCase() === 'authorization') {
+        continue;
+      }
       headers.set(key, interpolateSecrets(String(value), secrets));
     }
   }

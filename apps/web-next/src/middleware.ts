@@ -18,6 +18,7 @@ const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/intelligent-dashboard': 'intelligentDashboard',
   '/deployments': 'deploymentManager',
   '/lightning-client': 'lightningClient',
+  '/orchestrator-leaderboard': 'orchestratorLeaderboard',
 };
 
 // CSP configuration for plugin pages

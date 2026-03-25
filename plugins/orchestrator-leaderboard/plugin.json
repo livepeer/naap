@@ -1,0 +1,48 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "orchestrator-leaderboard",
+  "displayName": "Orchestrator Leaderboard",
+  "version": "1.0.0",
+  "description": "Real-time ranked leaderboard of orchestrators by latency, stability, and price — with a REST API for external SDKs and an interactive dashboard.",
+  "author": {
+    "name": "NAAP Team",
+    "email": "team@naap.io",
+    "url": "https://naap.io"
+  },
+  "repository": "https://github.com/naap/plugins/tree/main/orchestrator-leaderboard",
+  "license": "MIT",
+  "keywords": ["orchestrator", "leaderboard", "ranking", "sla", "latency", "gpu"],
+  "category": "operations",
+
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+
+  "frontend": {
+    "entry": "./frontend/dist/production/orchestrator-leaderboard.js",
+    "devPort": 3008,
+    "routes": [
+      "/orchestrator-leaderboard",
+      "/orchestrator-leaderboard/*"
+    ],
+    "navigation": {
+      "label": "Orchestrator Leaderboard",
+      "icon": "Trophy",
+      "order": 35,
+      "group": "operations"
+    }
+  },
+
+  "dependencies": ["service-gateway"],
+
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme"],
+    "apis": ["base"],
+    "external": []
+  },
+
+  "config": {
+    "schema": {}
+  }
+}
