@@ -17,4 +17,13 @@ const AgentBookCoreApp: React.FC = () => (
   </MemoryRouter>
 );
 
-export default createPlugin(AgentBookCoreApp);
+const plugin = createPlugin({
+  name: 'agentbook-core',
+  version: '1.0.0',
+  routes: ['/agentbook', '/agentbook/*'],
+  App: AgentBookCoreApp,
+});
+
+export const mount = plugin.mount;
+export const unmount = plugin.unmount;
+export default plugin;
