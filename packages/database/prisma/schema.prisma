@@ -1590,6 +1590,70 @@ model AbRecurringRule {
   @@schema("plugin_agentbook_expense")
 }
 
+model AbBankAccount {
+  id              String   @id @default(uuid())
+  tenantId        String
+  plaidItemId     String?
+  plaidAccountId  String?  @unique
+  name            String
+  officialName    String?
+  type            String                          // checking | savings | credit
+  subtype         String?
+  mask            String?                         // last 4 digits
+  balanceCents    Int      @default(0)
+  currency        String   @default("USD")
+  institution     String?
+  connected       Boolean  @default(true)
+  lastSynced      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  transactions    AbBankTransaction[]
+
+  @@index([tenantId])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbBankTransaction {
+  id                String    @id @default(uuid())
+  tenantId          String
+  bankAccountId     String
+  bankAccount       AbBankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  plaidTransactionId String?  @unique
+  amount            Int                           // cents (positive = debit/outflow, negative = credit/inflow)
+  date              DateTime
+  merchantName      String?
+  name              String                        // transaction name/description
+  category          String?                       // Plaid category
+  pending           Boolean  @default(false)
+  matchedExpenseId  String?                       // matched to AbExpense
+  matchedInvoiceId  String?                       // matched to AbInvoice (for payments)
+  matchStatus       String   @default("pending")  // pending | matched | exception | ignored
+  idempotencyKey    String?  @unique              // prevent duplicate imports
+  createdAt         DateTime @default(now())
+
+  @@index([tenantId, date])
+  @@index([tenantId, matchStatus])
+  @@index([bankAccountId, date])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbStripeWebhookEvent {
+  id              String   @id @default(uuid())
+  tenantId        String
+  stripeEventId   String   @unique               // idempotency
+  eventType       String                          // payment_intent.succeeded, charge.refunded, etc.
+  processed       Boolean  @default(false)
+  payload         Json
+  journalEntryId  String?
+  error           String?
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([stripeEventId])
+  @@schema("plugin_agentbook_expense")
+}
+
 // ============================================
 // PLUGIN: AGENTBOOK INVOICE
 // ============================================
