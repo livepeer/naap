@@ -4,9 +4,10 @@
  * Discovers the live job feed channel from a provider plugin via the
  * event bus, then subscribes to receive real-time job events.
  *
- * Supports two modes:
- * 1. Ably channel (production) — provider returns a channel name
- * 2. Event bus fallback (local/dev) — provider emits events directly
+ * Supports three modes:
+ * 1. HTTP polling — provider returns a fetchUrl; hook polls it at pollInterval
+ * 2. Ably channel (future) — provider returns a channel name
+ * 3. Event bus fallback (local/dev) — provider emits events directly
  *
  * @example
  * ```tsx
@@ -29,16 +30,107 @@ export interface UseJobFeedStreamOptions {
   maxItems?: number;
   /** Timeout for the subscription discovery request in ms (default: 5000). */
   timeout?: number;
-  /** Re-subscribe to the job feed every N ms. Set to 0 or omit to keep a single subscription. */
+  /** Poll the fetchUrl every N ms. Set to 0 or omit to keep a single subscription. */
   pollInterval?: number;
   /** Whether to skip connecting (useful for conditional rendering). */
   skip?: boolean;
+}
+
+/** Mirrors `/api/v1/dashboard/job-feed` JSON; helps explain empty state vs misconfiguration. */
+export interface JobFeedConnectionMeta {
+  clickhouseConfigured: boolean;
+  queryFailed: boolean;
+  /** True when fetch failed or response was not OK */
+  fetchFailed?: boolean;
 }
 
 export interface UseJobFeedStreamResult {
   jobs: JobFeedEntry[];
   connected: boolean;
   error: DashboardError | null;
+  /** Set after the first successful JSON parse from the job-feed API (HTTP polling mode). */
+  feedMeta: JobFeedConnectionMeta | null;
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+interface ActiveStreamRow {
+  id: string;
+  pipeline: string;
+  gateway: string;
+  orchestratorUrl: string;
+  state: string;
+  inputFps: number;
+  outputFps: number;
+  firstSeen: string;
+  lastSeen: string;
+  durationSeconds: number;
+  runningFor: string;
+}
+
+const STATUS_RANK: Record<string, number> = {
+  running: 3,
+  online: 3,
+  degraded_input: 2,
+  degraded_output: 2,
+  degraded: 2,
+  completed: 1,
+  failed: 0,
+  offline: 0,
+  error: 0,
+};
+
+function normalizeJobStatus(rawState: string | undefined): string {
+  const state = rawState?.trim().toLowerCase() ?? '';
+  return state || 'unknown';
+}
+
+function dedupeAndSortJobs(entries: JobFeedEntry[], maxItems: number): JobFeedEntry[] {
+  const byId = new Map<string, JobFeedEntry>();
+  for (const entry of entries) {
+    if (!entry.id) continue;
+    const existing = byId.get(entry.id);
+    if (!existing) {
+      byId.set(entry.id, entry);
+      continue;
+    }
+    const prevTs = existing.lastSeen ?? existing.startedAt ?? '';
+    const nextTs = entry.lastSeen ?? entry.startedAt ?? '';
+    if (nextTs > prevTs) byId.set(entry.id, entry);
+  }
+
+  const sorted = Array.from(byId.values())
+    .filter((entry) => (entry.pipeline ?? '').trim() !== '')
+    .sort((a, b) => {
+      const sa = STATUS_RANK[a.status] ?? -1;
+      const sb = STATUS_RANK[b.status] ?? -1;
+      if (sa !== sb) return sb - sa;
+      const ta = a.lastSeen ?? a.startedAt ?? '';
+      const tb = b.lastSeen ?? b.startedAt ?? '';
+      if (ta === tb) return a.id.localeCompare(b.id);
+      return tb.localeCompare(ta);
+    });
+
+  return sorted.slice(0, maxItems);
+}
+
+function streamToJobFeedEntry(row: ActiveStreamRow): JobFeedEntry {
+  const status = normalizeJobStatus(row.state);
+  return {
+    id: row.id,
+    pipeline: row.pipeline,
+    status,
+    startedAt: row.firstSeen,
+    gateway: row.gateway,
+    orchestratorUrl: row.orchestratorUrl,
+    inputFps: row.inputFps,
+    outputFps: row.outputFps,
+    lastSeen: row.lastSeen,
+    durationSeconds: row.durationSeconds,
+    runningFor: row.runningFor,
+  };
 }
 
 // ============================================================================
@@ -61,6 +153,7 @@ export function useJobFeedStream(
   const [jobs, setJobs] = useState<JobFeedEntry[]>([]);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<DashboardError | null>(null);
+  const [feedMeta, setFeedMeta] = useState<JobFeedConnectionMeta | null>(null);
 
   const mountedRef = useRef(true);
   const jobsRef = useRef<JobFeedEntry[]>([]);
@@ -69,7 +162,6 @@ export function useJobFeedStream(
   const cleanupRef = useRef<(() => void) | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Add a new job to the rolling buffer (deduplicates by id)
   const addJob = useCallback((entry: JobFeedEntry) => {
     if (!mountedRef.current) return;
     const withoutDupe = jobsRef.current.filter((j) => j.id !== entry.id);
@@ -78,17 +170,67 @@ export function useJobFeedStream(
     setJobs(updated);
   }, []);
 
+  const replaceJobs = useCallback((entries: JobFeedEntry[]) => {
+    if (!mountedRef.current) return;
+    const limited = dedupeAndSortJobs(entries, maxItemsRef.current);
+    jobsRef.current = limited;
+    setJobs(limited);
+  }, []);
+
   useEffect(() => {
     if (skip) return;
 
     mountedRef.current = true;
     let eventBusCleanup: (() => void) | null = null;
+    let fetchPollTimer: ReturnType<typeof setInterval> | null = null;
     let retryCount = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
+    async function fetchJobFeed(fetchUrl: string) {
+      try {
+        const res = await fetch(fetchUrl);
+        let body = {} as {
+          streams?: ActiveStreamRow[];
+          clickhouseConfigured?: boolean;
+          queryFailed?: boolean;
+        };
+        try {
+          body = (await res.json()) as typeof body;
+        } catch {
+          /* non-JSON */
+        }
+        if (!mountedRef.current) return;
+
+        if (!res.ok) {
+          console.warn('[useJobFeedStream] job-feed HTTP', res.status, fetchUrl);
+          setFeedMeta({
+            clickhouseConfigured: body.clickhouseConfigured ?? false,
+            queryFailed: true,
+            fetchFailed: true,
+          });
+          return;
+        }
+
+        const entries = (body.streams ?? []).map(streamToJobFeedEntry);
+        replaceJobs(entries);
+        setFeedMeta({
+          clickhouseConfigured: body.clickhouseConfigured ?? true,
+          queryFailed: body.queryFailed ?? false,
+        });
+        setError(null);
+      } catch (e) {
+        console.warn('[useJobFeedStream] job-feed fetch error', e);
+        if (!mountedRef.current) return;
+        setFeedMeta({
+          clickhouseConfigured: false,
+          queryFailed: true,
+          fetchFailed: true,
+        });
+      }
+    }
+
     async function connect(oldCleanup?: (() => void) | null) {
       try {
-        // Discover the channel from the provider plugin
         const channelInfo = await shell.eventBus.request<
           undefined,
           JobFeedSubscribeResponse
@@ -96,55 +238,72 @@ export function useJobFeedStream(
 
         if (!mountedRef.current) return;
 
-        // Success — reset retry counter
         retryCount = 0;
 
-        if (channelInfo.useEventBusFallback || !channelInfo.channelName) {
+        if (channelInfo.fetchUrl && (channelInfo.useEventBusFallback || !channelInfo.channelName)) {
+          // HTTP polling mode — fetch the BFF endpoint at pollInterval
+          void fetchJobFeed(channelInfo.fetchUrl);
+          setConnected(true);
+          setError(null);
+
+          if (pollIntervalMs > 0) {
+            fetchPollTimer = setInterval(() => {
+              if (!mountedRef.current) return;
+              void fetchJobFeed(channelInfo.fetchUrl!);
+            }, pollIntervalMs);
+          }
+
+          // Also listen on the event bus so Ably pushes or manual
+          // emissions still work alongside polling
+          eventBusCleanup = shell.eventBus.on<JobFeedEntry>(
+            DASHBOARD_JOB_FEED_EMIT_EVENT,
+            (entry) => addJob(entry)
+          );
+        } else if (channelInfo.useEventBusFallback || !channelInfo.channelName) {
           // Event bus fallback mode — provider emits events directly
           eventBusCleanup = shell.eventBus.on<JobFeedEntry>(
             DASHBOARD_JOB_FEED_EMIT_EVENT,
-            (entry) => {
-              addJob(entry);
-            }
+            (entry) => addJob(entry)
           );
           setConnected(true);
           setError(null);
+
+          if (pollIntervalMs > 0 && mountedRef.current) {
+            if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+            pollTimerRef.current = setTimeout(() => {
+              pollTimerRef.current = null;
+              if (!mountedRef.current) return;
+              const prev = cleanupRef.current;
+              void connect(prev);
+            }, pollIntervalMs);
+          }
         } else {
           // Ably mode — subscribe to the channel
-          // For now, fall back to event bus if Ably is not wired up at the core level.
           // When Ably integration is connected to the dashboard, this branch
           // will use the AblyRealtimeClient from realtime-context.
           eventBusCleanup = shell.eventBus.on<JobFeedEntry>(
             DASHBOARD_JOB_FEED_EMIT_EVENT,
-            (entry) => {
-              addJob(entry);
-            }
+            (entry) => addJob(entry)
           );
           setConnected(true);
           setError(null);
         }
 
-        cleanupRef.current = eventBusCleanup;
+        cleanupRef.current = () => {
+          eventBusCleanup?.();
+          if (fetchPollTimer) {
+            clearInterval(fetchPollTimer);
+            fetchPollTimer = null;
+          }
+        };
         if (oldCleanup && oldCleanup !== cleanupRef.current) {
           oldCleanup();
-        }
-
-        // When pollInterval is set, re-subscribe periodically to refresh the feed connection
-        if (pollIntervalMs > 0 && mountedRef.current) {
-          if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-          pollTimerRef.current = setTimeout(() => {
-            pollTimerRef.current = null;
-            if (!mountedRef.current) return;
-            const oldCleanup = cleanupRef.current;
-            void connect(oldCleanup);
-          }, pollIntervalMs);
         }
       } catch (err: unknown) {
         if (!mountedRef.current) return;
 
         const code = (err as any)?.code;
         if (code === 'NO_HANDLER') {
-          // Provider plugin may still be loading — schedule a retry
           if (retryCount < NO_PROVIDER_RETRY_DELAYS.length) {
             const delay = NO_PROVIDER_RETRY_DELAYS[retryCount];
             retryCount++;
@@ -154,9 +313,8 @@ export function useJobFeedStream(
             retryTimer = setTimeout(() => {
               if (mountedRef.current) connect();
             }, delay);
-            return; // Don't set error yet — still trying
+            return;
           }
-          // All retries exhausted
           setError({
             type: 'no-provider',
             message: 'No job feed provider is registered',
@@ -188,13 +346,12 @@ export function useJobFeedStream(
         clearTimeout(retryTimer);
         retryTimer = null;
       }
-      const finalCleanup = cleanupRef.current ?? eventBusCleanup;
-      finalCleanup?.();
+      cleanupRef.current?.();
       cleanupRef.current = null;
       eventBusCleanup = null;
       setConnected(false);
     };
-  }, [shell.eventBus, timeout, pollIntervalMs, skip, addJob]);
+  }, [shell.eventBus, timeout, pollIntervalMs, skip, addJob, replaceJobs]);
 
-  return { jobs, connected, error };
+  return { jobs, connected, error, feedMeta };
 }

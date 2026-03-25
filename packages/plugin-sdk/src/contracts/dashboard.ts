@@ -613,15 +613,24 @@ export interface JobFeedSubscribeResponse {
   eventName: string;
   /** Whether this provider uses event bus fallback instead of Ably */
   useEventBusFallback: boolean;
+  /** BFF URL to poll for job feed data (used when useEventBusFallback is true) */
+  fetchUrl?: string | null;
 }
 
 /** Shape of a single job feed entry */
 export interface JobFeedEntry {
   id: string;
   pipeline: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'online' | 'degraded_input' | 'degraded_inference' | 'degraded_output' | 'degraded' | 'completed' | 'failed' | string;
   startedAt: string;
   latencyMs?: number;
+  gateway?: string;
+  orchestratorUrl?: string;
+  inputFps?: number;
+  outputFps?: number;
+  lastSeen?: string;
+  durationSeconds?: number;
+  runningFor?: string;
 }
 
 // ============================================================================
