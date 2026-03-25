@@ -39,7 +39,7 @@ Most plugin backends (capacity-planner, community, developer-api, lightning-clie
 2. **`plugin.json`** — reads `backend.devPort` as fallback
 3. **Hardcoded default** — last resort (e.g., `4010`, `4112`)
 
-**Exceptions:** `deployment-manager` and `service-gateway` skip `plugin.json` and resolve directly from `process.env.PORT` to their hardcoded defaults.
+**Exceptions:** `service-gateway` skips `plugin.json` and resolves directly from `process.env.PORT` to its hardcoded default.
 
 ## Override Points
 
@@ -70,7 +70,6 @@ For **plugin backends**, you can override by setting `PORT` before launch, but i
 | daydream-video | 3111 | 4111 | 4211 |
 | lightning-client | 3112 | 4112 | 4212 |
 | service-gateway | 3116 | 4116 | 4216 |
-| deployment-manager | 3117 | 4117 | 4217 |
 | dashboard-data-provider | 3020 | — | — |
 | hello-world *(deprecated)* | 3020 | — | — |
 | todo-list *(deprecated)* | 3021 | 4021 | 4021 |
@@ -189,6 +188,6 @@ Each API route category has its own Serverless Function config:
 
 ## Notable Gaps
 
-- **`ports.ts` is legacy/optional** — `packages/plugin-sdk/src/config/ports.ts` only covers ~11 plugins and is not the source of truth. Scan all `plugin.json` files for the authoritative port matrix. Newer plugins like `service-gateway`, `lightning-client`, and `deployment-manager` are missing from `ports.ts`.
+- **`ports.ts` is legacy/optional** — `packages/plugin-sdk/src/config/ports.ts` only covers ~11 plugins and is not the source of truth. Scan all `plugin.json` files for the authoritative port matrix. Newer plugins like `service-gateway` and `lightning-client` are missing from `ports.ts`.
 - **No collision detection** — if two plugins declare the same port, you'll get a bind error at runtime.
 - **No per-plugin `start.sh`** — individual plugins don't have their own start scripts; everything goes through the central `bin/start.sh`.
