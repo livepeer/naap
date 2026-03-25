@@ -190,7 +190,13 @@
             "maxLength": 65536,
             "description": "Static body to send to upstream (used with bodyTransform: static)"
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "bodyTransform": { "const": "static" } } },
+            "then": { "required": ["upstreamStaticBody"] }
+          }
+        ]
       }
     },
     "envKey": {

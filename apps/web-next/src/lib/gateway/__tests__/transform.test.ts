@@ -196,13 +196,11 @@ describe('buildUpstreamRequest', () => {
         pass: 'secret',
         apiKey: 'consumer-style-token',
       };
-      const request = new Request('https://example.com', {
-      });
+      const request = new Request('https://example.com');
       const result = buildUpstreamRequest(request, config, secrets, null, '/query');
 
       const expected = `Basic ${Buffer.from('admin:secret').toString('base64')}`;
       expect(result.headers.get('Authorization')).toBe(expected);
-      expect(result.headers.get('Authorization')).not.toContain('gw_not_forwarded');
       expect(result.headers.get('Authorization')).not.toContain('consumer-style-token');
     });
 
