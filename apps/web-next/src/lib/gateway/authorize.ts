@@ -13,6 +13,8 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken, getClientIP } from '@/lib/api/response';
 import { personalScopeId, isPersonalScope } from './scope';
+import { getOrCreateDefaultPlan } from './default-plan';
+import { matchIPAllowlist } from './types';
 import type { AuthResult, TeamContext } from './types';
 
 type RateLimiter = { consume: (key: string, points?: number) => Promise<{ allowed: boolean }> };
@@ -41,6 +43,20 @@ async function getAuthFailLimiter(): Promise<RateLimiter> {
  */
 export async function authorize(request: Request): Promise<AuthResult | null> {
   const authHeader = request.headers.get('authorization') || '';
+
+  // Path 0: Master Key auth (gwm_ prefix)
+  if (authHeader.startsWith('Bearer gwm_')) {
+    const clientIP = getClientIP(request) || 'unknown';
+    const limiter = await getAuthFailLimiter();
+    const rl = await limiter.consume(clientIP, 0);
+    if (!rl.allowed) return null;
+
+    const result = await authorizeMasterKey(authHeader.slice(7), clientIP); // strip "Bearer "
+    if (!result) {
+      await limiter.consume(clientIP);
+    }
+    return result;
+  }
 
   // Path 1: API Key auth (gw_ prefix)
   if (authHeader.startsWith('Bearer gw_')) {
@@ -118,6 +134,53 @@ async function authorizeJwt(token: string, request: Request): Promise<AuthResult
   }
 }
 
+// ── Master Key Auth ──
+
+async function authorizeMasterKey(rawKey: string, clientIP: string): Promise<AuthResult | null> {
+  const keyHash = createHash('sha256').update(rawKey).digest('hex');
+
+  const masterKey = await prisma.gatewayMasterKey.findUnique({
+    where: { keyHash },
+  });
+
+  if (!masterKey) return null;
+  if (masterKey.status !== 'active') return null;
+
+  if (masterKey.expiresAt && masterKey.expiresAt < new Date()) {
+    return null;
+  }
+
+  const scopes = (masterKey.scopes as string[]) || [];
+  const allowedIPs = (masterKey.allowedIPs as string[]) || [];
+
+  if (allowedIPs.length > 0 && !matchIPAllowlist(clientIP, allowedIPs)) {
+    return null;
+  }
+
+  // Update last used (fire-and-forget)
+  prisma.gatewayMasterKey
+    .update({
+      where: { id: masterKey.id },
+      data: { lastUsedAt: new Date() },
+    })
+    .catch(() => {});
+
+  const resolvedTeamId = masterKey.teamId
+    ?? (masterKey.ownerUserId ? personalScopeId(masterKey.ownerUserId) : null);
+
+  if (!resolvedTeamId) return null;
+
+  return {
+    authenticated: true,
+    callerType: 'masterKey',
+    callerId: masterKey.createdBy,
+    teamId: resolvedTeamId,
+    isMasterKey: true,
+    masterKeyScopes: scopes,
+    ...(allowedIPs.length > 0 ? { allowedIPs } : {}),
+  };
+}
+
 // ── API Key Auth ──
 
 async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
@@ -151,6 +214,23 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
 
   if (!resolvedTeamId) return null;
 
+  let rateLimit = apiKey.plan?.rateLimit;
+  let dailyQuota = apiKey.plan?.dailyQuota;
+  let monthlyQuota = apiKey.plan?.monthlyQuota;
+  let maxRequestSize = apiKey.plan?.maxRequestSize;
+
+  if (!apiKey.planId) {
+    try {
+      const defaults = await getOrCreateDefaultPlan(resolvedTeamId);
+      rateLimit = defaults.rateLimit;
+      dailyQuota = defaults.dailyQuota;
+      monthlyQuota = defaults.monthlyQuota;
+      maxRequestSize = defaults.maxRequestSize;
+    } catch {
+      // Fall through — policy.ts hardcoded fallback still applies
+    }
+  }
+
   return {
     authenticated: true,
     callerType: 'apiKey',
@@ -161,10 +241,10 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
     planId: apiKey.planId || undefined,
     allowedEndpoints: apiKey.allowedEndpoints.length > 0 ? apiKey.allowedEndpoints : undefined,
     allowedIPs: apiKey.allowedIPs.length > 0 ? apiKey.allowedIPs : undefined,
-    rateLimit: apiKey.plan?.rateLimit,
-    dailyQuota: apiKey.plan?.dailyQuota,
-    monthlyQuota: apiKey.plan?.monthlyQuota,
-    maxRequestSize: apiKey.plan?.maxRequestSize,
+    rateLimit,
+    dailyQuota,
+    monthlyQuota,
+    maxRequestSize,
   };
 }
 

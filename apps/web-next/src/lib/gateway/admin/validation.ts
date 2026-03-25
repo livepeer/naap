@@ -12,12 +12,17 @@ export const authTypeEnum = z.enum(['none', 'bearer', 'header', 'basic', 'query'
 
 export const visibilityEnum = z.enum(['private', 'team', 'public']);
 
+const RESERVED_SLUGS = [
+  'admin', 'health', 'catalog', 'pricing', 'mcp', 'discovery', 'rankings',
+];
+
 export const createConnectorSchema = z.object({
   slug: z
     .string()
     .min(2)
     .max(64)
-    .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, 'Slug must be lowercase alphanumeric with hyphens'),
+    .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, 'Slug must be lowercase alphanumeric with hyphens')
+    .refine((s) => !RESERVED_SLUGS.includes(s), 'This slug is reserved by the gateway'),
   displayName: z.string().min(1).max(128),
   description: z.string().max(1024).optional(),
   visibility: visibilityEnum.default('private'),
@@ -45,9 +50,15 @@ export const createConnectorSchema = z.object({
   errorMapping: z.record(z.string()).default({}),
   category: z.string().max(32).default(''),
   tags: z.array(z.string().max(32)).default([]),
+  agentDescription: z.string().max(2048).optional(),
+  agentNotFor: z.string().max(1024).optional(),
+  inputSchema: z.record(z.string(), z.unknown()).optional(),
+  outputSchema: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const updateConnectorSchema = createConnectorSchema.partial().omit({ slug: true });
+export const updateConnectorSchema = createConnectorSchema.partial().omit({ slug: true }).extend({
+  status: z.enum(['draft', 'published', 'archived']).optional(),
+});
 
 // ── Endpoint Schemas ──
 
@@ -79,8 +90,13 @@ export const createEndpointSchema = z.object({
   retries: z.number().int().min(0).max(5).default(0),
   bodyPattern: z.string().max(1024).optional(),
   bodyBlacklist: z.array(z.string().max(128)).default([]),
-  bodySchema: z.record(z.unknown()).optional(),
+  bodySchema: z.record(z.string(), z.unknown()).optional(),
   requiredHeaders: z.array(z.string().max(128)).default([]),
+  examples: z.array(z.object({
+    description: z.string().max(256),
+    input: z.record(z.string(), z.unknown()),
+    output: z.record(z.string(), z.unknown()),
+  })).max(5).optional(),
 });
 
 export const updateEndpointSchema = createEndpointSchema.partial();

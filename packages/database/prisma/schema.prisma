@@ -1647,6 +1647,12 @@ model ServiceConnector {
   streamingEnabled  Boolean  @default(false)         // SSE passthrough
   errorMapping      Json     @default("{}")          // status code → message mapping
 
+  // ── Agent Metadata ──
+  agentDescription    String?
+  agentNotFor         String?
+  inputSchema         Json?
+  outputSchema        Json?
+
   // ── Meta ──
   category          String   @default("")
   tags              String[]
@@ -1659,6 +1665,9 @@ model ServiceConnector {
   endpoints         ConnectorEndpoint[]
   apiKeys           GatewayApiKey[]
   healthChecks      GatewayHealthCheck[]
+  pricing           ConnectorPricing?
+  metrics           ConnectorMetrics[]
+  rankings          ConnectorCapabilityRanking[]
 
   @@unique([teamId, slug])
   @@unique([ownerUserId, slug])
@@ -1704,6 +1713,7 @@ model ConnectorEndpoint {
   bodyBlacklist       String[]                        // keywords that must not appear in body
   bodySchema          Json?                           // JSON Schema for body validation
   requiredHeaders     String[]
+  examples            Json?                           // example request/response pairs for agents
 
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -1838,5 +1848,117 @@ model GatewayHealthCheck {
   checkedAt     DateTime @default(now())
 
   @@index([connectorId, checkedAt])
+  @@schema("plugin_service_gateway")
+}
+
+/// Connector pricing — per-unit cost, volume tiers, feature pricing.
+model ConnectorPricing {
+  id                    String   @id @default(uuid())
+  connectorId           String   @unique
+  connector             ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  upstreamCostPerUnit   Float?
+  upstreamUnit          String?
+  upstreamNotes         String?
+
+  costPerUnit           Float    @default(0)
+  unit                  String   @default("request")
+  currency              String   @default("USD")
+
+  volumeTiers           Json     @default("[]")
+  featurePricing        Json     @default("[]")
+
+  freeQuota             Int?
+  billingModel          String   @default("per-unit")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  updatedBy             String
+
+  @@schema("plugin_service_gateway")
+}
+
+/// Master API key — grants access to all connectors in scope.
+/// Key material is never stored; only SHA-256 hash.
+model GatewayMasterKey {
+  id              String    @id @default(uuid())
+  teamId          String?
+  ownerUserId     String?
+  name            String
+  keyHash         String    @unique
+  keyPrefix       String
+  status          String    @default("active")
+  scopes          String[]  @default(["proxy"])
+  allowedIPs      String[]
+  expiresAt       DateTime?
+  lastUsedAt      DateTime?
+  createdBy       String
+  createdAt       DateTime  @default(now())
+  revokedAt       DateTime?
+
+  @@index([keyHash])
+  @@index([teamId, status])
+  @@index([ownerUserId, status])
+  @@schema("plugin_service_gateway")
+}
+
+/// Rolling aggregated performance metrics per connector, computed by cron job.
+model ConnectorMetrics {
+  id                    String   @id @default(uuid())
+  connectorId           String
+  connector             ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  period                String   @default("daily")
+  periodStart           DateTime
+
+  totalRequests         Int      @default(0)
+  errorCount            Int      @default(0)
+  errorRate             Float    @default(0)
+  successRate           Float    @default(1)
+
+  latencyMeanMs         Float    @default(0)
+  latencyP50Ms          Float    @default(0)
+  latencyP95Ms          Float    @default(0)
+  latencyP99Ms          Float    @default(0)
+  upstreamLatencyMeanMs Float    @default(0)
+  gatewayOverheadMs     Float    @default(0)
+
+  availabilityPercent   Float    @default(100)
+  healthCheckCount      Int      @default(0)
+  healthChecksPassed    Int      @default(0)
+
+  throughputRpm         Float    @default(0)
+
+  computedAt            DateTime @default(now())
+
+  @@unique([connectorId, period, periodStart])
+  @@schema("plugin_service_gateway")
+}
+
+/// Admin-curated quality rankings per category for agent tool selection.
+model ConnectorCapabilityRanking {
+  id                    String   @id @default(uuid())
+  connectorId           String
+  connector             ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  category              String
+  modelName             String?
+  qualityRank           Int
+  qualityScore          Float?
+  speedRank             Int?
+  costEfficiencyRank    Int?
+  totalRanked           Int      @default(0)
+
+  benchmarkSource       String?
+  benchmarkScore        Float?
+  benchmarkUrl          String?
+  notes                 String?
+  capabilityTags        String[] @default([])
+
+  createdAt             DateTime @default(now())
+  lastRankedAt          DateTime @default(now())
+  rankedBy              String
+
+  @@unique([connectorId, category, modelName])
+  @@index([category, qualityRank])
   @@schema("plugin_service_gateway")
 }

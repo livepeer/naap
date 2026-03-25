@@ -1,11 +1,11 @@
 /**
  * ConnectorDetailPage — View and manage a single connector.
- * Tabs: Overview (docs + code snippets), API Keys, Usage, Settings
+ * Tabs: Overview, API Spec, API Keys, Play, Usage, Pricing, Performance, Settings, Agent
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { getSafeErrorMessage } from '@naap/plugin-sdk';
+import { getSafeErrorMessage, useTeam } from '@naap/plugin-sdk';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
 import { QuickStart } from '../components/QuickStart';
 import { HealthDot } from '../components/HealthDot';
@@ -50,9 +50,10 @@ interface ApiKey {
   status: string;
   lastUsedAt: string | null;
   createdAt: string;
+  plan?: { id: string; name: string; displayName: string } | null;
 }
 
-const TABS = ['Overview', 'API Spec', 'API Keys', 'Play', 'Usage', 'Settings'] as const;
+const TABS = ['Overview', 'API Spec', 'API Keys', 'Play', 'Usage', 'Pricing', 'Performance', 'Settings', 'Agent'] as const;
 type Tab = (typeof TABS)[number];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -68,13 +69,17 @@ export const ConnectorDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const api = useGatewayApi();
+  const teamContext = useTeam();
+  const teamId = teamContext?.currentTeam?.id;
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
   const navWarnings = (location.state as { warnings?: string[] } | null)?.warnings;
   const { data: connectorRes, loading, execute: loadConnector } = useAsync<{ success: boolean; data: Connector }>();
   const { data: keysRes, execute: loadKeys } = useAsync<{ success: boolean; data: ApiKey[] }>();
   const [newKeyName, setNewKeyName] = useState('');
+  const [newKeyPlanId, setNewKeyPlanId] = useState('');
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [keyCreating, setKeyCreating] = useState(false);
+  const [plans, setPlans] = useState<Array<{ id: string; name: string; displayName: string }>>([]);
   const [openApiSpec, setOpenApiSpec] = useState<Record<string, unknown> | null>(null);
   const [specLoading, setSpecLoading] = useState(false);
   const [specCopied, setSpecCopied] = useState(false);
@@ -106,10 +111,13 @@ export const ConnectorDetailPage: React.FC = () => {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; latencyMs?: number; error?: string; healthStatus?: string } | null>(null);
 
-  // Publish / archive action state
+  // Publish / archive / recover / purge action state
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [purging, setPurging] = useState(false);
+  const [confirmPurge, setConfirmPurge] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Play tab state
@@ -158,6 +166,13 @@ export const ConnectorDetailPage: React.FC = () => {
     fetchConnector();
     fetchKeys();
   }, [fetchConnector, fetchKeys]);
+
+  useEffect(() => {
+    if (activeTab !== 'API Keys') return;
+    api.get<{ success: boolean; data: Array<{ id: string; name: string; displayName: string }> }>('/plans')
+      .then((res) => setPlans(res.data || []))
+      .catch(() => {});
+  }, [activeTab, api]);
 
   useEffect(() => {
     if (activeTab !== 'API Spec' || !id || openApiSpec) return;
@@ -228,10 +243,12 @@ export const ConnectorDetailPage: React.FC = () => {
       const res = await api.post<{ success: boolean; data: { rawKey: string } }>('/keys', {
         name: newKeyName,
         connectorId: id,
+        ...(newKeyPlanId ? { planId: newKeyPlanId } : {}),
       });
       if (res.success) {
         setCreatedKey(res.data.rawKey);
         setNewKeyName('');
+        setNewKeyPlanId('');
         fetchKeys();
       }
     } finally {
@@ -271,6 +288,35 @@ export const ConnectorDetailPage: React.FC = () => {
     }
   };
 
+  const handleRecover = async () => {
+    if (!id || recovering) return;
+    setRecovering(true);
+    setActionError(null);
+    try {
+      await api.put(`/connectors/${id}`, { status: 'draft' });
+      const { get: apiGet } = api;
+      loadConnector(() => apiGet(`/connectors/${id}`));
+    } catch (err: unknown) {
+      setActionError(getSafeErrorMessage(err));
+    } finally {
+      setRecovering(false);
+    }
+  };
+
+  const handlePurge = async () => {
+    if (!id || purging) return;
+    setPurging(true);
+    setActionError(null);
+    try {
+      await api.del(`/connectors/${id}?purge=true`);
+      navigate('/');
+    } catch (err: unknown) {
+      setActionError(getSafeErrorMessage(err));
+      setPurging(false);
+      setConfirmPurge(false);
+    }
+  };
+
   const handlePlaySend = async () => {
     if (!connector || playSending) return;
     const ep = connector.endpoints[playEndpointIdx];
@@ -287,7 +333,8 @@ export const ConnectorDetailPage: React.FC = () => {
     const url = `${window.location.origin}/api/v1/gw/${connector.slug}${resolvedPath}`;
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (playApiKey) headers['x-api-key'] = playApiKey;
+    if (playApiKey) headers['Authorization'] = `Bearer ${playApiKey}`;
+    if (!playApiKey && teamId) headers['x-team-id'] = teamId;
     if (playHeaders.trim()) {
       for (const line of playHeaders.split('\n')) {
         const idx = line.indexOf(':');
@@ -299,7 +346,7 @@ export const ConnectorDetailPage: React.FC = () => {
 
     const start = performance.now();
     try {
-      const fetchOpts: RequestInit = { method: ep.method, headers };
+      const fetchOpts: RequestInit = { method: ep.method, headers, credentials: 'include' };
       if (ep.method !== 'GET' && ep.method !== 'DELETE' && playBody.trim()) {
         fetchOpts.body = playBody;
       }
@@ -406,19 +453,59 @@ export const ConnectorDetailPage: React.FC = () => {
                 ) : 'Publish'}
               </button>
             )}
-            <button
-              onClick={() => navigate(`/connectors/${id}/edit`)}
-              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm rounded-lg"
-            >
-              Edit
-            </button>
-            <button
-              onClick={handleArchive}
-              disabled={archiving}
-              className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm rounded-lg disabled:opacity-50"
-            >
-              {archiving ? 'Archiving...' : 'Archive'}
-            </button>
+            {connector.status === 'archived' && (
+              <>
+                <button
+                  onClick={handleRecover}
+                  disabled={recovering}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+                >
+                  {recovering ? 'Recovering...' : 'Recover to Draft'}
+                </button>
+                {!confirmPurge ? (
+                  <button
+                    onClick={() => setConfirmPurge(true)}
+                    className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm rounded-lg"
+                  >
+                    Purge
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-red-400 text-xs">Permanently delete?</span>
+                    <button
+                      onClick={handlePurge}
+                      disabled={purging}
+                      className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+                    >
+                      {purging ? 'Purging...' : 'Confirm Purge'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmPurge(false)}
+                      className="px-3 py-1.5 text-gray-400 hover:text-gray-200 text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+            {connector.status !== 'archived' && (
+              <>
+                <button
+                  onClick={() => navigate(`/connectors/${id}/edit`)}
+                  className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm rounded-lg"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={handleArchive}
+                  disabled={archiving}
+                  className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm rounded-lg disabled:opacity-50"
+                >
+                  {archiving ? 'Archiving...' : 'Archive'}
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -437,12 +524,14 @@ export const ConnectorDetailPage: React.FC = () => {
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 border-b border-gray-700 mb-6">
+        <div className="flex gap-1 border-b border-gray-700 mb-6 overflow-x-auto" role="tablist" aria-label="Connector details">
           {TABS.map((tab) => (
             <button
               key={tab}
+              role="tab"
+              aria-selected={activeTab === tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab
                   ? 'border-blue-500 text-blue-400'
                   : 'border-transparent text-gray-400 hover:text-gray-200'
@@ -654,14 +743,30 @@ export const ConnectorDetailPage: React.FC = () => {
         {activeTab === 'API Keys' && (
           <div className="space-y-4">
             {/* Create Key */}
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={newKeyName}
-                onChange={(e) => setNewKeyName(e.target.value)}
-                placeholder="Key name (e.g., mobile-app)"
-                className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm"
-              />
+            <div className="flex gap-3 items-end">
+              <div className="flex-1 space-y-1">
+                <label className="block text-xs text-gray-400">Key Name</label>
+                <input
+                  type="text"
+                  value={newKeyName}
+                  onChange={(e) => setNewKeyName(e.target.value)}
+                  placeholder="e.g., mobile-app"
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm"
+                />
+              </div>
+              <div className="w-48 space-y-1">
+                <label className="block text-xs text-gray-400">Plan</label>
+                <select
+                  value={newKeyPlanId}
+                  onChange={(e) => setNewKeyPlanId(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm"
+                >
+                  <option value="">No plan (unlimited)</option>
+                  {plans.map((p) => (
+                    <option key={p.id} value={p.id}>{p.displayName}</option>
+                  ))}
+                </select>
+              </div>
               <button
                 onClick={handleCreateKey}
                 disabled={!newKeyName || keyCreating}
@@ -696,6 +801,7 @@ export const ConnectorDetailPage: React.FC = () => {
                   <tr className="border-b border-gray-700">
                     <th className="px-4 py-2 text-left text-gray-400 font-medium">Name</th>
                     <th className="px-4 py-2 text-left text-gray-400 font-medium">Key</th>
+                    <th className="px-4 py-2 text-left text-gray-400 font-medium">Plan</th>
                     <th className="px-4 py-2 text-left text-gray-400 font-medium">Status</th>
                     <th className="px-4 py-2 text-left text-gray-400 font-medium">Last Used</th>
                     <th className="px-4 py-2 text-right text-gray-400 font-medium">Actions</th>
@@ -704,7 +810,7 @@ export const ConnectorDetailPage: React.FC = () => {
                 <tbody>
                   {keys.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-gray-500 text-sm">
+                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500 text-sm">
                         No API keys yet. Create one above.
                       </td>
                     </tr>
@@ -713,6 +819,7 @@ export const ConnectorDetailPage: React.FC = () => {
                     <tr key={key.id} className="border-b border-gray-700/50">
                       <td className="px-4 py-2 text-gray-200">{key.name}</td>
                       <td className="px-4 py-2 font-mono text-gray-400 text-xs">{key.keyPrefix}...</td>
+                      <td className="px-4 py-2 text-gray-300 text-xs">{key.plan?.displayName || <span className="text-gray-500 italic">Default</span>}</td>
                       <td className="px-4 py-2">
                         <span className={`px-2 py-0.5 text-xs rounded ${STATUS_COLORS[key.status]}`}>{key.status}</span>
                       </td>
@@ -782,9 +889,10 @@ export const ConnectorDetailPage: React.FC = () => {
                       type="text"
                       value={playApiKey}
                       onChange={(e) => setPlayApiKey(e.target.value)}
-                      placeholder="Paste your API key here"
+                      placeholder="Optional — uses your session if blank"
                       className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm font-mono"
                     />
+                    <p className="text-[11px] text-gray-500 mt-1">Leave blank to authenticate with your current session, or paste a gw_ API key.</p>
                   </div>
                 </div>
 
@@ -1069,6 +1177,16 @@ export const ConnectorDetailPage: React.FC = () => {
           </div>
         )}
 
+        {/* Tab: Performance */}
+        {activeTab === 'Performance' && (
+          <PerformanceTab connectorSlug={connector.slug} teamId={teamId} />
+        )}
+
+        {/* Tab: Pricing */}
+        {activeTab === 'Pricing' && (
+          <PricingTab connectorId={id!} api={api} />
+        )}
+
         {/* Tab: Settings */}
         {activeTab === 'Settings' && (
           <div className="space-y-4">
@@ -1185,6 +1303,319 @@ export const ConnectorDetailPage: React.FC = () => {
             )}
           </div>
         )}
+
+        {/* Tab: Agent */}
+        {activeTab === 'Agent' && (
+          <AgentMetadataSection connectorId={id!} api={api} />
+        )}
       </div>
   );
 };
+
+// ── Performance Tab Component ──
+
+interface PerformanceMetrics {
+  errorRate: number;
+  successRate: number;
+  latencyMeanMs: number;
+  latencyP50Ms: number;
+  latencyP95Ms: number;
+  latencyP99Ms: number;
+  upstreamLatencyMeanMs: number;
+  gatewayOverheadMs: number;
+  availabilityPercent: number;
+  throughputRpm: number;
+  sampleSize: number;
+}
+
+function PerformanceTab({ connectorSlug, teamId }: { connectorSlug: string; teamId?: string }) {
+  const [metrics, setMetrics] = useState<PerformanceMetrics | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [timeWindow, setTimeWindow] = useState<'1h' | '24h' | '7d'>('24h');
+
+  useEffect(() => {
+    setLoaded(false);
+    const headers: Record<string, string> = {};
+    if (teamId) headers['x-team-id'] = teamId;
+    fetch(`/api/v1/gw/catalog/${connectorSlug}/metrics?window=${timeWindow}`, {
+      credentials: 'include',
+      headers,
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        setMetrics(data.metrics || null);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, [connectorSlug, timeWindow, teamId]);
+
+  if (!loaded) return <div className="text-gray-500 text-sm">Loading performance data...</div>;
+
+  if (!metrics) {
+    return (
+      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-8 text-center">
+        <p className="text-gray-400 text-sm">No performance data available yet.</p>
+        <p className="text-gray-500 text-xs mt-1">Metrics are computed hourly from real usage data.</p>
+      </div>
+    );
+  }
+
+  const statCard = (label: string, value: string | number, sub?: string) => (
+    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+      <div className="text-xs text-gray-400 mb-1">{label}</div>
+      <div className="text-xl font-bold text-gray-100">{value}</div>
+      {sub && <div className="text-xs text-gray-500 mt-0.5">{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        {(['1h', '24h', '7d'] as const).map((w) => (
+          <button
+            key={w}
+            onClick={() => setTimeWindow(w)}
+            className={`px-3 py-1.5 text-xs rounded-lg ${timeWindow === w ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+          >
+            {w}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-4 gap-3">
+        {statCard('Error Rate', `${(metrics.errorRate * 100).toFixed(2)}%`, `${metrics.sampleSize} requests`)}
+        {statCard('Availability', `${metrics.availabilityPercent.toFixed(1)}%`)}
+        {statCard('Latency (Mean)', `${Math.round(metrics.latencyMeanMs)}ms`)}
+        {statCard('Throughput', `${metrics.throughputRpm.toFixed(0)} rpm`)}
+      </div>
+      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-300">Latency Distribution</h3>
+        <div className="grid grid-cols-4 gap-4 text-sm">
+          <div>
+            <span className="text-gray-400 text-xs">P50</span>
+            <div className="text-gray-200 font-mono">{Math.round(metrics.latencyP50Ms)}ms</div>
+          </div>
+          <div>
+            <span className="text-gray-400 text-xs">P95</span>
+            <div className="text-gray-200 font-mono">{Math.round(metrics.latencyP95Ms)}ms</div>
+          </div>
+          <div>
+            <span className="text-gray-400 text-xs">P99</span>
+            <div className="text-gray-200 font-mono">{Math.round(metrics.latencyP99Ms)}ms</div>
+          </div>
+          <div>
+            <span className="text-gray-400 text-xs">Gateway Overhead</span>
+            <div className="text-gray-200 font-mono">{Math.round(metrics.gatewayOverheadMs)}ms</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Pricing Tab Component ──
+
+interface PricingFormData {
+  upstreamCostPerUnit: string;
+  upstreamUnit: string;
+  upstreamNotes: string;
+  costPerUnit: string;
+  unit: string;
+  currency: string;
+  billingModel: string;
+  freeQuota: string;
+}
+
+const UNIT_OPTIONS = ['request', 'token', '1k-tokens', 'second', 'minute', 'MB', 'GB', 'image', 'custom'];
+
+function PricingTab({ connectorId, api }: { connectorId: string; api: ReturnType<typeof useGatewayApi> }) {
+  const [form, setForm] = useState<PricingFormData>({
+    upstreamCostPerUnit: '', upstreamUnit: '', upstreamNotes: '',
+    costPerUnit: '0', unit: 'request', currency: 'USD', billingModel: 'per-unit', freeQuota: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    api.get(`/connectors/${connectorId}/pricing`).then((res: { success: boolean; data: Record<string, unknown> | null }) => {
+      if (res.data) {
+        const p = res.data;
+        setForm({
+          upstreamCostPerUnit: p.upstreamCostPerUnit != null ? String(p.upstreamCostPerUnit) : '',
+          upstreamUnit: (p.upstreamUnit as string) || '',
+          upstreamNotes: (p.upstreamNotes as string) || '',
+          costPerUnit: String(p.costPerUnit ?? 0),
+          unit: (p.unit as string) || 'request',
+          currency: (p.currency as string) || 'USD',
+          billingModel: (p.billingModel as string) || 'per-unit',
+          freeQuota: p.freeQuota != null ? String(p.freeQuota) : '',
+        });
+      }
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, [api, connectorId]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/connectors/${connectorId}/pricing`, {
+        upstreamCostPerUnit: form.upstreamCostPerUnit ? parseFloat(form.upstreamCostPerUnit) : undefined,
+        upstreamUnit: form.upstreamUnit || undefined,
+        upstreamNotes: form.upstreamNotes || undefined,
+        costPerUnit: parseFloat(form.costPerUnit) || 0,
+        unit: form.unit,
+        currency: form.currency,
+        billingModel: form.billingModel,
+        freeQuota: form.freeQuota ? parseInt(form.freeQuota) : undefined,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!loaded) return <div className="text-gray-500 text-sm">Loading pricing...</div>;
+
+  const inputClass = 'px-3 py-1.5 bg-gray-900 border border-gray-600 rounded text-gray-200 text-sm';
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-300">Upstream Cost</h3>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Cost Per Unit</label>
+            <input type="number" step="any" value={form.upstreamCostPerUnit} onChange={(e) => setForm({ ...form, upstreamCostPerUnit: e.target.value })} className={inputClass + ' w-full'} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Unit</label>
+            <select value={form.upstreamUnit} onChange={(e) => setForm({ ...form, upstreamUnit: e.target.value })} className={inputClass + ' w-full'}>
+              <option value="">Select...</option>
+              {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Notes</label>
+            <input type="text" value={form.upstreamNotes} onChange={(e) => setForm({ ...form, upstreamNotes: e.target.value })} className={inputClass + ' w-full'} />
+          </div>
+        </div>
+      </div>
+      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-300">Connector Pricing</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Cost Per Unit</label>
+            <input type="number" step="any" value={form.costPerUnit} onChange={(e) => setForm({ ...form, costPerUnit: e.target.value })} className={inputClass + ' w-full'} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Unit</label>
+            <select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className={inputClass + ' w-full'}>
+              {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Currency</label>
+            <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className={inputClass + ' w-full'}>
+              <option value="USD">USD</option>
+              <option value="EUR">EUR</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Billing Model</label>
+            <select value={form.billingModel} onChange={(e) => setForm({ ...form, billingModel: e.target.value })} className={inputClass + ' w-full'}>
+              <option value="free">Free</option>
+              <option value="per-unit">Per Unit</option>
+              <option value="flat">Flat</option>
+              <option value="tiered">Tiered</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Free Quota</label>
+            <input type="number" value={form.freeQuota} onChange={(e) => setForm({ ...form, freeQuota: e.target.value })} className={inputClass + ' w-full'} placeholder="Unlimited" />
+          </div>
+        </div>
+      </div>
+      <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">
+        {saving ? 'Saving...' : 'Save Pricing'}
+      </button>
+    </div>
+  );
+}
+
+// ── Agent Metadata Section ──
+
+function AgentMetadataSection({ connectorId, api }: { connectorId: string; api: ReturnType<typeof useGatewayApi> }) {
+  const [agentDescription, setAgentDescription] = useState('');
+  const [agentNotFor, setAgentNotFor] = useState('');
+  const [inputSchemaStr, setInputSchemaStr] = useState('');
+  const [outputSchemaStr, setOutputSchemaStr] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    api.get(`/connectors/${connectorId}`).then((res: { success: boolean; data?: Record<string, unknown> }) => {
+      const d = res.data ?? {};
+      setAgentDescription((d.agentDescription as string) || '');
+      setAgentNotFor((d.agentNotFor as string) || '');
+      setInputSchemaStr(d.inputSchema ? JSON.stringify(d.inputSchema, null, 2) : '');
+      setOutputSchemaStr(d.outputSchema ? JSON.stringify(d.outputSchema, null, 2) : '');
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, [api, connectorId]);
+
+  const [metaError, setMetaError] = useState('');
+
+  const handleSave = async () => {
+    setMetaError('');
+    let inputSchema: unknown = undefined;
+    let outputSchema: unknown = undefined;
+    if (inputSchemaStr.trim()) {
+      try { inputSchema = JSON.parse(inputSchemaStr); } catch { setMetaError('Input Schema is not valid JSON'); return; }
+    }
+    if (outputSchemaStr.trim()) {
+      try { outputSchema = JSON.parse(outputSchemaStr); } catch { setMetaError('Output Schema is not valid JSON'); return; }
+    }
+    setSaving(true);
+    try {
+      await api.put(`/connectors/${connectorId}`, {
+        agentDescription: agentDescription || undefined,
+        agentNotFor: agentNotFor || undefined,
+        inputSchema,
+        outputSchema,
+      });
+    } catch {
+      setMetaError('Failed to save agent metadata');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!loaded) return <div className="text-gray-500 text-sm">Loading agent metadata...</div>;
+
+  const inputClass = 'w-full px-3 py-1.5 bg-gray-900 border border-gray-600 rounded text-gray-200 text-sm';
+
+  return (
+    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
+      <h3 className="text-sm font-semibold text-gray-300">Agent Metadata</h3>
+      <p className="text-xs text-gray-500">Provide metadata to help AI agents understand and use this connector.</p>
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Agent Description</label>
+        <textarea value={agentDescription} onChange={(e) => setAgentDescription(e.target.value)} rows={2} className={inputClass} placeholder="Describe what this tool does for an AI agent..." />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Not For (what the tool should NOT be used for)</label>
+        <textarea value={agentNotFor} onChange={(e) => setAgentNotFor(e.target.value)} rows={2} className={inputClass} placeholder="e.g. Not for web browsing or file system access" />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Input Schema (JSON)</label>
+        <textarea value={inputSchemaStr} onChange={(e) => setInputSchemaStr(e.target.value)} rows={4} className={inputClass + ' font-mono text-xs'} placeholder='{"type":"object","properties":{...}}' />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Output Schema (JSON)</label>
+        <textarea value={outputSchemaStr} onChange={(e) => setOutputSchemaStr(e.target.value)} rows={4} className={inputClass + ' font-mono text-xs'} placeholder='{"type":"object","properties":{...}}' />
+      </div>
+      {metaError && <p className="text-red-400 text-xs">{metaError}</p>}
+      <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">
+        {saving ? 'Saving...' : 'Save Agent Metadata'}
+      </button>
+    </div>
+  );
+}

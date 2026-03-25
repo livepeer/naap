@@ -1,13 +1,13 @@
 /**
- * ConnectorWizardPage — 4-step wizard for creating a connector.
- * Step 0: Choose Template (multi-select from JSON templates, or skip)
+ * ConnectorWizardPage — 4-step wizard for creating or editing a connector.
+ * Step 0: Choose Template (single-select, or skip) — skipped in edit mode
  * Step 1: Connect (URL, auth, secrets)
  * Step 2: Endpoints (add routes)
  * Step 3: Review & Publish
  */
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getSafeErrorMessage } from '@naap/plugin-sdk';
 import { useGatewayApi, useAsync } from '../hooks/useGatewayApi';
 import { SecretField } from '../components/SecretField';
@@ -76,34 +76,21 @@ interface TemplatesResponse {
   data: TemplateSummary[];
 }
 
-interface BatchCreateResponse {
-  success: boolean;
-  data: {
-    created: number;
-    failed: number;
-    results: Array<{
-      templateId: string;
-      name: string;
-      connectorId?: string;
-      slug?: string;
-      error?: string;
-    }>;
-    message: string;
-  };
-}
 
 export const ConnectorWizardPage: React.FC = () => {
   const navigate = useNavigate();
+  const { id: editId } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const preselectedTemplate = searchParams.get('template');
   const api = useGatewayApi();
   const { data: templatesData, loading: templatesLoading, execute: loadTemplates } = useAsync<TemplatesResponse>();
 
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(editId ? 1 : 0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [batchError, setBatchError] = useState<string | null>(null);
 
-  // Step 0: Template selection
-  const [selectedTemplateIds, setSelectedTemplateIds] = useState<Set<string>>(new Set());
+  // Step 0: Template selection (single select)
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('');
 
   // Step 1: Connect
@@ -125,9 +112,61 @@ export const ConnectorWizardPage: React.FC = () => {
 
   const { get: apiGet } = api;
   useEffect(() => {
-    loadTemplates(() => apiGet('/templates'));
+    if (!editId) {
+      loadTemplates(() => apiGet('/templates'));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [editId]);
+
+  // Load existing connector for edit mode
+  useEffect(() => {
+    if (!editId) return;
+    (async () => {
+      try {
+        const res = await apiGet(`/connectors/${editId}`) as { success?: boolean; data?: Record<string, unknown> };
+        if (res?.success && res.data) {
+          const c = res.data as Record<string, unknown>;
+          setSlug((c.slug as string) || '');
+          setDisplayName((c.displayName as string) || '');
+          setDescription((c.description as string) || '');
+          setUpstreamBaseUrl((c.upstreamBaseUrl as string) || '');
+          setVisibility((c.visibility as string) || 'private');
+          setAuthType((c.authType as string) || 'none');
+          setHealthCheckPath((c.healthCheckPath as string) || '');
+          setStreamingEnabled(!!c.streamingEnabled);
+          setSecretRefs((c.secretRefs as string[]) || []);
+          const eps = c.endpoints as Array<Record<string, string>> | undefined;
+          if (eps && eps.length > 0) {
+            setEndpoints(
+              eps.map((ep: Record<string, string>) => ({
+                name: ep.name || '',
+                method: ep.method || 'GET',
+                path: ep.path || '/',
+                upstreamPath: ep.upstreamPath || '/',
+                upstreamContentType: ep.upstreamContentType || 'application/json',
+                bodyTransform: ep.bodyTransform || 'passthrough',
+              })),
+            );
+          }
+        }
+      } catch {
+        setSaveError('Failed to load connector for editing');
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId]);
+
+  // Auto-select template from query param and skip to step 1
+  useEffect(() => {
+    if (!preselectedTemplate || !templatesData?.data) return;
+    const t = templatesData.data.find((tpl) => tpl.id === preselectedTemplate);
+    if (t) {
+      applyTemplateToWizard(t);
+      setSelectedTemplateId(t.id);
+      setStep(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselectedTemplate, templatesData]);
 
   useEffect(() => {
     setTestResult(null);
@@ -148,13 +187,8 @@ export const ConnectorWizardPage: React.FC = () => {
     return counts;
   }, [templates]);
 
-  const toggleTemplate = (id: string) => {
-    setSelectedTemplateIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const selectTemplate = (id: string) => {
+    setSelectedTemplateId((prev) => (prev === id ? null : id));
   };
 
   const applyTemplateToWizard = (t: TemplateSummary) => {
@@ -198,10 +232,10 @@ export const ConnectorWizardPage: React.FC = () => {
 
   const handleAuthTypeChange = useCallback((newAuthType: string) => {
     setAuthType(newAuthType);
-    if (selectedTemplateIds.size === 0) {
+    if (!selectedTemplateId) {
       setSecretRefs(DEFAULT_SECRET_REFS[newAuthType] || []);
     }
-  }, [selectedTemplateIds]);
+  }, [selectedTemplateId]);
 
   const handleSecretChange = useCallback((name: string, value: string) => {
     setSecrets((prev) => ({ ...prev, [name]: value }));
@@ -233,49 +267,39 @@ export const ConnectorWizardPage: React.FC = () => {
     return true;
   };
 
-  const handleBatchCreate = async () => {
-    setSaving(true);
-    setBatchError(null);
-    try {
-      const res = await api.post<BatchCreateResponse>('/templates', {
-        templateIds: Array.from(selectedTemplateIds),
-      });
-      if (res.success) {
-        const data = (res as unknown as BatchCreateResponse).data;
-        if (data.failed > 0) {
-          const errs = data.results.filter((r) => r.error).map((r) => `${r.name}: ${r.error}`);
-          setBatchError(errs.join('; '));
-        }
-        if (data.created > 0) {
-          navigate('/');
-        }
-      }
-    } catch (err) {
-      setBatchError(getSafeErrorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleSave = async (publish: boolean) => {
     setSaving(true);
     setSaveError(null);
     const warnings: string[] = [];
     try {
-      const connRes = await api.post<{ success: boolean; data: { id: string } }>('/connectors', {
-        slug,
-        displayName,
-        description,
-        visibility,
-        upstreamBaseUrl,
-        authType,
-        healthCheckPath: healthCheckPath || undefined,
-        streamingEnabled,
-        secretRefs,
-      });
+      let connectorId: string;
 
-      if (!connRes.success) return;
-      const connectorId = connRes.data.id;
+      if (editId) {
+        await api.put(`/connectors/${editId}`, {
+          displayName,
+          description,
+          visibility,
+          upstreamBaseUrl,
+          authType,
+          healthCheckPath: healthCheckPath || undefined,
+          streamingEnabled,
+        });
+        connectorId = editId;
+      } else {
+        const connRes = await api.post<{ success: boolean; data: { id: string } }>('/connectors', {
+          slug,
+          displayName,
+          description,
+          visibility,
+          upstreamBaseUrl,
+          authType,
+          healthCheckPath: healthCheckPath || undefined,
+          streamingEnabled,
+          secretRefs,
+        });
+        if (!connRes.success) return;
+        connectorId = connRes.data.id;
+      }
 
       const secretEntries = secretRefs
         .map((name) => [name, secrets[name] ?? ''] as const)
@@ -336,24 +360,15 @@ export const ConnectorWizardPage: React.FC = () => {
   };
 
   const handleNext = () => {
-    if (step === 0) {
-      if (selectedTemplateIds.size > 1) {
-        handleBatchCreate();
-        return;
-      }
-      if (selectedTemplateIds.size === 1) {
-        const templateId = Array.from(selectedTemplateIds)[0];
-        const t = templates.find((t) => t.id === templateId);
-        if (t) applyTemplateToWizard(t);
-      }
+    if (step === 0 && selectedTemplateId) {
+      const t = templates.find((t) => t.id === selectedTemplateId);
+      if (t) applyTemplateToWizard(t);
     }
     setStep(step + 1);
   };
 
-  const stepIndex = step;
-  const displayedSteps = selectedTemplateIds.size > 1
-    ? ['Template']
-    : WIZARD_STEPS;
+  const displayedSteps = editId ? WIZARD_STEPS.slice(1) : WIZARD_STEPS;
+  const stepIndex = editId ? step - 1 : step;
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -385,12 +400,12 @@ export const ConnectorWizardPage: React.FC = () => {
               <div>
                 <h2 className="text-lg font-semibold text-gray-200">Choose a Template</h2>
                 <p className="text-sm text-gray-400 mt-1">
-                  Select one or more pre-configured connectors, or skip to create from scratch.
+                  Select a pre-configured connector template, or skip to create from scratch.
                 </p>
               </div>
-              {selectedTemplateIds.size > 0 && (
+              {selectedTemplateId && (
                 <span className="px-3 py-1 bg-blue-500/20 text-blue-400 text-sm font-medium rounded-full">
-                  {selectedTemplateIds.size} selected
+                  1 selected
                 </span>
               )}
             </div>
@@ -445,12 +460,12 @@ export const ConnectorWizardPage: React.FC = () => {
             {!templatesLoading && filteredTemplates.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {filteredTemplates.map((t) => {
-                  const isSelected = selectedTemplateIds.has(t.id);
+                  const isSelected = selectedTemplateId === t.id;
                   const catMeta = CATEGORY_META[t.category];
                   return (
                     <button
                       key={t.id}
-                      onClick={() => toggleTemplate(t.id)}
+                      onClick={() => selectTemplate(t.id)}
                       className={`text-left p-4 rounded-lg border transition-all ${
                         isSelected
                           ? 'border-blue-500 bg-blue-500/10 ring-1 ring-blue-500/50'
@@ -462,12 +477,12 @@ export const ConnectorWizardPage: React.FC = () => {
                           <span className="text-lg">{t.icon}</span>
                           <h3 className="text-sm font-semibold text-gray-200 leading-tight">{t.name}</h3>
                         </div>
-                        <div className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center ${
+                        <div className={`w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center ${
                           isSelected
-                            ? 'bg-blue-600 border-blue-600 text-white'
+                            ? 'bg-blue-600 border-blue-600'
                             : 'border-gray-600'
                         }`}>
-                          {isSelected && <span className="text-[10px]">✓</span>}
+                          {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
                         </div>
                       </div>
                       <p className="text-xs text-gray-400 mb-3 line-clamp-2">{t.description}</p>
@@ -484,13 +499,6 @@ export const ConnectorWizardPage: React.FC = () => {
                     </button>
                   );
                 })}
-              </div>
-            )}
-
-            {/* Batch Error */}
-            {batchError && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
-                {batchError}
               </div>
             )}
           </div>
@@ -519,7 +527,8 @@ export const ConnectorWizardPage: React.FC = () => {
                   value={slug}
                   onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
                   placeholder="my-api"
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm focus:ring-2 focus:ring-blue-500"
+                  disabled={!!editId}
+                  className={`w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm focus:ring-2 focus:ring-blue-500 ${editId ? 'opacity-60 cursor-not-allowed' : ''}`}
                 />
               </div>
             </div>
@@ -656,7 +665,7 @@ export const ConnectorWizardPage: React.FC = () => {
               </button>
             </div>
 
-            {selectedTemplateIds.size === 1 && endpoints.length > 0 && (
+            {selectedTemplateId && endpoints.length > 0 && (
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-blue-400 text-xs">
                 Pre-filled from template. You can edit, remove, or add more endpoints.
               </div>
@@ -751,15 +760,20 @@ export const ConnectorWizardPage: React.FC = () => {
         {/* Navigation */}
         <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-700">
           <button
-            onClick={() => (step > 0 ? setStep(step - 1) : navigate('/'))}
+            onClick={() => {
+              const minStep = editId ? 1 : 0;
+              if (step > minStep) setStep(step - 1);
+              else if (editId) navigate(`/connectors/${editId}`);
+              else navigate('/');
+            }}
             className="px-4 py-2 text-gray-400 hover:text-gray-200 text-sm transition-colors"
           >
-            {step > 0 ? '← Back' : '← Cancel'}
+            {(editId ? step > 1 : step > 0) ? '← Back' : '← Cancel'}
           </button>
           <div className="flex gap-3">
             {step === 0 && (
               <button
-                onClick={() => { setSelectedTemplateIds(new Set()); setStep(1); }}
+                onClick={() => { setSelectedTemplateId(null); setStep(1); }}
                 className="px-4 py-2 text-gray-400 hover:text-gray-200 text-sm transition-colors"
               >
                 Skip — Create from Scratch
@@ -772,14 +786,14 @@ export const ConnectorWizardPage: React.FC = () => {
                   disabled={saving}
                   className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
                 >
-                  Save as Draft
+                  {editId ? 'Update' : 'Save as Draft'}
                 </button>
                 <button
                   onClick={() => handleSave(true)}
                   disabled={saving}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
                 >
-                  {saving ? 'Publishing...' : 'Publish'}
+                  {saving ? 'Saving...' : editId ? 'Update & Publish' : 'Publish'}
                 </button>
               </>
             )}
@@ -789,9 +803,7 @@ export const ConnectorWizardPage: React.FC = () => {
                 disabled={!canProceed() || saving}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {step === 0 && selectedTemplateIds.size > 1
-                  ? saving ? 'Creating...' : `Create ${selectedTemplateIds.size} Connectors`
-                  : 'Next →'}
+                Next →
               </button>
             )}
           </div>

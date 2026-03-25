@@ -115,15 +115,14 @@ export const DashboardPage: React.FC = () => {
   const { data: timeseriesRes, execute: loadTimeseries } = useAsync<{ success: boolean; data: { points: TimeseriesPoint[] } }>();
   const { data: healthRes, execute: loadHealth } = useAsync<{ success: boolean; data: HealthData }>();
 
-  const from = new Date(Date.now() - timeRange.ms).toISOString();
-
   const fetchAll = useCallback(() => {
+    const from = new Date(Date.now() - timeRange.ms).toISOString();
     const params = `from=${from}`;
     loadSummary(() => api.get(`/usage/summary?${params}`));
     loadByConnector(() => api.get(`/usage/by-connector?${params}`));
     loadTimeseries(() => api.get(`/usage/timeseries?${params}&interval=${timeRange.interval}`));
     loadHealth(() => api.get('/health'));
-  }, [from, timeRange.interval, loadSummary, loadByConnector, loadTimeseries, loadHealth, api]);
+  }, [timeRange, loadSummary, loadByConnector, loadTimeseries, loadHealth, api]);
 
   useEffect(() => {
     fetchAll();
