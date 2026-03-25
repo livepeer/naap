@@ -109,6 +109,11 @@
           "type": "array",
           "items": { "type": "string", "maxLength": 32 },
           "description": "Free-form tags for search"
+        },
+        "managed": {
+          "type": "boolean",
+          "default": false,
+          "description": "System-provisioned connector that cannot be modified via the admin API"
         }
       }
     },
@@ -143,6 +148,15 @@
             "type": "string",
             "maxLength": 256,
             "description": "Upstream path to proxy to"
+          },
+          "upstreamMethod": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
+            "description": "Override upstream HTTP method (e.g., consumer GET -> upstream POST)"
+          },
+          "upstreamStaticBody": {
+            "type": "string",
+            "description": "Static body sent to upstream when bodyTransform is 'static' (e.g., fixed SQL queries)"
           },
           "upstreamContentType": {
             "type": "string",

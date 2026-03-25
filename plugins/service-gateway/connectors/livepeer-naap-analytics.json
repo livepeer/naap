@@ -1,0 +1,70 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "livepeer-naap-analytics",
+  "name": "Livepeer NaaP Analytics",
+  "description": "Pre-configured ClickHouse query connector for Livepeer network analytics — GPU inventory, active streams, and pipeline pricing",
+  "icon": "📊",
+  "category": "database",
+  "connector": {
+    "slug": "livepeer-naap-analytics",
+    "displayName": "Livepeer NaaP Analytics",
+    "description": "System-managed ClickHouse analytics queries for the Livepeer network dashboard",
+    "category": "database",
+    "upstreamBaseUrl": "YOUR_CLICKHOUSE_URL",
+    "allowedHosts": [],
+    "defaultTimeout": 60000,
+    "healthCheckPath": "/ping",
+    "authType": "basic",
+    "authConfig": { "usernameRef": "username", "passwordRef": "password" },
+    "secretRefs": ["username", "password"],
+    "streamingEnabled": false,
+    "responseWrapper": false,
+    "managed": true,
+    "tags": ["livepeer", "analytics", "clickhouse", "managed"]
+  },
+  "endpoints": [
+    {
+      "name": "gpu-capacity",
+      "description": "GPU hardware inventory from the latest network_capabilities snapshot",
+      "method": "GET",
+      "path": "/gpu-capacity",
+      "upstreamMethod": "POST",
+      "upstreamPath": "/",
+      "upstreamContentType": "text/plain; charset=utf-8",
+      "bodyTransform": "static",
+      "upstreamStaticBody": "WITH\nlatest_timestamp AS (\n    SELECT max(timestamp) AS max_ts\n    FROM network_events.network_events\n    WHERE type = 'network_capabilities'\n),\nlatest_nodes AS (\n    SELECT\n        arrayJoin(JSONExtract(toString(data), 'Array(JSON)')) AS node\n    FROM network_events.network_events, latest_timestamp\n    WHERE type = 'network_capabilities'\n      AND timestamp = max_ts\n)\nSELECT\n    JSONExtractString(toString(node), 'address') AS address,\n    JSONExtractString(toString(node), 'orch_uri') AS orch_uri,\n    JSONExtractString(toString(node), 'capabilities', 'version') AS version,\n    JSONExtractArrayRaw(toString(node), 'hardware') AS hardware_raw,\n    JSONExtractArrayRaw(toString(node), 'capabilities_prices') AS prices_raw\nFROM latest_nodes\nWHERE JSONExtractString(toString(node), 'address') != ''\nFORMAT JSON",
+      "cacheTtl": 60,
+      "timeout": 60000,
+      "retries": 0
+    },
+    {
+      "name": "active-streams",
+      "description": "Currently active streams from semantic.stream_events (last 3 minutes)",
+      "method": "GET",
+      "path": "/active-streams",
+      "upstreamMethod": "POST",
+      "upstreamPath": "/",
+      "upstreamContentType": "text/plain; charset=utf-8",
+      "bodyTransform": "static",
+      "upstreamStaticBody": "WITH active_streams AS (\n  SELECT DISTINCT stream_id\n  FROM semantic.stream_events\n  WHERE event_timestamp_ts >= now() - INTERVAL 3 MINUTE\n    AND stream_id != ''\n    AND pipeline != ''\n),\nlatest AS (\n  SELECT\n    e.stream_id AS stream_id,\n    max(e.event_timestamp_ts) AS last_seen,\n    argMax(e.input_fps, e.event_timestamp_ts) AS last_input_fps,\n    argMax(e.output_fps, e.event_timestamp_ts) AS last_output_fps,\n    argMaxIf(e.state, e.event_timestamp_ts, e.state != '') AS latest_state\n  FROM semantic.stream_events e\n  INNER JOIN active_streams a ON a.stream_id = e.stream_id\n  GROUP BY e.stream_id\n),\nmetadata AS (\n  SELECT\n    e.stream_id AS stream_id,\n    argMaxIf(e.pipeline, e.event_timestamp_ts, e.pipeline != '') AS pipeline,\n    argMaxIf(e.gateway, e.event_timestamp_ts, e.gateway != '') AS gateway,\n    argMaxIf(e.orchestrator_url, e.event_timestamp_ts, e.orchestrator_url != '') AS orchestrator_url\n  FROM semantic.stream_events e\n  INNER JOIN active_streams a ON a.stream_id = e.stream_id\n  GROUP BY e.stream_id\n),\nfirst_seen AS (\n  SELECT\n    e.stream_id AS stream_id,\n    min(e.event_timestamp_ts) AS first_ever\n  FROM semantic.stream_events e\n  INNER JOIN active_streams a ON a.stream_id = e.stream_id\n  GROUP BY e.stream_id\n)\nSELECT\n  'stream' AS source,\n  a.stream_id AS id,\n  ifNull(m.pipeline, '') AS pipeline,\n  ifNull(m.gateway, '') AS gateway,\n  ifNull(m.orchestrator_url, '') AS orchestrator_url,\n  ifNull(l.latest_state, '') AS state,\n  round(l.last_input_fps, 1) AS input_fps,\n  round(l.last_output_fps, 1) AS output_fps,\n  f.first_ever AS first_ever,\n  l.last_seen AS last_seen,\n  dateDiff('second', f.first_ever, l.last_seen) AS duration_s,\n  concat(\n    toString(intDiv(dateDiff('second', f.first_ever, l.last_seen), 3600)),\n    'h ',\n    toString(intDiv(dateDiff('second', f.first_ever, l.last_seen) % 3600, 60)),\n    'm ',\n    toString(dateDiff('second', f.first_ever, l.last_seen) % 60),\n    's'\n  ) AS running_for\nFROM active_streams a\nLEFT JOIN latest l ON l.stream_id = a.stream_id\nLEFT JOIN metadata m ON m.stream_id = a.stream_id\nLEFT JOIN first_seen f ON f.stream_id = a.stream_id\nORDER BY f.first_ever DESC\nFORMAT JSON",
+      "cacheTtl": 10,
+      "timeout": 15000,
+      "retries": 0
+    },
+    {
+      "name": "pricing",
+      "description": "Pipeline unit cost pricing from network_capabilities events",
+      "method": "GET",
+      "path": "/pricing",
+      "upstreamMethod": "POST",
+      "upstreamPath": "/",
+      "upstreamContentType": "text/plain; charset=utf-8",
+      "bodyTransform": "static",
+      "upstreamStaticBody": "SELECT\n    address,\n    orch_uri,\n    capability,\n    constraint,\n    avg(price) AS avg_price,\n    avg(pixels_per_unit) AS avg_pixels_per_unit,\n    count() AS row_count\nFROM\n(\n    SELECT\n        timestamp,\n        JSONExtractString(toString(node), 'address') AS address,\n        JSONExtractString(toString(node), 'orch_uri') AS orch_uri,\n        JSONExtractInt(toString(cp), 'capability') AS capability,\n        JSONExtractString(toString(cp), 'constraint') AS constraint,\n        JSONExtractInt(toString(cp), 'pricePerUnit') AS price,\n        JSONExtractInt(toString(cp), 'pixelsPerUnit') AS pixels_per_unit\n    FROM\n    (\n        SELECT\n            timestamp,\n            arrayJoin(JSONExtract(toString(data), 'Array(JSON)')) AS node\n        FROM \"network_events\".\"network_events\"\n        WHERE type = 'network_capabilities'\n          AND isValidJSON(toString(data))\n        LIMIT 5000\n    ) t\n    ARRAY JOIN JSONExtract(toString(node), 'capabilities_prices', 'Array(JSON)') AS cp\n) subq\nGROUP BY\n    address,\n    orch_uri,\n    capability,\n    constraint\nORDER BY\n    orch_uri ASC,\n    capability ASC,\n    constraint ASC\nFORMAT JSON",
+      "cacheTtl": 300,
+      "timeout": 60000,
+      "retries": 0
+    }
+  ],
+  "envKey": "CLICKHOUSE_PASSWORD"
+}

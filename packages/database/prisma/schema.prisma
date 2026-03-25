@@ -1656,6 +1656,7 @@ model ServiceConnector {
   // ── Meta ──
   category          String   @default("")
   tags              String[]
+  managed           Boolean  @default(false)           // true = system-provisioned, admin UI cannot edit
   createdBy         String
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

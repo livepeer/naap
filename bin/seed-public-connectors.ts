@@ -16,6 +16,10 @@
  *   TWILIO_AUTH_TOKEN, CLOUDFLARE_API_TOKEN, RESEND_API_KEY,
  *   PINECONE_API_KEY, NEON_API_KEY, UPSTASH_REDIS_TOKEN,
  *   BLOB_READ_WRITE_TOKEN
+ *
+ * Managed connector env vars (livepeer-naap-analytics):
+ *   CLICKHOUSE_URL, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD
+ *   JOB_FEED_PIPELINE_FILTER (optional — baked into active-streams SQL)
  */
 
 import { PrismaClient } from '../packages/database/src/generated/client/index.js';
@@ -29,6 +33,61 @@ const AUTH_PASSWORD = process.env.AUTH_PASSWORD || 'livepeer';
 // ═══════════════════════════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Map of env-var placeholders in upstreamBaseUrl to the env var that provides
+ * the real value at seed time. Managed connectors use this so the JSON template
+ * can remain deployment-agnostic.
+ */
+const URL_PLACEHOLDER_MAP: Record<string, string> = {
+  YOUR_CLICKHOUSE_URL: 'CLICKHOUSE_URL',
+};
+
+/**
+ * For managed connectors whose secretRefs are backed by separate env vars
+ * (not a single envKey), this map resolves each secretRef name to its env var.
+ */
+const MANAGED_SECRET_ENV_MAP: Record<string, Record<string, string>> = {
+  'livepeer-naap-analytics': {
+    username: 'CLICKHOUSE_USER',
+    password: 'CLICKHOUSE_PASSWORD',
+  },
+};
+
+function resolveUpstreamBaseUrl(templateUrl: string): string {
+  const envVarName = URL_PLACEHOLDER_MAP[templateUrl];
+  if (!envVarName) return templateUrl;
+  const resolved = process.env[envVarName]?.trim();
+  if (!resolved) {
+    console.warn(`  ⚠ ${envVarName} not set — connector URL will be placeholder`);
+    return templateUrl;
+  }
+  return resolved;
+}
+
+/**
+ * For the active-streams endpoint, bake JOB_FEED_PIPELINE_FILTER into the
+ * static SQL body at seed time so the connector query includes the filter.
+ */
+function interpolateStaticBody(
+  slug: string,
+  endpointName: string,
+  body: string | undefined
+): string | undefined {
+  if (!body) return body;
+  if (slug === 'livepeer-naap-analytics' && endpointName === 'active-streams') {
+    const raw = process.env.JOB_FEED_PIPELINE_FILTER?.trim();
+    if (raw) {
+      const escaped = raw.replace(/'/g, "''");
+      const filterClause = `\n    AND pipeline ILIKE '${escaped}'`;
+      return body.replace(
+        "AND pipeline != ''",
+        `AND pipeline != ''${filterClause}`
+      );
+    }
+  }
+  return body;
+}
 
 function step(n: number, msg: string) {
   console.log(`\n[${'='.repeat(60)}]`);
@@ -104,20 +163,29 @@ async function main() {
       where: { slug, visibility: 'public' },
     });
 
+    const resolvedBaseUrl = resolveUpstreamBaseUrl(conn.upstreamBaseUrl);
+    const isManaged = conn.managed === true;
+
     if (connector) {
       console.log(`  Connector already exists: ${connector.id}`);
-      if (connector.category !== def.category) {
+      const updates: Record<string, unknown> = {};
+      if (connector.category !== def.category) updates.category = def.category;
+      if (isManaged && !connector.managed) updates.managed = true;
+      if (isManaged && connector.upstreamBaseUrl !== resolvedBaseUrl && resolvedBaseUrl !== conn.upstreamBaseUrl) {
+        updates.upstreamBaseUrl = resolvedBaseUrl;
+      }
+      if (Object.keys(updates).length > 0) {
         await prisma.serviceConnector.update({
           where: { id: connector.id },
-          data: { category: def.category },
+          data: updates,
         });
-        console.log(`  Updated category: ${def.category}`);
+        console.log(`  Updated: ${Object.keys(updates).join(', ')}`);
       }
     } else {
       let allowedHosts = conn.allowedHosts || [];
       if (allowedHosts.length === 0) {
         try {
-          allowedHosts = [new URL(conn.upstreamBaseUrl).hostname];
+          allowedHosts = [new URL(resolvedBaseUrl).hostname];
         } catch { /* ignore */ }
       }
 
@@ -130,7 +198,7 @@ async function main() {
           description: conn.description || def.description,
           category: def.category,
           visibility: 'public',
-          upstreamBaseUrl: conn.upstreamBaseUrl,
+          upstreamBaseUrl: resolvedBaseUrl,
           allowedHosts,
           defaultTimeout: conn.defaultTimeout ?? 30000,
           healthCheckPath: conn.healthCheckPath ?? null,
@@ -139,11 +207,12 @@ async function main() {
           secretRefs: conn.secretRefs,
           streamingEnabled: conn.streamingEnabled ?? false,
           responseWrapper: conn.responseWrapper ?? true,
+          managed: isManaged,
           tags: conn.tags || [],
           status: 'draft',
         },
       });
-      console.log(`  Created connector: ${connector.id}`);
+      console.log(`  Created connector: ${connector.id}${isManaged ? ' (managed)' : ''}`);
     }
 
     const connectorId = connector.id;
@@ -160,6 +229,7 @@ async function main() {
         console.log(`  Endpoint exists: ${ep.method} ${ep.path}`);
         continue;
       }
+      const staticBody = interpolateStaticBody(slug, ep.name, ep.upstreamStaticBody);
       await prisma.connectorEndpoint.create({
         data: {
           connectorId,
@@ -167,8 +237,10 @@ async function main() {
           description: ep.description,
           method: ep.method,
           path: ep.path,
+          upstreamMethod: ep.upstreamMethod ?? null,
           upstreamPath: ep.upstreamPath,
           upstreamContentType: ep.upstreamContentType ?? 'application/json',
+          upstreamStaticBody: staticBody ?? null,
           bodyTransform: ep.bodyTransform ?? 'passthrough',
           rateLimit: ep.rateLimit,
           timeout: ep.timeout,
@@ -178,7 +250,7 @@ async function main() {
           bodyPattern: ep.bodyPattern ?? null,
         },
       });
-      console.log(`  Endpoint: ${ep.method} ${ep.path} -> ${ep.upstreamPath}`);
+      console.log(`  Endpoint: ${ep.method} ${ep.path} -> ${ep.upstreamPath}${staticBody ? ' (static body)' : ''}`);
     }
 
     // Publish
@@ -236,8 +308,21 @@ async function main() {
       console.log(`  API key exists: ${existingKey.keyPrefix}...`);
     }
 
-    // Upstream secret
-    if (def.envKey) {
+    // Upstream secrets — managed connectors resolve each ref from its own env var;
+    // standard connectors use the single envKey for all refs.
+    const managedSecretMap = MANAGED_SECRET_ENV_MAP[slug];
+    if (managedSecretMap) {
+      for (const ref of conn.secretRefs) {
+        const envVar = managedSecretMap[ref];
+        const envValue = envVar ? process.env[envVar]?.trim() : undefined;
+        if (envValue) {
+          const ok = await storeUpstreamSecret(scopeId, slug, ref, envValue, token);
+          console.log(`  Secret "${ref}" (${envVar}): ${ok ? 'stored' : 'FAILED to store'}`);
+        } else {
+          console.log(`  Secret "${ref}": ${envVar || 'unmapped'} not set — configure via Settings tab UI`);
+        }
+      }
+    } else if (def.envKey) {
       const envValue = process.env[def.envKey];
       if (envValue) {
         for (const ref of conn.secretRefs) {
@@ -261,7 +346,8 @@ async function main() {
   for (const def of templates) {
     const epCount = def.endpoints.length;
     const auth = def.connector.authType === 'none' ? 'no auth' : def.connector.authType;
-    console.log(`  ${def.name} (/${def.connector.slug}) — ${epCount} endpoints, ${auth}`);
+    const managed = def.connector.managed ? ', managed' : '';
+    console.log(`  ${def.name} (/${def.connector.slug}) — ${epCount} endpoints, ${auth}${managed}`);
   }
 
   console.log();

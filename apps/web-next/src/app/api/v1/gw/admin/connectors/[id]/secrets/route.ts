@@ -66,6 +66,10 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     return errors.notFound('Connector');
   }
 
+  if (connector.managed) {
+    return errors.forbidden('System-managed connector secrets cannot be modified via the admin API.');
+  }
+
   let body: Record<string, string>;
   try {
     body = await request.json();

@@ -43,6 +43,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return errors.notFound('Connector');
   }
 
+  if (connector.managed) {
+    return errors.forbidden('System-managed connectors cannot be modified via the admin API.');
+  }
+
   let body: unknown;
   try {
     body = await request.json();

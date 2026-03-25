@@ -17,6 +17,8 @@ export interface ConnectorTemplateEndpoint {
   method: string;
   path: string;
   upstreamPath: string;
+  upstreamMethod?: string;
+  upstreamStaticBody?: string;
   upstreamContentType?: string;
   bodyTransform?: string;
   rateLimit?: number;
@@ -42,6 +44,7 @@ export interface ConnectorTemplateConnector {
   streamingEnabled?: boolean;
   responseWrapper?: boolean;
   tags?: string[];
+  managed?: boolean;
 }
 
 export interface ConnectorTemplate {

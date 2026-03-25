@@ -31,6 +31,10 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return errors.notFound('Connector');
   }
 
+  if (connector.managed) {
+    return errors.forbidden('System-managed connector secrets cannot be modified via the admin API.');
+  }
+
   const secretRefs: string[] = connector.secretRefs || [];
   if (!secretRefs.includes(name)) {
     return errors.notFound('Secret ref');

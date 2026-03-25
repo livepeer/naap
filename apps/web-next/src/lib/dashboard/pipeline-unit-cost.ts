@@ -1,65 +1,22 @@
 /**
  * Pipeline unit cost from ClickHouse `network_capabilities` events.
  *
- * Env (server-only): CLICKHOUSE_URL, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD
+ * Fetches raw rows via the `livepeer-naap-analytics` managed connector in the
+ * Service Gateway, then aggregates into the DashboardPipelinePricing shape.
  *
- * Caching: same two-layer strategy as raw-data.ts —
- *   1. In-process TTL cache (works in dev where Next Data Cache is off)
- *   2. next: { revalidate } on the outbound fetch (production Data Cache)
+ * Caching is handled by the gateway's per-endpoint cacheTtl (300s).
  */
 
 import type { DashboardPipelinePricing } from '@naap/plugin-sdk';
+import { queryManagedConnector } from '@/lib/gateway/internal-client';
 
 export const PIPELINE_UNIT_COST_TTL_SECONDS = 5 * 60;
 
-// ---------------------------------------------------------------------------
-// In-process TTL cache (mirrors raw-data.ts)
-// ---------------------------------------------------------------------------
+const CONNECTOR_SLUG = 'livepeer-naap-analytics';
 
-let pricingCache: { expiresAt: number; promise: Promise<DashboardPipelinePricing[]> } | null = null;
-
-const PIPELINE_UNIT_COST_SQL = `
-SELECT
-    address,
-    orch_uri,
-    capability,
-    constraint,
-    avg(price) AS avg_price,
-    avg(pixels_per_unit) AS avg_pixels_per_unit,
-    count() AS row_count
-FROM
-(
-    SELECT
-        timestamp,
-        JSONExtractString(toString(node), 'address') AS address,
-        JSONExtractString(toString(node), 'orch_uri') AS orch_uri,
-        JSONExtractInt(toString(cp), 'capability') AS capability,
-        JSONExtractString(toString(cp), 'constraint') AS constraint,
-        JSONExtractInt(toString(cp), 'pricePerUnit') AS price,
-        JSONExtractInt(toString(cp), 'pixelsPerUnit') AS pixels_per_unit
-    FROM
-    (
-        SELECT
-            timestamp,
-            arrayJoin(JSONExtract(toString(data), 'Array(JSON)')) AS node
-        FROM "network_events"."network_events"
-        WHERE type = 'network_capabilities'
-          AND isValidJSON(toString(data))
-        LIMIT 5000
-    ) t
-    ARRAY JOIN JSONExtract(toString(node), 'capabilities_prices', 'Array(JSON)') AS cp
-) subq
-GROUP BY
-    address,
-    orch_uri,
-    capability,
-    constraint
-ORDER BY
-    orch_uri ASC,
-    capability ASC,
-    constraint ASC
-FORMAT JSON
-`.trim();
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface ClickHousePricingRow {
   address: string;
@@ -77,7 +34,7 @@ function num(v: string | number | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** On-chain capability id → pipeline id used elsewhere in the dashboard. */
+/** On-chain capability id -> pipeline id used elsewhere in the dashboard. */
 const CAPABILITY_PIPELINE_LABEL: Record<string, string> = {
   '35': 'live-video-to-video',
 };
@@ -124,38 +81,29 @@ export function aggregatePipelineUnitCost(rows: ClickHousePricingRow[]): Dashboa
   return out;
 }
 
-async function fetchPipelineUnitCostUncached(): Promise<DashboardPipelinePricing[]> {
-  const baseUrl = process.env.CLICKHOUSE_URL?.trim();
-  const user = process.env.CLICKHOUSE_USER?.trim();
-  const password = process.env.CLICKHOUSE_PASSWORD?.trim();
+// ---------------------------------------------------------------------------
+// Fetch via managed connector
+// ---------------------------------------------------------------------------
 
-  if (!baseUrl || !user || !password) {
+export async function fetchPipelineUnitCostFromClickHouse(): Promise<DashboardPipelinePricing[]> {
+  const t0 = Date.now();
+
+  let response: Response;
+  try {
+    response = await queryManagedConnector(CONNECTOR_SLUG, '/pricing');
+  } catch (err) {
+    console.warn('[pipeline-unit-cost] Managed connector query failed:', err);
     return [];
   }
 
-  const url = `${baseUrl.replace(/\/$/, '')}/`;
-  const auth = Buffer.from(`${user}:${password}`).toString('base64');
-  const t0 = Date.now();
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${auth}`,
-      'Content-Type': 'text/plain; charset=utf-8',
-    },
-    body: PIPELINE_UNIT_COST_SQL,
-    signal: AbortSignal.timeout(60_000),
-    next: { revalidate: PIPELINE_UNIT_COST_TTL_SECONDS },
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
     throw new Error(
-      `[pipeline-unit-cost] ClickHouse HTTP ${res.status}${text ? `: ${text.slice(0, 200)}` : ''}`
+      `[pipeline-unit-cost] ClickHouse HTTP ${response.status}${text ? `: ${text.slice(0, 200)}` : ''}`
     );
   }
 
-  const body = (await res.json()) as { data?: ClickHousePricingRow[] };
+  const body = (await response.json()) as { data?: ClickHousePricingRow[] };
   const data = body.data;
   if (!Array.isArray(data)) {
     throw new Error('[pipeline-unit-cost] ClickHouse response missing data array');
@@ -164,20 +112,4 @@ async function fetchPipelineUnitCostUncached(): Promise<DashboardPipelinePricing
   const result = aggregatePipelineUnitCost(data);
   console.log(`[pipeline-unit-cost] fetched ${data.length} rows → ${result.length} aggregated in ${Date.now() - t0}ms`);
   return result;
-}
-
-export function fetchPipelineUnitCostFromClickHouse(): Promise<DashboardPipelinePricing[]> {
-  const now = Date.now();
-  if (pricingCache && pricingCache.expiresAt > now) {
-    console.log(`[pipeline-unit-cost] CACHE HIT (expires in ${Math.round((pricingCache.expiresAt - now) / 1000)}s)`);
-    return pricingCache.promise;
-  }
-
-  console.log('[pipeline-unit-cost] CACHE MISS — fetching upstream');
-  const promise = fetchPipelineUnitCostUncached().catch((err) => {
-    pricingCache = null;
-    throw err;
-  });
-  pricingCache = { expiresAt: now + PIPELINE_UNIT_COST_TTL_SECONDS * 1000, promise };
-  return promise;
 }

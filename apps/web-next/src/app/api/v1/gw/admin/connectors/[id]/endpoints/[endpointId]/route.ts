@@ -46,6 +46,10 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     return errors.notFound('Connector');
   }
 
+  if (connector.managed) {
+    return errors.forbidden('System-managed connectors cannot be modified via the admin API.');
+  }
+
   const existing = await prisma.connectorEndpoint.findFirst({
     where: { id: endpointId, connectorId: id },
   });
@@ -98,6 +102,10 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   const connector = await loadOwnedConnector(id, ctx.teamId);
   if (!connector) {
     return errors.notFound('Connector');
+  }
+
+  if (connector.managed) {
+    return errors.forbidden('System-managed connectors cannot be modified via the admin API.');
   }
 
   const existing = await prisma.connectorEndpoint.findFirst({

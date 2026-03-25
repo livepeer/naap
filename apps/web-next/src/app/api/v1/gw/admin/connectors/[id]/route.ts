@@ -51,6 +51,10 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     return errors.notFound('Connector');
   }
 
+  if (existing.managed) {
+    return errors.forbidden('System-managed connectors cannot be modified via the admin API.');
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -91,6 +95,10 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   const existing = await loadOwnedConnector(id, ctx.teamId);
   if (!existing) {
     return errors.notFound('Connector');
+  }
+
+  if (existing.managed) {
+    return errors.forbidden('System-managed connectors cannot be deleted via the admin API.');
   }
 
   const purge = request.nextUrl.searchParams.get('purge') === 'true';
