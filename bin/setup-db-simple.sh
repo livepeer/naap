@@ -53,7 +53,7 @@ echo "Database ready!"
 echo "Setting up schema..."
 cd "$ROOT_DIR/packages/database"
 npx prisma generate > /dev/null 2>&1
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap" npx prisma db push --accept-data-loss > /dev/null 2>&1
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap" DATABASE_URL_UNPOOLED="postgresql://postgres:postgres@localhost:5432/naap" npx prisma db push --accept-data-loss > /dev/null 2>&1
 
 echo ""
 echo "=== Done ==="

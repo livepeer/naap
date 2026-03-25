@@ -60,7 +60,7 @@ log_success "Prisma client generated"
 
 # ── 3. Push schema to database ──────────────────────────────
 log_info "Pushing schema to database (creates all tables in all schemas)..."
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap" npx prisma db push --accept-data-loss
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap" DATABASE_URL_UNPOOLED="postgresql://postgres:postgres@localhost:5432/naap" npx prisma db push --accept-data-loss
 log_success "Schema pushed to database"
 
 # ── 4. Verify schemas ──────────────────────────────────────
