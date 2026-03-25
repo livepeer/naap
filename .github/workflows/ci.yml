@@ -24,8 +24,6 @@ env:
   NODE_VERSION: '24'
   NEXT_TELEMETRY_DISABLED: 1
   NX_PACKAGE_MANAGER: npm
-  # Keep in sync with root package.json "packageManager"
-  PACKAGE_MANAGER_SPEC: 'npm@10.9.4'
 
 jobs:
   # ===========================================================================
@@ -125,11 +123,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Enable Corepack
-        run: |
-          corepack enable
-          corepack prepare "${{ env.PACKAGE_MANAGER_SPEC }}" --activate
-
       - name: Verify package-lock.json is in sync
         run: npm ci --ignore-scripts --no-audit --no-fund
 
@@ -150,11 +143,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-
-      - name: Enable Corepack
-        run: |
-          corepack enable
-          corepack prepare "${{ env.PACKAGE_MANAGER_SPEC }}" --activate
 
       - name: Install dependencies
         run: npm ci
@@ -179,11 +167,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-
-      - name: Enable Corepack
-        run: |
-          corepack enable
-          corepack prepare "${{ env.PACKAGE_MANAGER_SPEC }}" --activate
 
       - name: Install dependencies
         run: npm ci
@@ -213,11 +196,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-
-      - name: Enable Corepack
-        run: |
-          corepack enable
-          corepack prepare "${{ env.PACKAGE_MANAGER_SPEC }}" --activate
 
       - name: Install dependencies
         run: npm ci
@@ -250,11 +228,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-
-      - name: Enable Corepack
-        run: |
-          corepack enable
-          corepack prepare "${{ env.PACKAGE_MANAGER_SPEC }}" --activate
 
       - name: Install dependencies
         run: npm ci
@@ -300,11 +273,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-
-      - name: Enable Corepack
-        run: |
-          corepack enable
-          corepack prepare "${{ env.PACKAGE_MANAGER_SPEC }}" --activate
 
       - name: Install dependencies
         run: npm ci
@@ -372,12 +340,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Enable Corepack
-        if: steps.check.outputs.changed == 'true'
-        run: |
-          corepack enable
-          corepack prepare "${{ env.PACKAGE_MANAGER_SPEC }}" --activate
-
       - name: Install dependencies
         if: steps.check.outputs.changed == 'true'
         run: npm ci
@@ -428,11 +390,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Enable Corepack
-        run: |
-          corepack enable
-          corepack prepare "${{ env.PACKAGE_MANAGER_SPEC }}" --activate
-
       - name: Install dependencies
         run: npm ci
 
@@ -480,11 +437,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-
-      - name: Enable Corepack
-        run: |
-          corepack enable
-          corepack prepare "${{ env.PACKAGE_MANAGER_SPEC }}" --activate
 
       - name: Install dependencies
         run: npm ci
