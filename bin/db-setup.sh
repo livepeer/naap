@@ -20,15 +20,27 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 cd "$ROOT_DIR"
 
+# Resolve docker compose command: prefer v2 plugin, fall back to v1
+docker_compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+  else
+    log_error "Neither 'docker compose' (v2) nor 'docker-compose' (v1) found."
+    exit 1
+  fi
+}
+
 # ── Handle --reset flag ─────────────────────────────────────
 if [ "$1" = "--reset" ]; then
   log_warn "Resetting database (destroying all data)..."
-  docker-compose down -v 2>/dev/null || true
+  docker_compose down -v 2>/dev/null || true
 fi
 
 # ── 1. Start unified database container ─────────────────────
 log_info "Starting unified database..."
-docker-compose up -d database
+docker_compose up -d database
 
 log_info "Waiting for database to be ready..."
 for i in $(seq 1 30); do
@@ -48,7 +60,7 @@ log_success "Prisma client generated"
 
 # ── 3. Push schema to database ──────────────────────────────
 log_info "Pushing schema to database (creates all tables in all schemas)..."
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap" npx prisma db push --accept-data-loss
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap" DATABASE_URL_UNPOOLED="postgresql://postgres:postgres@localhost:5432/naap" npx prisma db push --accept-data-loss
 log_success "Schema pushed to database"
 
 # ── 4. Verify schemas ──────────────────────────────────────

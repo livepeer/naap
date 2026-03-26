@@ -17,7 +17,7 @@ Start the unified database and push all schemas:
 
 ```bash
 # From the NaaP root
-docker-compose up -d database      # Starts naap-db container
+docker compose up -d database      # Starts naap-db container
 cd packages/database
 npx prisma generate                # Generates the typed client
 npx prisma db push                 # Creates all tables across all schemas
@@ -234,8 +234,8 @@ npx prisma studio
 ### Reset the Database (development only)
 
 ```bash
-docker-compose down -v        # Destroys volumes
-docker-compose up -d database # Recreates with init-schemas.sql
+docker compose down -v        # Destroys volumes
+docker compose up -d database # Recreates with init-schemas.sql
 cd packages/database
 npx prisma db push            # Recreates all tables
 ```
@@ -264,7 +264,7 @@ seed().then(() => prisma.$disconnect());
 ### "Schema does not exist"
 
 The schema isn't created yet. Either:
-1. Re-run `docker-compose down -v && docker-compose up -d database` (this executes `init-schemas.sql`), or
+1. Re-run `docker compose down -v && docker compose up -d database` (this executes `init-schemas.sql`), or
 2. Manually create it: `docker exec naap-db psql -U postgres -d naap -c "CREATE SCHEMA plugin_analytics;"`
 
 ### "Model not found on prisma client"

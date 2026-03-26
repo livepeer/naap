@@ -194,7 +194,7 @@ const widgets = await db.yourPluginWidget.findMany();
 ```bash
 ./bin/start.sh --infra
 # or:
-docker-compose up -d database
+docker compose up -d database
 ```
 
 ### Push schema changes
@@ -236,14 +236,14 @@ cd packages/database && npx prisma db push
 ### "Schema does not exist" errors
 
 The PostgreSQL schemas weren't created. Either:
-1. Recreate the container: `docker-compose down -v && docker-compose up -d database`
+1. Recreate the container: `docker compose down -v && docker compose up -d database`
 2. Or manually create: `docker exec naap-db psql -U postgres -d naap -c "CREATE SCHEMA IF NOT EXISTS plugin_xxx;"`
 
 ### Connection refused
 
 Check the container is running:
 ```bash
-docker-compose ps
+docker compose ps
 docker exec naap-db pg_isready -U postgres
 ```
 

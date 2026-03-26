@@ -319,7 +319,7 @@ naap-plugin dev --port 3011
 docker ps
 
 # Start the unified database
-docker-compose up -d database
+docker compose up -d database
 
 # Push schema if tables are missing
 cd packages/database && npx prisma db push

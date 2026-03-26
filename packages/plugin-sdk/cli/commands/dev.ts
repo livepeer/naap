@@ -197,14 +197,14 @@ export const devCommand = new Command('dev')
           });
           
           if (!result.stdout) {
-            dbSpinner.text = 'Starting unified database via docker-compose...';
-            await execa('docker-compose', ['up', '-d', 'database'], { reject: false });
+            dbSpinner.text = 'Starting unified database via docker compose...';
+            await execa('docker', ['compose', 'up', '-d', 'database'], { reject: false });
             await new Promise(resolve => setTimeout(resolve, 3000));
           }
           
           dbSpinner.succeed('Database: postgresql://postgres:postgres@localhost:5432/naap');
         } catch {
-          dbSpinner.warn('Unified database not running - run: docker-compose up -d database');
+          dbSpinner.warn('Unified database not running - run: docker compose up -d database');
         }
       }
 
