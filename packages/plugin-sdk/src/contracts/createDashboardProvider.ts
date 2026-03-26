@@ -78,13 +78,22 @@ export function createDashboardProvider(
     rootValue.pipelineCatalog = () => resolvers.pipelineCatalog!();
   }
   if (resolvers.gpuCapacity) {
-    rootValue.gpuCapacity = () => resolvers.gpuCapacity!();
+    rootValue.gpuCapacity = (args: { timeframe?: string }) => resolvers.gpuCapacity!(args);
   }
   if (resolvers.pricing) {
     rootValue.pricing = () => resolvers.pricing!();
   }
   if (resolvers.orchestrators) {
     rootValue.orchestrators = (_args: { period?: string }) => resolvers.orchestrators!(_args);
+  }
+  if (resolvers.networkDemand) {
+    rootValue.networkDemand = (_args: import('./dashboard.js').NetworkDemandFilters) => resolvers.networkDemand!(_args);
+  }
+  if (resolvers.gpuMetrics) {
+    rootValue.gpuMetrics = (_args: import('./dashboard.js').GPUMetricsFilters) => resolvers.gpuMetrics!(_args);
+  }
+  if (resolvers.slaCompliance) {
+    rootValue.slaCompliance = (_args: import('./dashboard.js').SLAComplianceFilters) => resolvers.slaCompliance!(_args);
   }
 
   // Register a single handler on the event bus

@@ -14,10 +14,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useDashboardQuery } from '@/hooks/useDashboardQuery';
-import { useJobFeedStream } from '@/hooks/useJobFeedStream';
+import { useJobFeedStream, type JobFeedConnectionMeta } from '@/hooks/useJobFeedStream';
 import type {
   DashboardData,
   DashboardKPI,
+  HourlyBucket,
   DashboardProtocol,
   DashboardFeesInfo,
   DashboardPipelineUsage,
@@ -41,6 +42,7 @@ import {
   Minus,
   Zap,
   AlertCircle,
+  Info,
   Loader2,
   Timer,
   List,
@@ -56,42 +58,50 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-
+import { PIPELINE_DISPLAY } from '@/lib/dashboard/pipeline-config';
 // ============================================================================
 // GraphQL Query — the ONLY place data requirements are declared
 // ============================================================================
 
-const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
-  query NetworkOverview($timeframe: String) {
+const LEADERBOARD_QUERY = /* GraphQL */ `
+  query LeaderboardData($timeframe: String) {
     kpi(timeframe: $timeframe) {
       successRate { value delta }
       orchestratorsOnline { value delta }
       dailyUsageMins { value delta }
-      dailyStreamCount { value delta }
+      dailySessionCount { value delta }
       timeframeHours
+      hourlyUsage { hour value }
+      hourlySessions { hour value }
     }
+    pipelines(limit: 50, timeframe: $timeframe) {
+      name mins sessions avgFps color modelMins { model mins sessions avgFps }
+    }
+    pipelineCatalog {
+      id name models regions
+    }
+    orchestrators(period: $timeframe) {
+      address knownSessions successSessions successRatio effectiveSuccessRate noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount
+    }
+  }
+`;
+
+const REALTIME_QUERY = /* GraphQL */ `
+  query RealtimeData($timeframe: String) {
     protocol {
       currentRound
       blockProgress
       totalBlocks
       totalStakedLPT
     }
-    pipelines(limit: 50, timeframe: $timeframe) {
-      name mins color modelMins { model mins }
-    }
-    pipelineCatalog {
-      id name models
-    }
-    gpuCapacity {
+    gpuCapacity(timeframe: $timeframe) {
       totalGPUs
-      availableCapacity
+      activeGPUs
       models { model count }
+      pipelineGPUs { name gpus models { model gpus } }
     }
     pricing {
-      pipeline unit price outputPerDollar
-    }
-    orchestrators(period: $timeframe) {
-      address knownSessions successSessions successRatio noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount
+      pipeline unit price pixelsPerUnit outputPerDollar
     }
   }
 `;
@@ -114,6 +124,17 @@ const FEES_OVERVIEW_QUERY = /* GraphQL */ `
     }
   }
 `;
+
+/**
+ * Leaderboard-backed queries (KPI, pipelines, orchestrators) go through
+ * upstream pagination with a configurable timeout (LEADERBOARD_PROXY_TIMEOUT_MS,
+ * default 60 s). 70 s gives headroom so the client outlasts a slow upstream
+ * round-trip. With 1 hr TTLs most requests are cache hits.
+ */
+const LEADERBOARD_QUERY_TIMEOUT_MS = 25_000;
+
+/** ClickHouse + The Graph queries are fast; 15 s is generous. */
+const REALTIME_QUERY_TIMEOUT_MS = 15_000;
 
 // ============================================================================
 // Utility Components
@@ -143,6 +164,12 @@ function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
+/** Raw digits only — no locale grouping (Pipeline Unit Cost wei column). */
+function formatPlainNumber(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  return String(n);
+}
+
 function formatUsdCompact(n: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -160,9 +187,68 @@ function formatUsd(n: number): string {
   }).format(n);
 }
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+/** Badge color classes (bg + text) for model badges — same as orchestrator table */
+const MODEL_BADGE_COLORS = [
+  'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
+  'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+  'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+  'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
+  'bg-lime-100 text-lime-800 dark:bg-lime-900/40 dark:text-lime-200',
+  'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-200',
+  'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200',
+] as const;
+
+function modelBadgeColor(modelId: string): (typeof MODEL_BADGE_COLORS)[number] {
+  let n = 0;
+  for (let i = 0; i < modelId.length; i++) n += modelId.charCodeAt(i);
+  return MODEL_BADGE_COLORS[Math.abs(n) % MODEL_BADGE_COLORS.length];
+}
+
+/** Capability id shown as a gray monospace slug (same spirit as model ids under GPU breakdown). */
+const LIVE_VIDEO_TO_VIDEO_PIPELINE_ID = 'live-video-to-video';
+
+/**
+ * Split stream_events `pipeline` slug into a dashboard pipeline label (from
+ * PIPELINE_DISPLAY when known) and a model / variant remainder.
+ */
+function jobFeedPipelineParts(pipelineSlug: string): {
+  pipelineLabel: string;
+  modelLabel: string;
+  matched: boolean;
+} {
+  const slug = pipelineSlug.trim();
+  if (!slug) return { pipelineLabel: '—', modelLabel: '—', matched: false };
+
+  // In stream events, these are model/constraint values for live-video-to-video.
+  if (slug === 'noop' || slug.startsWith('streamdiffusion')) {
+    return {
+      pipelineLabel: PIPELINE_DISPLAY[LIVE_VIDEO_TO_VIDEO_PIPELINE_ID] ?? LIVE_VIDEO_TO_VIDEO_PIPELINE_ID,
+      modelLabel: slug,
+      matched: true,
+    };
+  }
+
+  const exact = PIPELINE_DISPLAY[slug];
+  if (exact != null) {
+    return { pipelineLabel: exact, modelLabel: '—', matched: true };
+  }
+
+  const keys = Object.keys(PIPELINE_DISPLAY)
+    .filter((k) => PIPELINE_DISPLAY[k] != null)
+    .sort((a, b) => b.length - a.length);
+
+  for (const key of keys) {
+    if (slug === key) {
+      return { pipelineLabel: PIPELINE_DISPLAY[key]!, modelLabel: '—', matched: true };
+    }
+    if (slug.startsWith(`${key}-`) || slug.startsWith(`${key}_`)) {
+      const rest = slug.slice(key.length).replace(/^[-_]/, '');
+      return { pipelineLabel: PIPELINE_DISPLAY[key]!, modelLabel: rest || '—', matched: true };
+    }
+  }
+
+  return { pipelineLabel: slug, modelLabel: '—', matched: false };
 }
 
 // ============================================================================
@@ -195,19 +281,24 @@ function WidgetUnavailable({ label }: { label: string }) {
   );
 }
 
-function DashboardLoading() {
+/** Wraps a widget to show a subtle refreshing indicator over stale content. */
+function RefreshWrap({
+  refreshing,
+  children,
+  className = '',
+}: {
+  refreshing: boolean;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="space-y-5 max-w-[1440px] mx-auto">
-      <div className="flex items-center gap-3">
-        <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
-        <span className="text-sm text-muted-foreground">Loading dashboard data...</span>
-      </div>
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-        <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
-      </div>
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
-        <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
-      </div>
+    <div className={`relative ${className}`.trim()}>
+      {children}
+      {refreshing && (
+        <div className="absolute inset-0 rounded-lg bg-card/60 flex items-center justify-center pointer-events-none z-10 backdrop-blur-[1px] transition-opacity duration-200">
+          <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+        </div>
+      )}
     </div>
   );
 }
@@ -226,6 +317,41 @@ function NoProviderMessage() {
 // Row 1: Key Performance Indicators
 // ============================================================================
 
+function HourlySparkline({ data, color = 'var(--color-muted-foreground)' }: { data: HourlyBucket[]; color?: string }) {
+  if (!data || data.length === 0) return null;
+
+  const max = Math.max(...data.map((d) => d.value), 1);
+
+  return (
+    <div className="flex items-end gap-px mt-3 h-10" title="Per UTC hour (oldest → newest); missing hours show as zero">
+      {data.map((bucket, i) => {
+        const pct = (bucket.value / max) * 100;
+        const hourLabel = new Date(bucket.hour).toLocaleString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'UTC',
+          hour12: false,
+        });
+        return (
+          <div
+            key={bucket.hour}
+            className="flex-1 min-w-0 rounded-sm transition-all hover:opacity-80 group relative"
+            style={{ height: `${Math.max(pct, 4)}%`, backgroundColor: color, opacity: pct > 0 ? 1 : 0.15 }}
+          >
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-10 pointer-events-none">
+              <div className="bg-popover text-popover-foreground text-[10px] font-mono px-1.5 py-0.5 rounded shadow-md border border-border whitespace-nowrap">
+                {hourLabel}: {bucket.value.toLocaleString()}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function KPICard({
   icon: Icon,
   iconColor,
@@ -236,6 +362,9 @@ function KPICard({
   deltaInvert,
   suffix,
   action,
+  tooltip,
+  sparkline,
+  sparklineColor,
 }: {
   icon: React.ElementType;
   iconColor: string;
@@ -246,6 +375,9 @@ function KPICard({
   deltaInvert?: boolean;
   suffix?: string;
   action?: React.ReactNode;
+  tooltip?: string;
+  sparkline?: HourlyBucket[];
+  sparklineColor?: string;
 }) {
   return (
     <div className="p-4 rounded-lg bg-card border border-border hover:border-border/80 transition-colors">
@@ -254,6 +386,16 @@ function KPICard({
           <Icon className="w-3.5 h-3.5" />
         </div>
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
+        {tooltip && (
+          <div className="relative group">
+            <Info className="w-3 h-3 text-muted-foreground/50 cursor-help" />
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-20 pointer-events-none">
+              <div className="bg-popover text-popover-foreground text-[10px] px-2 py-1 rounded shadow-md border border-border whitespace-nowrap max-w-[220px] text-wrap leading-relaxed">
+                {tooltip}
+              </div>
+            </div>
+          </div>
+        )}
         {action && <div className="ml-auto">{action}</div>}
       </div>
       <div className="flex items-end justify-between">
@@ -263,13 +405,14 @@ function KPICard({
         </div>
         <DeltaBadge value={delta} unit={deltaUnit} invert={deltaInvert} />
       </div>
+      <HourlySparkline data={sparkline ?? []} color={sparklineColor} />
     </div>
   );
 }
 
 function formatTimeframeLabel(hours: number): string {
+  if (hours >= 24 && hours % 24 === 0) return `${hours / 24}d`;
   if (hours === 1) return '1h';
-  if (hours === 72) return '3d';
   return `${hours}h`;
 }
 
@@ -302,14 +445,20 @@ function KPIRow({ data }: { data: DashboardKPI }) {
         delta={data.dailyUsageMins.delta}
         deltaUnit=" mins"
         suffix="mins"
+        tooltip="Total transcoding minutes across all pipelines. Sparkline: one bar per UTC hour (full window; gaps in upstream data appear as zero)."
+        sparkline={data.hourlyUsage}
+        sparklineColor="hsl(var(--primary))"
       />
       <KPICard
         icon={Radio}
         iconColor="bg-muted text-muted-foreground"
-        label={`Streams (${tfLabel})`}
-        value={data.dailyStreamCount.value.toLocaleString()}
-        delta={data.dailyStreamCount.delta}
+        label={`Sessions (${tfLabel})`}
+        value={data.dailySessionCount.value.toLocaleString()}
+        delta={data.dailySessionCount.delta}
         deltaUnit=""
+        tooltip="Served + unserved demand sessions (job starts per hour). Sparkline: one bar per UTC hour (full window; gaps in upstream data appear as zero)."
+        sparkline={data.hourlySessions}
+        sparklineColor="hsl(var(--primary))"
       />
     </div>
   );
@@ -325,14 +474,14 @@ function ProtocolCard({ data }: { data: DashboardProtocol }) {
     : 0;
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border">
-      <div className="flex items-center gap-2 mb-4">
+    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
+      <div className="flex items-center gap-2 mb-4 shrink-0">
         <div className="p-1 rounded-md bg-muted text-muted-foreground">
           <Layers className="w-3.5 h-3.5" />
         </div>
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Protocol</span>
       </div>
-      <div className="space-y-4">
+      <div className="space-y-4 flex-1 min-h-0">
         <div>
           <div className="flex items-baseline gap-2">
             <span className="text-xl font-semibold text-foreground font-mono">Round {data.currentRound.toLocaleString()}</span>
@@ -397,8 +546,8 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
   }, [data.dayData, data.weeklyData, grouping]);
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border">
-      <div className="flex items-start justify-between mb-3">
+    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
+      <div className="flex items-start justify-between mb-3 shrink-0">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <div className="p-1 rounded-md bg-muted text-muted-foreground">
@@ -548,6 +697,8 @@ function PipelinesCard({
           result.push({
             name: c.name,
             mins: 0,
+            sessions: 0,
+            avgFps: 0,
             color: '#6366f1',
             models: c.models,
           });
@@ -563,203 +714,169 @@ function PipelinesCard({
   const [availableExpanded, setAvailableExpanded] = useState(false);
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border">
-      <div className="flex items-center gap-2 mb-4">
+    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
+      <div className="flex items-center gap-2 mb-4 shrink-0">
         <div className="p-1 rounded-md bg-muted text-muted-foreground">
           <Activity className="w-3.5 h-3.5" />
         </div>
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-          Pipelines ({formatTimeframeLabel(timeframeHours)})
+          Pipelines ({formatTimeframeLabel(timeframeHours).toUpperCase()})
         </span>
       </div>
-      <div className="space-y-3">
-        {activePipelines.map((p) => (
-          <div key={p.name} className="rounded border border-border/60 overflow-hidden">
-            <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-muted/20">
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span
-                  className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: p.color ?? '#8b5cf6', opacity: 0.9 }}
-                  aria-hidden="true"
-                />
-                <div className="text-xs font-medium text-foreground truncate" title={p.name}>
-                  {p.name}
-                </div>
-              </div>
-              <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">{formatNumber(p.mins)} mins</span>
-            </div>
-            {p.modelMins && p.modelMins.length > 0 ? (
-              <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
-                {p.modelMins.map((m) => (
-                  <div key={m.model} className="flex items-center justify-between text-[10px]">
-                    <span className="text-muted-foreground pr-2 font-mono break-all">
-                      {m.model}
+      <div className="flex-1 min-h-0 flex flex-col justify-between gap-3">
+        <table className="w-full text-xs shrink-0">
+          <thead>
+            <tr className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              <th className="pb-2 font-medium text-left">Pipeline</th>
+              <th className="pb-2 font-medium text-right">Mins</th>
+              <th className="pb-2 font-medium text-right">FPS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {activePipelines.map((p) => (
+              <tr key={p.name} className="border-b border-border/50 last:border-0">
+                <td className="py-1.5 pr-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: p.color ?? '#8b5cf6', opacity: 0.9 }}
+                      aria-hidden="true"
+                    />
+                    <span className="font-medium text-foreground truncate" title={p.name}>
+                      {p.name}
                     </span>
-                    <span className="font-mono text-foreground flex-shrink-0">{formatNumber(m.mins)}</span>
                   </div>
-                ))}
-              </div>
-            ) : p.models && p.models.length > 0 ? (
-              <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
-                {p.models.map((model) => (
-                  <div key={model} className="flex items-center justify-between text-[10px]">
-                    <span className="text-muted-foreground pr-2 font-mono break-all">
-                      {model}
-                    </span>
-                    <span className="font-mono text-muted-foreground/50 flex-shrink-0">—</span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ))}
+                </td>
+                <td className="py-1.5 text-right font-mono text-foreground">
+                  {formatNumber(p.mins)}
+                </td>
+                <td className="py-1.5 text-right font-mono text-foreground">
+                  {(p.avgFps ?? 0) > 0 ? p.avgFps : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
-        {availablePipelines.length > 0 && (
-          <div className="pt-2">
+        {availablePipelines.length > 0 ? (
+          <div className="shrink-0 pt-2 border-t border-border/50">
             <button
               type="button"
               onClick={() => setAvailableExpanded((v) => !v)}
               className="w-full flex items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:text-muted-foreground transition-colors group"
               aria-expanded={availableExpanded}
             >
-              <span>Available (no usage in timeframe)</span>
+              <span>Available (no demand in {formatTimeframeLabel(timeframeHours)})</span>
               <span className="transition-transform group-hover:opacity-100">
                 {availableExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               </span>
             </button>
             {availableExpanded && (
-              <div className="space-y-1.5 mt-1.5">
-                {availablePipelines.map((p) => (
-                  <div key={p.name} className="rounded border border-border/60 overflow-hidden">
-                    <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-muted/20">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <span
-                          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: p.color ?? '#6366f1', opacity: 0.9 }}
-                          aria-hidden="true"
-                        />
-                        <div className="text-xs font-medium text-foreground truncate" title={p.name}>
-                          {p.name}
+              <table className="w-full text-xs mt-1.5">
+                <tbody>
+                  {availablePipelines.map((p) => (
+                    <tr key={p.name} className="border-b border-border/50 last:border-0">
+                      <td className="py-1.5 pr-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: p.color ?? '#6366f1', opacity: 0.5 }}
+                            aria-hidden="true"
+                          />
+                          <span
+                            className={
+                              p.name === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID
+                                ? 'font-mono text-muted-foreground truncate'
+                                : 'font-medium text-muted-foreground truncate'
+                            }
+                            title={p.name}
+                          >
+                            {p.name}
+                          </span>
                         </div>
-                      </div>
-                      <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">0 mins</span>
-                    </div>
-                    {p.models && p.models.length > 0 && (
-                      <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
-                        {p.models.map((model) => (
-                          <div key={model} className="flex items-center justify-between text-[10px]">
-                            <span className="text-muted-foreground pr-2 font-mono break-all">
-                              {model}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+                      </td>
+                      <td className="py-1.5 text-right font-mono text-muted-foreground/50">0</td>
+                      <td className="py-1.5 text-right font-mono text-muted-foreground/50">—</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
 }
 
-const GPU_MODEL_COLORS = [
-  '#3b82f6', // blue
-  '#8b5cf6', // violet
-  '#f59e0b', // amber
-  '#10b981', // emerald
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#f97316', // orange
-  '#84cc16', // lime
-];
-
-function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
-  const radius = 40;
-  const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference - (data.availableCapacity / 100) * circumference;
-  const totalGPUs = data.totalGPUs || 1;
+function GPUCapacityCard({ data, timeframeHours }: { data: DashboardGPUCapacity; timeframeHours: number }) {
+  const [pipelinesExpanded, setPipelinesExpanded] = useState(true);
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border">
-      <div className="flex items-center gap-2 mb-4">
+    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
+      <div className="flex items-center gap-2 mb-3 shrink-0">
         <div className="p-1 rounded-md bg-muted text-muted-foreground">
           <Cpu className="w-3.5 h-3.5" />
         </div>
-        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">GPU Capacity</span>
+        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+          Network GPUs ({formatTimeframeLabel(timeframeHours)})
+        </span>
       </div>
-      <div className="flex items-center gap-5">
-        <div className="relative w-24 h-24 flex-shrink-0">
-          <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-            <circle cx="50" cy="50" r={radius} fill="none" stroke="currentColor" className="text-muted" strokeWidth="8" />
-            <circle
-              cx="50" cy="50" r={radius} fill="none"
-              stroke="currentColor"
-              className="text-emerald-500"
-              strokeWidth="8"
-              strokeLinecap="round"
-              strokeDasharray={circumference}
-              strokeDashoffset={dashOffset}
-              style={{ transition: 'stroke-dashoffset 1s ease-out' }}
-            />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-lg font-bold text-foreground">{data.availableCapacity}%</span>
-            <span className="text-[9px] text-muted-foreground">Available</span>
-          </div>
-        </div>
-        <div className="space-y-2">
-          <div>
-            <span className="text-xl font-semibold font-mono text-foreground">{data.totalGPUs}</span>
-            <span className="text-xs text-muted-foreground ml-1">GPUs</span>
-          </div>
-        </div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-3xl font-semibold font-mono text-foreground">{data.totalGPUs}</span>
+        <span className="text-sm text-muted-foreground">total GPUs</span>
       </div>
-      {data.models && data.models.length > 0 && (
-        <div className="mt-4 pt-3 border-t border-border">
-          <div className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wider">Capacity by model</div>
-          <div
-            className="flex h-2 rounded-full overflow-hidden bg-muted/50"
-            role="img"
-            aria-label="GPU capacity breakdown by model"
+      <div className="flex items-center gap-3 text-[10px] font-mono text-muted-foreground mb-4">
+        <span className="text-emerald-400">{data.activeGPUs} active</span>
+        <span className="text-muted-foreground/60">{data.totalGPUs - data.activeGPUs} idle</span>
+      </div>
+
+      {data.pipelineGPUs && data.pipelineGPUs.length > 0 && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setPipelinesExpanded((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:text-muted-foreground transition-colors group mb-2"
+            aria-expanded={pipelinesExpanded}
           >
-            {data.models.map((m, i) => {
-              const pct = (m.count / totalGPUs) * 100;
-              const color = GPU_MODEL_COLORS[i % GPU_MODEL_COLORS.length];
-              return (
-                <div
-                  key={m.model}
-                  className="transition-all duration-300 first:rounded-l-full last:rounded-r-full"
-                  style={{
-                    width: `${pct}%`,
-                    backgroundColor: color,
-                  }}
-                  title={`${m.model}: ${m.count} GPU${m.count !== 1 ? 's' : ''} (${pct.toFixed(1)}%)`}
-                />
-              );
-            })}
-          </div>
-          <div className="space-y-1.5 mt-2">
-            {data.models.map((m, i) => {
-              const color = GPU_MODEL_COLORS[i % GPU_MODEL_COLORS.length];
-              return (
-                <div key={m.model} className="flex items-center justify-between text-xs">
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    <span
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: color }}
-                      aria-hidden
-                    />
-                    <span className="text-muted-foreground truncate" title={m.model}>{m.model}</span>
-                  </span>
-                  <span className="font-mono text-foreground flex-shrink-0">{m.count}</span>
+            <span>By Pipeline</span>
+            <span className="transition-transform group-hover:opacity-100">
+              {pipelinesExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </span>
+          </button>
+          {pipelinesExpanded && (
+            <div className="space-y-2">
+              {data.pipelineGPUs.map((p) => (
+                <div key={p.name} className="rounded border border-border/60 overflow-hidden">
+                  <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-muted/20">
+                    <div
+                      className={
+                        p.name === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID
+                          ? 'text-xs font-mono text-muted-foreground truncate'
+                          : 'text-xs font-medium text-foreground truncate'
+                      }
+                      title={p.name}
+                    >
+                      {p.name}
+                    </div>
+                    <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">
+                      {formatNumber(p.gpus)} GPUs
+                    </span>
+                  </div>
+                  {p.models && p.models.length > 0 && (
+                    <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
+                      {p.models.map((m) => (
+                        <div key={m.model} className="flex items-center justify-between text-[10px]">
+                          <span className="text-muted-foreground pr-2 font-mono break-all">{m.model}</span>
+                          <span className="font-mono text-foreground flex-shrink-0">{formatNumber(m.gpus)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -767,12 +884,82 @@ function GPUCapacityCard({ data }: { data: DashboardGPUCapacity }) {
 }
 
 // ============================================================================
-// Row 3: Live Job Feed & Pipeline Pricing
+// Live Job Feed & Pipeline Unit Cost cards
 // ============================================================================
 
-function JobFeedCard({ jobs, connected }: { jobs: JobFeedEntry[]; connected: boolean }) {
+type JobFeedSortCol = 'model' | 'outputFps' | 'durationSeconds' | 'status';
+
+function JobFeedCard({
+  jobs,
+  connected,
+  pollInterval,
+  onPollIntervalChange,
+  feedMeta,
+}: {
+  jobs: JobFeedEntry[];
+  connected: boolean;
+  pollInterval: number;
+  onPollIntervalChange: (ms: number) => void;
+  feedMeta: JobFeedConnectionMeta | null;
+}) {
+  const [sortCol, setSortCol] = useState<JobFeedSortCol>('durationSeconds');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const toggleSort = (col: JobFeedSortCol) => {
+    if (sortCol === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortCol(col);
+      setSortDir('desc');
+    }
+  };
+
+  const sorted = useMemo(() => {
+    return [...jobs].sort((a, b) => {
+      let av: string | number = 0;
+      let bv: string | number = 0;
+      const { modelLabel: am } = jobFeedPipelineParts(a.pipeline);
+      const { modelLabel: bm } = jobFeedPipelineParts(b.pipeline);
+      switch (sortCol) {
+        case 'model': av = am === '—' ? '' : am; bv = bm === '—' ? '' : bm; break;
+        case 'outputFps': av = a.outputFps ?? 0; bv = b.outputFps ?? 0; break;
+        case 'durationSeconds': av = a.durationSeconds ?? 0; bv = b.durationSeconds ?? 0; break;
+        case 'status': av = a.status; bv = b.status; break;
+      }
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      }
+      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
+    });
+  }, [jobs, sortCol, sortDir]);
+
+  const SortIcon = ({ col }: { col: JobFeedSortCol }) => {
+    if (sortCol !== col) return <ChevronsUpDown className="w-3 h-3 opacity-30" />;
+    return sortDir === 'asc'
+      ? <ChevronUp className="w-3 h-3" />
+      : <ChevronDown className="w-3 h-3" />;
+  };
+
+  const TH = ({ col, label, right }: { col: JobFeedSortCol; label: string; right?: boolean }) => (
+    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'}`}>
+      <button
+        type="button"
+        onClick={() => toggleSort(col)}
+        className={`inline-flex items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'flex-row-reverse' : ''}`}
+      >
+        {label}
+        <SortIcon col={col} />
+      </button>
+    </th>
+  );
+
   const statusStyles: Record<string, string> = {
+    online: 'bg-emerald-500/15 text-emerald-400',
     running: 'bg-emerald-500/15 text-emerald-400',
+    degraded_input: 'bg-amber-500/15 text-amber-400',
+    degraded_inference: 'bg-amber-500/15 text-amber-400',
+    degraded_output: 'bg-amber-500/15 text-amber-400',
+    degraded: 'bg-amber-500/15 text-amber-400',
     completed: 'bg-blue-500/10 text-blue-400',
     failed: 'bg-red-500/15 text-red-400',
   };
@@ -786,45 +973,96 @@ function JobFeedCard({ jobs, connected }: { jobs: JobFeedEntry[]; connected: boo
           </div>
           <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Live Job Feed</span>
         </div>
-        {connected && (
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[10px] text-emerald-400 font-medium">LIVE</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <JobFeedPollIntervalSelector value={pollInterval} onChange={onPollIntervalChange} />
+          {connected && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[10px] text-emerald-400 font-medium">LIVE</span>
+            </div>
+          )}
+        </div>
       </div>
-      <div className="overflow-hidden">
+      <div className="overflow-x-auto max-h-72 overflow-y-auto">
         {jobs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-center">
-            <span className="text-xs text-muted-foreground">Coming soon</span>
-            <span className="text-[10px] text-muted-foreground/70 mt-1">Real-time job feed when data is connected</span>
+          <div className="flex flex-col items-center justify-center h-32 text-center px-2">
+            <Radio className="w-5 h-5 text-muted-foreground/30 mb-2" />
+            <span className="text-xs text-muted-foreground">
+              {feedMeta?.fetchFailed
+                ? 'Could not load the job feed. Check the network or try again.'
+                : feedMeta && !feedMeta.clickhouseConfigured
+                  ? 'Live job feed needs ClickHouse (set CLICKHOUSE_URL, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD on the server).'
+                  : feedMeta?.queryFailed
+                    ? 'ClickHouse query failed. See server logs for details.'
+                    : 'No active streams'}
+            </span>
+            {feedMeta && !feedMeta.fetchFailed && !feedMeta.queryFailed && feedMeta.clickhouseConfigured ? (
+              <span className="text-[10px] text-muted-foreground/70 mt-2 max-w-sm">
+                Streams with events in the last 3 minutes are shown. If you expect rows, confirm{' '}
+                <code className="text-[10px]">semantic.stream_events</code> exists and optionally set{' '}
+                <code className="text-[10px]">JOB_FEED_PIPELINE_FILTER</code> to match your pipeline names.
+              </span>
+            ) : null}
           </div>
         ) : (
           <table className="w-full text-xs">
-            <thead>
-              <tr className="text-muted-foreground border-b border-border">
-                <th className="text-left pb-2 font-medium">Job ID</th>
-                <th className="text-left pb-2 font-medium">Time</th>
-                <th className="text-left pb-2 font-medium">Pipeline</th>
-                <th className="text-right pb-2 font-medium">Status</th>
+            <thead className="sticky top-0 bg-card z-10 text-[10px] text-muted-foreground uppercase tracking-wider">
+              <tr className="border-b border-border">
+                <TH col="model" label="Model" />
+                <TH col="outputFps" label="FPS" right />
+                <TH col="durationSeconds" label="Running" right />
+                <TH col="status" label="State" right />
               </tr>
             </thead>
             <tbody>
-              {jobs.map((job, i) => (
+              {sorted.map((job) => {
+                const { pipelineLabel, modelLabel } = jobFeedPipelineParts(job.pipeline);
+                const rowTooltip = [
+                  `Stream: ${job.id}`,
+                  `Pipeline: ${pipelineLabel}`,
+                  modelLabel !== '—' ? `Model: ${modelLabel}` : null,
+                  job.gateway ? `Gateway: ${job.gateway}` : null,
+                  job.orchestratorUrl ? `Orchestrator: ${job.orchestratorUrl}` : null,
+                  job.startedAt ? `First seen: ${job.startedAt}` : null,
+                  job.lastSeen ? `Last seen: ${job.lastSeen}` : null,
+                  job.durationSeconds != null ? `Duration: ${job.durationSeconds}s` : null,
+                  job.inputFps != null ? `Input FPS: ${job.inputFps}` : null,
+                  job.outputFps != null ? `Output FPS: ${job.outputFps}` : null,
+                  `Status: ${job.status}`,
+                ].filter(Boolean).join('\n');
+                return (
                 <tr
                   key={job.id}
-                  className={`border-b border-border/50 last:border-0 transition-colors ${i === 0 ? 'animate-pulse-once' : ''}`}
+                  className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors cursor-default"
+                  title={rowTooltip}
                 >
-                  <td className="py-2 font-mono text-foreground">{job.id}</td>
-                  <td className="py-2 text-muted-foreground">{formatTime(job.startedAt)}</td>
-                  <td className="py-2 text-foreground">{job.pipeline}</td>
+                  <td className="py-2">
+                    {modelLabel !== '—' ? (
+                      <span
+                        className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono max-w-[200px] truncate ${modelBadgeColor(modelLabel)}`}
+                        title={pipelineLabel}
+                      >
+                        {modelLabel}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="py-2 text-right font-mono text-foreground">
+                    {job.inputFps != null && job.outputFps != null
+                      ? `${job.inputFps} / ${job.outputFps}`
+                      : '—'}
+                  </td>
+                  <td className="py-2 text-right font-mono text-muted-foreground">
+                    {job.runningFor ?? '—'}
+                  </td>
                   <td className="py-2 text-right">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusStyles[job.status] ?? ''}`}>
                       {job.status}
                     </span>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         )}
@@ -835,7 +1073,7 @@ function JobFeedCard({ jobs, connected }: { jobs: JobFeedEntry[]; connected: boo
 
 function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
   return (
-    <div className="p-4 rounded-lg bg-card border border-border">
+    <div className="p-4 rounded-lg bg-card border border-border h-full">
       <div className="flex items-center gap-2 mb-4">
         <div className="p-1 rounded-md bg-muted text-muted-foreground">
           <Coins className="w-3.5 h-3.5" />
@@ -843,26 +1081,62 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Pipeline Unit Cost</span>
       </div>
       <div className="overflow-hidden">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-muted-foreground border-b border-border">
-              <th className="text-left pb-2 font-medium">Pipeline</th>
-              <th className="text-left pb-2 font-medium">Unit</th>
-              <th className="text-right pb-2 font-medium">Price</th>
-              <th className="text-right pb-2 font-medium">Output / $1</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((p) => (
-              <tr key={p.pipeline} className="border-b border-border/50 last:border-0">
-                <td className="py-2 text-foreground font-medium">{p.pipeline}</td>
-                <td className="py-2 text-muted-foreground">per {p.unit}</td>
-                <td className="py-2 text-right font-mono text-foreground">${p.price}</td>
-                <td className="py-2 text-right text-emerald-400 font-medium">{p.outputPerDollar}</td>
+        {data.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-6 text-center">
+            No capability pricing in the sampled window (configure ClickHouse env or check data).
+          </p>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-muted-foreground border-b border-border">
+                <th className="text-left pb-2 font-medium">Model</th>
+                <th className="text-right pb-2 font-medium">
+                  <div>Avg price (wei)</div>
+                  <div className="text-[9px] font-normal normal-case tracking-normal text-muted-foreground/80 max-w-[140px] ml-auto">
+                    wei / unit of pixels
+                  </div>
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.map((p) => {
+                const pxUnit = p.pixelsPerUnit != null && p.pixelsPerUnit > 0 ? p.pixelsPerUnit : null;
+                const perPixel = pxUnit != null && p.price > 0 ? p.price / pxUnit : null;
+                const pixelLabel =
+                  pxUnit != null && Number.isFinite(pxUnit)
+                    ? pxUnit === 1
+                      ? 'pixel'
+                      : 'pixels'
+                    : null;
+                const pipelineId = p.unit;
+                const pipelineLabel = PIPELINE_DISPLAY[pipelineId] ?? pipelineId;
+                return (
+                  <tr key={`${p.pipeline}:${p.unit}`} className="border-b border-border/50 last:border-0">
+                    <td className="py-2">
+                      <span
+                        className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono break-all max-w-[200px] ${modelBadgeColor(p.pipeline)}`}
+                        title={pipelineLabel}
+                      >
+                        {p.pipeline}
+                      </span>
+                    </td>
+                    <td className="py-2 text-right align-top">
+                      <div className="font-mono text-foreground">
+                        {formatPlainNumber(p.price)}{' '}
+                        <span className="text-[10px] text-muted-foreground font-sans">wei</span>
+                      </div>
+                      {perPixel != null && Number.isFinite(perPixel) && pxUnit != null && pixelLabel ? (
+                        <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                          {formatPlainNumber(perPixel)} wei / {formatPlainNumber(pxUnit)} {pixelLabel}
+                        </div>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
@@ -872,28 +1146,8 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
 // Orchestrator Table Card
 // ============================================================================
 
-type OrchestratorSortCol = 'address' | 'knownSessions' | 'successRatio' | 'slaScore' | 'gpuCount';
+type OrchestratorSortCol = 'address' | 'knownSessions' | 'successRatio' | 'effectiveSuccessRate' | 'slaScore' | 'gpuCount';
 type SortDir = 'asc' | 'desc';
-
-const LIVE_VIDEO_TO_VIDEO_PIPELINE_ID = 'live-video-to-video';
-
-/** Badge color classes (bg + text) for model badges — high contrast for readability */
-const MODEL_BADGE_COLORS = [
-  'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
-  'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
-  'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-  'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
-  'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
-  'bg-lime-100 text-lime-800 dark:bg-lime-900/40 dark:text-lime-200',
-  'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-200',
-  'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200',
-] as const;
-
-function modelBadgeColor(modelId: string): (typeof MODEL_BADGE_COLORS)[number] {
-  let n = 0;
-  for (let i = 0; i < modelId.length; i++) n += modelId.charCodeAt(i);
-  return MODEL_BADGE_COLORS[Math.abs(n) % MODEL_BADGE_COLORS.length];
-}
 
 /** Format pipeline + models for display: "Display name (model1, model2)" using the models this orchestrator offers. */
 function formatPipelineLabel(
@@ -957,14 +1211,25 @@ function OrchestratorTableCard({
     });
     return rows;
   }, [data, sortCol, sortDir, filter, catalog]);
-  const getPipelineLabel = (pipelineId: string, modelIds: string[] | undefined) =>
-    formatPipelineLabel(pipelineId, catalog, modelIds);
 
   const ariaSortValue = (col: OrchestratorSortCol): 'ascending' | 'descending' | 'none' =>
     sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
 
-  const TH = ({ col, label, right }: { col: OrchestratorSortCol; label: string; right?: boolean }) => (
-    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'}`} aria-sort={ariaSortValue(col)}>
+  const TH = ({
+    col,
+    label,
+    right,
+    className = '',
+  }: {
+    col: OrchestratorSortCol;
+    label: string;
+    right?: boolean;
+    className?: string;
+  }) => (
+    <th
+      className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'} ${className}`.trim()}
+      aria-sort={ariaSortValue(col)}
+    >
       <button
         type="button"
         onClick={() => toggleSort(col)}
@@ -1006,10 +1271,11 @@ function OrchestratorTableCard({
             <tr>
               <TH col="address" label="Address" />
               <TH col="knownSessions" label="Sessions" right />
-              <TH col="successRatio" label="Success %" right />
+              <TH col="successRatio" label="Startup %" right />
+              <TH col="effectiveSuccessRate" label="Effective %" right />
               <TH col="slaScore" label="SLA" right />
-              <TH col="gpuCount" label="GPUs" right />
-              <th className="pb-2 font-medium text-left">Pipelines</th>
+              <TH col="gpuCount" label="GPUs" right className="pr-5" />
+              <th className="pb-2 pl-2 font-medium text-left">Models</th>
             </tr>
           </thead>
           <tbody>
@@ -1018,9 +1284,10 @@ function OrchestratorTableCard({
                 <td className="py-1.5 font-mono text-foreground">{row.address.slice(0, 8)}…{row.address.slice(-4)}</td>
                 <td className="py-1.5 text-right font-mono">{row.knownSessions.toLocaleString()}</td>
                 <td className="py-1.5 text-right font-mono">{row.successRatio}%</td>
+                <td className="py-1.5 text-right font-mono">{row.effectiveSuccessRate != null ? `${row.effectiveSuccessRate}%` : '—'}</td>
                 <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
-                <td className="py-1.5 text-right font-mono">{row.gpuCount}</td>
-                <td className="py-1.5 max-w-[280px]" title={row.pipelines.map((p) => getPipelineLabel(p, row.pipelineModels?.find((o) => o.pipelineId === p)?.modelIds)).join(', ')}>
+                <td className="py-1.5 pr-5 text-right font-mono">{row.gpuCount}</td>
+                <td className="py-1.5 pl-2 max-w-[280px]">
                   <div className="flex flex-wrap gap-1">
                     {row.pipelines.length === 0 && '—'}
                     {row.pipelines.map((p) => {
@@ -1028,28 +1295,23 @@ function OrchestratorTableCard({
                       const modelIds = offer?.modelIds ?? [];
                       const entry = catalog?.find((c) => c.id === p);
                       const pipelineName = entry?.name ?? p;
-                      const isLiveV2V = p === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID;
-                      return (
-                        <span key={p} className="inline-flex flex-wrap gap-1 items-center">
-                          {!isLiveV2V && (
-                            <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">
-                              {pipelineName}
-                            </span>
-                          )}
-                          {modelIds.length > 0 ? (
-                            modelIds.map((modelId) => (
-                              <span
-                                key={modelId}
-                                className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId)}`}
-                              >
-                                {modelId}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">
-                              —
-                            </span>
-                          )}
+                      return modelIds.length > 0 ? (
+                        modelIds.map((modelId) => (
+                          <span
+                            key={`${p}:${modelId}`}
+                            className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId)}`}
+                            title={pipelineName}
+                          >
+                            {modelId}
+                          </span>
+                        ))
+                      ) : (
+                        <span
+                          key={p}
+                          className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground"
+                          title={pipelineName}
+                        >
+                          —
                         </span>
                       );
                     })}
@@ -1059,7 +1321,7 @@ function OrchestratorTableCard({
             ))}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-4 text-center text-muted-foreground">
+                <td colSpan={7} className="py-4 text-center text-muted-foreground">
                   {filter ? 'No orchestrators match the filter' : 'No orchestrator data'}
                 </td>
               </tr>
@@ -1078,26 +1340,28 @@ function OrchestratorTableCard({
 const POLL_INTERVAL_KEY = 'naap_dashboard_poll_interval';
 const DEFAULT_POLL_INTERVAL = 15_000;
 
-const POLL_OPTIONS = [
+/** Fixed poll interval for overview/fees — not useful to refresh more often. */
+
+const JOB_FEED_POLL_OPTIONS = [
   { label: '5s',  value: 5_000  },
   { label: '15s', value: 15_000 },
   { label: '30s', value: 30_000 },
   { label: '90s', value: 90_000 },
 ] as const;
 
-function getStoredPollInterval(): number {
+function getStoredJobFeedPollInterval(): number {
   if (typeof window === 'undefined') return DEFAULT_POLL_INTERVAL;
   const stored = localStorage.getItem(POLL_INTERVAL_KEY);
   if (!stored) return DEFAULT_POLL_INTERVAL;
   const parsed = Number(stored);
-  return POLL_OPTIONS.some((o) => o.value === parsed) ? parsed : DEFAULT_POLL_INTERVAL;
+  return JOB_FEED_POLL_OPTIONS.some((o) => o.value === parsed) ? parsed : DEFAULT_POLL_INTERVAL;
 }
 
-function PollIntervalSelector({ value, onChange }: { value: number; onChange: (ms: number) => void }) {
+function JobFeedPollIntervalSelector({ value, onChange }: { value: number; onChange: (ms: number) => void }) {
   return (
     <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-md bg-muted/30 border border-border">
       <Timer className="w-3 h-3 text-muted-foreground ml-1" />
-      {POLL_OPTIONS.map((opt) => (
+      {JOB_FEED_POLL_OPTIONS.map((opt) => (
         <button
           key={opt.value}
           onClick={() => onChange(opt.value)}
@@ -1119,14 +1383,14 @@ function PollIntervalSelector({ value, onChange }: { value: number; onChange: (m
 // ============================================================================
 
 const TIMEFRAME_KEY = 'naap_dashboard_timeframe';
-const DEFAULT_TIMEFRAME = '24';
+const DEFAULT_TIMEFRAME = '12';
 
 const TIMEFRAME_OPTIONS = [
-  { label: '1h',  value: '1',  description: 'Last hour' },
-  { label: '6h',  value: '6',  description: 'Last 6 hours' },
+  { label: '1h', value: '1', description: 'Last hour' },
+  { label: '6h', value: '6', description: 'Last 6 hours' },
   { label: '12h', value: '12', description: 'Last 12 hours' },
-  { label: '24h', value: '24', description: 'Last 24 hours' },
-  { label: '72h', value: '72', description: 'Last 3 days' },
+  { label: '18h', value: '18', description: 'Last 18 hours' },
+  { label: '24h', value: '24', description: 'Last 24 hours (max)' },
 ] as const;
 
 function getStoredTimeframe(): string {
@@ -1139,7 +1403,9 @@ function getStoredTimeframe(): string {
 function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: string) => void }) {
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const selected = TIMEFRAME_OPTIONS.find((o) => o.value === value) ?? TIMEFRAME_OPTIONS[3];
+  const selected =
+    TIMEFRAME_OPTIONS.find((o) => o.value === value) ??
+    TIMEFRAME_OPTIONS.find((o) => o.value === DEFAULT_TIMEFRAME)!;
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -1151,6 +1417,7 @@ function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: 
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
+    return undefined;
   }, [open]);
 
   return (
@@ -1203,11 +1470,19 @@ function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: 
 export default function DashboardPage() {
   useAuth();
 
-  const [pollInterval, setPollInterval] = useState(getStoredPollInterval);
-  const [timeframe, setTimeframe] = useState(getStoredTimeframe);
+  // Hydration-safe defaults: read localStorage after mount to avoid SSR overwriting user preferences.
+  const [jobFeedPollInterval, setJobFeedPollInterval] = useState(DEFAULT_POLL_INTERVAL);
+  const [timeframe, setTimeframe] = useState(DEFAULT_TIMEFRAME);
+  const [prefsReady, setPrefsReady] = useState(false);
 
-  const handlePollIntervalChange = (ms: number) => {
-    setPollInterval(ms);
+  useEffect(() => {
+    setJobFeedPollInterval(getStoredJobFeedPollInterval());
+    setTimeframe(getStoredTimeframe());
+    setPrefsReady(true);
+  }, []);
+
+  const handleJobFeedPollIntervalChange = (ms: number) => {
+    setJobFeedPollInterval(ms);
     localStorage.setItem(POLL_INTERVAL_KEY, String(ms));
   };
 
@@ -1216,29 +1491,50 @@ export default function DashboardPage() {
     localStorage.setItem(TIMEFRAME_KEY, tf);
   };
 
-  const { data, loading, error } = useDashboardQuery<DashboardData>(
-    NETWORK_OVERVIEW_QUERY,
+  const {
+    data: lbData,
+    loading: lbLoading,
+    refreshing: lbRefreshing,
+    error: lbError,
+  } = useDashboardQuery<Pick<DashboardData, 'kpi' | 'pipelines' | 'pipelineCatalog' | 'orchestrators'>>(
+    LEADERBOARD_QUERY,
     { timeframe },
-    { pollInterval, timeout: 8000 }
+    { timeout: LEADERBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
-  const { data: feesData, loading: feesLoading } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
+
+  const {
+    data: rtData,
+    loading: rtLoading,
+    refreshing: rtRefreshing,
+    error: rtError,
+  } = useDashboardQuery<Pick<DashboardData, 'protocol' | 'gpuCapacity' | 'pricing'>>(
+    REALTIME_QUERY,
+    { timeframe },
+    { timeout: REALTIME_QUERY_TIMEOUT_MS, skip: !prefsReady }
+  );
+
+  const { data: feesData, loading: feesLoading, refreshing: feesRefreshing, error: feesError } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
-    { pollInterval, timeout: 8000 }
+    { timeout: LEADERBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
 
-  const { jobs, connected: jobFeedConnected } = useJobFeedStream({ maxItems: 8 });
+  const { jobs, connected: jobFeedConnected, feedMeta: jobFeedMeta } = useJobFeedStream({
+    maxItems: 50,
+    pollInterval: jobFeedPollInterval,
+  });
 
-  // Loading state
-  if (loading && !data) {
-    return <DashboardLoading />;
-  }
+  const transientDashboardErrors = useMemo(() => {
+    return [lbError, rtError, feesError].filter(
+      (e): e is NonNullable<typeof e> => e != null && e.type !== 'no-provider',
+    );
+  }, [lbError, rtError, feesError]);
 
-  // No provider installed
-  if (error?.type === 'no-provider') {
+  // No provider installed (only after retries exhausted)
+  if (lbError?.type === 'no-provider' && !lbData) {
     return (
       <div className="space-y-6 max-w-[1440px] mx-auto">
-        <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
+        <DashboardHeader timeframe={timeframe} onTimeframeChange={handleTimeframeChange} />
         <NoProviderMessage />
       </div>
     );
@@ -1246,68 +1542,123 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 max-w-[1440px] mx-auto">
-      <DashboardHeader pollInterval={pollInterval} onPollIntervalChange={handlePollIntervalChange} />
+      <DashboardHeader
+        timeframe={timeframe}
+        onTimeframeChange={handleTimeframeChange}
+      />
+      {transientDashboardErrors.length > 0 && (
+        <div className="space-y-1.5">
+          {transientDashboardErrors.map((e, i) => (
+            <div
+              key={i}
+              className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400 px-3 py-1.5 rounded-md flex items-center gap-2"
+            >
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              Dashboard data may be stale — {e.message}
+            </div>
+          ))}
+        </div>
+      )}
 
-      {/* Protocol & Fees — Subgraph data (timeframe does not apply) */}
+      {/* Row 1: KPI tiles (leaderboard) */}
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-medium text-muted-foreground">Protocol & Fees</h2>
-        </div>
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
-          {data?.protocol
-            ? <ProtocolCard data={data.protocol} />
-            : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
-          {feesData?.fees
-            ? <FeesCard data={feesData.fees} />
-            : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
-        </div>
-      </section>
-
-      {/* Leaderboard Metrics — API data (timeframe applies) */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-muted-foreground">Network Metrics</h2>
-          <TimeframeSelector value={timeframe} onChange={handleTimeframeChange} />
-        </div>
-        {data?.kpi ? (
-          <KPIRow data={data.kpi} />
-        ) : loading ? (
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-            <WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton />
-          </div>
+        <h2 className="text-sm font-medium text-muted-foreground">Network Metrics</h2>
+        {lbData?.kpi ? (
+          <RefreshWrap refreshing={lbRefreshing}>
+            <KPIRow data={lbData.kpi} />
+          </RefreshWrap>
         ) : (
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-            <WidgetUnavailable label="KPI" />
+            {lbLoading
+              ? <><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /></>
+              : <WidgetUnavailable label="KPI" />}
           </div>
-        )}
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
-          {data?.pipelines && data?.kpi
-            ? <PipelinesCard data={data.pipelines} catalog={data.pipelineCatalog} timeframeHours={data.kpi.timeframeHours} />
-            : <WidgetUnavailable label="Pipelines" />}
-          {data?.gpuCapacity ? <GPUCapacityCard data={data.gpuCapacity} /> : <WidgetUnavailable label="GPU Capacity" />}
-        </div>
-        {data && (
-          <OrchestratorTableCard data={data.orchestrators ?? []} catalog={data.pipelineCatalog} />
         )}
       </section>
 
-      {/* Live Feed & Pricing */}
+      {/* Row 2: Protocol, Fees, Pipelines, GPU Capacity */}
       <section className="space-y-3">
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
-          <JobFeedCard jobs={jobs} connected={jobFeedConnected} />
-          {data?.pricing ? <PricingCard data={data.pricing} /> : <WidgetUnavailable label="Pricing" />}
+        <div
+          className="grid gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0"
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
+        >
+          {rtData?.protocol
+            ? (
+              <RefreshWrap refreshing={rtRefreshing} className="h-full min-h-0 flex flex-col">
+                <ProtocolCard data={rtData.protocol} />
+              </RefreshWrap>
+            )
+            : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
+          {feesData?.fees
+            ? (
+              <RefreshWrap refreshing={feesRefreshing} className="h-full min-h-0 flex flex-col">
+                <FeesCard data={feesData.fees} />
+              </RefreshWrap>
+            )
+            : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
+          {lbData?.pipelines
+            ? (
+              <RefreshWrap refreshing={lbRefreshing} className="h-full min-h-0 flex flex-col">
+                <PipelinesCard
+                  data={lbData.pipelines}
+                  catalog={lbData.pipelineCatalog}
+                  timeframeHours={lbData.kpi?.timeframeHours ?? 12}
+                />
+              </RefreshWrap>
+            )
+            : lbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
+          {rtData?.gpuCapacity
+            ? (
+              <RefreshWrap refreshing={rtRefreshing} className="h-full min-h-0 flex flex-col">
+                <GPUCapacityCard
+                  data={rtData.gpuCapacity}
+                  timeframeHours={lbData?.kpi?.timeframeHours ?? 12}
+                />
+              </RefreshWrap>
+            )
+            : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="GPU Capacity" />}
         </div>
       </section>
+
+      {/* Row 3: Live Job Feed & Pipeline Unit Cost */}
+      <section className="space-y-3">
+        <div
+          className="grid gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0"
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}
+        >
+          <JobFeedCard
+            jobs={jobs}
+            connected={jobFeedConnected}
+            pollInterval={jobFeedPollInterval}
+            onPollIntervalChange={handleJobFeedPollIntervalChange}
+            feedMeta={jobFeedMeta}
+          />
+          {rtData?.pricing != null
+            ? <RefreshWrap refreshing={rtRefreshing} className="h-full"><PricingCard data={rtData.pricing} /></RefreshWrap>
+            : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pricing" />}
+        </div>
+      </section>
+
+      {/* Row 4: Orchestrators table (leaderboard) */}
+      {lbData?.orchestrators ? (
+        <section>
+          <RefreshWrap refreshing={lbRefreshing}>
+            <OrchestratorTableCard data={lbData.orchestrators} catalog={lbData.pipelineCatalog} />
+          </RefreshWrap>
+        </section>
+      ) : lbLoading ? (
+        <section><WidgetSkeleton className="h-40" /></section>
+      ) : null}
     </div>
   );
 }
 
 function DashboardHeader({
-  pollInterval,
-  onPollIntervalChange,
+  timeframe,
+  onTimeframeChange,
 }: {
-  pollInterval: number;
-  onPollIntervalChange: (ms: number) => void;
+  timeframe: string;
+  onTimeframeChange: (tf: string) => void;
 }) {
   return (
     <div className="flex items-end justify-between">
@@ -1318,7 +1669,7 @@ function DashboardHeader({
         </p>
       </div>
       <div className="flex items-center gap-2">
-        <PollIntervalSelector value={pollInterval} onChange={onPollIntervalChange} />
+        <TimeframeSelector value={timeframe} onChange={onTimeframeChange} />
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/50 border border-border">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-[11px] font-medium text-muted-foreground">Online</span>

@@ -135,6 +135,58 @@ describe('useDashboardQuery', () => {
     });
   });
 
+  it('preserves stale data when refetch times out after a successful load', async () => {
+    mockEventBus.request.mockResolvedValueOnce({ data: testData, errors: undefined });
+    const timeoutError = new Error('Request timeout');
+    (timeoutError as any).code = 'TIMEOUT';
+    mockEventBus.request.mockRejectedValueOnce(timeoutError);
+
+    const { result } = renderHook(() => useDashboardQuery(testQuery));
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    expect(result.current.data).toEqual(testData);
+    expect(result.current.error).toBeNull();
+
+    await act(async () => {
+      result.current.refetch();
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.data).toEqual(testData);
+    expect(result.current.error?.type).toBe('timeout');
+  });
+
+  it('preserves stale data when response has only errors after a successful load', async () => {
+    mockEventBus.request.mockResolvedValueOnce({ data: testData, errors: undefined });
+    mockEventBus.request.mockResolvedValueOnce({
+      data: null,
+      errors: [{ message: 'Upstream unavailable' }],
+    });
+
+    const { result } = renderHook(() => useDashboardQuery(testQuery));
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    expect(result.current.data).toEqual(testData);
+
+    await act(async () => {
+      result.current.refetch();
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.data).toEqual(testData);
+    expect(result.current.error?.type).toBe('query-error');
+  });
+
   it('handles GraphQL partial errors (data + errors both present)', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 

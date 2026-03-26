@@ -2,6 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const LEADERBOARD_API_URL = process.env.LEADERBOARD_API_URL || 'https://leaderboard-api.livepeer.cloud';
 
+
+function parseProxyTimeoutMs(raw: string | undefined): number {
+  const parsed = Number(raw ?? 60000);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 60000;
+}
+
+const LEADERBOARD_PROXY_TIMEOUT_MS = parseProxyTimeoutMs(process.env.LEADERBOARD_PROXY_TIMEOUT_MS);
+
+const ENDPOINT_TTL_SECONDS: Record<string, number> = {
+  'pipelines': 60 * 60,        // 1 hour
+  'gpu/metrics': 60 * 60,      // 1 hour
+  'sla/compliance': 60 * 60,   // 1 hour
+  'network/demand': 60 * 60,   // 1 hour
+};
+
 async function handleRequest(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -17,6 +32,7 @@ async function handleRequest(
 
   const pathString = path.join('/');
   const targetUrl = `${LEADERBOARD_API_URL}/api/${pathString}${request.nextUrl.search}`;
+  const ttl = ENDPOINT_TTL_SECONDS[pathString] ?? 5 * 60;
 
   try {
     const response = await fetch(targetUrl, {
@@ -24,8 +40,8 @@ async function handleRequest(
       headers: {
         Accept: 'application/json',
       },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(10_000),
+      next: { revalidate: ttl },
+      signal: AbortSignal.timeout(LEADERBOARD_PROXY_TIMEOUT_MS),
     });
 
     const responseBody = await response.text();
