@@ -1,0 +1,64 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "clickhouse-query",
+  "name": "ClickHouse Query API",
+  "description": "ClickHouse HTTP query interface — run SQL queries against a ClickHouse instance via its native HTTP API with Basic auth",
+  "icon": "📊",
+  "category": "database",
+  "connector": {
+    "slug": "clickhouse-query",
+    "displayName": "ClickHouse Query API",
+    "description": "ClickHouse HTTP query interface with Basic auth and SELECT-only enforcement",
+    "category": "database",
+    "upstreamBaseUrl": "https://s7kh1yt2go.us-east-2.aws.clickhouse.cloud:8443",
+    "defaultTimeout": 30000,
+    "healthCheckPath": "/ping",
+    "authType": "basic",
+    "authConfig": { "usernameRef": "username", "passwordRef": "password" },
+    "secretRefs": ["username", "password"],
+    "streamingEnabled": false,
+    "tags": ["clickhouse", "analytics", "database", "sql", "olap"]
+  },
+  "endpoints": [
+    {
+      "name": "network-prices",
+      "description": "Get network capability prices from ClickHouse",
+      "method": "POST",
+      "path": "/network_prices",
+      "upstreamPath": "/",
+      "upstreamContentType": "text/plain",
+      "bodyTransform": "static",
+      "upstreamStaticBody": "SELECT\n    timestamp,\n    JSONExtractString(toString(node), 'address') AS address,\n    JSONExtractString(toString(node), 'orch_uri') AS orch_uri,\n    JSONExtractInt(toString(cp), 'capability') AS capability,\n    JSONExtractString(toString(cp), 'constraint') AS constraint,\n    JSONExtractInt(toString(cp), 'pricePerUnit') AS price,\n    JSONExtractInt(toString(cp), 'pixelsPerUnit') AS pixels_per_unit\nFROM\n(\n    SELECT\n        timestamp,\n        arrayJoin(JSONExtract(toString(data), 'Array(JSON)')) AS node\n    FROM network_events.network_events\n    WHERE type = 'network_capabilities'\n      AND isValidJSON(toString(data)) LIMIT 5000\n) t\nARRAY JOIN JSONExtract(toString(node), 'capabilities_prices', 'Array(JSON)') AS cp\nORDER BY timestamp DESC\nLIMIT 31\nFORMAT JSON",
+      "timeout": 30000,
+      "cacheTtl": 60
+    },
+    {
+      "name": "query",
+      "description": "Execute a SELECT query (dynamic, consumer sends raw SQL)",
+      "method": "POST",
+      "path": "/query",
+      "upstreamPath": "/",
+      "upstreamContentType": "text/plain",
+      "bodyTransform": "passthrough",
+      "bodyBlacklist": ["DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE", "TRUNCATE"],
+      "bodyPattern": "^\\s*[Ss][Ee][Ll][Ee][Cc][Tt]\\b",
+      "timeout": 30000
+    },
+    {
+      "name": "ping",
+      "description": "ClickHouse health check",
+      "method": "GET",
+      "path": "/ping",
+      "upstreamPath": "/ping",
+      "cacheTtl": 5
+    },
+    {
+      "name": "tables",
+      "description": "List all tables in the default database",
+      "method": "GET",
+      "path": "/tables",
+      "upstreamPath": "/?query=SHOW+TABLES+FORMAT+JSON",
+      "cacheTtl": 60
+    }
+  ]
+}

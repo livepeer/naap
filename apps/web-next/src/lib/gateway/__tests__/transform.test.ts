@@ -179,6 +179,31 @@ describe('buildUpstreamRequest', () => {
       expect(result.headers.get('Authorization')).toBe(expected);
     });
 
+    it('does not forward consumer Authorization when upstream auth is basic', () => {
+      const config = makeConfig({
+        connector: {
+          authType: 'basic',
+          authConfig: { usernameRef: 'user', passwordRef: 'pass' },
+        },
+        endpoint: {
+          headerMapping: {
+            Authorization: 'Bearer {{secrets.apiKey}}',
+          },
+        },
+      });
+      const secrets: ResolvedSecrets = {
+        user: 'admin',
+        pass: 'secret',
+        apiKey: 'consumer-style-token',
+      };
+      const request = new Request('https://example.com');
+      const result = buildUpstreamRequest(request, config, secrets, null, '/query');
+
+      const expected = `Basic ${Buffer.from('admin:secret').toString('base64')}`;
+      expect(result.headers.get('Authorization')).toBe(expected);
+      expect(result.headers.get('Authorization')).not.toContain('consumer-style-token');
+    });
+
     it('sets no auth header for authType=none', () => {
       const config = makeConfig({
         connector: { authType: 'none', authConfig: {} },
