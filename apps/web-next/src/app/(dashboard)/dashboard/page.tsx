@@ -71,6 +71,8 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
       dailyUsageMins { value delta }
       dailySessionCount { value delta }
       timeframeHours
+      hourlyUsage { hour value }
+      hourlySessions { hour value }
     }
     protocol {
       currentRound
@@ -876,7 +878,7 @@ function GPUCapacityCard({ data, timeframeHours }: { data: DashboardGPUCapacity;
 // Live Job Feed & Pipeline Unit Cost cards
 // ============================================================================
 
-type JobFeedSortCol = 'pipeline' | 'model' | 'outputFps' | 'durationSeconds' | 'status';
+type JobFeedSortCol = 'model' | 'outputFps' | 'durationSeconds' | 'status';
 
 function JobFeedCard({
   jobs,
@@ -907,10 +909,9 @@ function JobFeedCard({
     return [...jobs].sort((a, b) => {
       let av: string | number = 0;
       let bv: string | number = 0;
-      const { pipelineLabel: ap, modelLabel: am } = jobFeedPipelineParts(a.pipeline);
-      const { pipelineLabel: bp, modelLabel: bm } = jobFeedPipelineParts(b.pipeline);
+      const { modelLabel: am } = jobFeedPipelineParts(a.pipeline);
+      const { modelLabel: bm } = jobFeedPipelineParts(b.pipeline);
       switch (sortCol) {
-        case 'pipeline': av = ap; bv = bp; break;
         case 'model': av = am === '—' ? '' : am; bv = bm === '—' ? '' : bm; break;
         case 'outputFps': av = a.outputFps ?? 0; bv = b.outputFps ?? 0; break;
         case 'durationSeconds': av = a.durationSeconds ?? 0; bv = b.durationSeconds ?? 0; break;
@@ -998,7 +999,6 @@ function JobFeedCard({
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-card z-10 text-[10px] text-muted-foreground uppercase tracking-wider">
               <tr className="border-b border-border">
-                <TH col="pipeline" label="Pipeline" />
                 <TH col="model" label="Model" />
                 <TH col="outputFps" label="FPS" right />
                 <TH col="durationSeconds" label="Running" right />
@@ -1028,14 +1028,10 @@ function JobFeedCard({
                   title={rowTooltip}
                 >
                   <td className="py-2">
-                    <span className="text-[10px] font-mono text-muted-foreground truncate block max-w-[200px]">
-                      {pipelineLabel}
-                    </span>
-                  </td>
-                  <td className="py-2">
                     {modelLabel !== '—' ? (
                       <span
                         className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono max-w-[200px] truncate ${modelBadgeColor(modelLabel)}`}
+                        title={pipelineLabel}
                       >
                         {modelLabel}
                       </span>
@@ -1084,7 +1080,6 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
           <table className="w-full text-xs">
             <thead>
               <tr className="text-muted-foreground border-b border-border">
-                <th className="text-left pb-2 font-medium">Pipeline</th>
                 <th className="text-left pb-2 font-medium">Model</th>
                 <th className="text-right pb-2 font-medium">
                   <div>Avg price (wei)</div>
@@ -1108,22 +1103,10 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
                 const pipelineLabel = PIPELINE_DISPLAY[pipelineId] ?? pipelineId;
                 return (
                   <tr key={`${p.pipeline}:${p.unit}`} className="border-b border-border/50 last:border-0">
-                    <td className="py-2 text-foreground">
-                      <span
-                        className={
-                          pipelineId === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID
-                            ? 'text-[10px] font-mono text-muted-foreground truncate block max-w-[200px]'
-                            : 'text-[10px] font-medium truncate block max-w-[200px]'
-                        }
-                        title={pipelineId}
-                      >
-                        {pipelineLabel}
-                      </span>
-                    </td>
                     <td className="py-2">
                       <span
                         className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono break-all max-w-[200px] ${modelBadgeColor(p.pipeline)}`}
-                        title={p.pipeline}
+                        title={pipelineLabel}
                       >
                         {p.pipeline}
                       </span>
@@ -1219,8 +1202,6 @@ function OrchestratorTableCard({
     });
     return rows;
   }, [data, sortCol, sortDir, filter, catalog]);
-  const getPipelineLabel = (pipelineId: string, modelIds: string[] | undefined) =>
-    formatPipelineLabel(pipelineId, catalog, modelIds);
 
   const ariaSortValue = (col: OrchestratorSortCol): 'ascending' | 'descending' | 'none' =>
     sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
@@ -1272,7 +1253,7 @@ function OrchestratorTableCard({
               <TH col="effectiveSuccessRate" label="Effective %" right />
               <TH col="slaScore" label="SLA" right />
               <TH col="gpuCount" label="GPUs" right />
-              <th className="pb-2 font-medium text-left">Pipelines</th>
+              <th className="pb-2 font-medium text-left">Models</th>
             </tr>
           </thead>
           <tbody>
@@ -1284,7 +1265,7 @@ function OrchestratorTableCard({
                 <td className="py-1.5 text-right font-mono">{row.effectiveSuccessRate != null ? `${row.effectiveSuccessRate}%` : '—'}</td>
                 <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
                 <td className="py-1.5 text-right font-mono">{row.gpuCount}</td>
-                <td className="py-1.5 max-w-[280px]" title={row.pipelines.map((p) => getPipelineLabel(p, row.pipelineModels?.find((o) => o.pipelineId === p)?.modelIds)).join(', ')}>
+                <td className="py-1.5 max-w-[280px]">
                   <div className="flex flex-wrap gap-1">
                     {row.pipelines.length === 0 && '—'}
                     {row.pipelines.map((p) => {
@@ -1292,28 +1273,23 @@ function OrchestratorTableCard({
                       const modelIds = offer?.modelIds ?? [];
                       const entry = catalog?.find((c) => c.id === p);
                       const pipelineName = entry?.name ?? p;
-                      const isLiveV2V = p === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID;
-                      return (
-                        <span key={p} className="inline-flex flex-wrap gap-1 items-center">
+                      return modelIds.length > 0 ? (
+                        modelIds.map((modelId) => (
                           <span
-                            className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground ${isLiveV2V ? 'font-mono' : ''}`}
+                            key={`${p}:${modelId}`}
+                            className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId)}`}
+                            title={pipelineName}
                           >
-                            {pipelineName}
+                            {modelId}
                           </span>
-                          {modelIds.length > 0 ? (
-                            modelIds.map((modelId) => (
-                              <span
-                                key={modelId}
-                                className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId)}`}
-                              >
-                                {modelId}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">
-                              —
-                            </span>
-                          )}
+                        ))
+                      ) : (
+                        <span
+                          key={p}
+                          className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground"
+                          title={pipelineName}
+                        >
+                          —
                         </span>
                       );
                     })}
@@ -1476,8 +1452,6 @@ export default function DashboardPage() {
   const [jobFeedPollInterval, setJobFeedPollInterval] = useState(DEFAULT_POLL_INTERVAL);
   const [timeframe, setTimeframe] = useState(DEFAULT_TIMEFRAME);
   const [prefsReady, setPrefsReady] = useState(false);
-  /** Hourly sparklines: loaded via same-origin KPI route so we are not blocked by stale UMD plugin GraphQL schema. */
-  const [kpiSparklines, setKpiSparklines] = useState<Pick<DashboardKPI, 'hourlyUsage' | 'hourlySessions'> | null>(null);
 
   useEffect(() => {
     setJobFeedPollInterval(getStoredJobFeedPollInterval());
@@ -1500,34 +1474,6 @@ export default function DashboardPage() {
     { timeframe },
     { timeout: DASHBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
-
-  // Separate fetch for hourly sparkline arrays (hourlyUsage / hourlySessions).
-  // These are NOT part of the UMD plugin GraphQL schema, so we hit the BFF KPI
-  // route directly.  The main useDashboardQuery above returns aggregate KPI values
-  // through the event-bus path — this is intentionally a second request.
-  useEffect(() => {
-    if (!prefsReady) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(
-          `/api/v1/dashboard/kpi?timeframe=${encodeURIComponent(timeframe)}`
-        );
-        if (!res.ok) return;
-        const json = (await res.json()) as DashboardKPI;
-        if (cancelled) return;
-        setKpiSparklines({
-          hourlyUsage: json.hourlyUsage,
-          hourlySessions: json.hourlySessions,
-        });
-      } catch {
-        if (!cancelled) setKpiSparklines(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [timeframe, prefsReady]);
 
   const { data: feesData, loading: feesLoading, refreshing: feesRefreshing, error: feesError } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
@@ -1581,7 +1527,7 @@ export default function DashboardPage() {
         <h2 className="text-sm font-medium text-muted-foreground">Network Metrics</h2>
         {data?.kpi ? (
           <RefreshWrap refreshing={refreshing}>
-            <KPIRow data={{ ...data.kpi, ...(kpiSparklines ?? {}) }} />
+            <KPIRow data={data.kpi} />
           </RefreshWrap>
         ) : (
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
