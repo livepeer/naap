@@ -11,3 +11,4 @@ export { LiveVideoAdapter } from './LiveVideoAdapter.js';
 export { BYOCAdapter } from './BYOCAdapter.js';
 export type { PipelineContext, PipelineResult } from './BatchAIAdapter.js';
 export type { BYOCCapability } from './BYOCAdapter.js';
+export { registerOpenAIRoutes } from './openai-compat/index.js';
