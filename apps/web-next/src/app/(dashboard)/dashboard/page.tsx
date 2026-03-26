@@ -63,8 +63,8 @@ import { PIPELINE_DISPLAY } from '@/lib/dashboard/pipeline-config';
 // GraphQL Query — the ONLY place data requirements are declared
 // ============================================================================
 
-const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
-  query NetworkOverview($timeframe: String) {
+const LEADERBOARD_QUERY = /* GraphQL */ `
+  query LeaderboardData($timeframe: String) {
     kpi(timeframe: $timeframe) {
       successRate { value delta }
       orchestratorsOnline { value delta }
@@ -74,17 +74,25 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
       hourlyUsage { hour value }
       hourlySessions { hour value }
     }
-    protocol {
-      currentRound
-      blockProgress
-      totalBlocks
-      totalStakedLPT
-    }
     pipelines(limit: 50, timeframe: $timeframe) {
       name mins sessions avgFps color modelMins { model mins sessions avgFps }
     }
     pipelineCatalog {
       id name models regions
+    }
+    orchestrators(period: $timeframe) {
+      address knownSessions successSessions successRatio effectiveSuccessRate noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount
+    }
+  }
+`;
+
+const REALTIME_QUERY = /* GraphQL */ `
+  query RealtimeData($timeframe: String) {
+    protocol {
+      currentRound
+      blockProgress
+      totalBlocks
+      totalStakedLPT
     }
     gpuCapacity(timeframe: $timeframe) {
       totalGPUs
@@ -94,9 +102,6 @@ const NETWORK_OVERVIEW_QUERY = /* GraphQL */ `
     }
     pricing {
       pipeline unit price pixelsPerUnit outputPerDollar
-    }
-    orchestrators(period: $timeframe) {
-      address knownSessions successSessions successRatio effectiveSuccessRate noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount
     }
   }
 `;
@@ -119,13 +124,17 @@ const FEES_OVERVIEW_QUERY = /* GraphQL */ `
     }
   }
 `;
+
 /**
- * The GraphQL overview query fans out to multiple BFF endpoints (KPI, orchestrators,
- * pipelines, GPU capacity, pipeline-catalog, pricing) and the upstream leaderboard
- * API has a configurable timeout (LEADERBOARD_PROXY_TIMEOUT_MS, default 60 s).
- * 70 s gives headroom so the client outlasts a slow upstream round-trip.
+ * Leaderboard-backed queries (KPI, pipelines, orchestrators) go through
+ * upstream pagination with a configurable timeout (LEADERBOARD_PROXY_TIMEOUT_MS,
+ * default 60 s). 70 s gives headroom so the client outlasts a slow upstream
+ * round-trip. With 1 hr TTLs most requests are cache hits.
  */
-const DASHBOARD_QUERY_TIMEOUT_MS = 70_000;
+const LEADERBOARD_QUERY_TIMEOUT_MS = 70_000;
+
+/** ClickHouse + The Graph queries are fast; 15 s is generous. */
+const REALTIME_QUERY_TIMEOUT_MS = 15_000;
 
 // ============================================================================
 // Utility Components
@@ -1469,16 +1478,32 @@ export default function DashboardPage() {
     localStorage.setItem(TIMEFRAME_KEY, tf);
   };
 
-  const { data, loading, refreshing, error } = useDashboardQuery<DashboardData>(
-    NETWORK_OVERVIEW_QUERY,
+  const {
+    data: lbData,
+    loading: lbLoading,
+    refreshing: lbRefreshing,
+    error: lbError,
+  } = useDashboardQuery<Pick<DashboardData, 'kpi' | 'pipelines' | 'pipelineCatalog' | 'orchestrators'>>(
+    LEADERBOARD_QUERY,
     { timeframe },
-    { timeout: DASHBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
+    { timeout: LEADERBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
+  );
+
+  const {
+    data: rtData,
+    loading: rtLoading,
+    refreshing: rtRefreshing,
+    error: rtError,
+  } = useDashboardQuery<Pick<DashboardData, 'protocol' | 'gpuCapacity' | 'pricing'>>(
+    REALTIME_QUERY,
+    { timeframe },
+    { timeout: REALTIME_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
 
   const { data: feesData, loading: feesLoading, refreshing: feesRefreshing, error: feesError } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
-    { timeout: DASHBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
+    { timeout: LEADERBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
 
   const { jobs, connected: jobFeedConnected, feedMeta: jobFeedMeta } = useJobFeedStream({
@@ -1487,13 +1512,13 @@ export default function DashboardPage() {
   });
 
   const transientDashboardErrors = useMemo(() => {
-    return [error, feesError].filter(
+    return [lbError, rtError, feesError].filter(
       (e): e is NonNullable<typeof e> => e != null && e.type !== 'no-provider',
     );
-  }, [error, feesError]);
+  }, [lbError, rtError, feesError]);
 
   // No provider installed (only after retries exhausted)
-  if (error?.type === 'no-provider' && !data) {
+  if (lbError?.type === 'no-provider' && !lbData) {
     return (
       <div className="space-y-6 max-w-[1440px] mx-auto">
         <DashboardHeader timeframe={timeframe} onTimeframeChange={handleTimeframeChange} />
@@ -1522,16 +1547,16 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Row 1: KPI tiles */}
+      {/* Row 1: KPI tiles (leaderboard) */}
       <section className="space-y-3">
         <h2 className="text-sm font-medium text-muted-foreground">Network Metrics</h2>
-        {data?.kpi ? (
-          <RefreshWrap refreshing={refreshing}>
-            <KPIRow data={data.kpi} />
+        {lbData?.kpi ? (
+          <RefreshWrap refreshing={lbRefreshing}>
+            <KPIRow data={lbData.kpi} />
           </RefreshWrap>
         ) : (
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-            {loading
+            {lbLoading
               ? <><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /></>
               : <WidgetUnavailable label="KPI" />}
           </div>
@@ -1544,26 +1569,26 @@ export default function DashboardPage() {
           className="grid gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0"
           style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
         >
-          {data?.protocol
-            ? <ProtocolCard data={data.protocol} />
-            : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
+          {rtData?.protocol
+            ? <RefreshWrap refreshing={rtRefreshing}><ProtocolCard data={rtData.protocol} /></RefreshWrap>
+            : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
           {feesData?.fees
             ? <RefreshWrap refreshing={feesRefreshing}><FeesCard data={feesData.fees} /></RefreshWrap>
             : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
-          {data?.pipelines
+          {lbData?.pipelines
             ? (
-              <RefreshWrap refreshing={refreshing} className="h-full min-h-0 flex flex-col">
+              <RefreshWrap refreshing={lbRefreshing} className="h-full min-h-0 flex flex-col">
                 <PipelinesCard
-                  data={data.pipelines}
-                  catalog={data.pipelineCatalog}
-                  timeframeHours={data.kpi?.timeframeHours ?? 12}
+                  data={lbData.pipelines}
+                  catalog={lbData.pipelineCatalog}
+                  timeframeHours={lbData.kpi?.timeframeHours ?? 12}
                 />
               </RefreshWrap>
             )
-            : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
-          {data?.gpuCapacity && data?.kpi
-            ? <RefreshWrap refreshing={refreshing}><GPUCapacityCard data={data.gpuCapacity} timeframeHours={data.kpi.timeframeHours} /></RefreshWrap>
-            : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="GPU Capacity" />}
+            : lbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
+          {rtData?.gpuCapacity
+            ? <RefreshWrap refreshing={rtRefreshing}><GPUCapacityCard data={rtData.gpuCapacity} timeframeHours={lbData?.kpi?.timeframeHours ?? 12} /></RefreshWrap>
+            : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="GPU Capacity" />}
         </div>
       </section>
 
@@ -1580,20 +1605,20 @@ export default function DashboardPage() {
             onPollIntervalChange={handleJobFeedPollIntervalChange}
             feedMeta={jobFeedMeta}
           />
-          {data?.pricing != null
-            ? <RefreshWrap refreshing={refreshing} className="h-full"><PricingCard data={data.pricing} /></RefreshWrap>
-            : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pricing" />}
+          {rtData?.pricing != null
+            ? <RefreshWrap refreshing={rtRefreshing} className="h-full"><PricingCard data={rtData.pricing} /></RefreshWrap>
+            : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pricing" />}
         </div>
       </section>
 
-      {/* Row 4: Orchestrators table */}
-      {data?.orchestrators ? (
+      {/* Row 4: Orchestrators table (leaderboard) */}
+      {lbData?.orchestrators ? (
         <section>
-          <RefreshWrap refreshing={refreshing}>
-            <OrchestratorTableCard data={data.orchestrators} catalog={data.pipelineCatalog} />
+          <RefreshWrap refreshing={lbRefreshing}>
+            <OrchestratorTableCard data={lbData.orchestrators} catalog={lbData.pipelineCatalog} />
           </RefreshWrap>
         </section>
-      ) : loading ? (
+      ) : lbLoading ? (
         <section><WidgetSkeleton className="h-40" /></section>
       ) : null}
     </div>

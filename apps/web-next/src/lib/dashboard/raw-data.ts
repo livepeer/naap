@@ -134,10 +134,10 @@ export interface PipelineCatalogEntry {
 
 const LEADERBOARD_API_URL = process.env.LEADERBOARD_API_URL || 'https://leaderboard-api.livepeer.cloud';
 
-const DEMAND_TTL = 3 * 60;      // 180 seconds
-const SLA_TTL = 5 * 60;         // 300 seconds
-const GPU_TTL = 5 * 60;         // 300 seconds
-const PIPELINES_TTL = 15 * 60;  // 900 seconds
+const DEMAND_TTL = 60 * 60;     // 3600 seconds (1 hour)
+const SLA_TTL = 60 * 60;        // 3600 seconds (1 hour)
+const GPU_TTL = 60 * 60;        // 3600 seconds (1 hour)
+const PIPELINES_TTL = 60 * 60;  // 3600 seconds (1 hour)
 
 // ---------------------------------------------------------------------------
 // In-process TTL cache
