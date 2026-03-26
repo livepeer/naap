@@ -117,6 +117,12 @@ const FEES_OVERVIEW_QUERY = /* GraphQL */ `
     }
   }
 `;
+/**
+ * The GraphQL overview query fans out to multiple BFF endpoints (KPI, orchestrators,
+ * pipelines, GPU capacity, pipeline-catalog, pricing) and the upstream leaderboard
+ * API has a configurable timeout (LEADERBOARD_PROXY_TIMEOUT_MS, default 60 s).
+ * 70 s gives headroom so the client outlasts a slow upstream round-trip.
+ */
 const DASHBOARD_QUERY_TIMEOUT_MS = 70_000;
 
 // ============================================================================
@@ -1495,6 +1501,10 @@ export default function DashboardPage() {
     { timeout: DASHBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
 
+  // Separate fetch for hourly sparkline arrays (hourlyUsage / hourlySessions).
+  // These are NOT part of the UMD plugin GraphQL schema, so we hit the BFF KPI
+  // route directly.  The main useDashboardQuery above returns aggregate KPI values
+  // through the event-bus path — this is intentionally a second request.
   useEffect(() => {
     if (!prefsReady) return;
     let cancelled = false;
@@ -1519,7 +1529,7 @@ export default function DashboardPage() {
     };
   }, [timeframe, prefsReady]);
 
-  const { data: feesData, loading: feesLoading, error: feesError } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
+  const { data: feesData, loading: feesLoading, refreshing: feesRefreshing, error: feesError } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
     { timeout: DASHBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
@@ -1592,7 +1602,7 @@ export default function DashboardPage() {
             ? <ProtocolCard data={data.protocol} />
             : loading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
           {feesData?.fees
-            ? <FeesCard data={feesData.fees} />
+            ? <RefreshWrap refreshing={feesRefreshing}><FeesCard data={feesData.fees} /></RefreshWrap>
             : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
           {data?.pipelines
             ? (

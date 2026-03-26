@@ -56,7 +56,7 @@ interface ClickHouseStreamRow {
 function pipelineFilterAndClause(): string {
   const raw = process.env.JOB_FEED_PIPELINE_FILTER?.trim();
   if (!raw) return '';
-  const escaped = raw.replace(/'/g, "''");
+  const escaped = raw.replace(/\\/g, '\\\\').replace(/'/g, "''");
   return `AND pipeline ILIKE '${escaped}'`;
 }
 

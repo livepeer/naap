@@ -11,10 +11,10 @@ function parseProxyTimeoutMs(raw: string | undefined): number {
 const LEADERBOARD_PROXY_TIMEOUT_MS = parseProxyTimeoutMs(process.env.LEADERBOARD_PROXY_TIMEOUT_MS);
 
 const ENDPOINT_TTL_SECONDS: Record<string, number> = {
-  'pipelines': 15 * 60,     // 25 min — catalog rarely changes
-  'gpu/metrics': 5 * 60,    // 10 min  — aggregated hardware data
-  'sla/compliance': 5 * 60, // 20 min
-  'network/demand': 3 * 60, // 7 min  — most volatile
+  'pipelines': 15 * 60,     // 15 min — catalog rarely changes
+  'gpu/metrics': 5 * 60,    // 5 min — aggregated hardware data
+  'sla/compliance': 5 * 60, // 5 min
+  'network/demand': 3 * 60, // 3 min — most volatile
 };
 
 async function handleRequest(
