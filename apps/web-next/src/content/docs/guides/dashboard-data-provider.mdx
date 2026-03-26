@@ -62,7 +62,9 @@ export function registerProvider(eventBus: IEventBus, api: IApiClient) {
         successRate: { value: stats.successRate, delta: stats.successRateDelta },
         orchestratorsOnline: { value: stats.orchCount, delta: stats.orchDelta },
         dailyUsageMins: { value: stats.usageMins, delta: stats.usageDelta },
-        dailySessionCount: { value: stats.streams, delta: stats.streamsDelta },
+        dailySessionCount: { value: stats.sessionCount, delta: stats.sessionDelta },
+        dailyNetworkFeesEth: { value: stats.networkFeesEth, delta: stats.networkFeesDelta },
+        timeframeHours: 24,
       };
     },
 
@@ -177,7 +179,7 @@ type Query {
 
 | Type | Fields |
 |---|---|
-| `KPI` | `successRate`, `orchestratorsOnline`, `dailyUsageMins`, `dailySessionCount` (all `MetricDelta!`) |
+| `KPI` | `successRate`, `orchestratorsOnline`, `dailyUsageMins`, `dailySessionCount`, `dailyNetworkFeesEth` (all `MetricDelta!`); `timeframeHours` (`Int!`); optional `hourlyUsage` / `hourlySessions` |
 | `MetricDelta` | `value: Float!`, `delta: Float!` |
 | `Protocol` | `currentRound: Int!`, `blockProgress: Int!`, `totalBlocks: Int!`, `totalStakedLPT: Float!` |
 | `FeesInfo` | `totalEth: Float!`, `entries: [FeeEntry!]!` |

@@ -32,7 +32,8 @@ async function handleRequest(
 
   const pathString = path.join('/');
   const targetUrl = `${LEADERBOARD_API_URL}/api/${pathString}${request.nextUrl.search}`;
-  const ttl = ENDPOINT_TTL_SECONDS[pathString] ?? 5 * 60;
+  // Unlisted paths: short cache only (avoid stale surprises for ad-hoc proxy use).
+  const ttl = ENDPOINT_TTL_SECONDS[pathString] ?? 5 * 60; // 5 min
 
   try {
     const response = await fetch(targetUrl, {
