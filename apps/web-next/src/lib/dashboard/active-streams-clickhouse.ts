@@ -48,28 +48,20 @@ interface ClickHouseStreamRow {
 }
 
 /**
- * Optional `AND pipeline ILIKE ...` fragment.
- * If `JOB_FEED_PIPELINE_FILTER` is unset or empty, **no** pipeline filter is applied
- * (all recent rows in `semantic.stream_events` are considered).
- * Set to e.g. `%stream%diff%` to match only stream-diffusion-style pipeline names.
+ * Static SQL for active streams. The optional pipeline filter is handled via a
+ * ClickHouse parameterized query (`{pipeline_filter:String}`). When no env
+ * filter is set the caller passes `%` so `ILIKE '%'` matches all rows.
+ *
+ * @see https://clickhouse.com/docs/interfaces/http#cli-queries-with-parameters
  */
-function pipelineFilterAndClause(): string {
-  const raw = process.env.JOB_FEED_PIPELINE_FILTER?.trim();
-  if (!raw) return '';
-  const escaped = raw.replace(/\\/g, '\\\\').replace(/'/g, "''");
-  return `AND pipeline ILIKE '${escaped}'`;
-}
-
-function buildActiveStreamsSql(): string {
-  const pipelineFilter = pipelineFilterAndClause();
-  return `
+const ACTIVE_STREAMS_SQL = `
 WITH active_streams AS (
   SELECT DISTINCT stream_id
   FROM semantic.stream_events
   WHERE event_timestamp_ts >= now() - INTERVAL 3 MINUTE
     AND stream_id != ''
     AND pipeline != ''
-    ${pipelineFilter}
+    AND pipeline ILIKE {pipeline_filter:String}
 ),
 latest AS (
   SELECT
@@ -127,7 +119,6 @@ LEFT JOIN first_seen f ON f.stream_id = a.stream_id
 ORDER BY f.first_ever DESC
 FORMAT JSON
 `.trim();
-}
 
 export function isClickHouseEnvConfiguredForJobFeed(): boolean {
   const baseUrl = process.env.CLICKHOUSE_URL?.trim();
@@ -172,7 +163,9 @@ async function fetchUncached(): Promise<ActiveStreamRow[]> {
     return [];
   }
 
-  const url = `${baseUrl.replace(/\/$/, '')}/`;
+  const pipelineFilter = process.env.JOB_FEED_PIPELINE_FILTER?.trim() || '%';
+  const params = new URLSearchParams({ param_pipeline_filter: pipelineFilter });
+  const url = `${baseUrl.replace(/\/$/, '')}/?${params}`;
   const auth = Buffer.from(`${user}:${password}`).toString('base64');
   const t0 = Date.now();
 
@@ -182,7 +175,7 @@ async function fetchUncached(): Promise<ActiveStreamRow[]> {
       Authorization: `Basic ${auth}`,
       'Content-Type': 'text/plain; charset=utf-8',
     },
-    body: buildActiveStreamsSql(),
+    body: ACTIVE_STREAMS_SQL,
     signal: AbortSignal.timeout(15_000),
     next: { revalidate: ACTIVE_STREAMS_TTL_SECONDS },
   });
