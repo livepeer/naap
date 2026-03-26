@@ -126,11 +126,10 @@ const FEES_OVERVIEW_QUERY = /* GraphQL */ `
 `;
 
 /**
- * Client timeout for leaderboard-backed GraphQL (KPI, pipelines, orchestrators).
- * The BFF still uses LEADERBOARD_PROXY_TIMEOUT_MS (default 60s) per upstream fetch.
- * A shorter client deadline keeps partial UI from waiting on slow pagination; realtime
- * data uses REALTIME_QUERY_TIMEOUT_MS. With 1h proxy TTLs and startup cache warm, most
- * leaderboard requests are cache hits.
+ * Leaderboard-backed queries (KPI, pipelines, orchestrators) go through
+ * upstream pagination with a configurable timeout (LEADERBOARD_PROXY_TIMEOUT_MS,
+ * default 60 s). 70 s gives headroom so the client outlasts a slow upstream
+ * round-trip. With 1 hr TTLs most requests are cache hits.
  */
 const LEADERBOARD_QUERY_TIMEOUT_MS = 25_000;
 

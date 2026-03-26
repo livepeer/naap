@@ -63,7 +63,7 @@ export async function register() {
       console.warn('[naap] Startup cache warm failed (non-fatal):', err);
     }
 
-    // Re-warm at ~90% of the leaderboard TTL so in-process cache entries stay hot.
+    // Re-warm in the background at 90% of the TTL so the cache never expires.
     const rewarmMs = Math.max(LEADERBOARD_CACHE_TTLS.demand, LEADERBOARD_CACHE_TTLS.sla) * 900;
     setInterval(() => {
       warmDashboardCaches()

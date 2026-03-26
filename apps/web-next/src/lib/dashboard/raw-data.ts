@@ -12,10 +12,9 @@
  *   2. Next.js `next: { revalidate }` on each fetch — provides persistent
  *      cross-request caching in production builds.
  *
- * Per-endpoint TTL seconds must match ENDPOINT_TTL_SECONDS in
- * `app/api/v1/leaderboard/[...path]/route.ts`. Values live here as DEMAND_TTL / SLA_TTL /
- * GPU_TTL / PIPELINES_TTL (see LEADERBOARD_CACHE_TTLS). Leaderboard `gpu/metrics` is not
- * used for dashboard inventory; GPU capacity comes from ClickHouse (gpu-capacity-clickhouse.ts).
+ * TTLs match ENDPOINT_TTL_SECONDS in the leaderboard proxy route:
+ *   demand=180s, sla=300s, pipelines=900s (gpu/metrics not fetched — dashboard GPU
+ *   inventory uses ClickHouse; see gpu-capacity-clickhouse.ts)
  *
  * Leaderboard `window=` query caps (keep in sync with /api/v1/leaderboard/warm):
  *   network/demand + sla/compliance: 24h max — pipelines catalog: no window

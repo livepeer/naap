@@ -147,8 +147,8 @@ function getSubgraphUrl(): string {
 export async function resolveKPI({ timeframe }: { timeframe?: string | number }): Promise<DashboardKPI & { timeframeHours: number }> {
   const timeframeHours = parseTimeframe(timeframe);
 
-  // Demand/SLA are fetched as the max 24h window upstream, then sliced in memory to
-  // `timeframeHours` (see raw-data.ts). Totals and hourly buckets match that slice.
+  // Request exactly the selected lookback from upstream (`window=Nh`) so totals match API
+  // semantics instead of relying on in-memory `window_start` slicing.
   const [demandRows, slaRows] = await Promise.all([
     getRawDemandRows(timeframeHours),
     getRawSLARows(timeframeHours),
