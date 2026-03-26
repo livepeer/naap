@@ -193,7 +193,10 @@
         },
         "allOf": [
           {
-            "if": { "properties": { "bodyTransform": { "const": "static" } } },
+            "if": {
+              "properties": { "bodyTransform": { "const": "static" } },
+              "required": ["bodyTransform"]
+            },
             "then": { "required": ["upstreamStaticBody"] }
           }
         ]
