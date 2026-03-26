@@ -131,7 +131,7 @@ const FEES_OVERVIEW_QUERY = /* GraphQL */ `
  * default 60 s). 70 s gives headroom so the client outlasts a slow upstream
  * round-trip. With 1 hr TTLs most requests are cache hits.
  */
-const LEADERBOARD_QUERY_TIMEOUT_MS = 70_000;
+const LEADERBOARD_QUERY_TIMEOUT_MS = 25_000;
 
 /** ClickHouse + The Graph queries are fast; 15 s is generous. */
 const REALTIME_QUERY_TIMEOUT_MS = 15_000;

@@ -292,37 +292,65 @@ export function clampLeaderboardLookbackHours(hours?: number): number {
   return Math.min(Math.max(Math.floor(hours), 1), DASHBOARD_LEADERBOARD_MAX_HOURS);
 }
 
+function filterRowsByWindowStart<T extends { window_start: string }>(
+  rows: T[],
+  lookbackHours: number
+): T[] {
+  if (rows.length === 0) return rows;
+
+  let maxTs = 0;
+  for (const r of rows) {
+    const ts = Date.parse(r.window_start);
+    if (!Number.isNaN(ts) && ts > maxTs) maxTs = ts;
+  }
+  if (maxTs === 0) return rows;
+
+  const HOUR_MS = 60 * 60 * 1000;
+  const cutoffMs = maxTs - (lookbackHours - 1) * HOUR_MS;
+  return rows.filter(r => {
+    const ts = Date.parse(r.window_start);
+    return !Number.isNaN(ts) && ts >= cutoffMs;
+  });
+}
+
 /**
  * Fetch demand rows for a leaderboard lookback window.
- * Omit `lookbackHours` (or pass non-finite) to use {@link DASHBOARD_LEADERBOARD_MAX_HOURS}.
+ *
+ * Always fetches the max 24h window from upstream (single cache key) and
+ * filters in memory for sub-windows. This means switching from 12h → 6h
+ * is an instant cache hit rather than a separate upstream round-trip.
  */
 export function getRawDemandRows(lookbackHours?: number): Promise<NetworkDemandRow[]> {
   const h = clampLeaderboardLookbackHours(lookbackHours);
-  const windowStr = `${h}h`;
-  return cachedFetch(`demand:${windowStr}`, DEMAND_TTL * 1000, () =>
+  return cachedFetch(`demand:${DASHBOARD_LEADERBOARD_MAX_HOURS}h`, DEMAND_TTL * 1000, () =>
     fetchAllPages<NetworkDemandRow>(
       'network/demand',
       'demand',
-      new URLSearchParams({ window: windowStr }),
+      new URLSearchParams({ window: DASHBOARD_LEADERBOARD_WINDOW }),
       DEMAND_TTL
     ).then((r) => r.rows)
+  ).then(rows =>
+    h >= DASHBOARD_LEADERBOARD_MAX_HOURS ? rows : filterRowsByWindowStart(rows, h)
   );
 }
 
 /**
  * Fetch SLA rows for a leaderboard lookback window.
- * Omit `lookbackHours` to use {@link DASHBOARD_LEADERBOARD_MAX_HOURS}.
+ *
+ * Same max-window strategy as {@link getRawDemandRows}: always fetch 24h,
+ * filter in memory for shorter timeframes.
  */
 export function getRawSLARows(lookbackHours?: number): Promise<SLAComplianceRow[]> {
   const h = clampLeaderboardLookbackHours(lookbackHours);
-  const windowStr = `${h}h`;
-  return cachedFetch(`sla:${windowStr}`, SLA_TTL * 1000, () =>
+  return cachedFetch(`sla:${DASHBOARD_LEADERBOARD_MAX_HOURS}h`, SLA_TTL * 1000, () =>
     fetchAllPages<SLAComplianceRow>(
       'sla/compliance',
       'compliance',
-      new URLSearchParams({ window: windowStr }),
+      new URLSearchParams({ window: DASHBOARD_LEADERBOARD_WINDOW }),
       SLA_TTL
     ).then((r) => r.rows)
+  ).then(rows =>
+    h >= DASHBOARD_LEADERBOARD_MAX_HOURS ? rows : filterRowsByWindowStart(rows, h)
   );
 }
 
@@ -409,4 +437,35 @@ export async function warmLeaderboardPipelines(ttlSeconds: number): Promise<{
   const body = (await res.json()) as { pipelines?: unknown[] };
   const count = Array.isArray(body.pipelines) ? body.pipelines.length : 0;
   return { ok: true, status: res.status, count };
+}
+
+// ---------------------------------------------------------------------------
+// Unified cache warmer
+// ---------------------------------------------------------------------------
+
+/**
+ * Pre-populate both the in-process memCache and Next.js fetch cache for all
+ * leaderboard endpoints. Uses the same code path as the resolvers so the
+ * cache keys match exactly.
+ *
+ * Called from:
+ *   - `instrumentation.ts` at server startup (awaited — first user is guaranteed warm)
+ *   - background `setInterval` to keep the cache fresh
+ *   - `GET /api/v1/leaderboard/warm` (Vercel cron)
+ */
+export async function warmDashboardCaches(): Promise<{
+  demand: { rows: number };
+  sla: { rows: number };
+  pipelines: { count: number };
+}> {
+  const [demandRows, slaRows, pipelines] = await Promise.all([
+    getRawDemandRows(),
+    getRawSLARows(),
+    getRawPipelineCatalog(),
+  ]);
+  return {
+    demand: { rows: demandRows.length },
+    sla: { rows: slaRows.length },
+    pipelines: { count: pipelines.length },
+  };
 }
