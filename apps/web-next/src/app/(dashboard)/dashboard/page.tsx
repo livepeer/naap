@@ -474,14 +474,14 @@ function ProtocolCard({ data }: { data: DashboardProtocol }) {
     : 0;
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border">
-      <div className="flex items-center gap-2 mb-4">
+    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
+      <div className="flex items-center gap-2 mb-4 shrink-0">
         <div className="p-1 rounded-md bg-muted text-muted-foreground">
           <Layers className="w-3.5 h-3.5" />
         </div>
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Protocol</span>
       </div>
-      <div className="space-y-4">
+      <div className="space-y-4 flex-1 min-h-0">
         <div>
           <div className="flex items-baseline gap-2">
             <span className="text-xl font-semibold text-foreground font-mono">Round {data.currentRound.toLocaleString()}</span>
@@ -546,8 +546,8 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
   }, [data.dayData, data.weeklyData, grouping]);
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border">
-      <div className="flex items-start justify-between mb-3">
+    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
+      <div className="flex items-start justify-between mb-3 shrink-0">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <div className="p-1 rounded-md bg-muted text-muted-foreground">
@@ -813,8 +813,8 @@ function GPUCapacityCard({ data, timeframeHours }: { data: DashboardGPUCapacity;
   const [pipelinesExpanded, setPipelinesExpanded] = useState(true);
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border">
-      <div className="flex items-center gap-2 mb-3">
+    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
+      <div className="flex items-center gap-2 mb-3 shrink-0">
         <div className="p-1 rounded-md bg-muted text-muted-foreground">
           <Cpu className="w-3.5 h-3.5" />
         </div>
@@ -1215,8 +1215,21 @@ function OrchestratorTableCard({
   const ariaSortValue = (col: OrchestratorSortCol): 'ascending' | 'descending' | 'none' =>
     sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
 
-  const TH = ({ col, label, right }: { col: OrchestratorSortCol; label: string; right?: boolean }) => (
-    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'}`} aria-sort={ariaSortValue(col)}>
+  const TH = ({
+    col,
+    label,
+    right,
+    className = '',
+  }: {
+    col: OrchestratorSortCol;
+    label: string;
+    right?: boolean;
+    className?: string;
+  }) => (
+    <th
+      className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'} ${className}`.trim()}
+      aria-sort={ariaSortValue(col)}
+    >
       <button
         type="button"
         onClick={() => toggleSort(col)}
@@ -1261,8 +1274,8 @@ function OrchestratorTableCard({
               <TH col="successRatio" label="Startup %" right />
               <TH col="effectiveSuccessRate" label="Effective %" right />
               <TH col="slaScore" label="SLA" right />
-              <TH col="gpuCount" label="GPUs" right />
-              <th className="pb-2 font-medium text-left">Models</th>
+              <TH col="gpuCount" label="GPUs" right className="pr-5" />
+              <th className="pb-2 pl-2 font-medium text-left">Models</th>
             </tr>
           </thead>
           <tbody>
@@ -1273,8 +1286,8 @@ function OrchestratorTableCard({
                 <td className="py-1.5 text-right font-mono">{row.successRatio}%</td>
                 <td className="py-1.5 text-right font-mono">{row.effectiveSuccessRate != null ? `${row.effectiveSuccessRate}%` : '—'}</td>
                 <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
-                <td className="py-1.5 text-right font-mono">{row.gpuCount}</td>
-                <td className="py-1.5 max-w-[280px]">
+                <td className="py-1.5 pr-5 text-right font-mono">{row.gpuCount}</td>
+                <td className="py-1.5 pl-2 max-w-[280px]">
                   <div className="flex flex-wrap gap-1">
                     {row.pipelines.length === 0 && '—'}
                     {row.pipelines.map((p) => {
@@ -1570,10 +1583,18 @@ export default function DashboardPage() {
           style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
         >
           {rtData?.protocol
-            ? <RefreshWrap refreshing={rtRefreshing}><ProtocolCard data={rtData.protocol} /></RefreshWrap>
+            ? (
+              <RefreshWrap refreshing={rtRefreshing} className="h-full min-h-0 flex flex-col">
+                <ProtocolCard data={rtData.protocol} />
+              </RefreshWrap>
+            )
             : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
           {feesData?.fees
-            ? <RefreshWrap refreshing={feesRefreshing}><FeesCard data={feesData.fees} /></RefreshWrap>
+            ? (
+              <RefreshWrap refreshing={feesRefreshing} className="h-full min-h-0 flex flex-col">
+                <FeesCard data={feesData.fees} />
+              </RefreshWrap>
+            )
             : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
           {lbData?.pipelines
             ? (
@@ -1587,7 +1608,14 @@ export default function DashboardPage() {
             )
             : lbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
           {rtData?.gpuCapacity
-            ? <RefreshWrap refreshing={rtRefreshing}><GPUCapacityCard data={rtData.gpuCapacity} timeframeHours={lbData?.kpi?.timeframeHours ?? 12} /></RefreshWrap>
+            ? (
+              <RefreshWrap refreshing={rtRefreshing} className="h-full min-h-0 flex flex-col">
+                <GPUCapacityCard
+                  data={rtData.gpuCapacity}
+                  timeframeHours={lbData?.kpi?.timeframeHours ?? 12}
+                />
+              </RefreshWrap>
+            )
             : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="GPU Capacity" />}
         </div>
       </section>
