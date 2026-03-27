@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const LEADERBOARD_API_URL = process.env.LEADERBOARD_API_URL || 'https://leaderboard-api.livepeer.cloud';
-
+import { leaderboardUpstreamUrl } from '@/lib/dashboard/leaderboard-upstream';
 
 function parseProxyTimeoutMs(raw: string | undefined): number {
   const parsed = Number(raw ?? 60000);
@@ -31,7 +30,7 @@ async function handleRequest(
   }
 
   const pathString = path.join('/');
-  const targetUrl = `${LEADERBOARD_API_URL}/api/${pathString}${request.nextUrl.search}`;
+  const targetUrl = `${leaderboardUpstreamUrl(pathString)}${request.nextUrl.search}`;
   const ttl = ENDPOINT_TTL_SECONDS[pathString] ?? 5 * 60;
 
   try {

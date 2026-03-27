@@ -66,7 +66,7 @@ Reference table for all Service Gateway connectors, their transform configuratio
 
 ### 5. Livepeer AI Leaderboard (`livepeer-leaderboard`)
 
-- **Upstream**: `https://leaderboard-api.livepeer.cloud`
+- **Upstream**: `https://naap-api.cloudspe.com/v1`
 - **Auth**: None (public API)
 - **Endpoints**: 3 (pipelines, aggregated stats, raw stats)
 - **Constraints**: Read-only, no auth required

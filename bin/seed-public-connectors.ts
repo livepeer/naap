@@ -15,7 +15,8 @@
  *   CONFLUENT_KAFKA_API_KEY, CLICKHOUSE_API_KEY, SUPABASE_ANON_KEY,
  *   TWILIO_AUTH_TOKEN, CLOUDFLARE_API_TOKEN, RESEND_API_KEY,
  *   PINECONE_API_KEY, NEON_API_KEY, UPSTASH_REDIS_TOKEN,
- *   BLOB_READ_WRITE_TOKEN
+ *   BLOB_READ_WRITE_TOKEN, LEADERBOARD_API_URL
+ *
  */
 
 import { PrismaClient } from '../packages/database/src/generated/client/index.js';
@@ -29,6 +30,12 @@ const AUTH_PASSWORD = process.env.AUTH_PASSWORD || 'livepeer';
 // ═══════════════════════════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
+
+function leaderboardGatewayOriginFromEnv(): string | null {
+  const full = process.env.LEADERBOARD_API_URL?.trim();
+  if (!full) return null;
+  return full.replace(/\/+$/, '').replace(/\/(api|v1)$/, '');
+}
 
 function step(n: number, msg: string) {
   console.log(`\n[${'='.repeat(60)}]`);
@@ -114,10 +121,15 @@ async function main() {
         console.log(`  Updated category: ${def.category}`);
       }
     } else {
+      const upstreamBaseUrl =
+        slug === 'livepeer-leaderboard'
+          ? leaderboardGatewayOriginFromEnv() ?? conn.upstreamBaseUrl
+          : conn.upstreamBaseUrl;
+
       let allowedHosts = conn.allowedHosts || [];
       if (allowedHosts.length === 0) {
         try {
-          allowedHosts = [new URL(conn.upstreamBaseUrl).hostname];
+          allowedHosts = [new URL(upstreamBaseUrl).hostname];
         } catch { /* ignore */ }
       }
 
@@ -130,7 +142,7 @@ async function main() {
           description: conn.description || def.description,
           category: def.category,
           visibility: 'public',
-          upstreamBaseUrl: conn.upstreamBaseUrl,
+          upstreamBaseUrl,
           allowedHosts,
           defaultTimeout: conn.defaultTimeout ?? 30000,
           healthCheckPath: conn.healthCheckPath ?? null,

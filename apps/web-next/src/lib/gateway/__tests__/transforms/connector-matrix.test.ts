@@ -8,6 +8,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { registry } from '../../transforms';
+import { leaderboardUrlForAuthTests } from '../test-urls';
 
 interface ConnectorSpec {
   slug: string;
@@ -125,7 +126,7 @@ describe('Auth injection behavioral parity', () => {
   it('none: no headers added (livepeer-leaderboard)', () => {
     const s = registry.getAuth('none');
     const h = new Headers();
-    s.inject({ headers: h, authConfig: {}, secrets: {}, method: 'GET', url: new URL('https://leaderboard-api.livepeer.cloud') });
+    s.inject({ headers: h, authConfig: {}, secrets: {}, method: 'GET', url: leaderboardUrlForAuthTests() });
     expect(h.get('Authorization')).toBeNull();
   });
 });

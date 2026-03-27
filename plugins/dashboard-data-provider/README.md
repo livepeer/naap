@@ -20,7 +20,7 @@ cp -r plugins/dashboard-data-provider plugins/my-dashboard-provider
 # 2. Update plugin.json (name, displayName, etc.)
 
 # 3. Configure environment variables (see .env.example in apps/web-next)
-#    LEADERBOARD_API_URL
+#    LEADERBOARD_API_URL (full base including /api or /v1, e.g. https://…/api)
 #    L1_RPC_URL (required for protocol block progress)
 #    SUBGRAPH_API_KEY and SUBGRAPH_ID (required for fees/protocol data)
 

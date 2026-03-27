@@ -20,6 +20,11 @@
  *   network/demand + sla/compliance: 24h max — pipelines catalog: no window
  */
 
+import {
+  leaderboardApiBaseLabel,
+  leaderboardUpstreamUrl,
+} from '@/lib/dashboard/leaderboard-upstream';
+
 // ---------------------------------------------------------------------------
 // Raw API response types (internal — not exported to clients)
 // ---------------------------------------------------------------------------
@@ -132,8 +137,6 @@ export interface PipelineCatalogEntry {
 // Constants
 // ---------------------------------------------------------------------------
 
-const LEADERBOARD_API_URL = process.env.LEADERBOARD_API_URL || 'https://leaderboard-api.livepeer.cloud';
-
 const DEMAND_TTL = 60 * 60;     // 3600 seconds (1 hour)
 const SLA_TTL = 60 * 60;        // 3600 seconds (1 hour)
 const GPU_TTL = 60 * 60;        // 3600 seconds (1 hour)
@@ -193,7 +196,7 @@ async function fetchAllPages<T>(
   params.set('page', '1');
   params.set('page_size', String(pageSize));
 
-  const firstUrl = `${LEADERBOARD_API_URL}/api/${path}?${params.toString()}`;
+  const firstUrl = `${leaderboardUpstreamUrl(path)}?${params.toString()}`;
   const t0 = Date.now();
 
   let firstRes: Response;
@@ -205,7 +208,7 @@ async function fetchAllPages<T>(
     });
   } catch (err) {
     throw new Error(
-      `[dashboard/raw-data] ${path} page 1 request failed against ${LEADERBOARD_API_URL}: ${
+      `[dashboard/raw-data] ${path} page 1 request failed against ${leaderboardApiBaseLabel()}: ${
         err instanceof Error ? err.message : String(err)
       }`
     );
@@ -213,7 +216,7 @@ async function fetchAllPages<T>(
 
   if (!firstRes.ok) {
     throw new Error(
-      `[dashboard/raw-data] ${path} page 1 returned HTTP ${firstRes.status} from ${LEADERBOARD_API_URL}`
+      `[dashboard/raw-data] ${path} page 1 returned HTTP ${firstRes.status} from ${leaderboardApiBaseLabel()}`
     );
   }
 
@@ -221,7 +224,7 @@ async function fetchAllPages<T>(
   const firstRows = firstBody[dataKey] as T[] | undefined;
   if (!Array.isArray(firstRows)) {
     throw new Error(
-      `[dashboard/raw-data] ${path} page 1 missing expected "${dataKey}" array from ${LEADERBOARD_API_URL}`
+      `[dashboard/raw-data] ${path} page 1 missing expected "${dataKey}" array from ${leaderboardApiBaseLabel()}`
     );
   }
   const totalPages = parseTotalPages(firstBody.pagination as { total_pages?: unknown } | undefined);
@@ -236,7 +239,7 @@ async function fetchAllPages<T>(
     pageNums.map(async (page) => {
       const pageParams = new URLSearchParams(params);
       pageParams.set('page', String(page));
-      const url = `${LEADERBOARD_API_URL}/api/${path}?${pageParams.toString()}`;
+      const url = `${leaderboardUpstreamUrl(path)}?${pageParams.toString()}`;
       try {
         const res = await fetch(url, {
           headers: { Accept: 'application/json' },
@@ -245,20 +248,20 @@ async function fetchAllPages<T>(
         });
         if (!res.ok) {
           throw new Error(
-            `[dashboard/raw-data] ${path} page ${page} returned HTTP ${res.status} from ${LEADERBOARD_API_URL}`
+            `[dashboard/raw-data] ${path} page ${page} returned HTTP ${res.status} from ${leaderboardApiBaseLabel()}`
           );
         }
         const body = (await res.json()) as Record<string, unknown>;
         const rows = body[dataKey] as T[] | undefined;
         if (!Array.isArray(rows)) {
           throw new Error(
-            `[dashboard/raw-data] ${path} page ${page} missing expected "${dataKey}" array from ${LEADERBOARD_API_URL}`
+            `[dashboard/raw-data] ${path} page ${page} missing expected "${dataKey}" array from ${leaderboardApiBaseLabel()}`
           );
         }
         return rows;
       } catch (err) {
         throw new Error(
-          `[dashboard/raw-data] ${path} page ${page} request failed against ${LEADERBOARD_API_URL}: ${
+          `[dashboard/raw-data] ${path} page ${page} request failed against ${leaderboardApiBaseLabel()}: ${
             err instanceof Error ? err.message : String(err)
           }`
         );
@@ -366,7 +369,7 @@ export function getRawGPUMetricsRows(_lookbackHours?: number): Promise<GPUMetric
 /** Fetch the pipeline catalog (no pagination). */
 export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
   return cachedFetch('pipelines', PIPELINES_TTL * 1000, async () => {
-    const url = `${LEADERBOARD_API_URL}/api/pipelines`;
+    const url = leaderboardUpstreamUrl('pipelines');
     const t0 = Date.now();
     const res = await fetch(url, {
       headers: { Accept: 'application/json' },
@@ -375,13 +378,13 @@ export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
     });
     if (!res.ok) {
       throw new Error(
-        `[dashboard/raw-data] /api/pipelines returned HTTP ${res.status} from ${LEADERBOARD_API_URL}`
+        `[dashboard/raw-data] /api/pipelines returned HTTP ${res.status} from ${leaderboardApiBaseLabel()}`
       );
     }
     const body = (await res.json()) as { pipelines?: PipelineCatalogEntry[] };
     if (!Array.isArray(body.pipelines)) {
       throw new Error(
-        `[dashboard/raw-data] /api/pipelines missing expected "pipelines" array from ${LEADERBOARD_API_URL}`
+        `[dashboard/raw-data] /api/pipelines missing expected "pipelines" array from ${leaderboardApiBaseLabel()}`
       );
     }
     console.log(`[dashboard/raw-data] pipelines fetched (${body.pipelines.length} entries) in ${Date.now() - t0}ms`);
@@ -425,7 +428,7 @@ export async function warmLeaderboardPipelines(ttlSeconds: number): Promise<{
   status: number;
   count: number;
 }> {
-  const url = `${LEADERBOARD_API_URL}/api/pipelines`;
+  const url = leaderboardUpstreamUrl('pipelines');
   const res = await fetch(url, {
     headers: { Accept: 'application/json' },
     signal: AbortSignal.timeout(60_000),

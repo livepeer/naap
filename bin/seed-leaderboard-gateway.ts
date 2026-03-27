@@ -22,6 +22,10 @@ import { PrismaClient } from '../packages/database/src/generated/client/index.js
 const SHELL_URL = process.env.SHELL_URL || 'http://localhost:3000';
 const AUTH_EMAIL = process.env.AUTH_EMAIL || 'admin@livepeer.org';
 const AUTH_PASSWORD = process.env.AUTH_PASSWORD || 'livepeer';
+const LEADERBOARD_UPSTREAM_BASE = (process.env.LEADERBOARD_API_URL || '')
+  .trim()
+  .replace(/\/+$/, '')
+  .replace(/\/(api|v1)$/, '');
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -144,8 +148,8 @@ async function main() {
     displayName: 'Livepeer AI Leaderboard',
     description:
       'Orchestrator performance leaderboard for Livepeer AI pipelines (text-to-image, LLM, live-video-to-video, upscale)',
-    upstreamBaseUrl: 'https://leaderboard-api.livepeer.cloud',
-    allowedHosts: ['leaderboard-api.livepeer.cloud'],
+    upstreamBaseUrl: LEADERBOARD_UPSTREAM_BASE,
+    allowedHosts: [new URL(LEADERBOARD_UPSTREAM_BASE).hostname],
     defaultTimeout: 15000,
     healthCheckPath: '/api/pipelines',
     authType: 'none' as const,
