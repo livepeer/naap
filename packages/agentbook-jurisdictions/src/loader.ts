@@ -1,5 +1,7 @@
 import { usPack } from './us/index.js';
 import { caPack } from './ca/index.js';
+import { ukPack } from './uk/index.js';
+import { auPack } from './au/index.js';
 
 export interface JurisdictionPack {
   id: string;
@@ -29,4 +31,6 @@ export function getJurisdictionPack(jurisdictionId: string): JurisdictionPack | 
 export function loadBuiltInPacks(): void {
   loadJurisdictionPack(usPack);
   loadJurisdictionPack(caPack);
+  loadJurisdictionPack(ukPack);
+  loadJurisdictionPack(auPack);
 }
