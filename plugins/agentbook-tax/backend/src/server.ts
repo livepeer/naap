@@ -1082,7 +1082,7 @@ router.put('/agentbook-tax/tax/config', async (req: any, res) => {
 // ============================================
 
 // 1. AR Aging Detail — Detailed aging with per-client breakdown
-app.get('/api/v1/agentbook-tax/reports/ar-aging-detail', async (req, res) => {
+server.app.get('/api/v1/agentbook-tax/reports/ar-aging-detail', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
     const invoices = await db.abInvoice.findMany({
@@ -1108,7 +1108,7 @@ app.get('/api/v1/agentbook-tax/reports/ar-aging-detail', async (req, res) => {
 });
 
 // 2. Expense by Vendor — Top vendors with spend breakdown
-app.get('/api/v1/agentbook-tax/reports/expense-by-vendor', async (req, res) => {
+server.app.get('/api/v1/agentbook-tax/reports/expense-by-vendor', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
     const { startDate, endDate } = req.query;
@@ -1138,7 +1138,7 @@ app.get('/api/v1/agentbook-tax/reports/expense-by-vendor', async (req, res) => {
 });
 
 // 3. Income by Client — Revenue per client
-app.get('/api/v1/agentbook-tax/reports/income-by-client', async (req, res) => {
+server.app.get('/api/v1/agentbook-tax/reports/income-by-client', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
     const clients = await db.abClient.findMany({ where: { tenantId } });
@@ -1153,7 +1153,7 @@ app.get('/api/v1/agentbook-tax/reports/income-by-client', async (req, res) => {
 });
 
 // 4. Tax Summary by Category — Expenses grouped by tax category (Schedule C / T2125 lines)
-app.get('/api/v1/agentbook-tax/reports/tax-summary', async (req, res) => {
+server.app.get('/api/v1/agentbook-tax/reports/tax-summary', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
     const { taxYear } = req.query;
@@ -1179,7 +1179,7 @@ app.get('/api/v1/agentbook-tax/reports/tax-summary', async (req, res) => {
 });
 
 // 5. Monthly Expense Trend — Last 12 months spending
-app.get('/api/v1/agentbook-tax/reports/monthly-expense-trend', async (req, res) => {
+server.app.get('/api/v1/agentbook-tax/reports/monthly-expense-trend', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
     const months: { month: string; totalCents: number }[] = [];
@@ -1200,7 +1200,7 @@ app.get('/api/v1/agentbook-tax/reports/monthly-expense-trend', async (req, res) 
 });
 
 // 6. Quarterly Comparison — Compare quarters YoY
-app.get('/api/v1/agentbook-tax/reports/quarterly-comparison', async (req, res) => {
+server.app.get('/api/v1/agentbook-tax/reports/quarterly-comparison', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
     const year = parseInt(req.query.year as string) || new Date().getFullYear();
@@ -1233,7 +1233,7 @@ app.get('/api/v1/agentbook-tax/reports/quarterly-comparison', async (req, res) =
 });
 
 // 7. Annual Summary — Full year at a glance
-app.get('/api/v1/agentbook-tax/reports/annual-summary', async (req, res) => {
+server.app.get('/api/v1/agentbook-tax/reports/annual-summary', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
     const year = parseInt(req.query.year as string) || new Date().getFullYear();
@@ -1269,7 +1269,7 @@ app.get('/api/v1/agentbook-tax/reports/annual-summary', async (req, res) => {
 });
 
 // 8. Receipt Audit Log — Expenses with/without receipt documentation
-app.get('/api/v1/agentbook-tax/reports/receipt-audit', async (req, res) => {
+server.app.get('/api/v1/agentbook-tax/reports/receipt-audit', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
     const { startDate, endDate } = req.query;
@@ -1295,7 +1295,7 @@ app.get('/api/v1/agentbook-tax/reports/receipt-audit', async (req, res) => {
 });
 
 // 9. Bank Reconciliation Detail — Matched vs unmatched transactions
-app.get('/api/v1/agentbook-tax/reports/bank-reconciliation', async (req, res) => {
+server.app.get('/api/v1/agentbook-tax/reports/bank-reconciliation', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
     const [total, matched, exceptions, pending] = await Promise.all([
@@ -1319,7 +1319,7 @@ app.get('/api/v1/agentbook-tax/reports/bank-reconciliation', async (req, res) =>
 });
 
 // 10. Earnings Projection — Annual projection with confidence bands
-app.get('/api/v1/agentbook-tax/reports/earnings-projection', async (req, res) => {
+server.app.get('/api/v1/agentbook-tax/reports/earnings-projection', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
     const year = new Date().getFullYear();
