@@ -4,6 +4,9 @@ export { taxStrategistProfile } from './tax-strategist-agent.js';
 export { collectionsProfile } from './collections-agent.js';
 export { insightsProfile } from './insights-agent.js';
 export type { AgentId, AgentProfile, AgentMetrics, AgentConfig, AgentMessage } from './types.js';
+export { loadTenantSkills, getBaseSkills, getJurisdictionSkills, getIndustrySkills, getSupportedIndustries } from './skill-loader.js';
+export type { SkillBinding } from './skill-loader.js';
+export { processCorrection, processConfirmation, agentSelfAssess } from './learning-processor.js';
 
 import { AgentCoordinator } from './coordinator.js';
 import { bookkeeperProfile } from './bookkeeper-agent.js';

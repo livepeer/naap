@@ -2007,3 +2007,49 @@ model AbAgentConfig {
   @@index([tenantId])
   @@schema("plugin_agentbook_core")
 }
+
+model AbAgentSkillBinding {
+  id          String   @id @default(uuid())
+  tenantId    String
+  agentId     String
+  skillName   String
+  source      String   @default("base")       // base | jurisdiction | industry | marketplace | personalized
+  enabled     Boolean  @default(true)
+  priority    Int      @default(50)
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, agentId, skillName])
+  @@index([tenantId, agentId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbAgentPersonality {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  agentId             String
+  communicationStyle  String   @default("auto")
+  proactiveLevel      String   @default("balanced")
+  riskTolerance       String   @default("moderate")
+  industryContext     String?
+  customInstructions  String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([tenantId, agentId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbLearningEvent {
+  id            String   @id @default(uuid())
+  tenantId      String
+  agentId       String
+  eventType     String
+  skillName     String
+  before        Json
+  after         Json
+  confidence    Float
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, agentId, createdAt])
+  @@schema("plugin_agentbook_core")
+}

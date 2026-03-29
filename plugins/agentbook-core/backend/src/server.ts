@@ -516,6 +516,72 @@ app.put('/api/v1/agentbook-core/agents/:agentId/config', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
+// === AGENT SKILL BINDINGS (Phase 10 Enhancement) ===
+
+app.get('/api/v1/agentbook-core/agents/:agentId/skills', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { agentId } = req.params;
+    const config = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+
+    // Dynamic skill loading: base + jurisdiction + industry + marketplace + personalized
+    const BASE_SKILLS: Record<string, string[]> = {
+      bookkeeper: ['expense-recording', 'receipt-ocr', 'bank-sync', 'pattern-learning', 'anomaly-detection'],
+      'tax-strategist': ['tax-estimation', 'deduction-hunting', 'tax-forms', 'year-end-closing'],
+      collections: ['invoice-creation', 'time-tracking', 'earnings-projection'],
+      insights: ['expense-analytics', 'financial-copilot', 'pattern-learning'],
+    };
+
+    const base = (BASE_SKILLS[agentId] || []).map((s: string) => ({ skillName: s, source: 'base', enabled: true }));
+
+    // Get marketplace + personalized from DB
+    const dbBindings = await db.abAgentSkillBinding.findMany({
+      where: { tenantId, agentId },
+      orderBy: { priority: 'desc' },
+    });
+
+    const all = [...base, ...dbBindings.map((b: any) => ({ skillName: b.skillName, source: b.source, enabled: b.enabled }))];
+
+    res.json({ success: true, data: { agentId, jurisdiction: config?.jurisdiction || 'us', skills: all } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.post('/api/v1/agentbook-core/agents/:agentId/skills', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { agentId } = req.params;
+    const { skillName, source, priority } = req.body;
+
+    const binding = await db.abAgentSkillBinding.upsert({
+      where: { tenantId_agentId_skillName: { tenantId, agentId, skillName } },
+      update: { source, priority, enabled: true },
+      create: { tenantId, agentId, skillName, source: source || 'marketplace', priority: priority || 50 },
+    });
+
+    res.json({ success: true, data: binding });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// === LEARNING EVENTS ===
+
+app.get('/api/v1/agentbook-core/agents/:agentId/learning', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { agentId } = req.params;
+    const events = await db.abLearningEvent.findMany({
+      where: { tenantId, agentId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+
+    const corrections = events.filter((e: any) => e.eventType === 'correction').length;
+    const confirmations = events.filter((e: any) => e.eventType === 'confirmation').length;
+    const accuracy = events.length > 0 ? confirmations / events.length : 1;
+
+    res.json({ success: true, data: { events, stats: { total: events.length, corrections, confirmations, accuracy } } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
 // === IMMUTABILITY GUARD: Journal entries cannot be modified once created ===
 // Per SKILL.md: "Corrections are made via reversing entries, never by editing existing records."
 app.put('/api/v1/agentbook-core/journal-entries/:id', async (_req, res) => {
