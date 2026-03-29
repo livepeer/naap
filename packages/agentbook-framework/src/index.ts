@@ -21,3 +21,5 @@ export { type Intent, type ToolResult, type DAGPlan } from './types.js';
 export { LLMBudgetTracker, type LLMUsageRecord } from './llm-budget.js';
 export { LLMGateway, getLLMGateway, initLLMGateway, GeminiProvider } from './llm/index.js';
 export type { LLMProvider, LLMProviderConfig, LLMRequest, LLMResponse, LLMMessage } from './llm/types.js';
+export { AgentCoordinator, initMultiAgentSystem, bookkeeperProfile, taxStrategistProfile, collectionsProfile, insightsProfile } from './multi-agent/index.js';
+export type { AgentId, AgentProfile, AgentMetrics, AgentConfig, AgentMessage } from './multi-agent/types.js';

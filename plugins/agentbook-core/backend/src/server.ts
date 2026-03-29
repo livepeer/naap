@@ -462,6 +462,60 @@ function formatSnapshotMessage(data: any): string {
   ].join('\n');
 }
 
+// === MULTI-AGENT CONFIG (Phase 10) ===
+
+app.get('/api/v1/agentbook-core/agents', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+
+    const AGENTS = [
+      { id: 'bookkeeper', name: 'Bookkeeper', description: 'Expense recording, categorization, reconciliation', skills: ['expense-recording', 'receipt-ocr', 'bank-sync', 'pattern-learning'] },
+      { id: 'tax-strategist', name: 'Tax Strategist', description: 'Tax estimation, deductions, quarterly payments, forms', skills: ['tax-estimation', 'deduction-hunting', 'tax-forms', 'year-end-closing'] },
+      { id: 'collections', name: 'Collections', description: 'Invoice follow-up, payment prediction, time billing', skills: ['invoice-creation', 'earnings-projection', 'time-tracking'] },
+      { id: 'insights', name: 'Insights', description: 'Analytics, patterns, projections, financial advice', skills: ['expense-analytics', 'financial-copilot', 'pattern-learning'] },
+    ];
+
+    // Get tenant-specific configs
+    const configs = await db.abAgentConfig.findMany({ where: { tenantId } });
+    const configMap = new Map(configs.map((c: any) => [c.agentId, c]));
+
+    const result = AGENTS.map(a => ({
+      ...a,
+      config: configMap.get(a.id) || { aggressiveness: 0.5, autoApprove: false, notificationFrequency: 'daily', modelTier: 'fast', enabled: true },
+    }));
+
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.put('/api/v1/agentbook-core/agents/:agentId/config', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { agentId } = req.params;
+    const { aggressiveness, autoApprove, notificationFrequency, modelTier, enabled } = req.body;
+
+    const config = await db.abAgentConfig.upsert({
+      where: { tenantId_agentId: { tenantId, agentId } },
+      update: {
+        ...(aggressiveness !== undefined && { aggressiveness }),
+        ...(autoApprove !== undefined && { autoApprove }),
+        ...(notificationFrequency && { notificationFrequency }),
+        ...(modelTier && { modelTier }),
+        ...(enabled !== undefined && { enabled }),
+      },
+      create: {
+        tenantId, agentId,
+        aggressiveness: aggressiveness ?? 0.5,
+        autoApprove: autoApprove ?? false,
+        notificationFrequency: notificationFrequency || 'daily',
+        modelTier: modelTier || 'fast',
+      },
+    });
+
+    res.json({ success: true, data: config });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
 // === IMMUTABILITY GUARD: Journal entries cannot be modified once created ===
 // Per SKILL.md: "Corrections are made via reversing entries, never by editing existing records."
 app.put('/api/v1/agentbook-core/journal-entries/:id', async (_req, res) => {

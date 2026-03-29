@@ -1990,3 +1990,20 @@ model AbLLMProviderConfig {
   @@index([tenantId])
   @@schema("plugin_agentbook_core")
 }
+
+model AbAgentConfig {
+  id                    String   @id @default(uuid())
+  tenantId              String
+  agentId               String                          // bookkeeper | tax-strategist | collections | insights
+  aggressiveness        Float    @default(0.5)          // 0-1
+  autoApprove           Boolean  @default(false)
+  notificationFrequency String   @default("daily")      // realtime | daily | weekly
+  modelTier             String   @default("fast")       // fast | standard | premium
+  enabled               Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([tenantId, agentId])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_core")
+}
