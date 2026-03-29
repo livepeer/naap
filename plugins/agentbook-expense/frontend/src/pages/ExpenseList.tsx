@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Receipt, Search, Filter } from 'lucide-react';
 
 interface Expense {
@@ -16,6 +17,7 @@ interface Expense {
 const API_BASE = '/api/v1/agentbook-expense';
 
 export const ExpenseListPage: React.FC = () => {
+  const navigate = useNavigate();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'business' | 'personal'>('all');
@@ -40,9 +42,9 @@ export const ExpenseListPage: React.FC = () => {
           <Receipt className="w-6 h-6 text-primary" />
           <h1 className="text-2xl font-bold">Expenses</h1>
         </div>
-        <a href="/agentbook/expenses/new" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
+        <button onClick={() => navigate('/new')} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
           + Record Expense
-        </a>
+        </button>
       </div>
 
       {/* Filter + Summary */}

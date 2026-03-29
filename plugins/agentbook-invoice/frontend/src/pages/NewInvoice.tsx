@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Send, Save, ArrowLeft, Loader2 } from 'lucide-react';
 
 interface LineItem {
@@ -23,6 +24,7 @@ const TERMS_OPTIONS = [
 ];
 
 export const NewInvoicePage: React.FC = () => {
+  const navigate = useNavigate();
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
   const [description, setDescription] = useState('');
@@ -72,7 +74,7 @@ export const NewInvoicePage: React.FC = () => {
           total,
         }),
       });
-      window.location.href = '/invoices';
+      navigate('/');
     } catch {
       // silently fail for now
     } finally {
@@ -90,9 +92,9 @@ export const NewInvoicePage: React.FC = () => {
     <div className="p-4 sm:p-6 max-w-3xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <a href="/invoices" className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+        <button onClick={() => navigate('/')} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
           <ArrowLeft className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />
-        </a>
+        </button>
         <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
           New Invoice
         </h1>

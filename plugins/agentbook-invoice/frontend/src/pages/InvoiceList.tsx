@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Plus,
   FileText,
@@ -39,6 +40,7 @@ function formatDate(d: string) {
 }
 
 export const InvoiceListPage: React.FC = () => {
+  const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -81,14 +83,14 @@ export const InvoiceListPage: React.FC = () => {
             Manage and track all your invoices
           </p>
         </div>
-        <a
-          href="/invoices/new"
+        <button
+          onClick={() => navigate('/new')}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors"
           style={{ backgroundColor: 'var(--accent-emerald, #10b981)' }}
         >
           <Plus className="w-4 h-4" />
           New Invoice
-        </a>
+        </button>
       </div>
 
       {/* Outstanding banner */}
