@@ -3,9 +3,8 @@
  * Vercel cron: "0 14 * * 1" (2 PM UTC Monday)
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@naap/database';
+import { prisma as db } from '@naap/database';
 
-const db = new PrismaClient();
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const authHeader = request.headers.get('authorization');
