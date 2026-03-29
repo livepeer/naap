@@ -496,6 +496,34 @@ app.post('/api/v1/agentbook-expense/receipts/ocr', async (req, res) => {
       data: { tenantId, eventType: 'receipt.ocr_requested', actor: 'system', action: { imageUrl: imageUrl.slice(0, 50) + '...' } },
     });
 
+    // Auto-execute: if OCR extracted data with confidence > 0.7, create expense automatically
+    if (ocrResult.amount_cents > 0 && ocrResult.confidence > 0.7) {
+      const vendor = ocrResult.vendor ? await db.abVendor.upsert({
+        where: { tenantId_normalizedName: { tenantId, normalizedName: (ocrResult.vendor || '').toLowerCase().replace(/[^a-z0-9]/g, '') } },
+        update: { lastSeen: new Date(), transactionCount: { increment: 1 } },
+        create: { tenantId, name: ocrResult.vendor, normalizedName: (ocrResult.vendor || '').toLowerCase().replace(/[^a-z0-9]/g, '') },
+      }) : null;
+
+      const expense = await db.abExpense.create({
+        data: {
+          tenantId,
+          amountCents: ocrResult.amount_cents,
+          vendorId: vendor?.id,
+          date: ocrResult.date ? new Date(ocrResult.date) : new Date(),
+          description: `Receipt: ${ocrResult.vendor || 'Unknown'}`,
+          receiptUrl: imageUrl,
+          confidence: ocrResult.confidence,
+        },
+      });
+
+      await db.abEvent.create({
+        data: { tenantId, eventType: 'receipt.auto_processed', actor: 'agent',
+          action: { expenseId: expense.id, amountCents: ocrResult.amount_cents, vendor: ocrResult.vendor, confidence: ocrResult.confidence } },
+      });
+
+      return res.json({ success: true, data: { ...ocrResult, autoRecorded: true, expenseId: expense.id } });
+    }
+
     res.json({ success: true, data: ocrResult });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
