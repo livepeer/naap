@@ -1,6 +1,6 @@
-# NaaP Governance
+# A3P Governance
 
-This document describes how the NaaP project is governed, how decisions are
+This document describes how the A3P project is governed, how decisions are
 made, and how contributors can grow their involvement.
 
 ## Principles
@@ -26,7 +26,7 @@ made, and how contributors can grow their involvement.
 
 ## Decision Making: Lazy Consensus
 
-NaaP uses lazy consensus for all decisions:
+A3P uses lazy consensus for all decisions:
 
 - **Pull requests** proceed when approved by the assigned reviewers (plugin
   team for plugin code, core for shared code). No additional sign-off is
@@ -87,7 +87,7 @@ Adding a new plugin team is a self-service process:
 1. **Read the [Plugin Team Guide](docs/PLUGIN_TEAM_GUIDE.md)** to understand
    the architecture and conventions.
 2. **Open a PR** that adds:
-   - A CODEOWNERS line: `/plugins/<your-plugin>/  @livepeer/<your-team>`
+   - A CODEOWNERS line: `/plugins/<your-plugin>/  @a3p/<your-team>`
    - A labeler entry in `.github/labeler.yml` for auto-labeling.
 3. **Core reviews the PR once** to confirm the team structure and CODEOWNERS
    entry.
@@ -119,7 +119,7 @@ mandate them.
 
 ## Code of Conduct
 
-NaaP follows the
+A3P follows the
 [Contributor Covenant Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/).
 All participants are expected to uphold this standard. Report violations to
 the core maintainers via GitHub Security Advisories (for private reports) or

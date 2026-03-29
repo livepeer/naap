@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import {
   baseSvcUrl,
   pluginServerUrl,
-  livepeerSvcUrl,
+  a3pSvcUrl,
   pipelineGatewayUrl,
   storageSvcUrl,
   infrastructureSvcUrl,
@@ -111,7 +111,7 @@ export async function GET(): Promise<NextResponse> {
   const services = [
     { name: 'base-svc', url: baseSvcUrl },
     { name: 'plugin-server', url: pluginServerUrl },
-    { name: 'livepeer-svc', url: livepeerSvcUrl },
+    { name: 'a3p-svc', url: a3pSvcUrl },
     { name: 'pipeline-gateway', url: pipelineGatewayUrl },
     { name: 'storage-svc', url: storageSvcUrl },
     { name: 'infrastructure-svc', url: infrastructureSvcUrl },

@@ -130,7 +130,7 @@ function ResetPasswordFormInner() {
 
   return (
     <div className="w-full max-w-sm px-4">
-      {/* Livepeer textmark */}
+      {/* AgentBook textmark */}
       <div className="text-center mb-8">
         <div className="inline-block vhs-scanlines">
           <svg viewBox="115 0 596 90" fill="none" xmlns="http://www.w3.org/2000/svg" className={`h-7 w-auto text-foreground ${vhsPlayed ? '' : 'animate-vhs'}`} onAnimationEnd={() => setVhsPlayed(true)}>
