@@ -15,23 +15,14 @@ import {
   Loader2,
   CreditCard,
   Cloud,
+  Globe,
+  Cpu,
+  Users,
+  X,
 } from 'lucide-react';
 import { Card, Badge, Modal } from '@naap/ui';
-import { getServiceOrigin } from '@naap/plugin-sdk';
 
 type TabId = 'models' | 'api-keys' | 'usage' | 'docs';
-
-interface AIModel {
-  id: string;
-  name: string;
-  tagline: string;
-  type: string;
-  featured: boolean;
-  realtime: boolean;
-  costPerMin: { min: number; max: number };
-  latencyP50: number;
-  badges: string[];
-}
 
 interface ApiKeyProject {
   id: string;
@@ -65,7 +56,15 @@ interface ProjectInfo {
   isDefault: boolean;
 }
 
-const BASE_URL = getServiceOrigin('developer-api');
+interface NetworkModel {
+  Pipeline: string;
+  Model: string;
+  WarmOrchCount: number;
+  TotalCapacity: number;
+  PriceMinWeiPerPixel: number;
+  PriceMaxWeiPerPixel: number;
+  PriceAvgWeiPerPixel: number;
+}
 
 async function fetchCsrfToken(): Promise<string> {
   try {
@@ -117,10 +116,8 @@ const inputClassName =
 
 export const DeveloperView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>('api-keys');
-  const [models, setModels] = useState<AIModel[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [_loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
   const [showRevoked, setShowRevoked] = useState(false);
   const [projectFilterId, setProjectFilterId] = useState<'__all__' | string>('__all__');
   const [providerFilterId, setProviderFilterId] = useState<'__all__' | string>('__all__');
@@ -143,6 +140,11 @@ export const DeveloperView: React.FC = () => {
   const [revokeKeyId, setRevokeKeyId] = useState<string | null>(null);
   const [revoking, setRevoking] = useState(false);
   const pollAbortControllerRef = useRef<AbortController | null>(null);
+
+  const [networkModels, setNetworkModels] = useState<NetworkModel[]>([]);
+  const [networkModelsLoading, setNetworkModelsLoading] = useState(false);
+  const [networkModelSearch, setNetworkModelSearch] = useState('');
+  const [pipelineFilter, setPipelineFilter] = useState<string>('all');
 
   const revokedCount = useMemo(
     () => apiKeys.filter(k => (k.status || '').toUpperCase() === 'REVOKED').length,
@@ -189,17 +191,14 @@ export const DeveloperView: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [modelsJson, keysJson, projectsJson] = await Promise.all([
-        fetch(`${BASE_URL}/api/v1/developer/models`).then(r => r.json()),
+      const [keysJson, projectsJson] = await Promise.all([
         fetch('/api/v1/developer/keys').then(r => r.json()),
         fetch('/api/v1/developer/projects').then(r => r.json()),
       ]);
-      setModels((modelsJson.data ?? modelsJson).models || []);
       setApiKeys((keysJson.data ?? keysJson).keys || []);
       setProjects((projectsJson.data ?? projectsJson).projects || []);
     } catch (err) {
       console.error('Failed to load data:', err);
-      setModels(getMockModels());
       setApiKeys([]);
     } finally {
       setLoading(false);
@@ -211,6 +210,45 @@ export const DeveloperView: React.FC = () => {
   useEffect(() => () => {
     pollAbortControllerRef.current?.abort();
   }, []);
+
+  const loadNetworkModels = useCallback(async () => {
+    setNetworkModelsLoading(true);
+    try {
+      const res = await fetch('/api/v1/developer-api/developer/network-models?limit=50');
+      const json = await res.json();
+      setNetworkModels((json.data ?? json).models || []);
+    } catch (err) {
+      console.error('Failed to load network models:', err);
+      setNetworkModels([]);
+    } finally {
+      setNetworkModelsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'models') loadNetworkModels();
+  }, [activeTab, loadNetworkModels]);
+
+  const pipelineOptions = useMemo(() => {
+    const pipelines = new Set(networkModels.map((m) => m.Pipeline));
+    return Array.from(pipelines).sort();
+  }, [networkModels]);
+
+  const filteredNetworkModels = useMemo(() => {
+    let result = networkModels;
+    if (pipelineFilter !== 'all') {
+      result = result.filter((m) => m.Pipeline === pipelineFilter);
+    }
+    if (networkModelSearch) {
+      const q = networkModelSearch.toLowerCase();
+      result = result.filter(
+        (m) =>
+          m.Model.toLowerCase().includes(q) ||
+          m.Pipeline.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [networkModels, pipelineFilter, networkModelSearch]);
 
   const loadBillingProviders = useCallback(async () => {
     try {
@@ -446,11 +484,6 @@ export const DeveloperView: React.FC = () => {
     }
   }, [revokeKeyId, loadData]);
 
-  const filteredModels = models.filter(m =>
-    m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    m.type.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   return (
     <div className="space-y-4">
       <div>
@@ -474,28 +507,132 @@ export const DeveloperView: React.FC = () => {
 
           {activeTab === 'models' && (
             <div className="space-y-4">
-              <div className="relative max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={14} />
-                <input type="text" placeholder="Search models..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-bg-secondary border border-white/10 rounded-lg py-2 pl-9 pr-3 text-xs focus:outline-none focus:border-accent-blue" />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {filteredModels.map((model) => (
-                  <Card key={model.id} className="hover:border-accent-blue/30 transition-all cursor-pointer">
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h3 className="text-sm font-semibold text-text-primary">{model.name}</h3>
-                        <p className="text-xs text-text-secondary">{model.type}</p>
-                      </div>
-                      {model.featured && <Badge variant="emerald">Featured</Badge>}
-                    </div>
-                    <p className="text-xs text-text-secondary mb-3 line-clamp-2">{model.tagline}</p>
-                    <div className="flex items-center justify-between text-xs text-text-secondary">
-                      <span>${model.costPerMin.min.toFixed(2)} - ${model.costPerMin.max.toFixed(2)}/min</span>
-                      <span>{model.latencyP50}ms p50 latency</span>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Globe size={14} className="text-accent-blue" />
+                  <h2 className="text-sm font-semibold text-text-primary">Network Models</h2>
+                  <span className="text-xs text-text-secondary">via Livepeer Leaderboard</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="relative flex-1 max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={14} />
+                    <input
+                      type="text"
+                      placeholder="Search models..."
+                      value={networkModelSearch}
+                      onChange={(e) => setNetworkModelSearch(e.target.value)}
+                      className="w-full bg-bg-secondary border border-white/10 rounded-lg py-2 pl-9 pr-3 text-xs focus:outline-none focus:border-accent-blue"
+                    />
+                    {networkModelSearch && (
+                      <button onClick={() => setNetworkModelSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary">
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      onClick={() => setPipelineFilter('all')}
+                      className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+                        pipelineFilter === 'all'
+                          ? 'bg-accent-blue/20 text-accent-blue border border-accent-blue/30'
+                          : 'bg-bg-tertiary text-text-secondary border border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      All Pipelines
+                    </button>
+                    {pipelineOptions.map((pipeline) => (
+                      <button
+                        key={pipeline}
+                        onClick={() => setPipelineFilter(pipeline === pipelineFilter ? 'all' : pipeline)}
+                        className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+                          pipelineFilter === pipeline
+                            ? 'bg-accent-blue/20 text-accent-blue border border-accent-blue/30'
+                            : 'bg-bg-tertiary text-text-secondary border border-white/10 hover:border-white/20'
+                        }`}
+                      >
+                        {pipeline}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {networkModelsLoading ? (
+                  <Card>
+                    <div className="flex items-center justify-center gap-3 py-8">
+                      <Loader2 size={16} className="animate-spin text-text-secondary" />
+                      <span className="text-sm text-text-secondary">Loading models...</span>
                     </div>
                   </Card>
-                ))}
+                ) : filteredNetworkModels.length === 0 ? (
+                  <Card>
+                    <div className="text-center py-6 text-text-secondary">
+                      <Globe size={24} className="mx-auto mb-3 opacity-30" />
+                      <p className="text-sm">{networkModelSearch || pipelineFilter !== 'all' ? 'No models match your search' : 'No models available'}</p>
+                    </div>
+                  </Card>
+                ) : (
+                  <Card>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs text-text-secondary">
+                        {filteredNetworkModels.length} model{filteredNetworkModels.length !== 1 ? 's' : ''}
+                        {(networkModelSearch || pipelineFilter !== 'all') && ` (filtered from ${networkModels.length})`}
+                      </span>
+                      <button
+                        onClick={loadNetworkModels}
+                        className="text-xs text-text-secondary hover:text-accent-blue transition-colors"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="text-left text-xs uppercase tracking-wider text-text-secondary border-b border-white/10">
+                            <th className="pb-3 font-medium">Model</th>
+                            <th className="pb-3 font-medium">Pipeline</th>
+                            <th className="pb-3 font-medium text-right">Warm Orchestrators</th>
+                            <th className="pb-3 font-medium text-right">Total Capacity</th>
+                            <th className="pb-3 font-medium text-right">Avg Price (wei/px)</th>
+                            <th className="pb-3 font-medium text-right">Price Range (wei/px)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {filteredNetworkModels.map((model) => (
+                            <tr key={`${model.Pipeline}-${model.Model}`} className="hover:bg-white/5 transition-colors">
+                              <td className="py-3 pr-4">
+                                <div className="flex items-center gap-2">
+                                  <Cpu size={12} className="text-accent-emerald flex-shrink-0" />
+                                  <span className="text-sm font-medium text-text-primary font-mono">{model.Model}</span>
+                                </div>
+                              </td>
+                              <td className="py-3 pr-4">
+                                <Badge variant="secondary">{model.Pipeline}</Badge>
+                              </td>
+                              <td className="py-3 pr-4 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <Users size={12} className="text-accent-blue" />
+                                  <span className="text-sm font-mono text-text-primary">{model.WarmOrchCount}</span>
+                                </div>
+                              </td>
+                              <td className="py-3 pr-4 text-right">
+                                <span className="text-sm font-mono text-text-primary">{model.TotalCapacity}</span>
+                              </td>
+                              <td className="py-3 pr-4 text-right">
+                                <span className="text-sm font-mono text-accent-emerald">{model.PriceAvgWeiPerPixel.toLocaleString()}</span>
+                              </td>
+                              <td className="py-3 text-right">
+                                <span className="text-sm font-mono text-text-secondary">
+                                  {model.PriceMinWeiPerPixel.toLocaleString()} – {model.PriceMaxWeiPerPixel.toLocaleString()}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Card>
+                )}
               </div>
             </div>
           )}
@@ -832,13 +969,5 @@ export const DeveloperView: React.FC = () => {
     </div>
   );
 };
-
-function getMockModels(): AIModel[] {
-  return [
-    { id: 'model-sd15', name: 'Stable Diffusion 1.5', tagline: 'Fast, lightweight image generation', type: 'text-to-video', featured: false, realtime: true, costPerMin: { min: 0.02, max: 0.05 }, latencyP50: 120, badges: ['Realtime'] },
-    { id: 'model-sdxl', name: 'SDXL Turbo', tagline: 'High-quality video generation', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.08, max: 0.15 }, latencyP50: 180, badges: ['Featured', 'Best Quality'] },
-    { id: 'model-krea', name: 'Krea AI', tagline: 'Creative AI for unique visuals', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.15, max: 0.30 }, latencyP50: 150, badges: ['Featured', 'Realtime'] },
-  ];
-}
 
 export default DeveloperView;

@@ -25,6 +25,7 @@
     { "name": "raw-stats", "description": "Get raw per-run stats for a specific orchestrator", "method": "GET", "path": "/stats/raw", "upstreamPath": "/raw_stats", "rateLimit": 50, "timeout": 15000, "cacheTtl": 30 },
     { "name": "gpu-metrics", "description": "GPU performance metrics (ClickHouse)", "method": "GET", "path": "/gpu/metrics", "upstreamPath": "/gpu/metrics", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 },
     { "name": "network-demand", "description": "Network demand and capacity (ClickHouse)", "method": "GET", "path": "/network/demand", "upstreamPath": "/network/demand", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 },
-    { "name": "sla-compliance", "description": "SLA compliance scores (ClickHouse)", "method": "GET", "path": "/sla/compliance", "upstreamPath": "/sla/compliance", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 }
+    { "name": "sla-compliance", "description": "SLA compliance scores (ClickHouse)", "method": "GET", "path": "/sla/compliance", "upstreamPath": "/sla/compliance", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 },
+    { "name": "network-models", "description": "List all available AI models across the Livepeer network", "method": "GET", "path": "/net/models", "upstreamPath": "/net/models", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 }
   ]
 }

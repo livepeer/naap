@@ -138,6 +138,42 @@ app.get('/api/v1/developer/models', async (req, res) => {
   }
 });
 
+// ============================================
+// Network Models (Livepeer Leaderboard)
+// ============================================
+
+const LEADERBOARD_API_URL = (process.env.LEADERBOARD_API_URL || 'https://naap-api.cloudspe.com/v1').replace(/\/+$/, '');
+
+app.get('/api/v1/developer/network-models', async (req, res) => {
+  try {
+    const limitParam = req.query.limit;
+    const limit = typeof limitParam === 'string' && /^\d+$/.test(limitParam)
+      ? Math.min(parseInt(limitParam, 10), 200)
+      : 50;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const upstream = await fetch(
+      `${LEADERBOARD_API_URL}/net/models?limit=${limit}`,
+      {
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timeout);
+
+    if (!upstream.ok) {
+      console.error(`Leaderboard API returned ${upstream.status}`);
+      return res.status(502).json({ error: 'Upstream leaderboard API error' });
+    }
+
+    const models = await upstream.json();
+    res.json({ models: Array.isArray(models) ? models : [], total: Array.isArray(models) ? models.length : 0 });
+  } catch (error) {
+    console.error('Error fetching network models:', error);
+    res.status(502).json({ error: 'Failed to fetch network models from leaderboard API' });
+  }
+});
+
 app.get('/api/v1/developer/models/:id', async (req, res) => {
   try {
     if (prisma) {
