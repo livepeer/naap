@@ -403,7 +403,7 @@ function KPICard({
           <span className="text-2xl font-semibold text-foreground tracking-tight font-mono">{value}</span>
           {suffix && <span className="text-xs text-muted-foreground">{suffix}</span>}
         </div>
-        <DeltaBadge value={delta} unit={deltaUnit} invert={deltaInvert} />
+        {/* DeltaBadge removed as we don't have the data for it right now */}
       </div>
       <HourlySparkline data={sparkline ?? []} color={sparklineColor} />
     </div>
