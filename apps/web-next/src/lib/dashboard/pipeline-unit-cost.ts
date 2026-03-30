@@ -9,6 +9,7 @@
  */
 
 import type { DashboardPipelinePricing } from '@naap/plugin-sdk';
+import { callConnectorInternal } from '@/lib/gateway/internal-client';
 
 export const PIPELINE_UNIT_COST_TTL_SECONDS = 5 * 60;
 
@@ -133,25 +134,22 @@ async function fetchPipelineUnitCostUncached(): Promise<DashboardPipelinePricing
     return [];
   }
 
-  const url = `${baseUrl.replace(/\/$/, '')}/`;
-  const auth = Buffer.from(`${user}:${password}`).toString('base64');
   const t0 = Date.now();
 
-  const res = await fetch(url, {
+  const { response: res } = await callConnectorInternal({
+    slug: 'clickhouse',
     method: 'POST',
-    headers: {
-      Authorization: `Basic ${auth}`,
-      'Content-Type': 'text/plain; charset=utf-8',
-    },
+    endpointPath: '/query',
     body: PIPELINE_UNIT_COST_SQL,
-    signal: AbortSignal.timeout(60_000),
-    next: { revalidate: PIPELINE_UNIT_COST_TTL_SECONDS },
+    secretsOverride: { username: user, password },
+    baseUrlOverride: baseUrl,
+    timeout: 60_000,
   });
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(
-      `[pipeline-unit-cost] ClickHouse HTTP ${res.status}${text ? `: ${text.slice(0, 200)}` : ''}`
+      `[pipeline-unit-cost] ClickHouse HTTP ${res.status}${text ? `: ${text.slice(0, 200)}` : ''}`,
     );
   }
 

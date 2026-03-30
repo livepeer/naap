@@ -12,10 +12,14 @@
  * Optional env vars for upstream secrets (set any you have):
  *   DAYDREAM_API_KEY, LIVEPEER_STUDIO_API_KEY, GEMINI_API_KEY,
  *   STORJ_ACCESS_KEY, OPENAI_API_KEY, STRIPE_SECRET_KEY,
- *   CONFLUENT_KAFKA_API_KEY, CLICKHOUSE_API_KEY, SUPABASE_ANON_KEY,
+ *   CONFLUENT_KAFKA_API_KEY, SUPABASE_ANON_KEY,
  *   TWILIO_AUTH_TOKEN, CLOUDFLARE_API_TOKEN, RESEND_API_KEY,
  *   PINECONE_API_KEY, NEON_API_KEY, UPSTASH_REDIS_TOKEN,
  *   BLOB_READ_WRITE_TOKEN, LEADERBOARD_API_URL
+ *
+ * Note: ClickHouse credentials (CLICKHOUSE_URL, CLICKHOUSE_USER,
+ * CLICKHOUSE_PASSWORD) are resolved from env at runtime by the dashboard
+ * and are never stored in the database.
  *
  */
 
@@ -34,7 +38,7 @@ const AUTH_PASSWORD = process.env.AUTH_PASSWORD || 'livepeer';
 function leaderboardGatewayOriginFromEnv(): string | null {
   const full = process.env.LEADERBOARD_API_URL?.trim();
   if (!full) return null;
-  return full.replace(/\/+$/, '').replace(/\/(api|v1)$/, '');
+  return full.replace(/\/+$/, '');
 }
 
 function step(n: number, msg: string) {

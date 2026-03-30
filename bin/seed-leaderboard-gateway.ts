@@ -24,8 +24,7 @@ const AUTH_EMAIL = process.env.AUTH_EMAIL || 'admin@livepeer.org';
 const AUTH_PASSWORD = process.env.AUTH_PASSWORD || 'livepeer';
 const LEADERBOARD_UPSTREAM_BASE = (process.env.LEADERBOARD_API_URL || '')
   .trim()
-  .replace(/\/+$/, '')
-  .replace(/\/(api|v1)$/, '');
+  .replace(/\/+$/, '');
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -151,7 +150,7 @@ async function main() {
     upstreamBaseUrl: LEADERBOARD_UPSTREAM_BASE,
     allowedHosts: [new URL(LEADERBOARD_UPSTREAM_BASE).hostname],
     defaultTimeout: 15000,
-    healthCheckPath: '/api/pipelines',
+    healthCheckPath: '/pipelines',
     authType: 'none' as const,
     responseWrapper: true,
     streamingEnabled: false,
@@ -164,7 +163,7 @@ async function main() {
       description: 'List all AI pipelines with their models and supported regions',
       method: 'GET',
       path: '/pipelines',
-      upstreamPath: '/api/pipelines',
+      upstreamPath: '/pipelines',
       rateLimit: 200,
       timeout: 5000,
       cacheTtl: 300,
@@ -174,7 +173,7 @@ async function main() {
       description: 'Get aggregated performance scores by pipeline and model',
       method: 'GET',
       path: '/stats',
-      upstreamPath: '/api/aggregated_stats',
+      upstreamPath: '/aggregated_stats',
       rateLimit: 100,
       timeout: 10000,
       cacheTtl: 60,
@@ -184,7 +183,7 @@ async function main() {
       description: 'Get raw per-run stats for a specific orchestrator',
       method: 'GET',
       path: '/stats/raw',
-      upstreamPath: '/api/raw_stats',
+      upstreamPath: '/raw_stats',
       rateLimit: 50,
       timeout: 15000,
       cacheTtl: 30,

@@ -7,10 +7,11 @@
  *
  * Env (server-only): CLICKHOUSE_URL, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD
  *
- * Caching: two-layer strategy (same as gpu-capacity-clickhouse.ts):
- *   1. In-process TTL cache (works in dev where Next Data Cache is off)
- *   2. next: { revalidate } on the outbound fetch (production Data Cache)
+ * Credentials are resolved from env at runtime via the gateway internal
+ * client and are never stored in the database.
  */
+
+import { callConnectorInternal } from '@/lib/gateway/internal-client';
 
 export const ACTIVE_STREAMS_TTL_SECONDS = 10;
 
@@ -164,26 +165,23 @@ async function fetchUncached(): Promise<ActiveStreamRow[]> {
   }
 
   const pipelineFilter = process.env.JOB_FEED_PIPELINE_FILTER?.trim() || '%';
-  const params = new URLSearchParams({ param_pipeline_filter: pipelineFilter });
-  const url = `${baseUrl.replace(/\/$/, '')}/?${params}`;
-  const auth = Buffer.from(`${user}:${password}`).toString('base64');
   const t0 = Date.now();
 
-  const res = await fetch(url, {
+  const { response: res } = await callConnectorInternal({
+    slug: 'clickhouse',
     method: 'POST',
-    headers: {
-      Authorization: `Basic ${auth}`,
-      'Content-Type': 'text/plain; charset=utf-8',
-    },
+    endpointPath: '/query',
     body: ACTIVE_STREAMS_SQL,
-    signal: AbortSignal.timeout(15_000),
-    next: { revalidate: ACTIVE_STREAMS_TTL_SECONDS },
+    searchParams: new URLSearchParams({ param_pipeline_filter: pipelineFilter }),
+    secretsOverride: { username: user, password },
+    baseUrlOverride: baseUrl,
+    timeout: 15_000,
   });
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(
-      `[active-streams-ch] ClickHouse HTTP ${res.status}${text ? `: ${text.slice(0, 200)}` : ''}`
+      `[active-streams-ch] ClickHouse HTTP ${res.status}${text ? `: ${text.slice(0, 200)}` : ''}`,
     );
   }
 

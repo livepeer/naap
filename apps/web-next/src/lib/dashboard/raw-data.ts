@@ -20,10 +20,7 @@
  *   network/demand + sla/compliance: 24h max — pipelines catalog: no window
  */
 
-import {
-  leaderboardApiBaseLabel,
-  leaderboardUpstreamUrl,
-} from '@/lib/dashboard/leaderboard-upstream';
+import { callConnectorInternal } from '@/lib/gateway/internal-client';
 
 // ---------------------------------------------------------------------------
 // Raw API response types (internal — not exported to clients)
@@ -133,6 +130,77 @@ export interface PipelineCatalogEntry {
   regions: string[];
 }
 
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((v): v is string => typeof v === 'string')
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function firstNonEmptyString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return null;
+}
+
+function normalizePipelineCatalogEntry(raw: unknown): PipelineCatalogEntry | null {
+  if (typeof raw === 'string') {
+    const id = raw.trim();
+    return id ? { id, models: [], regions: [] } : null;
+  }
+
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+
+  const id = firstNonEmptyString(
+    obj.id,
+    obj.pipeline_id,
+    obj.pipelineId,
+    obj.Pipeline,
+    obj.pipeline,
+    obj.name,
+  );
+  if (!id) return null;
+
+  return {
+    id,
+    models: toStringArray(obj.models ?? obj.Models ?? obj.model_ids ?? obj.modelIds),
+    regions: toStringArray(obj.regions ?? obj.Regions),
+  };
+}
+
+function normalizePipelineCatalog(rawRows: unknown[]): PipelineCatalogEntry[] {
+  const merged = new Map<string, { models: Set<string>; regions: Set<string> }>();
+
+  for (const raw of rawRows) {
+    const entry = normalizePipelineCatalogEntry(raw);
+    if (!entry) continue;
+
+    const existing = merged.get(entry.id);
+    if (existing) {
+      entry.models.forEach((m) => existing.models.add(m));
+      entry.regions.forEach((r) => existing.regions.add(r));
+      continue;
+    }
+
+    merged.set(entry.id, {
+      models: new Set(entry.models),
+      regions: new Set(entry.regions),
+    });
+  }
+
+  return [...merged.entries()].map(([id, acc]) => ({
+    id,
+    models: [...acc.models],
+    regions: [...acc.regions],
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -186,37 +254,42 @@ function parseTotalPages(pagination: { total_pages?: unknown } | undefined): num
   return Math.floor(n);
 }
 
+const LEADERBOARD_CONNECTOR = 'livepeer-leaderboard';
+
 async function fetchAllPages<T>(
   path: string,
   dataKey: string,
   params: URLSearchParams,
-  ttlSeconds: number
+  _ttlSeconds: number,
 ): Promise<{ rows: T[]; totalPages: number }> {
   const pageSize = 200;
   params.set('page', '1');
   params.set('page_size', String(pageSize));
+  const endpointPath = `/${path.replace(/^\/+/, '')}`;
 
-  const firstUrl = `${leaderboardUpstreamUrl(path)}?${params.toString()}`;
   const t0 = Date.now();
 
   let firstRes: Response;
   try {
-    firstRes = await fetch(firstUrl, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(60_000),
-      next: { revalidate: ttlSeconds },
+    const { response } = await callConnectorInternal({
+      slug: LEADERBOARD_CONNECTOR,
+      method: 'GET',
+      endpointPath,
+      searchParams: new URLSearchParams(params),
+      timeout: 60_000,
     });
+    firstRes = response;
   } catch (err) {
     throw new Error(
-      `[dashboard/raw-data] ${path} page 1 request failed against ${leaderboardApiBaseLabel()}: ${
+      `[dashboard/raw-data] ${path} page 1 request failed via ${LEADERBOARD_CONNECTOR}: ${
         err instanceof Error ? err.message : String(err)
-      }`
+      }`,
     );
   }
 
   if (!firstRes.ok) {
     throw new Error(
-      `[dashboard/raw-data] ${path} page 1 returned HTTP ${firstRes.status} from ${leaderboardApiBaseLabel()}`
+      `[dashboard/raw-data] ${path} page 1 returned HTTP ${firstRes.status} via ${LEADERBOARD_CONNECTOR}`,
     );
   }
 
@@ -224,7 +297,7 @@ async function fetchAllPages<T>(
   const firstRows = firstBody[dataKey] as T[] | undefined;
   if (!Array.isArray(firstRows)) {
     throw new Error(
-      `[dashboard/raw-data] ${path} page 1 missing expected "${dataKey}" array from ${leaderboardApiBaseLabel()}`
+      `[dashboard/raw-data] ${path} page 1 missing expected "${dataKey}" array via ${LEADERBOARD_CONNECTOR}`,
     );
   }
   const totalPages = parseTotalPages(firstBody.pagination as { total_pages?: unknown } | undefined);
@@ -239,34 +312,35 @@ async function fetchAllPages<T>(
     pageNums.map(async (page) => {
       const pageParams = new URLSearchParams(params);
       pageParams.set('page', String(page));
-      const url = `${leaderboardUpstreamUrl(path)}?${pageParams.toString()}`;
       try {
-        const res = await fetch(url, {
-          headers: { Accept: 'application/json' },
-          signal: AbortSignal.timeout(60_000),
-          next: { revalidate: ttlSeconds },
+        const { response: res } = await callConnectorInternal({
+          slug: LEADERBOARD_CONNECTOR,
+          method: 'GET',
+          endpointPath,
+          searchParams: pageParams,
+          timeout: 60_000,
         });
         if (!res.ok) {
           throw new Error(
-            `[dashboard/raw-data] ${path} page ${page} returned HTTP ${res.status} from ${leaderboardApiBaseLabel()}`
+            `[dashboard/raw-data] ${path} page ${page} returned HTTP ${res.status} via ${LEADERBOARD_CONNECTOR}`,
           );
         }
         const body = (await res.json()) as Record<string, unknown>;
         const rows = body[dataKey] as T[] | undefined;
         if (!Array.isArray(rows)) {
           throw new Error(
-            `[dashboard/raw-data] ${path} page ${page} missing expected "${dataKey}" array from ${leaderboardApiBaseLabel()}`
+            `[dashboard/raw-data] ${path} page ${page} missing expected "${dataKey}" array via ${LEADERBOARD_CONNECTOR}`,
           );
         }
         return rows;
       } catch (err) {
         throw new Error(
-          `[dashboard/raw-data] ${path} page ${page} request failed against ${leaderboardApiBaseLabel()}: ${
+          `[dashboard/raw-data] ${path} page ${page} request failed via ${LEADERBOARD_CONNECTOR}: ${
             err instanceof Error ? err.message : String(err)
-          }`
+          }`,
         );
       }
-    })
+    }),
   );
 
   const allRows = [...firstRows, ...pageResults.flat()];
@@ -369,26 +443,32 @@ export function getRawGPUMetricsRows(_lookbackHours?: number): Promise<GPUMetric
 /** Fetch the pipeline catalog (no pagination). */
 export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
   return cachedFetch('pipelines', PIPELINES_TTL * 1000, async () => {
-    const url = leaderboardUpstreamUrl('pipelines');
     const t0 = Date.now();
-    const res = await fetch(url, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(60_000),
-      next: { revalidate: PIPELINES_TTL },
+    const { response: res } = await callConnectorInternal({
+      slug: LEADERBOARD_CONNECTOR,
+      method: 'GET',
+      endpointPath: '/pipelines',
+      timeout: 60_000,
     });
     if (!res.ok) {
       throw new Error(
-        `[dashboard/raw-data] /api/pipelines returned HTTP ${res.status} from ${leaderboardApiBaseLabel()}`
+        `[dashboard/raw-data] /pipelines returned HTTP ${res.status} via ${LEADERBOARD_CONNECTOR}`,
       );
     }
-    const body = (await res.json()) as { pipelines?: PipelineCatalogEntry[] };
-    if (!Array.isArray(body.pipelines)) {
+    const body = (await res.json()) as { pipelines?: unknown[] } | unknown[];
+    const rawRows = Array.isArray(body)
+      ? body
+      : Array.isArray(body.pipelines)
+        ? body.pipelines
+        : null;
+    if (!rawRows) {
       throw new Error(
-        `[dashboard/raw-data] /api/pipelines missing expected "pipelines" array from ${leaderboardApiBaseLabel()}`
+        `[dashboard/raw-data] /pipelines missing expected "pipelines" array via ${LEADERBOARD_CONNECTOR}`,
       );
     }
-    console.log(`[dashboard/raw-data] pipelines fetched (${body.pipelines.length} entries) in ${Date.now() - t0}ms`);
-    return body.pipelines;
+    const pipelines = normalizePipelineCatalog(rawRows);
+    console.log(`[dashboard/raw-data] pipelines fetched (${pipelines.length} entries) in ${Date.now() - t0}ms`);
+    return pipelines;
   });
 }
 
@@ -421,25 +501,33 @@ export async function warmLeaderboardPaginated(
 }
 
 /**
- * Single fetch for /api/pipelines (no pagination). Warms Next.js fetch cache only.
+ * Single fetch for /pipelines (no pagination). Warms the in-process cache.
  */
-export async function warmLeaderboardPipelines(ttlSeconds: number): Promise<{
+export async function warmLeaderboardPipelines(_ttlSeconds: number): Promise<{
   ok: boolean;
   status: number;
   count: number;
 }> {
-  const url = leaderboardUpstreamUrl('pipelines');
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(60_000),
-    next: { revalidate: ttlSeconds },
-  });
-  if (!res.ok) {
-    return { ok: false, status: res.status, count: 0 };
+  try {
+    const { response: res } = await callConnectorInternal({
+      slug: LEADERBOARD_CONNECTOR,
+      method: 'GET',
+      endpointPath: '/pipelines',
+      timeout: 60_000,
+    });
+    if (!res.ok) {
+      return { ok: false, status: res.status, count: 0 };
+    }
+    const body = (await res.json()) as { pipelines?: unknown[] } | unknown[];
+    const count = Array.isArray(body)
+      ? body.length
+      : Array.isArray(body.pipelines)
+        ? body.pipelines.length
+        : 0;
+    return { ok: true, status: res.status, count };
+  } catch {
+    return { ok: false, status: 503, count: 0 };
   }
-  const body = (await res.json()) as { pipelines?: unknown[] };
-  const count = Array.isArray(body.pipelines) ? body.pipelines.length : 0;
-  return { ok: true, status: res.status, count };
 }
 
 // ---------------------------------------------------------------------------

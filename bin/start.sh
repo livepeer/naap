@@ -1620,6 +1620,27 @@ start_all_be() {
 
 start_fe() { log_section "Frontend"; start_shell || { log_error "Shell failed."; exit 1; }; }
 
+# Ensure public Service Gateway connectors are materialized as runnable
+# ServiceConnector records (not only templates) for local development.
+# Safe to run on every start: seed-public-connectors.ts is idempotent.
+seed_public_connectors() {
+  if [ "${SKIP_CONNECTOR_SEED:-0}" = "1" ]; then
+    log_info "Skipping public connector seed (SKIP_CONNECTOR_SEED=1)"
+    return 0
+  fi
+
+  log_info "Seeding public gateway connectors..."
+  cd "$ROOT_DIR" || { log_warn "Could not cd to project root for connector seed"; return 0; }
+
+  SHELL_URL="http://localhost:$SHELL_PORT" \
+  BASE_SVC_URL="http://localhost:$BASE_SVC_PORT" \
+  npx tsx bin/seed-public-connectors.ts > "$LOG_DIR/seed-public-connectors.log" 2>&1 && \
+    log_success "Public gateway connectors seeded" || {
+      log_warn "Public gateway connector seed had issues (non-fatal)"
+      show_failure_context "$LOG_DIR/seed-public-connectors.log" 12
+    }
+}
+
 cmd_start_all() {
   log_info "Starting ${BOLD}all${NC} NAAP services..."
   local t
@@ -1638,6 +1659,7 @@ cmd_start_all() {
   wait $shell_pid || { log_error "Shell failed."; release_lock; exit 1; }
   _tend "Shell + backends (parallel)"
 
+  _tstart; seed_public_connectors; _tend "Gateway connector seed"
   _tstart; verify_all_plugins || true; _tend "Plugin verification"
   release_lock
   log_success "All services started in $(( $(date +%s) - t ))s!"; _summary_full; _print_timing
@@ -1658,6 +1680,7 @@ cmd_start_shell() {
   _tstart; ensure_plugins_built; _tend "Plugin builds"
   _tstart; start_core; _tend "Core services"
   _tstart; start_fe; _tend "Frontend (Next.js)"
+  _tstart; seed_public_connectors; _tend "Gateway connector seed"
   _tstart; verify_all_plugins || true; _tend "Plugin verification"
   release_lock
   log_success "Started in $(( $(date +%s) - t ))s"; _summary_shell; _print_timing
@@ -1681,6 +1704,7 @@ cmd_start_shell_with_backends() {
   wait $shell_pid || { log_error "Shell failed."; release_lock; exit 1; }
   _tend "Shell + backends (parallel)"
 
+  _tstart; seed_public_connectors; _tend "Gateway connector seed"
   _tstart; verify_all_plugins || true; _tend "Plugin verification"
   release_lock
   log_success "Started in $(( $(date +%s) - t ))s"; _summary_be; _print_timing
@@ -1702,7 +1726,7 @@ cmd_start_plugins() {
   setup_infra; ensure_plugins_built; start_core
   log_section "Selected Plugins"
   for p in "${names[@]}"; do [ -d "$ROOT_DIR/plugins/$p" ] && start_plugin_backend "$p" || log_error "Not found: $p"; done
-  start_fe; verify_all_plugins || true
+  start_fe; seed_public_connectors; verify_all_plugins || true
   release_lock
   _summary_full
 }
@@ -1720,6 +1744,7 @@ cmd_dev_plugin() {
   start_plugin_backend "$name"
   start_plugin_frontend_dev "$name"
   start_fe
+  seed_public_connectors
   release_lock
   local bp=$(get_plugin_backend_port "$name")
   local fp=$(get_plugin_frontend_port "$name")

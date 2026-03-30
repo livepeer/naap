@@ -13,6 +13,7 @@
  */
 
 import type { DashboardGPUCapacity } from '@naap/plugin-sdk';
+import { callConnectorInternal } from '@/lib/gateway/internal-client';
 import {
   PIPELINE_DISPLAY,
 } from './pipeline-config.js';
@@ -190,25 +191,22 @@ async function fetchGPUCapacityUncached(): Promise<DashboardGPUCapacity> {
     return { totalGPUs: 0, activeGPUs: 0, availableCapacity: 0, models: [], pipelineGPUs: [] };
   }
 
-  const url = `${baseUrl.replace(/\/$/, '')}/`;
-  const auth = Buffer.from(`${user}:${password}`).toString('base64');
   const t0 = Date.now();
 
-  const res = await fetch(url, {
+  const { response: res } = await callConnectorInternal({
+    slug: 'clickhouse',
     method: 'POST',
-    headers: {
-      Authorization: `Basic ${auth}`,
-      'Content-Type': 'text/plain; charset=utf-8',
-    },
+    endpointPath: '/query',
     body: GPU_CAPACITY_SQL,
-    signal: AbortSignal.timeout(60_000),
-    next: { revalidate: GPU_CAPACITY_CH_TTL_SECONDS },
+    secretsOverride: { username: user, password },
+    baseUrlOverride: baseUrl,
+    timeout: 60_000,
   });
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(
-      `[gpu-capacity-ch] ClickHouse HTTP ${res.status}${text ? `: ${text.slice(0, 200)}` : ''}`
+      `[gpu-capacity-ch] ClickHouse HTTP ${res.status}${text ? `: ${text.slice(0, 200)}` : ''}`,
     );
   }
 
@@ -222,7 +220,7 @@ async function fetchGPUCapacityUncached(): Promise<DashboardGPUCapacity> {
   console.log(
     `[gpu-capacity-ch] fetched ${data.length} nodes → ` +
     `${result.totalGPUs} GPUs, ${result.models.length} hardware models, ` +
-    `${result.pipelineGPUs.length} pipelines in ${Date.now() - t0}ms`
+    `${result.pipelineGPUs.length} pipelines in ${Date.now() - t0}ms`,
   );
   return result;
 }
