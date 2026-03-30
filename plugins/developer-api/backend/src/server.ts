@@ -2,10 +2,13 @@ import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { config } from 'dotenv';
 import { createAuthMiddleware } from '@naap/plugin-server-sdk';
 
+// Load plugin-local .env first, then fall back to repo root .env
 config();
+config({ path: resolve(import.meta.dirname ?? '.', '../../../../.env'), override: false });
 
 function sanitizeForLog(value: unknown): string {
   return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f\u2028\u2029]/g, '');

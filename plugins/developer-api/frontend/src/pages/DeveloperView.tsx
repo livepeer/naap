@@ -145,6 +145,15 @@ export const DeveloperView: React.FC = () => {
   const [networkModelsLoading, setNetworkModelsLoading] = useState(false);
   const [networkModelSearch, setNetworkModelSearch] = useState('');
   const [pipelineFilter, setPipelineFilter] = useState<string>('all');
+  const [copiedCell, setCopiedCell] = useState<string | null>(null);
+
+  const copyCell = useCallback(async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedCell(key);
+      setTimeout(() => setCopiedCell((prev) => (prev === key ? null : prev)), 1500);
+    } catch { /* ignore */ }
+  }, []);
 
   const revokedCount = useMemo(
     () => apiKeys.filter(k => (k.status || '').toUpperCase() === 'REVOKED').length,
@@ -601,13 +610,29 @@ export const DeveloperView: React.FC = () => {
                           {filteredNetworkModels.map((model) => (
                             <tr key={`${model.Pipeline}-${model.Model}`} className="hover:bg-white/5 transition-colors">
                               <td className="py-3 pr-4">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 group">
                                   <Cpu size={12} className="text-accent-emerald flex-shrink-0" />
                                   <span className="text-sm font-medium text-text-primary font-mono">{model.Model}</span>
+                                  <button
+                                    onClick={() => copyCell(`model-${model.Pipeline}-${model.Model}`, model.Model)}
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-text-secondary hover:text-text-primary"
+                                    title="Copy model name"
+                                  >
+                                    {copiedCell === `model-${model.Pipeline}-${model.Model}` ? <Check size={12} className="text-accent-emerald" /> : <Copy size={12} />}
+                                  </button>
                                 </div>
                               </td>
                               <td className="py-3 pr-4">
-                                <Badge variant="secondary">{model.Pipeline}</Badge>
+                                <div className="flex items-center gap-1.5 group">
+                                  <Badge variant="secondary">{model.Pipeline}</Badge>
+                                  <button
+                                    onClick={() => copyCell(`pipeline-${model.Pipeline}-${model.Model}`, model.Pipeline)}
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-text-secondary hover:text-text-primary"
+                                    title="Copy pipeline name"
+                                  >
+                                    {copiedCell === `pipeline-${model.Pipeline}-${model.Model}` ? <Check size={12} className="text-accent-emerald" /> : <Copy size={12} />}
+                                  </button>
+                                </div>
                               </td>
                               <td className="py-3 pr-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
