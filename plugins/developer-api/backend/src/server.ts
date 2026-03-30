@@ -142,18 +142,33 @@ app.get('/api/v1/developer/models', async (req, res) => {
 });
 
 // ============================================
-// Network Models (Livepeer Leaderboard)
+// Network Models (NAAP /v1/net/models)
 // ============================================
 
-const LEADERBOARD_API_URL = (process.env.LEADERBOARD_API_URL || '').trim().replace(/\/+$/, '');
-if (!LEADERBOARD_API_URL) {
-  console.warn('[developer-api] LEADERBOARD_API_URL is not set – /network-models endpoint will return 503');
+/** Matches apps/web-next `.env` example: NAAP API base including /v1. */
+const DEFAULT_NET_MODELS_API_BASE = 'https://naap-api.cloudspe.com/v1';
+
+const NET_MODELS_API_BASE = (
+  process.env.LEADERBOARD_API_URL?.trim() || DEFAULT_NET_MODELS_API_BASE
+).replace(/\/+$/, '');
+
+function parseNetModelsJson(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (payload && typeof payload === 'object') {
+    const o = payload as Record<string, unknown>;
+    if (Array.isArray(o.models)) {
+      return o.models;
+    }
+    if (Array.isArray(o.data)) {
+      return o.data;
+    }
+  }
+  return [];
 }
 
 app.get('/api/v1/developer/network-models', async (req, res) => {
-  if (!LEADERBOARD_API_URL) {
-    return res.status(503).json({ error: 'LEADERBOARD_API_URL is not configured' });
-  }
   try {
     const limitParam = req.query.limit;
     const limit = typeof limitParam === 'string' && /^\d+$/.test(limitParam)
@@ -162,7 +177,7 @@ app.get('/api/v1/developer/network-models', async (req, res) => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     const upstream = await fetch(
-      `${LEADERBOARD_API_URL}/net/models?limit=${limit}`,
+      `${NET_MODELS_API_BASE}/net/models?limit=${limit}`,
       {
         headers: { Accept: 'application/json' },
         signal: controller.signal,
@@ -171,15 +186,16 @@ app.get('/api/v1/developer/network-models', async (req, res) => {
     clearTimeout(timeout);
 
     if (!upstream.ok) {
-      console.error(`Leaderboard API returned ${upstream.status}`);
-      return res.status(502).json({ error: 'Upstream leaderboard API error' });
+      console.error(`[developer-api] NAAP net/models returned ${upstream.status}`);
+      return res.status(502).json({ error: 'Upstream NAAP API error' });
     }
 
-    const models = await upstream.json();
-    res.json({ models: Array.isArray(models) ? models : [], total: Array.isArray(models) ? models.length : 0 });
+    const payload = await upstream.json();
+    const models = parseNetModelsJson(payload);
+    res.json({ models, total: models.length });
   } catch (error) {
     console.error('Error fetching network models:', error);
-    res.status(502).json({ error: 'Failed to fetch network models from leaderboard API' });
+    res.status(502).json({ error: 'Failed to fetch network models from NAAP API' });
   }
 });
 
