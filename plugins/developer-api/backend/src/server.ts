@@ -142,9 +142,15 @@ app.get('/api/v1/developer/models', async (req, res) => {
 // Network Models (Livepeer Leaderboard)
 // ============================================
 
-const LEADERBOARD_API_URL = (process.env.LEADERBOARD_API_URL || 'https://naap-api.cloudspe.com/v1').replace(/\/+$/, '');
+const LEADERBOARD_API_URL = (process.env.LEADERBOARD_API_URL || '').trim().replace(/\/+$/, '');
+if (!LEADERBOARD_API_URL) {
+  console.warn('[developer-api] LEADERBOARD_API_URL is not set – /network-models endpoint will return 503');
+}
 
 app.get('/api/v1/developer/network-models', async (req, res) => {
+  if (!LEADERBOARD_API_URL) {
+    return res.status(503).json({ error: 'LEADERBOARD_API_URL is not configured' });
+  }
   try {
     const limitParam = req.query.limit;
     const limit = typeof limitParam === 'string' && /^\d+$/.test(limitParam)
