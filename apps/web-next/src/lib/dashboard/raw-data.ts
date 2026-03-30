@@ -4,15 +4,11 @@
  * Each function fetches the maximum available window from upstream and returns
  * the combined rows from all pages.
  *
- * Caching strategy (two layers):
- *   1. In-process TTL cache — guarantees at most ONE upstream fetch per
- *      endpoint per TTL window, even in `next dev` where the Next.js Data
- *      Cache is disabled. Multiple resolvers calling the same getter within
- *      a TTL window share the cached Promise (coalescing concurrent calls).
- *   2. Next.js `next: { revalidate }` on each fetch — provides persistent
- *      cross-request caching in production builds.
+ * Caching: in-process TTL cache — guarantees at most ONE upstream fetch per
+ * endpoint per TTL window (including `next dev`). Concurrent callers within a
+ * TTL window share the same cached Promise.
  *
- * TTLs match ENDPOINT_TTL_SECONDS in the leaderboard proxy route:
+ * TTLs align with the dashboard BFF / leaderboard proxy expectations:
  *   demand=180s, sla=300s, pipelines=900s (gpu/metrics not fetched — dashboard GPU
  *   inventory uses ClickHouse; see gpu-capacity-clickhouse.ts)
  *
@@ -260,7 +256,6 @@ async function fetchAllPages<T>(
   path: string,
   dataKey: string,
   params: URLSearchParams,
-  _ttlSeconds: number,
 ): Promise<{ rows: T[]; totalPages: number }> {
   const pageSize = 200;
   params.set('page', '1');
@@ -404,7 +399,6 @@ export function getRawDemandRows(lookbackHours?: number): Promise<NetworkDemandR
       'network/demand',
       'demand',
       new URLSearchParams({ window: DASHBOARD_LEADERBOARD_WINDOW }),
-      DEMAND_TTL
     ).then((r) => r.rows)
   ).then(rows =>
     h >= DASHBOARD_LEADERBOARD_MAX_HOURS ? rows : filterRowsByWindowStart(rows, h)
@@ -424,7 +418,6 @@ export function getRawSLARows(lookbackHours?: number): Promise<SLAComplianceRow[
       'sla/compliance',
       'compliance',
       new URLSearchParams({ window: DASHBOARD_LEADERBOARD_WINDOW }),
-      SLA_TTL
     ).then((r) => r.rows)
   ).then(rows =>
     h >= DASHBOARD_LEADERBOARD_MAX_HOURS ? rows : filterRowsByWindowStart(rows, h)
@@ -472,7 +465,7 @@ export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
   });
 }
 
-/** TTL seconds per leaderboard endpoint — keep in sync with leaderboard proxy + warm route. */
+/** TTL seconds per leaderboard endpoint — used by instrumentation re-warm interval. */
 export const LEADERBOARD_CACHE_TTLS = {
   demand: DEMAND_TTL,
   sla: SLA_TTL,
@@ -480,64 +473,13 @@ export const LEADERBOARD_CACHE_TTLS = {
   pipelines: PIPELINES_TTL,
 } as const;
 
-/**
- * Fetches every page for one paginated leaderboard endpoint + window.
- * Populates Next.js fetch cache per URL; does not use the in-process mem cache.
- * Used by GET /api/v1/leaderboard/warm.
- */
-export async function warmLeaderboardPaginated(
-  path: string,
-  dataKey: string,
-  window: string,
-  ttlSeconds: number
-): Promise<{ pages: number; rows: number }> {
-  const { rows, totalPages } = await fetchAllPages<unknown>(
-    path,
-    dataKey,
-    new URLSearchParams({ window }),
-    ttlSeconds
-  );
-  return { pages: totalPages, rows: rows.length };
-}
-
-/**
- * Single fetch for /pipelines (no pagination). Warms the in-process cache.
- */
-export async function warmLeaderboardPipelines(_ttlSeconds: number): Promise<{
-  ok: boolean;
-  status: number;
-  count: number;
-}> {
-  try {
-    const { response: res } = await callConnectorInternal({
-      slug: LEADERBOARD_CONNECTOR,
-      method: 'GET',
-      endpointPath: '/pipelines',
-      timeout: 60_000,
-    });
-    if (!res.ok) {
-      return { ok: false, status: res.status, count: 0 };
-    }
-    const body = (await res.json()) as { pipelines?: unknown[] } | unknown[];
-    const count = Array.isArray(body)
-      ? body.length
-      : Array.isArray(body.pipelines)
-        ? body.pipelines.length
-        : 0;
-    return { ok: true, status: res.status, count };
-  } catch {
-    return { ok: false, status: 503, count: 0 };
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Unified cache warmer
 // ---------------------------------------------------------------------------
 
 /**
- * Pre-populate both the in-process memCache and Next.js fetch cache for all
- * leaderboard endpoints. Uses the same code path as the resolvers so the
- * cache keys match exactly.
+ * Pre-populate the in-process mem cache for all leaderboard-backed dashboard
+ * inputs. Uses the same getters as the resolvers so cache keys match exactly.
  *
  * Called from:
  *   - `instrumentation.ts` at server startup (awaited — first user is guaranteed warm)

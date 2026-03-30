@@ -10,7 +10,7 @@
     "displayName": "ClickHouse",
     "description": "ClickHouse HTTP query interface with Basic auth and SELECT-only enforcement",
     "category": "database",
-    "upstreamBaseUrl": "https://s7kh1yt2go.us-east-2.aws.clickhouse.cloud:8443",
+    "upstreamBaseUrl": "https://clickhouse.invalid:8443",
     "defaultTimeout": 30000,
     "healthCheckPath": "/ping",
     "authType": "basic",

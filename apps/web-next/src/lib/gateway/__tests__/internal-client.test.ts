@@ -189,77 +189,16 @@ describe('callConnectorInternal', () => {
     ).rejects.toThrow('No published connector "nonexistent"');
   });
 
-  it('falls back to LEADERBOARD_API_URL when leaderboard connector is missing', async () => {
-    mockResolveConfig.mockResolvedValue(null);
-    const prev = process.env.LEADERBOARD_API_URL;
-    process.env.LEADERBOARD_API_URL = 'https://naap-api.cloudspe.com/v1';
+  it('propagates resolveConfig errors', async () => {
+    mockResolveConfig.mockRejectedValue(new Error('database unavailable'));
 
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(
-        new Response(JSON.stringify({ pipelines: [] }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
-      );
-
-    const result = await callConnectorInternal({
-      slug: 'livepeer-leaderboard',
-      method: 'GET',
-      endpointPath: '/pipelines',
-      searchParams: new URLSearchParams({ page: '1' }),
-    });
-
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'https://naap-api.cloudspe.com/v1/pipelines?page=1',
-      expect.objectContaining({ method: 'GET' }),
-    );
-    expect(mockProxyToUpstream).not.toHaveBeenCalled();
-    expect((await result.response.json()) as { pipelines: unknown[] }).toEqual({ pipelines: [] });
-
-    fetchSpy.mockRestore();
-    if (prev == null) {
-      delete process.env.LEADERBOARD_API_URL;
-    } else {
-      process.env.LEADERBOARD_API_URL = prev;
-    }
-  });
-
-  it('falls back to direct ClickHouse HTTP when clickhouse connector is missing', async () => {
-    mockResolveConfig.mockResolvedValue(null);
-
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(
-        new Response(JSON.stringify({ data: [] }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
-      );
-
-    await callConnectorInternal({
-      slug: 'clickhouse',
-      method: 'POST',
-      endpointPath: '/query',
-      body: 'SELECT 1 FORMAT JSON',
-      baseUrlOverride: 'https://my-ch.example.com:8443',
-      secretsOverride: { username: 'admin', password: 'secret' },
-    });
-
-    const expectedAuth = `Basic ${Buffer.from('admin:secret').toString('base64')}`;
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'https://my-ch.example.com:8443/',
-      expect.objectContaining({
-        method: 'POST',
-        body: 'SELECT 1 FORMAT JSON',
+    await expect(
+      callConnectorInternal({
+        slug: 'livepeer-leaderboard',
+        method: 'GET',
+        endpointPath: '/network/demand',
       }),
-    );
-    const callInit = fetchSpy.mock.calls[0][1] as RequestInit;
-    const headers = callInit.headers as Headers;
-    expect(headers.get('Authorization')).toBe(expectedAuth);
-    expect(mockProxyToUpstream).not.toHaveBeenCalled();
-
-    fetchSpy.mockRestore();
+    ).rejects.toThrow('database unavailable');
   });
 
   // ── Leaderboard (no-auth, no secrets) ──

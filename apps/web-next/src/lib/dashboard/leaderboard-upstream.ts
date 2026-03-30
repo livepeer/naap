@@ -2,8 +2,7 @@
  * Build absolute URLs for the versioned leaderboard HTTP API.
  *
  * `LEADERBOARD_API_URL` must be set in the environment. It is the full base
- * URL through the API prefix segment, with no trailing slash. Livepeer's
- * canonical host uses `/api`; some mirrors use `/v1`.
+ * URL through the API version prefix (for example `/v1`), with no trailing slash.
  *
  * Resource paths are joined after it, e.g. `pipelines`, `network/demand`.
  */
@@ -12,7 +11,7 @@ function stripTrailingSlashes(s: string): string {
   return s.replace(/\/+$/, '');
 }
 
-/** Base URL including `/api` or `/v1` (per upstream), no trailing slash. */
+/** Base URL including the version prefix (e.g. `/v1`), no trailing slash. */
 export function leaderboardApiBaseUrl(): string {
   const raw = process.env.LEADERBOARD_API_URL?.trim();
   if (!raw) {

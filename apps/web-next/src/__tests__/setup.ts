@@ -1,6 +1,9 @@
 import '@testing-library/jest-dom';
 import { vi, beforeEach, afterEach } from 'vitest';
 
+// next/server-only throws outside the Next.js server graph; Vitest runs in Node+jsdom.
+vi.mock('server-only', () => ({}));
+
 // Mock Next.js router
 vi.mock('next/navigation', () => ({
   useRouter: () => ({

@@ -1,8 +1,8 @@
 // Leaderboard Cache Warmer
 // GET /api/v1/leaderboard/warm
 //
-// Populates both the in-process memCache and Next.js fetch cache for all
-// leaderboard endpoints using the same code path as the dashboard resolvers.
+// Populates the in-process mem cache for leaderboard-backed dashboard data
+// using the same getters as the dashboard resolvers.
 // Called by:
 //   - Vercel cron (every ~50 min, before the 1hr TTL expires)
 //   - Manual invocation for debugging
