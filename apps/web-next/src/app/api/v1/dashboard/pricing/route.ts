@@ -1,16 +1,13 @@
 import { NextResponse } from 'next/server';
-import {
-  fetchPipelineUnitCostFromClickHouse,
-} from '@/lib/dashboard/pipeline-unit-cost';
+import { getDashboardPricing } from '@/lib/facade';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
-export const revalidate = 300;
 
 export async function GET(): Promise<NextResponse> {
   try {
-    const rows = await fetchPipelineUnitCostFromClickHouse();
-    return NextResponse.json(rows);
+    const result = await getDashboardPricing();
+    return NextResponse.json(result);
   } catch (err) {
     console.error('[dashboard/pricing] error:', err);
     return NextResponse.json(

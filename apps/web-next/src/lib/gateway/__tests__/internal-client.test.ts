@@ -52,8 +52,8 @@ function makeLeaderboardConfig(): ResolvedConfig {
       displayName: 'Livepeer AI Leaderboard',
       status: 'published',
       visibility: 'public',
-      upstreamBaseUrl: 'https://naap-api.cloudspe.com/v1',
-      allowedHosts: ['naap-api.cloudspe.com'],
+      upstreamBaseUrl: 'https://naap-api.livepeer.cloud/v1',
+      allowedHosts: ['naap-api.livepeer.cloud'],
       defaultTimeout: 15000,
       healthCheckPath: '/pipelines',
       authType: 'none',
@@ -246,7 +246,7 @@ describe('callConnectorInternal', () => {
 
     const upstreamCall = mockProxyToUpstream.mock.calls[0][0];
     const upstreamUrl = new URL(upstreamCall.url);
-    expect(upstreamUrl.origin).toBe('https://naap-api.cloudspe.com');
+    expect(upstreamUrl.origin).toBe('https://naap-api.livepeer.cloud');
     expect(upstreamUrl.pathname).toBe('/v1/network/demand');
   });
 

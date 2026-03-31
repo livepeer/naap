@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { resolvePipelineCatalog } from '@/lib/dashboard/resolvers';
+import { getDashboardPipelineCatalog } from '@/lib/facade';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 export async function GET(): Promise<NextResponse> {
   try {
-    const result = await resolvePipelineCatalog();
+    const result = await getDashboardPipelineCatalog();
     return NextResponse.json(result);
   } catch (err) {
     console.error('[dashboard/pipeline-catalog] error:', err);

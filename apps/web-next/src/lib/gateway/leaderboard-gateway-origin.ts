@@ -1,6 +1,6 @@
 /**
  * Service Gateway `livepeer-leaderboard` connector stores upstreamBaseUrl as
- * a full versioned API base (e.g. https://naap-api.cloudspe.com/v1). Endpoint
+ * a full versioned API base (e.g. https://naap-api.livepeer.cloud/v1). Endpoint
  * upstream paths should only include the resource path after /v1.
  */
 export function leaderboardGatewayOriginFromEnv(): string | null {

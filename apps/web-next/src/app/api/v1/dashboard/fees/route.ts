@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveFees } from '@/lib/dashboard/resolvers';
+import { getDashboardFees } from '@/lib/facade';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -10,7 +10,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const days = daysStr != null ? parseInt(daysStr, 10) : undefined;
 
   try {
-    const result = await resolveFees({ days });
+    const result = await getDashboardFees({ days });
     return NextResponse.json(result);
   } catch (err) {
     console.error('[dashboard/fees] error:', err);

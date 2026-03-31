@@ -10,7 +10,7 @@
     "displayName": "Livepeer AI Leaderboard",
     "description": "Orchestrator performance leaderboard for Livepeer AI pipelines (text-to-image, LLM, live-video-to-video)",
     "category": "video",
-    "upstreamBaseUrl": "https://naap-api.cloudspe.com/v1",
+    "upstreamBaseUrl": "https://naap-api.livepeer.cloud/v1",
     "defaultTimeout": 15000,
     "healthCheckPath": "/pipelines",
     "authType": "none",
