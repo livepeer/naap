@@ -41,4 +41,8 @@ export const TTL = {
   PRICING: 300,
   JOB_FEED: 10,
   NETWORK_MODELS: 60,
+  /** Shared raw /v1/net/models cache — used by network-models, pipeline-catalog, pricing */
+  NET_MODELS: 300,
+  /** Shared raw /v1/net/orchestrators cache — used by gpu-capacity */
+  NET_ORCHESTRATORS: 300,
 } as const;

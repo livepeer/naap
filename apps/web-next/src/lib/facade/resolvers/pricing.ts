@@ -1,46 +1,20 @@
 /**
  * Pricing resolver — NAAP API backed.
  *
- * Returns one entry per Pipeline+Model from GET /v1/net/models.
+ * Returns one entry per Pipeline+Model from the shared net/models cache.
  * Each entry represents the avg price for that specific model.
  *
  * Price conversion: raw value is in Wei per pixel-equivalent unit.
  * We normalize to a human-readable scale: price = WeiPerUnit / 1e12
  *
  * Source:
- *   GET /v1/net/models?limit=200 → per-model rows with pricing
+ *   facade/network-data → GET /v1/net/models?limit=200
  */
 
 import type { DashboardPipelinePricing } from '@naap/plugin-sdk';
-import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
 import { PIPELINE_DISPLAY } from '@/lib/dashboard/pipeline-config';
 import { cachedFetch, TTL } from '../cache.js';
-
-// ---------------------------------------------------------------------------
-// Raw NAAP API types
-// ---------------------------------------------------------------------------
-
-interface NaapNetModelRow {
-  Pipeline: string;
-  Model: string;
-  WarmOrchCount: number;
-  TotalCapacity: number;
-  PriceMinWeiPerPixel: number;
-  PriceMaxWeiPerPixel: number;
-  PriceAvgWeiPerPixel: number;
-}
-
-// ---------------------------------------------------------------------------
-// HTTP helper
-// ---------------------------------------------------------------------------
-
-async function naapGet<T>(path: string, params?: Record<string, string>): Promise<T> {
-  const url = new URL(naapApiUpstreamUrl(path));
-  if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url.toString(), { next: { revalidate: 60 } });
-  if (!res.ok) throw new Error(`[facade/pricing] ${path} returned HTTP ${res.status}`);
-  return res.json() as Promise<T>;
-}
+import { getRawNetModels } from '../network-data.js';
 
 // ---------------------------------------------------------------------------
 // Pipeline unit metadata (for non-pixel pipelines)
@@ -58,7 +32,7 @@ const PIPELINE_UNIT: Record<string, string> = {
 
 export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
   return cachedFetch('facade:pricing:v2', TTL.PRICING * 1000, async () => {
-    const rows = await naapGet<NaapNetModelRow[]>('net/models', { limit: '200' });
+    const rows = await getRawNetModels();
 
     return rows
       .filter((row) => row.Pipeline && PIPELINE_DISPLAY[row.Pipeline] !== null && row.Model)
@@ -91,6 +65,7 @@ export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
           price,
           pixelsPerUnit: unit === 'pixel' ? 1 : null,
           outputPerDollar,
+          capacity: row.TotalCapacity,
         };
       })
       .sort((a, b) => b.price - a.price);

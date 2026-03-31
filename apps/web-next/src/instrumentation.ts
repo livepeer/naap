@@ -55,10 +55,15 @@ export async function register() {
     const { warmDashboardCaches, NAAP_API_CACHE_TTLS } = await import(
       '@/lib/dashboard/raw-data'
     );
+    const { warmNetworkData } = await import('@/lib/facade/network-data');
 
     try {
-      const warmResult = await warmDashboardCaches();
+      const [warmResult, networkResult] = await Promise.all([
+        warmDashboardCaches(),
+        warmNetworkData(),
+      ]);
       console.log('[naap] NAAP API cache warmed on startup:', warmResult);
+      console.log('[naap] Network data cache warmed on startup:', networkResult);
     } catch (err) {
       console.warn('[naap] Startup cache warm failed (non-fatal):', err);
     }
@@ -66,8 +71,8 @@ export async function register() {
     // Re-warm in the background at 90% of the TTL so the cache never expires.
     const rewarmMs = Math.max(NAAP_API_CACHE_TTLS.demand, NAAP_API_CACHE_TTLS.sla) * 900;
     setInterval(() => {
-      warmDashboardCaches()
-        .then((r) => console.log('[naap] Background cache re-warm:', r))
+      Promise.all([warmDashboardCaches(), warmNetworkData()])
+        .then(([r, n]) => console.log('[naap] Background cache re-warm:', r, n))
         .catch((err) => console.warn('[naap] Background re-warm failed:', err));
     }, rewarmMs);
   }
