@@ -1,4 +1,4 @@
-// ── Leaderboard API types ──
+// ── NAAP API types ──
 
 /**
  * The actual upstream pipelines response:

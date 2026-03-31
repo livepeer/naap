@@ -171,6 +171,8 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
 
   type PipelinePricing {
     pipeline: String!
+    """Model name within the pipeline (e.g. "stabilityai/stable-diffusion-xl-base-1.0")."""
+    model: String
     unit: String!
     price: Float!
     """Average pixelsPerUnit for this capability (billing step size in pixels)."""
@@ -421,6 +423,8 @@ export interface DashboardGPUCapacity {
 /** Pipeline pricing entry */
 export interface DashboardPipelinePricing {
   pipeline: string;
+  /** Model name within the pipeline (e.g. "stabilityai/stable-diffusion-xl-base-1.0") */
+  model?: string;
   unit: string;
   price: number;
   /** Weighted avg pixelsPerUnit from capabilities_prices (pixel block size for price). */

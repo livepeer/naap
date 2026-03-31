@@ -63,8 +63,8 @@ import { PIPELINE_DISPLAY } from '@/lib/dashboard/pipeline-config';
 // GraphQL Query — the ONLY place data requirements are declared
 // ============================================================================
 
-const LEADERBOARD_QUERY = /* GraphQL */ `
-  query LeaderboardData($timeframe: String) {
+const NAAP_API_QUERY = /* GraphQL */ `
+  query NaapApiData($timeframe: String) {
     kpi(timeframe: $timeframe) {
       successRate { value delta }
       orchestratorsOnline { value delta }
@@ -101,7 +101,7 @@ const REALTIME_QUERY = /* GraphQL */ `
       pipelineGPUs { name gpus models { model gpus } }
     }
     pricing {
-      pipeline unit price pixelsPerUnit outputPerDollar
+      pipeline model unit price pixelsPerUnit outputPerDollar
     }
   }
 `;
@@ -126,12 +126,12 @@ const FEES_OVERVIEW_QUERY = /* GraphQL */ `
 `;
 
 /**
- * Leaderboard-backed queries (KPI, pipelines, orchestrators) go through
- * upstream pagination with a configurable timeout (LEADERBOARD_PROXY_TIMEOUT_MS,
- * default 60 s). 70 s gives headroom so the client outlasts a slow upstream
+ * NAAP API queries (KPI, pipelines, orchestrators) go through
+ * upstream pagination with a configurable timeout (NAAP_API_PROXY_TIMEOUT_MS,
+ * default 60 s). 25 s gives headroom so the client outlasts a slow upstream
  * round-trip. With 1 hr TTLs most requests are cache hits.
  */
-const LEADERBOARD_QUERY_TIMEOUT_MS = 25_000;
+const NAAP_API_QUERY_TIMEOUT_MS = 25_000;
 
 /** ClickHouse + The Graph queries are fast; 15 s is generous. */
 const REALTIME_QUERY_TIMEOUT_MS = 15_000;
@@ -672,46 +672,12 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
 
 function PipelinesCard({
   data,
-  catalog,
   timeframeHours,
 }: {
   data: DashboardPipelineUsage[];
-  catalog?: DashboardPipelineCatalogEntry[] | null;
   timeframeHours: number;
 }) {
-  const mergedPipelines = useMemo(() => {
-    const usageByName = new Map(data.filter((p) => p.name?.trim()).map((p) => [p.name, p]));
-    const result: Array<DashboardPipelineUsage & { models?: string[] }> = [];
-
-    for (const p of data.filter((p) => p.name?.trim())) {
-      const catalogEntry = catalog?.find((c) => c.name === p.name || c.id === p.name);
-      result.push({
-        ...p,
-        models: catalogEntry?.models,
-      });
-    }
-
-    if (catalog) {
-      for (const c of catalog) {
-        if (!usageByName.has(c.name) && !usageByName.has(c.id)) {
-          result.push({
-            name: c.name,
-            mins: 0,
-            sessions: 0,
-            avgFps: 0,
-            color: '#6366f1',
-            models: c.models,
-          });
-        }
-      }
-    }
-
-    return result;
-  }, [data, catalog]);
-
-  const activePipelines = mergedPipelines.filter((p) => p.mins > 0);
-  const availablePipelines = mergedPipelines.filter((p) => p.mins === 0);
-  const [availableExpanded, setAvailableExpanded] = useState(false);
+  const activePipelines = data.filter((p) => p.name?.trim() && (p.mins > 0 || (p.sessions ?? 0) > 0));
 
   return (
     <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
@@ -758,52 +724,11 @@ function PipelinesCard({
           </tbody>
         </table>
 
-        {availablePipelines.length > 0 ? (
-          <div className="shrink-0 pt-2 border-t border-border/50">
-            <button
-              type="button"
-              onClick={() => setAvailableExpanded((v) => !v)}
-              className="w-full flex items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:text-muted-foreground transition-colors group"
-              aria-expanded={availableExpanded}
-            >
-              <span>Available (no demand in {formatTimeframeLabel(timeframeHours)})</span>
-              <span className="transition-transform group-hover:opacity-100">
-                {availableExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              </span>
-            </button>
-            {availableExpanded && (
-              <table className="w-full text-xs mt-1.5">
-                <tbody>
-                  {availablePipelines.map((p) => (
-                    <tr key={p.name} className="border-b border-border/50 last:border-0">
-                      <td className="py-1.5 pr-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span
-                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: p.color ?? '#6366f1', opacity: 0.5 }}
-                            aria-hidden="true"
-                          />
-                          <span
-                            className={
-                              p.name === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID
-                                ? 'font-mono text-muted-foreground truncate'
-                                : 'font-medium text-muted-foreground truncate'
-                            }
-                            title={p.name}
-                          >
-                            {p.name}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-1.5 text-right font-mono text-muted-foreground/50">0</td>
-                      <td className="py-1.5 text-right font-mono text-muted-foreground/50">—</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        ) : null}
+        {activePipelines.length === 0 && (
+          <p className="text-xs text-muted-foreground py-4 text-center">
+            No pipeline activity in this window
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1045,7 +970,12 @@ function JobFeedCard({
                         {modelLabel}
                       </span>
                     ) : (
-                      <span className="text-muted-foreground">—</span>
+                      <span
+                        className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium max-w-[200px] truncate ${modelBadgeColor(pipelineLabel)}`}
+                        title={pipelineLabel}
+                      >
+                        {pipelineLabel}
+                      </span>
                     )}
                   </td>
                   <td className="py-2 text-right font-mono text-foreground">
@@ -1108,17 +1038,22 @@ function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
                       ? 'pixel'
                       : 'pixels'
                     : null;
-                const pipelineId = p.unit;
-                const pipelineLabel = PIPELINE_DISPLAY[pipelineId] ?? pipelineId;
+                const pipelineLabel = PIPELINE_DISPLAY[p.pipeline] ?? p.pipeline;
+                const displayLabel = p.model ?? p.pipeline;
                 return (
-                  <tr key={`${p.pipeline}:${p.unit}`} className="border-b border-border/50 last:border-0">
+                  <tr key={`${p.pipeline}:${p.model ?? ''}:${p.unit}`} className="border-b border-border/50 last:border-0">
                     <td className="py-2">
-                      <span
-                        className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono break-all max-w-[200px] ${modelBadgeColor(p.pipeline)}`}
-                        title={pipelineLabel}
-                      >
-                        {p.pipeline}
-                      </span>
+                      <div>
+                        <span
+                          className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono break-all max-w-[200px] ${modelBadgeColor(displayLabel)}`}
+                          title={pipelineLabel}
+                        >
+                          {displayLabel}
+                        </span>
+                        {p.model && (
+                          <div className="text-[9px] text-muted-foreground mt-0.5 pl-1 font-sans">{pipelineLabel}</div>
+                        )}
+                      </div>
                     </td>
                     <td className="py-2 text-right align-top">
                       <div className="font-mono text-foreground">
@@ -1497,9 +1432,9 @@ export default function DashboardPage() {
     refreshing: lbRefreshing,
     error: lbError,
   } = useDashboardQuery<Pick<DashboardData, 'kpi' | 'pipelines' | 'pipelineCatalog' | 'orchestrators'>>(
-    LEADERBOARD_QUERY,
+    NAAP_API_QUERY,
     { timeframe },
-    { timeout: LEADERBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
+    { timeout: NAAP_API_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
 
   const {
@@ -1516,7 +1451,7 @@ export default function DashboardPage() {
   const { data: feesData, loading: feesLoading, refreshing: feesRefreshing, error: feesError } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
-    { timeout: LEADERBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
+    { timeout: NAAP_API_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
 
   const { jobs, connected: jobFeedConnected, feedMeta: jobFeedMeta } = useJobFeedStream({
@@ -1560,7 +1495,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Row 1: KPI tiles (leaderboard) */}
+      {/* Row 1: KPI tiles (NAAP API) */}
       <section className="space-y-3">
         <h2 className="text-sm font-medium text-muted-foreground">Network Metrics</h2>
         {lbData?.kpi ? (
@@ -1601,7 +1536,6 @@ export default function DashboardPage() {
               <RefreshWrap refreshing={lbRefreshing} className="h-full min-h-0 flex flex-col">
                 <PipelinesCard
                   data={lbData.pipelines}
-                  catalog={lbData.pipelineCatalog}
                   timeframeHours={lbData.kpi?.timeframeHours ?? 12}
                 />
               </RefreshWrap>
@@ -1639,7 +1573,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Row 4: Orchestrators table (leaderboard) */}
+      {/* Row 4: Orchestrators table (NAAP API) */}
       {lbData?.orchestrators ? (
         <section>
           <RefreshWrap refreshing={lbRefreshing}>

@@ -2,7 +2,7 @@
 
 In this advanced tutorial, we will build a sophisticated **Intelligent Analytics Plugin** that combines multiple external services via the **Service Gateway**. 
 
-The application will allow users to ask natural language questions about the Livepeer network (e.g., *"Who is the fastest orchestrator for FLUX image generation?"*). An LLM agent (powered by **Gemini**) will analyze the intent, call the **Livepeer AI Leaderboard API** to fetch real-time data, and then present the results as an interactive analytics experience.
+The application will allow users to ask natural language questions about the Livepeer network (e.g., *"Who is the fastest orchestrator for FLUX image generation?"*). An LLM agent (powered by **Gemini**) will analyze the intent, call the **Livepeer NAAP API** to fetch real-time data, and then present the results as an interactive analytics experience.
 
 ---
 
@@ -19,12 +19,12 @@ graph TD
 
     subgraph "NaaP Service Gateway"
         GW_Gemini[Gemini Connector]
-        GW_LB[Leaderboard Connector]
+        GW_LB[NAAP API Connector]
     end
 
     subgraph "External Services"
         Gemini[Google Gemini API]
-        LB[Livepeer Leaderboard API]
+        LB[Livepeer NAAP API]
     end
 
     UI --> Agent
@@ -42,15 +42,15 @@ graph TD
 Ensure both connectors are registered in the Service Gateway.
 
 1.  **Gemini Connector** (`gemini`): Provides LLM capabilities.
-2.  **Leaderboard Connector** (`livepeer-leaderboard`): Provides network performance data.
+2.  **NAAP API Connector** (`livepeer-naap-api`): Provides network performance data.
 
-*Note: Use the provided seed scripts `bin/seed-public-connectors.ts` and `bin/seed-leaderboard-gateway.ts` to provision these quickly in development.*
+*Note: Use the provided seed scripts `bin/seed-public-connectors.ts` and `bin/seed-naap-api-gateway.ts` to provision these quickly in development.*
 
 ### Step 2: Define Agent Tools
-The agent needs to know how to fetch data. We define the Leaderboard API as a "tool" that Gemini can call.
+The agent needs to know how to fetch data. We define the NAAP API as a "tool" that Gemini can call.
 
 ```typescript
-const LEADERBOARD_TOOL = {
+const NAAP_API_TOOL = {
   name: "get_orchestrator_stats",
   description: "Get performance statistics for orchestrators on the Livepeer AI network.",
   parameters: {
@@ -76,7 +76,7 @@ async function runAgent(userPrompt: string) {
     method: 'POST',
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-      tools: [{ function_declarations: [LEADERBOARD_TOOL] }]
+      tools: [{ function_declarations: [NAAP_API_TOOL] }]
     })
   });
 
@@ -84,9 +84,9 @@ async function runAgent(userPrompt: string) {
   const toolCall = msg.candidates[0].content.parts.find(p => p.functionCall);
 
   if (toolCall) {
-    // 2. Execute tool via Leaderboard Connector
+    // 2. Execute tool via NAAP API Connector
     const { pipeline, model } = toolCall.functionCall.args;
-    const stats = await fetch(`/api/v1/gw/livepeer-leaderboard/stats?pipeline=${pipeline}&model=${model}`);
+    const stats = await fetch(`/api/v1/gw/livepeer-naap-api/stats?pipeline=${pipeline}&model=${model}`);
     const data = await stats.json();
 
     // 3. Send data back to Gemini for final summary
@@ -98,7 +98,7 @@ async function runAgent(userPrompt: string) {
 ```
 
 ### Step 4: Build Interactive Visualizations
-Instead of just text, use the structured data returned by the Leaderboard API to render charts.
+Instead of just text, use the structured data returned by the NAAP API to render charts.
 
 ```tsx
 // Rendered based on tool output
@@ -117,7 +117,7 @@ Instead of just text, use the structured data returned by the Leaderboard API to
 ### 1. Effort Saving
 Traditionally, building an "AI Agent" requires a Python backend (LangChain/FastAPI) to securely manage keys and orchestrate calls. Here, the **Service Gateway replaces the entire backend layer**:
 *   **Gemini API Key?** Managed by Gateway.
-*   **Leaderboard Auth?** Managed by Gateway.
+*   **NAAP API Auth?** Managed by Gateway.
 *   **CORS?** Handled by same-origin shell routing.
 
 ### 2. Cleaner Architecture
@@ -130,8 +130,8 @@ You can easily add more connectors (e.g., **Slack** to notify teams of performan
 
 ## Conclusion
 
-By combining the **Gemini** and **Livepeer Leaderboard** connectors, we've built a complex, "intelligent" application with minimal code. This pattern allows NaaP developers to focus on **UX and Agent Logic** rather than the plumbing of API security and proxying.
+By combining the **Gemini** and **Livepeer NAAP API** connectors, we've built a complex, "intelligent" application with minimal code. This pattern allows NaaP developers to focus on **UX and Agent Logic** rather than the plumbing of API security and proxying.
 
 **Next Steps:**
 - [Explore the Gemini Connector Config](../apps/web-next/src/app/api/v1/gw/admin/usage/by-connector/route.ts)
-- [Check out the Leaderboard Plugin Example](../examples/leaderboard/README.md)
+- [Check out the NAAP API Plugin Example](../examples/leaderboard/README.md)

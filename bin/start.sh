@@ -710,6 +710,18 @@ sync_unified_database() {
       log_info "Found $null_bundle_count plugin(s) missing CDN bundle URL"
       need_seed=true
     fi
+  elif [ "$SKIP_DB_SYNC" != "1" ]; then
+    # Integrity query failed — tables likely missing (fresh DB with stale .prisma-synced marker).
+    # Force a schema push so the app doesn't start against an empty database.
+    log_warn "Database integrity check returned no data — tables may not exist (stale sync marker?), forcing schema push"
+    rm -f "$sync_marker"
+    cd "$ROOT_DIR/packages/database" || { log_error "Failed to cd to packages/database"; return 1; }
+    npx prisma generate > /dev/null 2>&1 || log_warn "Prisma generate had issues"
+    DATABASE_URL="$UNIFIED_DB_URL" DATABASE_URL_UNPOOLED="$UNIFIED_DB_URL" npx prisma db push --skip-generate --accept-data-loss > /dev/null 2>&1 && \
+      log_success "Schema re-pushed to database (recovered from missing tables)" || \
+      log_warn "Schema push had issues (check DB connection)"
+    [ -n "$schema_hash" ] && echo "$schema_hash" > "$sync_marker"
+    need_seed=true
   fi
 
   # Step 4: Run seed if data is missing or incomplete.

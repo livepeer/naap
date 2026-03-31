@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { registry } from '../../transforms';
-import { leaderboardUrlForAuthTests } from '../test-urls';
+import { naapApiUrlForAuthTests } from '../test-urls';
 
 interface ConnectorSpec {
   slug: string;
@@ -22,7 +22,7 @@ const CONNECTOR_MATRIX: ConnectorSpec[] = [
   { slug: 'gemini', bodyTransforms: ['passthrough'], authType: 'query', responseMode: 'envelope' },
   { slug: 'daydream', bodyTransforms: ['passthrough'], authType: 'bearer', responseMode: 'envelope' },
   { slug: 'livepeer-studio', bodyTransforms: ['passthrough'], authType: 'bearer', responseMode: 'envelope' },
-  { slug: 'livepeer-leaderboard', bodyTransforms: ['passthrough'], authType: 'none', responseMode: 'envelope' },
+  { slug: 'livepeer-naap-api', bodyTransforms: ['passthrough'], authType: 'none', responseMode: 'envelope' },
   { slug: 'cloudflare-ai', bodyTransforms: ['passthrough'], authType: 'bearer', responseMode: 'envelope' },
   { slug: 'clickhouse', bodyTransforms: ['passthrough'], authType: 'basic', responseMode: 'envelope' },
   { slug: 'neon', bodyTransforms: ['passthrough'], authType: 'bearer', responseMode: 'envelope' },
@@ -123,10 +123,10 @@ describe('Auth injection behavioral parity', () => {
     expect(h.get('Api-Key')).toBe('pine-123');
   });
 
-  it('none: no headers added (livepeer-leaderboard)', () => {
+  it('none: no headers added (livepeer-naap-api)', () => {
     const s = registry.getAuth('none');
     const h = new Headers();
-    s.inject({ headers: h, authConfig: {}, secrets: {}, method: 'GET', url: leaderboardUrlForAuthTests() });
+    s.inject({ headers: h, authConfig: {}, secrets: {}, method: 'GET', url: naapApiUrlForAuthTests() });
     expect(h.get('Authorization')).toBeNull();
   });
 });

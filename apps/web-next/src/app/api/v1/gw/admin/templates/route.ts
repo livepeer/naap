@@ -16,7 +16,7 @@ import {
   type ConnectorTemplate,
 } from '@/lib/gateway/connector-templates';
 import { invalidateConnectorCache } from '@/lib/gateway/resolve';
-import { leaderboardGatewayOriginFromEnv } from '@/lib/gateway/leaderboard-gateway-origin';
+import { naapApiGatewayOriginFromEnv } from '@/lib/gateway/naap-api-gateway-origin';
 
 /** List all available connector templates with basic metadata. */
 export async function GET() {
@@ -54,7 +54,7 @@ async function createConnectorFromTemplate(
   const conn = template.connector;
   const slug = overrides?.slug || conn.slug;
   const fromEnv =
-    slug === 'livepeer-leaderboard' ? leaderboardGatewayOriginFromEnv() : null;
+    slug === 'livepeer-naap-api' ? naapApiGatewayOriginFromEnv() : null;
   const upstreamBaseUrl =
     overrides?.upstreamBaseUrl ?? fromEnv ?? conn.upstreamBaseUrl;
 

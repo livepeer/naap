@@ -118,6 +118,6 @@
   "crons": [
     { "path": "/api/v1/gw/admin/health/check", "schedule": "*/5 * * * *" },
     { "path": "/api/v1/gw/admin/metrics/aggregate", "schedule": "5 * * * *" },
-    { "path": "/api/v1/leaderboard/warm", "schedule": "*/50 * * * *" }
+    { "path": "/api/v1/naap-api/warm", "schedule": "*/50 * * * *" }
   ]
 }

@@ -3,9 +3,9 @@
  *
  * Responsible for:
  *   1. Analyzing user intent via Gemini to produce a structured QueryPlan
- *   2. Executing the plan against the Leaderboard API
+ *   2. Executing the plan against the NAAP API
  *
- * The Gemini system prompt contains the Leaderboard API schema so the LLM
+ * The Gemini system prompt contains the NAAP API schema so the LLM
  * can map free-text questions to precise query parameters.
  */
 

@@ -149,7 +149,7 @@ app.get('/api/v1/developer/models', async (req, res) => {
 const DEFAULT_NET_MODELS_API_BASE = 'https://naap-api.livepeer.cloud/v1';
 
 const NET_MODELS_API_BASE = (
-  process.env.LEADERBOARD_API_URL?.trim() || DEFAULT_NET_MODELS_API_BASE
+  process.env.NAAP_API_SERVER_URL?.trim() || DEFAULT_NET_MODELS_API_BASE
 ).replace(/\/+$/, '');
 
 function parseNetModelsJson(payload: unknown): unknown[] {

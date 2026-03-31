@@ -5,7 +5,7 @@
  * When a type matures it can be promoted to @naap/plugin-sdk.
  */
 
-/** Live network model entry from LEADERBOARD_API_URL/net/models */
+/** Live network model entry from NAAP_API_SERVER_URL/net/models */
 export interface NetworkModel {
   Pipeline: string;
   Model: string;
@@ -16,7 +16,7 @@ export interface NetworkModel {
   PriceAvgWeiPerPixel: number;
 }
 
-/** Single entry in the live job feed (mirrors ActiveStreamRow from active-streams-clickhouse) */
+/** Single entry in the live job feed — from NAAP API /v1/streams/samples */
 export interface JobFeedItem {
   id: string;
   pipeline: string;
@@ -27,6 +27,8 @@ export interface JobFeedItem {
   outputFps: number;
   firstSeen: string;
   lastSeen: string;
-  durationSeconds: number;
-  runningFor: string;
+  /** Not available from the samples endpoint — omit to show '—' in the UI. */
+  durationSeconds?: number;
+  /** Not available from the samples endpoint — omit to show '—' in the UI. */
+  runningFor?: string;
 }

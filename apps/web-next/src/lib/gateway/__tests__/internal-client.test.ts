@@ -6,7 +6,7 @@
  *   - Public connector resolution via internal:system scope
  *   - Env-backed secretsOverride bypassing SecretVault
  *   - baseUrlOverride with dynamic allowedHosts
- *   - Leaderboard (no-auth) and ClickHouse (basic-auth) patterns
+ *   - NAAP API (no-auth) and ClickHouse (basic-auth) patterns
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -42,14 +42,14 @@ const mockResolveConfig = resolveConfig as ReturnType<typeof vi.fn>;
 const mockProxyToUpstream = proxyToUpstream as ReturnType<typeof vi.fn>;
 const mockResolveSecrets = resolveSecrets as ReturnType<typeof vi.fn>;
 
-function makeLeaderboardConfig(): ResolvedConfig {
+function makeNaapApiConfig(): ResolvedConfig {
   return {
     connector: {
       id: 'conn-lb',
       teamId: null,
       ownerUserId: 'admin-1',
-      slug: 'livepeer-leaderboard',
-      displayName: 'Livepeer AI Leaderboard',
+      slug: 'livepeer-naap-api',
+      displayName: 'Livepeer NAAP API',
       status: 'published',
       visibility: 'public',
       upstreamBaseUrl: 'https://naap-api.livepeer.cloud/v1',
@@ -160,18 +160,18 @@ describe('callConnectorInternal', () => {
   });
 
   it('resolves config using internal:system scope (public fallback)', async () => {
-    mockResolveConfig.mockResolvedValue(makeLeaderboardConfig());
+    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
     mockProxySuccess({ demand: [] });
 
     await callConnectorInternal({
-      slug: 'livepeer-leaderboard',
+      slug: 'livepeer-naap-api',
       method: 'GET',
       endpointPath: '/network/demand',
     });
 
     expect(mockResolveConfig).toHaveBeenCalledWith(
       'internal:system',
-      'livepeer-leaderboard',
+      'livepeer-naap-api',
       'GET',
       '/network/demand',
     );
@@ -194,21 +194,21 @@ describe('callConnectorInternal', () => {
 
     await expect(
       callConnectorInternal({
-        slug: 'livepeer-leaderboard',
+        slug: 'livepeer-naap-api',
         method: 'GET',
         endpointPath: '/network/demand',
       }),
     ).rejects.toThrow('database unavailable');
   });
 
-  // ── Leaderboard (no-auth, no secrets) ──
+  // ── NAAP API (no-auth, no secrets) ──
 
-  it('leaderboard: does not call resolveSecrets when secretRefs is empty', async () => {
-    mockResolveConfig.mockResolvedValue(makeLeaderboardConfig());
+  it('naap-api: does not call resolveSecrets when secretRefs is empty', async () => {
+    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
     mockProxySuccess({ demand: [] });
 
     await callConnectorInternal({
-      slug: 'livepeer-leaderboard',
+      slug: 'livepeer-naap-api',
       method: 'GET',
       endpointPath: '/network/demand',
     });
@@ -216,12 +216,12 @@ describe('callConnectorInternal', () => {
     expect(mockResolveSecrets).not.toHaveBeenCalled();
   });
 
-  it('leaderboard: forwards consumer search params to upstream', async () => {
-    mockResolveConfig.mockResolvedValue(makeLeaderboardConfig());
+  it('naap-api: forwards consumer search params to upstream', async () => {
+    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
     mockProxySuccess({ demand: [] });
 
     await callConnectorInternal({
-      slug: 'livepeer-leaderboard',
+      slug: 'livepeer-naap-api',
       method: 'GET',
       endpointPath: '/network/demand',
       searchParams: new URLSearchParams({ page: '1', page_size: '200', window: '24h' }),
@@ -234,12 +234,12 @@ describe('callConnectorInternal', () => {
     expect(upstreamUrl.searchParams.get('window')).toBe('24h');
   });
 
-  it('leaderboard: upstream URL uses connector base + endpoint upstreamPath', async () => {
-    mockResolveConfig.mockResolvedValue(makeLeaderboardConfig());
+  it('naap-api: upstream URL uses connector base + endpoint upstreamPath', async () => {
+    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
     mockProxySuccess({ demand: [] });
 
     await callConnectorInternal({
-      slug: 'livepeer-leaderboard',
+      slug: 'livepeer-naap-api',
       method: 'GET',
       endpointPath: '/network/demand',
     });
@@ -250,12 +250,12 @@ describe('callConnectorInternal', () => {
     expect(upstreamUrl.pathname).toBe('/v1/network/demand');
   });
 
-  it('leaderboard: no Authorization header for authType=none', async () => {
-    mockResolveConfig.mockResolvedValue(makeLeaderboardConfig());
+  it('naap-api: no Authorization header for authType=none', async () => {
+    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
     mockProxySuccess({ demand: [] });
 
     await callConnectorInternal({
-      slug: 'livepeer-leaderboard',
+      slug: 'livepeer-naap-api',
       method: 'GET',
       endpointPath: '/network/demand',
     });
@@ -264,12 +264,12 @@ describe('callConnectorInternal', () => {
     expect(upstreamCall.headers.get('Authorization')).toBeNull();
   });
 
-  it('leaderboard: returns raw upstream response', async () => {
-    mockResolveConfig.mockResolvedValue(makeLeaderboardConfig());
+  it('naap-api: returns raw upstream response', async () => {
+    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
     mockProxySuccess({ demand: [{ id: 1 }] });
 
     const result = await callConnectorInternal({
-      slug: 'livepeer-leaderboard',
+      slug: 'livepeer-naap-api',
       method: 'GET',
       endpointPath: '/network/demand',
     });
@@ -401,11 +401,11 @@ describe('callConnectorInternal', () => {
   // ── Timeout override ──
 
   it('uses caller-provided timeout over connector/endpoint defaults', async () => {
-    mockResolveConfig.mockResolvedValue(makeLeaderboardConfig());
+    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
     mockProxySuccess({ demand: [] });
 
     await callConnectorInternal({
-      slug: 'livepeer-leaderboard',
+      slug: 'livepeer-naap-api',
       method: 'GET',
       endpointPath: '/network/demand',
       timeout: 5_000,

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { leaderboardUpstreamUrl } from '@/lib/dashboard/leaderboard-upstream';
+import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
 
 function parseProxyTimeoutMs(raw: string | undefined): number {
   const parsed = Number(raw ?? 60000);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 60000;
 }
 
-const LEADERBOARD_PROXY_TIMEOUT_MS = parseProxyTimeoutMs(process.env.LEADERBOARD_PROXY_TIMEOUT_MS);
+const NAAP_API_PROXY_TIMEOUT_MS = parseProxyTimeoutMs(process.env.NAAP_API_PROXY_TIMEOUT_MS);
 
 const ENDPOINT_TTL_SECONDS: Record<string, number> = {
   'pipelines': 60 * 60,        // 1 hour
@@ -30,7 +30,7 @@ async function handleRequest(
   }
 
   const pathString = path.join('/');
-  const targetUrl = `${leaderboardUpstreamUrl(pathString)}${request.nextUrl.search}`;
+  const targetUrl = `${naapApiUpstreamUrl(pathString)}${request.nextUrl.search}`;
   const ttl = ENDPOINT_TTL_SECONDS[pathString] ?? 5 * 60;
 
   try {
@@ -40,7 +40,7 @@ async function handleRequest(
         Accept: 'application/json',
       },
       next: { revalidate: ttl },
-      signal: AbortSignal.timeout(LEADERBOARD_PROXY_TIMEOUT_MS),
+      signal: AbortSignal.timeout(NAAP_API_PROXY_TIMEOUT_MS),
     });
 
     const responseBody = await response.text();
@@ -51,12 +51,12 @@ async function handleRequest(
       },
     });
   } catch (err) {
-    console.error('leaderboard proxy error:', err);
+    console.error('NAAP API proxy error:', err);
     return NextResponse.json(
       {
         error: {
           code: 'SERVICE_UNAVAILABLE',
-          message: 'Leaderboard API is unavailable',
+          message: 'NAAP API is unavailable',
         },
         meta: { timestamp: new Date().toISOString() },
       },

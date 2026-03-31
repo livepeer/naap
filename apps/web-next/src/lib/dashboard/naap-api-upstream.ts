@@ -1,7 +1,7 @@
 /**
- * Build absolute URLs for the versioned leaderboard HTTP API.
+ * Build absolute URLs for the versioned NAAP API HTTP server.
  *
- * `LEADERBOARD_API_URL` must be set in the environment. It is the full base
+ * `NAAP_API_SERVER_URL` must be set in the environment. It is the full base
  * URL through the API version prefix (for example `/v1`), with no trailing slash.
  *
  * Resource paths are joined after it, e.g. `pipelines`, `network/demand`.
@@ -12,26 +12,26 @@ function stripTrailingSlashes(s: string): string {
 }
 
 /** Base URL including the version prefix (e.g. `/v1`), no trailing slash. */
-export function leaderboardApiBaseUrl(): string {
-  const raw = process.env.LEADERBOARD_API_URL?.trim();
+export function naapApiBaseUrl(): string {
+  const raw = process.env.NAAP_API_SERVER_URL?.trim();
   if (!raw) {
     throw new Error(
-      '[leaderboard-upstream] LEADERBOARD_API_URL is not set. ' +
+      '[naap-api-upstream] NAAP_API_SERVER_URL is not set. ' +
       'Add it to apps/web-next/.env.local (see .env.local.example).'
     );
   }
   return stripTrailingSlashes(raw);
 }
 
-/** Same as {@link leaderboardApiBaseUrl} — useful for logs and errors. */
-export function leaderboardApiBaseLabel(): string {
-  return leaderboardApiBaseUrl();
+/** Same as {@link naapApiBaseUrl} — useful for logs and errors. */
+export function naapApiBaseLabel(): string {
+  return naapApiBaseUrl();
 }
 
 /**
  * @param resourcePath e.g. `pipelines` or `network/demand` (leading slashes OK)
  */
-export function leaderboardUpstreamUrl(resourcePath: string): string {
+export function naapApiUpstreamUrl(resourcePath: string): string {
   const rel = resourcePath.replace(/^\/+/, '');
-  return `${leaderboardApiBaseUrl()}/${rel}`;
+  return `${naapApiBaseUrl()}/${rel}`;
 }

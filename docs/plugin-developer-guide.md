@@ -447,7 +447,7 @@ Learn how to build a feature-rich application (using **Daydream AI Video** as th
 👉 [**Building an App with the Service Gateway**](./tutorial-service-gateway-app.md)
 
 ### Intelligent Analytics Agent (Multi-Connector)
-Explore how to orchestrate multiple external services (Gemini + Livepeer Leaderboard) to build an LLM-powered agent that delivers interactive data insights.
+Explore how to orchestrate multiple external services (Gemini + NAAP API) to build an LLM-powered agent that delivers interactive data insights.
 👉 [**Building an Intelligent Analytics Agent**](./tutorial-intelligent-analytics-agent.md)
 
 ---

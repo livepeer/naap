@@ -1,7 +1,7 @@
-// Leaderboard Cache Warmer
-// GET /api/v1/leaderboard/warm
+// NAAP API Cache Warmer
+// GET /api/v1/naap-api/warm
 //
-// Populates the in-process mem cache for leaderboard-backed dashboard data
+// Populates the in-process mem cache for NAAP API-backed dashboard data
 // using the same getters as the dashboard resolvers.
 // Called by:
 //   - Vercel cron (every ~50 min, before the 1hr TTL expires)

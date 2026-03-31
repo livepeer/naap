@@ -1,20 +1,20 @@
 /**
- * Seed Script: Livepeer Leaderboard Gateway
+ * Seed Script: Livepeer NAAP API Gateway
  *
  * Run after `start.sh --all` to:
  *   1. Authenticate as admin dev user
- *   2. Create a single **public** connector for "livepeer-leaderboard"
+ *   2. Create a single **public** connector for "livepeer-naap-api"
  *      (discoverable and usable by any authenticated user)
  *   3. Create 3 endpoints (pipelines, aggregated stats, raw stats)
  *   4. Publish the connector
  *   5. Create a gateway plan and API key for the admin user
- *   6. Register the leaderboard example plugin in WorkflowPlugin
+ *   6. Register the naap-api example plugin in WorkflowPlugin
  *   7. Print gateway URLs and test API key
  *
  * Idempotent — safe to run multiple times.
  *
  * Usage:
- *   npx tsx bin/seed-leaderboard-gateway.ts
+ *   npx tsx bin/seed-naap-api-gateway.ts
  */
 
 import { PrismaClient } from '../packages/database/src/generated/client/index.js';
@@ -22,7 +22,7 @@ import { PrismaClient } from '../packages/database/src/generated/client/index.js
 const SHELL_URL = process.env.SHELL_URL || 'http://localhost:3000';
 const AUTH_EMAIL = process.env.AUTH_EMAIL || 'admin@livepeer.org';
 const AUTH_PASSWORD = process.env.AUTH_PASSWORD || 'livepeer';
-const LEADERBOARD_UPSTREAM_BASE = (process.env.LEADERBOARD_API_URL || '')
+const NAAP_API_UPSTREAM_BASE = (process.env.NAAP_API_SERVER_URL || '')
   .trim()
   .replace(/\/+$/, '');
 
@@ -105,7 +105,7 @@ function step(n: number, msg: string) {
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log('\n🚀 Livepeer Leaderboard Gateway — Seed Script\n');
+  console.log('\n🚀 Livepeer NAAP API Gateway — Seed Script\n');
 
   // ── Step 1: Authenticate ──────────────────────────────────────────────────
 
@@ -143,18 +143,18 @@ async function main() {
   // ── Shared connector/endpoint definitions ────────────────────────────────
 
   const connectorBody = {
-    slug: 'livepeer-leaderboard',
-    displayName: 'Livepeer AI Leaderboard',
+    slug: 'livepeer-naap-api',
+    displayName: 'Livepeer NAAP API',
     description:
-      'Orchestrator performance leaderboard for Livepeer AI pipelines (text-to-image, LLM, live-video-to-video, upscale)',
-    upstreamBaseUrl: LEADERBOARD_UPSTREAM_BASE,
-    allowedHosts: [new URL(LEADERBOARD_UPSTREAM_BASE).hostname],
+      'Orchestrator performance data for Livepeer AI pipelines (text-to-image, LLM, live-video-to-video, upscale)',
+    upstreamBaseUrl: NAAP_API_UPSTREAM_BASE,
+    allowedHosts: [new URL(NAAP_API_UPSTREAM_BASE).hostname],
     defaultTimeout: 15000,
     healthCheckPath: '/pipelines',
     authType: 'none' as const,
     responseWrapper: true,
     streamingEnabled: false,
-    tags: ['livepeer', 'ai', 'leaderboard', 'orchestrator'],
+    tags: ['livepeer', 'ai', 'naap-api', 'orchestrator'],
   };
 
   const endpointDefs = [
@@ -192,9 +192,9 @@ async function main() {
 
   // ── Step 3: Create single public connector ──────────────────────────────
 
-  step(3, 'Creating public "livepeer-leaderboard" connector');
+  step(3, 'Creating public "livepeer-naap-api" connector');
 
-  const SLUG = 'livepeer-leaderboard';
+  const SLUG = 'livepeer-naap-api';
 
   let connector = await prisma.serviceConnector.findFirst({
     where: { slug: SLUG, visibility: 'public' },
@@ -295,8 +295,8 @@ async function main() {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
-      name: 'leaderboard-standard',
-      displayName: 'Leaderboard Standard',
+      name: 'naap-api-standard',
+      displayName: 'NAAP API Standard',
       rateLimit: 100,
       dailyQuota: 5000,
     }),
@@ -308,7 +308,7 @@ async function main() {
     console.log(`  ✅ Plan created: ${planData.data.displayName} (${planId})`);
   } else if (planRes.status === 409) {
     const existing = await prisma.gatewayPlan.findFirst({
-      where: { ownerUserId: userId, name: 'leaderboard-standard' },
+      where: { ownerUserId: userId, name: 'naap-api-standard' },
     });
     planId = existing?.id;
     console.log(`  ⏭️  Plan already exists: ${planId}`);
@@ -322,7 +322,7 @@ async function main() {
   step(5, 'Creating test API key (personal scope)');
 
   const existingKey = await prisma.gatewayApiKey.findFirst({
-    where: { ownerUserId: userId, name: 'leaderboard-test-key', status: 'active' },
+    where: { ownerUserId: userId, name: 'naap-api-test-key', status: 'active' },
   });
 
   let rawKey: string | undefined;
@@ -338,7 +338,7 @@ async function main() {
       token,
       null,
       {
-        name: 'leaderboard-test-key',
+        name: 'naap-api-test-key',
         connectorId,
         planId,
       },
@@ -347,62 +347,62 @@ async function main() {
     console.log(`  ✅ API key created: ${res.data.keyPrefix}...`);
   }
 
-  // ── Step 6: Register leaderboard plugin ───────────────────────────────────
+  // ── Step 6: Register naap-api plugin ───────────────────────────────────────
 
-  step(6, 'Registering leaderboard plugin (WorkflowPlugin + Marketplace + Installs)');
+  step(6, 'Registering naap-api plugin (WorkflowPlugin + Marketplace + Installs)');
 
-  const BUNDLE_URL = '/cdn/plugins/leaderboard/1.0.0/leaderboard.js';
+  const BUNDLE_URL = '/cdn/plugins/naap-api/1.0.0/naap-api.js';
 
   // 8a. WorkflowPlugin (makes the shell discover it)
   await prisma.workflowPlugin.upsert({
-    where: { name: 'leaderboard' },
+    where: { name: 'naap-api' },
     update: {
-      displayName: 'AI Leaderboard',
+      displayName: 'NAAP API',
       version: '1.0.0',
-      routes: ['/leaderboard', '/leaderboard/*'],
+      routes: ['/naap-api', '/naap-api/*'],
       enabled: true,
       icon: 'Trophy',
       bundleUrl: BUNDLE_URL,
     },
     create: {
-      name: 'leaderboard',
-      displayName: 'AI Leaderboard',
+      name: 'naap-api',
+      displayName: 'NAAP API',
       version: '1.0.0',
       remoteUrl: BUNDLE_URL,
       bundleUrl: BUNDLE_URL,
-      globalName: 'NaapPluginLeaderboard',
+      globalName: 'NaapPluginNaapApi',
       deploymentType: 'cdn',
-      routes: ['/leaderboard', '/leaderboard/*'],
+      routes: ['/naap-api', '/naap-api/*'],
       enabled: true,
       order: 99,
       icon: 'Trophy',
       metadata: {
         category: 'example',
         description:
-          'Livepeer AI orchestrator performance leaderboard — consumes the Service Gateway',
+          'Livepeer AI orchestrator performance data — consumes the Service Gateway',
       },
     },
   });
-  console.log('  ✅ WorkflowPlugin: leaderboard → /leaderboard');
+  console.log('  ✅ WorkflowPlugin: naap-api → /naap-api');
 
   // 8b. PluginPackage (marketplace listing)
   const pkg = await prisma.pluginPackage.upsert({
-    where: { name: 'leaderboard' },
+    where: { name: 'naap-api' },
     update: {
-      displayName: 'AI Leaderboard',
-      description: 'Livepeer AI orchestrator performance leaderboard — consumes the Service Gateway',
+      displayName: 'NAAP API',
+      description: 'Livepeer AI orchestrator performance data — consumes the Service Gateway',
       category: 'example',
       publishStatus: 'published',
     },
     create: {
-      name: 'leaderboard',
-      displayName: 'AI Leaderboard',
-      description: 'Livepeer AI orchestrator performance leaderboard — consumes the Service Gateway',
+      name: 'naap-api',
+      displayName: 'NAAP API',
+      description: 'Livepeer AI orchestrator performance data — consumes the Service Gateway',
       category: 'example',
       author: 'NAAP Examples',
       authorEmail: 'examples@naap.dev',
       license: 'MIT',
-      keywords: ['leaderboard', 'livepeer', 'ai', 'orchestrator', 'performance'],
+      keywords: ['naap-api', 'livepeer', 'ai', 'orchestrator', 'performance'],
       icon: 'Trophy',
       isCore: false,
       publishStatus: 'published',
@@ -416,10 +416,10 @@ async function main() {
     update: {
       frontendUrl: BUNDLE_URL,
       manifest: {
-        name: 'leaderboard',
-        displayName: 'AI Leaderboard',
+        name: 'naap-api',
+        displayName: 'NAAP API',
         version: '1.0.0',
-        description: 'Livepeer AI orchestrator performance leaderboard',
+        description: 'Livepeer AI orchestrator performance data',
         category: 'example',
         icon: 'Trophy',
       },
@@ -429,10 +429,10 @@ async function main() {
       version: '1.0.0',
       frontendUrl: BUNDLE_URL,
       manifest: {
-        name: 'leaderboard',
-        displayName: 'AI Leaderboard',
+        name: 'naap-api',
+        displayName: 'NAAP API',
         version: '1.0.0',
-        description: 'Livepeer AI orchestrator performance leaderboard',
+        description: 'Livepeer AI orchestrator performance data',
         category: 'example',
         icon: 'Trophy',
       },
@@ -490,12 +490,12 @@ async function main() {
   for (const user of pluginUsers) {
     await prisma.userPluginPreference.upsert({
       where: {
-        userId_pluginName: { userId: user.id, pluginName: 'leaderboard' },
+        userId_pluginName: { userId: user.id, pluginName: 'naap-api' },
       },
       update: { enabled: true },
       create: {
         userId: user.id,
-        pluginName: 'leaderboard',
+        pluginName: 'naap-api',
         enabled: true,
         pinned: false,
         order: 99,
@@ -519,19 +519,19 @@ async function main() {
   // ── Summary ───────────────────────────────────────────────────────────────
 
   console.log('\n' + '═'.repeat(62));
-  console.log('  🎉 Livepeer Leaderboard Gateway — Setup Complete');
+  console.log('  🎉 Livepeer NAAP API Gateway — Setup Complete');
   console.log('═'.repeat(62));
   console.log();
   console.log('  Gateway Proxy URLs (authenticated via JWT or API key):');
   console.log();
   console.log(
-    `    GET ${SHELL_URL}/api/v1/gw/livepeer-leaderboard/pipelines`,
+    `    GET ${SHELL_URL}/api/v1/gw/livepeer-naap-api/pipelines`,
   );
   console.log(
-    `    GET ${SHELL_URL}/api/v1/gw/livepeer-leaderboard/stats?pipeline=text-to-image&model=black-forest-labs/FLUX.1-dev`,
+    `    GET ${SHELL_URL}/api/v1/gw/livepeer-naap-api/stats?pipeline=text-to-image&model=black-forest-labs/FLUX.1-dev`,
   );
   console.log(
-    `    GET ${SHELL_URL}/api/v1/gw/livepeer-leaderboard/stats/raw?pipeline=text-to-image&model=black-forest-labs/FLUX.1-dev&orchestrator=0x...`,
+    `    GET ${SHELL_URL}/api/v1/gw/livepeer-naap-api/stats/raw?pipeline=text-to-image&model=black-forest-labs/FLUX.1-dev&orchestrator=0x...`,
   );
   console.log();
 
@@ -544,7 +544,7 @@ async function main() {
       `    curl -H "Authorization: Bearer ${rawKey}" \\`,
     );
     console.log(
-      `         ${SHELL_URL}/api/v1/gw/livepeer-leaderboard/pipelines`,
+      `         ${SHELL_URL}/api/v1/gw/livepeer-naap-api/pipelines`,
     );
   } else {
     console.log(
@@ -557,7 +557,7 @@ async function main() {
 
   console.log();
   console.log(
-    '  Leaderboard plugin: navigate to /leaderboard in the NaaP UI',
+    '  NAAP API plugin: navigate to /naap-api in the NaaP UI',
   );
   console.log();
 }
