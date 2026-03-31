@@ -12,7 +12,6 @@
 
 import type { DashboardPipelineCatalogEntry } from '@naap/plugin-sdk';
 import { PIPELINE_DISPLAY } from '@/lib/dashboard/pipeline-config';
-import { cachedFetch, TTL } from '../cache.js';
 import { getRawNetModels } from '../network-data.js';
 
 // ---------------------------------------------------------------------------
@@ -20,22 +19,23 @@ import { getRawNetModels } from '../network-data.js';
 // ---------------------------------------------------------------------------
 
 export async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
-  return cachedFetch('facade:pipeline-catalog', TTL.PIPELINE_CATALOG * 1000, async () => {
-    const rows = await getRawNetModels();
+  // No separate cache here — getRawNetModels() is already cached at the raw level.
+  // Caching the derived result with a longer TTL would cause stale catalog entries
+  // when the underlying raw cache refreshes.
+  const rows = await getRawNetModels();
 
-    // Group by pipeline, collecting unique model names
-    const byPipeline = new Map<string, Set<string>>();
-    for (const row of rows) {
-      if (row.Pipeline === '' || PIPELINE_DISPLAY[row.Pipeline] === null) continue;
-      if (!byPipeline.has(row.Pipeline)) byPipeline.set(row.Pipeline, new Set());
-      byPipeline.get(row.Pipeline)!.add(row.Model);
-    }
+  // Group by pipeline, collecting unique model names
+  const byPipeline = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (row.Pipeline === '' || PIPELINE_DISPLAY[row.Pipeline] === null) continue;
+    if (!byPipeline.has(row.Pipeline)) byPipeline.set(row.Pipeline, new Set());
+    byPipeline.get(row.Pipeline)!.add(row.Model);
+  }
 
-    return Array.from(byPipeline.entries()).map(([pipeline, modelSet]): DashboardPipelineCatalogEntry => ({
-      id: pipeline,
-      name: PIPELINE_DISPLAY[pipeline] ?? pipeline,
-      models: Array.from(modelSet),
-      regions: [], // not available in /v1/net/models
-    }));
-  });
+  return Array.from(byPipeline.entries()).map(([pipeline, modelSet]): DashboardPipelineCatalogEntry => ({
+    id: pipeline,
+    name: PIPELINE_DISPLAY[pipeline] ?? pipeline,
+    models: Array.from(modelSet),
+    regions: [], // not available in /v1/net/models
+  }));
 }
