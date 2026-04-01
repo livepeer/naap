@@ -153,10 +153,8 @@ fi
 log_info "Auto-discovered ${#PLUGINS[@]} plugins: ${PLUGINS[*]}"
 
 # Build plugin-sdk so plugins that depend on @naap/plugin-sdk get up-to-date types and exports
-if [ ! -f "$ROOT_DIR/packages/plugin-sdk/dist/index.js" ]; then
-  log_info "Building @naap/plugin-sdk (required by plugins)..."
-  (cd "$ROOT_DIR" && npx nx build @naap/plugin-sdk) || { log_error "plugin-sdk build failed"; exit 1; }
-fi
+log_info "Building @naap/plugin-sdk (required by plugins)..."
+(cd "$ROOT_DIR" && npx nx build @naap/plugin-sdk) || { log_error "plugin-sdk build failed"; exit 1; }
 
 # Build plugin-build so plugin vite.config.ts can resolve @naap/plugin-build/vite (Node ESM cannot load .ts)
 if [ ! -f "$ROOT_DIR/packages/plugin-build/dist/vite.js" ]; then
