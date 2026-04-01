@@ -12,6 +12,9 @@ import type { NetworkDemandRow } from './raw-data.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 
+/** Safety ceiling aligned with DASHBOARD_MAX_HOURS / facade KPI upper bound. */
+const MAX_TIMEFRAME_HOURS = 168;
+
 /** Normalize a leaderboard `window_start` to the UTC hour start (ms). */
 export function utcHourStartMs(windowStart: string): number | null {
   const t = Date.parse(windowStart);
@@ -53,7 +56,8 @@ export function buildContiguousDemandHourlyBuckets(
       ? Math.max(...hourStarts)
       : Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
 
-  const n = Math.max(1, Math.floor(timeframeHours));
+  const safeHours = Number.isFinite(timeframeHours) ? timeframeHours : 24;
+  const n = Math.max(1, Math.min(MAX_TIMEFRAME_HOURS, Math.floor(safeHours)));
   const buckets: { hour: string; value: number }[] = [];
 
   for (let i = 0; i < n; i++) {

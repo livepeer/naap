@@ -25,7 +25,18 @@ async function fetchOneModel(model: string): Promise<number> {
       throw new Error(`[facade/daydream-capacity] returned HTTP ${res.status}`);
     }
     const data: DaydreamCapacityResponse = await res.json();
-    return data.idleContainers ?? 0;
+    if (
+      data != null &&
+      typeof data === 'object' &&
+      typeof data.idleContainers === 'number' &&
+      Number.isFinite(data.idleContainers)
+    ) {
+      return data.idleContainers;
+    }
+    if (data?.idleContainers !== undefined) {
+      console.warn('[facade/daydream-capacity] malformed payload, idleContainers:', data.idleContainers);
+    }
+    return 0;
   });
 }
 

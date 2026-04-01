@@ -22,7 +22,7 @@ async function naapGet<T>(path: string, params: Record<string, string>): Promise
 
 export async function resolveJobFeed(opts: { limit?: number }): Promise<JobFeedItem[]> {
   const limit = opts.limit ?? 50;
-  return cachedFetch('facade:job-feed', 15 * 1000, () =>
+  return cachedFetch(`facade:job-feed:${limit}`, 15 * 1000, () =>
     naapGet<JobFeedItem[]>('dashboard/job-feed', { limit: String(limit) })
   );
 }

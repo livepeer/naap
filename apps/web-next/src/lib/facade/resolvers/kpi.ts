@@ -21,7 +21,8 @@ async function naapGet<T>(path: string, params: Record<string, string>): Promise
 }
 
 export async function resolveKPI(opts: { timeframe?: string }): Promise<DashboardKPI> {
-  const hours = Math.min(parseInt(opts.timeframe ?? '24', 10) || 24, 168);
+  const parsed = parseInt(opts.timeframe ?? '24', 10);
+  const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
   return cachedFetch(`facade:kpi:${hours}`, TTL.KPI * 1000, () =>
     naapGet<DashboardKPI>('dashboard/kpi', { window: `${hours}h` })
   );

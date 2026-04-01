@@ -646,14 +646,18 @@ export async function resolveFees({ days }: { days?: number } = {}): Promise<Das
     oneDayVolumeEth: round2(dayForDisplay?.volumeEth ?? 0),
     oneWeekVolumeUsd: round2(weekForDisplay?.weeklyVolumeUsd ?? 0),
     oneWeekVolumeEth: round2(weekForDisplay?.weeklyVolumeEth ?? 0),
-    volumeChangeUsd: round2(percentChange(dayForDisplay?.volumeUsd ?? 0, dayForDeltaBase?.volumeUsd ?? 0)),
-    volumeChangeEth: round2(percentChange(dayForDisplay?.volumeEth ?? 0, dayForDeltaBase?.volumeEth ?? 0)),
-    weeklyVolumeChangeUsd: round2(
-      percentChange(weekForDisplay?.weeklyVolumeUsd ?? 0, weekForDeltaBase?.weeklyVolumeUsd ?? 0)
-    ),
-    weeklyVolumeChangeEth: round2(
-      percentChange(weekForDisplay?.weeklyVolumeEth ?? 0, weekForDeltaBase?.weeklyVolumeEth ?? 0)
-    ),
+    volumeChangeUsd: dayForDeltaBase != null
+      ? round2(percentChange(dayForDisplay?.volumeUsd ?? 0, dayForDeltaBase.volumeUsd))
+      : 0,
+    volumeChangeEth: dayForDeltaBase != null
+      ? round2(percentChange(dayForDisplay?.volumeEth ?? 0, dayForDeltaBase.volumeEth))
+      : 0,
+    weeklyVolumeChangeUsd: weekForDeltaBase != null
+      ? round2(percentChange(weekForDisplay?.weeklyVolumeUsd ?? 0, weekForDeltaBase.weeklyVolumeUsd))
+      : 0,
+    weeklyVolumeChangeEth: weekForDeltaBase != null
+      ? round2(percentChange(weekForDisplay?.weeklyVolumeEth ?? 0, weekForDeltaBase.weeklyVolumeEth))
+      : 0,
     dayData,
     weeklyData,
   };

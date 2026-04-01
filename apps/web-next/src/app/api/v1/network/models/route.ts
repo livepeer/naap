@@ -7,7 +7,10 @@ export const maxDuration = 30;
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;
   const limitStr = params.get('limit');
-  const limit = limitStr != null ? Math.min(parseInt(limitStr, 10), 200) : 50;
+  const parsed = limitStr != null ? parseInt(limitStr, 10) : NaN;
+  const limit = Number.isFinite(parsed) && parsed >= 1
+    ? Math.min(parsed, 200)
+    : 50;
 
   try {
     const models = await getNetworkModels({ limit });

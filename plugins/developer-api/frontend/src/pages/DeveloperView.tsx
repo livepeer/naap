@@ -172,6 +172,7 @@ export const DeveloperView: React.FC = () => {
 
   const [networkModels, setNetworkModels] = useState<NetworkModel[]>([]);
   const [networkModelsLoading, setNetworkModelsLoading] = useState(false);
+  const [networkModelsError, setNetworkModelsError] = useState<string | null>(null);
   const [networkModelSearch, setNetworkModelSearch] = useState('');
   const [pipelineFilter, setPipelineFilter] = useState<string>('all');
   const [copiedCell, setCopiedCell] = useState<string | null>(null);
@@ -277,13 +278,18 @@ export const DeveloperView: React.FC = () => {
 
   const loadNetworkModels = useCallback(async () => {
     setNetworkModelsLoading(true);
+    setNetworkModelsError(null);
     try {
       const res = await fetch('/api/v1/developer-api/developer/network-models?limit=50');
+      if (!res.ok) {
+        setNetworkModelsError(`Failed to load models (HTTP ${res.status})`);
+        return;
+      }
       const json = await res.json();
       setNetworkModels((json.data ?? json).models || []);
     } catch (err) {
       console.error('Failed to load network models:', err);
-      setNetworkModels([]);
+      setNetworkModelsError('Network error loading models');
     } finally {
       setNetworkModelsLoading(false);
     }
@@ -626,6 +632,14 @@ export const DeveloperView: React.FC = () => {
                     <div className="flex items-center justify-center gap-3 py-8">
                       <Loader2 size={16} className="animate-spin text-text-secondary" />
                       <span className="text-sm text-text-secondary">Loading models...</span>
+                    </div>
+                  </Card>
+                ) : networkModelsError ? (
+                  <Card>
+                    <div className="flex items-center justify-center gap-3 py-6">
+                      <AlertTriangle size={16} className="text-accent-rose" />
+                      <span className="text-sm text-accent-rose">{networkModelsError}</span>
+                      <button onClick={loadNetworkModels} className="text-xs text-text-secondary hover:text-accent-blue transition-colors ml-2">Retry</button>
                     </div>
                   </Card>
                 ) : filteredNetworkModels.length === 0 ? (
