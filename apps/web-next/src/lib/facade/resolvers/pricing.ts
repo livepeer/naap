@@ -14,6 +14,9 @@
 import type { DashboardPipelinePricing } from '@naap/plugin-sdk';
 import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
 import { cachedFetch, TTL } from '../cache.js';
+import { resolveNetCapacity } from './net-capacity.js';
+
+const LIVE_VIDEO_PIPELINE = 'live-video-to-video';
 
 interface ApiPipelinePricing {
   pipeline: string;
@@ -48,12 +51,23 @@ async function naapGet<T>(path: string): Promise<T> {
 
 export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
   return cachedFetch('facade:pricing', TTL.PRICING * 1000, async () => {
-    const rows = await naapGet<ApiPipelinePricing[]>('dashboard/pricing');
+    const [rows, netCapacity] = await Promise.all([
+      naapGet<ApiPipelinePricing[]>('dashboard/pricing'),
+      resolveNetCapacity().catch((err) => {
+        console.warn('[facade/pricing] net/capacity merge skipped:', err);
+        return {} as Record<string, number>;
+      }),
+    ]);
     return rows
       .filter((r) => r.priceAvgWeiPerUnit > 0)
       .map((r): DashboardPipelinePricing => {
         const unit = PIPELINE_UNIT[r.pipeline] ?? 'pixel';
         const price = r.priceAvgWeiPerUnit / 1e12;
+        const netKey = `${r.pipeline}:${r.model}`;
+        const capacity =
+          r.pipeline === LIVE_VIDEO_PIPELINE
+            ? r.orchCount
+            : (netCapacity[netKey] ?? r.orchCount);
         return {
           pipeline: r.pipeline,
           model: r.model,
@@ -61,7 +75,7 @@ export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
           price,
           pixelsPerUnit: r.pixelsPerUnit > 0 ? r.pixelsPerUnit : null,
           outputPerDollar: computeOutputPerDollar(r.priceAvgWeiPerUnit, unit),
-          capacity: r.orchCount,
+          capacity,
         };
       })
       .sort((a, b) => b.price - a.price);

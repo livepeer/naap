@@ -36,6 +36,7 @@ import { resolveOrchestrators } from './resolvers/orchestrators.js';
 import { resolveGPUCapacity } from './resolvers/gpu-capacity.js';
 import { resolvePricing } from './resolvers/pricing.js';
 import { resolveNetworkModels } from './resolvers/network-models.js';
+import { resolveNetCapacity } from './resolvers/net-capacity.js';
 import { resolveProtocol } from './resolvers/protocol.js';
 import { resolveFees } from './resolvers/fees.js';
 import { resolveJobFeed } from './resolvers/job-feed.js';
@@ -113,4 +114,13 @@ export async function getDashboardJobFeed(): Promise<JobFeedItem[]> {
 export async function getNetworkModels(opts: { limit?: number }): Promise<NetworkModel[]> {
   if (USE_STUBS) return stubs.networkModels.slice(0, opts.limit ?? 50);
   return resolveNetworkModels(opts);
+}
+
+// ---------------------------------------------------------------------------
+// Net capacity — NAAP API backed
+// ---------------------------------------------------------------------------
+
+export async function getNetCapacity(): Promise<Record<string, number>> {
+  if (USE_STUBS) return {};
+  return resolveNetCapacity();
 }

@@ -59,6 +59,25 @@ import {
   YAxis,
 } from 'recharts';
 import { PIPELINE_DISPLAY, PIPELINE_COLOR, DEFAULT_PIPELINE_COLOR } from '@/lib/dashboard/pipeline-config';
+
+const LIVE_VIDEO_PIPELINE_ID = 'live-video-to-video';
+
+function pipelinesRowCapacity(
+  pipelineId: string,
+  model: string,
+  pricingRow: DashboardPipelinePricing | undefined,
+  netCapacity: Record<string, number>,
+): number | '—' {
+  const key = `${pipelineId}:${model}`;
+  if (pipelineId === LIVE_VIDEO_PIPELINE_ID) {
+    const c = pricingRow?.capacity;
+    return c != null && c >= 0 ? c : '—';
+  }
+  const fromNet = netCapacity[key];
+  if (fromNet != null && fromNet >= 0) return fromNet;
+  const fallback = pricingRow?.capacity;
+  return fallback != null && fallback >= 0 ? fallback : '—';
+}
 // ============================================================================
 // GraphQL Query — the ONLY place data requirements are declared
 // ============================================================================
@@ -568,11 +587,13 @@ function PipelinesCard({
   data,
   catalog,
   pricing,
+  netCapacity,
   timeframeHours,
 }: {
   data: DashboardPipelineUsage[];
   catalog: DashboardPipelineCatalogEntry[];
   pricing: DashboardPipelinePricing[];
+  netCapacity: Record<string, number>;
   timeframeHours: number;
 }) {
   return (
@@ -627,6 +648,7 @@ function PipelinesCard({
                         const priceStr = p && p.price > 0
                           ? `${formatNumber(Math.round(p.price * 1e12))} wei/${p.unit}`
                           : '—';
+                        const cap = pipelinesRowCapacity(entry.id, model, p, netCapacity);
                         return (
                           <tr key={model} className="border-b border-border/30 last:border-0">
                             <td className="py-1 pl-4 pr-2">
@@ -638,7 +660,7 @@ function PipelinesCard({
                               </span>
                             </td>
                             <td className="py-1 text-right font-mono text-foreground">
-                              {p?.capacity ?? '—'}
+                              {cap === '—' ? '—' : formatNumber(cap)}
                             </td>
                             <td className="py-1 text-right font-mono text-muted-foreground">
                               {priceStr}
@@ -1321,11 +1343,30 @@ export default function DashboardPage() {
   const [jobFeedPollInterval, setJobFeedPollInterval] = useState(DEFAULT_POLL_INTERVAL);
   const [timeframe, setTimeframe] = useState(DEFAULT_TIMEFRAME);
   const [prefsReady, setPrefsReady] = useState(false);
+  const [netCapacity, setNetCapacity] = useState<Record<string, number>>({});
 
   useEffect(() => {
     setJobFeedPollInterval(getStoredJobFeedPollInterval());
     setTimeframe(getStoredTimeframe());
     setPrefsReady(true);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/v1/network/capacity')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { capacityByPipelineModel?: Record<string, number> } | null) => {
+        if (cancelled || !body?.capacityByPipelineModel || typeof body.capacityByPipelineModel !== 'object') {
+          return;
+        }
+        setNetCapacity(body.capacityByPipelineModel);
+      })
+      .catch(() => {
+        /* keep empty map; pricing.capacity still applies where present */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleJobFeedPollIntervalChange = (ms: number) => {
@@ -1450,6 +1491,7 @@ export default function DashboardPage() {
                 data={lbData.pipelines ?? []}
                 catalog={lbData.pipelineCatalog}
                 pricing={rtData?.pricing ?? []}
+                netCapacity={netCapacity}
                 timeframeHours={lbData.kpi?.timeframeHours ?? 12}
               />
             </RefreshWrap>
