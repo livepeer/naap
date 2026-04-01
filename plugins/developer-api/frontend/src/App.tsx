@@ -15,7 +15,7 @@ const DeveloperApp: React.FC = () => (
 const plugin = createPlugin({
   name: 'developer-api',
   version: '1.0.0',
-  routes: ['/developers', '/developers/*'],
+  routes: ['/developer', '/developer/*'],
   App: DeveloperApp,
 });
 

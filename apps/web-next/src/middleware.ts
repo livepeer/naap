@@ -12,7 +12,7 @@ const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/gateway': 'serviceGateway',
   '/capacity': 'capacityPlanner',
   '/forum': 'community',
-  '/developers': 'developerApi',
+  '/developer': 'developerApi',
   '/publish': 'pluginPublisher',
   '/daydream': 'daydreamVideo',
   '/intelligent-dashboard': 'intelligentDashboard',

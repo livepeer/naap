@@ -24,6 +24,35 @@ import { Card, Badge, Modal } from '@naap/ui';
 
 type TabId = 'models' | 'api-keys' | 'usage' | 'docs';
 
+const TAB_PATH_SEGMENT: Record<TabId, string> = {
+  models: 'models',
+  'api-keys': 'keys',
+  usage: 'usage',
+  docs: 'docs',
+};
+
+const TAB_FROM_SEGMENT: Record<string, TabId> = {
+  models: 'models',
+  keys: 'api-keys',
+  usage: 'usage',
+  docs: 'docs',
+  'api-keys': 'api-keys',
+};
+
+function resolveTabFromPath(pathname: string): TabId {
+  const parts = pathname.split('/').filter(Boolean);
+  const maybeRoot = parts[0];
+  const maybeTab = parts[1];
+  if (maybeRoot !== 'developer' && maybeRoot !== 'developers') {
+    return 'models';
+  }
+  return TAB_FROM_SEGMENT[maybeTab ?? ''] ?? 'models';
+}
+
+function getPathForTab(tab: TabId): string {
+  return `/developer/${TAB_PATH_SEGMENT[tab]}`;
+}
+
 interface ApiKeyProject {
   id: string;
   name: string;
@@ -102,9 +131,9 @@ function delayWithAbort(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 const tabs = [
+  { id: 'models' as TabId, label: 'Models', icon: <Box size={14} /> },
   { id: 'api-keys' as TabId, label: 'API Keys', icon: <Key size={14} /> },
   { id: 'usage' as TabId, label: 'Usage & Billing', icon: <BarChart3 size={14} /> },
-  { id: 'models' as TabId, label: 'Models', icon: <Box size={14} /> },
   { id: 'docs' as TabId, label: 'Docs', icon: <BookOpen size={14} /> },
 ];
 
@@ -115,7 +144,7 @@ const inputClassName =
   'w-full bg-bg-tertiary border border-white/10 rounded-lg py-2 px-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue';
 
 export const DeveloperView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabId>('api-keys');
+  const [activeTab, setActiveTab] = useState<TabId>(() => resolveTabFromPath(window.location.pathname));
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [_loading, setLoading] = useState(true);
   const [showRevoked, setShowRevoked] = useState(false);
@@ -218,6 +247,32 @@ export const DeveloperView: React.FC = () => {
 
   useEffect(() => () => {
     pollAbortControllerRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveTab(resolveTabFromPath(window.location.pathname));
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    const canonicalPath = getPathForTab(activeTab);
+    if (window.location.pathname !== canonicalPath) {
+      window.history.replaceState(window.history.state, '', canonicalPath);
+    }
+  }, [activeTab]);
+
+  const handleTabChange = useCallback((tab: TabId) => {
+    setActiveTab(tab);
+    const targetPath = getPathForTab(tab);
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState(window.history.state, '', targetPath);
+    }
   }, []);
 
   const loadNetworkModels = useCallback(async () => {
@@ -502,7 +557,7 @@ export const DeveloperView: React.FC = () => {
       <div className="border-b border-white/10">
         <nav className="flex gap-1">
           {tabs.map((tab) => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            <button key={tab.id} onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-2 px-3 py-2 text-xs font-medium transition-all border-b-2 ${activeTab === tab.id ? 'text-accent-emerald' : 'text-text-secondary hover:text-text-primary border-transparent'}`}
               style={{ marginBottom: '-1px', borderBottomColor: activeTab === tab.id ? 'var(--accent-emerald)' : 'transparent' }}>
               {tab.icon}{tab.label}

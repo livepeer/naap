@@ -24,8 +24,8 @@
     "entry": "./frontend/dist/production/developer-api.js",
     "devPort": 3007,
     "routes": [
-      "/developers",
-      "/developers/*"
+      "/developer",
+      "/developer/*"
     ],
     "navigation": {
       "label": "Developer API",

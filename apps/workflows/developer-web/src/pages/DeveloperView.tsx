@@ -8,6 +8,35 @@ import { DocsTab } from '../components/tabs/DocsTab';
 
 type TabId = 'models' | 'api-keys' | 'usage' | 'docs';
 
+const TAB_PATH_SEGMENT: Record<TabId, string> = {
+  models: 'models',
+  'api-keys': 'keys',
+  usage: 'usage',
+  docs: 'docs',
+};
+
+const TAB_FROM_SEGMENT: Record<string, TabId> = {
+  models: 'models',
+  keys: 'api-keys',
+  usage: 'usage',
+  docs: 'docs',
+  'api-keys': 'api-keys',
+};
+
+function resolveTabFromPath(pathname: string): TabId {
+  const parts = pathname.split('/').filter(Boolean);
+  const maybeRoot = parts[0];
+  const maybeTab = parts[1];
+  if (maybeRoot !== 'developer' && maybeRoot !== 'developers') {
+    return 'models';
+  }
+  return TAB_FROM_SEGMENT[maybeTab ?? ''] ?? 'models';
+}
+
+function getPathForTab(tab: TabId): string {
+  return `/developer/${TAB_PATH_SEGMENT[tab]}`;
+}
+
 interface Tab {
   id: TabId;
   label: string;
@@ -22,7 +51,33 @@ const tabs: Tab[] = [
 ];
 
 export const DeveloperView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabId>('models');
+  const [activeTab, setActiveTab] = useState<TabId>(() => resolveTabFromPath(window.location.pathname));
+
+  React.useEffect(() => {
+    const handlePopState = () => {
+      setActiveTab(resolveTabFromPath(window.location.pathname));
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const canonicalPath = getPathForTab(activeTab);
+    if (window.location.pathname !== canonicalPath) {
+      window.history.replaceState(window.history.state, '', canonicalPath);
+    }
+  }, [activeTab]);
+
+  const handleTabChange = (tab: TabId) => {
+    setActiveTab(tab);
+    const targetPath = getPathForTab(tab);
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState(window.history.state, '', targetPath);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -38,7 +93,7 @@ export const DeveloperView: React.FC = () => {
           {tabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               className={`relative flex items-center gap-2 px-5 py-3 text-sm font-medium transition-all ${
                 activeTab === tab.id
                   ? 'text-accent-emerald'
