@@ -70,13 +70,30 @@ function pipelinesRowCapacity(
 ): number | '—' {
   const key = `${pipelineId}:${model}`;
   if (pipelineId === LIVE_VIDEO_PIPELINE_ID) {
-    const c = pricingRow?.capacity;
-    return c != null && c >= 0 ? c : '—';
+    const fromPricing = pricingRow?.capacity;
+    if (fromPricing != null && fromPricing >= 0) return fromPricing;
+    const fromNet = netCapacity[key];
+    if (fromNet != null && fromNet >= 0) return fromNet;
+    return '—';
   }
   const fromNet = netCapacity[key];
   if (fromNet != null && fromNet >= 0) return fromNet;
   const fallback = pricingRow?.capacity;
   return fallback != null && fallback >= 0 ? fallback : '—';
+}
+
+/** When false, every catalog model can show capacity from merged pricing alone (no /net/capacity fetch). */
+function catalogNeedsNetCapacityFetch(
+  catalog: DashboardPipelineCatalogEntry[],
+  pricing: DashboardPipelinePricing[],
+): boolean {
+  for (const entry of catalog) {
+    for (const model of entry.models) {
+      const p = pricing.find((x) => x.pipeline === entry.id && x.model === model);
+      if (!p || p.capacity == null) return true;
+    }
+  }
+  return false;
 }
 // ============================================================================
 // GraphQL Query — the ONLY place data requirements are declared
@@ -1344,29 +1361,12 @@ export default function DashboardPage() {
   const [timeframe, setTimeframe] = useState(DEFAULT_TIMEFRAME);
   const [prefsReady, setPrefsReady] = useState(false);
   const [netCapacity, setNetCapacity] = useState<Record<string, number>>({});
+  const netCapacityFetchAttempted = useRef(false);
 
   useEffect(() => {
     setJobFeedPollInterval(getStoredJobFeedPollInterval());
     setTimeframe(getStoredTimeframe());
     setPrefsReady(true);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/v1/network/capacity')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body: { capacityByPipelineModel?: Record<string, number> } | null) => {
-        if (cancelled || !body?.capacityByPipelineModel || typeof body.capacityByPipelineModel !== 'object') {
-          return;
-        }
-        setNetCapacity(body.capacityByPipelineModel);
-      })
-      .catch(() => {
-        /* keep empty map; pricing.capacity still applies where present */
-      });
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const handleJobFeedPollIntervalChange = (ms: number) => {
@@ -1411,6 +1411,32 @@ export default function DashboardPage() {
     maxItems: 50,
     pollInterval: jobFeedPollInterval,
   });
+
+  useEffect(() => {
+    if (!prefsReady || rtLoading || lbLoading) return;
+    const catalog = lbData?.pipelineCatalog;
+    if (!catalog?.length) return;
+    const pricing = rtData?.pricing ?? [];
+    if (!catalogNeedsNetCapacityFetch(catalog, pricing)) return;
+    if (netCapacityFetchAttempted.current) return;
+    netCapacityFetchAttempted.current = true;
+
+    let cancelled = false;
+    fetch('/api/v1/network/capacity')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { capacityByPipelineModel?: Record<string, number> } | null) => {
+        if (cancelled || !body?.capacityByPipelineModel || typeof body.capacityByPipelineModel !== 'object') {
+          return;
+        }
+        setNetCapacity(body.capacityByPipelineModel);
+      })
+      .catch(() => {
+        /* keep empty map; pricing.capacity still applies where present */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [prefsReady, rtLoading, lbLoading, lbData?.pipelineCatalog, rtData?.pricing]);
 
   const transientDashboardErrors = useMemo(() => {
     return [lbError, rtError, feesError].filter(

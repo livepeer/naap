@@ -66,7 +66,7 @@ export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
         const netKey = `${r.pipeline}:${r.model}`;
         const capacity =
           r.pipeline === LIVE_VIDEO_PIPELINE
-            ? r.orchCount
+            ? (r.orchCount > 0 ? r.orchCount : (netCapacity[netKey] ?? r.orchCount))
             : (netCapacity[netKey] ?? r.orchCount);
         return {
           pipeline: r.pipeline,
