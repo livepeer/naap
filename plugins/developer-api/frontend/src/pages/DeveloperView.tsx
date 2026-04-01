@@ -309,6 +309,12 @@ export const DeveloperView: React.FC = () => {
     return Array.from(pipelines).sort();
   }, [networkModels]);
 
+  useEffect(() => {
+    if (pipelineFilter !== 'all' && !pipelineOptions.includes(pipelineFilter)) {
+      setPipelineFilter('all');
+    }
+  }, [pipelineFilter, pipelineOptions]);
+
   const filteredNetworkModels = useMemo(() => {
     let result = networkModels;
     if (pipelineFilter !== 'all') {
