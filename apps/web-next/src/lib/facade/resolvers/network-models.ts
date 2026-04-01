@@ -14,7 +14,11 @@ import { getRawNetModels } from '../network-data.js';
 // Resolver
 // ---------------------------------------------------------------------------
 
-export async function resolveNetworkModels(opts: { limit?: number }): Promise<NetworkModel[]> {
+export async function resolveNetworkModels(opts: {
+  limit?: number;
+}): Promise<{ models: NetworkModel[]; total: number }> {
   const rows = await getRawNetModels();
-  return opts.limit ? rows.slice(0, opts.limit) : rows;
+  const total = rows.length;
+  const models = opts.limit ? rows.slice(0, opts.limit) : rows;
+  return { models, total };
 }

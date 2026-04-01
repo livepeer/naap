@@ -13,8 +13,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     : 50;
 
   try {
-    const models = await getNetworkModels({ limit });
-    return NextResponse.json({ models, total: models.length });
+    const { models, total } = await getNetworkModels({ limit });
+    return NextResponse.json({
+      models,
+      count: models.length,
+      total,
+    });
   } catch (err) {
     console.error('[network/models] error:', err);
     return NextResponse.json(

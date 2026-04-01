@@ -113,8 +113,15 @@ export async function getDashboardJobFeed(): Promise<JobFeedItem[]> {
 // Developer / Network Models — NAAP API backed
 // ---------------------------------------------------------------------------
 
-export async function getNetworkModels(opts: { limit?: number }): Promise<NetworkModel[]> {
-  if (USE_STUBS) return stubs.networkModels.slice(0, opts.limit ?? 50);
+export async function getNetworkModels(opts: { limit?: number }): Promise<{
+  models: NetworkModel[];
+  total: number;
+}> {
+  if (USE_STUBS) {
+    const all = stubs.networkModels;
+    const lim = opts.limit ?? 50;
+    return { models: all.slice(0, lim), total: all.length };
+  }
   return resolveNetworkModels(opts);
 }
 

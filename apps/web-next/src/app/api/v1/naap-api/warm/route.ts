@@ -45,8 +45,9 @@ export async function GET(request: NextRequest) {
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
+    console.error('[naap-api/warm]', err);
     return NextResponse.json(
-      { error: String(err), timestamp: new Date().toISOString() },
+      { error: 'Internal server error', timestamp: new Date().toISOString() },
       { status: 503 }
     );
   }
