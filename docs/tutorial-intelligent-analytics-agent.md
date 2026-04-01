@@ -42,9 +42,9 @@ graph TD
 Ensure both connectors are registered in the Service Gateway.
 
 1.  **Gemini Connector** (`gemini`): Provides LLM capabilities.
-2.  **NAAP API Connector** (`livepeer-naap-api`): Provides network performance data.
+2.  **NAAP API**: Network performance data is available via the server-side proxy at `/api/v1/naap-api/*` (backed by `NAAP_API_SERVER_URL`). No gateway connector is needed.
 
-*Note: Use the provided seed scripts `bin/seed-public-connectors.ts` and `bin/seed-naap-api-gateway.ts` to provision these quickly in development.*
+*Note: Use `bin/seed-public-connectors.ts` to provision the Gemini connector in development. Set `NAAP_API_SERVER_URL` in your `.env.local` for NAAP API access.*
 
 ### Step 2: Define Agent Tools
 The agent needs to know how to fetch data. We define the NAAP API as a "tool" that Gemini can call.
@@ -84,9 +84,9 @@ async function runAgent(userPrompt: string) {
   const toolCall = msg.candidates[0].content.parts.find(p => p.functionCall);
 
   if (toolCall) {
-    // 2. Execute tool via NAAP API Connector
+    // 2. Execute tool via NAAP API proxy
     const { pipeline, model } = toolCall.functionCall.args;
-    const stats = await fetch(`/api/v1/gw/livepeer-naap-api/stats?pipeline=${pipeline}&model=${model}`);
+    const stats = await fetch(`/api/v1/naap-api/aggregated_stats?pipeline=${pipeline}&model=${model}`);
     const data = await stats.json();
 
     // 3. Send data back to Gemini for final summary

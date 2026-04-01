@@ -212,11 +212,39 @@ const LIVE_VIDEO_PIPELINE_ID = 'live-video-to-video';
  */
 const LIVE_VIDEO_MODEL_IDS = new Set(['noop', 'streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v']);
 
+/** Set `DEBUG_PIPELINE_MINS=1` in the server env to log demand rows + modelMins for pipelines debugging. */
+const DEBUG_PIPELINE_MINS = process.env.DEBUG_PIPELINE_MINS === '1';
+
+function isLiveVideoDemandRow(row: { pipeline_id: string; model_id: string | null }): boolean {
+  const p = row.pipeline_id?.trim() ?? '';
+  const m = row.model_id?.trim() ?? '';
+  return (
+    p === LIVE_VIDEO_PIPELINE_ID
+    || LIVE_VIDEO_MODEL_IDS.has(m)
+    || m === 'noop'
+    || m.startsWith('streamdiffusion')
+  );
+}
+
 export async function resolvePipelines({ limit = 5, timeframe }: { limit?: number; timeframe?: string | number }): Promise<DashboardPipelineUsage[]> {
   const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit as number)) : 5;
   const timeframeHours = parseTimeframe(timeframe);
 
   const demand = await getRawDemandRows(timeframeHours);
+
+  if (DEBUG_PIPELINE_MINS) {
+    const lvRelated = demand.filter(isLiveVideoDemandRow);
+    const sample = lvRelated.slice(0, 40).map((r) => ({
+      pipeline_id: r.pipeline_id,
+      model_id: r.model_id,
+      total_minutes: r.total_minutes,
+      sessions_count: r.sessions_count,
+    }));
+    console.log(
+      `[dashboard/resolvePipelines] DEBUG timeframeHours=${timeframeHours} totalDemandRows=${demand.length} liveVideoRelatedRows=${lvRelated.length}`,
+    );
+    console.log('[dashboard/resolvePipelines] DEBUG live-video-related sample (up to 40):', JSON.stringify(sample));
+  }
 
   type Accum = { mins: number; sessions: number; fpsWeighted: number };
   type PipelineAccum = Accum & { modelAccums: Map<string, Accum> };
@@ -233,10 +261,16 @@ export async function resolvePipelines({ limit = 5, timeframe }: { limit?: numbe
       // Group all live-video-to-video variants under a single pipeline entry.
       pipelineKey = LIVE_VIDEO_PIPELINE_ID;
       modelKey = rawModel;
+    } else if (rawPipeline) {
+      // Normal case: pipeline_id is the parent, model_id is the per-model breakdown.
+      if (PIPELINE_DISPLAY[rawPipeline] === null) continue;
+      pipelineKey = rawPipeline;
+      modelKey = rawModel;
     } else {
-      // For all other pipelines, use model_id (constraint name) if present,
-      // otherwise fall back to pipeline_id.
-      pipelineKey = rawModel || rawPipeline || '';
+      // Only model_id is set and it is not a live-video-to-video alias.
+      // Treat it as a standalone pipeline name (e.g. capability variants reported
+      // without a pipeline_id by older API versions).
+      pipelineKey = rawModel || '';
       if (!pipelineKey || PIPELINE_DISPLAY[pipelineKey] === null) continue;
     }
 
@@ -263,7 +297,7 @@ export async function resolvePipelines({ limit = 5, timeframe }: { limit?: numbe
     }
   }
 
-  return [...byPipeline.entries()]
+  const result = [...byPipeline.entries()]
     .map(([pipelineId, acc]): DashboardPipelineUsage => {
       const modelMins: DashboardPipelineModelMins[] = [...acc.modelAccums.entries()]
         .map(([model, m]) => ({
@@ -285,6 +319,21 @@ export async function resolvePipelines({ limit = 5, timeframe }: { limit?: numbe
     })
     .sort((a, b) => b.mins - a.mins)
     .slice(0, safeLimit);
+
+  if (DEBUG_PIPELINE_MINS) {
+    const lv = result.find((p) => p.name === LIVE_VIDEO_PIPELINE_ID);
+    console.log(
+      '[dashboard/resolvePipelines] DEBUG live-video-to-video resolved:',
+      JSON.stringify({
+        pipelineMins: lv?.mins,
+        modelMins: lv?.modelMins?.map((m) => ({ model: m.model, mins: m.mins, sessions: m.sessions })),
+      }),
+    );
+    const topNames = result.map((p) => ({ name: p.name, mins: p.mins, modelCount: p.modelMins?.length ?? 0 }));
+    console.log('[dashboard/resolvePipelines] DEBUG pipelines slice (limit applied):', JSON.stringify(topNames));
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------

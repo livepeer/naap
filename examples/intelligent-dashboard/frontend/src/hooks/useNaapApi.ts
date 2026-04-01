@@ -1,11 +1,11 @@
 /**
  * NAAP API Hook
  *
- * Calls the Livepeer NAAP API connector through the Service Gateway proxy.
+ * Calls the Livepeer NAAP API via the server-side proxy (no gateway connector).
  * Endpoints:
- *   GET /api/v1/gw/livepeer-naap-api/pipelines
- *   GET /api/v1/gw/livepeer-naap-api/stats?pipeline=...&model=...
- *   GET /api/v1/gw/livepeer-naap-api/stats/raw?pipeline=...&model=...&orchestrator=...
+ *   GET /api/v1/naap-api/pipelines
+ *   GET /api/v1/naap-api/aggregated_stats?pipeline=...&model=...
+ *   GET /api/v1/naap-api/raw_stats?pipeline=...&model=...&orchestrator=...
  * Auth: JWT (injected by useApiClient)
  */
 
@@ -19,17 +19,11 @@ import type {
   RawStatsResponse,
 } from '../types';
 
-const GW_PROXY_BASE = '/api/v1/gw/livepeer-naap-api';
+const NAAP_API_BASE = '/api/v1/naap-api';
 
 function unwrap<T>(sdkResponse: unknown): T {
   const apiRes = sdkResponse as { data: unknown };
   const body = apiRes.data as Record<string, unknown>;
-
-  // Gateway envelope: { success, data, meta }
-  if (body && typeof body === 'object' && 'success' in body && 'data' in body) {
-    return body.data as T;
-  }
-
   return body as T;
 }
 
@@ -49,7 +43,7 @@ export function useNaapApi() {
   }, [teamId]);
 
   const fetchPipelines = useCallback(async (): Promise<PipelineEntry[]> => {
-    const res = await apiClient.get(`${GW_PROXY_BASE}/pipelines`, headers());
+    const res = await apiClient.get(`${NAAP_API_BASE}/pipelines`, headers());
     const raw = unwrap<PipelinesApiResponse>(res);
     return raw?.pipelines ?? [];
   }, [apiClient, headers]);
@@ -62,7 +56,7 @@ export function useNaapApi() {
     async (pipeline: string, model: string): Promise<OrchestratorStats[]> => {
       const params = new URLSearchParams({ pipeline, model });
       const res = await apiClient.get(
-        `${GW_PROXY_BASE}/stats?${params.toString()}`,
+        `${NAAP_API_BASE}/aggregated_stats?${params.toString()}`,
         headers(),
       );
       const raw = unwrap<AggregatedStatsApiResponse>(res);
@@ -92,7 +86,7 @@ export function useNaapApi() {
     async (pipeline: string, model: string, orchestrator: string): Promise<RawStatsResponse> => {
       const params = new URLSearchParams({ pipeline, model, orchestrator });
       const res = await apiClient.get(
-        `${GW_PROXY_BASE}/stats/raw?${params.toString()}`,
+        `${NAAP_API_BASE}/raw_stats?${params.toString()}`,
         headers(),
       );
       return unwrap<RawStatsResponse>(res);

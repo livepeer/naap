@@ -22,7 +22,7 @@ const CONNECTOR_MATRIX: ConnectorSpec[] = [
   { slug: 'gemini', bodyTransforms: ['passthrough'], authType: 'query', responseMode: 'envelope' },
   { slug: 'daydream', bodyTransforms: ['passthrough'], authType: 'bearer', responseMode: 'envelope' },
   { slug: 'livepeer-studio', bodyTransforms: ['passthrough'], authType: 'bearer', responseMode: 'envelope' },
-  { slug: 'livepeer-naap-api', bodyTransforms: ['passthrough'], authType: 'none', responseMode: 'envelope' },
+  { slug: 'example-no-auth', bodyTransforms: ['passthrough'], authType: 'none', responseMode: 'envelope' },
   { slug: 'cloudflare-ai', bodyTransforms: ['passthrough'], authType: 'bearer', responseMode: 'envelope' },
   { slug: 'clickhouse', bodyTransforms: ['passthrough'], authType: 'basic', responseMode: 'envelope' },
   { slug: 'neon', bodyTransforms: ['passthrough'], authType: 'bearer', responseMode: 'envelope' },
@@ -123,7 +123,7 @@ describe('Auth injection behavioral parity', () => {
     expect(h.get('Api-Key')).toBe('pine-123');
   });
 
-  it('none: no headers added (livepeer-naap-api)', () => {
+  it('none: no headers added (example-no-auth)', () => {
     const s = registry.getAuth('none');
     const h = new Headers();
     s.inject({ headers: h, authConfig: {}, secrets: {}, method: 'GET', url: naapApiUrlForAuthTests() });

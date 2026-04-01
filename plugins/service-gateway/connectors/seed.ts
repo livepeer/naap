@@ -15,13 +15,7 @@
 import type { PrismaClient, Prisma } from '../../../packages/database/src/generated/client/index.js';
 import { loadConnectorTemplates } from './loader.js';
 
-const GLOBAL_CONNECTOR_SLUGS = new Set(['livepeer-naap-api', 'clickhouse']);
-
-function naapApiGatewayOriginFromEnv(): string | null {
-  const full = process.env.NAAP_API_SERVER_URL?.trim();
-  if (!full) return null;
-  return full.replace(/\/+$/, '');
-}
+const GLOBAL_CONNECTOR_SLUGS = new Set(['clickhouse']);
 
 function clickhouseUpstreamBaseFromEnv(): string | null {
   const full = process.env.CLICKHOUSE_URL?.trim();
@@ -90,11 +84,9 @@ export async function seedPublicConnectors(
     } else {
       created++;
       const upstreamBaseUrl =
-        slug === 'livepeer-naap-api'
-          ? naapApiGatewayOriginFromEnv() ?? conn.upstreamBaseUrl
-          : slug === 'clickhouse'
-            ? clickhouseUpstreamBaseFromEnv() ?? conn.upstreamBaseUrl
-            : conn.upstreamBaseUrl;
+        slug === 'clickhouse'
+          ? clickhouseUpstreamBaseFromEnv() ?? conn.upstreamBaseUrl
+          : conn.upstreamBaseUrl;
 
       let allowedHosts = conn.allowedHosts || [];
       if (allowedHosts.length === 0) {

@@ -42,20 +42,20 @@ const mockResolveConfig = resolveConfig as ReturnType<typeof vi.fn>;
 const mockProxyToUpstream = proxyToUpstream as ReturnType<typeof vi.fn>;
 const mockResolveSecrets = resolveSecrets as ReturnType<typeof vi.fn>;
 
-function makeNaapApiConfig(): ResolvedConfig {
+function makePublicNoAuthConfig(): ResolvedConfig {
   return {
     connector: {
-      id: 'conn-lb',
+      id: 'conn-pub',
       teamId: null,
       ownerUserId: 'admin-1',
-      slug: 'livepeer-naap-api',
-      displayName: 'Livepeer NAAP API',
+      slug: 'example-public-json-api',
+      displayName: 'Example Public JSON API',
       status: 'published',
       visibility: 'public',
-      upstreamBaseUrl: 'https://naap-api.livepeer.cloud/v1',
-      allowedHosts: ['naap-api.livepeer.cloud'],
+      upstreamBaseUrl: 'https://api.example.com/v1',
+      allowedHosts: ['api.example.com'],
       defaultTimeout: 15000,
-      healthCheckPath: '/pipelines',
+      healthCheckPath: '/health',
       authType: 'none',
       authConfig: {},
       secretRefs: [],
@@ -64,14 +64,14 @@ function makeNaapApiConfig(): ResolvedConfig {
       errorMapping: {},
     },
     endpoint: {
-      id: 'ep-demand',
-      connectorId: 'conn-lb',
-      name: 'network-demand',
+      id: 'ep-data',
+      connectorId: 'conn-pub',
+      name: 'get-data',
       method: 'GET',
-      path: '/network/demand',
+      path: '/data',
       enabled: true,
       upstreamMethod: null,
-      upstreamPath: '/network/demand',
+      upstreamPath: '/data',
       upstreamContentType: 'application/json',
       upstreamQueryParams: {},
       upstreamStaticBody: null,
@@ -160,20 +160,20 @@ describe('callConnectorInternal', () => {
   });
 
   it('resolves config using internal:system scope (public fallback)', async () => {
-    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
+    mockResolveConfig.mockResolvedValue(makePublicNoAuthConfig());
     mockProxySuccess({ demand: [] });
 
     await callConnectorInternal({
-      slug: 'livepeer-naap-api',
+      slug: 'example-public-json-api',
       method: 'GET',
-      endpointPath: '/network/demand',
+      endpointPath: '/data',
     });
 
     expect(mockResolveConfig).toHaveBeenCalledWith(
       'internal:system',
-      'livepeer-naap-api',
+      'example-public-json-api',
       'GET',
-      '/network/demand',
+      '/data',
     );
   });
 
@@ -194,9 +194,9 @@ describe('callConnectorInternal', () => {
 
     await expect(
       callConnectorInternal({
-        slug: 'livepeer-naap-api',
+        slug: 'example-public-json-api',
         method: 'GET',
-        endpointPath: '/network/demand',
+        endpointPath: '/data',
       }),
     ).rejects.toThrow('database unavailable');
   });
@@ -204,26 +204,26 @@ describe('callConnectorInternal', () => {
   // ── NAAP API (no-auth, no secrets) ──
 
   it('naap-api: does not call resolveSecrets when secretRefs is empty', async () => {
-    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
+    mockResolveConfig.mockResolvedValue(makePublicNoAuthConfig());
     mockProxySuccess({ demand: [] });
 
     await callConnectorInternal({
-      slug: 'livepeer-naap-api',
+      slug: 'example-public-json-api',
       method: 'GET',
-      endpointPath: '/network/demand',
+      endpointPath: '/data',
     });
 
     expect(mockResolveSecrets).not.toHaveBeenCalled();
   });
 
   it('naap-api: forwards consumer search params to upstream', async () => {
-    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
+    mockResolveConfig.mockResolvedValue(makePublicNoAuthConfig());
     mockProxySuccess({ demand: [] });
 
     await callConnectorInternal({
-      slug: 'livepeer-naap-api',
+      slug: 'example-public-json-api',
       method: 'GET',
-      endpointPath: '/network/demand',
+      endpointPath: '/data',
       searchParams: new URLSearchParams({ page: '1', page_size: '200', window: '24h' }),
     });
 
@@ -235,29 +235,29 @@ describe('callConnectorInternal', () => {
   });
 
   it('naap-api: upstream URL uses connector base + endpoint upstreamPath', async () => {
-    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
+    mockResolveConfig.mockResolvedValue(makePublicNoAuthConfig());
     mockProxySuccess({ demand: [] });
 
     await callConnectorInternal({
-      slug: 'livepeer-naap-api',
+      slug: 'example-public-json-api',
       method: 'GET',
-      endpointPath: '/network/demand',
+      endpointPath: '/data',
     });
 
     const upstreamCall = mockProxyToUpstream.mock.calls[0][0];
     const upstreamUrl = new URL(upstreamCall.url);
     expect(upstreamUrl.origin).toBe('https://naap-api.livepeer.cloud');
-    expect(upstreamUrl.pathname).toBe('/v1/network/demand');
+    expect(upstreamUrl.pathname).toBe('/v1/data');
   });
 
   it('naap-api: no Authorization header for authType=none', async () => {
-    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
+    mockResolveConfig.mockResolvedValue(makePublicNoAuthConfig());
     mockProxySuccess({ demand: [] });
 
     await callConnectorInternal({
-      slug: 'livepeer-naap-api',
+      slug: 'example-public-json-api',
       method: 'GET',
-      endpointPath: '/network/demand',
+      endpointPath: '/data',
     });
 
     const upstreamCall = mockProxyToUpstream.mock.calls[0][0];
@@ -265,13 +265,13 @@ describe('callConnectorInternal', () => {
   });
 
   it('naap-api: returns raw upstream response', async () => {
-    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
+    mockResolveConfig.mockResolvedValue(makePublicNoAuthConfig());
     mockProxySuccess({ demand: [{ id: 1 }] });
 
     const result = await callConnectorInternal({
-      slug: 'livepeer-naap-api',
+      slug: 'example-public-json-api',
       method: 'GET',
-      endpointPath: '/network/demand',
+      endpointPath: '/data',
     });
 
     const body = await result.response.json();
@@ -401,13 +401,13 @@ describe('callConnectorInternal', () => {
   // ── Timeout override ──
 
   it('uses caller-provided timeout over connector/endpoint defaults', async () => {
-    mockResolveConfig.mockResolvedValue(makeNaapApiConfig());
+    mockResolveConfig.mockResolvedValue(makePublicNoAuthConfig());
     mockProxySuccess({ demand: [] });
 
     await callConnectorInternal({
-      slug: 'livepeer-naap-api',
+      slug: 'example-public-json-api',
       method: 'GET',
-      endpointPath: '/network/demand',
+      endpointPath: '/data',
       timeout: 5_000,
     });
 

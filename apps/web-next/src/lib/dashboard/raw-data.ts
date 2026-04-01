@@ -16,7 +16,7 @@
  *   network/demand + sla/compliance: 24h max — pipelines catalog: no window
  */
 
-import { callConnectorInternal } from '@/lib/gateway/internal-client';
+import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
 
 // ---------------------------------------------------------------------------
 // Raw API response types (internal — not exported to clients)
@@ -250,7 +250,13 @@ function parseTotalPages(pagination: { total_pages?: unknown } | undefined): num
   return Math.floor(n);
 }
 
-const NAAP_API_CONNECTOR = 'livepeer-naap-api';
+async function fetchNaapPage(path: string, searchParams: URLSearchParams): Promise<Response> {
+  const url = new URL(naapApiUpstreamUrl(path));
+  for (const [k, v] of searchParams.entries()) {
+    url.searchParams.set(k, v);
+  }
+  return fetch(url.toString(), { next: { revalidate: 60 } });
+}
 
 async function fetchAllPages<T>(
   path: string,
@@ -260,23 +266,15 @@ async function fetchAllPages<T>(
   const pageSize = 200;
   params.set('page', '1');
   params.set('page_size', String(pageSize));
-  const endpointPath = `/${path.replace(/^\/+/, '')}`;
 
   const t0 = Date.now();
 
   let firstRes: Response;
   try {
-    const { response } = await callConnectorInternal({
-      slug: NAAP_API_CONNECTOR,
-      method: 'GET',
-      endpointPath,
-      searchParams: new URLSearchParams(params),
-      timeout: 60_000,
-    });
-    firstRes = response;
+    firstRes = await fetchNaapPage(path, new URLSearchParams(params));
   } catch (err) {
     throw new Error(
-      `[dashboard/raw-data] ${path} page 1 request failed via ${NAAP_API_CONNECTOR}: ${
+      `[dashboard/raw-data] ${path} page 1 fetch failed: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
@@ -284,7 +282,7 @@ async function fetchAllPages<T>(
 
   if (!firstRes.ok) {
     throw new Error(
-      `[dashboard/raw-data] ${path} page 1 returned HTTP ${firstRes.status} via ${NAAP_API_CONNECTOR}`,
+      `[dashboard/raw-data] ${path} page 1 returned HTTP ${firstRes.status}`,
     );
   }
 
@@ -292,7 +290,7 @@ async function fetchAllPages<T>(
   const firstRows = firstBody[dataKey] as T[] | undefined;
   if (!Array.isArray(firstRows)) {
     throw new Error(
-      `[dashboard/raw-data] ${path} page 1 missing expected "${dataKey}" array via ${NAAP_API_CONNECTOR}`,
+      `[dashboard/raw-data] ${path} page 1 missing expected "${dataKey}" array`,
     );
   }
   const totalPages = parseTotalPages(firstBody.pagination as { total_pages?: unknown } | undefined);
@@ -308,29 +306,23 @@ async function fetchAllPages<T>(
       const pageParams = new URLSearchParams(params);
       pageParams.set('page', String(page));
       try {
-        const { response: res } = await callConnectorInternal({
-          slug: NAAP_API_CONNECTOR,
-          method: 'GET',
-          endpointPath,
-          searchParams: pageParams,
-          timeout: 60_000,
-        });
+        const res = await fetchNaapPage(path, pageParams);
         if (!res.ok) {
           throw new Error(
-            `[dashboard/raw-data] ${path} page ${page} returned HTTP ${res.status} via ${NAAP_API_CONNECTOR}`,
+            `[dashboard/raw-data] ${path} page ${page} returned HTTP ${res.status}`,
           );
         }
         const body = (await res.json()) as Record<string, unknown>;
         const rows = body[dataKey] as T[] | undefined;
         if (!Array.isArray(rows)) {
           throw new Error(
-            `[dashboard/raw-data] ${path} page ${page} missing expected "${dataKey}" array via ${NAAP_API_CONNECTOR}`,
+            `[dashboard/raw-data] ${path} page ${page} missing expected "${dataKey}" array`,
           );
         }
         return rows;
       } catch (err) {
         throw new Error(
-          `[dashboard/raw-data] ${path} page ${page} request failed via ${NAAP_API_CONNECTOR}: ${
+          `[dashboard/raw-data] ${path} page ${page} fetch failed: ${
             err instanceof Error ? err.message : String(err)
           }`,
         );
@@ -445,26 +437,21 @@ export function getRawGPUMetricsRows(_lookbackHours?: number): Promise<GPUMetric
 export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
   return cachedFetch('pipelines', PIPELINES_TTL * 1000, async () => {
     const t0 = Date.now();
-    const { response: res } = await callConnectorInternal({
-      slug: NAAP_API_CONNECTOR,
-      method: 'GET',
-      endpointPath: '/pipelines',
-      timeout: 60_000,
-    });
+    const res = await fetch(naapApiUpstreamUrl('pipelines'), { next: { revalidate: 60 } });
     if (!res.ok) {
       throw new Error(
-        `[dashboard/raw-data] /pipelines returned HTTP ${res.status} via ${NAAP_API_CONNECTOR}`,
+        `[dashboard/raw-data] /pipelines returned HTTP ${res.status}`,
       );
     }
     const body = (await res.json()) as { pipelines?: unknown[] } | unknown[];
     const rawRows = Array.isArray(body)
       ? body
-      : Array.isArray(body.pipelines)
-        ? body.pipelines
+      : Array.isArray((body as { pipelines?: unknown[] }).pipelines)
+        ? (body as { pipelines: unknown[] }).pipelines
         : null;
     if (!rawRows) {
       throw new Error(
-        `[dashboard/raw-data] /pipelines missing expected "pipelines" array via ${NAAP_API_CONNECTOR}`,
+        '[dashboard/raw-data] /pipelines missing expected "pipelines" array',
       );
     }
     const pipelines = normalizePipelineCatalog(rawRows);

@@ -16,7 +16,6 @@ import {
   type ConnectorTemplate,
 } from '@/lib/gateway/connector-templates';
 import { invalidateConnectorCache } from '@/lib/gateway/resolve';
-import { naapApiGatewayOriginFromEnv } from '@/lib/gateway/naap-api-gateway-origin';
 
 /** List all available connector templates with basic metadata. */
 export async function GET() {
@@ -53,10 +52,8 @@ async function createConnectorFromTemplate(
 ) {
   const conn = template.connector;
   const slug = overrides?.slug || conn.slug;
-  const fromEnv =
-    slug === 'livepeer-naap-api' ? naapApiGatewayOriginFromEnv() : null;
   const upstreamBaseUrl =
-    overrides?.upstreamBaseUrl ?? fromEnv ?? conn.upstreamBaseUrl;
+    overrides?.upstreamBaseUrl ?? conn.upstreamBaseUrl;
 
   if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
     return errors.badRequest('Slug must be lowercase alphanumeric with hyphens');
