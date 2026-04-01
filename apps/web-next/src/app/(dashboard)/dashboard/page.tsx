@@ -623,7 +623,7 @@ function PipelinesCard({
                         const pipelineUsage = data.find((d) => d.name === entry.id);
                         const modelUsage = pipelineUsage?.modelMins?.find((m) => m.model === model);
                         const fps = modelUsage?.avgFps ?? pipelineUsage?.avgFps ?? 0;
-                        const mins = modelUsage?.mins ?? 0;
+                        const mins = modelUsage?.mins ?? pipelineUsage?.mins ?? 0;
                         const priceStr = p && p.price > 0
                           ? `${formatNumber(Math.round(p.price * 1e12))} wei/${p.unit}`
                           : '—';
@@ -829,8 +829,8 @@ function JobFeedCard({
     return [...jobs].sort((a, b) => {
       let av: string | number = 0;
       let bv: string | number = 0;
-      const { modelLabel: am } = jobFeedPipelineParts(a.pipeline);
-      const { modelLabel: bm } = jobFeedPipelineParts(b.pipeline);
+      const am = a.model ?? '—';
+      const bm = b.model ?? '—';
       switch (sortCol) {
         case 'model': av = am === '—' ? '' : am; bv = bm === '—' ? '' : bm; break;
         case 'outputFps': av = a.outputFps ?? 0; bv = b.outputFps ?? 0; break;
@@ -927,7 +927,8 @@ function JobFeedCard({
             </thead>
             <tbody>
               {sorted.map((job) => {
-                const { pipelineLabel, modelLabel } = jobFeedPipelineParts(job.pipeline);
+                const { pipelineLabel } = jobFeedPipelineParts(job.pipeline);
+                const modelLabel = job.model ?? '—';
                 const rowTooltip = [
                   `Stream: ${job.id}`,
                   `Pipeline: ${pipelineLabel}`,

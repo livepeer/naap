@@ -631,6 +631,7 @@ export interface JobFeedSubscribeResponse {
 export interface JobFeedEntry {
   id: string;
   pipeline: string;
+  model?: string;
   status: 'running' | 'online' | 'degraded_input' | 'degraded_inference' | 'degraded_output' | 'degraded' | 'completed' | 'failed' | string;
   startedAt: string;
   latencyMs?: number;

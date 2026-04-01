@@ -20,6 +20,7 @@ export interface NetworkModel {
 export interface JobFeedItem {
   id: string;
   pipeline: string;
+  model?: string;
   gateway: string;
   orchestratorUrl: string;
   state: string;

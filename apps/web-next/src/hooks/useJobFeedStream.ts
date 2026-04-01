@@ -59,6 +59,7 @@ export interface UseJobFeedStreamResult {
 interface ActiveStreamRow {
   id: string;
   pipeline: string;
+  model?: string;
   gateway: string;
   orchestratorUrl: string;
   state: string;
@@ -121,6 +122,7 @@ function streamToJobFeedEntry(row: ActiveStreamRow): JobFeedEntry {
   return {
     id: row.id,
     pipeline: row.pipeline,
+    model: row.model,
     status,
     startedAt: row.firstSeen,
     gateway: row.gateway,
