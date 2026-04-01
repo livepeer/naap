@@ -591,17 +591,31 @@ export const DeveloperView: React.FC = () => {
 
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="relative flex-1 max-w-md">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={14} />
+                    <label htmlFor="network-model-search" className="sr-only">
+                      Search network models by name or pipeline
+                    </label>
+                    <Search
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
+                      size={14}
+                      aria-hidden
+                    />
                     <input
+                      id="network-model-search"
                       type="text"
                       placeholder="Search models..."
                       value={networkModelSearch}
                       onChange={(e) => setNetworkModelSearch(e.target.value)}
-                      className="w-full bg-bg-secondary border border-white/10 rounded-lg py-2 pl-9 pr-3 text-xs focus:outline-none focus:border-accent-blue"
+                      autoComplete="off"
+                      className="w-full bg-bg-secondary border border-white/10 rounded-lg py-2 pl-9 pr-3 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2 focus-visible:ring-offset-bg-secondary focus:border-accent-blue"
                     />
                     {networkModelSearch && (
-                      <button onClick={() => setNetworkModelSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary">
-                        <X size={12} />
+                      <button
+                        type="button"
+                        onClick={() => setNetworkModelSearch('')}
+                        aria-label="Clear search"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-text-secondary hover:text-text-primary focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2 focus-visible:ring-offset-bg-secondary"
+                      >
+                        <X size={12} aria-hidden />
                       </button>
                     )}
                   </div>
@@ -688,11 +702,13 @@ export const DeveloperView: React.FC = () => {
                                   <Cpu size={12} className="text-accent-emerald flex-shrink-0" />
                                   <span className="text-sm font-medium text-text-primary font-mono">{model.Model}</span>
                                   <button
+                                    type="button"
                                     onClick={() => copyCell(`model-${model.Pipeline}-${model.Model}`, model.Model)}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-text-secondary hover:text-text-primary"
+                                    className="rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2 focus-visible:ring-offset-bg-secondary"
                                     title="Copy model name"
+                                    aria-label={`Copy model name ${model.Model}`}
                                   >
-                                    {copiedCell === `model-${model.Pipeline}-${model.Model}` ? <Check size={12} className="text-accent-emerald" /> : <Copy size={12} />}
+                                    {copiedCell === `model-${model.Pipeline}-${model.Model}` ? <Check size={12} className="text-accent-emerald" aria-hidden /> : <Copy size={12} aria-hidden />}
                                   </button>
                                 </div>
                               </td>
@@ -700,11 +716,13 @@ export const DeveloperView: React.FC = () => {
                                 <div className="flex items-center gap-1.5 group">
                                   <Badge variant="secondary">{model.Pipeline}</Badge>
                                   <button
+                                    type="button"
                                     onClick={() => copyCell(`pipeline-${model.Pipeline}-${model.Model}`, model.Pipeline)}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-text-secondary hover:text-text-primary"
+                                    className="rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2 focus-visible:ring-offset-bg-secondary"
                                     title="Copy pipeline name"
+                                    aria-label={`Copy pipeline name ${model.Pipeline}`}
                                   >
-                                    {copiedCell === `pipeline-${model.Pipeline}-${model.Model}` ? <Check size={12} className="text-accent-emerald" /> : <Copy size={12} />}
+                                    {copiedCell === `pipeline-${model.Pipeline}-${model.Model}` ? <Check size={12} className="text-accent-emerald" aria-hidden /> : <Copy size={12} aria-hidden />}
                                   </button>
                                 </div>
                               </td>
