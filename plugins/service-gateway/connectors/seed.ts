@@ -15,10 +15,10 @@
 import type { PrismaClient, Prisma } from '../../../packages/database/src/generated/client/index.js';
 import { loadConnectorTemplates } from './loader.js';
 
-const GLOBAL_CONNECTOR_SLUGS = new Set(['livepeer-leaderboard', 'clickhouse']);
+const GLOBAL_CONNECTOR_SLUGS = new Set(['livepeer-naap-api', 'clickhouse']);
 
-function leaderboardGatewayOriginFromEnv(): string | null {
-  const full = process.env.LEADERBOARD_API_URL?.trim();
+function naapApiGatewayOriginFromEnv(): string | null {
+  const full = process.env.NAAP_API_SERVER_URL?.trim();
   if (!full) return null;
   return full.replace(/\/+$/, '');
 }
@@ -90,8 +90,8 @@ export async function seedPublicConnectors(
     } else {
       created++;
       const upstreamBaseUrl =
-        slug === 'livepeer-leaderboard'
-          ? leaderboardGatewayOriginFromEnv() ?? conn.upstreamBaseUrl
+        slug === 'livepeer-naap-api'
+          ? naapApiGatewayOriginFromEnv() ?? conn.upstreamBaseUrl
           : slug === 'clickhouse'
             ? clickhouseUpstreamBaseFromEnv() ?? conn.upstreamBaseUrl
             : conn.upstreamBaseUrl;

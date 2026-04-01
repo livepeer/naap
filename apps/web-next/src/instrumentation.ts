@@ -49,25 +49,30 @@ export async function register() {
       console.warn(`[naap] Warning: ${warning}`);
     }
 
-    // Pre-warm leaderboard caches so the first dashboard request is instant.
+    // Pre-warm NAAP API caches so the first dashboard request is instant.
     // `register()` completes before Next.js serves any request, so awaiting
     // here guarantees no user ever hits a cold in-process cache.
-    const { warmDashboardCaches, LEADERBOARD_CACHE_TTLS } = await import(
+    const { warmDashboardCaches, NAAP_API_CACHE_TTLS } = await import(
       '@/lib/dashboard/raw-data'
     );
+    const { warmNetworkData } = await import('@/lib/facade/network-data');
 
     try {
-      const warmResult = await warmDashboardCaches();
-      console.log('[naap] Leaderboard cache warmed on startup:', warmResult);
+      const [warmResult, networkResult] = await Promise.all([
+        warmDashboardCaches(),
+        warmNetworkData(),
+      ]);
+      console.log('[naap] NAAP API cache warmed on startup:', warmResult);
+      console.log('[naap] Network data cache warmed on startup:', networkResult);
     } catch (err) {
       console.warn('[naap] Startup cache warm failed (non-fatal):', err);
     }
 
     // Re-warm in the background at 90% of the TTL so the cache never expires.
-    const rewarmMs = Math.max(LEADERBOARD_CACHE_TTLS.demand, LEADERBOARD_CACHE_TTLS.sla) * 900;
+    const rewarmMs = Math.max(NAAP_API_CACHE_TTLS.demand, NAAP_API_CACHE_TTLS.sla) * 900;
     setInterval(() => {
-      warmDashboardCaches()
-        .then((r) => console.log('[naap] Background cache re-warm:', r))
+      Promise.all([warmDashboardCaches(), warmNetworkData()])
+        .then(([r, n]) => console.log('[naap] Background cache re-warm:', r, n))
         .catch((err) => console.warn('[naap] Background re-warm failed:', err));
     }, rewarmMs);
   }

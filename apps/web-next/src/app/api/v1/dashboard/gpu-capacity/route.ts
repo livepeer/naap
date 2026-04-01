@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveGPUCapacity } from '@/lib/dashboard/resolvers';
+import { getDashboardGPUCapacity } from '@/lib/facade';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;
-  const timeframeStr = params.get('timeframe') ?? undefined;
-  const timeframe = timeframeStr != null ? parseInt(timeframeStr, 10) : undefined;
+  const timeframe = params.get('timeframe') ?? undefined;
 
   try {
-    const result = await resolveGPUCapacity({ timeframe });
+    const result = await getDashboardGPUCapacity({ timeframe });
     return NextResponse.json(result);
   } catch (err) {
     console.error('[dashboard/gpu-capacity] error:', err);

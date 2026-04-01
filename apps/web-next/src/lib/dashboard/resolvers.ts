@@ -28,8 +28,8 @@ import { createPublicClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
 
 import {
-  clampLeaderboardLookbackHours,
-  DASHBOARD_LEADERBOARD_MAX_HOURS,
+  clampLookbackHours,
+  DASHBOARD_MAX_HOURS,
   getRawDemandRows,
   getRawSLARows,
   getRawGPUMetricsRows,
@@ -53,14 +53,14 @@ import { buildContiguousDemandHourlyBuckets } from './hourly-buckets.js';
 // Timeframe parsing
 // ---------------------------------------------------------------------------
 
-/** Sub-24h increments; must not exceed {@link DASHBOARD_LEADERBOARD_MAX_HOURS}. */
+/** Sub-24h increments; must not exceed {@link DASHBOARD_MAX_HOURS}. */
 const VALID_TIMEFRAMES = [1, 6, 12, 18, 24] as const;
 type TimeframeHours = (typeof VALID_TIMEFRAMES)[number];
 
 function parseTimeframe(input?: string | number): TimeframeHours {
   const hours = typeof input === 'string' ? parseInt(input, 10) : input;
   if (hours && VALID_TIMEFRAMES.includes(hours as TimeframeHours)) return hours as TimeframeHours;
-  return DASHBOARD_LEADERBOARD_MAX_HOURS;
+  return DASHBOARD_MAX_HOURS;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +167,7 @@ export async function resolveKPI({ timeframe }: { timeframe?: string | number })
   const totalFeesEth = demandRows.reduce((s, r) => s + (r.ticket_face_value_eth || 0), 0);
 
   // Per-hour breakdowns: contiguous UTC hours ending at the latest bucket in the
-  // leaderboard response (missing hours are zero-filled so the chart has a full window).
+  // NAAP API response (missing hours are zero-filled so the chart has a full window).
   const hourlyUsage: HourlyBucket[] = buildContiguousDemandHourlyBuckets(
     demandRows,
     timeframeHours,
@@ -200,7 +200,7 @@ export async function resolvePipelines({ limit = 5, timeframe }: { limit?: numbe
   const timeframeHours = parseTimeframe(timeframe);
 
   // Demand rows carry the real total_minutes + sessions_count used by the
-  // Usage KPI card. The leaderboard API currently puts the constraint name
+  // Usage KPI card. The NAAP API currently puts the constraint name
   // (e.g. "streamdiffusion-sdxl") in `model_id` while `pipeline_id` is empty,
   // so we key on whichever is non-empty: model_id first, then pipeline_id.
   const demand = await getRawDemandRows(timeframeHours);
@@ -252,7 +252,7 @@ export async function resolveGPUCapacity(_opts: { timeframe?: string | number } 
 // ---------------------------------------------------------------------------
 
 export async function resolveOrchestrators({
-  period = `${DASHBOARD_LEADERBOARD_MAX_HOURS}h`,
+  period = `${DASHBOARD_MAX_HOURS}h`,
 }: { period?: string } = {}): Promise<DashboardOrchestrator[]> {
   // Parse period string like "24h" → 24, or plain "24" → 24
   let periodHours: number;
@@ -261,12 +261,12 @@ export async function resolveOrchestrators({
   } else if (/^\d+$/.test(period)) {
     periodHours = parseInt(period, 10);
   } else {
-    periodHours = DASHBOARD_LEADERBOARD_MAX_HOURS;
+    periodHours = DASHBOARD_MAX_HOURS;
   }
   if (!Number.isFinite(periodHours) || periodHours <= 0) {
-    periodHours = DASHBOARD_LEADERBOARD_MAX_HOURS;
+    periodHours = DASHBOARD_MAX_HOURS;
   }
-  periodHours = Math.min(periodHours, DASHBOARD_LEADERBOARD_MAX_HOURS);
+  periodHours = Math.min(periodHours, DASHBOARD_MAX_HOURS);
 
   const rows = await getRawSLARows(periodHours);
 
@@ -703,7 +703,7 @@ function parseWindowHours(window?: string): number | undefined {
 export async function resolveRawNetworkDemand(filters: NetworkDemandFilters): Promise<RawNetworkDemandRow[]> {
   const windowHours = filters.window ? parseWindowHours(filters.window) : undefined;
   let rows = await getRawDemandRows(
-    windowHours != null ? clampLeaderboardLookbackHours(windowHours) : undefined
+    windowHours != null ? clampLookbackHours(windowHours) : undefined
   );
 
   if (filters.gateway) {
@@ -725,7 +725,7 @@ export async function resolveRawNetworkDemand(filters: NetworkDemandFilters): Pr
 export async function resolveRawGPUMetrics(filters: GPUMetricsFilters): Promise<RawGPUMetricRow[]> {
   const windowHours = filters.window ? parseWindowHours(filters.window) : undefined;
   let rows = await getRawGPUMetricsRows(
-    windowHours != null ? clampLeaderboardLookbackHours(windowHours) : undefined
+    windowHours != null ? clampLookbackHours(windowHours) : undefined
   );
 
   if (filters.orchestratorAddress) {
@@ -760,7 +760,7 @@ export async function resolveRawGPUMetrics(filters: GPUMetricsFilters): Promise<
 export async function resolveRawSLACompliance(filters: SLAComplianceFilters): Promise<RawSLAComplianceRow[]> {
   const windowHours = filters.window ? parseWindowHours(filters.window) : undefined;
   let rows = await getRawSLARows(
-    windowHours != null ? clampLeaderboardLookbackHours(windowHours) : undefined
+    windowHours != null ? clampLookbackHours(windowHours) : undefined
   );
 
   if (filters.orchestratorAddress) {

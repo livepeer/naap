@@ -3,7 +3,7 @@
   "name": "intelligent-dashboard",
   "displayName": "Intelligent Dashboard",
   "version": "1.0.0",
-  "description": "AI-powered analytics dashboard — ask questions in natural language and get interactive visualizations powered by Gemini and the Livepeer Leaderboard",
+  "description": "AI-powered analytics dashboard — ask questions in natural language and get interactive visualizations powered by Gemini and the Livepeer NAAP API",
   "category": "example",
   "author": {
     "name": "NAAP Examples",

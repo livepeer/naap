@@ -171,11 +171,15 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
 
   type PipelinePricing {
     pipeline: String!
+    """Model name within the pipeline (e.g. "stabilityai/stable-diffusion-xl-base-1.0")."""
+    model: String
     unit: String!
     price: Float!
     """Average pixelsPerUnit for this capability (billing step size in pixels)."""
     pixelsPerUnit: Float
     outputPerDollar: String!
+    """Total capacity (warm + cold orchestrators) for this pipeline+model from /net/models."""
+    capacity: Int
   }
 
   type PipelineModelOffer {
@@ -421,11 +425,15 @@ export interface DashboardGPUCapacity {
 /** Pipeline pricing entry */
 export interface DashboardPipelinePricing {
   pipeline: string;
+  /** Model name within the pipeline (e.g. "stabilityai/stable-diffusion-xl-base-1.0") */
+  model?: string;
   unit: string;
   price: number;
   /** Weighted avg pixelsPerUnit from capabilities_prices (pixel block size for price). */
   pixelsPerUnit?: number | null;
   outputPerDollar: string;
+  /** Total capacity (warm + cold orchestrators) for this pipeline+model from /net/models. */
+  capacity?: number;
 }
 
 /** Per-pipeline model(s) offered by an orchestrator (from SLA rows). */

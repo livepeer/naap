@@ -1,31 +1,31 @@
 {
   "$schema": "./connector-template.schema.json",
-  "id": "livepeer-leaderboard",
-  "name": "Livepeer AI Leaderboard",
-  "description": "Orchestrator performance leaderboard for Livepeer AI pipelines (text-to-image, LLM, live-video-to-video)",
+  "id": "livepeer-naap-api",
+  "name": "Livepeer NAAP API",
+  "description": "Orchestrator performance data for Livepeer AI pipelines (text-to-image, LLM, live-video-to-video)",
   "icon": "🏆",
   "category": "video",
   "connector": {
-    "slug": "livepeer-leaderboard",
-    "displayName": "Livepeer AI Leaderboard",
-    "description": "Orchestrator performance leaderboard for Livepeer AI pipelines (text-to-image, LLM, live-video-to-video)",
+    "slug": "livepeer-naap-api",
+    "displayName": "Livepeer NAAP API",
+    "description": "Orchestrator performance data for Livepeer AI pipelines (text-to-image, LLM, live-video-to-video)",
     "category": "video",
-    "upstreamBaseUrl": "https://naap-api.cloudspe.com/v1",
+    "upstreamBaseUrl": "https://naap-api.livepeer.cloud/v1",
     "defaultTimeout": 15000,
     "healthCheckPath": "/pipelines",
     "authType": "none",
     "authConfig": {},
     "secretRefs": [],
     "streamingEnabled": false,
-    "tags": ["livepeer", "ai", "leaderboard", "orchestrator"]
+    "tags": ["livepeer", "ai", "naap-api", "orchestrator"]
   },
   "endpoints": [
     { "name": "list-pipelines", "description": "List all AI pipelines with their models and regions", "method": "GET", "path": "/pipelines", "upstreamPath": "/pipelines", "rateLimit": 200, "timeout": 5000, "cacheTtl": 300 },
     { "name": "aggregated-stats", "description": "Get aggregated performance scores by pipeline and model", "method": "GET", "path": "/stats", "upstreamPath": "/aggregated_stats", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 },
     { "name": "raw-stats", "description": "Get raw per-run stats for a specific orchestrator", "method": "GET", "path": "/stats/raw", "upstreamPath": "/raw_stats", "rateLimit": 50, "timeout": 15000, "cacheTtl": 30 },
-    { "name": "gpu-metrics", "description": "GPU performance metrics (ClickHouse)", "method": "GET", "path": "/gpu/metrics", "upstreamPath": "/gpu/metrics", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 },
-    { "name": "network-demand", "description": "Network demand and capacity (ClickHouse)", "method": "GET", "path": "/network/demand", "upstreamPath": "/network/demand", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 },
-    { "name": "sla-compliance", "description": "SLA compliance scores (ClickHouse)", "method": "GET", "path": "/sla/compliance", "upstreamPath": "/sla/compliance", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 },
+    { "name": "gpu-metrics", "description": "GPU performance metrics", "method": "GET", "path": "/gpu/metrics", "upstreamPath": "/gpu/metrics", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 },
+    { "name": "network-demand", "description": "Network demand and capacity", "method": "GET", "path": "/network/demand", "upstreamPath": "/network/demand", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 },
+    { "name": "sla-compliance", "description": "SLA compliance scores", "method": "GET", "path": "/sla/compliance", "upstreamPath": "/sla/compliance", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 },
     { "name": "network-models", "description": "List all available AI models across the Livepeer network", "method": "GET", "path": "/net/models", "upstreamPath": "/net/models", "rateLimit": 100, "timeout": 10000, "cacheTtl": 60 }
   ]
 }

@@ -8,11 +8,11 @@
  * endpoint per TTL window (including `next dev`). Concurrent callers within a
  * TTL window share the same cached Promise.
  *
- * TTLs align with the dashboard BFF / leaderboard proxy expectations:
+ * TTLs align with the dashboard BFF / NAAP API proxy expectations:
  *   demand=180s, sla=300s, pipelines=900s (gpu/metrics not fetched — dashboard GPU
  *   inventory uses ClickHouse; see gpu-capacity-clickhouse.ts)
  *
- * Leaderboard `window=` query caps (keep in sync with /api/v1/leaderboard/warm):
+ * NAAP API `window=` query caps (keep in sync with /api/v1/naap-api/warm):
  *   network/demand + sla/compliance: 24h max — pipelines catalog: no window
  */
 
@@ -250,7 +250,7 @@ function parseTotalPages(pagination: { total_pages?: unknown } | undefined): num
   return Math.floor(n);
 }
 
-const LEADERBOARD_CONNECTOR = 'livepeer-leaderboard';
+const NAAP_API_CONNECTOR = 'livepeer-naap-api';
 
 async function fetchAllPages<T>(
   path: string,
@@ -267,7 +267,7 @@ async function fetchAllPages<T>(
   let firstRes: Response;
   try {
     const { response } = await callConnectorInternal({
-      slug: LEADERBOARD_CONNECTOR,
+      slug: NAAP_API_CONNECTOR,
       method: 'GET',
       endpointPath,
       searchParams: new URLSearchParams(params),
@@ -276,7 +276,7 @@ async function fetchAllPages<T>(
     firstRes = response;
   } catch (err) {
     throw new Error(
-      `[dashboard/raw-data] ${path} page 1 request failed via ${LEADERBOARD_CONNECTOR}: ${
+      `[dashboard/raw-data] ${path} page 1 request failed via ${NAAP_API_CONNECTOR}: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
@@ -284,7 +284,7 @@ async function fetchAllPages<T>(
 
   if (!firstRes.ok) {
     throw new Error(
-      `[dashboard/raw-data] ${path} page 1 returned HTTP ${firstRes.status} via ${LEADERBOARD_CONNECTOR}`,
+      `[dashboard/raw-data] ${path} page 1 returned HTTP ${firstRes.status} via ${NAAP_API_CONNECTOR}`,
     );
   }
 
@@ -292,7 +292,7 @@ async function fetchAllPages<T>(
   const firstRows = firstBody[dataKey] as T[] | undefined;
   if (!Array.isArray(firstRows)) {
     throw new Error(
-      `[dashboard/raw-data] ${path} page 1 missing expected "${dataKey}" array via ${LEADERBOARD_CONNECTOR}`,
+      `[dashboard/raw-data] ${path} page 1 missing expected "${dataKey}" array via ${NAAP_API_CONNECTOR}`,
     );
   }
   const totalPages = parseTotalPages(firstBody.pagination as { total_pages?: unknown } | undefined);
@@ -309,7 +309,7 @@ async function fetchAllPages<T>(
       pageParams.set('page', String(page));
       try {
         const { response: res } = await callConnectorInternal({
-          slug: LEADERBOARD_CONNECTOR,
+          slug: NAAP_API_CONNECTOR,
           method: 'GET',
           endpointPath,
           searchParams: pageParams,
@@ -317,20 +317,20 @@ async function fetchAllPages<T>(
         });
         if (!res.ok) {
           throw new Error(
-            `[dashboard/raw-data] ${path} page ${page} returned HTTP ${res.status} via ${LEADERBOARD_CONNECTOR}`,
+            `[dashboard/raw-data] ${path} page ${page} returned HTTP ${res.status} via ${NAAP_API_CONNECTOR}`,
           );
         }
         const body = (await res.json()) as Record<string, unknown>;
         const rows = body[dataKey] as T[] | undefined;
         if (!Array.isArray(rows)) {
           throw new Error(
-            `[dashboard/raw-data] ${path} page ${page} missing expected "${dataKey}" array via ${LEADERBOARD_CONNECTOR}`,
+            `[dashboard/raw-data] ${path} page ${page} missing expected "${dataKey}" array via ${NAAP_API_CONNECTOR}`,
           );
         }
         return rows;
       } catch (err) {
         throw new Error(
-          `[dashboard/raw-data] ${path} page ${page} request failed via ${LEADERBOARD_CONNECTOR}: ${
+          `[dashboard/raw-data] ${path} page ${page} request failed via ${NAAP_API_CONNECTOR}: ${
             err instanceof Error ? err.message : String(err)
           }`,
         );
@@ -347,22 +347,30 @@ async function fetchAllPages<T>(
 // Public fetchers
 // ---------------------------------------------------------------------------
 
-/** Max lookback hours for all leaderboard time-series (demand, SLA, GPU). */
-export const DASHBOARD_LEADERBOARD_MAX_HOURS = 24;
+/** Max lookback hours for all NAAP API time-series (demand, SLA, GPU). */
+export const DASHBOARD_MAX_HOURS = 24;
 
-/** Upstream `window=` string for paginated leaderboard series (must match {@link DASHBOARD_LEADERBOARD_MAX_HOURS}). */
-export const DASHBOARD_LEADERBOARD_WINDOW = `${DASHBOARD_LEADERBOARD_MAX_HOURS}h`;
+/** Upstream `window=` string for paginated NAAP API series (must match {@link DASHBOARD_MAX_HOURS}). */
+export const DASHBOARD_WINDOW = `${DASHBOARD_MAX_HOURS}h`;
 
 /**
- * Clamp lookback hours to [1, {@link DASHBOARD_LEADERBOARD_MAX_HOURS}].
+ * Clamp lookback hours to [1, {@link DASHBOARD_MAX_HOURS}].
  * `undefined` → max hours (dashboard default fetch).
  */
-export function clampLeaderboardLookbackHours(hours?: number): number {
+export function clampLookbackHours(hours?: number): number {
   if (!Number.isFinite(hours) || hours == null || hours <= 0) {
-    return DASHBOARD_LEADERBOARD_MAX_HOURS;
+    return DASHBOARD_MAX_HOURS;
   }
-  return Math.min(Math.max(Math.floor(hours), 1), DASHBOARD_LEADERBOARD_MAX_HOURS);
+  return Math.min(Math.max(Math.floor(hours), 1), DASHBOARD_MAX_HOURS);
 }
+
+// Backward-compat aliases — remove once all consumers are updated
+/** @deprecated Use {@link DASHBOARD_MAX_HOURS} */
+export const DASHBOARD_LEADERBOARD_MAX_HOURS = DASHBOARD_MAX_HOURS;
+/** @deprecated Use {@link DASHBOARD_WINDOW} */
+export const DASHBOARD_LEADERBOARD_WINDOW = DASHBOARD_WINDOW;
+/** @deprecated Use {@link clampLookbackHours} */
+export const clampLeaderboardLookbackHours = clampLookbackHours;
 
 function filterRowsByWindowStart<T extends { window_start: string }>(
   rows: T[],
@@ -386,46 +394,46 @@ function filterRowsByWindowStart<T extends { window_start: string }>(
 }
 
 /**
- * Fetch demand rows for a leaderboard lookback window.
+ * Fetch demand rows for a NAAP API lookback window.
  *
  * Always fetches the max 24h window from upstream (single cache key) and
  * filters in memory for sub-windows. This means switching from 12h → 6h
  * is an instant cache hit rather than a separate upstream round-trip.
  */
 export function getRawDemandRows(lookbackHours?: number): Promise<NetworkDemandRow[]> {
-  const h = clampLeaderboardLookbackHours(lookbackHours);
-  return cachedFetch(`demand:${DASHBOARD_LEADERBOARD_MAX_HOURS}h`, DEMAND_TTL * 1000, () =>
+  const h = clampLookbackHours(lookbackHours);
+  return cachedFetch(`demand:${DASHBOARD_MAX_HOURS}h`, DEMAND_TTL * 1000, () =>
     fetchAllPages<NetworkDemandRow>(
       'network/demand',
       'demand',
-      new URLSearchParams({ window: DASHBOARD_LEADERBOARD_WINDOW }),
+      new URLSearchParams({ window: DASHBOARD_WINDOW }),
     ).then((r) => r.rows)
   ).then(rows =>
-    h >= DASHBOARD_LEADERBOARD_MAX_HOURS ? rows : filterRowsByWindowStart(rows, h)
+    h >= DASHBOARD_MAX_HOURS ? rows : filterRowsByWindowStart(rows, h)
   );
 }
 
 /**
- * Fetch SLA rows for a leaderboard lookback window.
+ * Fetch SLA rows for a NAAP API lookback window.
  *
  * Same max-window strategy as {@link getRawDemandRows}: always fetch 24h,
  * filter in memory for shorter timeframes.
  */
 export function getRawSLARows(lookbackHours?: number): Promise<SLAComplianceRow[]> {
-  const h = clampLeaderboardLookbackHours(lookbackHours);
-  return cachedFetch(`sla:${DASHBOARD_LEADERBOARD_MAX_HOURS}h`, SLA_TTL * 1000, () =>
+  const h = clampLookbackHours(lookbackHours);
+  return cachedFetch(`sla:${DASHBOARD_MAX_HOURS}h`, SLA_TTL * 1000, () =>
     fetchAllPages<SLAComplianceRow>(
       'sla/compliance',
       'compliance',
-      new URLSearchParams({ window: DASHBOARD_LEADERBOARD_WINDOW }),
+      new URLSearchParams({ window: DASHBOARD_WINDOW }),
     ).then((r) => r.rows)
   ).then(rows =>
-    h >= DASHBOARD_LEADERBOARD_MAX_HOURS ? rows : filterRowsByWindowStart(rows, h)
+    h >= DASHBOARD_MAX_HOURS ? rows : filterRowsByWindowStart(rows, h)
   );
 }
 
 /**
- * Leaderboard `gpu/metrics` is not fetched: GPU inventory for the dashboard
+ * NAAP API `gpu/metrics` is not fetched: GPU inventory for the dashboard
  * comes from ClickHouse (`gpu-capacity-clickhouse.ts`). This returns an empty
  * array so raw-metrics API consumers get a stable, no-upstream shape.
  */
@@ -438,14 +446,14 @@ export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
   return cachedFetch('pipelines', PIPELINES_TTL * 1000, async () => {
     const t0 = Date.now();
     const { response: res } = await callConnectorInternal({
-      slug: LEADERBOARD_CONNECTOR,
+      slug: NAAP_API_CONNECTOR,
       method: 'GET',
       endpointPath: '/pipelines',
       timeout: 60_000,
     });
     if (!res.ok) {
       throw new Error(
-        `[dashboard/raw-data] /pipelines returned HTTP ${res.status} via ${LEADERBOARD_CONNECTOR}`,
+        `[dashboard/raw-data] /pipelines returned HTTP ${res.status} via ${NAAP_API_CONNECTOR}`,
       );
     }
     const body = (await res.json()) as { pipelines?: unknown[] } | unknown[];
@@ -456,7 +464,7 @@ export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
         : null;
     if (!rawRows) {
       throw new Error(
-        `[dashboard/raw-data] /pipelines missing expected "pipelines" array via ${LEADERBOARD_CONNECTOR}`,
+        `[dashboard/raw-data] /pipelines missing expected "pipelines" array via ${NAAP_API_CONNECTOR}`,
       );
     }
     const pipelines = normalizePipelineCatalog(rawRows);
@@ -465,26 +473,28 @@ export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
   });
 }
 
-/** TTL seconds per leaderboard endpoint — used by instrumentation re-warm interval. */
-export const LEADERBOARD_CACHE_TTLS = {
+/** TTL seconds per NAAP API endpoint — used by instrumentation re-warm interval. */
+export const NAAP_API_CACHE_TTLS = {
   demand: DEMAND_TTL,
   sla: SLA_TTL,
   gpu: GPU_TTL,
   pipelines: PIPELINES_TTL,
 } as const;
+/** @deprecated Use {@link NAAP_API_CACHE_TTLS} */
+export const LEADERBOARD_CACHE_TTLS = NAAP_API_CACHE_TTLS;
 
 // ---------------------------------------------------------------------------
 // Unified cache warmer
 // ---------------------------------------------------------------------------
 
 /**
- * Pre-populate the in-process mem cache for all leaderboard-backed dashboard
+ * Pre-populate the in-process mem cache for all NAAP API-backed dashboard
  * inputs. Uses the same getters as the resolvers so cache keys match exactly.
  *
  * Called from:
  *   - `instrumentation.ts` at server startup (awaited — first user is guaranteed warm)
  *   - background `setInterval` to keep the cache fresh
- *   - `GET /api/v1/leaderboard/warm` (Vercel cron)
+ *   - `GET /api/v1/naap-api/warm` (Vercel cron)
  */
 export async function warmDashboardCaches(): Promise<{
   demand: { rows: number };

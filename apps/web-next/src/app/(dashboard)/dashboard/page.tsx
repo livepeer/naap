@@ -58,13 +58,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { PIPELINE_DISPLAY } from '@/lib/dashboard/pipeline-config';
+import { PIPELINE_DISPLAY, PIPELINE_COLOR, DEFAULT_PIPELINE_COLOR } from '@/lib/dashboard/pipeline-config';
 // ============================================================================
 // GraphQL Query — the ONLY place data requirements are declared
 // ============================================================================
 
-const LEADERBOARD_QUERY = /* GraphQL */ `
-  query LeaderboardData($timeframe: String) {
+const NAAP_API_QUERY = /* GraphQL */ `
+  query NaapApiData($timeframe: String) {
     kpi(timeframe: $timeframe) {
       successRate { value delta }
       orchestratorsOnline { value delta }
@@ -101,7 +101,7 @@ const REALTIME_QUERY = /* GraphQL */ `
       pipelineGPUs { name gpus models { model gpus } }
     }
     pricing {
-      pipeline unit price pixelsPerUnit outputPerDollar
+      pipeline model unit price pixelsPerUnit outputPerDollar capacity
     }
   }
 `;
@@ -126,12 +126,12 @@ const FEES_OVERVIEW_QUERY = /* GraphQL */ `
 `;
 
 /**
- * Leaderboard-backed queries (KPI, pipelines, orchestrators) go through
- * upstream pagination with a configurable timeout (LEADERBOARD_PROXY_TIMEOUT_MS,
- * default 60 s). 70 s gives headroom so the client outlasts a slow upstream
+ * NAAP API queries (KPI, pipelines, orchestrators) go through
+ * upstream pagination with a configurable timeout (NAAP_API_PROXY_TIMEOUT_MS,
+ * default 60 s). 25 s gives headroom so the client outlasts a slow upstream
  * round-trip. With 1 hr TTLs most requests are cache hits.
  */
-const LEADERBOARD_QUERY_TIMEOUT_MS = 25_000;
+const NAAP_API_QUERY_TIMEOUT_MS = 25_000;
 
 /** ClickHouse + The Graph queries are fast; 15 s is generous. */
 const REALTIME_QUERY_TIMEOUT_MS = 15_000;
@@ -673,46 +673,14 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
 function PipelinesCard({
   data,
   catalog,
+  pricing,
   timeframeHours,
 }: {
   data: DashboardPipelineUsage[];
-  catalog?: DashboardPipelineCatalogEntry[] | null;
+  catalog: DashboardPipelineCatalogEntry[];
+  pricing: DashboardPipelinePricing[];
   timeframeHours: number;
 }) {
-  const mergedPipelines = useMemo(() => {
-    const usageByName = new Map(data.filter((p) => p.name?.trim()).map((p) => [p.name, p]));
-    const result: Array<DashboardPipelineUsage & { models?: string[] }> = [];
-
-    for (const p of data.filter((p) => p.name?.trim())) {
-      const catalogEntry = catalog?.find((c) => c.name === p.name || c.id === p.name);
-      result.push({
-        ...p,
-        models: catalogEntry?.models,
-      });
-    }
-
-    if (catalog) {
-      for (const c of catalog) {
-        if (!usageByName.has(c.name) && !usageByName.has(c.id)) {
-          result.push({
-            name: c.name,
-            mins: 0,
-            sessions: 0,
-            avgFps: 0,
-            color: '#6366f1',
-            models: c.models,
-          });
-        }
-      }
-    }
-
-    return result;
-  }, [data, catalog]);
-
-  const activePipelines = mergedPipelines.filter((p) => p.mins > 0);
-  const availablePipelines = mergedPipelines.filter((p) => p.mins === 0);
-  const [availableExpanded, setAvailableExpanded] = useState(false);
-
   return (
     <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
       <div className="flex items-center gap-2 mb-4 shrink-0">
@@ -723,98 +691,89 @@ function PipelinesCard({
           Pipelines ({formatTimeframeLabel(timeframeHours).toUpperCase()})
         </span>
       </div>
-      <div className="flex-1 min-h-0 flex flex-col justify-between gap-3">
-        <table className="w-full text-xs shrink-0">
-          <thead>
-            <tr className="text-[10px] text-muted-foreground uppercase tracking-wider">
-              <th className="pb-2 font-medium text-left">Pipeline</th>
-              <th className="pb-2 font-medium text-right">Mins</th>
-              <th className="pb-2 font-medium text-right">FPS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {activePipelines.map((p) => (
-              <tr key={p.name} className="border-b border-border/50 last:border-0">
-                <td className="py-1.5 pr-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: p.color ?? '#8b5cf6', opacity: 0.9 }}
-                      aria-hidden="true"
-                    />
-                    <span className="font-medium text-foreground truncate" title={p.name}>
-                      {p.name}
-                    </span>
-                  </div>
-                </td>
-                <td className="py-1.5 text-right font-mono text-foreground">
-                  {formatNumber(p.mins)}
-                </td>
-                <td className="py-1.5 text-right font-mono text-foreground">
-                  {(p.avgFps ?? 0) > 0 ? p.avgFps : '—'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
 
-        {availablePipelines.length > 0 ? (
-          <div className="shrink-0 pt-2 border-t border-border/50">
-            <button
-              type="button"
-              onClick={() => setAvailableExpanded((v) => !v)}
-              className="w-full flex items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:text-muted-foreground transition-colors group"
-              aria-expanded={availableExpanded}
-            >
-              <span>Available (no demand in {formatTimeframeLabel(timeframeHours)})</span>
-              <span className="transition-transform group-hover:opacity-100">
-                {availableExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              </span>
-            </button>
-            {availableExpanded && (
-              <table className="w-full text-xs mt-1.5">
-                <tbody>
-                  {availablePipelines.map((p) => (
-                    <tr key={p.name} className="border-b border-border/50 last:border-0">
-                      <td className="py-1.5 pr-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span
-                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: p.color ?? '#6366f1', opacity: 0.5 }}
-                            aria-hidden="true"
-                          />
-                          <span
-                            className={
-                              p.name === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID
-                                ? 'font-mono text-muted-foreground truncate'
-                                : 'font-medium text-muted-foreground truncate'
-                            }
-                            title={p.name}
-                          >
-                            {p.name}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-1.5 text-right font-mono text-muted-foreground/50">0</td>
-                      <td className="py-1.5 text-right font-mono text-muted-foreground/50">—</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        ) : null}
-      </div>
+      {catalog.length === 0 ? (
+        <p className="text-xs text-muted-foreground py-4 text-center">No pipeline data available</p>
+      ) : (
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
+          {catalog.map((entry) => {
+            const color = PIPELINE_COLOR[entry.id] ?? DEFAULT_PIPELINE_COLOR;
+            return (
+              <div key={entry.id}>
+                {/* Pipeline section header */}
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: color }}
+                    aria-hidden="true"
+                  />
+                  <span className="text-xs font-semibold text-foreground">{entry.name}</span>
+                </div>
+
+                {entry.models.length === 0 ? (
+                  <p className="text-[10px] text-muted-foreground pl-4">No models</p>
+                ) : (
+                  <table className="w-full text-[11px]">
+                    <thead>
+                      <tr className="text-[10px] text-muted-foreground uppercase tracking-wider border-b border-border/40">
+                        <th className="pb-1 font-medium text-left pl-4">Model</th>
+                        <th className="pb-1 font-medium text-right">Capacity</th>
+                        <th className="pb-1 font-medium text-right">Price</th>
+                        <th className="pb-1 font-medium text-right">FPS</th>
+                        <th className="pb-1 font-medium text-right">Mins</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entry.models.map((model) => {
+                        const p = pricing.find((x) => x.pipeline === entry.id && x.model === model);
+                        const pipelineUsage = data.find((d) => d.name === entry.id);
+                        const modelUsage = pipelineUsage?.modelMins?.find((m) => m.model === model);
+                        const fps = modelUsage?.avgFps ?? pipelineUsage?.avgFps ?? 0;
+                        const mins = modelUsage?.mins ?? 0;
+                        const priceStr = p && p.price > 0
+                          ? `${formatNumber(Math.round(p.price * 1e12))} wei/${p.unit}`
+                          : '—';
+                        return (
+                          <tr key={model} className="border-b border-border/30 last:border-0">
+                            <td className="py-1 pl-4 pr-2">
+                              <span
+                                className="font-mono break-all"
+                                style={{ color }}
+                              >
+                                {model}
+                              </span>
+                            </td>
+                            <td className="py-1 text-right font-mono text-foreground">
+                              {p?.capacity ?? '—'}
+                            </td>
+                            <td className="py-1 text-right font-mono text-muted-foreground">
+                              {priceStr}
+                            </td>
+                            <td className="py-1 text-right font-mono text-muted-foreground">
+                              {fps > 0 ? fps.toFixed(1) : '—'}
+                            </td>
+                            <td className="py-1 text-right font-mono text-muted-foreground">
+                              {mins > 0 ? formatNumber(Math.round(mins)) : '0'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
 function GPUCapacityCard({ data, timeframeHours }: { data: DashboardGPUCapacity; timeframeHours: number }) {
-  const [pipelinesExpanded, setPipelinesExpanded] = useState(true);
-
   return (
     <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
-      <div className="flex items-center gap-2 mb-3 shrink-0">
+      <div className="flex items-center gap-2 mb-4 shrink-0">
         <div className="p-1 rounded-md bg-muted text-muted-foreground">
           <Cpu className="w-3.5 h-3.5" />
         </div>
@@ -822,61 +781,52 @@ function GPUCapacityCard({ data, timeframeHours }: { data: DashboardGPUCapacity;
           Network GPUs ({formatTimeframeLabel(timeframeHours)})
         </span>
       </div>
-      <div className="flex items-baseline gap-2">
-        <span className="text-3xl font-semibold font-mono text-foreground">{data.totalGPUs}</span>
-        <span className="text-sm text-muted-foreground">total GPUs</span>
-      </div>
-      <div className="flex items-center gap-3 text-[10px] font-mono text-muted-foreground mb-4">
-        <span className="text-emerald-400">{data.activeGPUs} active</span>
-        <span className="text-muted-foreground/60">{data.totalGPUs - data.activeGPUs} idle</span>
-      </div>
 
-      {data.pipelineGPUs && data.pipelineGPUs.length > 0 && (
-        <div>
-          <button
-            type="button"
-            onClick={() => setPipelinesExpanded((v) => !v)}
-            className="w-full flex items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:text-muted-foreground transition-colors group mb-2"
-            aria-expanded={pipelinesExpanded}
-          >
-            <span>By Pipeline</span>
-            <span className="transition-transform group-hover:opacity-100">
-              {pipelinesExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            </span>
-          </button>
-          {pipelinesExpanded && (
-            <div className="space-y-2">
-              {data.pipelineGPUs.map((p) => (
-                <div key={p.name} className="rounded border border-border/60 overflow-hidden">
-                  <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-muted/20">
-                    <div
-                      className={
-                        p.name === LIVE_VIDEO_TO_VIDEO_PIPELINE_ID
-                          ? 'text-xs font-mono text-muted-foreground truncate'
-                          : 'text-xs font-medium text-foreground truncate'
-                      }
-                      title={p.name}
-                    >
-                      {p.name}
-                    </div>
-                    <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">
-                      {formatNumber(p.gpus)} GPUs
+      {data.pipelineGPUs.length === 0 ? (
+        <p className="text-xs text-muted-foreground py-4 text-center">No GPU data available</p>
+      ) : (
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
+          {data.pipelineGPUs.map((p) => {
+            const color = PIPELINE_COLOR[p.name] ?? DEFAULT_PIPELINE_COLOR;
+            const displayName = PIPELINE_DISPLAY[p.name] ?? p.name;
+            return (
+              <div key={p.name}>
+                {/* Pipeline section header */}
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: color }}
+                      aria-hidden="true"
+                    />
+                    <span className="text-xs font-semibold text-foreground truncate" title={p.name}>
+                      {displayName}
                     </span>
                   </div>
-                  {p.models && p.models.length > 0 && (
-                    <div className="px-2 py-1 space-y-0.5 border-t border-border/40">
-                      {p.models.map((m) => (
-                        <div key={m.model} className="flex items-center justify-between text-[10px]">
-                          <span className="text-muted-foreground pr-2 font-mono break-all">{m.model}</span>
-                          <span className="font-mono text-foreground flex-shrink-0">{formatNumber(m.gpus)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">
+                    {formatNumber(p.gpus)} GPUs
+                  </span>
                 </div>
-              ))}
-            </div>
-          )}
+
+                {p.models && p.models.length > 0 && (
+                  <table className="w-full text-[11px]">
+                    <tbody>
+                      {p.models.map((m) => (
+                        <tr key={m.model} className="border-b border-border/30 last:border-0">
+                          <td className="py-1 pl-4 pr-2">
+                            <span className="font-mono break-all text-muted-foreground">{m.model}</span>
+                          </td>
+                          <td className="py-1 text-right font-mono text-foreground flex-shrink-0 whitespace-nowrap">
+                            {formatNumber(m.gpus)} GPU{m.gpus !== 1 ? 's' : ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -965,8 +915,8 @@ function JobFeedCard({
   };
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border">
-      <div className="flex items-center justify-between mb-4">
+    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
+      <div className="flex items-center justify-between mb-4 shrink-0">
         <div className="flex items-center gap-2">
           <div className="p-1 rounded-md bg-muted text-emerald-400">
             <Zap className="w-3.5 h-3.5" />
@@ -983,7 +933,7 @@ function JobFeedCard({
           )}
         </div>
       </div>
-      <div className="overflow-x-auto max-h-72 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto">
         {jobs.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-center px-2">
             <Radio className="w-5 h-5 text-muted-foreground/30 mb-2" />
@@ -1045,7 +995,12 @@ function JobFeedCard({
                         {modelLabel}
                       </span>
                     ) : (
-                      <span className="text-muted-foreground">—</span>
+                      <span
+                        className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium max-w-[200px] truncate ${modelBadgeColor(pipelineLabel)}`}
+                        title={pipelineLabel}
+                      >
+                        {pipelineLabel}
+                      </span>
                     )}
                   </td>
                   <td className="py-2 text-right font-mono text-foreground">
@@ -1063,77 +1018,6 @@ function JobFeedCard({
                   </td>
                 </tr>
               )})}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PricingCard({ data }: { data: DashboardPipelinePricing[] }) {
-  return (
-    <div className="p-4 rounded-lg bg-card border border-border h-full">
-      <div className="flex items-center gap-2 mb-4">
-        <div className="p-1 rounded-md bg-muted text-muted-foreground">
-          <Coins className="w-3.5 h-3.5" />
-        </div>
-        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Pipeline Unit Cost</span>
-      </div>
-      <div className="overflow-hidden">
-        {data.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-6 text-center">
-            No capability pricing in the sampled window (configure ClickHouse env or check data).
-          </p>
-        ) : (
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-muted-foreground border-b border-border">
-                <th className="text-left pb-2 font-medium">Model</th>
-                <th className="text-right pb-2 font-medium">
-                  <div>Avg price (wei)</div>
-                  <div className="text-[9px] font-normal normal-case tracking-normal text-muted-foreground/80 max-w-[140px] ml-auto">
-                    wei / unit of pixels
-                  </div>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((p) => {
-                const pxUnit = p.pixelsPerUnit != null && p.pixelsPerUnit > 0 ? p.pixelsPerUnit : null;
-                const perPixel = pxUnit != null && p.price > 0 ? p.price / pxUnit : null;
-                const pixelLabel =
-                  pxUnit != null && Number.isFinite(pxUnit)
-                    ? pxUnit === 1
-                      ? 'pixel'
-                      : 'pixels'
-                    : null;
-                const pipelineId = p.unit;
-                const pipelineLabel = PIPELINE_DISPLAY[pipelineId] ?? pipelineId;
-                return (
-                  <tr key={`${p.pipeline}:${p.unit}`} className="border-b border-border/50 last:border-0">
-                    <td className="py-2">
-                      <span
-                        className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono break-all max-w-[200px] ${modelBadgeColor(p.pipeline)}`}
-                        title={pipelineLabel}
-                      >
-                        {p.pipeline}
-                      </span>
-                    </td>
-                    <td className="py-2 text-right align-top">
-                      <div className="font-mono text-foreground">
-                        {formatPlainNumber(p.price)}{' '}
-                        <span className="text-[10px] text-muted-foreground font-sans">wei</span>
-                      </div>
-                      {perPixel != null && Number.isFinite(perPixel) && pxUnit != null && pixelLabel ? (
-                        <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                          {formatPlainNumber(perPixel)} wei / {formatPlainNumber(pxUnit)} {pixelLabel}
-                        </div>
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })}
             </tbody>
           </table>
         )}
@@ -1497,9 +1381,9 @@ export default function DashboardPage() {
     refreshing: lbRefreshing,
     error: lbError,
   } = useDashboardQuery<Pick<DashboardData, 'kpi' | 'pipelines' | 'pipelineCatalog' | 'orchestrators'>>(
-    LEADERBOARD_QUERY,
+    NAAP_API_QUERY,
     { timeframe },
-    { timeout: LEADERBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
+    { timeout: NAAP_API_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
 
   const {
@@ -1516,7 +1400,7 @@ export default function DashboardPage() {
   const { data: feesData, loading: feesLoading, refreshing: feesRefreshing, error: feesError } = useDashboardQuery<Pick<DashboardData, 'fees'>>(
     FEES_OVERVIEW_QUERY,
     undefined,
-    { timeout: LEADERBOARD_QUERY_TIMEOUT_MS, skip: !prefsReady }
+    { timeout: NAAP_API_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
 
   const { jobs, connected: jobFeedConnected, feedMeta: jobFeedMeta } = useJobFeedStream({
@@ -1560,7 +1444,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Row 1: KPI tiles (leaderboard) */}
+      {/* Row 1: KPI tiles (NAAP API) */}
       <section className="space-y-3">
         <h2 className="text-sm font-medium text-muted-foreground">Network Metrics</h2>
         {lbData?.kpi ? (
@@ -1576,55 +1460,47 @@ export default function DashboardPage() {
         )}
       </section>
 
-      {/* Row 2: Protocol, Fees, Pipelines, GPU Capacity */}
+      {/* Row 2: Protocol, Fees, Network GPUs (GPU spans 2 cols) */}
       <section className="space-y-3">
-        <div
-          className="grid gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0"
-          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
-        >
-          {rtData?.protocol
-            ? (
-              <RefreshWrap refreshing={rtRefreshing} className="h-full min-h-0 flex flex-col">
-                <ProtocolCard data={rtData.protocol} />
-              </RefreshWrap>
-            )
-            : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
-          {feesData?.fees
-            ? (
-              <RefreshWrap refreshing={feesRefreshing} className="h-full min-h-0 flex flex-col">
-                <FeesCard data={feesData.fees} />
-              </RefreshWrap>
-            )
-            : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
-          {lbData?.pipelines
-            ? (
-              <RefreshWrap refreshing={lbRefreshing} className="h-full min-h-0 flex flex-col">
-                <PipelinesCard
-                  data={lbData.pipelines}
-                  catalog={lbData.pipelineCatalog}
-                  timeframeHours={lbData.kpi?.timeframeHours ?? 12}
-                />
-              </RefreshWrap>
-            )
-            : lbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
-          {rtData?.gpuCapacity
-            ? (
-              <RefreshWrap refreshing={rtRefreshing} className="h-full min-h-0 flex flex-col">
-                <GPUCapacityCard
-                  data={rtData.gpuCapacity}
-                  timeframeHours={lbData?.kpi?.timeframeHours ?? 12}
-                />
-              </RefreshWrap>
-            )
-            : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="GPU Capacity" />}
+        <div className="grid grid-cols-4 gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0">
+          <div className="col-span-1">
+            {rtData?.protocol
+              ? (
+                <RefreshWrap refreshing={rtRefreshing} className="h-full min-h-0 flex flex-col">
+                  <ProtocolCard data={rtData.protocol} />
+                </RefreshWrap>
+              )
+              : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
+          </div>
+          <div className="col-span-1">
+            {feesData?.fees
+              ? (
+                <RefreshWrap refreshing={feesRefreshing} className="h-full min-h-0 flex flex-col">
+                  <FeesCard data={feesData.fees} />
+                </RefreshWrap>
+              )
+              : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
+          </div>
+          <div className="col-span-2">
+            {rtData?.gpuCapacity
+              ? (
+                <RefreshWrap refreshing={rtRefreshing} className="h-full min-h-0 flex flex-col">
+                  <GPUCapacityCard
+                    data={rtData.gpuCapacity}
+                    timeframeHours={lbData?.kpi?.timeframeHours ?? 12}
+                  />
+                </RefreshWrap>
+              )
+              : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="GPU Capacity" />}
+          </div>
         </div>
       </section>
 
-      {/* Row 3: Live Job Feed & Pipeline Unit Cost */}
+      {/* Row 3: Live Job Feed & Pipelines */}
       <section className="space-y-3">
         <div
           className="grid gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0"
-          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gridAutoRows: '600px' }}
         >
           <JobFeedCard
             jobs={jobs}
@@ -1633,13 +1509,22 @@ export default function DashboardPage() {
             onPollIntervalChange={handleJobFeedPollIntervalChange}
             feedMeta={jobFeedMeta}
           />
-          {rtData?.pricing != null
-            ? <RefreshWrap refreshing={rtRefreshing} className="h-full"><PricingCard data={rtData.pricing} /></RefreshWrap>
-            : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pricing" />}
+          {lbData?.pipelineCatalog != null
+            ? (
+              <RefreshWrap refreshing={lbRefreshing || rtRefreshing} className="h-full min-h-0 flex flex-col">
+                <PipelinesCard
+                  data={lbData.pipelines ?? []}
+                  catalog={lbData.pipelineCatalog}
+                  pricing={rtData?.pricing ?? []}
+                  timeframeHours={lbData.kpi?.timeframeHours ?? 12}
+                />
+              </RefreshWrap>
+            )
+            : lbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
         </div>
       </section>
 
-      {/* Row 4: Orchestrators table (leaderboard) */}
+      {/* Row 4: Orchestrators table (NAAP API) */}
       {lbData?.orchestrators ? (
         <section>
           <RefreshWrap refreshing={lbRefreshing}>

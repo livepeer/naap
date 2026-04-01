@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { resolvePipelines } from '@/lib/dashboard/resolvers';
+import { getDashboardPipelines } from '@/lib/facade';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -11,7 +11,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const limit = limitStr != null ? parseInt(limitStr, 10) : 5;
 
   try {
-    const result = await resolvePipelines({ timeframe, limit });
+    const result = await getDashboardPipelines({ timeframe, limit });
     return NextResponse.json(result);
   } catch (err) {
     console.error('[dashboard/pipelines] error:', err);

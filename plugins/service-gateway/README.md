@@ -41,7 +41,7 @@ graph LR
     G[Service Gateway]
     D[Daydream API]
     GM[Gemini API]
-    LB[Livepeer AI Leaderboard API]
+    LB[Livepeer NAAP API]
     DB[(Gateway Config + Usage DB)]
 
     U --> S
@@ -132,13 +132,13 @@ sequenceDiagram
 
 ---
 
-## Example 2: Intelligent analytics with Gemini + AI Leaderboard
+## Example 2: Intelligent analytics with Gemini + NAAP API
 
 This pattern powers an agentic dashboard where LLM reasoning and network metrics are composed through one gateway.
 
 ### Connectors
 - `gemini`: intent parsing, reasoning, summarization.
-- `livepeer-leaderboard`: orchestrator/model performance data.
+- `livepeer-naap-api`: orchestrator/model performance data.
 
 ### Orchestration diagram
 
@@ -148,15 +148,15 @@ sequenceDiagram
     participant P as Intelligent Dashboard Plugin
     participant GW as Service Gateway
     participant G as Gemini API
-    participant L as Livepeer AI Leaderboard API
+    participant L as Livepeer NAAP API
 
     U->>P: "Who is fastest for FLUX?"
     P->>GW: /api/v1/gw/gemini/... (analyze intent)
     GW->>G: LLM request
     G-->>GW: tool/query intent
     GW-->>P: tool parameters
-    P->>GW: /api/v1/gw/livepeer-leaderboard/... (fetch metrics)
-    GW->>L: leaderboard query
+    P->>GW: /api/v1/gw/livepeer-naap-api/... (fetch metrics)
+    GW->>L: naap-api query
     L-->>GW: stats payload
     GW-->>P: structured data
     P->>GW: /api/v1/gw/gemini/... (final narrative)

@@ -1,11 +1,11 @@
 /**
- * Leaderboard API Hook
+ * NAAP API Hook
  *
- * Calls the Livepeer Leaderboard connector through the Service Gateway proxy.
+ * Calls the Livepeer NAAP API connector through the Service Gateway proxy.
  * Endpoints:
- *   GET /api/v1/gw/livepeer-leaderboard/pipelines
- *   GET /api/v1/gw/livepeer-leaderboard/stats?pipeline=...&model=...
- *   GET /api/v1/gw/livepeer-leaderboard/stats/raw?pipeline=...&model=...&orchestrator=...
+ *   GET /api/v1/gw/livepeer-naap-api/pipelines
+ *   GET /api/v1/gw/livepeer-naap-api/stats?pipeline=...&model=...
+ *   GET /api/v1/gw/livepeer-naap-api/stats/raw?pipeline=...&model=...&orchestrator=...
  * Auth: JWT (injected by useApiClient)
  */
 
@@ -19,7 +19,7 @@ import type {
   RawStatsResponse,
 } from '../types';
 
-const GW_PROXY_BASE = '/api/v1/gw/livepeer-leaderboard';
+const GW_PROXY_BASE = '/api/v1/gw/livepeer-naap-api';
 
 function unwrap<T>(sdkResponse: unknown): T {
   const apiRes = sdkResponse as { data: unknown };
@@ -33,7 +33,7 @@ function unwrap<T>(sdkResponse: unknown): T {
   return body as T;
 }
 
-export function useLeaderboardApi() {
+export function useNaapApi() {
   const shellOrigin = useMemo(
     () => (typeof window !== 'undefined' ? window.location.origin : ''),
     [],

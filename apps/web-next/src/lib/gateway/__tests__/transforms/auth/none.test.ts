@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { noneAuth } from '../../../transforms/auth/none';
-import { leaderboardUrlForAuthTests } from '../../test-urls';
+import { naapApiUrlForAuthTests } from '../../test-urls';
 
 describe('none auth strategy', () => {
   it('does not modify headers', () => {
@@ -10,7 +10,7 @@ describe('none auth strategy', () => {
       authConfig: {},
       secrets: {},
       method: 'GET',
-      url: leaderboardUrlForAuthTests(),
+      url: naapApiUrlForAuthTests(),
     });
     expect(headers.get('Authorization')).toBeNull();
   });
