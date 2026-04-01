@@ -918,6 +918,15 @@ _detect_changed_plugins() {
 }
 
 ensure_plugins_built() {
+  # Always ensure @naap/plugin-sdk is freshly built before checking plugin bundles.
+  # This is more aggressive than bin/build-plugins.sh (which only checks for dist/),
+  # but for local dev we prefer freshness over minimal work. Nx caching keeps this fast.
+  log_info "Building @naap/plugin-sdk (required before plugin UMD/CDN builds)..."
+  (cd "$ROOT_DIR" && npx nx build @naap/plugin-sdk) || {
+    log_error "@naap/plugin-sdk build failed — plugin frontend builds may be out of date."
+    exit 1
+  }
+
   # Clean up stale static CDN bundles that shadow the dynamic CDN route handler.
   # public/cdn/ is only needed for Vercel static serving (created by vercel-build.sh).
   # If it exists locally, Next.js serves its stale files before reaching the API route.
