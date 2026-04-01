@@ -67,27 +67,27 @@ function pipelinesRowCapacity(
   model: string,
   pricingRow: DashboardPipelinePricing | undefined,
   netCapacity: Record<string, number>,
+  liveVideoCapacity: Record<string, number>,
 ): number | '—' {
-  const key = `${pipelineId}:${model}`;
   if (pipelineId === LIVE_VIDEO_PIPELINE_ID) {
-    const fromPricing = pricingRow?.capacity;
-    if (fromPricing != null && fromPricing >= 0) return fromPricing;
-    const fromNet = netCapacity[key];
-    if (fromNet != null && fromNet >= 0) return fromNet;
+    const fromDaydream = liveVideoCapacity[model];
+    if (fromDaydream != null && fromDaydream >= 0) return fromDaydream;
     return '—';
   }
+  const key = `${pipelineId}:${model}`;
   const fromNet = netCapacity[key];
   if (fromNet != null && fromNet >= 0) return fromNet;
   const fallback = pricingRow?.capacity;
   return fallback != null && fallback >= 0 ? fallback : '—';
 }
 
-/** When false, every catalog model can show capacity from merged pricing alone (no /net/capacity fetch). */
+/** When false, every non-daydream catalog model can show capacity from merged pricing alone (no /net/capacity fetch). */
 function catalogNeedsNetCapacityFetch(
   catalog: DashboardPipelineCatalogEntry[],
   pricing: DashboardPipelinePricing[],
 ): boolean {
   for (const entry of catalog) {
+    if (entry.id === LIVE_VIDEO_PIPELINE_ID) continue;
     for (const model of entry.models) {
       const p = pricing.find((x) => x.pipeline === entry.id && x.model === model);
       if (!p || p.capacity == null) return true;
@@ -607,6 +607,7 @@ function PipelinesCard({
   catalog,
   pricing,
   netCapacity,
+  liveVideoCapacity,
   modelFpsByPipelineModel,
   timeframeHours,
 }: {
@@ -614,9 +615,20 @@ function PipelinesCard({
   catalog: DashboardPipelineCatalogEntry[];
   pricing: DashboardPipelinePricing[];
   netCapacity: Record<string, number>;
+  liveVideoCapacity: Record<string, number>;
   modelFpsByPipelineModel: Record<string, number>;
   timeframeHours: number;
 }) {
+  const sortedCatalog = useMemo(
+    () =>
+      [...catalog].sort((a, b) => {
+        const aUsage = data.find((d) => d.name === a.id);
+        const bUsage = data.find((d) => d.name === b.id);
+        return (bUsage?.mins ?? 0) - (aUsage?.mins ?? 0);
+      }),
+    [catalog, data],
+  );
+
   return (
     <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
       <div className="flex items-center gap-2 mb-4 shrink-0">
@@ -628,11 +640,11 @@ function PipelinesCard({
         </span>
       </div>
 
-      {catalog.length === 0 ? (
+      {sortedCatalog.length === 0 ? (
         <p className="text-xs text-muted-foreground py-4 text-center">No pipeline data available</p>
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
-          {catalog.map((entry) => {
+          {sortedCatalog.map((entry) => {
             const color = PIPELINE_COLOR[entry.id] ?? DEFAULT_PIPELINE_COLOR;
             return (
               <div key={entry.id}>
@@ -676,7 +688,7 @@ function PipelinesCard({
                         const priceStr = p && p.price > 0
                           ? `${formatNumber(Math.round(p.price * 1e12))} wei/${p.unit}`
                           : '—';
-                        const cap = pipelinesRowCapacity(entry.id, model, p, netCapacity);
+                        const cap = pipelinesRowCapacity(entry.id, model, p, netCapacity, liveVideoCapacity);
                         return (
                           <tr key={model} className="border-b border-border/30 last:border-0">
                             <td className="py-1 pl-4 pr-2">
@@ -1379,8 +1391,10 @@ export default function DashboardPage() {
   const [timeframe, setTimeframe] = useState(DEFAULT_TIMEFRAME);
   const [prefsReady, setPrefsReady] = useState(false);
   const [netCapacity, setNetCapacity] = useState<Record<string, number>>({});
+  const [liveVideoCapacity, setLiveVideoCapacity] = useState<Record<string, number>>({});
   const [modelFpsByPipelineModel, setModelFpsByPipelineModel] = useState<Record<string, number>>({});
   const netCapacityFetchAttempted = useRef(false);
+  const liveVideoCapacityModelsRef = useRef<string>('');
 
   useEffect(() => {
     setJobFeedPollInterval(getStoredJobFeedPollInterval());
@@ -1456,6 +1470,31 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, [prefsReady, rtLoading, lbLoading, lbData?.pipelineCatalog, rtData?.pricing]);
+
+  useEffect(() => {
+    if (!prefsReady) return;
+    const catalog = lbData?.pipelineCatalog;
+    if (!catalog?.length) return;
+
+    const liveVideoEntry = catalog.find((e) => e.id === LIVE_VIDEO_PIPELINE_ID);
+    if (!liveVideoEntry?.models.length) return;
+
+    const modelsKey = [...liveVideoEntry.models].sort().join(',');
+    if (liveVideoCapacityModelsRef.current === modelsKey) return;
+    liveVideoCapacityModelsRef.current = modelsKey;
+
+    let cancelled = false;
+    fetch(`/api/v1/network/live-video-capacity?models=${encodeURIComponent(liveVideoEntry.models.join(','))}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { capacityByModel?: Record<string, number> } | null) => {
+        if (cancelled || !body?.capacityByModel || typeof body.capacityByModel !== 'object') return;
+        setLiveVideoCapacity(body.capacityByModel);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [prefsReady, lbData?.pipelineCatalog]);
 
   useEffect(() => {
     if (!prefsReady) return;
@@ -1560,6 +1599,7 @@ export default function DashboardPage() {
                 catalog={lbData.pipelineCatalog}
                 pricing={rtData?.pricing ?? []}
                 netCapacity={netCapacity}
+                liveVideoCapacity={liveVideoCapacity}
                 modelFpsByPipelineModel={modelFpsByPipelineModel}
                 timeframeHours={lbData.kpi?.timeframeHours ?? 12}
               />

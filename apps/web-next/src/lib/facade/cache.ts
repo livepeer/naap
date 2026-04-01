@@ -43,4 +43,6 @@ export const TTL = {
   NETWORK_MODELS: 60,
   /** Shared raw /v1/net/models cache — used by network-models resolver */
   NET_MODELS: 300,
+  /** api.daydream.live /v1/capacity per-model idle container count */
+  DAYDREAM_CAPACITY: 60,
 } as const;

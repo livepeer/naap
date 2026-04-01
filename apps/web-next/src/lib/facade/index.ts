@@ -38,6 +38,7 @@ import { resolvePricing } from './resolvers/pricing.js';
 import { resolveNetworkModels } from './resolvers/network-models.js';
 import { resolveNetCapacity } from './resolvers/net-capacity';
 import { resolvePerfByModel } from './resolvers/perf-by-model';
+import { resolveDaydreamCapacity } from './resolvers/daydream-capacity';
 import { resolveProtocol } from './resolvers/protocol.js';
 import { resolveFees } from './resolvers/fees.js';
 import { resolveJobFeed } from './resolvers/job-feed.js';
@@ -132,4 +133,13 @@ export async function getPerfByModel(opts: {
 }): Promise<Record<string, number>> {
   if (USE_STUBS) return {};
   return resolvePerfByModel(opts);
+}
+
+// ---------------------------------------------------------------------------
+// Live-video-to-video capacity — api.daydream.live backed
+// ---------------------------------------------------------------------------
+
+export async function getLiveVideoCapacity(models: string[]): Promise<Record<string, number>> {
+  if (USE_STUBS) return {};
+  return resolveDaydreamCapacity(models);
 }

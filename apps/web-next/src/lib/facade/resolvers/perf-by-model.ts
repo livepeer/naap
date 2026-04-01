@@ -5,23 +5,13 @@
  * `${pipeline}:${model}` -> AvgFPS.
  */
 
-import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
 import { cachedFetch, TTL } from '../cache.js';
+import { naapGet } from '../naap-get.js';
 
 interface PerfByModelRow {
   ModelID?: string;
   Pipeline?: string;
   AvgFPS?: number;
-}
-
-async function naapGet<T>(path: string, params: Record<string, string>): Promise<T> {
-  const url = new URL(naapApiUpstreamUrl(path));
-  for (const [k, v] of Object.entries(params)) {
-    url.searchParams.set(k, v);
-  }
-  const res = await fetch(url.toString(), { next: { revalidate: 60 } });
-  if (!res.ok) throw new Error(`[facade/perf-by-model] ${path} returned HTTP ${res.status}`);
-  return res.json() as Promise<T>;
 }
 
 export async function resolvePerfByModel(opts: {
@@ -30,7 +20,8 @@ export async function resolvePerfByModel(opts: {
 }): Promise<Record<string, number>> {
   const start = opts.start.trim();
   const end = opts.end.trim();
-  const cacheKey = `facade:perf-by-model:${start}:${end}`;
+  // Round to minute precision so nearby requests share the same cache entry.
+  const cacheKey = `facade:perf-by-model:${start.slice(0, 16)}:${end.slice(0, 16)}`;
 
   return cachedFetch(cacheKey, TTL.PIPELINES * 1000, async () => {
     const rows = await naapGet<PerfByModelRow[]>('perf/by-model', { start, end });

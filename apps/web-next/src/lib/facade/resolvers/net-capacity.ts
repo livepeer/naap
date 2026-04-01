@@ -5,8 +5,8 @@
  * `${pipeline}:${modelId}` → summed WarmOrchCount.
  */
 
-import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
 import { cachedFetch, TTL } from '../cache.js';
+import { naapGet } from '../naap-get.js';
 
 interface NetCapacityEntry {
   Pipeline?: string;
@@ -17,12 +17,6 @@ interface NetCapacityEntry {
 interface NetCapacityResponse {
   SnapshotTime?: string;
   Entries?: NetCapacityEntry[];
-}
-
-async function naapGet<T>(path: string): Promise<T> {
-  const res = await fetch(naapApiUpstreamUrl(path), { next: { revalidate: 60 } });
-  if (!res.ok) throw new Error(`[facade/net-capacity] ${path} returned HTTP ${res.status}`);
-  return res.json() as Promise<T>;
 }
 
 function aggregateEntries(entries: NetCapacityEntry[]): Record<string, number> {

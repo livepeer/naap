@@ -10,6 +10,7 @@ import {
   type DashboardKPI,
   type HourlyBucket,
   type DashboardPipelineUsage,
+  type DashboardPipelineModelMins,
   type DashboardPipelineCatalogEntry,
   type DashboardGPUCapacity,
   type DashboardOrchestrator,
@@ -195,46 +196,93 @@ export async function resolveKPI({ timeframe }: { timeframe?: string | number })
 // Pipelines resolver
 // ---------------------------------------------------------------------------
 
+/**
+ * Pipeline ID used for live-video-to-video sessions.
+ * The NAAP API sometimes emits these with `pipeline_id` empty and the constraint
+ * name (e.g. "noop", "streamdiffusion-sdxl") in `model_id`. We normalise all
+ * such rows under this parent key so they appear as a single grouped entry
+ * with a per-model breakdown in `modelMins`.
+ */
+const LIVE_VIDEO_PIPELINE_ID = 'live-video-to-video';
+
+/**
+ * model_id values emitted by the NAAP API for live-video-to-video sessions
+ * when `pipeline_id` is absent.  Keep in sync with pipeline-config.ts entries
+ * whose parent pipeline is LIVE_VIDEO_PIPELINE_ID.
+ */
+const LIVE_VIDEO_MODEL_IDS = new Set(['noop', 'streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v']);
+
 export async function resolvePipelines({ limit = 5, timeframe }: { limit?: number; timeframe?: string | number }): Promise<DashboardPipelineUsage[]> {
   const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit as number)) : 5;
   const timeframeHours = parseTimeframe(timeframe);
 
-  // Demand rows carry the real total_minutes + sessions_count used by the
-  // Usage KPI card. The NAAP API currently puts the constraint name
-  // (e.g. "streamdiffusion-sdxl") in `model_id` while `pipeline_id` is empty,
-  // so we key on whichever is non-empty: model_id first, then pipeline_id.
   const demand = await getRawDemandRows(timeframeHours);
 
   type Accum = { mins: number; sessions: number; fpsWeighted: number };
-  const byPipeline = new Map<string, Accum>();
+  type PipelineAccum = Accum & { modelAccums: Map<string, Accum> };
+  const byPipeline = new Map<string, PipelineAccum>();
 
   for (const row of demand) {
-    const key = row.model_id?.trim() || row.pipeline_id?.trim();
-    if (!key || PIPELINE_DISPLAY[key] === null) continue;
+    const rawModel = row.model_id?.trim() || null;
+    const rawPipeline = row.pipeline_id?.trim() || null;
+
+    let pipelineKey: string;
+    let modelKey: string | null = null;
+
+    if (rawPipeline === LIVE_VIDEO_PIPELINE_ID || LIVE_VIDEO_MODEL_IDS.has(rawModel ?? '')) {
+      // Group all live-video-to-video variants under a single pipeline entry.
+      pipelineKey = LIVE_VIDEO_PIPELINE_ID;
+      modelKey = rawModel;
+    } else {
+      // For all other pipelines, use model_id (constraint name) if present,
+      // otherwise fall back to pipeline_id.
+      pipelineKey = rawModel || rawPipeline || '';
+      if (!pipelineKey || PIPELINE_DISPLAY[pipelineKey] === null) continue;
+    }
+
     const mins = row.total_minutes ?? 0;
     const sessionsCt = row.sessions_count ?? 0;
     if (mins <= 0 && sessionsCt <= 0) continue;
 
-    let acc = byPipeline.get(key);
-    if (!acc) {
-      acc = { mins: 0, sessions: 0, fpsWeighted: 0 };
-      byPipeline.set(key, acc);
+    if (!byPipeline.has(pipelineKey)) {
+      byPipeline.set(pipelineKey, { mins: 0, sessions: 0, fpsWeighted: 0, modelAccums: new Map() });
     }
+    const acc = byPipeline.get(pipelineKey)!;
     acc.mins += mins;
     acc.sessions += sessionsCt;
-    if (sessionsCt > 0) {
-      acc.fpsWeighted += (row.avg_output_fps ?? 0) * sessionsCt;
+    if (sessionsCt > 0) acc.fpsWeighted += (row.avg_output_fps ?? 0) * sessionsCt;
+
+    if (modelKey) {
+      if (!acc.modelAccums.has(modelKey)) {
+        acc.modelAccums.set(modelKey, { mins: 0, sessions: 0, fpsWeighted: 0 });
+      }
+      const mAcc = acc.modelAccums.get(modelKey)!;
+      mAcc.mins += mins;
+      mAcc.sessions += sessionsCt;
+      if (sessionsCt > 0) mAcc.fpsWeighted += (row.avg_output_fps ?? 0) * sessionsCt;
     }
   }
 
   return [...byPipeline.entries()]
-    .map(([pipelineId, acc]) => ({
-      name: pipelineId,
-      mins: Math.round(acc.mins),
-      sessions: acc.sessions,
-      avgFps: acc.sessions > 0 ? Math.round((acc.fpsWeighted / acc.sessions) * 10) / 10 : 0,
-      color: PIPELINE_COLOR[pipelineId] ?? DEFAULT_PIPELINE_COLOR,
-    }))
+    .map(([pipelineId, acc]): DashboardPipelineUsage => {
+      const modelMins: DashboardPipelineModelMins[] = [...acc.modelAccums.entries()]
+        .map(([model, m]) => ({
+          model,
+          mins: Math.round(m.mins),
+          sessions: m.sessions,
+          avgFps: m.sessions > 0 ? Math.round((m.fpsWeighted / m.sessions) * 10) / 10 : 0,
+        }))
+        .sort((a, b) => b.mins - a.mins);
+
+      return {
+        name: pipelineId,
+        mins: Math.round(acc.mins),
+        sessions: acc.sessions,
+        avgFps: acc.sessions > 0 ? Math.round((acc.fpsWeighted / acc.sessions) * 10) / 10 : 0,
+        color: PIPELINE_COLOR[pipelineId] ?? DEFAULT_PIPELINE_COLOR,
+        ...(modelMins.length > 0 ? { modelMins } : {}),
+      };
+    })
     .sort((a, b) => b.mins - a.mins)
     .slice(0, safeLimit);
 }
