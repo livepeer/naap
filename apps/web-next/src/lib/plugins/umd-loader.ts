@@ -289,12 +289,15 @@ function loadScript(url: string, timeout: number): Promise<void> {
 /**
  * Loads a stylesheet
  */
-function loadStylesheet(url: string): Promise<void> {
+// Map from stylesheet URL to <link> element for cleanup
+const loadedStylesheets = new Map<string, HTMLLinkElement>();
+
+function loadStylesheet(url: string): Promise<HTMLLinkElement> {
   return new Promise((resolve, reject) => {
     // Check if stylesheet is already loaded
     const existingLink = document.querySelector(`link[href="${url}"]`);
     if (existingLink) {
-      resolve();
+      resolve(existingLink as HTMLLinkElement);
       return;
     }
 
@@ -304,11 +307,22 @@ function loadStylesheet(url: string): Promise<void> {
     link.href = url;
     link.crossOrigin = 'anonymous';
 
-    link.onload = () => resolve();
+    link.onload = () => {
+      loadedStylesheets.set(url, link);
+      resolve(link);
+    };
     link.onerror = () => reject(new Error(`Failed to load stylesheet: ${url}`));
 
     document.head.appendChild(link);
   });
+}
+
+function removeStylesheet(url: string): void {
+  const link = loadedStylesheets.get(url) || document.querySelector(`link[href="${url}"]`);
+  if (link && link.parentNode) {
+    link.parentNode.removeChild(link);
+    loadedStylesheets.delete(url);
+  }
 }
 
 /**
@@ -449,6 +463,8 @@ export async function loadUMDPlugin(options: UMDLoadOptions): Promise<LoadedUMDP
           console.warn(`Failed to load plugin styles: ${err.message}`);
         });
       }
+// Export for cleanup in PluginLoader
+export { removeStylesheet };
 
       onProgress?.(0.3);
 

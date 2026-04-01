@@ -15,6 +15,7 @@ import {
   mountUMDPlugin,
   isUMDPluginCached,
   clearUMDPluginCache,
+  removeStylesheet,
   type LoadedUMDPlugin,
   type UMDLoadOptions,
 } from '@/lib/plugins/umd-loader';
@@ -103,6 +104,8 @@ export function PluginLoader({
 }: PluginLoaderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  // Track the stylesheet URL for cleanup
+  const loadedStylesheetUrl = useRef<string | undefined>(undefined);
   const mountedRef = useRef(false);
 
   const [status, setStatus] = useState<PluginLoadStatus>('idle');
@@ -164,6 +167,12 @@ export function PluginLoader({
       };
 
       const loaded = await loadUMDPlugin(options);
+      // Track stylesheet for cleanup
+      if (plugin.stylesUrl) {
+        loadedStylesheetUrl.current = plugin.stylesUrl;
+      } else {
+        loadedStylesheetUrl.current = undefined;
+      }
 
       // Get shell from ref (current value, not stale closure)
       const currentShell = shellRef.current;
@@ -217,6 +226,11 @@ export function PluginLoader({
         cleanupRef.current();
         cleanupRef.current = null;
       }
+      // Remove previous plugin stylesheet if any
+      if (loadedStylesheetUrl.current) {
+        removeStylesheet(loadedStylesheetUrl.current);
+        loadedStylesheetUrl.current = undefined;
+      }
 
       // Verify container is still available (component might have unmounted during async load)
       if (!containerRef.current) {
@@ -253,6 +267,11 @@ export function PluginLoader({
       if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = null;
+      }
+      // Remove plugin stylesheet on unmount
+      if (loadedStylesheetUrl.current) {
+        removeStylesheet(loadedStylesheetUrl.current);
+        loadedStylesheetUrl.current = undefined;
       }
       mountedRef.current = false;
     };
