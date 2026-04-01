@@ -81,7 +81,7 @@ const NAAP_API_QUERY = /* GraphQL */ `
       id name models regions
     }
     orchestrators(period: $timeframe) {
-      address knownSessions successSessions successRatio effectiveSuccessRate noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount
+      address uri knownSessions successSessions successRatio effectiveSuccessRate noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount
     }
   }
 `;
@@ -352,129 +352,23 @@ function HourlySparkline({ data, color = 'var(--color-muted-foreground)' }: { da
   );
 }
 
-function KPICard({
-  icon: Icon,
-  iconColor,
-  label,
-  value,
-  delta,
-  deltaUnit,
-  deltaInvert,
-  suffix,
-  action,
-  tooltip,
-  sparkline,
-  sparklineColor,
-}: {
-  icon: React.ElementType;
-  iconColor: string;
-  label: string;
-  value: string | number;
-  delta: number;
-  deltaUnit?: string;
-  deltaInvert?: boolean;
-  suffix?: string;
-  action?: React.ReactNode;
-  tooltip?: string;
-  sparkline?: HourlyBucket[];
-  sparklineColor?: string;
-}) {
-  return (
-    <div className="p-4 rounded-lg bg-card border border-border hover:border-border/80 transition-colors">
-      <div className="flex items-center gap-2 mb-3">
-        <div className={`p-1 rounded-md ${iconColor}`}>
-          <Icon className="w-3.5 h-3.5" />
-        </div>
-        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
-        {tooltip && (
-          <div className="relative group">
-            <Info className="w-3 h-3 text-muted-foreground/50 cursor-help" />
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-20 pointer-events-none">
-              <div className="bg-popover text-popover-foreground text-[10px] px-2 py-1 rounded shadow-md border border-border whitespace-nowrap max-w-[220px] text-wrap leading-relaxed">
-                {tooltip}
-              </div>
-            </div>
-          </div>
-        )}
-        {action && <div className="ml-auto">{action}</div>}
-      </div>
-      <div className="flex items-end justify-between">
-        <div className="flex items-baseline gap-1">
-          <span className="text-2xl font-semibold text-foreground tracking-tight font-mono">{value}</span>
-          {suffix && <span className="text-xs text-muted-foreground">{suffix}</span>}
-        </div>
-        {/* DeltaBadge removed as we don't have the data for it right now */}
-      </div>
-      <HourlySparkline data={sparkline ?? []} color={sparklineColor} />
-    </div>
-  );
-}
-
 function formatTimeframeLabel(hours: number): string {
   if (hours >= 24 && hours % 24 === 0) return `${hours / 24}d`;
   if (hours === 1) return '1h';
   return `${hours}h`;
 }
 
-function KPIRow({ data }: { data: DashboardKPI }) {
-  const tfLabel = formatTimeframeLabel(data.timeframeHours);
-
-  return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-      <KPICard
-        icon={CheckCircle2}
-        iconColor="bg-muted text-muted-foreground"
-        label={`Success Rate (${tfLabel})`}
-        value={`${data.successRate.value}%`}
-        delta={data.successRate.delta}
-        deltaUnit="% vs prev"
-      />
-      <KPICard
-        icon={Server}
-        iconColor="bg-muted text-muted-foreground"
-        label={`Orchestrators (${tfLabel})`}
-        value={data.orchestratorsOnline.value}
-        delta={data.orchestratorsOnline.delta}
-        deltaUnit=""
-      />
-      <KPICard
-        icon={Clock}
-        iconColor="bg-muted text-muted-foreground"
-        label={`Usage (${tfLabel})`}
-        value={formatNumber(data.dailyUsageMins.value)}
-        delta={data.dailyUsageMins.delta}
-        deltaUnit=" mins"
-        suffix="mins"
-        tooltip="Total transcoding minutes across all pipelines. Sparkline: one bar per UTC hour (full window; gaps in upstream data appear as zero)."
-        sparkline={data.hourlyUsage}
-        sparklineColor="hsl(var(--primary))"
-      />
-      <KPICard
-        icon={Radio}
-        iconColor="bg-muted text-muted-foreground"
-        label={`Sessions (${tfLabel})`}
-        value={data.dailySessionCount.value.toLocaleString()}
-        delta={data.dailySessionCount.delta}
-        deltaUnit=""
-        tooltip="Served + unserved demand sessions (job starts per hour). Sparkline: one bar per UTC hour (full window; gaps in upstream data appear as zero)."
-        sparkline={data.hourlySessions}
-        sparklineColor="hsl(var(--primary))"
-      />
-    </div>
-  );
-}
-
 // ============================================================================
-// Row 2: Protocol, Fees, Pipelines, Capacity
+// Row 2: Protocol, Fees, GPU Capacity, Pipelines
 // ============================================================================
 
-function ProtocolCard({ data }: { data: DashboardProtocol }) {
+function ProtocolCard({ data, className }: { data: DashboardProtocol; className?: string }) {
   const progressPct = data.totalBlocks > 0
     ? Math.round((data.blockProgress / data.totalBlocks) * 100)
     : 0;
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
+    <div className={className ?? 'p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col'}>
       <div className="flex items-center gap-2 mb-4 shrink-0">
         <div className="p-1 rounded-md bg-muted text-muted-foreground">
           <Layers className="w-3.5 h-3.5" />
@@ -510,7 +404,7 @@ function ProtocolCard({ data }: { data: DashboardProtocol }) {
   );
 }
 
-function FeesCard({ data }: { data: DashboardFeesInfo }) {
+function FeesCard({ data, className }: { data: DashboardFeesInfo; className?: string }) {
   const [grouping, setGrouping] = useState<'day' | 'week'>('week');
   const [hovered, setHovered] = useState<{ x: number; y: number } | null>(null);
   const [rawOpen, setRawOpen] = useState(false);
@@ -546,7 +440,7 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
   }, [data.dayData, data.weeklyData, grouping]);
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
+    <div className={className ?? 'p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col'}>
       <div className="flex items-start justify-between mb-3 shrink-0">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -770,6 +664,73 @@ function PipelinesCard({
   );
 }
 
+// Renders 4 KPI tiles in a 2×2 grid inside a single card wrapper.
+function KPIGroupCard({ data }: { data: DashboardKPI }) {
+  const tfLabel = formatTimeframeLabel(data.timeframeHours);
+
+  const tile = (
+    icon: React.ElementType,
+    label: string,
+    value: string | number,
+    suffix?: string,
+    sparkline?: HourlyBucket[],
+    tooltip?: string,
+  ) => {
+    const Icon = icon;
+    return (
+      <div className="flex flex-col p-3 rounded-lg bg-muted/30 border border-border/50">
+        <div className="flex items-center gap-1.5 mb-2">
+          <div className="p-1 rounded-md bg-muted text-muted-foreground">
+            <Icon className="w-3.5 h-3.5" />
+          </div>
+          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
+          {tooltip && (
+            <div className="relative group ml-auto">
+              <Info className="w-3 h-3 text-muted-foreground/50 cursor-help" />
+              <div className="absolute bottom-full right-0 mb-1.5 hidden group-hover:block z-20 pointer-events-none">
+                <div className="bg-popover text-popover-foreground text-[10px] px-2 py-1 rounded shadow-md border border-border max-w-[200px] text-wrap leading-relaxed">
+                  {tooltip}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="flex items-baseline gap-1">
+          <span className="text-2xl font-semibold text-foreground tracking-tight font-mono">{value}</span>
+          {suffix && <span className="text-xs text-muted-foreground">{suffix}</span>}
+        </div>
+        <HourlySparkline data={sparkline ?? []} color="hsl(var(--primary))" />
+      </div>
+    );
+  };
+
+  return (
+    <div className="p-3 rounded-lg bg-card border border-border h-full grid grid-cols-2 gap-3 content-start">
+      {tile(CheckCircle2, `Success Rate (${tfLabel})`, `${data.successRate.value}%`)}
+      {tile(Server, `Orchestrators (${tfLabel})`, data.orchestratorsOnline.value)}
+      {tile(Clock, `Usage (${tfLabel})`, formatNumber(data.dailyUsageMins.value), 'mins', data.hourlyUsage, 'Total transcoding minutes. Sparkline: one bar per UTC hour.')}
+      {tile(Radio, `Sessions (${tfLabel})`, data.dailySessionCount.value.toLocaleString(), undefined, data.hourlySessions, 'Demand sessions. Sparkline: one bar per UTC hour.')}
+    </div>
+  );
+}
+
+// Renders Protocol + Fees stacked inside a single card wrapper.
+function ProtocolFeesCard({
+  protocol,
+  fees,
+}: {
+  protocol: DashboardProtocol;
+  fees: DashboardFeesInfo;
+}) {
+  return (
+    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col gap-4">
+      <ProtocolCard data={protocol} className="flex flex-col shrink-0" />
+      <div className="border-t border-border/50" />
+      <FeesCard data={fees} className="flex flex-col flex-1 min-h-0" />
+    </div>
+  );
+}
+
 function GPUCapacityCard({ data, timeframeHours }: { data: DashboardGPUCapacity; timeframeHours: number }) {
   return (
     <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
@@ -987,21 +948,16 @@ function JobFeedCard({
                   title={rowTooltip}
                 >
                   <td className="py-2">
-                    {modelLabel !== '—' ? (
-                      <span
-                        className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono max-w-[200px] truncate ${modelBadgeColor(modelLabel)}`}
-                        title={pipelineLabel}
-                      >
-                        {modelLabel}
-                      </span>
-                    ) : (
-                      <span
-                        className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium max-w-[200px] truncate ${modelBadgeColor(pipelineLabel)}`}
-                        title={pipelineLabel}
-                      >
+                    <div className="flex flex-col gap-0.5">
+                      <span className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium max-w-[200px] truncate ${modelBadgeColor(pipelineLabel)}`}>
                         {pipelineLabel}
                       </span>
-                    )}
+                      {modelLabel !== '—' && (
+                        <span className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono max-w-[200px] truncate ${modelBadgeColor(modelLabel)}`}>
+                          {modelLabel}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-2 text-right font-mono text-foreground">
                     {job.inputFps != null && job.outputFps != null
@@ -1030,7 +986,7 @@ function JobFeedCard({
 // Orchestrator Table Card
 // ============================================================================
 
-type OrchestratorSortCol = 'address' | 'knownSessions' | 'successRatio' | 'effectiveSuccessRate' | 'slaScore' | 'gpuCount';
+type OrchestratorSortCol = 'uri' | 'knownSessions' | 'successRatio' | 'effectiveSuccessRate' | 'slaScore' | 'gpuCount';
 type SortDir = 'asc' | 'desc';
 
 /** Format pipeline + models for display: "Display name (model1, model2)" using the models this orchestrator offers. */
@@ -1053,6 +1009,11 @@ function OrchestratorTableCard({
   catalog?: DashboardPipelineCatalogEntry[] | null;
 }) {
   const [sortCol, setSortCol] = useState<OrchestratorSortCol>('knownSessions');
+  const formatURI = (uri?: string) => {
+    if (!uri) return '—';
+    const stripped = uri.replace(/^https?:\/\//, '');
+    return stripped.length > 30 ? `${stripped.slice(0, 27)}…` : stripped;
+  };
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [filter, setFilter] = useState('');
 
@@ -1078,6 +1039,7 @@ function OrchestratorTableCard({
       const q = filter.toLowerCase();
       rows = rows.filter((r) => {
         if (r.address.toLowerCase().includes(q)) return true;
+        if (r.uri?.toLowerCase().includes(q)) return true;
         return r.pipelines.some((p) => {
           const offer = r.pipelineModels?.find((o) => o.pipelineId === p);
           const label = formatPipelineLabel(p, catalog, offer?.modelIds);
@@ -1143,17 +1105,17 @@ function OrchestratorTableCard({
           id="orchestrator-filter"
           value={filter}
           onChange={e => setFilter(e.target.value)}
-          placeholder="Filter address / pipeline…"
-          aria-label="Filter orchestrators by address or pipeline"
+          placeholder="Filter URI / pipeline…"
+          aria-label="Filter orchestrators by URI, address, or pipeline"
           className="px-2 py-0.5 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground w-48"
         />
       </div>
 
-      <div className="overflow-x-auto max-h-80 overflow-y-auto">
+      <div className="max-h-[520px] overflow-y-auto">
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-card text-muted-foreground border-b border-border">
             <tr>
-              <TH col="address" label="Address" />
+              <TH col="uri" label="URI" />
               <TH col="knownSessions" label="Sessions" right />
               <TH col="successRatio" label="Startup %" right />
               <TH col="effectiveSuccessRate" label="Effective %" right />
@@ -1165,13 +1127,13 @@ function OrchestratorTableCard({
           <tbody>
             {sorted.map(row => (
               <tr key={row.address} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors">
-                <td className="py-1.5 font-mono text-foreground">{row.address.slice(0, 8)}…{row.address.slice(-4)}</td>
+                <td className="py-1.5 font-mono text-foreground" title={row.uri ?? row.address}>{formatURI(row.uri)}</td>
                 <td className="py-1.5 text-right font-mono">{row.knownSessions.toLocaleString()}</td>
                 <td className="py-1.5 text-right font-mono">{row.successRatio}%</td>
                 <td className="py-1.5 text-right font-mono">{row.effectiveSuccessRate != null ? `${row.effectiveSuccessRate}%` : '—'}</td>
                 <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
                 <td className="py-1.5 pr-5 text-right font-mono">{row.gpuCount}</td>
-                <td className="py-1.5 pl-2 max-w-[280px]">
+                <td className="py-1.5 pl-2 max-w-[180px]">
                   <div className="flex flex-wrap gap-1">
                     {row.pipelines.length === 0 && '—'}
                     {row.pipelines.map((p) => {
@@ -1444,63 +1406,61 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Row 1: KPI tiles (NAAP API) */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-muted-foreground">Network Metrics</h2>
-        {lbData?.kpi ? (
-          <RefreshWrap refreshing={lbRefreshing}>
-            <KPIRow data={lbData.kpi} />
-          </RefreshWrap>
-        ) : (
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-            {lbLoading
-              ? <><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /><WidgetSkeleton /></>
-              : <WidgetUnavailable label="KPI" />}
-          </div>
-        )}
-      </section>
+      {/* Row 1: [KPI 2×2 box] [Protocol + Fees box] */}
+      <section>
+        <div className="grid gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0" style={{ gridTemplateColumns: '3fr 2fr' }}>
+          {lbData?.kpi ? (
+            <RefreshWrap refreshing={lbRefreshing} className="h-full">
+              <KPIGroupCard data={lbData.kpi} />
+            </RefreshWrap>
+          ) : lbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="KPI" />}
 
-      {/* Row 2: Protocol, Fees, Network GPUs (GPU spans 2 cols) */}
-      <section className="space-y-3">
-        <div className="grid grid-cols-4 gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0">
-          <div className="col-span-1">
-            {rtData?.protocol
-              ? (
-                <RefreshWrap refreshing={rtRefreshing} className="h-full min-h-0 flex flex-col">
-                  <ProtocolCard data={rtData.protocol} />
-                </RefreshWrap>
-              )
-              : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
-          </div>
-          <div className="col-span-1">
-            {feesData?.fees
-              ? (
-                <RefreshWrap refreshing={feesRefreshing} className="h-full min-h-0 flex flex-col">
-                  <FeesCard data={feesData.fees} />
-                </RefreshWrap>
-              )
-              : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
-          </div>
-          <div className="col-span-2">
-            {rtData?.gpuCapacity
-              ? (
-                <RefreshWrap refreshing={rtRefreshing} className="h-full min-h-0 flex flex-col">
-                  <GPUCapacityCard
-                    data={rtData.gpuCapacity}
-                    timeframeHours={lbData?.kpi?.timeframeHours ?? 12}
-                  />
-                </RefreshWrap>
-              )
-              : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="GPU Capacity" />}
-          </div>
+          {rtData?.protocol && feesData?.fees ? (
+            <RefreshWrap refreshing={rtRefreshing || feesRefreshing} className="h-full min-h-0 flex flex-col">
+              <ProtocolFeesCard protocol={rtData.protocol} fees={feesData.fees} />
+            </RefreshWrap>
+          ) : (rtLoading || feesLoading) ? <WidgetSkeleton /> : (
+            <div className="flex flex-col gap-3">
+              {rtData?.protocol
+                ? <ProtocolCard data={rtData.protocol} />
+                : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
+              {feesData?.fees
+                ? <FeesCard data={feesData.fees} />
+                : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
+            </div>
+          )}
         </div>
       </section>
 
-      {/* Row 3: Live Job Feed & Pipelines */}
-      <section className="space-y-3">
+      {/* Row 2: [Network GPUs] [Pipelines] */}
+      <section>
+        <div className="grid grid-cols-2 gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0">
+          {rtData?.gpuCapacity ? (
+            <RefreshWrap refreshing={rtRefreshing} className="h-full min-h-0 flex flex-col">
+              <GPUCapacityCard
+                data={rtData.gpuCapacity}
+                timeframeHours={lbData?.kpi?.timeframeHours ?? 12}
+              />
+            </RefreshWrap>
+          ) : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="GPU Capacity" />}
+          {lbData?.pipelineCatalog != null ? (
+            <RefreshWrap refreshing={lbRefreshing || rtRefreshing} className="h-full min-h-0 flex flex-col">
+              <PipelinesCard
+                data={lbData.pipelines ?? []}
+                catalog={lbData.pipelineCatalog}
+                pricing={rtData?.pricing ?? []}
+                timeframeHours={lbData.kpi?.timeframeHours ?? 12}
+              />
+            </RefreshWrap>
+          ) : lbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
+        </div>
+      </section>
+
+      {/* Row 3: [Live Job Feed (narrower)] [Orchestrators table (wider)] */}
+      <section>
         <div
           className="grid gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0"
-          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gridAutoRows: '600px' }}
+          style={{ gridTemplateColumns: '2fr 3fr', gridAutoRows: '600px' }}
         >
           <JobFeedCard
             jobs={jobs}
@@ -1509,31 +1469,13 @@ export default function DashboardPage() {
             onPollIntervalChange={handleJobFeedPollIntervalChange}
             feedMeta={jobFeedMeta}
           />
-          {lbData?.pipelineCatalog != null
-            ? (
-              <RefreshWrap refreshing={lbRefreshing || rtRefreshing} className="h-full min-h-0 flex flex-col">
-                <PipelinesCard
-                  data={lbData.pipelines ?? []}
-                  catalog={lbData.pipelineCatalog}
-                  pricing={rtData?.pricing ?? []}
-                  timeframeHours={lbData.kpi?.timeframeHours ?? 12}
-                />
-              </RefreshWrap>
-            )
-            : lbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
+          {lbData?.orchestrators ? (
+            <RefreshWrap refreshing={lbRefreshing} className="h-full min-h-0 flex flex-col">
+              <OrchestratorTableCard data={lbData.orchestrators} catalog={lbData.pipelineCatalog} />
+            </RefreshWrap>
+          ) : lbLoading ? <WidgetSkeleton className="h-full" /> : null}
         </div>
       </section>
-
-      {/* Row 4: Orchestrators table (NAAP API) */}
-      {lbData?.orchestrators ? (
-        <section>
-          <RefreshWrap refreshing={lbRefreshing}>
-            <OrchestratorTableCard data={lbData.orchestrators} catalog={lbData.pipelineCatalog} />
-          </RefreshWrap>
-        </section>
-      ) : lbLoading ? (
-        <section><WidgetSkeleton className="h-40" /></section>
-      ) : null}
     </div>
   );
 }

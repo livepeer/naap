@@ -28,6 +28,11 @@ interface ApiOrchestrator {
   gpuCount: number;
 }
 
+interface NaapNetOrchestrator {
+  Address: string;
+  URI: string;
+}
+
 async function naapGet<T>(path: string, params: Record<string, string>): Promise<T> {
   const url = new URL(naapApiUpstreamUrl(path));
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -36,15 +41,31 @@ async function naapGet<T>(path: string, params: Record<string, string>): Promise
   return res.json() as Promise<T>;
 }
 
+async function fetchURIMap(): Promise<Map<string, string>> {
+  try {
+    const rows = await naapGet<NaapNetOrchestrator[]>('net/orchestrators', {
+      active_only: 'false',
+      limit: '200',
+    });
+    return new Map(rows.map((r) => [r.Address.toLowerCase(), r.URI]));
+  } catch {
+    return new Map();
+  }
+}
+
 function pct(v: number | null): number | null {
   return v !== null ? Math.round(v * 1000) / 10 : null;
 }
 
 export async function resolveOrchestrators(_opts: { period?: string }): Promise<DashboardOrchestrator[]> {
   return cachedFetch('facade:orchestrators', TTL.ORCHESTRATORS * 1000, async () => {
-    const rows = await naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window: '24h' });
+    const [rows, uriMap] = await Promise.all([
+      naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window: '24h' }),
+      fetchURIMap(),
+    ]);
     return rows.map((r): DashboardOrchestrator => ({
       address: r.address,
+      uri: uriMap.get(r.address.toLowerCase()),
       knownSessions: r.knownSessions,
       successSessions: r.successSessions,
       successRatio: Math.round(r.successRatio * 1000) / 10,
