@@ -1,74 +1,43 @@
 /**
- * Pipelines resolver — NAAP API backed.
+ * Pipelines resolver — NAAP Dashboard API backed.
  *
- * Fetches GET /v1/pipelines and maps rows to DashboardPipelineUsage[].
- *
- * Known limitations (Phase 1):
- *   - mins: 0 — no minutes metric in NAAP API
- *   - modelMins: [] — needs per-pipeline call to /v1/pipelines/{pipeline}
+ * Single call to GET /v1/dashboard/pipelines which returns top N pipelines
+ * pre-aggregated by session count over the last 24 hours, including mins.
  *
  * Source:
- *   GET /v1/pipelines → pipeline usage rows
+ *   GET /v1/dashboard/pipelines?limit=N
  */
 
 import type { DashboardPipelineUsage } from '@naap/plugin-sdk';
 import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
-import {
-  PIPELINE_DISPLAY,
-  PIPELINE_COLOR,
-  DEFAULT_PIPELINE_COLOR,
-} from '@/lib/dashboard/pipeline-config';
+import { PIPELINE_COLOR, DEFAULT_PIPELINE_COLOR } from '@/lib/dashboard/pipeline-config';
 import { cachedFetch, TTL } from '../cache.js';
 
-// ---------------------------------------------------------------------------
-// Raw NAAP API types
-// ---------------------------------------------------------------------------
-
-interface NaapPipelineRow {
-  Pipeline: string;
-  ActiveStreams: number;
-  RequestedCount: number;
-  SuccessRate: number;
-  AvgInferenceFPS: number;
-  TotalPaymentsWEI: string;
-  WarmOrchCount: number;
-  TopOrchAddress: string;
+interface DashboardPipelineRow {
+  name: string;
+  sessions: number;
+  mins: number;
+  avgFps: number;
 }
 
-// ---------------------------------------------------------------------------
-// HTTP helper
-// ---------------------------------------------------------------------------
-
-async function naapGet<T>(path: string): Promise<T> {
-  const url = naapApiUpstreamUrl(path);
-  const res = await fetch(url, { next: { revalidate: 60 } });
+async function naapGet<T>(path: string, params: Record<string, string>): Promise<T> {
+  const url = new URL(naapApiUpstreamUrl(path));
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const res = await fetch(url.toString(), { next: { revalidate: 60 } });
   if (!res.ok) throw new Error(`[facade/pipelines] ${path} returned HTTP ${res.status}`);
   return res.json() as Promise<T>;
 }
 
-// ---------------------------------------------------------------------------
-// Resolver
-// ---------------------------------------------------------------------------
-
-export async function resolvePipelines(opts: {
-  limit?: number;
-}): Promise<DashboardPipelineUsage[]> {
-  return cachedFetch('facade:pipelines', TTL.PIPELINES * 1000, async () => {
-    const rows = await naapGet<NaapPipelineRow[]>('pipelines');
-
-    const filtered = rows
-      .filter((r) => r.Pipeline !== '' && PIPELINE_DISPLAY[r.Pipeline] !== null)
-      .sort((a, b) => b.RequestedCount - a.RequestedCount);
-
-    const limit = opts.limit ?? 5;
-
-    return filtered.slice(0, limit).map((r): DashboardPipelineUsage => ({
-      name: PIPELINE_DISPLAY[r.Pipeline] ?? r.Pipeline,
-      mins: 0, // not available in NAAP API
-      sessions: r.RequestedCount,
-      avgFps: r.AvgInferenceFPS,
-      color: PIPELINE_COLOR[r.Pipeline] ?? DEFAULT_PIPELINE_COLOR,
-      modelMins: [], // needs per-pipeline call — out of scope for Phase 1
+export async function resolvePipelines(opts: { limit?: number }): Promise<DashboardPipelineUsage[]> {
+  const limit = opts.limit ?? 5;
+  return cachedFetch(`facade:pipelines:${limit}`, TTL.PIPELINES * 1000, async () => {
+    const rows = await naapGet<DashboardPipelineRow[]>('dashboard/pipelines', { limit: String(limit) });
+    return rows.map((r): DashboardPipelineUsage => ({
+      name: r.name,
+      sessions: r.sessions,
+      mins: r.mins,
+      avgFps: r.avgFps,
+      color: PIPELINE_COLOR[r.name] ?? DEFAULT_PIPELINE_COLOR,
     }));
   });
 }

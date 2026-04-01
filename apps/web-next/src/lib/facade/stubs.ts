@@ -44,14 +44,18 @@ function daysAgoUnix(n: number) {
 // KPI — derived from real /v1/streams/history + /v1/net/summary patterns
 // ---------------------------------------------------------------------------
 
+// hourlyUsage buckets at ~1140 mins/hour → 24h total ≈ 27 360 mins
+const _hourlyUsage = hourlyBuckets(1_140);
+const _totalUsageMins = _hourlyUsage.reduce((s, b) => s + b.value, 0);
+
 export const kpi: DashboardKPI = {
   successRate: { value: 77.8, delta: -2.1 },
   orchestratorsOnline: { value: 33, delta: 0 },
-  dailyUsageMins: { value: 0, delta: 0 },
+  dailyUsageMins: { value: _totalUsageMins, delta: 3.4 },
   dailySessionCount: { value: 36_456, delta: 5.2 },
   dailyNetworkFeesEth: { value: 0, delta: 0 },
   timeframeHours: 24,
-  hourlyUsage: hourlyBuckets(1_140),
+  hourlyUsage: _hourlyUsage,
   hourlySessions: hourlyBuckets(1_519),
 };
 

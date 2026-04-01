@@ -1,23 +1,29 @@
 /**
- * Pricing resolver — NAAP API backed.
+ * Pricing resolver — NAAP Dashboard API backed.
  *
- * Returns one entry per Pipeline+Model from the shared net/models cache.
- * Each entry represents the avg price for that specific model.
+ * Fetches GET /v1/dashboard/pricing (raw wei-per-unit pricing across active
+ * orchestrators) and converts to human-readable DashboardPipelinePricing[].
  *
- * Price conversion: raw value is in Wei per pixel-equivalent unit.
- * We normalize to a human-readable scale: price = WeiPerUnit / 1e12
+ * Price conversion: price = priceAvgWeiPerUnit / 1e12
+ * outputPerDollar: assumes ETH reference price of $3000
  *
  * Source:
- *   facade/network-data → GET /v1/net/models?limit=200
+ *   GET /v1/dashboard/pricing
  */
 
 import type { DashboardPipelinePricing } from '@naap/plugin-sdk';
-import { PIPELINE_DISPLAY } from '@/lib/dashboard/pipeline-config';
-import { getRawNetModels } from '../network-data.js';
+import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
+import { cachedFetch, TTL } from '../cache.js';
 
-// ---------------------------------------------------------------------------
-// Pipeline unit metadata (for non-pixel pipelines)
-// ---------------------------------------------------------------------------
+interface ApiPipelinePricing {
+  pipeline: string;
+  model: string;
+  orchCount: number;
+  priceMinWeiPerUnit: number;
+  priceMaxWeiPerUnit: number;
+  priceAvgWeiPerUnit: number;
+  pixelsPerUnit: number;
+}
 
 const PIPELINE_UNIT: Record<string, string> = {
   'llm': 'token',
@@ -25,48 +31,39 @@ const PIPELINE_UNIT: Record<string, string> = {
   'text-to-speech': 'second',
 };
 
-// ---------------------------------------------------------------------------
-// Resolver
-// ---------------------------------------------------------------------------
+function computeOutputPerDollar(avgWei: number, unit: string): string {
+  if (avgWei <= 0) return '';
+  const unitsPerDollar = 1e18 / (3000 * avgWei);
+  if (unitsPerDollar >= 1e9) return `~${(unitsPerDollar / 1e9).toFixed(0)}B ${unit}s`;
+  if (unitsPerDollar >= 1e6) return `~${(unitsPerDollar / 1e6).toFixed(0)}M ${unit}s`;
+  if (unitsPerDollar >= 1e3) return `~${(unitsPerDollar / 1e3).toFixed(0)}K ${unit}s`;
+  return `~${unitsPerDollar.toFixed(0)} ${unit}s`;
+}
+
+async function naapGet<T>(path: string): Promise<T> {
+  const res = await fetch(naapApiUpstreamUrl(path), { next: { revalidate: 60 } });
+  if (!res.ok) throw new Error(`[facade/pricing] ${path} returned HTTP ${res.status}`);
+  return res.json() as Promise<T>;
+}
 
 export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
-  // No separate cache — getRawNetModels() is already cached. A longer derived
-  // cache would serve stale pricing after the raw cache refreshes.
-  const rows = await getRawNetModels();
-
-  return rows
-    .filter((row) => row.Pipeline && PIPELINE_DISPLAY[row.Pipeline] !== null && row.Model)
-    .filter((row) => row.PriceAvgWeiPerPixel > 0)
-    .map((row): DashboardPipelinePricing => {
-      const avgWei = row.PriceAvgWeiPerPixel;
-      const unit = PIPELINE_UNIT[row.Pipeline] ?? 'pixel';
-      const price = avgWei / 1e12;
-
-      // outputPerDollar: approximate at a fixed ETH reference price of $3000
-      // 1 USD = (1/3000) ETH = 1e18/3000 Wei → unitsPerDollar = 1e18/(3000*avgWei)
-      let outputPerDollar = '';
-      if (avgWei > 0) {
-        const unitsPerDollar = 1e18 / (3000 * avgWei);
-        if (unitsPerDollar >= 1e9) {
-          outputPerDollar = `~${(unitsPerDollar / 1e9).toFixed(0)}B ${unit}s`;
-        } else if (unitsPerDollar >= 1e6) {
-          outputPerDollar = `~${(unitsPerDollar / 1e6).toFixed(0)}M ${unit}s`;
-        } else if (unitsPerDollar >= 1e3) {
-          outputPerDollar = `~${(unitsPerDollar / 1e3).toFixed(0)}K ${unit}s`;
-        } else {
-          outputPerDollar = `~${unitsPerDollar.toFixed(0)} ${unit}s`;
-        }
-      }
-
-      return {
-        pipeline: row.Pipeline,
-        model: row.Model,
-        unit,
-        price,
-        pixelsPerUnit: unit === 'pixel' ? 1 : null,
-        outputPerDollar,
-        capacity: row.TotalCapacity,
-      };
-    })
-    .sort((a, b) => b.price - a.price);
+  return cachedFetch('facade:pricing', TTL.PRICING * 1000, async () => {
+    const rows = await naapGet<ApiPipelinePricing[]>('dashboard/pricing');
+    return rows
+      .filter((r) => r.priceAvgWeiPerUnit > 0)
+      .map((r): DashboardPipelinePricing => {
+        const unit = PIPELINE_UNIT[r.pipeline] ?? 'pixel';
+        const price = r.priceAvgWeiPerUnit / 1e12;
+        return {
+          pipeline: r.pipeline,
+          model: r.model,
+          unit,
+          price,
+          pixelsPerUnit: r.pixelsPerUnit > 0 ? r.pixelsPerUnit : null,
+          outputPerDollar: computeOutputPerDollar(r.priceAvgWeiPerUnit, unit),
+          capacity: r.orchCount,
+        };
+      })
+      .sort((a, b) => b.price - a.price);
+  });
 }

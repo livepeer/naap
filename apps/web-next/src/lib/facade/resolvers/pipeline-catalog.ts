@@ -1,41 +1,25 @@
 /**
- * Pipeline catalog resolver — NAAP API backed.
+ * Pipeline catalog resolver — NAAP Dashboard API backed.
  *
- * Groups model rows by Pipeline into catalog entries.
- *
- * Known limitations (Phase 1):
- *   - regions: [] — not available in /v1/net/models
+ * Single call to GET /v1/dashboard/pipeline-catalog which returns all
+ * pipeline+model combinations offered by warm orchestrators, including regions.
  *
  * Source:
- *   facade/network-data → GET /v1/net/models?limit=200
+ *   GET /v1/dashboard/pipeline-catalog
  */
 
 import type { DashboardPipelineCatalogEntry } from '@naap/plugin-sdk';
-import { PIPELINE_DISPLAY } from '@/lib/dashboard/pipeline-config';
-import { getRawNetModels } from '../network-data.js';
+import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
+import { cachedFetch, TTL } from '../cache.js';
 
-// ---------------------------------------------------------------------------
-// Resolver
-// ---------------------------------------------------------------------------
+async function naapGet<T>(path: string): Promise<T> {
+  const res = await fetch(naapApiUpstreamUrl(path), { next: { revalidate: 60 } });
+  if (!res.ok) throw new Error(`[facade/pipeline-catalog] ${path} returned HTTP ${res.status}`);
+  return res.json() as Promise<T>;
+}
 
 export async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
-  // No separate cache here — getRawNetModels() is already cached at the raw level.
-  // Caching the derived result with a longer TTL would cause stale catalog entries
-  // when the underlying raw cache refreshes.
-  const rows = await getRawNetModels();
-
-  // Group by pipeline, collecting unique model names
-  const byPipeline = new Map<string, Set<string>>();
-  for (const row of rows) {
-    if (row.Pipeline === '' || PIPELINE_DISPLAY[row.Pipeline] === null) continue;
-    if (!byPipeline.has(row.Pipeline)) byPipeline.set(row.Pipeline, new Set());
-    byPipeline.get(row.Pipeline)!.add(row.Model);
-  }
-
-  return Array.from(byPipeline.entries()).map(([pipeline, modelSet]): DashboardPipelineCatalogEntry => ({
-    id: pipeline,
-    name: PIPELINE_DISPLAY[pipeline] ?? pipeline,
-    models: Array.from(modelSet),
-    regions: [], // not available in /v1/net/models
-  }));
+  return cachedFetch('facade:pipeline-catalog', TTL.PIPELINE_CATALOG * 1000, () =>
+    naapGet<DashboardPipelineCatalogEntry[]>('dashboard/pipeline-catalog')
+  );
 }

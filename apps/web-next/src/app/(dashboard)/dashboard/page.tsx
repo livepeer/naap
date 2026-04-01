@@ -671,6 +671,7 @@ function FeesCard({ data }: { data: DashboardFeesInfo }) {
 
 
 function PipelinesCard({
+  data,
   catalog,
   pricing,
   timeframeHours,
@@ -725,6 +726,10 @@ function PipelinesCard({
                     <tbody>
                       {entry.models.map((model) => {
                         const p = pricing.find((x) => x.pipeline === entry.id && x.model === model);
+                        const pipelineUsage = data.find((d) => d.name === entry.id);
+                        const modelUsage = pipelineUsage?.modelMins?.find((m) => m.model === model);
+                        const fps = modelUsage?.avgFps ?? pipelineUsage?.avgFps ?? 0;
+                        const mins = modelUsage?.mins ?? 0;
                         const priceStr = p && p.price > 0
                           ? `${formatNumber(Math.round(p.price * 1e12))} wei/${p.unit}`
                           : '—';
@@ -744,8 +749,12 @@ function PipelinesCard({
                             <td className="py-1 text-right font-mono text-muted-foreground">
                               {priceStr}
                             </td>
-                            <td className="py-1 text-right font-mono text-muted-foreground">—</td>
-                            <td className="py-1 text-right font-mono text-muted-foreground">0</td>
+                            <td className="py-1 text-right font-mono text-muted-foreground">
+                              {fps > 0 ? fps.toFixed(1) : '—'}
+                            </td>
+                            <td className="py-1 text-right font-mono text-muted-foreground">
+                              {mins > 0 ? formatNumber(Math.round(mins)) : '0'}
+                            </td>
                           </tr>
                         );
                       })}
