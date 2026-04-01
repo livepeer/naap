@@ -200,12 +200,6 @@ function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
-/** Raw digits only — no locale grouping (Pipeline Unit Cost wei column). */
-function formatPlainNumber(n: number): string {
-  if (!Number.isFinite(n)) return '—';
-  return String(n);
-}
-
 function formatUsdCompact(n: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -392,6 +386,14 @@ function formatTimeframeLabel(hours: number): string {
   if (hours >= 24 && hours % 24 === 0) return `${hours / 24}d`;
   if (hours === 1) return '1h';
   return `${hours}h`;
+}
+
+function getTimeframeRangeIso(timeframe: string): { start: string; end: string } {
+  const parsed = Number.parseInt(timeframe, 10);
+  const hours = Number.isFinite(parsed) && parsed > 0 ? parsed : 12;
+  const end = new Date();
+  const start = new Date(end.getTime() - hours * 60 * 60 * 1000);
+  return { start: start.toISOString(), end: end.toISOString() };
 }
 
 // ============================================================================
@@ -605,12 +607,14 @@ function PipelinesCard({
   catalog,
   pricing,
   netCapacity,
+  modelFpsByPipelineModel,
   timeframeHours,
 }: {
   data: DashboardPipelineUsage[];
   catalog: DashboardPipelineCatalogEntry[];
   pricing: DashboardPipelinePricing[];
   netCapacity: Record<string, number>;
+  modelFpsByPipelineModel: Record<string, number>;
   timeframeHours: number;
 }) {
   return (
@@ -660,8 +664,15 @@ function PipelinesCard({
                         const p = pricing.find((x) => x.pipeline === entry.id && x.model === model);
                         const pipelineUsage = data.find((d) => d.name === entry.id);
                         const modelUsage = pipelineUsage?.modelMins?.find((m) => m.model === model);
-                        const fps = modelUsage?.avgFps ?? pipelineUsage?.avgFps ?? 0;
-                        const mins = modelUsage?.mins ?? pipelineUsage?.mins ?? 0;
+                        const modelFpsFromPerf = modelFpsByPipelineModel[`${entry.id}:${model}`];
+                        const modelFps = Number.isFinite(modelFpsFromPerf)
+                          ? modelFpsFromPerf
+                          : Number.isFinite(modelUsage?.avgFps)
+                            ? (modelUsage?.avgFps as number)
+                            : null;
+                        const modelMins = Number.isFinite(modelUsage?.mins)
+                          ? (modelUsage?.mins as number)
+                          : null;
                         const priceStr = p && p.price > 0
                           ? `${formatNumber(Math.round(p.price * 1e12))} wei/${p.unit}`
                           : '—';
@@ -683,10 +694,10 @@ function PipelinesCard({
                               {priceStr}
                             </td>
                             <td className="py-1 text-right font-mono text-muted-foreground">
-                              {fps > 0 ? fps.toFixed(1) : '—'}
+                              {modelFps != null ? modelFps.toFixed(1) : '—'}
                             </td>
                             <td className="py-1 text-right font-mono text-muted-foreground">
-                              {mins > 0 ? formatNumber(Math.round(mins)) : '0'}
+                              {modelMins != null ? formatNumber(Math.round(modelMins)) : '—'}
                             </td>
                           </tr>
                         );
@@ -853,14 +864,14 @@ function JobFeedCard({
   feedMeta: JobFeedConnectionMeta | null;
 }) {
   const [sortCol, setSortCol] = useState<JobFeedSortCol>('durationSeconds');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const toggleSort = (col: JobFeedSortCol) => {
     if (sortCol === col) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortCol(col);
-      setSortDir('desc');
+      setSortDir(col === 'durationSeconds' ? 'asc' : 'desc');
     }
   };
 
@@ -870,6 +881,8 @@ function JobFeedCard({
       let bv: string | number = 0;
       const am = a.model ?? '—';
       const bm = b.model ?? '—';
+      const aLast = a.lastSeen ?? a.startedAt ?? '';
+      const bLast = b.lastSeen ?? b.startedAt ?? '';
       switch (sortCol) {
         case 'model': av = am === '—' ? '' : am; bv = bm === '—' ? '' : bm; break;
         case 'outputFps': av = a.outputFps ?? 0; bv = b.outputFps ?? 0; break;
@@ -877,9 +890,14 @@ function JobFeedCard({
         case 'status': av = a.status; bv = b.status; break;
       }
       if (typeof av === 'string' && typeof bv === 'string') {
-        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+        const cmp = sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+        if (cmp !== 0) return cmp;
+      } else {
+        const cmp = sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
+        if (cmp !== 0) return cmp;
       }
-      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
+      if (aLast !== bLast) return bLast.localeCompare(aLast);
+      return a.id.localeCompare(b.id);
     });
   }, [jobs, sortCol, sortDir]);
 
@@ -1361,6 +1379,7 @@ export default function DashboardPage() {
   const [timeframe, setTimeframe] = useState(DEFAULT_TIMEFRAME);
   const [prefsReady, setPrefsReady] = useState(false);
   const [netCapacity, setNetCapacity] = useState<Record<string, number>>({});
+  const [modelFpsByPipelineModel, setModelFpsByPipelineModel] = useState<Record<string, number>>({});
   const netCapacityFetchAttempted = useRef(false);
 
   useEffect(() => {
@@ -1437,6 +1456,29 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, [prefsReady, rtLoading, lbLoading, lbData?.pipelineCatalog, rtData?.pricing]);
+
+  useEffect(() => {
+    if (!prefsReady) return;
+    const { start, end } = getTimeframeRangeIso(timeframe);
+    let cancelled = false;
+
+    fetch(`/api/v1/network/perf-by-model?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { fpsByPipelineModel?: Record<string, number> } | null) => {
+        if (cancelled || !body?.fpsByPipelineModel || typeof body.fpsByPipelineModel !== 'object') {
+          setModelFpsByPipelineModel({});
+          return;
+        }
+        setModelFpsByPipelineModel(body.fpsByPipelineModel);
+      })
+      .catch(() => {
+        setModelFpsByPipelineModel({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [prefsReady, timeframe]);
 
   const transientDashboardErrors = useMemo(() => {
     return [lbError, rtError, feesError].filter(
@@ -1518,6 +1560,7 @@ export default function DashboardPage() {
                 catalog={lbData.pipelineCatalog}
                 pricing={rtData?.pricing ?? []}
                 netCapacity={netCapacity}
+                modelFpsByPipelineModel={modelFpsByPipelineModel}
                 timeframeHours={lbData.kpi?.timeframeHours ?? 12}
               />
             </RefreshWrap>

@@ -67,8 +67,8 @@ interface ActiveStreamRow {
   outputFps: number;
   firstSeen: string;
   lastSeen: string;
-  durationSeconds: number;
-  runningFor: string;
+  durationSeconds?: number;
+  runningFor?: string;
 }
 
 const STATUS_RANK: Record<string, number> = {
@@ -86,6 +86,35 @@ const STATUS_RANK: Record<string, number> = {
 function normalizeJobStatus(rawState: string | undefined): string {
   const state = rawState?.trim().toLowerCase() ?? '';
   return state || 'unknown';
+}
+
+function parseIsoMs(value: string | undefined): number | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '—';
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function deriveDurationSeconds(row: ActiveStreamRow): number | undefined {
+  if (Number.isFinite(row.durationSeconds)) {
+    const val = Number(row.durationSeconds);
+    return val >= 0 ? val : undefined;
+  }
+  const firstMs = parseIsoMs(row.firstSeen);
+  const lastMs = parseIsoMs(row.lastSeen);
+  if (firstMs == null || lastMs == null) return undefined;
+  const diff = Math.max(0, Math.floor((lastMs - firstMs) / 1000));
+  return diff;
 }
 
 function dedupeAndSortJobs(entries: JobFeedEntry[], maxItems: number): JobFeedEntry[] {
@@ -119,6 +148,8 @@ function dedupeAndSortJobs(entries: JobFeedEntry[], maxItems: number): JobFeedEn
 
 function streamToJobFeedEntry(row: ActiveStreamRow): JobFeedEntry {
   const status = normalizeJobStatus(row.state);
+  const durationSeconds = deriveDurationSeconds(row);
+  const runningFor = row.runningFor?.trim() || (durationSeconds != null ? formatDuration(durationSeconds) : undefined);
   return {
     id: row.id,
     pipeline: row.pipeline,
@@ -130,8 +161,8 @@ function streamToJobFeedEntry(row: ActiveStreamRow): JobFeedEntry {
     inputFps: row.inputFps,
     outputFps: row.outputFps,
     lastSeen: row.lastSeen,
-    durationSeconds: row.durationSeconds,
-    runningFor: row.runningFor,
+    durationSeconds,
+    runningFor,
   };
 }
 

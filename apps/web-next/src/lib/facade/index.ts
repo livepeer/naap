@@ -36,7 +36,8 @@ import { resolveOrchestrators } from './resolvers/orchestrators.js';
 import { resolveGPUCapacity } from './resolvers/gpu-capacity.js';
 import { resolvePricing } from './resolvers/pricing.js';
 import { resolveNetworkModels } from './resolvers/network-models.js';
-import { resolveNetCapacity } from './resolvers/net-capacity.js';
+import { resolveNetCapacity } from './resolvers/net-capacity';
+import { resolvePerfByModel } from './resolvers/perf-by-model';
 import { resolveProtocol } from './resolvers/protocol.js';
 import { resolveFees } from './resolvers/fees.js';
 import { resolveJobFeed } from './resolvers/job-feed.js';
@@ -123,4 +124,12 @@ export async function getNetworkModels(opts: { limit?: number }): Promise<Networ
 export async function getNetCapacity(): Promise<Record<string, number>> {
   if (USE_STUBS) return {};
   return resolveNetCapacity();
+}
+
+export async function getPerfByModel(opts: {
+  start: string;
+  end: string;
+}): Promise<Record<string, number>> {
+  if (USE_STUBS) return {};
+  return resolvePerfByModel(opts);
 }
