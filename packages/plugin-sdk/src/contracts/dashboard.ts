@@ -124,14 +124,14 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
 
   type PipelineModelMins {
     model: String!
-    mins: Int!
+    mins: Float!
     sessions: Int!
     avgFps: Float!
   }
 
   type PipelineUsage {
     name: String!
-    mins: Int!
+    mins: Float!
     sessions: Int!
     avgFps: Float!
     color: String
