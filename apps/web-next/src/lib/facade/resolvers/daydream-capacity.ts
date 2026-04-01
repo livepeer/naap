@@ -21,7 +21,9 @@ async function fetchOneModel(model: string): Promise<number> {
     const url = new URL(DAYDREAM_CAPACITY_BASE_URL);
     url.searchParams.set('models', model);
     const res = await fetch(url.toString(), { next: { revalidate: 60 } });
-    if (!res.ok) throw new Error(`[facade/daydream-capacity] ${model} returned HTTP ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`[facade/daydream-capacity] returned HTTP ${res.status}`);
+    }
     const data: DaydreamCapacityResponse = await res.json();
     return data.idleContainers ?? 0;
   });
@@ -35,7 +37,7 @@ export async function resolveDaydreamCapacity(models: string[]): Promise<Record<
         const count = await fetchOneModel(model);
         return [model, count] as const;
       } catch (err) {
-        console.error(`[facade/daydream-capacity] failed to fetch capacity for ${model}:`, err);
+        console.error('[facade/daydream-capacity] failed to fetch capacity for model:', model, err);
         return [model, 0] as const;
       }
     }),
