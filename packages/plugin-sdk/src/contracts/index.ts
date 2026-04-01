@@ -18,6 +18,7 @@ export {
   type DashboardFeeDayData,
   type DashboardFeeWeeklyData,
   type DashboardFeesInfo,
+  type DashboardPipelineModelMins,
   type DashboardPipelineUsage,
   type DashboardPipelineCatalogEntry,
   type DashboardGPUCapacity,
@@ -29,12 +30,6 @@ export {
   type JobFeedSubscribeResponse,
   type JobFeedEntry,
   type DashboardResolvers,
-  type RawNetworkDemandRow,
-  type RawGPUMetricRow,
-  type RawSLAComplianceRow,
-  type NetworkDemandFilters,
-  type GPUMetricsFilters,
-  type SLAComplianceFilters,
 } from './dashboard.js';
 
 // Provider helper

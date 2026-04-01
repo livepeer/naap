@@ -12,7 +12,8 @@ Reference table for all Service Gateway connectors, their transform configuratio
 | 2 | gemini | Google Gemini API | ai | query | passthrough | envelope | yes |
 | 3 | daydream | Daydream API | video | bearer | passthrough | envelope | yes |
 | 4 | livepeer-studio | Livepeer Studio API | video | bearer | passthrough | envelope | no |
-| 5 | cloudflare-ai | Cloudflare Workers AI | ai | bearer | passthrough | envelope | yes |
+| 5 | livepeer-leaderboard | Livepeer AI Leaderboard | ai | none | passthrough | envelope | no |
+| 6 | cloudflare-ai | Cloudflare Workers AI | ai | bearer | passthrough | envelope | yes |
 | 7 | clickhouse | ClickHouse Cloud | database | basic | passthrough | envelope | no |
 | 8 | neon | Neon Serverless Postgres | database | bearer | passthrough | envelope | no |
 | 9 | pinecone | Pinecone Vector Database | database | header | passthrough | envelope | no |
@@ -63,7 +64,14 @@ Reference table for all Service Gateway connectors, their transform configuratio
 - **Endpoints**: 9 (streams, assets, text-to-image, image-to-video)
 - **Upstream docs**: https://docs.livepeer.org
 
-### 5. Cloudflare Workers AI (`cloudflare-ai`)
+### 5. Livepeer AI Leaderboard (`livepeer-leaderboard`)
+
+- **Upstream**: `https://leaderboard-api.livepeer.cloud`
+- **Auth**: None (public API)
+- **Endpoints**: 3 (pipelines, aggregated stats, raw stats)
+- **Constraints**: Read-only, no auth required
+
+### 6. Cloudflare Workers AI (`cloudflare-ai`)
 
 - **Upstream**: `https://api.cloudflare.com`
 - **Auth**: Bearer token
@@ -178,7 +186,7 @@ Reference table for all Service Gateway connectors, their transform configuratio
 
 | Strategy | Connectors using it |
 |----------|-------------------|
-| passthrough | openai, gemini, daydream, livepeer-studio, cloudflare-ai, clickhouse, neon, pinecone, supabase (JSON), upstash-redis, resend, confluent-kafka, ssh-bridge, clickhouse-query (dynamic) |
+| passthrough | openai, gemini, daydream, livepeer-studio, livepeer-leaderboard, cloudflare-ai, clickhouse, neon, pinecone, supabase (JSON), upstash-redis, resend, confluent-kafka, ssh-bridge, clickhouse-query (dynamic) |
 | binary | storj-s3, supabase (storage), vercel-blob |
 | form-encode | stripe (POST), twilio (POST) |
 | static | clickhouse-query (network_prices) |
@@ -194,14 +202,14 @@ Reference table for all Service Gateway connectors, their transform configuratio
 | header | supabase, pinecone, ssh-bridge |
 | query | gemini |
 | aws-s3 | storj-s3 |
-| none | *(none currently)* |
+| none | livepeer-leaderboard |
 
 ### Response Modes
 
 | Mode | Connectors using it |
 |------|-------------------|
 | none | Default — no response transform applied |
-| envelope | openai, gemini, daydream, livepeer-studio, cloudflare-ai, clickhouse, clickhouse-query, neon, pinecone, supabase, resend, confluent-kafka, storj-s3, ssh-bridge |
+| envelope | openai, gemini, daydream, livepeer-studio, livepeer-leaderboard, cloudflare-ai, clickhouse, clickhouse-query, neon, pinecone, supabase, resend, confluent-kafka, storj-s3, ssh-bridge |
 | raw | upstash-redis, vercel-blob, stripe, twilio |
 | streaming | openai (chat), gemini (stream), daydream, cloudflare-ai |
 | field-map | Custom field restructuring via mapping config |

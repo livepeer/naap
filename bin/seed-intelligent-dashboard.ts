@@ -3,7 +3,7 @@
  *
  * Run after `start.sh --all` and `seed-public-connectors.ts` to:
  *   1. Authenticate as admin
- *   2. Ensure the `gemini` connector exists and is published
+ *   2. Ensure the `gemini` and `livepeer-leaderboard` connectors exist and are published
  *   3. Configure the Gemini upstream API key in the SecretVault
  *   4. Register the intelligent-dashboard plugin (WorkflowPlugin, PluginPackage, etc.)
  *   5. Install for all users
@@ -57,7 +57,7 @@ async function main() {
 
   // ── Step 2: Verify required connectors ──────────────────────────────────
 
-  step(2, 'Verifying required connectors (gemini)');
+  step(2, 'Verifying required connectors (gemini + livepeer-leaderboard)');
 
   const geminiConnector = await prisma.serviceConnector.findFirst({
     where: { slug: 'gemini', visibility: 'public', status: 'published' },
@@ -66,6 +66,14 @@ async function main() {
     throw new Error('Gemini connector not found or not published. Run seed-public-connectors.ts first.');
   }
   console.log(`  Gemini connector: ${geminiConnector.id} (published)`);
+
+  const leaderboardConnector = await prisma.serviceConnector.findFirst({
+    where: { slug: 'livepeer-leaderboard', visibility: 'public', status: 'published' },
+  });
+  if (!leaderboardConnector) {
+    throw new Error('Leaderboard connector not found or not published. Run seed-leaderboard-gateway.ts first.');
+  }
+  console.log(`  Leaderboard connector: ${leaderboardConnector.id} (published)`);
 
   // ── Step 3: Configure Gemini API key ────────────────────────────────────
 
@@ -130,7 +138,7 @@ async function main() {
       icon: 'BrainCircuit',
       metadata: {
         category: 'example',
-        description: 'AI-powered analytics dashboard using Gemini + NAAP API via Service Gateway',
+        description: 'AI-powered analytics dashboard using Gemini + Livepeer Leaderboard via Service Gateway',
       },
     },
   });
@@ -144,19 +152,19 @@ async function main() {
     where: { name: PLUGIN_NAME },
     update: {
       displayName: 'Intelligent Dashboard',
-      description: 'AI-powered analytics dashboard — ask questions in natural language, get interactive visualizations via Gemini + NAAP API',
+      description: 'AI-powered analytics dashboard — ask questions in natural language, get interactive visualizations via Gemini + Livepeer Leaderboard',
       category: 'example',
       publishStatus: 'published',
     },
     create: {
       name: PLUGIN_NAME,
       displayName: 'Intelligent Dashboard',
-      description: 'AI-powered analytics dashboard — ask questions in natural language, get interactive visualizations via Gemini + NAAP API',
+      description: 'AI-powered analytics dashboard — ask questions in natural language, get interactive visualizations via Gemini + Livepeer Leaderboard',
       category: 'example',
       author: 'NAAP Examples',
       authorEmail: 'examples@naap.dev',
       license: 'MIT',
-      keywords: ['ai', 'analytics', 'dashboard', 'gemini', 'naap-api', 'agent'],
+      keywords: ['ai', 'analytics', 'dashboard', 'gemini', 'leaderboard', 'agent'],
       icon: 'BrainCircuit',
       isCore: false,
       publishStatus: 'published',
@@ -279,11 +287,12 @@ async function main() {
   console.log();
   console.log('  Required connectors:');
   console.log(`    Gemini:      ${geminiConnector.id} (published)`);
+  console.log(`    Leaderboard: ${leaderboardConnector.id} (published)`);
   console.log();
-  console.log('  Endpoints used by the plugin:');
+  console.log('  Gateway endpoints used by the plugin:');
   console.log(`    POST ${SHELL_URL}/api/v1/gw/gemini/chat`);
-  console.log(`    GET  ${SHELL_URL}/api/v1/naap-api/pipelines`);
-  console.log(`    GET  ${SHELL_URL}/api/v1/naap-api/aggregated_stats?pipeline=...&model=...`);
+  console.log(`    GET  ${SHELL_URL}/api/v1/gw/livepeer-leaderboard/pipelines`);
+  console.log(`    GET  ${SHELL_URL}/api/v1/gw/livepeer-leaderboard/stats?pipeline=...&model=...`);
   console.log();
   console.log('  Navigate to /intelligent-dashboard in the NaaP UI to test.');
   console.log();

@@ -12,9 +12,6 @@
 import {
   createDashboardProvider,
   type IEventBus,
-  type NetworkDemandFilters,
-  type GPUMetricsFilters,
-  type SLAComplianceFilters,
 } from '@naap/plugin-sdk';
 
 // ---------------------------------------------------------------------------
@@ -55,37 +52,5 @@ export function registerDashboardProvider(eventBus: IEventBus): () => void {
     gpuCapacity: (args) => apiFetch(`/api/v1/dashboard/gpu-capacity${args?.timeframe != null ? `?timeframe=${args.timeframe}` : ''}`),
     pricing: () => apiFetch('/api/v1/dashboard/pricing'),
     orchestrators: ({ period }) => apiFetch(`/api/v1/dashboard/orchestrators${period ? `?period=${encodeURIComponent(period)}` : ''}`),
-    networkDemand: (args: NetworkDemandFilters) => {
-      const params = new URLSearchParams();
-      if (args.window) params.set('window', args.window);
-      if (args.gateway) params.set('gateway', args.gateway);
-      if (args.region) params.set('region', args.region);
-      if (args.pipelineId) params.set('pipelineId', args.pipelineId);
-      if (args.modelId) params.set('modelId', args.modelId);
-      return apiFetch(`/api/v1/dashboard/network-demand?${params.toString()}`);
-    },
-    gpuMetrics: (args: GPUMetricsFilters) => {
-      const params = new URLSearchParams();
-      if (args.window) params.set('window', args.window);
-      if (args.orchestratorAddress) params.set('orchestratorAddress', args.orchestratorAddress);
-      if (args.pipelineId) params.set('pipelineId', args.pipelineId);
-      if (args.modelId) params.set('modelId', args.modelId);
-      if (args.gpuId) params.set('gpuId', args.gpuId);
-      if (args.region) params.set('region', args.region);
-      if (args.gpuModelName) params.set('gpuModelName', args.gpuModelName);
-      if (args.runnerVersion) params.set('runnerVersion', args.runnerVersion);
-      if (args.cudaVersion) params.set('cudaVersion', args.cudaVersion);
-      return apiFetch(`/api/v1/dashboard/gpu-metrics?${params.toString()}`);
-    },
-    slaCompliance: (args: SLAComplianceFilters) => {
-      const params = new URLSearchParams();
-      if (args.window) params.set('window', args.window);
-      if (args.orchestratorAddress) params.set('orchestratorAddress', args.orchestratorAddress);
-      if (args.pipelineId) params.set('pipelineId', args.pipelineId);
-      if (args.modelId) params.set('modelId', args.modelId);
-      if (args.gpuId) params.set('gpuId', args.gpuId);
-      if (args.region) params.set('region', args.region);
-      return apiFetch(`/api/v1/dashboard/sla-compliance?${params.toString()}`);
-    },
   });
 }

@@ -17,30 +17,18 @@ import {
   type DashboardProtocol,
   type DashboardFeesInfo,
   type DashboardFeeWeeklyData,
-  type RawNetworkDemandRow,
-  type RawGPUMetricRow,
-  type RawSLAComplianceRow,
-  type NetworkDemandFilters,
-  type GPUMetricsFilters,
-  type SLAComplianceFilters,
 } from '@naap/plugin-sdk';
 
 import { createPublicClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
 
 import {
-  clampLookbackHours,
   DASHBOARD_MAX_HOURS,
   getRawDemandRows,
   getRawSLARows,
-  getRawGPUMetricsRows,
   getRawPipelineCatalog,
-  type NetworkDemandRow,
   type SLAComplianceRow,
-  type GPUMetricRow,
 } from './raw-data.js';
-
-import { fetchGPUCapacityFromClickHouse } from './gpu-capacity-clickhouse.js';
 
 import {
   PIPELINE_DISPLAY,
@@ -112,22 +100,6 @@ function getWeekStartTimestamp(dateS: number): number {
   const dayOfWeek = (date.getUTCDay() + 6) % 7; // Monday = 0
   date.setUTCDate(date.getUTCDate() - dayOfWeek);
   return Math.floor(date.getTime() / 1000);
-}
-
-/** Count total GPUs from SLA compliance: distinct GPUs with sessions + rows with sessions but no gpu_id. */
-function countTotalGPUsFromSLA(rows: SLAComplianceRow[]): number {
-  const gpuIds = new Set<string>();
-  let rowsWithoutGpuIdWithSessions = 0;
-  for (const row of rows) {
-    const knownSessions = row.known_sessions_count ?? 0;
-    if (knownSessions <= 0) continue;
-    if (row.gpu_id) {
-      gpuIds.add(row.gpu_id);
-    } else {
-      rowsWithoutGpuIdWithSessions += 1;
-    }
-  }
-  return gpuIds.size + rowsWithoutGpuIdWithSessions;
 }
 
 // ---------------------------------------------------------------------------
@@ -341,7 +313,13 @@ export async function resolvePipelines({ limit = 5, timeframe }: { limit?: numbe
 // ---------------------------------------------------------------------------
 
 export async function resolveGPUCapacity(_opts: { timeframe?: string | number } = {}): Promise<DashboardGPUCapacity> {
-  return fetchGPUCapacityFromClickHouse();
+  return {
+    totalGPUs: 0,
+    activeGPUs: 0,
+    availableCapacity: 0,
+    models: [],
+    pipelineGPUs: [],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -489,9 +467,8 @@ export async function resolveProtocol(): Promise<DashboardProtocol> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query }),
     signal: AbortSignal.timeout(60_000),
-    // @ts-expect-error — Next.js extended fetch options
     next: { revalidate: 60 },
-  });
+  } as RequestInit & { next: { revalidate: number } });
 
   if (!res.ok) {
     throw new Error(`subgraph HTTP ${res.status}`);
@@ -580,9 +557,8 @@ export async function resolveFees({ days }: { days?: number } = {}): Promise<Das
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables: { first } }),
     signal: AbortSignal.timeout(60_000),
-    // @ts-expect-error — Next.js extended fetch options
     next: { revalidate: 15 * 60 },
-  });
+  } as RequestInit & { next: { revalidate: number } });
 
   if (!res.ok) {
     throw new Error(`subgraph HTTP ${res.status}`);
@@ -683,198 +659,3 @@ export async function resolveFees({ days }: { days?: number } = {}): Promise<Das
   };
 }
 
-// ---------------------------------------------------------------------------
-// Raw data resolvers (snake_case → camelCase transform)
-// ---------------------------------------------------------------------------
-
-/** Transform snake_case NetworkDemandRow to camelCase RawNetworkDemandRow */
-function transformNetworkDemandRow(r: NetworkDemandRow): RawNetworkDemandRow {
-  return {
-    windowStart: r.window_start,
-    gateway: r.gateway,
-    region: r.region,
-    pipelineId: r.pipeline_id,
-    modelId: r.model_id,
-    sessionsCount: r.sessions_count,
-    totalMinutes: r.total_minutes,
-    knownSessionsCount: r.known_sessions_count,
-    servedSessions: r.served_sessions,
-    unservedSessions: r.unserved_sessions,
-    totalDemandSessions: r.total_demand_sessions,
-    startupUnexcusedSessions: r.startup_unexcused_sessions,
-    confirmedSwappedSessions: r.confirmed_swapped_sessions,
-    inferredSwapSessions: r.inferred_swap_sessions,
-    totalSwappedSessions: r.total_swapped_sessions,
-    sessionsEndingInError: r.sessions_ending_in_error,
-    errorStatusSamples: r.error_status_samples,
-    healthSignalCoverageRatio: r.health_signal_coverage_ratio,
-    startupSuccessRate: r.startup_success_rate,
-    effectiveSuccessRate: r.effective_success_rate,
-    ticketFaceValueEth: r.ticket_face_value_eth,
-  };
-}
-
-/** Normalize CUDA version string (e.g. "12.4" → "12.4", "12" → "12") */
-function normalizeCudaVersionForApi(version: string | null | undefined): string | null {
-  if (!version) return null;
-  const trimmed = version.trim();
-  if (!trimmed) return null;
-  return trimmed;
-}
-
-/** Transform snake_case GPUMetricRow to camelCase RawGPUMetricRow */
-function transformGPUMetricRow(r: GPUMetricRow): RawGPUMetricRow {
-  return {
-    windowStart: r.window_start,
-    orchestratorAddress: r.orchestrator_address,
-    pipelineId: r.pipeline_id,
-    modelId: r.model_id,
-    gpuId: r.gpu_id,
-    region: r.region,
-    gpuModelName: r.gpu_model_name,
-    gpuMemoryBytesTotal: r.gpu_memory_bytes_total,
-    runnerVersion: r.runner_version,
-    cudaVersion: normalizeCudaVersionForApi(r.cuda_version),
-    avgOutputFps: r.avg_output_fps,
-    p95OutputFps: r.p95_output_fps,
-    fpsJitterCoefficient: r.fps_jitter_coefficient,
-    avgPromptToFirstFrameMs: r.avg_prompt_to_first_frame_ms,
-    avgStartupLatencyMs: r.avg_startup_latency_ms,
-    avgE2eLatencyMs: r.avg_e2e_latency_ms,
-    p95PromptToFirstFrameLatencyMs: r.p95_prompt_to_first_frame_latency_ms,
-    p95StartupLatencyMs: r.p95_startup_latency_ms,
-    p95E2eLatencyMs: r.p95_e2e_latency_ms,
-    promptToFirstFrameSampleCount: r.prompt_to_first_frame_sample_count,
-    startupLatencySampleCount: r.startup_latency_sample_count,
-    e2eLatencySampleCount: r.e2e_latency_sample_count,
-    statusSamples: r.status_samples,
-    errorStatusSamples: r.error_status_samples,
-    knownSessionsCount: r.known_sessions_count,
-    startupSuccessSessions: r.startup_success_sessions,
-    startupExcusedSessions: r.startup_excused_sessions,
-    startupUnexcusedSessions: r.startup_unexcused_sessions,
-    confirmedSwappedSessions: r.confirmed_swapped_sessions,
-    inferredSwapSessions: r.inferred_swap_sessions,
-    totalSwappedSessions: r.total_swapped_sessions,
-    sessionsEndingInError: r.sessions_ending_in_error,
-    healthSignalCoverageRatio: r.health_signal_coverage_ratio,
-    startupUnexcusedRate: r.startup_unexcused_rate,
-    swapRate: r.swap_rate,
-  };
-}
-
-/** Transform snake_case SLAComplianceRow to camelCase RawSLAComplianceRow */
-function transformSLAComplianceRow(r: SLAComplianceRow): RawSLAComplianceRow {
-  return {
-    windowStart: r.window_start,
-    orchestratorAddress: r.orchestrator_address,
-    pipelineId: r.pipeline_id,
-    modelId: r.model_id,
-    gpuId: r.gpu_id,
-    region: r.region,
-    knownSessionsCount: r.known_sessions_count,
-    startupSuccessSessions: r.startup_success_sessions,
-    startupExcusedSessions: r.startup_excused_sessions,
-    startupUnexcusedSessions: r.startup_unexcused_sessions,
-    confirmedSwappedSessions: r.confirmed_swapped_sessions,
-    inferredSwapSessions: r.inferred_swap_sessions,
-    totalSwappedSessions: r.total_swapped_sessions,
-    sessionsEndingInError: r.sessions_ending_in_error,
-    errorStatusSamples: r.error_status_samples,
-    healthSignalCoverageRatio: r.health_signal_coverage_ratio,
-    startupSuccessRate: r.startup_success_rate,
-    effectiveSuccessRate: r.effective_success_rate,
-    noSwapRate: r.no_swap_rate,
-    slaScore: r.sla_score,
-  };
-}
-
-/** Parse window string like "24h" → 24 */
-function parseWindowHours(window?: string): number | undefined {
-  if (!window) return undefined;
-  const match = window.match(/^(\d+)h?$/);
-  if (!match) return undefined;
-  return parseInt(match[1], 10);
-}
-
-export async function resolveRawNetworkDemand(filters: NetworkDemandFilters): Promise<RawNetworkDemandRow[]> {
-  const windowHours = filters.window ? parseWindowHours(filters.window) : undefined;
-  let rows = await getRawDemandRows(
-    windowHours != null ? clampLookbackHours(windowHours) : undefined
-  );
-
-  if (filters.gateway) {
-    rows = rows.filter(r => r.gateway === filters.gateway);
-  }
-  if (filters.region) {
-    rows = rows.filter(r => r.region === filters.region);
-  }
-  if (filters.pipelineId) {
-    rows = rows.filter(r => r.pipeline_id === filters.pipelineId);
-  }
-  if (filters.modelId) {
-    rows = rows.filter(r => r.model_id === filters.modelId);
-  }
-
-  return rows.map(transformNetworkDemandRow);
-}
-
-export async function resolveRawGPUMetrics(filters: GPUMetricsFilters): Promise<RawGPUMetricRow[]> {
-  const windowHours = filters.window ? parseWindowHours(filters.window) : undefined;
-  let rows = await getRawGPUMetricsRows(
-    windowHours != null ? clampLookbackHours(windowHours) : undefined
-  );
-
-  if (filters.orchestratorAddress) {
-    rows = rows.filter(r => r.orchestrator_address === filters.orchestratorAddress);
-  }
-  if (filters.pipelineId) {
-    rows = rows.filter(r => r.pipeline_id === filters.pipelineId);
-  }
-  if (filters.modelId) {
-    rows = rows.filter(r => r.model_id === filters.modelId);
-  }
-  if (filters.gpuId) {
-    rows = rows.filter(r => r.gpu_id === filters.gpuId);
-  }
-  if (filters.region) {
-    rows = rows.filter(r => r.region === filters.region);
-  }
-  if (filters.gpuModelName) {
-    rows = rows.filter(r => r.gpu_model_name === filters.gpuModelName);
-  }
-  if (filters.runnerVersion) {
-    rows = rows.filter(r => r.runner_version === filters.runnerVersion);
-  }
-  if (filters.cudaVersion) {
-    const normalized = normalizeCudaVersionForApi(filters.cudaVersion);
-    rows = rows.filter(r => normalizeCudaVersionForApi(r.cuda_version) === normalized);
-  }
-
-  return rows.map(transformGPUMetricRow);
-}
-
-export async function resolveRawSLACompliance(filters: SLAComplianceFilters): Promise<RawSLAComplianceRow[]> {
-  const windowHours = filters.window ? parseWindowHours(filters.window) : undefined;
-  let rows = await getRawSLARows(
-    windowHours != null ? clampLookbackHours(windowHours) : undefined
-  );
-
-  if (filters.orchestratorAddress) {
-    rows = rows.filter(r => r.orchestrator_address === filters.orchestratorAddress);
-  }
-  if (filters.pipelineId) {
-    rows = rows.filter(r => r.pipeline_id === filters.pipelineId);
-  }
-  if (filters.modelId) {
-    rows = rows.filter(r => r.model_id === filters.modelId);
-  }
-  if (filters.gpuId) {
-    rows = rows.filter(r => r.gpu_id === filters.gpuId);
-  }
-  if (filters.region) {
-    rows = rows.filter(r => r.region === filters.region);
-  }
-
-  return rows.map(transformSLAComplianceRow);
-}

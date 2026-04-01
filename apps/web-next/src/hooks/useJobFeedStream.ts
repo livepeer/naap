@@ -36,7 +36,7 @@ export interface UseJobFeedStreamOptions {
   skip?: boolean;
 }
 
-/** Mirrors `/api/v1/dashboard/job-feed` JSON; helps explain empty state vs misconfiguration. */
+/** Mirrors `/api/v1/dashboard/job-feed` JSON; legacy flag names are kept for compatibility. */
 export interface JobFeedConnectionMeta {
   clickhouseConfigured: boolean;
   queryFailed: boolean;

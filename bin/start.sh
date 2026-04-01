@@ -342,6 +342,7 @@ show_failure_context() {
 
 wait_for_health() {
   local url=$1 svc=$2 max=${3:-$MAX_HEALTH_RETRIES} intv=${4:-$HEALTH_CHECK_INTERVAL} mon_pid=${5:-}
+  local delay="$intv"
   for i in $(seq 1 "$max"); do
     curl -sf --max-time 2 "$url" > /dev/null 2>&1 && return 0
     # If we're monitoring a pid and it died, fail immediately (don't wait full timeout)
@@ -353,9 +354,12 @@ wait_for_health() {
     if [ $((i % 5)) -eq 1 ] || [ "$i" -eq "$max" ]; then
       log_info "Waiting for $svc... ($i/$max)"
     else
-      log_debug "Waiting for $svc... ($i/$max)"
+      log_debug "Waiting for $svc... ($i/$max, next check in ${delay}s)"
     fi
-    sleep "$intv"
+    sleep "$delay"
+    # Exponential backoff: 1s, 1s, 2s, 2s, 3s, 3s, ... capped at 5s
+    delay=$(( (i / 2) + 1 ))
+    [ "$delay" -gt 5 ] && delay=5
   done
   return 1
 }
@@ -996,8 +1000,7 @@ start_shell() {
     setsid env WATCHPACK_POLLING=1000 PORT=$SHELL_PORT npx next dev -p $SHELL_PORT > "$LOG_DIR/shell-web.log" 2>&1 &
     local pid=$!
     register_pid $pid "shell-web"
-      wait_for_port $SHELL_PORT "next.js shell" 60 && \
-      wait_for_health "http://localhost:$SHELL_PORT" "next.js shell" 60 1 "$pid" && {
+    wait_for_port $SHELL_PORT "next.js shell" 60 && {
       log_success "Shell (Next.js): http://localhost:$SHELL_PORT"
       return 0
     } || {
@@ -1152,14 +1155,8 @@ start_plugin_frontend_dev() {
 }
 
 verify_plugin_accessible() {
-  local plugin=$1
-  local url="http://localhost:$SHELL_PORT/cdn/plugins/$plugin/1.0.0/$plugin.js"
-
-  # The CDN route is lazily compiled in Next.js dev mode, so the first fetches
-  # right after shell startup can be slower than a normal static asset request.
-  for i in $(seq 1 10); do
-    curl -sf --max-time 5 "$url" > /dev/null 2>&1 && return 0
-    sleep 1
+  for i in $(seq 1 5); do
+    curl -sf --max-time 3 "http://localhost:$SHELL_PORT/cdn/plugins/$1/1.0.0/$1.js" > /dev/null 2>&1 && return 0; sleep 1
   done; return 1
 }
 

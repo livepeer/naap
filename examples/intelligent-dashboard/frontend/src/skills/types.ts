@@ -9,7 +9,7 @@ import type { AnalyticsResult, QueryPlan, RenderSpec } from '../types';
 
 /**
  * AnalyticSkill: converts a natural-language question into a structured
- * query plan, then executes it against the NAAP API.
+ * query plan, then executes it against the Leaderboard API.
  */
 export interface IAnalyticSkill {
   analyzeIntent(question: string): Promise<QueryPlan>;

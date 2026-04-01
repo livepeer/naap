@@ -169,7 +169,7 @@ const FEES_OVERVIEW_QUERY = /* GraphQL */ `
  */
 const NAAP_API_QUERY_TIMEOUT_MS = 25_000;
 
-/** ClickHouse + The Graph queries are fast; 15 s is generous. */
+/** Protocol, pricing, GPU, and job-feed queries are cached server-side; 15 s is generous. */
 const REALTIME_QUERY_TIMEOUT_MS = 15_000;
 
 // ============================================================================
@@ -971,15 +971,15 @@ function JobFeedCard({
               {feedMeta?.fetchFailed
                 ? 'Could not load the job feed. Check the network or try again.'
                 : feedMeta && !feedMeta.clickhouseConfigured
-                  ? 'Live job feed needs ClickHouse (set CLICKHOUSE_URL, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD on the server).'
+                  ? 'Live job feed is not configured on the server.'
                   : feedMeta?.queryFailed
-                    ? 'ClickHouse query failed. See server logs for details.'
+                    ? 'Live job feed query failed. See server logs for details.'
                     : 'No active streams'}
             </span>
             {feedMeta && !feedMeta.fetchFailed && !feedMeta.queryFailed && feedMeta.clickhouseConfigured ? (
               <span className="text-[10px] text-muted-foreground/70 mt-2 max-w-sm">
-                Streams with events in the last 3 minutes are shown. If you expect rows, confirm{' '}
-                <code className="text-[10px]">semantic.stream_events</code> exists and optionally set{' '}
+                Streams with events in the last 3 minutes are shown. If you expect rows, confirm the
+                upstream dashboard job-feed endpoint is healthy and optionally set{' '}
                 <code className="text-[10px]">JOB_FEED_PIPELINE_FILTER</code> to match your pipeline names.
               </span>
             ) : null}

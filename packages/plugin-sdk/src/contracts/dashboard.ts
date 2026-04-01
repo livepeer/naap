@@ -60,11 +60,6 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     gpuCapacity(timeframe: String): GPUCapacity
     pricing: [PipelinePricing!]
     orchestrators(period: String): [OrchestratorRow!]
-
-    # Raw explorer queries (API-native filters)
-    networkDemand(window: String, gateway: String, region: String, pipelineId: String, modelId: String): [RawNetworkDemandRow!]
-    gpuMetrics(window: String, orchestratorAddress: String, pipelineId: String, modelId: String, gpuId: String, region: String, gpuModelName: String, runnerVersion: String, cudaVersion: String): [RawGPUMetricRow!]
-    slaCompliance(window: String, orchestratorAddress: String, pipelineId: String, modelId: String, gpuId: String, region: String): [RawSLAComplianceRow!]
   }
 
   type HourlyBucket {
@@ -199,92 +194,6 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     pipelines: [String!]!
     pipelineModels: [PipelineModelOffer!]!
     gpuCount: Int!
-  }
-
-  # Raw API row types for explorer views
-  type RawNetworkDemandRow {
-    windowStart: String!
-    gateway: String!
-    region: String
-    pipelineId: String!
-    modelId: String
-    sessionsCount: Int!
-    totalMinutes: Float!
-    knownSessionsCount: Int!
-    servedSessions: Int!
-    unservedSessions: Int!
-    totalDemandSessions: Int!
-    startupUnexcusedSessions: Int!
-    confirmedSwappedSessions: Int!
-    inferredSwapSessions: Int!
-    totalSwappedSessions: Int!
-    sessionsEndingInError: Int!
-    errorStatusSamples: Int!
-    healthSignalCoverageRatio: Float!
-    startupSuccessRate: Float!
-    effectiveSuccessRate: Float!
-    ticketFaceValueEth: Float!
-  }
-
-  type RawGPUMetricRow {
-    windowStart: String!
-    orchestratorAddress: String!
-    pipelineId: String!
-    modelId: String
-    gpuId: String
-    region: String
-    gpuModelName: String
-    gpuMemoryBytesTotal: Float
-    runnerVersion: String
-    cudaVersion: String
-    avgOutputFps: Float!
-    p95OutputFps: Float!
-    fpsJitterCoefficient: Float
-    avgPromptToFirstFrameMs: Float
-    avgStartupLatencyMs: Float
-    avgE2eLatencyMs: Float
-    p95PromptToFirstFrameLatencyMs: Float
-    p95StartupLatencyMs: Float
-    p95E2eLatencyMs: Float
-    promptToFirstFrameSampleCount: Int!
-    startupLatencySampleCount: Int!
-    e2eLatencySampleCount: Int!
-    statusSamples: Int!
-    errorStatusSamples: Int!
-    knownSessionsCount: Int!
-    startupSuccessSessions: Int!
-    startupExcusedSessions: Int!
-    startupUnexcusedSessions: Int!
-    confirmedSwappedSessions: Int!
-    inferredSwapSessions: Int!
-    totalSwappedSessions: Int!
-    sessionsEndingInError: Int!
-    healthSignalCoverageRatio: Float!
-    startupUnexcusedRate: Float!
-    swapRate: Float!
-  }
-
-  type RawSLAComplianceRow {
-    windowStart: String!
-    orchestratorAddress: String!
-    pipelineId: String!
-    modelId: String
-    gpuId: String
-    region: String
-    knownSessionsCount: Int!
-    startupSuccessSessions: Int!
-    startupExcusedSessions: Int!
-    startupUnexcusedSessions: Int!
-    confirmedSwappedSessions: Int!
-    inferredSwapSessions: Int!
-    totalSwappedSessions: Int!
-    sessionsEndingInError: Int!
-    errorStatusSamples: Int!
-    healthSignalCoverageRatio: Float!
-    startupSuccessRate: Float
-    effectiveSuccessRate: Float
-    noSwapRate: Float
-    slaScore: Float
   }
 `;
 
@@ -458,130 +367,6 @@ export interface DashboardOrchestrator {
   gpuCount: number;
 }
 
-// ============================================================================
-// Raw Explorer Types (mirror leaderboard API row shapes)
-// ============================================================================
-
-/** Raw network demand row from /api/network/demand */
-export interface RawNetworkDemandRow {
-  windowStart: string;
-  gateway: string;
-  region: string | null;
-  pipelineId: string;
-  modelId: string | null;
-  sessionsCount: number;
-  totalMinutes: number;
-  knownSessionsCount: number;
-  servedSessions: number;
-  unservedSessions: number;
-  totalDemandSessions: number;
-  startupUnexcusedSessions: number;
-  confirmedSwappedSessions: number;
-  inferredSwapSessions: number;
-  totalSwappedSessions: number;
-  sessionsEndingInError: number;
-  errorStatusSamples: number;
-  healthSignalCoverageRatio: number;
-  startupSuccessRate: number;
-  effectiveSuccessRate: number;
-  ticketFaceValueEth: number;
-}
-
-/** Raw GPU metric row from /api/gpu/metrics */
-export interface RawGPUMetricRow {
-  windowStart: string;
-  orchestratorAddress: string;
-  pipelineId: string;
-  modelId: string | null;
-  gpuId: string | null;
-  region: string | null;
-  gpuModelName: string | null;
-  gpuMemoryBytesTotal: number | null;
-  runnerVersion: string | null;
-  cudaVersion: string | null;
-  avgOutputFps: number;
-  p95OutputFps: number;
-  fpsJitterCoefficient: number | null;
-  avgPromptToFirstFrameMs: number | null;
-  avgStartupLatencyMs: number | null;
-  avgE2eLatencyMs: number | null;
-  p95PromptToFirstFrameLatencyMs: number | null;
-  p95StartupLatencyMs: number | null;
-  p95E2eLatencyMs: number | null;
-  promptToFirstFrameSampleCount: number;
-  startupLatencySampleCount: number;
-  e2eLatencySampleCount: number;
-  statusSamples: number;
-  errorStatusSamples: number;
-  knownSessionsCount: number;
-  startupSuccessSessions: number;
-  startupExcusedSessions: number;
-  startupUnexcusedSessions: number;
-  confirmedSwappedSessions: number;
-  inferredSwapSessions: number;
-  totalSwappedSessions: number;
-  sessionsEndingInError: number;
-  healthSignalCoverageRatio: number;
-  startupUnexcusedRate: number;
-  swapRate: number;
-}
-
-/** Raw SLA compliance row from /api/sla/compliance */
-export interface RawSLAComplianceRow {
-  windowStart: string;
-  orchestratorAddress: string;
-  pipelineId: string;
-  modelId: string | null;
-  gpuId: string | null;
-  region: string | null;
-  knownSessionsCount: number;
-  startupSuccessSessions: number;
-  startupExcusedSessions: number;
-  startupUnexcusedSessions: number;
-  confirmedSwappedSessions: number;
-  inferredSwapSessions: number;
-  totalSwappedSessions: number;
-  sessionsEndingInError: number;
-  errorStatusSamples: number;
-  healthSignalCoverageRatio: number;
-  startupSuccessRate: number | null;
-  effectiveSuccessRate: number | null;
-  noSwapRate: number | null;
-  slaScore: number | null;
-}
-
-/** Filter arguments for networkDemand query */
-export interface NetworkDemandFilters {
-  window?: string;
-  gateway?: string;
-  region?: string;
-  pipelineId?: string;
-  modelId?: string;
-}
-
-/** Filter arguments for gpuMetrics query */
-export interface GPUMetricsFilters {
-  window?: string;
-  orchestratorAddress?: string;
-  pipelineId?: string;
-  modelId?: string;
-  gpuId?: string;
-  region?: string;
-  gpuModelName?: string;
-  runnerVersion?: string;
-  cudaVersion?: string;
-}
-
-/** Filter arguments for slaCompliance query */
-export interface SLAComplianceFilters {
-  window?: string;
-  orchestratorAddress?: string;
-  pipelineId?: string;
-  modelId?: string;
-  gpuId?: string;
-  region?: string;
-}
-
 /** Full dashboard query response shape (all fields optional for partial providers) */
 export interface DashboardData {
   // Optimized/summary data
@@ -593,10 +378,6 @@ export interface DashboardData {
   gpuCapacity?: DashboardGPUCapacity | null;
   pricing?: DashboardPipelinePricing[] | null;
   orchestrators?: DashboardOrchestrator[] | null;
-  // Raw explorer data
-  networkDemand?: RawNetworkDemandRow[] | null;
-  gpuMetrics?: RawGPUMetricRow[] | null;
-  slaCompliance?: RawSLAComplianceRow[] | null;
 }
 
 // ============================================================================
@@ -665,8 +446,4 @@ export interface DashboardResolvers {
   gpuCapacity?: (args: { timeframe?: string }) => DashboardGPUCapacity | Promise<DashboardGPUCapacity>;
   pricing?: () => DashboardPipelinePricing[] | Promise<DashboardPipelinePricing[]>;
   orchestrators?: (args: { period?: string }) => DashboardOrchestrator[] | Promise<DashboardOrchestrator[]>;
-  // Raw explorer resolvers
-  networkDemand?: (args: NetworkDemandFilters) => RawNetworkDemandRow[] | Promise<RawNetworkDemandRow[]>;
-  gpuMetrics?: (args: GPUMetricsFilters) => RawGPUMetricRow[] | Promise<RawGPUMetricRow[]>;
-  slaCompliance?: (args: SLAComplianceFilters) => RawSLAComplianceRow[] | Promise<RawSLAComplianceRow[]>;
 }

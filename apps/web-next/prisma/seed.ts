@@ -20,13 +20,11 @@
  * - Plugin deployments
  * - Tenant installations
  * - Test team
- * - Public gateway connectors (from plugins/service-gateway/connectors/*.json)
  */
 
 import { BILLING_PROVIDERS, PrismaClient } from '@naap/database';
 import * as crypto from 'crypto';
 import * as path from 'path';
-import { seedPublicConnectors } from '../../../plugins/service-gateway/connectors/seed.js';
 
 const prisma = new PrismaClient();
 
@@ -725,19 +723,6 @@ async function main() {
     });
   }
   console.log(`   ✅ Created ${jobFeeds.length} job feeds`);
-
-  // ============================================
-  // 14. Public Gateway Connectors
-  // ============================================
-  console.log('🔌 Seeding public gateway connectors...');
-
-  const adminUser = createdUsers.find(u => u.email === 'admin@livepeer.org');
-  if (adminUser) {
-    const connResult = await seedPublicConnectors(prisma, adminUser.id);
-    console.log(`   ✅ ${connResult.total} connectors (${connResult.created} created, ${connResult.existing} existing)`);
-  } else {
-    console.log('   ⚠️  Skipped: no admin user available');
-  }
 
   // ============================================
   // Summary

@@ -162,11 +162,6 @@ if [ ! -f "$ROOT_DIR/packages/plugin-build/dist/vite.js" ]; then
   (cd "$ROOT_DIR" && npx tsc -p packages/plugin-build/tsconfig.json) || { log_error "plugin-build build failed"; exit 1; }
 fi
 
-# Dashboard provider UMD bundles createDashboardProvider + DASHBOARD_SCHEMA from @naap/plugin-sdk dist.
-# Rebuild SDK so embedded GraphQL schema matches packages/plugin-sdk/src (e.g. new KPI fields).
-log_info "Building @naap/plugin-sdk (GraphQL schema for dashboard provider bundles)..."
-(cd "$ROOT_DIR/packages/plugin-sdk" && npm run build) || { log_error "plugin-sdk build failed"; exit 1; }
-
 # Clean output directory if requested
 if [ "$CLEAN" = true ]; then
   log_info "Cleaning output directory..."

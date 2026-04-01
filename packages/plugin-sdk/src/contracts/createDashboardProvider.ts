@@ -86,15 +86,6 @@ export function createDashboardProvider(
   if (resolvers.orchestrators) {
     rootValue.orchestrators = (_args: { period?: string }) => resolvers.orchestrators!(_args);
   }
-  if (resolvers.networkDemand) {
-    rootValue.networkDemand = (_args: import('./dashboard.js').NetworkDemandFilters) => resolvers.networkDemand!(_args);
-  }
-  if (resolvers.gpuMetrics) {
-    rootValue.gpuMetrics = (_args: import('./dashboard.js').GPUMetricsFilters) => resolvers.gpuMetrics!(_args);
-  }
-  if (resolvers.slaCompliance) {
-    rootValue.slaCompliance = (_args: import('./dashboard.js').SLAComplianceFilters) => resolvers.slaCompliance!(_args);
-  }
 
   // Register a single handler on the event bus
   const unsubscribe = eventBus.handleRequest<DashboardQueryRequest, DashboardQueryResponse>(

@@ -9,8 +9,7 @@
  * TTL window share the same cached Promise.
  *
  * TTLs align with the dashboard BFF / NAAP API proxy expectations:
- *   demand=180s, sla=300s, pipelines=900s (gpu/metrics not fetched — dashboard GPU
- *   inventory uses ClickHouse; see gpu-capacity-clickhouse.ts)
+ *   demand=180s, sla=300s, pipelines=900s.
  *
  * NAAP API `window=` query caps (keep in sync with /api/v1/naap-api/warm):
  *   network/demand + sla/compliance: 24h max — pipelines catalog: no window
@@ -203,7 +202,6 @@ function normalizePipelineCatalog(rawRows: unknown[]): PipelineCatalogEntry[] {
 
 const DEMAND_TTL = 60 * 60;     // 3600 seconds (1 hour)
 const SLA_TTL = 60 * 60;        // 3600 seconds (1 hour)
-const GPU_TTL = 60 * 60;        // 3600 seconds (1 hour)
 const PIPELINES_TTL = 60 * 60;  // 3600 seconds (1 hour)
 
 // ---------------------------------------------------------------------------
@@ -424,15 +422,6 @@ export function getRawSLARows(lookbackHours?: number): Promise<SLAComplianceRow[
   );
 }
 
-/**
- * NAAP API `gpu/metrics` is not fetched: GPU inventory for the dashboard
- * comes from ClickHouse (`gpu-capacity-clickhouse.ts`). This returns an empty
- * array so raw-metrics API consumers get a stable, no-upstream shape.
- */
-export function getRawGPUMetricsRows(_lookbackHours?: number): Promise<GPUMetricRow[]> {
-  return Promise.resolve([]);
-}
-
 /** Fetch the pipeline catalog (no pagination). */
 export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
   return cachedFetch('pipelines', PIPELINES_TTL * 1000, async () => {
@@ -464,7 +453,6 @@ export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
 export const NAAP_API_CACHE_TTLS = {
   demand: DEMAND_TTL,
   sla: SLA_TTL,
-  gpu: GPU_TTL,
   pipelines: PIPELINES_TTL,
 } as const;
 /** @deprecated Use {@link NAAP_API_CACHE_TTLS} */

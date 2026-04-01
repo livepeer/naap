@@ -14,7 +14,7 @@ export const getShellContext = () => shellContext;
 export const manifest: WorkflowManifest = {
   name: 'developer-api',
   version: '0.0.1',
-  routes: ['/developer', '/developer/*'],
+  routes: ['/developers', '/developers/*'],
   
   mount(container: HTMLElement, context: ShellContext) {
     shellContext = context;

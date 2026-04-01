@@ -8,7 +8,7 @@ import { AgentOrchestrator } from '../agent/orchestrator';
 import { createAnalyticSkill } from '../skills/analyticSkill';
 import { createUXSkill } from '../skills/uxSkill';
 import { useGeminiApi } from '../hooks/useGeminiApi';
-import { useNaapApi } from '../hooks/useNaapApi';
+import { useLeaderboardApi } from '../hooks/useLeaderboardApi';
 import type { AgentStep, ConversationEntry, RenderSpec, AnalyticsResult } from '../types';
 
 const EXAMPLE_PROMPTS = [
@@ -19,7 +19,7 @@ const EXAMPLE_PROMPTS = [
 
 export const ChatPage: React.FC = () => {
   const geminiApi = useGeminiApi();
-  const naapApi = useNaapApi();
+  const leaderboardApi = useLeaderboardApi();
 
   const [conversation, setConversation] = useState<ConversationEntry[]>([]);
   const [currentStep, setCurrentStep] = useState<AgentStep>('idle');
@@ -32,12 +32,12 @@ export const ChatPage: React.FC = () => {
   const orchestrator = useMemo(() => {
     const analyticSkill = createAnalyticSkill(
       geminiApi.generateContent,
-      naapApi.fetchStats,
-      naapApi.fetchPipelines,
+      leaderboardApi.fetchStats,
+      leaderboardApi.fetchPipelines,
     );
     const uxSkill = createUXSkill(geminiApi.generateContent);
     return new AgentOrchestrator(analyticSkill, uxSkill);
-  }, [geminiApi, naapApi]);
+  }, [geminiApi, leaderboardApi]);
 
   const scrollToBottom = useCallback(() => {
     clearTimeout(scrollTimer.current);

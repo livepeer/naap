@@ -52,8 +52,7 @@ async function createConnectorFromTemplate(
 ) {
   const conn = template.connector;
   const slug = overrides?.slug || conn.slug;
-  const upstreamBaseUrl =
-    overrides?.upstreamBaseUrl ?? conn.upstreamBaseUrl;
+  const upstreamBaseUrl = overrides?.upstreamBaseUrl || conn.upstreamBaseUrl;
 
   if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
     return errors.badRequest('Slug must be lowercase alphanumeric with hyphens');

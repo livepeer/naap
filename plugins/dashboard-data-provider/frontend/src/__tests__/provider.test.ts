@@ -314,7 +314,7 @@ describe('registerDashboardProvider', () => {
     expect(response.data!.gpuCapacity!.totalGPUs).toBe(2);
     expect(response.data!.gpuCapacity!.availableCapacity).toBe(100);
 
-    // Pricing: BFF / ClickHouse-backed aggregate
+    // Pricing: BFF-backed aggregate
     expect(response.data!.pricing).toBeDefined();
     expect(response.data!.pricing!.length).toBeGreaterThan(0);
     expect(response.data!.pricing![0]).toMatchObject({
