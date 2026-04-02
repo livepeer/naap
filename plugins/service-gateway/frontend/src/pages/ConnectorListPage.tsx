@@ -39,9 +39,9 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const VISIBILITY_BADGES: Record<string, { label: string; className: string }> = {
-  private: { label: '🔒 Private', className: 'bg-gray-500/10 text-gray-400 border-gray-500/30' },
+  private: { label: '🔒 Private', className: 'bg-bg-secondary/30 text-text-tertiary border-[var(--border-color)]' },
   team: { label: '👥 Team', className: 'bg-purple-500/10 text-purple-400 border-purple-500/30' },
-  public: { label: '🌐 Public', className: 'bg-blue-500/10 text-blue-400 border-blue-500/30' },
+  public: { label: '🌐 Public', className: 'bg-accent-emerald/10 text-accent-emerald border-accent-emerald/30' },
 };
 
 const CATEGORY_META: Record<string, { label: string; icon: string; color: string }> = {
@@ -107,26 +107,26 @@ export const ConnectorListPage: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold text-gray-100">Connectors</h1>
+            <h1 className="text-xl font-bold text-text-primary">Connectors</h1>
           </div>
           <button
             onClick={() => navigate('/new')}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+            className="px-4 py-2 bg-accent-emerald hover:bg-accent-emerald/90 text-white text-sm font-medium rounded-lg transition-colors"
           >
             + New Connector
           </button>
         </div>
 
         {/* Scope Tabs */}
-        <div className="flex gap-1 border-b border-gray-700 mb-4">
+        <div className="flex gap-1 border-b border-[var(--border-color)] mb-4">
           {([['all', 'All Connectors'], ['own', 'My Connectors'], ['public', 'Public']] as const).map(([val, label]) => (
             <button
               key={val}
               onClick={() => setScopeFilter(val)}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
                 scopeFilter === val
-                  ? 'border-blue-500 text-blue-400'
-                  : 'border-transparent text-gray-400 hover:text-gray-200'
+                  ? 'border-accent-emerald text-accent-emerald'
+                  : 'border-transparent text-text-secondary hover:text-text-primary'
               }`}
             >
               {label}
@@ -141,12 +141,12 @@ export const ConnectorListPage: React.FC = () => {
             placeholder="Search connectors..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm placeholder-gray-500 focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm placeholder:text-text-tertiary focus:ring-2 focus:ring-accent-emerald"
           />
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm"
+            className="px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm"
           >
             <option value="">All Status</option>
             <option value="draft">Draft</option>
@@ -162,8 +162,8 @@ export const ConnectorListPage: React.FC = () => {
               onClick={() => setCategoryFilter('')}
               className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
                 !categoryFilter
-                  ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
-                  : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-600'
+                  ? 'bg-accent-emerald/20 text-accent-emerald border-accent-emerald/40'
+                  : 'bg-bg-secondary text-text-secondary border-[var(--border-color)] hover:border-[var(--border-color)]'
               }`}
             >
               All ({connectors.length})
@@ -178,7 +178,7 @@ export const ConnectorListPage: React.FC = () => {
                   className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
                     categoryFilter === key
                       ? meta.color
-                      : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-600'
+                      : 'bg-bg-secondary text-text-secondary border-[var(--border-color)] hover:border-[var(--border-color)]'
                   }`}
                 >
                   {meta.icon} {meta.label} ({count})
@@ -192,10 +192,10 @@ export const ConnectorListPage: React.FC = () => {
         {loading && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 animate-pulse">
-                <div className="h-5 bg-gray-700 rounded w-3/4 mb-3" />
-                <div className="h-4 bg-gray-700 rounded w-1/2 mb-4" />
-                <div className="h-3 bg-gray-700 rounded w-1/3" />
+              <div key={i} className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-5 animate-pulse">
+                <div className="h-5 bg-bg-tertiary rounded w-3/4 mb-3" />
+                <div className="h-4 bg-bg-tertiary rounded w-1/2 mb-4" />
+                <div className="h-3 bg-bg-tertiary rounded w-1/3" />
               </div>
             ))}
           </div>
@@ -211,13 +211,13 @@ export const ConnectorListPage: React.FC = () => {
         {/* Empty State */}
         {!loading && !error && filtered.length === 0 && (
           <div className="text-center py-16">
-            <div className="w-20 h-20 mx-auto mb-4 bg-gray-800 rounded-full flex items-center justify-center">
-              <svg className="w-10 h-10 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="w-20 h-20 mx-auto mb-4 bg-bg-secondary rounded-full flex items-center justify-center">
+              <svg className="w-10 h-10 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
               </svg>
             </div>
-            <h2 className="text-lg font-semibold text-gray-200 mb-2">Create your first connector</h2>
-            <p className="text-gray-400 text-sm mb-6 max-w-md mx-auto">
+            <h2 className="text-lg font-semibold text-text-primary mb-2">Create your first connector</h2>
+            <p className="text-text-tertiary text-sm mb-6 max-w-md mx-auto">
               Expose any REST API as a managed, secure endpoint with rate limiting, usage tracking, and auto-generated docs.
             </p>
             <div className="flex gap-3 justify-center flex-wrap">
@@ -225,11 +225,11 @@ export const ConnectorListPage: React.FC = () => {
                 <button
                   key={t.id}
                   onClick={() => navigate(`/new?template=${t.id}`)}
-                  className="px-4 py-3 bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-lg text-left transition-colors"
+                  className="px-4 py-3 bg-bg-secondary hover:bg-bg-tertiary border border-[var(--border-color)] rounded-lg text-left transition-colors"
                 >
                   <div className="text-lg mb-1">{t.icon}</div>
-                  <div className="text-sm font-medium text-gray-200">{t.label}</div>
-                  <div className="text-xs text-gray-400">{t.desc}</div>
+                  <div className="text-sm font-medium text-text-primary">{t.label}</div>
+                  <div className="text-xs text-text-tertiary">{t.desc}</div>
                 </button>
               ))}
             </div>
@@ -243,14 +243,14 @@ export const ConnectorListPage: React.FC = () => {
               <button
                 key={connector.id}
                 onClick={() => navigate(`/connectors/${connector.id}`)}
-                className="bg-gray-800/50 hover:bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-lg p-5 text-left transition-colors"
+                className="bg-bg-secondary/50 hover:bg-bg-secondary border border-[var(--border-color)] hover:border-[var(--border-color)] rounded-lg p-5 text-left transition-colors"
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-2 min-w-0">
                     {connector.healthStatus && connector.healthStatus !== 'unknown' && (
                       <HealthDot status={connector.healthStatus} size="md" />
                     )}
-                    <h3 className="text-sm font-semibold text-gray-200 truncate">
+                    <h3 className="text-sm font-semibold text-text-primary truncate">
                       {connector.displayName}
                     </h3>
                   </div>
@@ -259,9 +259,9 @@ export const ConnectorListPage: React.FC = () => {
                   </span>
                 </div>
                 {connector.description && (
-                  <p className="text-xs text-gray-400 mb-3 line-clamp-2">{connector.description}</p>
+                  <p className="text-xs text-text-tertiary mb-3 line-clamp-2">{connector.description}</p>
                 )}
-                <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
+                <div className="flex items-center gap-2 text-xs text-text-tertiary flex-wrap">
                   {connector.category && CATEGORY_META[connector.category] && (
                     <span className={`px-1.5 py-0.5 rounded border text-[10px] font-medium ${CATEGORY_META[connector.category].color}`}>
                       {CATEGORY_META[connector.category].icon} {CATEGORY_META[connector.category].label}

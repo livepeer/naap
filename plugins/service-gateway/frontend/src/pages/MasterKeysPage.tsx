@@ -100,8 +100,8 @@ export const MasterKeysPage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-100 mb-2">Master Keys</h1>
-      <p className="text-sm text-gray-400 mb-6">
+      <h1 className="text-2xl font-bold text-text-primary mb-2">Master Keys</h1>
+      <p className="text-sm text-text-tertiary mb-6">
         Master keys (gwm_) grant access to all connectors in your scope. Use them for AI agent integrations.
       </p>
 
@@ -113,25 +113,25 @@ export const MasterKeysPage: React.FC = () => {
             value={newKeyName}
             onChange={(e) => setNewKeyName(e.target.value)}
             placeholder="New master key name..."
-            className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm"
+            className="flex-1 px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm"
           />
           <button
             onClick={handleCreate}
             disabled={!newKeyName || selectedScopes.length === 0 || creating}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+            className="px-4 py-2 bg-accent-emerald hover:bg-accent-emerald/90 text-white text-sm font-medium rounded-lg disabled:opacity-50"
           >
             Create Master Key
           </button>
         </div>
         <div className="flex gap-2 items-center">
-          <span className="text-xs text-gray-400">Scopes:</span>
+          <span className="text-xs text-text-secondary">Scopes:</span>
           {SCOPE_OPTIONS.map((scope) => (
-            <label key={scope} className="flex items-center gap-1 text-xs text-gray-300 cursor-pointer">
+            <label key={scope} className="flex items-center gap-1 text-xs text-text-secondary cursor-pointer">
               <input
                 type="checkbox"
                 checked={selectedScopes.includes(scope)}
                 onChange={() => toggleScope(scope)}
-                className="rounded border-gray-600"
+                className="rounded border-[var(--border-color)]"
               />
               {scope}
             </label>
@@ -149,7 +149,7 @@ export const MasterKeysPage: React.FC = () => {
         <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 mb-4">
           <p className="text-sm text-green-400 mb-2 font-medium">Master key created — copy now!</p>
           <div className="flex items-center gap-2">
-            <code className="flex-1 px-3 py-2 bg-gray-900 rounded text-xs text-gray-200 font-mono break-all">{createdKey}</code>
+            <code className="flex-1 px-3 py-2 bg-bg-primary rounded text-xs text-text-primary font-mono break-all">{createdKey}</code>
             <button
               onClick={async () => {
                 try {
@@ -158,7 +158,7 @@ export const MasterKeysPage: React.FC = () => {
                   setTimeout(() => setCopied(false), 2000);
                 } catch { /* clipboard not available */ }
               }}
-              className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs rounded shrink-0"
+              className="px-3 py-2 bg-bg-tertiary hover:bg-bg-tertiary text-text-primary text-xs rounded shrink-0"
             >
               {copied ? 'Copied!' : 'Copy'}
             </button>
@@ -167,48 +167,48 @@ export const MasterKeysPage: React.FC = () => {
       )}
 
       {/* Table */}
-      <div className="bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
+      <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-700">
-              <th className="px-4 py-2 text-left text-gray-400 font-medium">Name</th>
-              <th className="px-4 py-2 text-left text-gray-400 font-medium">Key</th>
-              <th className="px-4 py-2 text-left text-gray-400 font-medium">Scopes</th>
-              <th className="px-4 py-2 text-left text-gray-400 font-medium">Status</th>
-              <th className="px-4 py-2 text-left text-gray-400 font-medium">Last Used</th>
-              <th className="px-4 py-2 text-left text-gray-400 font-medium">Created</th>
-              <th className="px-4 py-2 text-right text-gray-400 font-medium">Actions</th>
+            <tr className="border-b border-[var(--border-color)]">
+              <th className="px-4 py-2 text-left text-text-secondary font-medium">Name</th>
+              <th className="px-4 py-2 text-left text-text-secondary font-medium">Key</th>
+              <th className="px-4 py-2 text-left text-text-secondary font-medium">Scopes</th>
+              <th className="px-4 py-2 text-left text-text-secondary font-medium">Status</th>
+              <th className="px-4 py-2 text-left text-text-secondary font-medium">Last Used</th>
+              <th className="px-4 py-2 text-left text-text-secondary font-medium">Created</th>
+              <th className="px-4 py-2 text-right text-text-secondary font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-500">Loading...</td>
+                <td colSpan={7} className="px-4 py-8 text-center text-text-tertiary">Loading...</td>
               </tr>
             )}
             {!loading && keys.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-500">No master keys found.</td>
+                <td colSpan={7} className="px-4 py-8 text-center text-text-tertiary">No master keys found.</td>
               </tr>
             )}
             {keys.map((key) => (
-              <tr key={key.id} className="border-b border-gray-700/50 hover:bg-gray-800/30">
-                <td className="px-4 py-2 text-gray-200">{key.name}</td>
-                <td className="px-4 py-2 font-mono text-gray-400 text-xs">{key.keyPrefix}...</td>
-                <td className="px-4 py-2 text-gray-300 text-xs">{key.scopes.join(', ')}</td>
+              <tr key={key.id} className="border-b border-[var(--border-color)] hover:bg-bg-secondary/30">
+                <td className="px-4 py-2 text-text-primary">{key.name}</td>
+                <td className="px-4 py-2 font-mono text-text-secondary text-xs">{key.keyPrefix}...</td>
+                <td className="px-4 py-2 text-text-secondary text-xs">{key.scopes.join(', ')}</td>
                 <td className="px-4 py-2">
                   <span className={`px-2 py-0.5 text-xs rounded ${STATUS_COLORS[key.status] || ''}`}>{key.status}</span>
                 </td>
-                <td className="px-4 py-2 text-gray-500 text-xs">
+                <td className="px-4 py-2 text-text-tertiary text-xs">
                   {key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : 'Never'}
                 </td>
-                <td className="px-4 py-2 text-gray-500 text-xs">
+                <td className="px-4 py-2 text-text-tertiary text-xs">
                   {new Date(key.createdAt).toLocaleString()}
                 </td>
                 <td className="px-4 py-2 text-right space-x-2">
                   {key.status === 'active' && (
                     <>
-                      <button onClick={() => handleRotate(key.id)} className="text-xs text-blue-400 hover:text-blue-300">
+                      <button onClick={() => handleRotate(key.id)} className="text-xs text-accent-emerald hover:text-accent-emerald/80">
                         Rotate
                       </button>
                       {confirmRevokeId === key.id ? (
@@ -222,7 +222,7 @@ export const MasterKeysPage: React.FC = () => {
                           </button>
                           <button
                             onClick={() => setConfirmRevokeId(null)}
-                            className="text-xs text-gray-400 hover:text-gray-200"
+                            className="text-xs text-text-tertiary hover:text-text-primary"
                           >
                             Cancel
                           </button>

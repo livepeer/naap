@@ -379,16 +379,16 @@ export const ConnectorWizardPage: React.FC = () => {
               <div
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${
                   i === stepIndex
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-accent-emerald text-white'
                     : i < stepIndex
                     ? 'bg-green-600/20 text-green-400'
-                    : 'bg-gray-800 text-gray-500'
+                    : 'bg-bg-secondary text-text-tertiary'
                 }`}
               >
                 <span className="w-5 h-5 flex items-center justify-center text-xs">{i < stepIndex ? '✓' : i + 1}</span>
                 {s}
               </div>
-              {i < displayedSteps.length - 1 && <div className="flex-1 h-px bg-gray-700" />}
+              {i < displayedSteps.length - 1 && <div className="flex-1 h-px bg-bg-tertiary" />}
             </React.Fragment>
           ))}
         </div>
@@ -398,13 +398,13 @@ export const ConnectorWizardPage: React.FC = () => {
           <div className="space-y-5">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-gray-200">Choose a Template</h2>
-                <p className="text-sm text-gray-400 mt-1">
+                <h2 className="text-lg font-semibold text-text-primary">Choose a Template</h2>
+                <p className="text-sm text-text-tertiary mt-1">
                   Select a pre-configured connector template, or skip to create from scratch.
                 </p>
               </div>
               {selectedTemplateId && (
-                <span className="px-3 py-1 bg-blue-500/20 text-blue-400 text-sm font-medium rounded-full">
+                <span className="px-3 py-1 bg-accent-emerald/20 text-accent-emerald text-sm font-medium rounded-full">
                   1 selected
                 </span>
               )}
@@ -417,8 +417,8 @@ export const ConnectorWizardPage: React.FC = () => {
                   onClick={() => setCategoryFilter('')}
                   className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
                     !categoryFilter
-                      ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
-                      : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-600'
+                      ? 'bg-accent-emerald/20 text-accent-emerald border-accent-emerald/40'
+                      : 'bg-bg-secondary text-text-secondary border-[var(--border-color)] hover:border-[var(--border-color)]'
                   }`}
                 >
                   All ({templates.length})
@@ -433,7 +433,7 @@ export const ConnectorWizardPage: React.FC = () => {
                       className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
                         categoryFilter === key
                           ? meta.color
-                          : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-600'
+                          : 'bg-bg-secondary text-text-secondary border-[var(--border-color)] hover:border-[var(--border-color)]'
                       }`}
                     >
                       {meta.icon} {meta.label} ({count})
@@ -447,10 +447,10 @@ export const ConnectorWizardPage: React.FC = () => {
             {templatesLoading && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {[1, 2, 3, 4, 5, 6].map((i) => (
-                  <div key={i} className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 animate-pulse">
-                    <div className="h-5 bg-gray-700 rounded w-3/4 mb-2" />
-                    <div className="h-4 bg-gray-700 rounded w-full mb-3" />
-                    <div className="h-3 bg-gray-700 rounded w-1/3" />
+                  <div key={i} className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-4 animate-pulse">
+                    <div className="h-5 bg-bg-tertiary rounded w-3/4 mb-2" />
+                    <div className="h-4 bg-bg-tertiary rounded w-full mb-3" />
+                    <div className="h-3 bg-bg-tertiary rounded w-1/3" />
                   </div>
                 ))}
               </div>
@@ -468,25 +468,25 @@ export const ConnectorWizardPage: React.FC = () => {
                       onClick={() => selectTemplate(t.id)}
                       className={`text-left p-4 rounded-lg border transition-all ${
                         isSelected
-                          ? 'border-blue-500 bg-blue-500/10 ring-1 ring-blue-500/50'
-                          : 'border-gray-700 bg-gray-800/50 hover:border-gray-600'
+                          ? 'border-accent-emerald bg-accent-emerald/10 ring-1 ring-accent-emerald/50'
+                          : 'border-[var(--border-color)] bg-bg-secondary hover:border-[var(--border-color)]'
                       }`}
                     >
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-2">
                           <span className="text-lg">{t.icon}</span>
-                          <h3 className="text-sm font-semibold text-gray-200 leading-tight">{t.name}</h3>
+                          <h3 className="text-sm font-semibold text-text-primary leading-tight">{t.name}</h3>
                         </div>
                         <div className={`w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center ${
                           isSelected
-                            ? 'bg-blue-600 border-blue-600'
-                            : 'border-gray-600'
+                            ? 'bg-accent-emerald border-accent-emerald'
+                            : 'border-[var(--border-color)]'
                         }`}>
                           {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
                         </div>
                       </div>
-                      <p className="text-xs text-gray-400 mb-3 line-clamp-2">{t.description}</p>
-                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <p className="text-xs text-text-tertiary mb-3 line-clamp-2">{t.description}</p>
+                      <div className="flex items-center gap-2 text-xs text-text-tertiary">
                         {catMeta && (
                           <span className={`px-1.5 py-0.5 rounded border text-[10px] font-medium ${catMeta.color}`}>
                             {catMeta.label}
@@ -507,45 +507,45 @@ export const ConnectorWizardPage: React.FC = () => {
         {/* Step 1: Connect */}
         {step === 1 && (
           <div className="space-y-5">
-            <h2 className="text-lg font-semibold text-gray-200">Connect to Upstream Service</h2>
+            <h2 className="text-lg font-semibold text-text-primary">Connect to Upstream Service</h2>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="block text-sm font-medium text-gray-300">Display Name</label>
+                <label className="block text-sm font-medium text-text-secondary">Display Name</label>
                 <input
                   type="text"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   placeholder="My API"
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm focus:ring-2 focus:ring-accent-emerald"
                 />
               </div>
               <div className="space-y-1">
-                <label className="block text-sm font-medium text-gray-300">Slug</label>
+                <label className="block text-sm font-medium text-text-secondary">Slug</label>
                 <input
                   type="text"
                   value={slug}
                   onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
                   placeholder="my-api"
                   disabled={!!editId}
-                  className={`w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm focus:ring-2 focus:ring-blue-500 ${editId ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  className={`w-full px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm focus:ring-2 focus:ring-accent-emerald ${editId ? 'opacity-60 cursor-not-allowed' : ''}`}
                 />
               </div>
             </div>
 
             <div className="space-y-1">
-              <label className="block text-sm font-medium text-gray-300">Description</label>
+              <label className="block text-sm font-medium text-text-secondary">Description</label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Optional description..."
                 rows={2}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm focus:ring-2 focus:ring-accent-emerald"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="block text-sm font-medium text-gray-300">Visibility</label>
+              <label className="block text-sm font-medium text-text-secondary">Visibility</label>
               <div className="grid grid-cols-3 gap-3">
                 {VISIBILITY_OPTIONS.map((opt) => (
                   <button
@@ -554,29 +554,29 @@ export const ConnectorWizardPage: React.FC = () => {
                     onClick={() => setVisibility(opt.value)}
                     className={`p-3 rounded-lg border text-left transition-all ${
                       visibility === opt.value
-                        ? 'border-blue-500 bg-blue-500/10 ring-1 ring-blue-500'
-                        : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                        ? 'border-accent-emerald bg-accent-emerald/10 ring-1 ring-accent-emerald'
+                        : 'border-[var(--border-color)] bg-bg-secondary hover:border-[var(--border-color)]'
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-base">{opt.icon}</span>
-                      <span className="text-sm font-medium text-gray-200">{opt.label}</span>
+                      <span className="text-sm font-medium text-text-primary">{opt.label}</span>
                     </div>
-                    <p className="text-xs text-gray-400">{opt.desc}</p>
+                    <p className="text-xs text-text-tertiary">{opt.desc}</p>
                   </button>
                 ))}
               </div>
             </div>
 
             <div className="space-y-1">
-              <label className="block text-sm font-medium text-gray-300">Upstream Base URL</label>
+              <label className="block text-sm font-medium text-text-secondary">Upstream Base URL</label>
               <div className="relative">
                 <input
                   type="url"
                   value={upstreamBaseUrl}
                   onChange={(e) => setUpstreamBaseUrl(e.target.value)}
                   placeholder="https://api.example.com"
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm focus:ring-2 focus:ring-blue-500 pr-8"
+                  className="w-full px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm focus:ring-2 focus:ring-accent-emerald pr-8"
                 />
                 {upstreamBaseUrl && (
                   <span className={`absolute right-3 top-2.5 text-sm ${isUrlValid(upstreamBaseUrl) ? 'text-green-400' : 'text-red-400'}`}>
@@ -593,11 +593,11 @@ export const ConnectorWizardPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="block text-sm font-medium text-gray-300">Auth Type</label>
+              <label className="block text-sm font-medium text-text-secondary">Auth Type</label>
               <select
                 value={authType}
                 onChange={(e) => handleAuthTypeChange(e.target.value)}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm"
+                className="w-full px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm"
               >
                 {AUTH_TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -618,12 +618,12 @@ export const ConnectorWizardPage: React.FC = () => {
             )}
 
             <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
                 <input
                   type="checkbox"
                   checked={streamingEnabled}
                   onChange={(e) => setStreamingEnabled(e.target.checked)}
-                  className="rounded bg-gray-800 border-gray-600"
+                  className="rounded bg-bg-secondary border-[var(--border-color)]"
                 />
                 Enable SSE streaming
               </label>
@@ -636,7 +636,7 @@ export const ConnectorWizardPage: React.FC = () => {
                   type="button"
                   onClick={handleTestConnection}
                   disabled={testing}
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-bg-tertiary hover:bg-bg-tertiary text-text-primary text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
                 >
                   {testing ? 'Testing...' : 'Test Connection'}
                 </button>
@@ -656,52 +656,52 @@ export const ConnectorWizardPage: React.FC = () => {
         {step === 2 && (
           <div className="space-y-5">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-200">Configure Endpoints</h2>
+              <h2 className="text-lg font-semibold text-text-primary">Configure Endpoints</h2>
               <button
                 onClick={addEndpoint}
-                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm rounded-lg transition-colors"
+                className="px-3 py-1.5 bg-bg-tertiary hover:bg-bg-tertiary text-text-primary text-sm rounded-lg transition-colors"
               >
                 + Add Endpoint
               </button>
             </div>
 
             {selectedTemplateId && endpoints.length > 0 && (
-              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-blue-400 text-xs">
+              <div className="bg-accent-emerald/10 border border-accent-emerald/20 rounded-lg px-3 py-2 text-accent-emerald text-xs">
                 Pre-filled from template. You can edit, remove, or add more endpoints.
               </div>
             )}
 
             {endpoints.length === 0 && (
-              <div className="text-center py-8 text-gray-400 text-sm">
+              <div className="text-center py-8 text-text-tertiary text-sm">
                 No endpoints yet. Click &quot;Add Endpoint&quot; to create one.
               </div>
             )}
 
             {endpoints.map((ep, i) => (
-              <div key={i} className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 space-y-3">
+              <div key={i} className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-300">Endpoint {i + 1}</span>
+                  <span className="text-sm font-medium text-text-secondary">Endpoint {i + 1}</span>
                   <button onClick={() => removeEndpoint(i)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1">
-                    <label className="block text-xs text-gray-400">Name</label>
-                    <input type="text" value={ep.name} onChange={(e) => updateEndpoint(i, 'name', e.target.value)} placeholder="Query" className="w-full px-2 py-1.5 bg-gray-900 border border-gray-700 rounded text-gray-200 text-sm" />
+                    <label className="block text-xs text-text-secondary">Name</label>
+                    <input type="text" value={ep.name} onChange={(e) => updateEndpoint(i, 'name', e.target.value)} placeholder="Query" className="w-full px-2 py-1.5 bg-bg-primary border border-[var(--border-color)] rounded text-text-primary text-sm" />
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-xs text-gray-400">Method</label>
-                    <select value={ep.method} onChange={(e) => updateEndpoint(i, 'method', e.target.value)} className="w-full px-2 py-1.5 bg-gray-900 border border-gray-700 rounded text-gray-200 text-sm">
+                    <label className="block text-xs text-text-secondary">Method</label>
+                    <select value={ep.method} onChange={(e) => updateEndpoint(i, 'method', e.target.value)} className="w-full px-2 py-1.5 bg-bg-primary border border-[var(--border-color)] rounded text-text-primary text-sm">
                       {HTTP_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-xs text-gray-400">Consumer Path</label>
-                    <input type="text" value={ep.path} onChange={(e) => updateEndpoint(i, 'path', e.target.value)} placeholder="/query" className="w-full px-2 py-1.5 bg-gray-900 border border-gray-700 rounded text-gray-200 text-sm" />
+                    <label className="block text-xs text-text-secondary">Consumer Path</label>
+                    <input type="text" value={ep.path} onChange={(e) => updateEndpoint(i, 'path', e.target.value)} placeholder="/query" className="w-full px-2 py-1.5 bg-bg-primary border border-[var(--border-color)] rounded text-text-primary text-sm" />
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <label className="block text-xs text-gray-400">Upstream Path</label>
-                  <input type="text" value={ep.upstreamPath} onChange={(e) => updateEndpoint(i, 'upstreamPath', e.target.value)} placeholder="/" className="w-full px-2 py-1.5 bg-gray-900 border border-gray-700 rounded text-gray-200 text-sm" />
+                  <label className="block text-xs text-text-secondary">Upstream Path</label>
+                  <input type="text" value={ep.upstreamPath} onChange={(e) => updateEndpoint(i, 'upstreamPath', e.target.value)} placeholder="/" className="w-full px-2 py-1.5 bg-bg-primary border border-[var(--border-color)] rounded text-text-primary text-sm" />
                 </div>
               </div>
             ))}
@@ -711,15 +711,15 @@ export const ConnectorWizardPage: React.FC = () => {
         {/* Step 3: Review */}
         {step === 3 && (
           <div className="space-y-5">
-            <h2 className="text-lg font-semibold text-gray-200">Review & Publish</h2>
+            <h2 className="text-lg font-semibold text-text-primary">Review & Publish</h2>
 
-            <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
+            <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-5 space-y-3">
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><span className="text-gray-400">Name:</span><span className="ml-2 text-gray-200">{displayName}</span></div>
-                <div><span className="text-gray-400">Slug:</span><span className="ml-2 text-gray-200 font-mono">{slug}</span></div>
-                <div><span className="text-gray-400">URL:</span><span className="ml-2 text-gray-200 font-mono text-xs">{upstreamBaseUrl}</span></div>
-                <div><span className="text-gray-400">Auth:</span><span className="ml-2 text-gray-200">{authType}</span></div>
-                <div><span className="text-gray-400">Visibility:</span><span className="ml-2 text-gray-200 capitalize">{visibility}</span></div>
+                <div><span className="text-text-secondary">Name:</span><span className="ml-2 text-text-primary">{displayName}</span></div>
+                <div><span className="text-text-secondary">Slug:</span><span className="ml-2 text-text-primary font-mono">{slug}</span></div>
+                <div><span className="text-text-secondary">URL:</span><span className="ml-2 text-text-primary font-mono text-xs">{upstreamBaseUrl}</span></div>
+                <div><span className="text-text-secondary">Auth:</span><span className="ml-2 text-text-primary">{authType}</span></div>
+                <div><span className="text-text-secondary">Visibility:</span><span className="ml-2 text-text-primary capitalize">{visibility}</span></div>
               </div>
             </div>
 
@@ -734,14 +734,14 @@ export const ConnectorWizardPage: React.FC = () => {
             )}
 
             {endpoints.length > 0 && (
-              <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5">
-                <h3 className="text-sm font-medium text-gray-300 mb-3">Endpoints ({endpoints.length})</h3>
+              <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-5">
+                <h3 className="text-sm font-medium text-text-secondary mb-3">Endpoints ({endpoints.length})</h3>
                 <div className="space-y-2">
                   {endpoints.map((ep, i) => (
                     <div key={i} className="flex items-center gap-3 text-sm">
-                      <span className="px-2 py-0.5 bg-gray-700 text-gray-300 rounded font-mono text-xs">{ep.method}</span>
-                      <span className="text-gray-200">{ep.name}</span>
-                      <span className="text-gray-500 font-mono text-xs">{ep.path} → {ep.upstreamPath}</span>
+                      <span className="px-2 py-0.5 bg-bg-tertiary text-text-secondary rounded font-mono text-xs">{ep.method}</span>
+                      <span className="text-text-primary">{ep.name}</span>
+                      <span className="text-text-tertiary font-mono text-xs">{ep.path} → {ep.upstreamPath}</span>
                     </div>
                   ))}
                 </div>
@@ -758,7 +758,7 @@ export const ConnectorWizardPage: React.FC = () => {
         )}
 
         {/* Navigation */}
-        <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-700">
+        <div className="flex items-center justify-between mt-8 pt-6 border-t border-[var(--border-color)]">
           <button
             onClick={() => {
               const minStep = editId ? 1 : 0;
@@ -766,7 +766,7 @@ export const ConnectorWizardPage: React.FC = () => {
               else if (editId) navigate(`/connectors/${editId}`);
               else navigate('/');
             }}
-            className="px-4 py-2 text-gray-400 hover:text-gray-200 text-sm transition-colors"
+            className="px-4 py-2 text-text-tertiary hover:text-text-primary text-sm transition-colors"
           >
             {(editId ? step > 1 : step > 0) ? '← Back' : '← Cancel'}
           </button>
@@ -774,7 +774,7 @@ export const ConnectorWizardPage: React.FC = () => {
             {step === 0 && (
               <button
                 onClick={() => { setSelectedTemplateId(null); setStep(1); }}
-                className="px-4 py-2 text-gray-400 hover:text-gray-200 text-sm transition-colors"
+                className="px-4 py-2 text-text-tertiary hover:text-text-primary text-sm transition-colors"
               >
                 Skip — Create from Scratch
               </button>
@@ -784,14 +784,14 @@ export const ConnectorWizardPage: React.FC = () => {
                 <button
                   onClick={() => handleSave(false)}
                   disabled={saving}
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-bg-tertiary hover:bg-bg-tertiary text-text-primary text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
                 >
                   {editId ? 'Update' : 'Save as Draft'}
                 </button>
                 <button
                   onClick={() => handleSave(true)}
                   disabled={saving}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-accent-emerald hover:bg-accent-emerald/90 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
                 >
                   {saving ? 'Saving...' : editId ? 'Update & Publish' : 'Publish'}
                 </button>
@@ -801,7 +801,7 @@ export const ConnectorWizardPage: React.FC = () => {
               <button
                 onClick={handleNext}
                 disabled={!canProceed() || saving}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 bg-accent-emerald hover:bg-accent-emerald/90 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next →
               </button>

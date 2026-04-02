@@ -17,7 +17,7 @@ import './globals.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
-      <div className="min-h-screen bg-gray-950 text-white">
+      <div className="min-h-screen bg-bg-primary text-text-primary">
         <Routes>
           <Route path="/" element={<ConnectorListPage />} />
           <Route path="/new" element={<ConnectorWizardPage />} />

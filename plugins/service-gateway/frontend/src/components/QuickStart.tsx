@@ -72,8 +72,8 @@ print(response.json())`,
   };
 
   return (
-    <div className="bg-gray-900 border border-gray-700 rounded-lg overflow-hidden">
-      <div className="flex items-center justify-between border-b border-gray-700 px-4 py-2">
+    <div className="bg-bg-primary border border-[var(--border-color)] rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between border-b border-[var(--border-color)] px-4 py-2">
         <div className="flex gap-1">
           {(['curl', 'javascript', 'python'] as const).map((t) => (
             <button
@@ -81,8 +81,8 @@ print(response.json())`,
               onClick={() => setTab(t)}
               className={`px-3 py-1 text-xs font-medium rounded ${
                 tab === t
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:text-gray-200'
+                  ? 'bg-accent-emerald text-white'
+                  : 'text-text-tertiary hover:text-text-primary'
               }`}
             >
               {t === 'curl' ? 'cURL' : t === 'javascript' ? 'JavaScript' : 'Python'}
@@ -91,12 +91,12 @@ print(response.json())`,
         </div>
         <button
           onClick={handleCopy}
-          className="text-xs text-gray-400 hover:text-white flex items-center gap-1"
+          className="text-xs text-text-tertiary hover:text-white flex items-center gap-1"
         >
           {copied ? '✓ Copied' : 'Copy'}
         </button>
       </div>
-      <pre className="p-4 text-sm text-gray-300 overflow-x-auto">
+      <pre className="p-4 text-sm text-text-secondary overflow-x-auto">
         <code>{snippets[tab]}</code>
       </pre>
     </div>
