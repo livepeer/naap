@@ -198,7 +198,7 @@ export function usePublicDashboard(
       fees,
       jobs: jobFeedRaw?.streams ?? [],
       jobFeedConnected: !!(jobFeedRaw && !jobFeedRaw.queryFailed),
-    });
+    }));
     setError(failures.length > 0 ? failures.join('; ') : null);
     setHasFetched(true);
     setLoading(false);
