@@ -10,6 +10,8 @@
  *
  * Pair `export const revalidate` (seconds) on route modules without search-param variance
  * with {@link OVERVIEW_HTTP_CACHE_SEC} so Next.js aligns with CDN/browser caching.
+ * Route files must assign a **numeric literal** (e.g. `1800`): Next.js rejects imports,
+ * member expressions (`OverviewHttpCacheSec.*`), and other non-literal RHS for `revalidate`.
  *
  * Note: In-process TTLs in {@link TTL} / raw-data may still be shorter on the origin;
  * HTTP caching is intentionally looser for edge/browser efficiency (except job feed).
