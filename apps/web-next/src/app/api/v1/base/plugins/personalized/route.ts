@@ -28,13 +28,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     let userIdOrAddress = searchParams.get('userId');
     const teamId = searchParams.get('teamId');
 
-    // Also try to get user from auth token
+    // Also try to get user from auth token and resolve admin status
+    let isAdmin = false;
     if (!userIdOrAddress) {
       const token = getAuthToken(request);
       if (token) {
         const sessionUser = await validateSession(token);
         if (sessionUser) {
           userIdOrAddress = sessionUser.id;
+          isAdmin = sessionUser.roles?.includes('system:admin') ?? false;
         }
       }
     }
@@ -45,13 +47,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       orderBy: { order: 'asc' },
     });
 
-    // Get core plugin names from the database (admin-configurable via PluginPackage.isCore)
-    const corePackages = await prisma.pluginPackage.findMany({
-      where: { isCore: true },
-      select: { name: true },
+    // Publish-gate: only show plugins that have a published PluginPackage.
+    // This prevents plugins synced from stale branches (or preview deploys on
+    // a shared DB) from appearing in the UI when their package is unlisted/draft.
+    // Also fetch visibleToUsers for admin-controlled visibility filtering.
+    const publishedPackages = await prisma.pluginPackage.findMany({
+      where: { publishStatus: 'published', deprecated: false },
+      select: { name: true, isCore: true, visibleToUsers: true },
     });
+    const publishedNames = new Set(
+      publishedPackages.map((p) => normalizePluginName(p.name))
+    );
+    const hiddenNames = new Set(
+      publishedPackages
+        .filter((p) => !p.visibleToUsers)
+        .map((p) => normalizePluginName(p.name))
+    );
+    const visibleGlobalPlugins = globalPlugins.filter((p) => {
+      const normalized = normalizePluginName(p.name);
+      if (!publishedNames.has(normalized)) return false;
+      if (!isAdmin && hiddenNames.has(normalized)) return false;
+      return true;
+    });
+
+    // Get core plugin names from the database (admin-configurable via PluginPackage.isCore)
     const corePluginNamesFromDB = new Set(
-      corePackages.map((p) => normalizePluginName(p.name))
+      publishedPackages.filter((p) => p.isCore).map((p) => normalizePluginName(p.name))
     );
 
     // Helper: is this plugin name a core plugin?
@@ -61,13 +82,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Headless plugins (no routes) are background data providers that must always
     // be loaded regardless of context — they register event bus handlers the shell
     // and dashboard rely on. We extract them once and append to every response.
-    const headlessPlugins = globalPlugins.filter(
+    const headlessPlugins = visibleGlobalPlugins.filter(
       (p) => !p.routes || (Array.isArray(p.routes) && (p.routes as string[]).length === 0),
     );
 
     if (!userIdOrAddress) {
-      // No user context, return global plugins
-      return success({ plugins: globalPlugins });
+      // No user context, return published global plugins
+      return success({ plugins: visibleGlobalPlugins });
     }
 
     // Look up user by ID first (for email auth), then by address (wallet auth)
@@ -77,8 +98,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     if (!user) {
-      // User doesn't exist yet, return global plugins
-      return success({ plugins: globalPlugins });
+      // User doesn't exist yet, return published global plugins (non-admin view)
+      return success({ plugins: visibleGlobalPlugins });
+    }
+
+    // Resolve admin status from user roles if not already resolved via token
+    if (!isAdmin) {
+      const userRoles = await prisma.userRole.findMany({
+        where: { userId: user.id },
+        include: { role: { select: { name: true } } },
+      });
+      isAdmin = userRoles.some((ur) => ur.role.name === 'system:admin');
     }
 
     // If team context, get team-specific plugin preferences
@@ -151,8 +181,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
               };
             });
 
-          // Get core plugins from global plugins (always available in team context)
-          const coreGlobalPlugins = globalPlugins
+          // Get core plugins from published global plugins (always available in team context)
+          const coreGlobalPlugins = visibleGlobalPlugins
             .filter(p => isCorePlugin(p.name))
             .map(plugin => ({
               ...plugin,
@@ -178,14 +208,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         }
       } catch (teamErr) {
         console.warn('Error fetching team plugins:', teamErr);
-        const coreGlobalPlugins = globalPlugins
+        const coreGlobalPlugins = visibleGlobalPlugins
           .filter(p => isCorePlugin(p.name))
           .map(plugin => ({ ...plugin, enabled: true, isCore: true }));
         return success({ plugins: [...coreGlobalPlugins, ...headlessPlugins], context: 'team', teamId, error: 'Failed to load team plugins' });
       }
 
       // User is not a team member - return core plugins + headless providers
-      const coreGlobalPlugins = globalPlugins
+      const coreGlobalPlugins = visibleGlobalPlugins
         .filter(p => isCorePlugin(p.name))
         .map(plugin => ({ ...plugin, enabled: true, isCore: true }));
       return success({ plugins: [...coreGlobalPlugins, ...headlessPlugins], context: 'team', teamId });
@@ -207,7 +237,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Auto-install core plugins: if the user doesn't have a preference record
     // for a core plugin, create one now so it counts as "installed"
     const corePluginsToAutoInstall: string[] = [];
-    for (const plugin of globalPlugins) {
+    for (const plugin of visibleGlobalPlugins) {
       if (isCorePlugin(plugin.name) && !preferencesMap.has(plugin.name)) {
         corePluginsToAutoInstall.push(plugin.name);
       }
@@ -238,9 +268,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // Merge global plugins with user preferences.
+    // Merge published global plugins with user preferences.
     // Each plugin gets `installed` and `isCore` flags.
-    const mergedPlugins = globalPlugins
+    const mergedPlugins = visibleGlobalPlugins
       .map((plugin) => {
         const userPref = preferencesMap.get(plugin.name);
         const isCore = isCorePlugin(plugin.name);

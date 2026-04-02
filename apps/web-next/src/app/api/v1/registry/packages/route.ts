@@ -7,7 +7,8 @@
 
 import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { success, errors, parsePagination } from '@/lib/api/response';
+import { validateSession } from '@/lib/api/auth';
+import { success, errors, parsePagination, getAuthToken } from '@/lib/api/response';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -17,7 +18,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const sort = searchParams.get('sort') || 'downloads';
     const { page, pageSize, skip } = parsePagination(searchParams);
 
+    // Determine admin status for visibility filtering
+    let isAdmin = false;
+    const token = getAuthToken(request);
+    if (token) {
+      const sessionUser = await validateSession(token);
+      if (sessionUser) {
+        isAdmin = sessionUser.roles?.includes('system:admin') ?? false;
+      }
+    }
+
     const where: any = { deprecated: false, publishStatus: 'published' };
+    if (!isAdmin) {
+      where.visibleToUsers = true;
+    }
     if (category && category !== 'all') where.category = category;
     
     if (search) {
