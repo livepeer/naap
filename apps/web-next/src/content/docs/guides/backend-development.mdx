@@ -6,12 +6,16 @@ order: 3
 
 ## Overview
 
-Plugin backends are **Express.js** servers that provide API endpoints. They use **Prisma** for database access and can optionally use the `@naap/plugin-server-sdk` for platform integration.
+Plugin backends are **Express.js** servers that provide API endpoints during local development. They use **Prisma** for database access and can optionally use the `@naap/plugin-server-sdk` for platform integration.
+
+> **Production note:** On Vercel, plugin backends run as **Next.js API route handlers** — not as standalone Express servers. The same API logic is mapped to route handlers under `/api/v1/[plugin-name]/*`. See [Architecture](/docs/concepts/architecture) for details.
 
 The server SDK includes built-in middleware for common patterns:
 - **Auth** — JWT token validation and user extraction
 - **CORS** — Pre-configured with all NaaP custom headers
 - **External API Proxy** — Safely proxy requests to third-party APIs ([see guide](/docs/guides/external-api-proxy))
+
+> **Alternative for API proxying:** If your plugin primarily needs to proxy third-party REST APIs, consider using the [Service Gateway](/docs/concepts/service-gateway) instead of writing custom proxy code. The gateway provides built-in transforms, caching, rate limiting, and agent/MCP integration with zero code.
 
 ## Project Structure
 

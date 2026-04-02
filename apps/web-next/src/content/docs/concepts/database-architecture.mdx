@@ -9,7 +9,7 @@ icon: "Database"
 
 > **Every plugin and service MUST use the unified `@naap/database` package. Never create per-plugin databases, Prisma schemas, or PrismaClient instances.**
 
-NaaP uses a **single PostgreSQL database** with **multiple schemas** for data isolation. All 60+ models across 8 schemas are defined in one Prisma schema file and shared via the `@naap/database` package.
+NaaP uses a **single PostgreSQL database** with **multiple schemas** for data isolation. All 70+ models across 9 schemas are defined in one Prisma schema file and shared via the `@naap/database` package.
 
 ## Why This Architecture
 
@@ -60,6 +60,10 @@ NaaP uses a **single PostgreSQL database** with **multiple schemas** for data is
                     │  ├──────────────┤  │
                     │  │ plugin_      │  │  Dashboard,
                     │  │ dashboard ...│  │  Capacity, Dev API
+                    │  ├──────────────┤  │
+                    │  │ plugin_      │  │  Service Gateway
+                    │  │ service_     │  │  (Connectors, Keys,
+                    │  │ gateway      │  │   Plans, Usage, etc.)
                     │  └──────────────┘  │
                     └────────────────────┘
 ```
@@ -75,6 +79,7 @@ NaaP uses a **single PostgreSQL database** with **multiple schemas** for data is
 | `plugin_daydream` | `daydream-video` | DaydreamSettings, DaydreamSession |
 | `plugin_capacity` | `capacity-planner` | CapacityRequest, CapacitySoftCommit |
 | `plugin_developer_api` | `developer-api` | DevApiAIModel, DevApiKey |
+| `plugin_service_gateway` | `service-gateway` | ServiceConnector, ConnectorEndpoint, GatewayApiKey, GatewayPlan, GatewayUsageRecord, GatewayConnectorTemplate, GatewayHealthCheck, ConnectorPricing, GatewayMasterKey, ConnectorMetrics, ConnectorCapabilityRanking |
 
 ## How It Works
 
@@ -196,7 +201,14 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap"
 | Environment | URL |
 |---|---|
 | **Local dev** | `postgresql://postgres:postgres@localhost:5432/naap` |
-| **Production** | Set via `DB_PASSWORD` env var in `docker-compose.production.yml` |
+| **Production** | Neon PostgreSQL via `DATABASE_URL` environment variable |
+| **Preview** | Neon preview branch (auto-created per Vercel preview deployment) |
+
+## Preview Database Branches
+
+For Vercel preview deployments, NaaP automatically creates a **Neon preview database branch**. Each pull request gets its own isolated database branch, allowing schema changes to be tested without affecting production data.
+
+The preview branch is provisioned during the Vercel build step and the `DATABASE_URL` is set automatically for the preview environment.
 
 ## Next Steps
 

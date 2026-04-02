@@ -1,0 +1,248 @@
+---
+title: "Authentication"
+description: "End-to-end authentication lifecycle — registration, email verification, login, OAuth providers, password reset, session management, and rate limiting."
+order: 13
+---
+
+## Overview
+
+NaaP provides a complete authentication system with email/password registration, OAuth provider sign-in (Google, GitHub), email verification, password reset, and JWT-based session management. All auth endpoints include rate limiting to prevent brute-force attacks.
+
+This page covers the platform-level auth lifecycle. For plugin-level auth (SDK hooks like `useAuth`, `useShell`), see [SDK Hooks](/docs/api-reference/sdk-hooks) and [Shell Context](/docs/api-reference/shell-context).
+
+---
+
+## Registration
+
+### Email/Password Registration
+
+```
+POST /api/v1/auth/register
+```
+
+Register a new account with email and password. Rate limited per IP.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "securePassword123",
+  "displayName": "Jane Doe"
+}
+```
+
+On success, a verification email is sent via Resend. The response intentionally does not reveal whether the email is already registered (to prevent enumeration).
+
+### Email Verification
+
+```
+POST /api/v1/auth/verify-email
+```
+
+Verify the user's email address using the token from the verification email.
+
+```
+POST /api/v1/auth/resend-verification
+```
+
+Resend the verification email if the original expired or was not received.
+
+---
+
+## Login
+
+### Email/Password Login
+
+```
+POST /api/v1/auth/login
+```
+
+Authenticate with email and password. Returns a JWT session token.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "securePassword123"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIs...",
+    "user": {
+      "id": "...",
+      "email": "user@example.com",
+      "displayName": "Jane Doe",
+      "roles": ["user"]
+    }
+  }
+}
+```
+
+### OAuth Provider Login
+
+NaaP supports signing in with external OAuth providers.
+
+**List available providers:**
+```
+GET /api/v1/auth/providers
+```
+
+**Start OAuth flow:**
+```
+GET /api/v1/auth/providers/{slug}/start
+```
+
+Redirects the user to the provider's consent page.
+
+**Handle callback:**
+```
+GET /api/v1/auth/providers/{slug}/callback
+```
+
+Processes the OAuth callback and creates or links the account.
+
+**Supported providers:**
+- Google (`google`)
+- GitHub (`github`)
+
+---
+
+## Password Reset
+
+### Request Reset
+
+```
+POST /api/v1/auth/forgot-password
+```
+
+Send a password reset email. Rate limited to prevent abuse. Uses Resend for email delivery.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+### Complete Reset
+
+```
+POST /api/v1/auth/reset-password
+```
+
+Reset the password using the token from the reset email.
+
+**Request Body:**
+```json
+{
+  "token": "reset-token-from-email",
+  "password": "newSecurePassword456"
+}
+```
+
+---
+
+## Session Management
+
+### Get Current Session
+
+```
+GET /api/v1/auth/me
+```
+
+Returns the current user's profile and session details from the JWT.
+
+### Refresh Token
+
+```
+POST /api/v1/auth/refresh
+```
+
+Exchange an expiring JWT for a fresh one.
+
+### Logout
+
+```
+POST /api/v1/auth/logout
+```
+
+Invalidate the current session.
+
+### Profile
+
+```
+GET  /api/v1/auth/profile
+PUT  /api/v1/auth/profile
+```
+
+Retrieve or update the current user's profile (display name, avatar URL, etc.).
+
+### CSRF Protection
+
+```
+GET /api/v1/auth/csrf
+```
+
+Returns a CSRF token. Mutating API calls validate this token via the `x-csrf-token` header.
+
+---
+
+## Security Features
+
+### Rate Limiting
+
+All auth endpoints are rate limited per IP address:
+
+| Endpoint | Limit | Window |
+|---|---|---|
+| `POST /auth/register` | Throttled | Per-IP |
+| `POST /auth/login` | Throttled | Per-IP |
+| `POST /auth/forgot-password` | Throttled | Per-IP |
+
+Rate-limited requests receive a `429 Too Many Requests` response.
+
+### JWT Structure
+
+Sessions are JWT-based with the following flow:
+1. User authenticates (login or OAuth callback)
+2. Server issues a signed JWT containing user ID and roles
+3. Client sends `Authorization: Bearer <token>` on subsequent requests
+4. Server validates the token via `validateSession()` on each API call
+
+### RBAC (Role-Based Access Control)
+
+Users are assigned roles via the `UserRole` → `Role` relationship:
+
+| Role | Description |
+|---|---|
+| `user` | Default role for all users |
+| `system:admin` | Platform administrator — access to admin APIs |
+
+Plugins can check roles via `sessionUser.roles.includes('system:admin')`.
+
+---
+
+## Auth Headers for Plugins
+
+When the shell proxies requests to plugin backends, it forwards these auth headers:
+
+| Header | Description |
+|---|---|
+| `x-user-id` | Current user's ID |
+| `x-user-email` | Current user's email |
+| `x-team-id` | Current team's ID (if applicable) |
+| `x-request-id` | Unique request identifier |
+| `authorization` | Bearer token |
+
+---
+
+## Related Resources
+
+- [SDK Hooks](/docs/api-reference/sdk-hooks) — `useAuth` and other plugin-level auth hooks
+- [Shell Context](/docs/api-reference/shell-context) — `auth` service in the shell context
+- [Admin Operations](/docs/guides/admin-operations) — Admin user management

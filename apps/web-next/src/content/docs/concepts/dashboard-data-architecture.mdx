@@ -111,3 +111,65 @@ The mock provider plugin uses the event bus fallback and emits simulated jobs ev
 - **Sandboxed plugins** run with restricted event bus access (plugin name prefix enforced)
 - The `graphql` execution is in-process — no network boundary to secure
 - The provider plugin's resolvers control what data is returned
+
+---
+
+## BFF Facade Layer
+
+In addition to the GraphQL-over-event-bus pattern for plugin-provided data, the dashboard also uses a **Backend for Frontend (BFF)** pattern for server-side data aggregation.
+
+### Architecture
+
+The BFF layer lives at `/api/v1/dashboard/*` and is backed by a **Data Facade** (`apps/web-next/src/lib/facade/index.ts`) — a single entry point for all UI data needs.
+
+```
+Dashboard UI → /api/v1/dashboard/kpi → Facade → Resolver → NAAP API / Subgraph
+```
+
+### Data Sources
+
+The facade resolves data from multiple upstream sources:
+
+| Domain | Source | Resolver |
+|---|---|---|
+| KPI (sessions, minutes, models) | NAAP Metrics API | `resolvers/kpi.ts` |
+| Pipeline usage | NAAP Metrics API | `resolvers/pipelines.ts` |
+| Pipeline catalog | NAAP Metrics API | `resolvers/pipeline-catalog.ts` |
+| Orchestrators | NAAP Metrics API | `resolvers/orchestrators.ts` |
+| GPU capacity | NAAP Metrics API | `resolvers/gpu-capacity.ts` |
+| Pricing | NAAP Metrics API | `resolvers/pricing.ts` |
+| Protocol info | Livepeer Subgraph (The Graph) | `resolvers/protocol.ts` |
+| Fees | Livepeer Subgraph (The Graph) | `resolvers/fees.ts` |
+| Job feed | NAAP Metrics API | `resolvers/job-feed.ts` |
+| Network models | NAAP Metrics API | `resolvers/network-models.ts` |
+| Network capacity | NAAP Metrics API | `resolvers/net-capacity.ts` |
+| Performance by model | NAAP Metrics API | `resolvers/perf-by-model.ts` |
+
+### Stub Mode
+
+Setting `FACADE_USE_STUBS=true` forces all facade functions to return hardcoded stub data. This is useful for local development or when upstream APIs are unavailable. When unset, implemented resolvers call live APIs while unimplemented resolvers return stub data silently.
+
+### BFF Routes
+
+| Route | Method | Description |
+|---|---|---|
+| `/api/v1/dashboard/kpi` | GET | Key performance indicators |
+| `/api/v1/dashboard/pipelines` | GET | Pipeline usage data |
+| `/api/v1/dashboard/pipeline-catalog` | GET | Available pipelines |
+| `/api/v1/dashboard/orchestrators` | GET | Orchestrator status |
+| `/api/v1/dashboard/protocol` | GET | Protocol info (from subgraph) |
+| `/api/v1/dashboard/fees` | GET | Fee data (from subgraph) |
+| `/api/v1/dashboard/gpu-capacity` | GET | GPU capacity overview |
+| `/api/v1/dashboard/pricing` | GET | Pricing data |
+| `/api/v1/dashboard/job-feed` | GET | Recent job feed items |
+| `/api/v1/dashboard/dashboards` | GET/POST | User dashboard configurations |
+| `/api/v1/dashboard/preferences` | GET/PUT | Dashboard display preferences |
+| `/api/v1/dashboard/embed` | GET | Embeddable dashboard URLs |
+| `/api/v1/dashboard/config` | GET/PUT | Dashboard configuration |
+
+### Adding a New Data Domain
+
+1. Add the function signature to `apps/web-next/src/lib/facade/index.ts`
+2. Add stub data in `stubs.ts`
+3. Add the real resolver in `resolvers/<domain>.ts`
+4. Wire the BFF route to call the facade function

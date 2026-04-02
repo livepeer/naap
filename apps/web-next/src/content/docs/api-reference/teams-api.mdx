@@ -1,0 +1,213 @@
+---
+title: "Teams API"
+description: "REST API reference for team management — CRUD, members, roles, plugin installations, and access control."
+order: 10
+---
+
+## Overview
+
+Teams provide multi-tenant isolation in NaaP. Each team has its own plugin installations, configurations, and data scope. Users can belong to multiple teams with different roles.
+
+All endpoints require an authenticated session (JWT).
+
+---
+
+## Teams
+
+### List Teams
+
+```
+GET /api/v1/teams
+```
+
+Returns all teams the current user belongs to.
+
+### Create Team
+
+```
+POST /api/v1/teams
+```
+
+Create a new team. The creator automatically becomes the owner.
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | Yes | Team display name |
+| `slug` | `string` | Yes | URL-safe identifier (lowercase alphanumeric and hyphens only) |
+| `description` | `string` | No | Team description |
+| `avatarUrl` | `string` | No | Team avatar URL |
+
+### Get / Update / Delete Team
+
+```
+GET    /api/v1/teams/{teamId}
+PATCH  /api/v1/teams/{teamId}
+DELETE /api/v1/teams/{teamId}
+```
+
+Retrieve, update, or delete a team. Only team owners and admins can modify or delete.
+
+### Transfer Ownership
+
+```
+POST /api/v1/teams/{teamId}/transfer-ownership
+```
+
+Transfer team ownership to another member.
+
+**Request Body:**
+```json
+{
+  "newOwnerId": "<user-id>"
+}
+```
+
+---
+
+## Members
+
+### List Members
+
+```
+GET /api/v1/teams/{teamId}/members
+```
+
+Returns all members of the team with their roles.
+
+### Add Member
+
+```
+POST /api/v1/teams/{teamId}/members
+```
+
+Invite a user to the team.
+
+**Request Body:**
+```json
+{
+  "userId": "<user-id>",
+  "role": "member"
+}
+```
+
+### Update / Remove Member
+
+```
+PATCH  /api/v1/teams/{teamId}/members/{memberId}
+DELETE /api/v1/teams/{teamId}/members/{memberId}
+```
+
+Update a member's role or remove them from the team.
+
+---
+
+## Role Permissions
+
+### List Role Permissions
+
+```
+GET /api/v1/teams/role-permissions
+```
+
+Returns the available team roles and their associated permissions.
+
+---
+
+## Team Plugin Installations
+
+### List Installed Plugins
+
+```
+GET /api/v1/teams/{teamId}/plugins
+```
+
+Returns all plugins installed for the team.
+
+### Install Plugin
+
+```
+POST /api/v1/teams/{teamId}/plugins
+```
+
+Install a plugin for the team.
+
+### Get / Uninstall Plugin
+
+```
+GET    /api/v1/teams/{teamId}/plugins/{installId}
+DELETE /api/v1/teams/{teamId}/plugins/{installId}
+```
+
+### Toggle Plugin
+
+```
+POST /api/v1/teams/{teamId}/plugins/{installId}/toggle
+```
+
+Enable or disable an installed plugin.
+
+### Plugin Configuration
+
+```
+GET /api/v1/teams/{teamId}/plugins/{installId}/config
+PUT /api/v1/teams/{teamId}/plugins/{installId}/config
+```
+
+Get or update team-level configuration for an installed plugin.
+
+---
+
+## Per-Member Plugin Access
+
+### List My Plugins
+
+```
+GET /api/v1/teams/{teamId}/my-plugins
+```
+
+Returns the current user's personalized plugin list within the team context.
+
+### Member Plugin Preferences
+
+```
+GET    /api/v1/teams/{teamId}/members/me/plugins/{installId}
+PATCH  /api/v1/teams/{teamId}/members/me/plugins/{installId}
+GET    /api/v1/teams/{teamId}/members/me/plugins/{installId}/config
+PUT    /api/v1/teams/{teamId}/members/me/plugins/{installId}/config
+```
+
+Get or update per-member plugin preferences and configuration within a team.
+
+### Member Access Control
+
+```
+GET    /api/v1/teams/{teamId}/plugins/members/{memberId}/access
+GET    /api/v1/teams/{teamId}/plugins/members/{memberId}/access/{pluginInstallId}
+PATCH  /api/v1/teams/{teamId}/plugins/members/{memberId}/access/{pluginInstallId}
+```
+
+View or modify which plugins a specific team member can access.
+
+---
+
+## Team Context in API Calls
+
+When making API calls within a team context, include the `x-team-id` header:
+
+```bash
+curl -H "Authorization: Bearer <jwt>" \
+     -H "x-team-id: <team-id>" \
+     https://your-naap.vercel.app/api/v1/my-plugin/data
+```
+
+The shell automatically sends this header when a user has selected a team. Plugin backends receive it via the proxy and can use it for data scoping.
+
+---
+
+## Related Resources
+
+- [Architecture: Multi-Tenant](/docs/concepts/architecture#multi-tenant) — How multi-tenancy works
+- [Shell Context](/docs/api-reference/shell-context) — `team` property in the shell context
+- [SDK Hooks](/docs/api-reference/sdk-hooks) — `useTeam` hook for plugin developers

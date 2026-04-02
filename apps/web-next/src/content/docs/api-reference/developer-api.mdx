@@ -1,0 +1,201 @@
+---
+title: "Developer API"
+description: "REST API reference for managing API keys, AI models, projects, usage, and billing providers."
+order: 9
+---
+
+## Overview
+
+The Developer API provides endpoints for developers to manage API keys, browse available AI models, organize projects, and track usage. Keys are linked to billing providers through an OAuth flow.
+
+All endpoints require an authenticated session (JWT).
+
+---
+
+## Billing Providers
+
+### List Providers
+
+```
+GET /api/v1/billing-providers
+```
+
+Returns the catalog of enabled billing providers. No authentication required.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "providers": [
+      {
+        "id": "bp_xxx",
+        "slug": "livepeer",
+        "displayName": "Livepeer",
+        "description": "Decentralized video infrastructure",
+        "icon": "video",
+        "authType": "oauth"
+      }
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `slug` | `string` | URL-safe identifier |
+| `displayName` | `string` | Human-readable name |
+| `authType` | `string` | Authentication method (`oauth`, `api_key`) |
+
+---
+
+## API Keys
+
+### List Keys
+
+```
+GET /api/v1/developer/keys
+```
+
+Returns the current user's API keys with pagination.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `page` | `number` | `1` | Page number |
+| `pageSize` | `number` | `20` | Results per page |
+
+**Response Fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `keys[].id` | `string` | Key ID |
+| `keys[].keyPrefix` | `string` | First few characters of the key (for identification) |
+| `keys[].label` | `string` | Optional user-provided label |
+| `keys[].status` | `string` | Key status (`ACTIVE`, `REVOKED`) |
+| `keys[].project` | `object` | Associated project (`id`, `name`, `isDefault`) |
+| `keys[].billingProvider` | `object` | Linked billing provider (`id`, `slug`, `displayName`) |
+| `keys[].createdAt` | `string` | Creation timestamp |
+
+### Create Key
+
+```
+POST /api/v1/developer/keys
+```
+
+Create a new API key linked to a billing provider. The raw key is returned only once in the response.
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `billingProviderId` | `string` | Yes | ID of the billing provider |
+| `rawApiKey` | `string` | Yes | The provider-issued API key (obtained through OAuth) |
+| `projectId` | `string` | No | Existing project ID |
+| `projectName` | `string` | No | Create a new project with this name |
+| `label` | `string` | No | Human-readable label for the key |
+
+If neither `projectId` nor `projectName` is provided, the key is assigned to the user's default project.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "key": { "id": "...", "keyPrefix": "sk-...", "status": "ACTIVE" },
+    "rawApiKey": "sk-xxxxx",
+    "warning": "Store this key securely. It will not be shown again."
+  }
+}
+```
+
+### Get / Delete Key
+
+```
+GET    /api/v1/developer/keys/{id}
+DELETE /api/v1/developer/keys/{id}
+```
+
+Retrieve details or revoke a specific API key.
+
+---
+
+## AI Models
+
+### List Models
+
+```
+GET /api/v1/developer/models
+```
+
+Returns available AI models from the database.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `type` | `string` | Filter by model type (e.g., `text`, `image`, `video`) |
+| `featured` | `boolean` | Only show featured models (`true`) |
+| `realtime` | `boolean` | Only show realtime-capable models (`true`) |
+
+### Get Model
+
+```
+GET /api/v1/developer/models/{id}
+```
+
+Returns details for a specific AI model.
+
+### Network Models
+
+```
+GET /api/v1/developer/network-models
+```
+
+Returns models available on the decentralized network with pricing and availability information.
+
+---
+
+## Projects
+
+### List Projects
+
+```
+GET /api/v1/developer/projects
+```
+
+Returns the current user's projects. Each user has a default project created automatically.
+
+---
+
+## Usage
+
+### Get Usage
+
+```
+GET /api/v1/developer/usage
+```
+
+Returns API usage statistics for the current user's keys.
+
+---
+
+## OAuth Flow
+
+API keys are typically created through a billing provider OAuth flow:
+
+1. User selects a billing provider from the catalog (`GET /api/v1/billing-providers`)
+2. User is redirected to the provider's OAuth consent page
+3. Provider redirects back with an authorization code
+4. NaaP exchanges the code for a provider-issued API key
+5. The key is stored via `POST /api/v1/developer/keys`
+
+The OAuth session is tracked in the `BillingProviderOAuthSession` table.
+
+---
+
+## Related Resources
+
+- [Admin Operations](/docs/guides/admin-operations) — Platform admin APIs
+- [Service Gateway API Keys](/docs/api-reference/service-gateway-api#api-keys) — Gateway-specific API keys (`gw_` prefix)

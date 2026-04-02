@@ -1,0 +1,179 @@
+---
+title: "Admin Operations"
+description: "Platform administration APIs for user management, core plugin configuration, feedback, audit logging, and template management."
+order: 12
+---
+
+## Overview
+
+NaaP provides platform-level admin APIs under `/api/v1/admin/*` for managing users, plugins, feedback, and audit logs. All admin endpoints require the `system:admin` role on the authenticated session.
+
+---
+
+## Authentication
+
+Admin APIs require a valid JWT with the `system:admin` role:
+
+```bash
+curl -H "Authorization: Bearer <jwt-with-admin-role>" \
+  https://your-naap.vercel.app/api/v1/admin/users
+```
+
+If the caller lacks the admin role, the API returns `403 Forbidden`.
+
+---
+
+## User Management
+
+### List Users
+
+```
+GET /api/v1/admin/users
+```
+
+Returns all registered users with their profile, roles, and team membership counts.
+
+**Response Fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | User ID |
+| `email` | `string` | Email address |
+| `displayName` | `string` | Display name |
+| `avatarUrl` | `string` | Avatar URL |
+| `emailVerified` | `boolean` | Whether email has been verified |
+| `roles` | `string[]` | Assigned roles (e.g., `system:admin`) |
+| `teamCount` | `number` | Number of team memberships |
+| `createdAt` | `string` | Registration timestamp |
+
+---
+
+## Core Plugin Configuration
+
+### List Plugins
+
+```
+GET /api/v1/admin/plugins/core
+```
+
+Returns all non-deprecated plugins with their `isCore` and `visibleToUsers` status. Core plugins are automatically installed for all users.
+
+**Response Fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Plugin package ID |
+| `name` | `string` | Plugin identifier |
+| `displayName` | `string` | Human-readable name |
+| `description` | `string` | Plugin description |
+| `category` | `string` | Plugin category |
+| `icon` | `string` | Lucide icon name |
+| `isCore` | `boolean` | Whether the plugin is auto-installed for all users |
+| `visibleToUsers` | `boolean` | Whether non-admin users see this plugin |
+
+### Update Plugin Configuration
+
+```
+PUT /api/v1/admin/plugins/core
+```
+
+Update which plugins are core and/or visible. When a plugin is newly marked as core, a `UserPluginPreference` record is automatically created for every existing user who doesn't have one.
+
+**Request Body:**
+```json
+{
+  "plugins": [
+    { "id": "<plugin-id>", "isCore": true, "visibleToUsers": true },
+    { "id": "<plugin-id>", "isCore": false, "visibleToUsers": false }
+  ]
+}
+```
+
+**Visibility behavior:**
+- `visibleToUsers: true` — Plugin appears in the sidebar and marketplace for all users
+- `visibleToUsers: false` — Plugin is hidden from non-admin users but still accessible to admins
+
+---
+
+## Feedback Management
+
+### List Feedback
+
+```
+GET /api/v1/admin/feedback
+```
+
+Returns all user-submitted feedback with search, filter, and pagination.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `status` | `string` | Filter by status (`all`, `new`, `reviewed`, `resolved`) |
+| `type` | `string` | Filter by type (`all`, `bug`, `feature`, `improvement`) |
+| `search` | `string` | Search in title, description, and email |
+| `page` | `number` | Page number |
+| `pageSize` | `number` | Results per page |
+
+### Get / Update Feedback
+
+```
+GET   /api/v1/admin/feedback/{id}
+PATCH /api/v1/admin/feedback/{id}
+```
+
+Retrieve or update a specific feedback item (e.g., change status to `reviewed` or `resolved`).
+
+### Feedback Configuration
+
+```
+GET /api/v1/admin/feedback/config
+PUT /api/v1/admin/feedback/config
+```
+
+Manage feedback system configuration (e.g., enable/disable feedback collection, set categories).
+
+---
+
+## Audit Logging
+
+### List Audit Logs
+
+```
+GET /api/v1/admin/audit
+```
+
+Returns audit log entries with filtering by action, resource, user, status, and date range.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `action` | `string` | Filter by action type |
+| `resource` | `string` | Filter by resource type |
+| `userId` | `string` | Filter by user ID |
+| `status` | `string` | Filter by status |
+| `startDate` | `string` | ISO date — filter entries after this date |
+| `endDate` | `string` | ISO date — filter entries before this date |
+| `limit` | `number` | Max results (default 50) |
+| `offset` | `number` | Pagination offset |
+
+---
+
+## Template Management
+
+### List Templates
+
+```
+GET /api/v1/admin/templates
+```
+
+Returns available connector templates and plugin templates for the admin UI. This endpoint is distinct from the gateway-specific template endpoint (`/api/v1/gw/admin/templates`).
+
+---
+
+## Related Resources
+
+- [Service Gateway Admin APIs](/docs/api-reference/service-gateway-api#admin-routes) — Gateway-specific admin operations
+- [Teams API](/docs/api-reference/teams-api) — Team management
+- [Authentication](/docs/guides/authentication) — Auth lifecycle and security
