@@ -420,7 +420,7 @@ export function getRawSLARows(lookbackHours?: number): Promise<SLAComplianceRow[
 export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
   return cachedFetch('pipelines', PIPELINES_TTL * 1000, async () => {
     const t0 = Date.now();
-    const res = await fetch(naapApiUpstreamUrl('pipelines'), { next: { revalidate: 60 } });
+    const res = await fetch(naapApiUpstreamUrl('pipelines'), { next: { revalidate: 60 }, signal: AbortSignal.timeout(120_000) });
     if (!res.ok) {
       throw new Error(
         `[dashboard/raw-data] /pipelines returned HTTP ${res.status}`,

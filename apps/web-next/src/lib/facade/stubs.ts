@@ -337,12 +337,12 @@ export const fees: DashboardFeesInfo = {
   weeklyVolumeChangeUsd: 3.1,
   weeklyVolumeChangeEth: 2.8,
   dayData: Array.from({ length: dayDataCount }, (_, i) => ({
-    dateS: daysAgoUnix(dayDataCount - i),
+    dateS: daysAgoUnix(dayDataCount - i - 1),
     volumeEth: parseFloat((Math.random() * 8 + 2).toFixed(4)),
     volumeUsd: Math.round(Math.random() * 25_000 + 5_000),
   })),
   weeklyData: Array.from({ length: 26 }, (_, i) => ({
-    date: daysAgoUnix((26 - i) * 7),
+    date: daysAgoUnix((26 - i - 1) * 7),
     weeklyVolumeUsd: Math.round(Math.random() * 120_000 + 40_000),
     weeklyVolumeEth: parseFloat((Math.random() * 40 + 15).toFixed(4)),
   })),
@@ -418,7 +418,8 @@ export const pricing: DashboardPipelinePricing[] = [
 export const jobFeed: JobFeedItem[] = [
   {
     id: 'stream-a1b2c3d4',
-    pipeline: 'streamdiffusion-sdxl',
+    pipeline: 'live-video-to-video',
+    model: 'streamdiffusion-sdxl',
     gateway: 'gateway.livepeer.cloud',
     orchestratorUrl: 'https://ai.ad-astra.live:9966',
     state: 'running',
@@ -431,7 +432,8 @@ export const jobFeed: JobFeedItem[] = [
   },
   {
     id: 'stream-b2c3d4e5',
-    pipeline: 'streamdiffusion-sdxl-v2v',
+    pipeline: 'live-video-to-video',
+    model: 'streamdiffusion-sdxl-v2v',
     gateway: 'gateway.livepeer.cloud',
     orchestratorUrl: 'https://rtav-orch.xodeapp.xyz:28935',
     state: 'running',
@@ -444,7 +446,8 @@ export const jobFeed: JobFeedItem[] = [
   },
   {
     id: 'stream-c3d4e5f6',
-    pipeline: 'streamdiffusion-sdxl',
+    pipeline: 'live-video-to-video',
+    model: 'streamdiffusion-sdxl',
     gateway: 'gateway.livepeer.cloud',
     orchestratorUrl: 'https://lpt.thomasblock.io:20110',
     state: 'running',
@@ -457,7 +460,8 @@ export const jobFeed: JobFeedItem[] = [
   },
   {
     id: 'stream-d4e5f6a7',
-    pipeline: 'streamdiffusion',
+    pipeline: 'live-video-to-video',
+    model: 'streamdiffusion',
     gateway: 'gateway.livepeer.cloud',
     orchestratorUrl: 'https://ai.organic-node.uk:59165',
     state: 'running',
@@ -470,7 +474,8 @@ export const jobFeed: JobFeedItem[] = [
   },
   {
     id: 'stream-e5f6a7b8',
-    pipeline: 'streamdiffusion-sdxl',
+    pipeline: 'live-video-to-video',
+    model: 'streamdiffusion-sdxl',
     gateway: 'gateway.livepeer.cloud',
     orchestratorUrl: 'https://ai.ad-astra.live:9966',
     state: 'degraded_inference',

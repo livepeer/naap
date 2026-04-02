@@ -187,14 +187,14 @@ const LIVE_VIDEO_MODEL_IDS = new Set(['noop', 'streamdiffusion-sdxl', 'streamdif
 /** Set `DEBUG_PIPELINE_MINS=1` in the server env to log demand rows + modelMins for pipelines debugging. */
 const DEBUG_PIPELINE_MINS = process.env.DEBUG_PIPELINE_MINS === '1';
 
+function normalizeModelId(m: string): string {
+  return m.startsWith('streamdiffusion') && !LIVE_VIDEO_MODEL_IDS.has(m) ? 'streamdiffusion-sdxl' : m;
+}
+
 function isLiveVideoDemandRow(row: { pipeline_id: string; model_id: string | null }): boolean {
   const p = row.pipeline_id?.trim() ?? '';
-  const m = row.model_id?.trim() ?? '';
-  return (
-    p === LIVE_VIDEO_PIPELINE_ID
-    || LIVE_VIDEO_MODEL_IDS.has(m)
-    || m.startsWith('streamdiffusion')
-  );
+  const m = normalizeModelId(row.model_id?.trim() ?? '');
+  return p === LIVE_VIDEO_PIPELINE_ID || LIVE_VIDEO_MODEL_IDS.has(m);
 }
 
 export async function resolvePipelines({ limit = 5, timeframe }: { limit?: number; timeframe?: string | number }): Promise<DashboardPipelineUsage[]> {
@@ -224,11 +224,12 @@ export async function resolvePipelines({ limit = 5, timeframe }: { limit?: numbe
   for (const row of demand) {
     const rawModel = row.model_id?.trim() || null;
     const rawPipeline = row.pipeline_id?.trim() || null;
+    const normalizedModel = rawModel ? normalizeModelId(rawModel) : null;
 
     let pipelineKey: string;
     let modelKey: string | null = null;
 
-    if (rawPipeline === LIVE_VIDEO_PIPELINE_ID || LIVE_VIDEO_MODEL_IDS.has(rawModel ?? '')) {
+    if (rawPipeline === LIVE_VIDEO_PIPELINE_ID || LIVE_VIDEO_MODEL_IDS.has(normalizedModel ?? '')) {
       // Group all live-video-to-video variants under a single pipeline entry.
       pipelineKey = LIVE_VIDEO_PIPELINE_ID;
       modelKey = rawModel;

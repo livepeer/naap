@@ -38,7 +38,6 @@ async function fetchURIMap(): Promise<Map<string, string>> {
     const revalidateSec = Math.floor(TTL.NET_MODELS / 1000);
     const rows = await naapGet<NaapNetOrchestrator[]>('net/orchestrators', {
       active_only: 'false',
-      limit: '200',
     }, {
       next: { revalidate: revalidateSec },
       errorLabel: 'orchestrators-uri-map',
@@ -53,11 +52,12 @@ function pct(v: number | null): number | null {
   return v !== null ? Math.round(v * 1000) / 10 : null;
 }
 
-export async function resolveOrchestrators(_opts: { period?: string }): Promise<DashboardOrchestrator[]> {
+export async function resolveOrchestrators(opts?: { period?: string }): Promise<DashboardOrchestrator[]> {
+  const period = opts?.period ?? '1000';
   const revalidateSec = Math.floor(TTL.ORCHESTRATORS / 1000);
-  return cachedFetch('facade:orchestrators:1000', TTL.ORCHESTRATORS, async () => {
+  return cachedFetch(`facade:orchestrators:${period}`, TTL.ORCHESTRATORS, async () => {
     const [rows, uriMap] = await Promise.all([
-      naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window: '1000' }, {
+      naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window: period }, {
         next: { revalidate: revalidateSec },
         errorLabel: 'orchestrators',
       }),

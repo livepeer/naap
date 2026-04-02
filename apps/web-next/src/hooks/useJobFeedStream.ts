@@ -393,7 +393,6 @@ export function useJobFeedStream(
       }
       cleanupRef.current?.();
       cleanupRef.current = null;
-      eventBusCleanup = null;
       setConnected(false);
     };
   }, [shell.eventBus, timeout, pollIntervalMs, skip, addJob, replaceJobs]);
