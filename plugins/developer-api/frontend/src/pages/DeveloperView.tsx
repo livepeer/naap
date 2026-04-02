@@ -622,7 +622,9 @@ export const DeveloperView: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <Globe size={14} className="text-accent-blue" />
                   <h2 className="text-sm font-semibold text-text-primary">Network Models</h2>
-                  <span className="text-xs text-text-secondary">naap-api /v1/net/models</span>
+                  <span className="text-xs text-text-secondary">
+                    Available Pipelines and Models
+                  </span>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
