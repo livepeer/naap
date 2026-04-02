@@ -173,8 +173,15 @@ function parseNetModelsJson(payload: unknown): unknown[] {
     if (Array.isArray(o.data)) {
       return o.data;
     }
+    throw new Error(
+      `Unsupported net models JSON shape: object with keys [${Object.keys(o).join(', ')}]`
+    );
   }
-  return [];
+  throw new Error(
+    `Unsupported net models JSON shape: primitive value of type ${typeof payload} with value ${
+      typeof payload === 'string' ? JSON.stringify(payload) : String(payload)
+    }`
+  );
 }
 
 app.get('/api/v1/developer/network-models', async (req, res) => {
