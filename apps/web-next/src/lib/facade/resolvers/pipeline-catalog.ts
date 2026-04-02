@@ -28,6 +28,11 @@ import {
   type NetworkDemandRow,
   type PipelineCatalogEntry,
 } from '@/lib/dashboard/raw-data';
+import {
+  LIVE_VIDEO_PIPELINE_ID,
+  demandRowHasActivity,
+  pipelineKeysFromDemandRow,
+} from '@/lib/dashboard/demand-pipeline-key';
 import { getRawNetModels } from '../network-data.js';
 import { cachedFetch, TTL } from '../cache.js';
 
@@ -148,25 +153,31 @@ async function fetchPipelinesCatalogReliable(): Promise<PipelineCatalogEntry[]> 
   return [];
 }
 
-/** Pipeline + model ids from demand rows (broader than activity-only net/models). */
+/**
+ * Pipeline + model ids from demand rows (broader than activity-only net/models).
+ * Uses the same pipeline/model keys as {@link resolvePipelines} so rows with empty
+ * `pipeline_id` (e.g. live-video) still augment the catalog.
+ */
 function catalogFromDemandRows(rows: NetworkDemandRow[]): DashboardPipelineCatalogEntry[] {
   const byPipeline = new Map<string, { name: string; models: Set<string> }>();
 
   for (const row of rows) {
-    const pipelineId = row.pipeline_id?.trim();
-    if (!pipelineId) continue;
-    if (PIPELINE_DISPLAY[pipelineId] === null) continue;
+    const keys = pipelineKeysFromDemandRow(row);
+    if (!keys) continue;
+    if (!demandRowHasActivity(row)) continue;
 
-    const displayName = PIPELINE_DISPLAY[pipelineId] ?? pipelineId;
-    const model = row.model_id?.trim() ?? '';
+    const { pipelineKey, modelKey } = keys;
+    if (PIPELINE_DISPLAY[pipelineKey] === null) continue;
 
-    let slot = byPipeline.get(pipelineId);
+    const displayName = PIPELINE_DISPLAY[pipelineKey] ?? pipelineKey;
+
+    let slot = byPipeline.get(pipelineKey);
     if (!slot) {
       slot = { name: displayName, models: new Set() };
-      byPipeline.set(pipelineId, slot);
+      byPipeline.set(pipelineKey, slot);
     }
-    if (model) {
-      slot.models.add(model);
+    if (modelKey) {
+      slot.models.add(modelKey);
     }
   }
 
@@ -240,7 +251,10 @@ export async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalog
     const fromDemand = catalogFromDemandRows(demandRows);
     let merged = unionCatalogEntries(base, fromPipelinesEndpoint, fromDemand);
 
-    if (merged.length <= 1) {
+    const catalogLooksIncomplete =
+      merged.length <= 1
+      || (merged.length > 0 && merged.every((e) => e.id === LIVE_VIDEO_PIPELINE_ID));
+    if (catalogLooksIncomplete) {
       merged = unionCatalogEntries(merged, catalogSeedFromDisplay());
     }
 

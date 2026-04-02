@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPerfByModel } from '@/lib/facade';
+import { jsonWithOverviewCache, OverviewHttpCacheSec } from '@/lib/api/overview-http-cache';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const fpsByPipelineModel = await getPerfByModel({ start, end });
-    return NextResponse.json({ fpsByPipelineModel });
+    return jsonWithOverviewCache({ fpsByPipelineModel }, OverviewHttpCacheSec.perfByModel);
   } catch (err) {
     console.error('[network/perf-by-model] error:', err);
     return NextResponse.json(

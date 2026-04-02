@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDashboardFees } from '@/lib/facade';
+import { jsonWithOverviewCache, OverviewHttpCacheSec } from '@/lib/api/overview-http-cache';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const result = await getDashboardFees({ days });
-    return NextResponse.json(result);
+    return jsonWithOverviewCache(result, OverviewHttpCacheSec.fees);
   } catch (err) {
     console.error('[dashboard/fees] error:', err);
     return NextResponse.json(

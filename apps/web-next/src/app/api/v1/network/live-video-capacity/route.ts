@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLiveVideoCapacity } from '@/lib/facade';
+import { jsonWithOverviewCache, OverviewHttpCacheSec } from '@/lib/api/overview-http-cache';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -11,12 +12,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     : [];
 
   if (models.length === 0) {
-    return NextResponse.json({ capacityByModel: {} });
+    return jsonWithOverviewCache({ capacityByModel: {} }, OverviewHttpCacheSec.liveVideo);
   }
 
   try {
     const capacityByModel = await getLiveVideoCapacity(models);
-    return NextResponse.json({ capacityByModel });
+    return jsonWithOverviewCache({ capacityByModel }, OverviewHttpCacheSec.liveVideo);
   } catch (err) {
     console.error('[network/live-video-capacity] error:', err);
     return NextResponse.json(

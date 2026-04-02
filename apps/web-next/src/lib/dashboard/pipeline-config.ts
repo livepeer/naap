@@ -33,6 +33,12 @@ export const PIPELINE_DISPLAY: Record<string, string | null> = {
   'streamdiffusion-sdxl-v2v': 'StreamDiffusion (Video)',
 
   // ─────────────────────────────────────────────────────────────────────────
+  // OpenAI-compatible gateway pipelines (orchestrator offerings)
+  // ─────────────────────────────────────────────────────────────────────────
+  'openai-chat-completions':  'OpenAI Chat Completions',
+  'openai-image-generation':  'OpenAI Image Generation',
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Future / experimental pipelines (not yet in go-livepeer capabilities)
   // ─────────────────────────────────────────────────────────────────────────
   'text-to-video':            'Text-to-Video',
@@ -61,6 +67,10 @@ export const PIPELINE_COLOR: Record<string, string> = {
   'streamdiffusion-sdxl':     '#8b5cf6',  // violet (same as image-to-image)
   'streamdiffusion-sdxl-v2v': '#10b981',  // emerald (same as live-video-to-video)
   'noop':                     '#9f1239',  // rose-800 — internal / placeholder
+
+  // OpenAI-compatible gateways
+  'openai-chat-completions':  '#8b5cf6',  // violet
+  'openai-image-generation':  '#f59e0b',  // amber
 
   // Future / experimental
   'text-to-video':            '#ec4899',  // pink
