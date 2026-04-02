@@ -17,9 +17,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
     const parsed = parseInt(trimmed, 10);
-    if (!Number.isInteger(parsed) || parsed < 0) {
+    if (parsed < 7 || parsed > 365) {
       return NextResponse.json(
-        { error: { code: 'BAD_REQUEST', message: 'Invalid days: must be a non-negative integer' } },
+        {
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'Invalid days: must be an integer between 7 and 365',
+          },
+        },
         { status: 400 },
       );
     }

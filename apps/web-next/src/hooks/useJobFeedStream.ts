@@ -194,7 +194,6 @@ export function useJobFeedStream(
   const maxItemsRef = useRef(maxItems);
   maxItemsRef.current = maxItems;
   const cleanupRef = useRef<(() => void) | null>(null);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const addJob = useCallback((entry: JobFeedEntry) => {
     if (!mountedRef.current) return;
@@ -217,6 +216,7 @@ export function useJobFeedStream(
     mountedRef.current = true;
     let eventBusCleanup: (() => void) | null = null;
     let fetchPollTimer: ReturnType<typeof setInterval> | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -272,6 +272,10 @@ export function useJobFeedStream(
     }
 
     async function connect(oldCleanup?: (() => void) | null) {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       try {
         const channelInfo = await shell.eventBus.request<
           undefined,
@@ -313,9 +317,9 @@ export function useJobFeedStream(
           // Re-run full connect() on an interval so we pick up a late-registered provider
           // (this is not HTTP polling — the provider pushes over the event bus).
           if (pollIntervalMs > 0 && mountedRef.current) {
-            if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-            pollTimerRef.current = setTimeout(() => {
-              pollTimerRef.current = null;
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(() => {
+              reconnectTimer = null;
               if (!mountedRef.current) return;
               const prev = cleanupRef.current;
               void connect(prev);
@@ -335,9 +339,11 @@ export function useJobFeedStream(
 
         const snapshotBusCleanup = eventBusCleanup;
         const snapshotFetchPollTimer = fetchPollTimer;
+        const snapshotReconnectTimer = reconnectTimer;
         cleanupRef.current = () => {
           snapshotBusCleanup?.();
           if (snapshotFetchPollTimer) clearInterval(snapshotFetchPollTimer);
+          if (snapshotReconnectTimer) clearTimeout(snapshotReconnectTimer);
         };
         if (oldCleanup && oldCleanup !== cleanupRef.current) {
           oldCleanup();
@@ -381,10 +387,6 @@ export function useJobFeedStream(
 
     return () => {
       mountedRef.current = false;
-      if (pollTimerRef.current) {
-        clearTimeout(pollTimerRef.current);
-        pollTimerRef.current = null;
-      }
       if (retryTimer) {
         clearTimeout(retryTimer);
         retryTimer = null;

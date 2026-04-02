@@ -21,18 +21,18 @@ interface DashboardPipelineRow {
 }
 
 export async function resolvePipelines(opts: { limit?: number; timeframe?: string }): Promise<DashboardPipelineUsage[]> {
-  const rawLimit = opts.limit;
-  const limit =
-    rawLimit === undefined || typeof rawLimit !== 'number' || !Number.isFinite(rawLimit)
-      ? 5
-      : Math.max(1, Math.min(Math.floor(rawLimit), 200));
+  const raw = Number(opts.limit ?? 5);
+  const safeLimit = Math.max(
+    1,
+    Math.min(Math.floor(Number.isFinite(raw) ? raw : 5), 200),
+  );
   const parsed = parseInt(opts.timeframe ?? '24', 10);
   const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
   const window = `${hours}h`;
   const revalidateSec = Math.floor(TTL.PIPELINES / 1000);
-  return cachedFetch(`facade:pipelines:${limit}:${hours}`, TTL.PIPELINES, async () => {
+  return cachedFetch(`facade:pipelines:${safeLimit}:${hours}`, TTL.PIPELINES, async () => {
     const rows = await naapGet<DashboardPipelineRow[]>('dashboard/pipelines', {
-      limit: String(limit),
+      limit: String(safeLimit),
       window,
     }, {
       next: { revalidate: revalidateSec },

@@ -50,49 +50,6 @@ export interface NetworkDemandRow {
   ticket_face_value_eth: number;
 }
 
-export interface GPUMetricRow {
-  // Keys/Dimensions
-  window_start: string;
-  orchestrator_address: string;
-  pipeline_id: string;
-  model_id: string | null;
-  gpu_id: string | null;
-  region: string | null;
-  gpu_model_name: string | null;
-  gpu_memory_bytes_total: number | null;
-  runner_version: string | null;
-  cuda_version: string | null;
-  // Performance/Latency
-  avg_output_fps: number;
-  p95_output_fps: number;
-  fps_jitter_coefficient: number | null;
-  avg_prompt_to_first_frame_ms: number | null;
-  avg_startup_latency_ms: number | null;
-  avg_e2e_latency_ms: number | null;
-  p95_prompt_to_first_frame_latency_ms: number | null;
-  p95_startup_latency_ms: number | null;
-  p95_e2e_latency_ms: number | null;
-  // Valid Counts
-  prompt_to_first_frame_sample_count: number;
-  startup_latency_sample_count: number;
-  e2e_latency_sample_count: number;
-  status_samples: number;
-  error_status_samples: number;
-  // Reliability
-  known_sessions_count: number;
-  startup_success_sessions: number;
-  startup_excused_sessions: number;
-  startup_unexcused_sessions: number;
-  confirmed_swapped_sessions: number;
-  inferred_swap_sessions: number;
-  total_swapped_sessions: number;
-  sessions_ending_in_error: number;
-  health_signal_coverage_ratio: number;
-  // Rates
-  startup_unexcused_rate: number;
-  swap_rate: number;
-}
-
 export interface SLAComplianceRow {
   // Keys/Dimensions
   window_start: string;
@@ -218,12 +175,19 @@ interface CacheEntry<T> {
 
 const memCache = new Map<string, CacheEntry<unknown>>();
 
+/** `expiresAt === 0` means a fetch is in flight; TTL starts only after the promise resolves. */
 function cachedFetch<T>(key: string, ttlMs: number, fetcher: () => Promise<T>): Promise<T> {
   const now = Date.now();
   const existing = memCache.get(key) as CacheEntry<T> | undefined;
-  if (existing && existing.expiresAt > now) {
-    console.log(`[dashboard/raw-data] CACHE HIT  ${key} (expires in ${Math.round((existing.expiresAt - now) / 1000)}s)`);
-    return existing.promise;
+  if (existing) {
+    if (existing.expiresAt > now) {
+      console.log(`[dashboard/raw-data] CACHE HIT  ${key} (expires in ${Math.round((existing.expiresAt - now) / 1000)}s)`);
+      return existing.promise;
+    }
+    if (existing.expiresAt === 0) {
+      return existing.promise;
+    }
+    memCache.delete(key);
   }
 
   console.log(`[dashboard/raw-data] CACHE MISS ${key} — fetching upstream`);
@@ -241,7 +205,7 @@ function cachedFetch<T>(key: string, ttlMs: number, fetcher: () => Promise<T>): 
     }
   })();
 
-  memCache.set(key, { expiresAt: now + ttlMs, promise: promise as Promise<unknown> });
+  memCache.set(key, { expiresAt: 0, promise: promise as Promise<unknown> });
   return promise;
 }
 
@@ -392,14 +356,6 @@ export function clampLookbackHours(hours?: number): number {
   return Math.min(Math.max(Math.floor(hours), 1), DASHBOARD_MAX_HOURS);
 }
 
-// Backward-compat aliases — remove once all consumers are updated
-/** @deprecated Use {@link DASHBOARD_MAX_HOURS} */
-export const DASHBOARD_LEADERBOARD_MAX_HOURS = DASHBOARD_MAX_HOURS;
-/** @deprecated Use {@link DASHBOARD_WINDOW} */
-export const DASHBOARD_LEADERBOARD_WINDOW = DASHBOARD_WINDOW;
-/** @deprecated Use {@link clampLookbackHours} */
-export const clampLeaderboardLookbackHours = clampLookbackHours;
-
 function filterRowsByWindowStart<T extends { window_start: string }>(
   rows: T[],
   lookbackHours: number
@@ -493,8 +449,6 @@ export const NAAP_API_CACHE_TTLS = {
   sla: SLA_TTL,
   pipelines: PIPELINES_TTL,
 } as const;
-/** @deprecated Use {@link NAAP_API_CACHE_TTLS} */
-export const LEADERBOARD_CACHE_TTLS = NAAP_API_CACHE_TTLS;
 
 // ---------------------------------------------------------------------------
 // Unified cache warmer

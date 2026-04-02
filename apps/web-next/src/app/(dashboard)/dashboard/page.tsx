@@ -1143,8 +1143,10 @@ function OrchestratorTableCard({
       });
     }
     rows.sort((a, b) => {
-      const av = a[sortCol] ?? 0;
-      const bv = b[sortCol] ?? 0;
+      const av =
+        sortCol === 'uri' ? (a.uri ?? '') : (a[sortCol] ?? 0);
+      const bv =
+        sortCol === 'uri' ? (b.uri ?? '') : (b[sortCol] ?? 0);
       if (typeof av === 'string' && typeof bv === 'string') {
         return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
       }

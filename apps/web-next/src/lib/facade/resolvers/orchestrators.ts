@@ -53,30 +53,11 @@ function pct(v: number | null): number | null {
   return v !== null ? Math.round(v * 1000) / 10 : null;
 }
 
-function normalizeOrchestratorWindow(period: string | undefined): string {
-  const raw = (period ?? '24h').trim();
-  if (!raw) return '24h';
-
-  if (/^\d+$/.test(raw)) {
-    const h = Math.max(1, Math.min(parseInt(raw, 10), 168));
-    return `${h}h`;
-  }
-
-  const suffixed = raw.match(/^(\d+)h$/i);
-  if (suffixed) {
-    const h = Math.max(1, Math.min(parseInt(suffixed[1], 10), 168));
-    return `${h}h`;
-  }
-
-  return '24h';
-}
-
-export async function resolveOrchestrators(opts: { period?: string }): Promise<DashboardOrchestrator[]> {
-  const window = normalizeOrchestratorWindow(opts.period);
+export async function resolveOrchestrators(_opts: { period?: string }): Promise<DashboardOrchestrator[]> {
   const revalidateSec = Math.floor(TTL.ORCHESTRATORS / 1000);
-  return cachedFetch(`facade:orchestrators:${window}`, TTL.ORCHESTRATORS, async () => {
+  return cachedFetch('facade:orchestrators:1000', TTL.ORCHESTRATORS, async () => {
     const [rows, uriMap] = await Promise.all([
-      naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window }, {
+      naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window: '1000' }, {
         next: { revalidate: revalidateSec },
         errorLabel: 'orchestrators',
       }),

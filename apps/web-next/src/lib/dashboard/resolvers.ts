@@ -360,8 +360,8 @@ export async function resolveOrchestrators({
     pipelines: Set<string>;
     pipelineModels: Map<string, Set<string>>;
     gpuIds: Set<string>;
-    /** Distinct pipeline:model keys missing gpu_id — avoids counting every hourly SLA row as another GPU. */
-    anonymousWithoutGpuKeys: Set<string>;
+    /** True if any session row lacked gpu_id — count at most one anonymous GPU per orchestrator. */
+    hasAnonymousGpu: boolean;
   };
 
   const byAddress = new Map<string, Accum>();
@@ -375,7 +375,7 @@ export async function resolveOrchestrators({
         unexcusedSessions: 0, swappedSessions: 0,
         effectiveSuccessWeighted: 0,
         pipelines: new Set(), pipelineModels: new Map(),
-        gpuIds: new Set(), anonymousWithoutGpuKeys: new Set(),
+        gpuIds: new Set(), hasAnonymousGpu: false,
       });
     }
 
@@ -399,7 +399,7 @@ export async function resolveOrchestrators({
     if (row.gpu_id) {
       d.gpuIds.add(row.gpu_id);
     } else if (knownSessions > 0) {
-      d.anonymousWithoutGpuKeys.add(`${row.pipeline_id}:${row.model_id?.trim() ?? ''}`);
+      d.hasAnonymousGpu = true;
     }
   }
 
@@ -412,7 +412,7 @@ export async function resolveOrchestrators({
       const noSwapRatio = d.knownSessions > 0 ? 1 - (d.swappedSessions / d.knownSessions) : null;
       const slaScore = d.knownSessions > 0 ? (0.7 * successRatio + 0.3 * (noSwapRatio || 0)) * 100 : null;
 
-      const gpuCount = d.gpuIds.size + d.anonymousWithoutGpuKeys.size;
+      const gpuCount = d.gpuIds.size + (d.hasAnonymousGpu ? 1 : 0);
 
       const pipelineModels = [...d.pipelineModels.entries()]
         .map(([pipelineId, modelIds]) => ({ pipelineId, modelIds: [...modelIds].sort() }))
