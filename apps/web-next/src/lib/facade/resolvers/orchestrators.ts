@@ -47,6 +47,7 @@ async function fetchURIMap(): Promise<Map<string, string>> {
     const revalidateSec = Math.floor(TTL.NET_MODELS / 1000);
     const rows = await naapGet<NaapNetOrchestrator[]>('net/orchestrators', {
       active_only: 'false',
+      limit: '1000',
     }, {
       next: { revalidate: revalidateSec },
       errorLabel: 'orchestrators-uri-map',

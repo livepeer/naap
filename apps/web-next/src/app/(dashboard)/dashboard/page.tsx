@@ -1533,7 +1533,7 @@ export default function DashboardPage() {
         setLiveVideoCapacity(body.capacityByModel);
       })
       .catch(() => {
-        if (!cancelled) liveVideoCapacityModelsRef.current = null;
+        if (!cancelled) liveVideoCapacityModelsRef.current = '';
       });
     return () => {
       cancelled = true;
@@ -1665,7 +1665,7 @@ export default function DashboardPage() {
             <RefreshWrap refreshing={lbRefreshing} className="h-full min-h-0 flex flex-col">
               <OrchestratorTableCard data={lbData.orchestrators} catalog={lbData.pipelineCatalog} />
             </RefreshWrap>
-          ) : lbLoading ? <WidgetSkeleton className="h-full" /> : null}
+          ) : lbLoading ? <WidgetSkeleton className="h-full" /> : <WidgetUnavailable label="Orchestrators" />}
         </div>
       </section>
     </div>

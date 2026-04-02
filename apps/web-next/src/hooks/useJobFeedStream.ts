@@ -215,7 +215,7 @@ export function useJobFeedStream(
 
     mountedRef.current = true;
     let eventBusCleanup: (() => void) | null = null;
-    let fetchPollTimer: ReturnType<typeof setInterval> | null = null;
+    let fetchPollTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -228,10 +228,11 @@ export function useJobFeedStream(
           clickhouseConfigured?: boolean;
           queryFailed?: boolean;
         };
+        let jsonFailed = false;
         try {
           body = (await res.json()) as typeof body;
         } catch {
-          /* non-JSON */
+          jsonFailed = true;
         }
         if (!mountedRef.current) return;
 
@@ -245,6 +246,20 @@ export function useJobFeedStream(
           setError({
             type: 'unknown',
             message: `Could not load the job feed (HTTP ${res.status}). Check the network or try again.`,
+          });
+          return;
+        }
+
+        if (jsonFailed) {
+          console.warn('[useJobFeedStream] job-feed 200 but invalid JSON', fetchUrl);
+          setFeedMeta({
+            clickhouseConfigured: false,
+            queryFailed: true,
+            fetchFailed: true,
+          });
+          setError({
+            type: 'unknown',
+            message: 'Job feed returned invalid data. Try again later.',
           });
           return;
         }
@@ -286,17 +301,22 @@ export function useJobFeedStream(
 
         retryCount = 0;
 
+        let pollStopped = false;
         if (channelInfo.fetchUrl && (channelInfo.useEventBusFallback || !channelInfo.channelName)) {
-          // HTTP polling mode — fetch the BFF endpoint at pollInterval
-          void fetchJobFeed(channelInfo.fetchUrl);
+          // HTTP polling mode — serialized: each poll waits for the previous fetch
           setConnected(true);
           setError(null);
 
           if (pollIntervalMs > 0) {
-            fetchPollTimer = setInterval(() => {
-              if (!mountedRef.current) return;
-              void fetchJobFeed(channelInfo.fetchUrl!);
-            }, pollIntervalMs);
+            async function poll() {
+              await fetchJobFeed(channelInfo.fetchUrl!);
+              if (!pollStopped && mountedRef.current) {
+                fetchPollTimer = setTimeout(poll, pollIntervalMs);
+              }
+            }
+            void poll();
+          } else {
+            void fetchJobFeed(channelInfo.fetchUrl);
           }
 
           // Also listen on the event bus so Ably pushes or manual
@@ -338,11 +358,11 @@ export function useJobFeedStream(
         }
 
         const snapshotBusCleanup = eventBusCleanup;
-        const snapshotFetchPollTimer = fetchPollTimer;
         const snapshotReconnectTimer = reconnectTimer;
         cleanupRef.current = () => {
+          pollStopped = true;
           snapshotBusCleanup?.();
-          if (snapshotFetchPollTimer) clearInterval(snapshotFetchPollTimer);
+          if (fetchPollTimer) { clearTimeout(fetchPollTimer); fetchPollTimer = null; }
           if (snapshotReconnectTimer) clearTimeout(snapshotReconnectTimer);
         };
         if (oldCleanup && oldCleanup !== cleanupRef.current) {

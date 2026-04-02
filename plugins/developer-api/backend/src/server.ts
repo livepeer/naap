@@ -183,7 +183,7 @@ app.get('/api/v1/developer/network-models', async (req, res) => {
     const limitIsAll = limitParam === 'all' || limitParam === '0' || limitParam == null;
     const limit = limitIsAll
       ? undefined
-      : Math.min(parseInt(limitParam!, 10) || 50, 200);
+      : Math.max(1, Math.min(parseInt(limitParam!, 10) || 50, 200));
     const cacheKey = limitIsAll ? 'all' : String(limit);
     const cached = netModelsJsonCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
