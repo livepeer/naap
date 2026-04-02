@@ -1564,6 +1564,10 @@ export default function DashboardPage() {
     );
   }, [lbError, rtError, feesError]);
 
+  const uiLbLoading = lbLoading || !prefsReady;
+  const uiRtLoading = rtLoading || !prefsReady;
+  const uiFeesLoading = feesLoading || !prefsReady;
+
   // No provider installed (only after retries exhausted)
   if (lbError?.type === 'no-provider' && !lbData) {
     return (
@@ -1601,20 +1605,20 @@ export default function DashboardPage() {
             <RefreshWrap refreshing={lbRefreshing} className="h-full">
               <KPIGroupCard data={lbData.kpi} />
             </RefreshWrap>
-          ) : lbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="KPI" />}
+          ) : uiLbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="KPI" />}
 
           {rtData?.protocol && feesData?.fees ? (
             <RefreshWrap refreshing={rtRefreshing || feesRefreshing} className="h-full min-h-0 flex flex-col">
               <ProtocolFeesCard protocol={rtData.protocol} fees={feesData.fees} />
             </RefreshWrap>
-          ) : (rtLoading || feesLoading) ? <WidgetSkeleton /> : (
+          ) : (uiRtLoading || uiFeesLoading) ? <WidgetSkeleton /> : (
             <div className="flex flex-col gap-3">
               {rtData?.protocol
                 ? <ProtocolCard data={rtData.protocol} />
-                : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
+                : uiRtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
               {feesData?.fees
                 ? <FeesCard data={feesData.fees} />
-                : feesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
+                : uiFeesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
             </div>
           )}
         </div>
@@ -1630,7 +1634,7 @@ export default function DashboardPage() {
                 timeframeHours={lbData?.kpi?.timeframeHours ?? 12}
               />
             </RefreshWrap>
-          ) : rtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="GPU Capacity" />}
+          ) : uiRtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="GPU Capacity" />}
           {lbData?.pipelineCatalog != null ? (
             <RefreshWrap refreshing={lbRefreshing || rtRefreshing} className="h-full min-h-0 flex flex-col">
               <PipelinesCard
@@ -1643,7 +1647,7 @@ export default function DashboardPage() {
                 timeframeHours={lbData.kpi?.timeframeHours ?? 12}
               />
             </RefreshWrap>
-          ) : lbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
+          ) : uiLbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
         </div>
       </section>
 
@@ -1665,7 +1669,7 @@ export default function DashboardPage() {
             <RefreshWrap refreshing={lbRefreshing} className="h-full min-h-0 flex flex-col">
               <OrchestratorTableCard data={lbData.orchestrators} catalog={lbData.pipelineCatalog} />
             </RefreshWrap>
-          ) : lbLoading ? <WidgetSkeleton className="h-full" /> : <WidgetUnavailable label="Orchestrators" />}
+          ) : uiLbLoading ? <WidgetSkeleton className="h-full" /> : <WidgetUnavailable label="Orchestrators" />}
         </div>
       </section>
     </div>
