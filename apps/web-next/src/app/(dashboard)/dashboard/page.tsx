@@ -323,12 +323,20 @@ function RefreshWrap({
   className?: string;
 }) {
   return (
-    <div className={`relative ${className}`.trim()}>
+    <div className={`relative ${className}`.trim()} aria-busy={refreshing}>
       {children}
       {refreshing && (
-        <div className="absolute inset-0 rounded-lg bg-card/60 flex items-center justify-center pointer-events-none z-10 backdrop-blur-[1px] transition-opacity duration-200">
-          <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
-        </div>
+        <>
+          <span className="sr-only" aria-live="polite">
+            Refreshing…
+          </span>
+          <div
+            className="absolute inset-0 rounded-lg bg-card/60 flex items-center justify-center pointer-events-none z-10 backdrop-blur-[1px] transition-opacity duration-200"
+            aria-hidden
+          >
+            <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" aria-hidden />
+          </div>
+        </>
       )}
     </div>
   );
@@ -1394,7 +1402,7 @@ export default function DashboardPage() {
   const [netCapacity, setNetCapacity] = useState<Record<string, number>>({});
   const [liveVideoCapacity, setLiveVideoCapacity] = useState<Record<string, number>>({});
   const [modelFpsByPipelineModel, setModelFpsByPipelineModel] = useState<Record<string, number>>({});
-  const netCapacityFetchAttempted = useRef(false);
+  const lastFetchedNetCapacityKeyRef = useRef<string | null>(null);
   const liveVideoCapacityModelsRef = useRef<string>('');
 
   useEffect(() => {
@@ -1451,9 +1459,21 @@ export default function DashboardPage() {
     const catalog = lbData?.pipelineCatalog;
     if (!catalog?.length) return;
     const pricing = rtData?.pricing ?? [];
+
+    const catalogKeyPart = [...catalog]
+      .map((e) => ({ id: e.id, models: [...e.models].sort() }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const pricingKeyPart = [...pricing]
+      .map((p) => ({
+        pipeline: p.pipeline,
+        model: p.model ?? '',
+        capacity: p.capacity ?? null,
+      }))
+      .sort((a, b) => a.pipeline.localeCompare(b.pipeline) || a.model.localeCompare(b.model));
+    const key = JSON.stringify({ catalog: catalogKeyPart, pricing: pricingKeyPart });
+
     if (!catalogNeedsNetCapacityFetch(catalog, pricing)) return;
-    if (netCapacityFetchAttempted.current) return;
-    netCapacityFetchAttempted.current = true;
+    if (lastFetchedNetCapacityKeyRef.current === key) return;
 
     let cancelled = false;
     fetch('/api/v1/network/capacity')
@@ -1463,6 +1483,7 @@ export default function DashboardPage() {
           return;
         }
         setNetCapacity(body.capacityByPipelineModel);
+        lastFetchedNetCapacityKeyRef.current = key;
       })
       .catch(() => {
         /* keep empty map; pricing.capacity still applies where present */

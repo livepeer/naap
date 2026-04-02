@@ -48,7 +48,9 @@ function getWeekStartTimestamp(dateS: number): number {
 }
 
 function clampDays(days?: number): number {
-  if (!days || Number.isNaN(days)) return 180;
+  if (days === undefined || days === null || typeof days !== 'number' || Number.isNaN(days)) {
+    return 180;
+  }
   return Math.min(Math.max(Math.floor(days), 7), 365);
 }
 

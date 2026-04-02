@@ -627,7 +627,9 @@ export const DeveloperView: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <button
+                      type="button"
                       onClick={() => setPipelineFilter('all')}
+                      aria-pressed={pipelineFilter === 'all'}
                       className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
                         pipelineFilter === 'all'
                           ? 'bg-accent-blue/20 text-accent-blue border border-accent-blue/30'
@@ -638,8 +640,10 @@ export const DeveloperView: React.FC = () => {
                     </button>
                     {pipelineOptions.map((pipeline) => (
                       <button
+                        type="button"
                         key={pipeline}
                         onClick={() => setPipelineFilter(pipeline === pipelineFilter ? 'all' : pipeline)}
+                        aria-pressed={pipelineFilter === pipeline}
                         className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
                           pipelineFilter === pipeline
                             ? 'bg-accent-blue/20 text-accent-blue border border-accent-blue/30'

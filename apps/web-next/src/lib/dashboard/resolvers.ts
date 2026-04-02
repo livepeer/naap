@@ -193,7 +193,6 @@ function isLiveVideoDemandRow(row: { pipeline_id: string; model_id: string | nul
   return (
     p === LIVE_VIDEO_PIPELINE_ID
     || LIVE_VIDEO_MODEL_IDS.has(m)
-    || m === 'noop'
     || m.startsWith('streamdiffusion')
   );
 }
@@ -312,6 +311,13 @@ export async function resolvePipelines({ limit = 5, timeframe }: { limit?: numbe
 // GPU Capacity resolver
 // ---------------------------------------------------------------------------
 
+/**
+ * Intentional stub: GPU capacity is produced by the REALTIME_QUERY `gpuCapacity`
+ * field in the dashboard Graph layer, not here. Callers resolving the full
+ * dashboard via that path receive live totals; this resolver exists for API
+ * surface completeness only — TODO: optional fallback if we ever need
+ * gpuCapacity without the realtime bundle.
+ */
 export async function resolveGPUCapacity(_opts: { timeframe?: string | number } = {}): Promise<DashboardGPUCapacity> {
   return {
     totalGPUs: 0,
@@ -625,6 +631,15 @@ export async function resolveFees({ days }: { days?: number } = {}): Promise<Das
   const fallbackTotalEth = round2(dayData.reduce((sum, d) => sum + d.volumeEth, 0));
   const fallbackTotalUsd = round2(dayData.reduce((sum, d) => sum + d.volumeUsd, 0));
 
+  /**
+   * Incomplete latest period: when `isLatestDayIncomplete` (today’s bucket still
+   * open), use previousDay for display and dayBeforePrevious for the delta base;
+   * when `isLatestWeekIncomplete` (current week still open), use previousWeek
+   * for display and twoWeeksBack for the delta base. Later null checks on
+   * dayForDisplay/dayForDeltaBase and weekForDisplay/weekForDeltaBase ensure we
+   * only compute changes when at least three days/weeks exist; otherwise those
+   * change values stay null.
+   */
   const now = new Date();
   const startOfTodayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0) / 1000;
   const weekStartOfToday = getWeekStartTimestamp(startOfTodayUtc);
