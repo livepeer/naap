@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ArrowLeft } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
@@ -73,6 +73,10 @@ export default function RegisterForm() {
 
   return (
     <div className="w-full max-w-sm px-4">
+      <Link href="/" className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors mb-6">
+        <ArrowLeft className="w-3.5 h-3.5" />
+        Back to Overview
+      </Link>
       {/* Livepeer textmark */}
       <div className="text-center mb-8">
         <div className="inline-block vhs-scanlines">
