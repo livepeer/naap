@@ -50,6 +50,11 @@ export interface UsePublicDashboardResult {
 
 const API = '/api/v1/dashboard';
 
+function jobFeedDashboardUrl(pollMs: number): string {
+  const ms = pollMs >= 1000 ? pollMs : 30_000;
+  return `${API}/job-feed?pollMs=${encodeURIComponent(String(ms))}`;
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -91,6 +96,7 @@ export function usePublicDashboard(
     setLoading(true);
 
     const period = timeframeToPeriod(timeframe);
+    const jobFeedUrl = jobFeedDashboardUrl(jobFeedPollInterval);
     const settled = await Promise.allSettled([
       fetchJson<DashboardKPI>(`${API}/kpi?timeframe=${timeframe}`),
       fetchJson<DashboardPipelineUsage[]>(`${API}/pipelines?timeframe=${timeframe}&limit=200`),
@@ -100,7 +106,7 @@ export function usePublicDashboard(
       fetchJson<DashboardGPUCapacity>(`${API}/gpu-capacity?timeframe=${timeframe}`),
       fetchJson<DashboardPipelinePricing[]>(`${API}/pricing`),
       fetchJson<DashboardFeesInfo>(`${API}/fees?days=180`),
-      fetchJson<{ streams: JobFeedEntry[]; queryFailed?: boolean }>(`${API}/job-feed`),
+      fetchJson<{ streams: JobFeedEntry[]; queryFailed?: boolean }>(jobFeedUrl),
     ]);
 
     if (!mountedRef.current) return;
@@ -136,7 +142,7 @@ export function usePublicDashboard(
     setError(failures.length > 0 ? failures.join('; ') : null);
     setHasFetched(true);
     setLoading(false);
-  }, [timeframe]);
+  }, [timeframe, jobFeedPollInterval]);
 
   // Initial fetch
   useEffect(() => {
@@ -151,7 +157,9 @@ export function usePublicDashboard(
 
     const id = setInterval(async () => {
       try {
-        const result = await fetchJson<{ streams: JobFeedEntry[]; queryFailed?: boolean }>(`${API}/job-feed`);
+        const result = await fetchJson<{ streams: JobFeedEntry[]; queryFailed?: boolean }>(
+          jobFeedDashboardUrl(jobFeedPollInterval),
+        );
         if (mountedRef.current && result) {
           setData(prev => ({
             ...prev,

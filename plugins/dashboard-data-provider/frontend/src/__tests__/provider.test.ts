@@ -79,6 +79,7 @@ const STUB_PRICING = [
     pipeline: 'streamdiffusion-sdxl',
     unit: 'live-video-to-video',
     price: 2578,
+    avgWeiPerUnit: '2578',
     pixelsPerUnit: 1,
     outputPerDollar: '—',
   },
@@ -268,7 +269,7 @@ describe('registerDashboardProvider', () => {
         fees(days: 7) { totalEth totalUsd oneDayVolumeUsd dayData { dateS volumeEth volumeUsd } weeklyData { date weeklyVolumeUsd weeklyVolumeEth } }
         pipelines { name mins color }
         gpuCapacity { totalGPUs availableCapacity }
-        pricing { pipeline unit price pixelsPerUnit outputPerDollar }
+        pricing { pipeline unit price avgWeiPerUnit pixelsPerUnit outputPerDollar }
       }`,
     };
 
@@ -321,6 +322,7 @@ describe('registerDashboardProvider', () => {
       pipeline: expect.any(String),
       unit: expect.any(String),
       price: expect.any(Number),
+      avgWeiPerUnit: expect.any(String),
       pixelsPerUnit: expect.any(Number),
       outputPerDollar: expect.any(String),
     });

@@ -57,7 +57,7 @@ const REALTIME_QUERY = /* GraphQL */ `
       pipelineGPUs { name gpus models { model gpus } }
     }
     pricing {
-      pipeline model unit price pixelsPerUnit outputPerDollar capacity
+      pipeline model unit price avgWeiPerUnit pixelsPerUnit outputPerDollar capacity
     }
   }
 `;
@@ -179,7 +179,13 @@ export default function DashboardPage() {
     { timeout: NAAP_API_QUERY_TIMEOUT_MS, skip: !prefsReady },
   );
 
-  const { jobs, connected: jobFeedConnected, feedMeta: jobFeedMeta, error: jobFeedError } = useJobFeedStream({
+  const {
+    jobs,
+    connected: jobFeedConnected,
+    feedMeta: jobFeedMeta,
+    error: jobFeedError,
+    jobFeedLoading,
+  } = useJobFeedStream({
     maxItems: 50,
     pollInterval: jobFeedPollInterval,
   });
@@ -205,6 +211,7 @@ export default function DashboardPage() {
       onJobFeedPollIntervalChange={handleJobFeedPollIntervalChange}
       jobFeedMeta={jobFeedMeta}
       jobFeedError={jobFeedError}
+      jobFeedLoading={jobFeedLoading}
       timeframe={timeframe}
       onTimeframeChange={handleTimeframeChange}
       lbLoading={lbLoading}

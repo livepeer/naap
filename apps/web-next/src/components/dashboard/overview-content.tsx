@@ -8,7 +8,7 @@
  * this component is purely presentational + supplementary REST enrichment.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ElementType, ReactNode } from 'react';
 import type {
   DashboardKPI,
@@ -32,7 +32,6 @@ import {
   Radio,
   Layers,
   Coins,
-  Cpu,
   TrendingUp,
   TrendingDown,
   Minus,
@@ -45,6 +44,8 @@ import {
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
+  Copy,
+  Check,
 } from 'lucide-react';
 import {
   Bar,
@@ -55,6 +56,7 @@ import {
   YAxis,
 } from 'recharts';
 import { PIPELINE_DISPLAY, PIPELINE_COLOR, DEFAULT_PIPELINE_COLOR } from '@/lib/dashboard/pipeline-config';
+import { LivepeerMarkIcon } from '@/components/brand/livepeer-mark-icon';
 import { AuthCTABanner } from './auth-cta-banner';
 
 // ============================================================================
@@ -77,6 +79,8 @@ export interface OverviewContentProps {
   onJobFeedPollIntervalChange: (ms: number) => void;
   jobFeedMeta: JobFeedConnectionMeta | null;
   jobFeedError: DashboardError | null;
+  /** True while the first job-feed response has not finished (or full public batch is in flight). */
+  jobFeedLoading: boolean;
   timeframe: string;
   onTimeframeChange: (tf: string) => void;
   lbLoading: boolean;
@@ -186,6 +190,22 @@ function modelBadgeColor(modelId: string): (typeof MODEL_BADGE_COLORS)[number] {
   let n = 0;
   for (let i = 0; i < modelId.length; i++) n += modelId.charCodeAt(i);
   return MODEL_BADGE_COLORS[Math.abs(n) % MODEL_BADGE_COLORS.length];
+}
+
+/** Canonical pipeline id for theming (matches Pipelines & GPUs / PIPELINE_COLOR). */
+function jobFeedResolvePipelineId(pipelineSlug: string): string {
+  const s = pipelineSlug.trim();
+  if (!s) return '';
+  if (s === 'noop' || s.startsWith('streamdiffusion')) return LIVE_VIDEO_PIPELINE_ID;
+  if (PIPELINE_DISPLAY[s] != null) return s;
+  const keys = Object.keys(PIPELINE_DISPLAY)
+    .filter((k) => PIPELINE_DISPLAY[k] != null)
+    .sort((a, b) => b.length - a.length);
+  for (const key of keys) {
+    if (s === key) return key;
+    if (s.startsWith(`${key}-`) || s.startsWith(`${key}_`)) return key;
+  }
+  return s;
 }
 
 function jobFeedPipelineParts(pipelineSlug: string): {
@@ -313,6 +333,10 @@ function DeltaBadge({ value, unit = '%', invert = false }: { value: number | nul
 // Card Components
 // ============================================================================
 
+/** KPI sparklines, fees bar, and protocol progress all use theme primary (Livepeer green). */
+const OVERVIEW_CHART_ACCENT = 'hsl(var(--primary))';
+const OVERVIEW_CHART_CURSOR = 'hsl(var(--primary) / 0.12)';
+
 function HourlySparkline({ data, color = 'var(--color-muted-foreground)' }: { data: HourlyBucket[]; color?: string }) {
   if (!data || data.length === 0) return null;
   const max = Math.max(...data.map((d) => d.value), 1);
@@ -376,13 +400,13 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
           <span className="text-2xl font-semibold text-foreground tracking-tight font-mono">{value}</span>
           {suffix && <span className="text-xs text-muted-foreground">{suffix}</span>}
         </div>
-        <HourlySparkline data={sparkline ?? []} color="hsl(var(--primary))" />
+        <HourlySparkline data={sparkline ?? []} color={OVERVIEW_CHART_ACCENT} />
       </div>
     );
   };
 
   return (
-    <div className="p-3 rounded-lg bg-card border border-border h-full grid grid-cols-2 gap-3 content-start">
+    <div className="p-3 rounded-lg bg-card border border-border shrink-0 grid grid-cols-2 gap-3 content-start">
       {tile(CheckCircle2, `Success Rate (${tfLabel})`, `${data.successRate.value}%`)}
       {tile(Server, `Orchestrators (${tfLabel})`, data.orchestratorsOnline.value)}
       {tile(Clock, `Usage (${tfLabel})`, formatNumber(data.dailyUsageMins.value), 'mins', data.hourlyUsage, 'Total transcoding minutes. Sparkline: one bar per UTC hour.')}
@@ -416,7 +440,7 @@ function ProtocolCard({ data, className }: { data: DashboardProtocol; className?
             </div>
             <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div
-                className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                className="h-full bg-primary rounded-full transition-all duration-500"
                 style={{ width: `${progressPct}%` }}
               />
             </div>
@@ -505,8 +529,8 @@ function FeesCard({ data, className }: { data: DashboardFeesInfo; className?: st
           >
             <XAxis dataKey="x" tickLine={false} axisLine={false} minTickGap={18} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={(x) => new Date(Number(x) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} />
             <YAxis width={40} tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={(v) => formatUsdCompact(Number(v))} />
-            <Tooltip cursor={{ fill: 'rgba(34, 197, 94, 0.08)' }} content={() => null} />
-            <Bar dataKey="y" radius={[4, 4, 0, 0]} fill="hsl(142 71% 45%)" />
+            <Tooltip cursor={{ fill: OVERVIEW_CHART_CURSOR }} content={() => null} />
+            <Bar dataKey="y" radius={[4, 4, 0, 0]} fill={OVERVIEW_CHART_ACCENT} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -551,49 +575,130 @@ function ProtocolFeesCard({ protocol, fees }: { protocol: DashboardProtocol; fee
   );
 }
 
-function GPUCapacityCard({ data, timeframeHours }: { data: DashboardGPUCapacity; timeframeHours: number }) {
-  return (
-    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
-      <div className="flex items-center gap-2 mb-2 shrink-0">
-        <div className="p-1 rounded-md bg-muted text-muted-foreground"><Cpu className="w-3.5 h-3.5" /></div>
-        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Network GPUs ({formatTimeframeLabel(timeframeHours)})</span>
-      </div>
-      <p className="text-[11px] text-muted-foreground mb-3 shrink-0">{formatNumber(data.totalGPUs)} total, {formatNumber(data.activeGPUs)} active</p>
-      {data.pipelineGPUs.length === 0 ? (
-        <p className="text-xs text-muted-foreground py-4 text-center">No pipeline breakdown available</p>
-      ) : (
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
-          {data.pipelineGPUs.map((p) => {
-            const color = PIPELINE_COLOR[p.name] ?? DEFAULT_PIPELINE_COLOR;
-            const displayName = PIPELINE_DISPLAY[p.name] ?? p.name;
-            return (
-              <div key={p.name}>
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} aria-hidden="true" />
-                    <span className="text-xs font-semibold text-foreground truncate" title={p.name}>{displayName}</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">{formatNumber(p.gpus)} GPUs</span>
-                </div>
-                {p.models && p.models.length > 0 && (
-                  <table className="w-full text-[11px]">
-                    <tbody>
-                      {p.models.map((m) => (
-                        <tr key={m.model} className="border-b border-border/30 last:border-0">
-                          <td className="py-1 pl-4 pr-2"><span className="font-mono break-all text-muted-foreground">{m.model}</span></td>
-                          <td className="py-1 text-right font-mono text-foreground flex-shrink-0 whitespace-nowrap">{formatNumber(m.gpus)} GPU{m.gpus !== 1 ? 's' : ''}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+type GpuPipelineRow = DashboardGPUCapacity['pipelineGPUs'][number];
+
+/**
+ * Union NAAP gpu-capacity with catalog + demand so pipelines omitted upstream
+ * (e.g. `llm`) still appear with 0 GPUs and known models listed.
+ */
+function mergeGpuCapacityPipelinesWithCatalog(
+  fromApi: GpuPipelineRow[],
+  catalog: DashboardPipelineCatalogEntry[],
+  pipelines: DashboardPipelineUsage[],
+): GpuPipelineRow[] {
+  const clone = (p: GpuPipelineRow): GpuPipelineRow => ({
+    name: p.name,
+    gpus: p.gpus,
+    models: (p.models ?? []).map((m) => ({ model: m.model, gpus: m.gpus })),
+  });
+
+  const byName = new Map<string, GpuPipelineRow>();
+  for (const p of fromApi) {
+    byName.set(p.name, clone(p));
+  }
+
+  for (const entry of catalog) {
+    if (PIPELINE_DISPLAY[entry.id] === null) continue;
+
+    const usage = pipelines.find((u) => u.name === entry.id);
+    const modelIds = new Set<string>([...entry.models]);
+    for (const mm of usage?.modelMins ?? []) {
+      const m = mm.model?.trim();
+      if (m) modelIds.add(m);
+    }
+
+    let row = byName.get(entry.id);
+    if (!row) {
+      byName.set(entry.id, {
+        name: entry.id,
+        gpus: 0,
+        models: [...modelIds].sort((a, b) => a.localeCompare(b)).map((model) => ({ model, gpus: 0 })),
+      });
+      continue;
+    }
+
+    const byModel = new Map<string, number>();
+    for (const m of row.models ?? []) {
+      byModel.set(m.model, m.gpus);
+    }
+    for (const model of modelIds) {
+      if (!byModel.has(model)) {
+        byModel.set(model, 0);
+      }
+    }
+    row = {
+      name: row.name,
+      gpus: row.gpus,
+      models: [...byModel.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([model, gpus]) => ({ model, gpus })),
+    };
+    byName.set(entry.id, row);
+  }
+
+  for (const u of pipelines) {
+    if (PIPELINE_DISPLAY[u.name] === null) continue;
+    if (byName.has(u.name)) continue;
+    const modelIds = new Set<string>();
+    for (const mm of u.modelMins ?? []) {
+      const m = mm.model?.trim();
+      if (m) modelIds.add(m);
+    }
+    if (modelIds.size === 0) continue;
+    byName.set(u.name, {
+      name: u.name,
+      gpus: 0,
+      models: [...modelIds].sort((a, b) => a.localeCompare(b)).map((model) => ({ model, gpus: 0 })),
+    });
+  }
+
+  const catalogOrder = [...catalog]
+    .filter((e) => PIPELINE_DISPLAY[e.id] !== null)
+    .sort((a, b) => {
+      const am = pipelines.find((p) => p.name === a.id)?.mins ?? 0;
+      const bm = pipelines.find((p) => p.name === b.id)?.mins ?? 0;
+      return bm - am;
+    })
+    .map((e) => e.id);
+
+  const out: GpuPipelineRow[] = [];
+  const placed = new Set<string>();
+
+  for (const id of catalogOrder) {
+    const p = byName.get(id);
+    if (p) {
+      out.push(p);
+      placed.add(id);
+    }
+  }
+
+  for (const p of fromApi) {
+    if (PIPELINE_DISPLAY[p.name] === null) continue;
+    if (!placed.has(p.name)) {
+      out.push(byName.get(p.name) ?? clone(p));
+      placed.add(p.name);
+    }
+  }
+
+  for (const [name, p] of byName) {
+    if (!placed.has(name) && PIPELINE_DISPLAY[name] !== null) {
+      out.push(p);
+      placed.add(name);
+    }
+  }
+
+  return out;
+}
+
+/** Per-model GPU counts from merged NAAP + catalog breakdown. */
+function gpuCountMapFromMerged(merged: GpuPipelineRow[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const p of merged) {
+    for (const row of p.models ?? []) {
+      m.set(`${p.name}\x1f${row.model}`, row.gpus);
+    }
+  }
+  return m;
 }
 
 /** Model rows: union catalog + usage so seeded/empty catalog entries still show demand. */
@@ -607,8 +712,148 @@ function pipelineTableModelIds(
   return [...set].sort((a, b) => a.localeCompare(b));
 }
 
+type PipelineTableSortCol = 'model' | 'gpus' | 'capacity' | 'price' | 'fps' | 'mins';
+
+function sortPipelineTableModels(
+  models: string[],
+  pipelineId: string,
+  sortCol: PipelineTableSortCol,
+  sortDir: 'asc' | 'desc',
+  data: DashboardPipelineUsage[],
+  pricing: DashboardPipelinePricing[],
+  netCapacity: Record<string, number>,
+  liveVideoCapacity: Record<string, number>,
+  gpuByPipelineModel: Map<string, number>,
+  modelFpsByPipelineModel: Record<string, number>,
+): string[] {
+  const pipelineUsage = data.find((d) => d.name === pipelineId);
+  const rowKeys = (model: string) => {
+    const p = pricing.find((x) => x.pipeline === pipelineId && x.model === model);
+    const modelUsage = pipelineUsage?.modelMins?.find((m) => m.model === model);
+    const modelFpsFromPerf = modelFpsByPipelineModel[`${pipelineId}:${model}`];
+    const modelFps = Number.isFinite(modelFpsFromPerf)
+      ? modelFpsFromPerf
+      : Number.isFinite(modelUsage?.avgFps) ? (modelUsage?.avgFps as number) : null;
+    const modelMins = Number.isFinite(modelUsage?.mins) ? (modelUsage?.mins as number) : null;
+    const cap = pipelinesRowCapacity(pipelineId, model, p, netCapacity, liveVideoCapacity);
+    const gpus = gpuByPipelineModel.get(`${pipelineId}\x1f${model}`) ?? 0;
+    const price = p && p.price > 0 ? p.price : null;
+    return { cap, gpus, price, modelFps, modelMins };
+  };
+  return [...models].sort((a, b) => {
+    const ra = rowKeys(a);
+    const rb = rowKeys(b);
+    let c = 0;
+    const missingLast = (aMissing: boolean, bMissing: boolean, inner: number): number => {
+      if (aMissing && bMissing) return 0;
+      if (aMissing) return 1;
+      if (bMissing) return -1;
+      return inner;
+    };
+    switch (sortCol) {
+      case 'model':
+        c = a.localeCompare(b);
+        break;
+      case 'gpus':
+        c = ra.gpus - rb.gpus;
+        break;
+      case 'capacity':
+        c = missingLast(
+          ra.cap === '—',
+          rb.cap === '—',
+          (ra.cap as number) - (rb.cap as number),
+        );
+        break;
+      case 'price':
+        c = missingLast(
+          ra.price == null,
+          rb.price == null,
+          (ra.price ?? 0) - (rb.price ?? 0),
+        );
+        break;
+      case 'fps':
+        c = missingLast(
+          ra.modelFps == null,
+          rb.modelFps == null,
+          (ra.modelFps ?? 0) - (rb.modelFps ?? 0),
+        );
+        break;
+      case 'mins':
+        c = missingLast(
+          ra.modelMins == null,
+          rb.modelMins == null,
+          (ra.modelMins ?? 0) - (rb.modelMins ?? 0),
+        );
+        break;
+    }
+    if (c !== 0) return sortDir === 'asc' ? c : -c;
+    return a.localeCompare(b);
+  });
+}
+
+function pipelineCopyInlineHoverCls(
+  scope: 'default' | 'pipeline' | 'model' | 'feed',
+): string {
+  const base =
+    'rounded p-0.5 shrink-0 text-muted-foreground hover:text-foreground opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card';
+  switch (scope) {
+    case 'pipeline':
+      return `${base} group-hover/pipeline:opacity-100 group-focus-within/pipeline:opacity-100`;
+    case 'model':
+      return `${base} group-hover/model:opacity-100 group-focus-within/model:opacity-100`;
+    case 'feed':
+      return `${base} group-hover/feed:opacity-100 group-focus-within/feed:opacity-100`;
+    default:
+      return `${base} group-hover:opacity-100 group-focus-within:opacity-100`;
+  }
+}
+
+function PipelineTableCopyButton({
+  copied,
+  onCopy,
+  title,
+  ariaLabel,
+  inline = false,
+  /** Named Tailwind group so pipeline-row buttons are not revealed when hovering model rows below. */
+  inlineGroup = 'default',
+}: {
+  copied: boolean;
+  onCopy: () => void | Promise<void>;
+  title: string;
+  ariaLabel: string;
+  /** Match developer-api Models tab: icon sits after label, hidden until hover/focus. */
+  inline?: boolean;
+  inlineGroup?: 'default' | 'pipeline' | 'model' | 'feed';
+}) {
+  const cls = inline
+    ? pipelineCopyInlineHoverCls(inlineGroup)
+    : 'p-0.5 rounded-md shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card';
+  return (
+    <button
+      type="button"
+      onClick={() => void onCopy()}
+      className={`${cls}${copied ? ' !opacity-100' : ''}`.trim()}
+      title={title}
+      aria-label={ariaLabel}
+    >
+      {copied ? (
+        <Check className="w-3 h-3 text-primary" aria-hidden />
+      ) : (
+        <Copy className="w-3 h-3" aria-hidden />
+      )}
+    </button>
+  );
+}
+
 function PipelinesCard({
-  data, catalog, pricing, netCapacity, liveVideoCapacity, modelFpsByPipelineModel, timeframeHours,
+  data,
+  catalog,
+  pricing,
+  netCapacity,
+  liveVideoCapacity,
+  modelFpsByPipelineModel,
+  timeframeHours,
+  gpuCapacity,
 }: {
   data: DashboardPipelineUsage[];
   catalog: DashboardPipelineCatalogEntry[];
@@ -617,50 +862,229 @@ function PipelinesCard({
   liveVideoCapacity: Record<string, number>;
   modelFpsByPipelineModel: Record<string, number>;
   timeframeHours: number;
+  gpuCapacity: DashboardGPUCapacity | null;
 }) {
+  const [sortCol, setSortCol] = useState<PipelineTableSortCol>('model');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const copyClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flashCopied = useCallback((id: string) => {
+    if (copyClearRef.current) clearTimeout(copyClearRef.current);
+    setCopiedId(id);
+    copyClearRef.current = setTimeout(() => {
+      setCopiedId(null);
+      copyClearRef.current = null;
+    }, 2000);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (copyClearRef.current) clearTimeout(copyClearRef.current);
+    },
+    [],
+  );
+
+  const copyToClipboard = useCallback(
+    async (id: string, text: string) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        flashCopied(id);
+      } catch {
+        /* clipboard may be denied */
+      }
+    },
+    [flashCopied],
+  );
+
+  const togglePipelineTableSort = (col: PipelineTableSortCol) => {
+    if (sortCol === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortCol(col);
+      setSortDir(col === 'model' ? 'asc' : 'desc');
+    }
+  };
+
+  const mergedGpuPipelines = useMemo(
+    () =>
+      mergeGpuCapacityPipelinesWithCatalog(
+        gpuCapacity?.pipelineGPUs ?? [],
+        catalog,
+        data,
+      ),
+    [gpuCapacity?.pipelineGPUs, catalog, data],
+  );
+
+  const gpuByPipelineModel = useMemo(
+    () => gpuCountMapFromMerged(mergedGpuPipelines),
+    [mergedGpuPipelines],
+  );
+
+  const pipelineGpuTotals = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of mergedGpuPipelines) {
+      m.set(p.name, p.gpus);
+    }
+    return m;
+  }, [mergedGpuPipelines]);
+
   const sortedCatalog = useMemo(
     () => [...catalog].sort((a, b) => {
+      const aGpu = pipelineGpuTotals.get(a.id) ?? 0;
+      const bGpu = pipelineGpuTotals.get(b.id) ?? 0;
+      if (bGpu !== aGpu) return bGpu - aGpu;
       const aUsage = data.find((d) => d.name === a.id);
       const bUsage = data.find((d) => d.name === b.id);
       return (bUsage?.mins ?? 0) - (aUsage?.mins ?? 0);
     }),
-    [catalog, data],
+    [catalog, data, pipelineGpuTotals],
+  );
+
+  const tf = formatTimeframeLabel(timeframeHours).toUpperCase();
+
+  const thNum = 'pb-1.5 pt-1 px-2 font-medium text-right align-bottom tabular-nums';
+  const thModel = 'pb-1.5 pt-1 pl-4 pr-2 font-medium text-left align-bottom';
+  const tdModel = 'py-1 pl-4 pr-2 align-top break-words min-w-0';
+  const tdNum = 'py-1 px-2 text-right tabular-nums align-top whitespace-nowrap';
+
+  const PipelineSortIcon = ({ col }: { col: PipelineTableSortCol }) => {
+    if (sortCol !== col) return <ChevronsUpDown className="w-3 h-3 opacity-30 shrink-0" />;
+    return sortDir === 'asc' ? <ChevronUp className="w-3 h-3 shrink-0" /> : <ChevronDown className="w-3 h-3 shrink-0" />;
+  };
+
+  const PipelineTH = ({
+    col,
+    label,
+    className,
+  }: {
+    col: PipelineTableSortCol;
+    label: string;
+    className: string;
+  }) => (
+    <th scope="col" className={className}>
+      <button
+        type="button"
+        onClick={() => togglePipelineTableSort(col)}
+        className={`inline-flex w-full items-center gap-1 select-none hover:text-foreground transition-colors ${className.includes('text-right') ? 'justify-end' : 'justify-start'}`}
+      >
+        {className.includes('text-right') ? (
+          <>
+            <PipelineSortIcon col={col} />
+            {label}
+          </>
+        ) : (
+          <>
+            {label}
+            <PipelineSortIcon col={col} />
+          </>
+        )}
+      </button>
+    </th>
   );
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
-      <div className="flex items-center gap-2 mb-4 shrink-0">
-        <div className="p-1 rounded-md bg-muted text-muted-foreground"><Activity className="w-3.5 h-3.5" /></div>
-        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Pipelines ({formatTimeframeLabel(timeframeHours).toUpperCase()})</span>
+    <div className="p-4 rounded-lg bg-card border border-border flex flex-col min-h-[240px] max-h-[min(72vh,680px)] overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-3 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0" title="GPU column from network capacity API">
+            <LivepeerMarkIcon className="w-3.5 h-3.5 shrink-0" />
+          </div>
+          <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+            Pipelines & GPUs ({tf})
+          </div>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          {gpuCapacity != null ? (
+            <p className="text-sm font-semibold text-foreground tabular-nums text-right leading-tight">
+              {formatNumber(gpuCapacity.totalGPUs)} GPUs
+            </p>
+          ) : null}
+          <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0">
+            <Activity className="w-3.5 h-3.5" />
+          </div>
+        </div>
       </div>
       {sortedCatalog.length === 0 ? (
         <p className="text-xs text-muted-foreground py-4 text-center">No pipeline data available</p>
       ) : (
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
-          {sortedCatalog.map((entry) => {
-            const color = PIPELINE_COLOR[entry.id] ?? DEFAULT_PIPELINE_COLOR;
-            const modelRows = pipelineTableModelIds(entry, data);
-            return (
-              <div key={entry.id}>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} aria-hidden="true" />
-                  <span className="text-xs font-semibold text-foreground">{entry.name}</span>
-                </div>
-                {modelRows.length === 0 ? (
-                  <p className="text-[10px] text-muted-foreground pl-4">No models</p>
-                ) : (
-                  <table className="w-full text-[11px]">
-                    <thead>
-                      <tr className="text-[10px] text-muted-foreground uppercase tracking-wider border-b border-border/40">
-                        <th className="pb-1 font-medium text-left pl-4">Model</th>
-                        <th className="pb-1 font-medium text-right">Capacity</th>
-                        <th className="pb-1 font-medium text-right">Price</th>
-                        <th className="pb-1 font-medium text-right">FPS</th>
-                        <th className="pb-1 font-medium text-right">Mins</th>
+        <div className="flex-1 min-h-0 overflow-auto rounded-md border border-border/60">
+          <table className="w-full table-fixed text-[11px] border-collapse">
+            <colgroup>
+              <col className="min-w-0 w-[30%]" />
+              <col className="w-[9%]" />
+              <col className="w-[11%]" />
+              <col className="w-[20%]" />
+              <col className="w-[9%]" />
+              <col className="w-[9%]" />
+            </colgroup>
+            <thead className="sticky top-0 z-10 bg-card border-b border-border shadow-[0_1px_0_0_hsl(var(--border))]">
+              <tr className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                <PipelineTH col="model" label="Model" className={thModel} />
+                <PipelineTH col="gpus" label="GPUs" className={thNum} />
+                <PipelineTH col="capacity" label="Capacity" className={thNum} />
+                <PipelineTH col="price" label="Price" className={thNum} />
+                <PipelineTH col="fps" label="FPS" className={thNum} />
+                <PipelineTH col="mins" label="Mins" className={`${thNum} pr-4`} />
+              </tr>
+            </thead>
+            <tbody>
+              {sortedCatalog.map((entry) => {
+                const color = PIPELINE_COLOR[entry.id] ?? DEFAULT_PIPELINE_COLOR;
+                const modelRowsBase = pipelineTableModelIds(entry, data);
+                const modelRows = sortPipelineTableModels(
+                  modelRowsBase,
+                  entry.id,
+                  sortCol,
+                  sortDir,
+                  data,
+                  pricing,
+                  netCapacity,
+                  liveVideoCapacity,
+                  gpuByPipelineModel,
+                  modelFpsByPipelineModel,
+                );
+                const pipeTotal = pipelineGpuTotals.get(entry.id) ?? 0;
+                const pipelineUsage = data.find((d) => d.name === entry.id);
+                const pipeMins = pipelineUsage?.mins != null && Number.isFinite(pipelineUsage.mins)
+                  ? Math.round(pipelineUsage.mins as number)
+                  : null;
+                const pipeSessions = pipelineUsage?.sessions != null && Number.isFinite(pipelineUsage.sessions)
+                  ? pipelineUsage.sessions as number
+                  : null;
+                return (
+                  <Fragment key={entry.id}>
+                    <tr className="bg-muted/40 border-b border-border/50" title={pipeSessions != null ? `${formatNumber(pipeSessions)} sessions (pipeline)` : undefined}>
+                      <td className="py-1 pl-3 pr-2 align-middle">
+                        <div className="group/pipeline flex min-w-0 items-center gap-2">
+                          <span className="w-2 h-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+                          <span className="min-w-0 truncate text-xs font-semibold text-foreground">{entry.name}</span>
+                          <PipelineTableCopyButton
+                            inline
+                            inlineGroup="pipeline"
+                            copied={copiedId === `p:${entry.id}`}
+                            onCopy={() => copyToClipboard(`p:${entry.id}`, entry.id)}
+                            title="Copy pipeline id"
+                            ariaLabel={`Copy pipeline id ${entry.id}`}
+                          />
+                        </div>
+                      </td>
+                      <td className={`${tdNum} align-middle font-mono text-xs font-semibold text-foreground`} title="GPUs on this pipeline">
+                        {formatNumber(pipeTotal)}
+                      </td>
+                      <td className="px-2 py-1 align-middle" />
+                      <td className="px-2 py-1 align-middle" />
+                      <td className="px-2 py-1 align-middle" />
+                      <td className={`${tdNum} pr-4 align-middle text-xs font-semibold tabular-nums text-foreground`} title="Total demand minutes (pipeline)">
+                        {pipeMins != null ? formatNumber(pipeMins) : '—'}
+                      </td>
+                    </tr>
+                    {modelRows.length === 0 ? (
+                      <tr className="border-b border-border/30">
+                        <td colSpan={6} className="py-2 pl-6 text-[10px] text-muted-foreground">No models</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {modelRows.map((model) => {
+                    ) : (
+                      modelRows.map((model) => {
                         const p = pricing.find((x) => x.pipeline === entry.id && x.model === model);
                         const pipelineUsage = data.find((d) => d.name === entry.id);
                         const modelUsage = pipelineUsage?.modelMins?.find((m) => m.model === model);
@@ -671,22 +1095,36 @@ function PipelinesCard({
                         const modelMins = Number.isFinite(modelUsage?.mins) ? (modelUsage?.mins as number) : null;
                         const priceStr = p && p.price > 0 ? `${formatNumber(Math.round(p.price * 1e12))} wei/${p.unit}` : '—';
                         const cap = pipelinesRowCapacity(entry.id, model, p, netCapacity, liveVideoCapacity);
+                        const gpus = gpuByPipelineModel.get(`${entry.id}\x1f${model}`) ?? 0;
                         return (
-                          <tr key={model} className="border-b border-border/30 last:border-0">
-                            <td className="py-1 pl-4 pr-2"><span className="font-mono break-all" style={{ color }}>{model}</span></td>
-                            <td className="py-1 text-right font-mono text-foreground">{cap === '—' ? '—' : formatNumber(cap)}</td>
-                            <td className="py-1 text-right font-mono text-muted-foreground">{priceStr}</td>
-                            <td className="py-1 text-right font-mono text-muted-foreground">{modelFps != null ? modelFps.toFixed(1) : '—'}</td>
-                            <td className="py-1 text-right font-mono text-muted-foreground">{modelMins != null ? formatNumber(Math.round(modelMins)) : '—'}</td>
+                          <tr key={`${entry.id}:${model}`} className="border-b border-border/25 hover:bg-muted/20">
+                            <td className={`${tdModel} group/model`}>
+                              <div className="flex min-w-0 items-center gap-1">
+                                <span className="min-w-0 truncate font-mono text-[10px] leading-snug" style={{ color }}>{model}</span>
+                                <PipelineTableCopyButton
+                                  inline
+                                  inlineGroup="model"
+                                  copied={copiedId === `m:${entry.id}:${model}:id`}
+                                  onCopy={() => copyToClipboard(`m:${entry.id}:${model}:id`, model)}
+                                  title="Copy model id"
+                                  ariaLabel={`Copy model id ${model}`}
+                                />
+                              </div>
+                            </td>
+                            <td className={tdNum}>{formatNumber(gpus)}</td>
+                            <td className={tdNum}>{cap === '—' ? '—' : formatNumber(cap)}</td>
+                            <td className={`${tdNum} text-muted-foreground`}>{priceStr}</td>
+                            <td className={`${tdNum} text-muted-foreground`}>{modelFps != null ? modelFps.toFixed(1) : '—'}</td>
+                            <td className={`${tdNum} pr-4 text-muted-foreground`}>{modelMins != null ? formatNumber(Math.round(modelMins)) : '—'}</td>
                           </tr>
                         );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            );
-          })}
+                      })
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
@@ -700,7 +1138,13 @@ function PipelinesCard({
 type JobFeedSortCol = 'model' | 'outputFps' | 'durationSeconds' | 'status';
 
 function JobFeedCard({
-  jobs, connected, pollInterval, onPollIntervalChange, feedMeta, feedError,
+  jobs,
+  connected,
+  pollInterval,
+  onPollIntervalChange,
+  feedMeta,
+  feedError,
+  feedLoading,
 }: {
   jobs: JobFeedEntry[];
   connected: boolean;
@@ -708,9 +1152,40 @@ function JobFeedCard({
   onPollIntervalChange: (ms: number) => void;
   feedMeta: JobFeedConnectionMeta | null;
   feedError: DashboardError | null;
+  feedLoading: boolean;
 }) {
   const [sortCol, setSortCol] = useState<JobFeedSortCol>('durationSeconds');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const copyClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flashCopied = useCallback((id: string) => {
+    if (copyClearRef.current) clearTimeout(copyClearRef.current);
+    setCopiedId(id);
+    copyClearRef.current = setTimeout(() => {
+      setCopiedId(null);
+      copyClearRef.current = null;
+    }, 2000);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (copyClearRef.current) clearTimeout(copyClearRef.current);
+    },
+    [],
+  );
+
+  const copyToClipboard = useCallback(
+    async (id: string, text: string) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        flashCopied(id);
+      } catch {
+        /* clipboard may be denied */
+      }
+    },
+    [flashCopied],
+  );
 
   const toggleSort = (col: JobFeedSortCol) => {
     if (sortCol === col) { setSortDir((d) => (d === 'asc' ? 'desc' : 'asc')); }
@@ -770,12 +1245,12 @@ function JobFeedCard({
 
   return (
     <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
-      <div className="flex items-center justify-between mb-4 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="p-1 rounded-md bg-muted text-emerald-400"><Zap className="w-3.5 h-3.5" /></div>
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 mb-3 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="p-1 rounded-md bg-muted text-emerald-400 shrink-0"><Zap className="w-3.5 h-3.5" /></div>
           <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Live Job Feed</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <JobFeedPollIntervalSelector value={pollInterval} onChange={onPollIntervalChange} />
           {connected && (
             <div className="flex items-center gap-1.5">
@@ -785,8 +1260,13 @@ function JobFeedCard({
           )}
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto">
-        {jobs.length === 0 ? (
+      <div className="min-h-0 flex-1 max-h-[11.4375rem] overflow-x-auto overflow-y-scroll [scrollbar-gutter:stable]">
+        {feedLoading && jobs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-32 text-center px-2">
+            <Loader2 className="w-5 h-5 text-muted-foreground animate-spin mb-2" aria-hidden />
+            <span className="text-xs text-muted-foreground">Loading job feed…</span>
+          </div>
+        ) : jobs.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-center px-2">
             <Radio className="w-5 h-5 text-muted-foreground/30 mb-2" />
             <span className="text-xs text-muted-foreground">
@@ -815,6 +1295,10 @@ function JobFeedCard({
               {sorted.map((job) => {
                 const { pipelineLabel } = jobFeedPipelineParts(job.pipeline);
                 const modelLabel = jobFeedRowModelLabel(job);
+                const pipelineIdForColor = jobFeedResolvePipelineId(job.pipeline);
+                const pipelineDotColor = pipelineIdForColor
+                  ? (PIPELINE_COLOR[pipelineIdForColor] ?? DEFAULT_PIPELINE_COLOR)
+                  : DEFAULT_PIPELINE_COLOR;
                 const rowTooltip = [
                   `Stream: ${job.id}`, `Pipeline: ${pipelineLabel}`,
                   modelLabel !== '—' ? `Model: ${modelLabel}` : null,
@@ -827,19 +1311,61 @@ function JobFeedCard({
                   job.outputFps != null ? `Output FPS: ${job.outputFps}` : null,
                   `Status: ${job.status}`,
                 ].filter(Boolean).join('\n');
+                const rawPipeline = job.pipeline.trim();
+                const hasModel = modelLabel !== '—';
                 return (
-                  <tr key={job.id} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors cursor-default" title={rowTooltip}>
-                    <td className="py-2">
-                      <div className="flex flex-col gap-0.5">
-                        <span className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium max-w-[200px] truncate ${modelBadgeColor(pipelineLabel)}`}>{pipelineLabel}</span>
-                        {modelLabel !== '—' && (
-                          <span className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono max-w-[200px] truncate ${modelBadgeColor(modelLabel)}`}>{modelLabel}</span>
+                  <tr key={job.id} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors cursor-default group/feed" title={rowTooltip}>
+                    <td className="py-1.5">
+                      <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 min-w-0 max-w-[280px]">
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0 ring-1 ring-border/40"
+                          style={{ backgroundColor: pipelineDotColor }}
+                          title={pipelineLabel}
+                          aria-label={`Pipeline: ${pipelineLabel}`}
+                        />
+                        {hasModel ? (
+                          <>
+                            <span
+                              className="font-mono text-[10px] leading-snug truncate min-w-0 max-w-[220px]"
+                              style={{ color: pipelineDotColor }}
+                            >
+                              {modelLabel}
+                            </span>
+                            <PipelineTableCopyButton
+                              inline
+                              inlineGroup="feed"
+                              copied={copiedId === `jf-m:${job.id}`}
+                              onCopy={() => copyToClipboard(`jf-m:${job.id}`, modelLabel)}
+                              title="Copy model id"
+                              ariaLabel={`Copy model id ${modelLabel}`}
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <span
+                              className="font-mono text-[10px] leading-snug truncate min-w-0 max-w-[220px]"
+                              style={{ color: pipelineDotColor }}
+                              title={rawPipeline || undefined}
+                            >
+                              {rawPipeline || '—'}
+                            </span>
+                            {rawPipeline ? (
+                              <PipelineTableCopyButton
+                                inline
+                                inlineGroup="feed"
+                                copied={copiedId === `jf-p:${job.id}`}
+                                onCopy={() => copyToClipboard(`jf-p:${job.id}`, rawPipeline)}
+                                title="Copy pipeline id"
+                                ariaLabel={`Copy pipeline id ${rawPipeline}`}
+                              />
+                            ) : null}
+                          </>
                         )}
                       </div>
                     </td>
-                    <td className="py-2 text-right font-mono text-foreground">{job.inputFps != null && job.outputFps != null ? `${job.inputFps} / ${job.outputFps}` : '—'}</td>
-                    <td className="py-2 text-right font-mono text-muted-foreground">{job.runningFor ?? '—'}</td>
-                    <td className="py-2 text-right">
+                    <td className="py-1.5 text-right font-mono text-foreground">{job.inputFps != null && job.outputFps != null ? `${job.inputFps} / ${job.outputFps}` : '—'}</td>
+                    <td className="py-1.5 text-right font-mono text-muted-foreground">{job.runningFor ?? '—'}</td>
+                    <td className="py-1.5 text-right">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusStyles[job.status] ?? ''}`}>{job.status}</span>
                     </td>
                   </tr>
@@ -879,6 +1405,36 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
   };
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [filter, setFilter] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const copyClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flashCopied = useCallback((id: string) => {
+    if (copyClearRef.current) clearTimeout(copyClearRef.current);
+    setCopiedId(id);
+    copyClearRef.current = setTimeout(() => {
+      setCopiedId(null);
+      copyClearRef.current = null;
+    }, 2000);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (copyClearRef.current) clearTimeout(copyClearRef.current);
+    },
+    [],
+  );
+
+  const copyToClipboard = useCallback(
+    async (id: string, text: string) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        flashCopied(id);
+      } catch {
+        /* clipboard may be denied */
+      }
+    },
+    [flashCopied],
+  );
 
   const toggleSort = (col: OrchestratorSortCol) => {
     if (sortCol === col) { setSortDir(d => (d === 'asc' ? 'desc' : 'asc')); }
@@ -943,7 +1499,7 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
           className="px-2 py-0.5 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground w-48"
         />
       </div>
-      <div className="max-h-[520px] overflow-y-auto">
+      <div className="max-h-[min(70vh,640px)] overflow-y-auto">
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-card text-muted-foreground border-b border-border">
             <tr>
@@ -958,8 +1514,23 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
           </thead>
           <tbody>
             {sorted.map(row => (
-              <tr key={row.address} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors">
-                <td className="py-1.5 font-mono text-foreground" title={row.uri ?? row.address}>{formatURI(row.uri)}</td>
+              <tr key={row.address} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors group">
+                <td className="py-1.5 min-w-0" title={row.uri ?? row.address}>
+                  <div className="flex items-center gap-1 min-w-0">
+                    <span className="font-mono text-foreground truncate">{formatURI(row.uri)}</span>
+                    {(row.uri?.trim() || row.address) ? (
+                      <PipelineTableCopyButton
+                        inline
+                        copied={copiedId === `orch:${row.address}`}
+                        onCopy={() =>
+                          copyToClipboard(`orch:${row.address}`, row.uri?.trim() || row.address)
+                        }
+                        title="Copy orchestrator URI"
+                        ariaLabel={`Copy URI ${row.uri ?? row.address}`}
+                      />
+                    ) : null}
+                  </div>
+                </td>
                 <td className="py-1.5 text-right font-mono">{row.knownSessions.toLocaleString()}</td>
                 <td className="py-1.5 text-right font-mono">{row.successRatio}%</td>
                 <td className="py-1.5 text-right font-mono">{row.effectiveSuccessRate != null ? `${row.effectiveSuccessRate}%` : '—'}</td>
@@ -1090,7 +1661,7 @@ export function OverviewContent(props: OverviewContentProps) {
   const {
     isPublic, kpi, pipelines, pipelineCatalog, orchestrators, protocol,
     gpuCapacity, pricing, fees, jobs, jobFeedConnected, jobFeedPollInterval,
-    onJobFeedPollIntervalChange, jobFeedMeta, jobFeedError, timeframe,
+    onJobFeedPollIntervalChange, jobFeedMeta, jobFeedError, jobFeedLoading, timeframe,
     onTimeframeChange, lbLoading, rtLoading, feesLoading, lbRefreshing,
     rtRefreshing, feesRefreshing, lbError, rtError, feesError, prefsReady,
   } = props;
@@ -1192,12 +1763,34 @@ export function OverviewContent(props: OverviewContentProps) {
         </div>
       )}
 
-      {/* Row 1: [KPI 2×2 box] [Protocol + Fees box] */}
+      {/* Row 1: [KPI + Live Job Feed | Protocol + Fees] */}
       <section>
-        <div className="grid gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0" style={{ gridTemplateColumns: '3fr 2fr' }}>
-          {kpi ? (
-            <RefreshWrap refreshing={lbRefreshing} className="h-full"><KPIGroupCard data={kpi} /></RefreshWrap>
-          ) : uiLbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="KPI" />}
+        <div
+          className="grid gap-3 items-stretch [&>*]:min-h-0"
+          style={{ gridTemplateColumns: '3fr 2fr', minHeight: 'min(560px, 82vh)' }}
+        >
+          <div className="flex flex-col gap-3 min-h-0 h-full">
+            {kpi ? (
+              <RefreshWrap refreshing={lbRefreshing} className="shrink-0">
+                <KPIGroupCard data={kpi} />
+              </RefreshWrap>
+            ) : uiLbLoading ? (
+              <WidgetSkeleton className="shrink-0" />
+            ) : (
+              <WidgetUnavailable label="KPI" />
+            )}
+            <div className="flex min-h-0 flex-1 flex-col">
+              <JobFeedCard
+                jobs={jobs}
+                connected={jobFeedConnected}
+                pollInterval={jobFeedPollInterval}
+                onPollIntervalChange={onJobFeedPollIntervalChange}
+                feedMeta={jobFeedMeta}
+                feedError={jobFeedError}
+                feedLoading={jobFeedLoading}
+              />
+            </div>
+          </div>
 
           {protocol && fees ? (
             <RefreshWrap refreshing={rtRefreshing || feesRefreshing} className="h-full min-h-0 flex flex-col">
@@ -1212,14 +1805,9 @@ export function OverviewContent(props: OverviewContentProps) {
         </div>
       </section>
 
-      {/* Row 2: [Network GPUs] [Pipelines] */}
+      {/* Row 2: Pipelines + GPUs (single aligned table) */}
       <section>
-        <div className="grid grid-cols-2 gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0">
-          {gpuCapacity ? (
-            <RefreshWrap refreshing={rtRefreshing} className="h-full min-h-0 flex flex-col">
-              <GPUCapacityCard data={gpuCapacity} timeframeHours={kpi?.timeframeHours ?? 12} />
-            </RefreshWrap>
-          ) : uiRtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="GPU Capacity" />}
+        <div className="min-h-0 [&>*]:min-h-0">
           {pipelineCatalog != null && pipelineCatalog.length > 0 ? (
             <RefreshWrap refreshing={lbRefreshing || rtRefreshing} className="h-full min-h-0 flex flex-col">
               <PipelinesCard
@@ -1230,29 +1818,28 @@ export function OverviewContent(props: OverviewContentProps) {
                 liveVideoCapacity={liveVideoCapacity}
                 modelFpsByPipelineModel={modelFpsByPipelineModel}
                 timeframeHours={kpi?.timeframeHours ?? 12}
+                gpuCapacity={gpuCapacity ?? null}
               />
             </RefreshWrap>
-          ) : uiLbLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Pipelines" />}
+          ) : uiLbLoading ? (
+            <WidgetSkeleton />
+          ) : (
+            <WidgetUnavailable label="Pipelines" />
+          )}
         </div>
       </section>
 
-      {/* Row 3: [Live Job Feed] [Orchestrators table] */}
+      {/* Row 3: Orchestrators (full width) */}
       <section>
-        <div className="grid gap-3 items-stretch [&>*]:h-full [&>*]:min-h-0" style={{ gridTemplateColumns: '2fr 3fr', gridAutoRows: '600px' }}>
-          <JobFeedCard
-            jobs={jobs}
-            connected={jobFeedConnected}
-            pollInterval={jobFeedPollInterval}
-            onPollIntervalChange={onJobFeedPollIntervalChange}
-            feedMeta={jobFeedMeta}
-            feedError={jobFeedError}
-          />
-          {orchestrators.length > 0 ? (
-            <RefreshWrap refreshing={lbRefreshing} className="h-full min-h-0 flex flex-col">
-              <OrchestratorTableCard data={orchestrators} catalog={pipelineCatalog} />
-            </RefreshWrap>
-          ) : uiLbLoading ? <WidgetSkeleton className="h-full" /> : <WidgetUnavailable label="Orchestrators" />}
-        </div>
+        {orchestrators.length > 0 ? (
+          <RefreshWrap refreshing={lbRefreshing} className="block min-h-0">
+            <OrchestratorTableCard data={orchestrators} catalog={pipelineCatalog} />
+          </RefreshWrap>
+        ) : uiLbLoading ? (
+          <WidgetSkeleton className="h-[320px]" />
+        ) : (
+          <WidgetUnavailable label="Orchestrators" />
+        )}
       </section>
     </div>
   );

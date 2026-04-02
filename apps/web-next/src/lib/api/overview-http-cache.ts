@@ -4,8 +4,9 @@
  * Most overview endpoints use **30 minutes** (`max-age` / `s-maxage`): the main dashboard
  * widgets refresh on **1h or longer** intervals, so shorter HTTP caches would only add load.
  *
- * **Exception:** the live job feed (`/api/v1/dashboard/job-feed`) polls as fast as **5s**;
- * use {@link jsonJobFeedResponse} so browsers/CDNs do not cache it (`no-store`).
+ * **Job feed** (`/api/v1/dashboard/job-feed`): short **public** cache keyed by `pollMs` query —
+ * {@link jobFeedCacheMaxAgeSec} caps `max-age` at **90s** and aligns with the client poll interval
+ * so repeat polls can reuse a fresh-enough response without showing empty data mid-flight.
  *
  * Pair `export const revalidate` (seconds) on route modules without search-param variance
  * with {@link OVERVIEW_HTTP_CACHE_SEC} so Next.js aligns with CDN/browser caching.
@@ -49,9 +50,12 @@ export function jsonWithOverviewCache<T>(body: T, maxAgeSec: number): NextRespon
   });
 }
 
-/** Live job feed — UI polls every 5s–90s; do not cache at the edge or in the browser. */
-export function jsonJobFeedResponse<T>(body: T): NextResponse<T> {
-  return NextResponse.json(body, {
-    headers: { 'Cache-Control': 'no-store' },
-  });
+/**
+ * HTTP `max-age` / `s-maxage` for job-feed: min 1s, max 90s, default 30s when `pollMs` missing/invalid.
+ * Matches UI poll interval (5s–90s) so cache lifetime does not exceed the selected refresh rate.
+ */
+export function jobFeedCacheMaxAgeSec(pollMs: number | null | undefined): number {
+  const ms =
+    pollMs != null && Number.isFinite(pollMs) && pollMs >= 1000 ? pollMs : 30_000;
+  return Math.min(90, Math.max(1, Math.round(ms / 1000)));
 }

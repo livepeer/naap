@@ -80,6 +80,7 @@ export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
           model: r.model,
           unit,
           price,
+          avgWeiPerUnit: String(Math.round(r.priceAvgWeiPerUnit)),
           pixelsPerUnit: r.pixelsPerUnit > 0 ? r.pixelsPerUnit : null,
           outputPerDollar: computeOutputPerDollar(r.priceAvgWeiPerUnit, unit, ethUsd),
           capacity,

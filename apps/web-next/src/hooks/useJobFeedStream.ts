@@ -51,6 +51,8 @@ export interface UseJobFeedStreamResult {
   error: DashboardError | null;
   /** Set after the first successful JSON parse from the job-feed API (HTTP polling mode). */
   feedMeta: JobFeedConnectionMeta | null;
+  /** True until the first HTTP job-feed response finishes (or non-HTTP mode is ready). */
+  jobFeedLoading: boolean;
 }
 
 // ============================================================================
@@ -69,6 +71,24 @@ const STATUS_RANK: Record<string, number> = {
   offline: 0,
   error: 0,
 };
+
+/** Adds `pollMs` for CDN/browser cache keying; keeps relative `/api/...` paths relative. */
+function appendJobFeedPollQuery(fetchUrl: string, pollMs: number): string {
+  const ms = pollMs >= 1000 ? Math.round(pollMs) : 30_000;
+  try {
+    const origin =
+      typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
+    const u = new URL(fetchUrl, origin);
+    u.searchParams.set('pollMs', String(ms));
+    if (/^https?:\/\//i.test(fetchUrl)) {
+      return u.toString();
+    }
+    return `${u.pathname}${u.search}${u.hash}`;
+  } catch {
+    const sep = fetchUrl.includes('?') ? '&' : '?';
+    return `${fetchUrl}${sep}pollMs=${encodeURIComponent(String(ms))}`;
+  }
+}
 
 function dedupeAndSortJobs(entries: JobFeedEntry[], maxItems: number): JobFeedEntry[] {
   const byId = new Map<string, JobFeedEntry>();
@@ -120,8 +140,10 @@ export function useJobFeedStream(
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<DashboardError | null>(null);
   const [feedMeta, setFeedMeta] = useState<JobFeedConnectionMeta | null>(null);
+  const [jobFeedLoading, setJobFeedLoading] = useState(!skip);
 
   const mountedRef = useRef(true);
+  const initialHttpFetchDoneRef = useRef(false);
   const jobsRef = useRef<JobFeedEntry[]>([]);
   const maxItemsRef = useRef(maxItems);
   maxItemsRef.current = maxItems;
@@ -143,9 +165,14 @@ export function useJobFeedStream(
   }, []);
 
   useEffect(() => {
-    if (skip) return;
+    if (skip) {
+      setJobFeedLoading(false);
+      return;
+    }
 
     mountedRef.current = true;
+    initialHttpFetchDoneRef.current = false;
+    setJobFeedLoading(true);
     let eventBusCleanup: (() => void) | null = null;
     let fetchPollTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -217,6 +244,11 @@ export function useJobFeedStream(
           type: 'unknown',
           message: 'Could not reach the job feed. Check your network connection.',
         });
+      } finally {
+        if (mountedRef.current && !initialHttpFetchDoneRef.current) {
+          initialHttpFetchDoneRef.current = true;
+          setJobFeedLoading(false);
+        }
       }
     }
 
@@ -241,16 +273,23 @@ export function useJobFeedStream(
           setConnected(true);
           setError(null);
 
+          const pollMsForQuery =
+            pollIntervalMs >= 1000 ? pollIntervalMs : 30_000;
+          const feedUrl = appendJobFeedPollQuery(
+            channelInfo.fetchUrl,
+            pollMsForQuery,
+          );
+
           if (pollIntervalMs > 0) {
             async function poll() {
-              await fetchJobFeed(channelInfo.fetchUrl!);
+              await fetchJobFeed(feedUrl);
               if (!pollStopped && mountedRef.current) {
                 fetchPollTimer = setTimeout(poll, pollIntervalMs);
               }
             }
             void poll();
           } else {
-            void fetchJobFeed(channelInfo.fetchUrl);
+            void fetchJobFeed(feedUrl);
           }
 
           // Also listen on the event bus so Ably pushes or manual
@@ -267,6 +306,8 @@ export function useJobFeedStream(
           );
           setConnected(true);
           setError(null);
+          initialHttpFetchDoneRef.current = true;
+          setJobFeedLoading(false);
 
           // Re-run full connect() on an interval so we pick up a late-registered provider
           // (this is not HTTP polling — the provider pushes over the event bus).
@@ -289,6 +330,8 @@ export function useJobFeedStream(
           );
           setConnected(true);
           setError(null);
+          initialHttpFetchDoneRef.current = true;
+          setJobFeedLoading(false);
         }
 
         const snapshotBusCleanup = eventBusCleanup;
@@ -322,16 +365,19 @@ export function useJobFeedStream(
             type: 'no-provider',
             message: 'No job feed provider is registered',
           });
+          setJobFeedLoading(false);
         } else if (code === 'TIMEOUT') {
           setError({
             type: 'timeout',
             message: 'Job feed provider did not respond in time',
           });
+          setJobFeedLoading(false);
         } else {
           setError({
             type: 'unknown',
             message: (err as Error)?.message ?? 'Unknown error connecting to job feed',
           });
+          setJobFeedLoading(false);
         }
         setConnected(false);
       }
@@ -351,5 +397,5 @@ export function useJobFeedStream(
     };
   }, [shell.eventBus, timeout, pollIntervalMs, skip, addJob, replaceJobs]);
 
-  return { jobs, connected, error, feedMeta };
+  return { jobs, connected, error, feedMeta, jobFeedLoading };
 }

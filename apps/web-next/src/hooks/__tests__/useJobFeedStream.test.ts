@@ -82,6 +82,41 @@ describe('useJobFeedStream', () => {
     vi.useRealTimers();
   });
 
+  it('appends pollMs and clears jobFeedLoading after HTTP job-feed fetch', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        streams: [],
+        clickhouseConfigured: true,
+        queryFailed: false,
+      }),
+    } as unknown as Response);
+
+    try {
+      mockEventBus.request.mockResolvedValueOnce({
+        channelName: null,
+        eventName: 'job',
+        useEventBusFallback: true,
+        fetchUrl: '/api/v1/dashboard/job-feed',
+      });
+
+      const { result } = renderHook(() =>
+        useJobFeedStream({ pollInterval: 5_000 }),
+      );
+
+      await waitFor(() => {
+        expect(result.current.jobFeedLoading).toBe(false);
+      });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/pollMs=5000(?:&|$)/),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it('discovers channel info from event bus', async () => {
     mockEventBus.request.mockResolvedValueOnce(mockChannelInfo);
 
@@ -103,6 +138,7 @@ describe('useJobFeedStream', () => {
 
     await waitFor(() => {
       expect(result.current.connected).toBe(true);
+      expect(result.current.jobFeedLoading).toBe(false);
     });
 
     expect(mockEventBus.on).toHaveBeenCalledWith(
@@ -164,6 +200,7 @@ describe('useJobFeedStream', () => {
     expect(result.current.error).not.toBeNull();
     expect(result.current.error!.type).toBe('no-provider');
     expect(result.current.connected).toBe(false);
+    expect(result.current.jobFeedLoading).toBe(false);
     // vi.useRealTimers() handled by afterEach
   });
 
@@ -188,5 +225,6 @@ describe('useJobFeedStream', () => {
     expect(mockEventBus.request).not.toHaveBeenCalled();
     expect(result.current.connected).toBe(false);
     expect(result.current.jobs).toEqual([]);
+    expect(result.current.jobFeedLoading).toBe(false);
   });
 });

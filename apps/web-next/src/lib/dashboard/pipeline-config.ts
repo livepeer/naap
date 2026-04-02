@@ -37,6 +37,7 @@ export const PIPELINE_DISPLAY: Record<string, string | null> = {
   // ─────────────────────────────────────────────────────────────────────────
   'openai-chat-completions':  'OpenAI Chat Completions',
   'openai-image-generation':  'OpenAI Image Generation',
+  'openai-text-embeddings':   'OpenAI Text Embeddings',
 
   // ─────────────────────────────────────────────────────────────────────────
   // Future / experimental pipelines (not yet in go-livepeer capabilities)
@@ -71,6 +72,7 @@ export const PIPELINE_COLOR: Record<string, string> = {
   // OpenAI-compatible gateways
   'openai-chat-completions':  '#8b5cf6',  // violet
   'openai-image-generation':  '#f59e0b',  // amber
+  'openai-text-embeddings':   '#3b82f6',  // blue
 
   // Future / experimental
   'text-to-video':            '#ec4899',  // pink
