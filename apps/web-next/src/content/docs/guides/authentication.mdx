@@ -200,9 +200,9 @@ All auth endpoints are rate limited per IP address:
 
 | Endpoint | Limit | Window |
 |---|---|---|
-| `POST /auth/register` | Throttled | Per-IP |
-| `POST /auth/login` | Throttled | Per-IP |
-| `POST /auth/forgot-password` | Throttled | Per-IP |
+| `POST /api/v1/auth/register` | Throttled | Per-IP |
+| `POST /api/v1/auth/login` | Throttled | Per-IP |
+| `POST /api/v1/auth/forgot-password` | Throttled | Per-IP |
 
 Rate-limited requests receive a `429 Too Many Requests` response.
 

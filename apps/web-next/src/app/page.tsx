@@ -26,7 +26,7 @@ export default function PublicOverviewPage() {
     setPrefsReady(true);
   }, []);
 
-  const { data, loading, refreshing } = usePublicDashboard({
+  const { data, loading, refreshing, error } = usePublicDashboard({
     timeframe,
     jobFeedPollInterval,
     skip: !prefsReady,
@@ -46,6 +46,11 @@ export default function PublicOverviewPage() {
     <div className="flex flex-col min-h-screen bg-background">
       <PublicTopBar />
       <main className="flex-1 p-2">
+        {error && (
+          <div className="mx-5 mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            Some data could not be loaded. Displayed information may be incomplete.
+          </div>
+        )}
         <div className="rounded-lg bg-card border border-border/60">
           <div className="px-5 py-4">
             <OverviewContent

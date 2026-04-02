@@ -1,4 +1,6 @@
 import { test as setup, expect } from '@playwright/test';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const authFile = 'playwright/.auth/user.json';
 const adminAuthFile = 'playwright/.auth/admin.json';
@@ -16,14 +18,17 @@ setup('authenticate', async ({ page }) => {
 /**
  * Admin authentication setup.
  * Uses ADMIN_EMAIL / ADMIN_PASSWORD env vars to log in as an admin user.
- * Skips when admin credentials are not configured so that tests using the
- * admin storage state don't silently run against an unauthenticated session.
+ * When credentials are missing, creates a minimal empty storage state so that
+ * test files referencing admin.json don't crash with a file-not-found error
+ * (they will still fail/skip on the first admin-only page redirect).
  */
 setup('authenticate as admin', async ({ page }) => {
   const adminEmail = process.env.ADMIN_EMAIL;
   const adminPassword = process.env.ADMIN_PASSWORD;
 
   if (!adminEmail || !adminPassword) {
+    fs.mkdirSync(path.dirname(adminAuthFile), { recursive: true });
+    fs.writeFileSync(adminAuthFile, JSON.stringify({ cookies: [], origins: [] }));
     setup.skip();
     return;
   }

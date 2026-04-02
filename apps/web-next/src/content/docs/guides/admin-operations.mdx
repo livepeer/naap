@@ -82,16 +82,13 @@ Update which plugins are core and/or visible. When a plugin is newly marked as c
 **Request Body:**
 ```json
 {
-  "plugins": [
-    { "id": "<plugin-id>", "isCore": true, "visibleToUsers": true },
-    { "id": "<plugin-id>", "isCore": false, "visibleToUsers": false }
-  ]
+  "corePluginNames": ["plugin-name-1", "plugin-name-2"],
+  "hiddenPluginNames": ["plugin-to-hide-1", "plugin-to-hide-2"]
 }
 ```
 
-**Visibility behavior:**
-- `visibleToUsers: true` — Plugin appears in the sidebar and marketplace for all users
-- `visibleToUsers: false` — Plugin is hidden from non-admin users but still accessible to admins
+- `corePluginNames` — Array of plugin names to mark as core (auto-installed for all users)
+- `hiddenPluginNames` — Optional array of plugin names to hide from non-admin users (`visibleToUsers: false`)
 
 ---
 

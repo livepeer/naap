@@ -18,6 +18,9 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 
+const normalizePluginName = (name: string) =>
+  name.toLowerCase().replace(/[-_]/g, '');
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const token = getAuthToken(request);
@@ -84,15 +87,27 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       return errors.badRequest('corePluginNames must be an array of plugin names');
     }
 
-    // Get current core plugins before update
-    const previousCore = await prisma.pluginPackage.findMany({
-      where: { isCore: true },
-      select: { name: true },
+    // Resolve input names to actual DB names via normalization so that
+    // "my_plugin" matches "my-plugin" in the database.
+    const allPackages = await prisma.pluginPackage.findMany({
+      where: { deprecated: false },
+      select: { name: true, isCore: true },
     });
-    const previousCoreNames = new Set(previousCore.map((p) => p.name));
+    const nameByNormalized = new Map(
+      allPackages.map((p) => [normalizePluginName(p.name), p.name])
+    );
+    const resolveNames = (input: string[]) =>
+      input
+        .map((n) => nameByNormalized.get(normalizePluginName(n)))
+        .filter((n): n is string => n !== undefined);
+
+    const resolvedCoreNames = resolveNames(corePluginNames);
+    const previousCoreNames = new Set(
+      allPackages.filter((p) => p.isCore).map((p) => p.name)
+    );
 
     // Determine newly added core plugins
-    const newlyCore = corePluginNames.filter((name) => !previousCoreNames.has(name));
+    const newlyCore = resolvedCoreNames.filter((name) => !previousCoreNames.has(name));
 
     // Update core status and visibility in a single transaction
     const txOps = [
@@ -100,10 +115,10 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         where: { isCore: true },
         data: { isCore: false },
       }),
-      ...(corePluginNames.length > 0
+      ...(resolvedCoreNames.length > 0
         ? [
             prisma.pluginPackage.updateMany({
-              where: { name: { in: corePluginNames } },
+              where: { name: { in: resolvedCoreNames } },
               data: { isCore: true },
             }),
           ]
@@ -112,16 +127,17 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
 
     // Update visibility if hiddenPluginNames is provided
     if (Array.isArray(hiddenPluginNames)) {
+      const resolvedHiddenNames = resolveNames(hiddenPluginNames);
       txOps.push(
         prisma.pluginPackage.updateMany({
           where: { deprecated: false },
           data: { visibleToUsers: true },
         }),
       );
-      if (hiddenPluginNames.length > 0) {
+      if (resolvedHiddenNames.length > 0) {
         txOps.push(
           prisma.pluginPackage.updateMany({
-            where: { name: { in: hiddenPluginNames } },
+            where: { name: { in: resolvedHiddenNames } },
             data: { visibleToUsers: false },
           }),
         );
