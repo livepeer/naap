@@ -144,6 +144,45 @@ describe('Personalized API: visibility-gate', () => {
   });
 });
 
+describe('Personalized API: admin privilege escalation prevention', () => {
+  /**
+   * Simulates the route logic: isAdmin should only be elevated from DB roles
+   * when the authenticated user matches the looked-up user.
+   */
+  function resolveAdminStatus(
+    authenticatedUserId: string | null,
+    lookedUpUserId: string,
+    isAdminFromToken: boolean,
+    userHasAdminRole: boolean
+  ): boolean {
+    if (isAdminFromToken) return true;
+    if (authenticatedUserId && authenticatedUserId === lookedUpUserId && userHasAdminRole) {
+      return true;
+    }
+    return false;
+  }
+
+  it('does NOT elevate to admin when userId param differs from authenticated user', () => {
+    const result = resolveAdminStatus('regular-user-id', 'admin-user-id', false, true);
+    expect(result).toBe(false);
+  });
+
+  it('does NOT elevate to admin when no auth token present', () => {
+    const result = resolveAdminStatus(null, 'admin-user-id', false, true);
+    expect(result).toBe(false);
+  });
+
+  it('elevates to admin when authenticated user matches looked-up user with admin role', () => {
+    const result = resolveAdminStatus('admin-user-id', 'admin-user-id', false, true);
+    expect(result).toBe(true);
+  });
+
+  it('preserves admin from token regardless of userId mismatch', () => {
+    const result = resolveAdminStatus('admin-user-id', 'other-user-id', true, false);
+    expect(result).toBe(true);
+  });
+});
+
 describe('Personalized API: combined gates', () => {
   it('both gates must pass for a plugin to be visible (non-admin)', () => {
     const globalPlugins = [

@@ -64,8 +64,8 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     const body = await request.json();
     const { hiddenTemplateIds } = body as { hiddenTemplateIds: string[] };
 
-    if (!Array.isArray(hiddenTemplateIds)) {
-      return errors.badRequest('hiddenTemplateIds must be an array of template IDs');
+    if (!Array.isArray(hiddenTemplateIds) || !hiddenTemplateIds.every((id) => typeof id === 'string' && id.trim().length > 0)) {
+      return errors.badRequest('hiddenTemplateIds must be an array of non-empty string IDs');
     }
 
     await prisma.$transaction([

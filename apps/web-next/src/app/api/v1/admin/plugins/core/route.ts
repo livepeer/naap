@@ -179,7 +179,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (newlyCore.length > 0) {
       parts.push(`Auto-installed ${newlyCore.join(', ')} for all users.`);
     }
-    if (Array.isArray(hiddenPluginNames)) {
+    if (Array.isArray(hiddenPluginNames) && hiddenPluginNames.length > 0) {
       parts.push(`${hiddenPluginNames.length} plugin(s) hidden from non-admin users.`);
     }
 

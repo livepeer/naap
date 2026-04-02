@@ -28,15 +28,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     let userIdOrAddress = searchParams.get('userId');
     const teamId = searchParams.get('teamId');
 
-    // Always check auth token for admin status, even when userId is in query params.
-    // Admin status must be resolved before visibility filtering to avoid a race
-    // where admin users passing userId via query param don't see hidden plugins.
+    // Admin status is derived exclusively from the authenticated session token.
+    // Never trust userId query params for privilege — a caller who knows an
+    // admin's ID must not gain admin-level visibility.
     let isAdmin = false;
+    let authenticatedUserId: string | null = null;
     const token = getAuthToken(request);
     if (token) {
       const sessionUser = await validateSession(token);
       if (sessionUser) {
         isAdmin = sessionUser.roles?.includes('system:admin') ?? false;
+        authenticatedUserId = sessionUser.id;
         if (!userIdOrAddress) {
           userIdOrAddress = sessionUser.id;
         }
@@ -101,8 +103,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return success({ plugins: visibleGlobalPlugins });
     }
 
-    // Resolve admin status from user roles if not already resolved via token
-    if (!isAdmin) {
+    // Only elevate to admin via DB role lookup when the authenticated session
+    // user matches the looked-up user. This prevents privilege escalation via
+    // a crafted userId query parameter.
+    if (!isAdmin && authenticatedUserId && authenticatedUserId === user.id) {
       const userRoles = await prisma.userRole.findMany({
         where: { userId: user.id },
         include: { role: { select: { name: true } } },
