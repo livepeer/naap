@@ -176,7 +176,8 @@ const REALTIME_QUERY_TIMEOUT_MS = 15_000;
 // Utility Components
 // ============================================================================
 
-function DeltaBadge({ value, unit = '%', invert = false }: { value: number; unit?: string; invert?: boolean }) {
+function DeltaBadge({ value, unit = '%', invert = false }: { value: number | null; unit?: string; invert?: boolean }) {
+  if (value == null) return null;
   const isPositive = invert ? value < 0 : value >= 0;
   const isNeutral = value === 0;
   const color = isNeutral
@@ -489,7 +490,7 @@ function FeesCard({ data, className }: { data: DashboardFeesInfo; className?: st
           </div>
           <div className="flex items-center gap-2">
             <span className="text-lg font-semibold text-foreground font-mono">{formatUsd(displayValue)}</span>
-            {!hovered ? <DeltaBadge value={pctChange} unit="%" /> : null}
+            {!hovered && pctChange != null ? <DeltaBadge value={pctChange} unit="%" /> : null}
           </div>
           <div className="text-[10px] text-muted-foreground">
             {displayDate ?? (grouping === 'day' ? 'Latest day' : 'Latest full week')} • Total {formatUsdCompact(data.totalUsd)} ({data.totalEth.toFixed(2)} ETH)

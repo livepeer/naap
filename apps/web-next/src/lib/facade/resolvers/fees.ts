@@ -80,9 +80,8 @@ export async function resolveFees(opts: { days?: number }): Promise<DashboardFee
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, variables: { first } }),
       signal: AbortSignal.timeout(60_000),
-      // @ts-expect-error — Next.js extended fetch options
       next: { revalidate: 15 * 60 },
-    });
+    } as RequestInit & { next: { revalidate: number } });
 
     if (!res.ok) throw new Error(`[facade/fees] subgraph HTTP ${res.status}`);
 
@@ -151,6 +150,19 @@ export async function resolveFees(opts: { days?: number }): Promise<DashboardFee
     const fallbackTotalEth = round2(dayData.reduce((sum, d) => sum + d.volumeEth, 0));
     const fallbackTotalUsd = round2(dayData.reduce((sum, d) => sum + d.volumeUsd, 0));
 
+    const volumeChangeUsd = dayForDeltaBase != null && dayForDisplay != null
+      ? round2(percentChange(dayForDisplay.volumeUsd, dayForDeltaBase.volumeUsd))
+      : null;
+    const volumeChangeEth = dayForDeltaBase != null && dayForDisplay != null
+      ? round2(percentChange(dayForDisplay.volumeEth, dayForDeltaBase.volumeEth))
+      : null;
+    const weeklyVolumeChangeUsd = weekForDeltaBase != null && weekForDisplay != null
+      ? round2(percentChange(weekForDisplay.weeklyVolumeUsd, weekForDeltaBase.weeklyVolumeUsd))
+      : null;
+    const weeklyVolumeChangeEth = weekForDeltaBase != null && weekForDisplay != null
+      ? round2(percentChange(weekForDisplay.weeklyVolumeEth, weekForDeltaBase.weeklyVolumeEth))
+      : null;
+
     return {
       totalEth: data.protocol?.totalVolumeETH != null
         ? round2(toNumber(data.protocol.totalVolumeETH))
@@ -162,18 +174,10 @@ export async function resolveFees(opts: { days?: number }): Promise<DashboardFee
       oneDayVolumeEth: round2(dayForDisplay?.volumeEth ?? 0),
       oneWeekVolumeUsd: round2(weekForDisplay?.weeklyVolumeUsd ?? 0),
       oneWeekVolumeEth: round2(weekForDisplay?.weeklyVolumeEth ?? 0),
-      volumeChangeUsd: dayForDeltaBase != null
-        ? round2(percentChange(dayForDisplay?.volumeUsd ?? 0, dayForDeltaBase.volumeUsd))
-        : 0,
-      volumeChangeEth: dayForDeltaBase != null
-        ? round2(percentChange(dayForDisplay?.volumeEth ?? 0, dayForDeltaBase.volumeEth))
-        : 0,
-      weeklyVolumeChangeUsd: weekForDeltaBase != null
-        ? round2(percentChange(weekForDisplay?.weeklyVolumeUsd ?? 0, weekForDeltaBase.weeklyVolumeUsd))
-        : 0,
-      weeklyVolumeChangeEth: weekForDeltaBase != null
-        ? round2(percentChange(weekForDisplay?.weeklyVolumeEth ?? 0, weekForDeltaBase.weeklyVolumeEth))
-        : 0,
+      volumeChangeUsd,
+      volumeChangeEth,
+      weeklyVolumeChangeUsd,
+      weeklyVolumeChangeEth,
       dayData,
       weeklyData,
     };

@@ -635,6 +635,18 @@ export async function resolveFees({ days }: { days?: number } = {}): Promise<Das
   const dayForDeltaBase = isLatestDayIncomplete ? dayBeforePrevious : previousDay;
   const weekForDisplay = isLatestWeekIncomplete ? previousWeek : currentWeek;
   const weekForDeltaBase = isLatestWeekIncomplete ? twoWeeksBack : previousWeek;
+  const volumeChangeUsd = dayForDeltaBase != null && dayForDisplay != null
+    ? round2(percentChange(dayForDisplay.volumeUsd, dayForDeltaBase.volumeUsd))
+    : null;
+  const volumeChangeEth = dayForDeltaBase != null && dayForDisplay != null
+    ? round2(percentChange(dayForDisplay.volumeEth, dayForDeltaBase.volumeEth))
+    : null;
+  const weeklyVolumeChangeUsd = weekForDeltaBase != null && weekForDisplay != null
+    ? round2(percentChange(weekForDisplay.weeklyVolumeUsd, weekForDeltaBase.weeklyVolumeUsd))
+    : null;
+  const weeklyVolumeChangeEth = weekForDeltaBase != null && weekForDisplay != null
+    ? round2(percentChange(weekForDisplay.weeklyVolumeEth, weekForDeltaBase.weeklyVolumeEth))
+    : null;
 
   const protocolTotalEth = data?.protocol?.totalVolumeETH;
   const protocolTotalUsd = data?.protocol?.totalVolumeUSD;
@@ -646,18 +658,10 @@ export async function resolveFees({ days }: { days?: number } = {}): Promise<Das
     oneDayVolumeEth: round2(dayForDisplay?.volumeEth ?? 0),
     oneWeekVolumeUsd: round2(weekForDisplay?.weeklyVolumeUsd ?? 0),
     oneWeekVolumeEth: round2(weekForDisplay?.weeklyVolumeEth ?? 0),
-    volumeChangeUsd: dayForDeltaBase != null
-      ? round2(percentChange(dayForDisplay?.volumeUsd ?? 0, dayForDeltaBase.volumeUsd))
-      : 0,
-    volumeChangeEth: dayForDeltaBase != null
-      ? round2(percentChange(dayForDisplay?.volumeEth ?? 0, dayForDeltaBase.volumeEth))
-      : 0,
-    weeklyVolumeChangeUsd: weekForDeltaBase != null
-      ? round2(percentChange(weekForDisplay?.weeklyVolumeUsd ?? 0, weekForDeltaBase.weeklyVolumeUsd))
-      : 0,
-    weeklyVolumeChangeEth: weekForDeltaBase != null
-      ? round2(percentChange(weekForDisplay?.weeklyVolumeEth ?? 0, weekForDeltaBase.weeklyVolumeEth))
-      : 0,
+    volumeChangeUsd,
+    volumeChangeEth,
+    weeklyVolumeChangeUsd,
+    weeklyVolumeChangeEth,
     dayData,
     weeklyData,
   };

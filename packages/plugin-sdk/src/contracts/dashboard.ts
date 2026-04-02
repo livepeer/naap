@@ -97,10 +97,10 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     oneDayVolumeEth: Float!
     oneWeekVolumeUsd: Float!
     oneWeekVolumeEth: Float!
-    volumeChangeUsd: Float!
-    volumeChangeEth: Float!
-    weeklyVolumeChangeUsd: Float!
-    weeklyVolumeChangeEth: Float!
+    volumeChangeUsd: Float
+    volumeChangeEth: Float
+    weeklyVolumeChangeUsd: Float
+    weeklyVolumeChangeEth: Float
     dayData: [FeeDayData!]!
     weeklyData: [FeeWeeklyData!]!
   }
@@ -255,10 +255,10 @@ export interface DashboardFeesInfo {
   oneDayVolumeEth: number;
   oneWeekVolumeUsd: number;
   oneWeekVolumeEth: number;
-  volumeChangeUsd: number;
-  volumeChangeEth: number;
-  weeklyVolumeChangeUsd: number;
-  weeklyVolumeChangeEth: number;
+  volumeChangeUsd: number | null;
+  volumeChangeEth: number | null;
+  weeklyVolumeChangeUsd: number | null;
+  weeklyVolumeChangeEth: number | null;
   dayData: DashboardFeeDayData[];
   weeklyData: DashboardFeeWeeklyData[];
 }
