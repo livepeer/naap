@@ -28,15 +28,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     let userIdOrAddress = searchParams.get('userId');
     const teamId = searchParams.get('teamId');
 
-    // Also try to get user from auth token and resolve admin status
+    // Always check auth token for admin status, even when userId is in query params.
+    // Admin status must be resolved before visibility filtering to avoid a race
+    // where admin users passing userId via query param don't see hidden plugins.
     let isAdmin = false;
-    if (!userIdOrAddress) {
-      const token = getAuthToken(request);
-      if (token) {
-        const sessionUser = await validateSession(token);
-        if (sessionUser) {
+    const token = getAuthToken(request);
+    if (token) {
+      const sessionUser = await validateSession(token);
+      if (sessionUser) {
+        isAdmin = sessionUser.roles?.includes('system:admin') ?? false;
+        if (!userIdOrAddress) {
           userIdOrAddress = sessionUser.id;
-          isAdmin = sessionUser.roles?.includes('system:admin') ?? false;
         }
       }
     }
@@ -63,12 +65,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         .filter((p) => !p.visibleToUsers)
         .map((p) => normalizePluginName(p.name))
     );
-    const visibleGlobalPlugins = globalPlugins.filter((p) => {
-      const normalized = normalizePluginName(p.name);
-      if (!publishedNames.has(normalized)) return false;
-      if (!isAdmin && hiddenNames.has(normalized)) return false;
-      return true;
-    });
 
     // Get core plugin names from the database (admin-configurable via PluginPackage.isCore)
     const corePluginNamesFromDB = new Set(
@@ -79,15 +75,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const isCorePlugin = (name: string) =>
       corePluginNamesFromDB.has(normalizePluginName(name));
 
-    // Headless plugins (no routes) are background data providers that must always
-    // be loaded regardless of context — they register event bus handlers the shell
-    // and dashboard rely on. We extract them once and append to every response.
-    const headlessPlugins = visibleGlobalPlugins.filter(
-      (p) => !p.routes || (Array.isArray(p.routes) && (p.routes as string[]).length === 0),
-    );
+    // Apply publish-gate + visibility-gate. Deferred into a function so it
+    // can be called after admin status is fully resolved (token OR DB lookup).
+    const applyVisibilityFilter = (adminFlag: boolean) =>
+      globalPlugins.filter((p) => {
+        const normalized = normalizePluginName(p.name);
+        if (!publishedNames.has(normalized)) return false;
+        if (!adminFlag && hiddenNames.has(normalized)) return false;
+        return true;
+      });
 
     if (!userIdOrAddress) {
-      // No user context, return published global plugins
+      const visibleGlobalPlugins = applyVisibilityFilter(isAdmin);
       return success({ plugins: visibleGlobalPlugins });
     }
 
@@ -98,7 +97,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     if (!user) {
-      // User doesn't exist yet, return published global plugins (non-admin view)
+      const visibleGlobalPlugins = applyVisibilityFilter(isAdmin);
       return success({ plugins: visibleGlobalPlugins });
     }
 
@@ -110,6 +109,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
       isAdmin = userRoles.some((ur) => ur.role.name === 'system:admin');
     }
+
+    // Apply visibility filter with fully resolved admin status
+    const visibleGlobalPlugins = applyVisibilityFilter(isAdmin);
+
+    // Headless plugins (no routes) are background data providers that must always
+    // be loaded regardless of context — they register event bus handlers the shell
+    // and dashboard rely on. We extract them once and append to every response.
+    const headlessPlugins = visibleGlobalPlugins.filter(
+      (p) => !p.routes || (Array.isArray(p.routes) && (p.routes as string[]).length === 0),
+    );
 
     // If team context, get team-specific plugin preferences
     if (teamId) {
