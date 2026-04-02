@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolvePipelines } from '@/lib/dashboard/resolvers';
-import { jsonWithOverviewCache, OverviewHttpCacheSec } from '@/lib/api/overview-http-cache';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -13,7 +12,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const result = await resolvePipelines({ timeframe, limit: isNaN(limit) ? 5 : limit });
-    return jsonWithOverviewCache(result, OverviewHttpCacheSec.pipelines);
+    const res = NextResponse.json(result);
+    res.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    return res;
   } catch (err) {
     console.error('[dashboard/pipelines] error:', err);
     return NextResponse.json(

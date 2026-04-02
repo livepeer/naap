@@ -1,25 +1,22 @@
 /**
- * HTTP caching for public overview BFF routes (`/api/v1/dashboard/*`, `/api/v1/network/*`).
+ * HTTP caching for public BFF routes under `/api/v1/network/*`.
  *
- * Most overview endpoints use **30 minutes** (`max-age` / `s-maxage`): the main dashboard
- * widgets refresh on **1h or longer** intervals, so shorter HTTP caches would only add load.
- *
- * **Job feed** (`/api/v1/dashboard/job-feed`): short **public** cache keyed by `pollMs` query —
- * {@link jobFeedCacheMaxAgeSec} caps `max-age` at **90s** and aligns with the client poll interval
- * so repeat polls can reuse a fresh-enough response without showing empty data mid-flight.
+ * Network overview handlers use {@link jsonWithOverviewCache} with ~30 minute `max-age` /
+ * `s-maxage`. Dashboard routes under `/api/v1/dashboard/*` set `Cache-Control` explicitly
+ * per route (see each `route.ts`).
  *
  * Pair `export const revalidate` (seconds) on route modules without search-param variance
- * with {@link OVERVIEW_HTTP_CACHE_SEC} so Next.js aligns with CDN/browser caching.
+ * with a numeric literal so Next.js aligns with CDN/browser caching where used.
  * Route files must assign a **numeric literal** (e.g. `1800`): Next.js rejects imports,
  * member expressions (`OverviewHttpCacheSec.*`), and other non-literal RHS for `revalidate`.
  *
  * Note: In-process TTLs in {@link TTL} / raw-data may still be shorter on the origin;
- * HTTP caching is intentionally looser for edge/browser efficiency (except job feed).
+ * HTTP caching is intentionally looser for edge/browser efficiency.
  */
 
 import { NextResponse } from 'next/server';
 
-/** Browser + shared CDN cache duration for all overview routes (30 minutes). */
+/** Browser + shared CDN cache duration for network overview routes (30 minutes). */
 export const OVERVIEW_HTTP_CACHE_SEC = 30 * 60;
 
 export const OverviewHttpCacheSec = {
@@ -50,14 +47,4 @@ export function jsonWithOverviewCache<T>(body: T, maxAgeSec: number): NextRespon
   return NextResponse.json(body, {
     headers: { 'Cache-Control': overviewCacheControl(maxAgeSec) },
   });
-}
-
-/**
- * HTTP `max-age` / `s-maxage` for job-feed: min 1s, max 90s, default 30s when `pollMs` missing/invalid.
- * Matches UI poll interval (5s–90s) so cache lifetime does not exceed the selected refresh rate.
- */
-export function jobFeedCacheMaxAgeSec(pollMs: number | null | undefined): number {
-  const ms =
-    pollMs != null && Number.isFinite(pollMs) && pollMs >= 1000 ? pollMs : 30_000;
-  return Math.min(90, Math.max(1, Math.round(ms / 1000)));
 }

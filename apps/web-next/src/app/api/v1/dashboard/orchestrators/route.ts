@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDashboardOrchestrators } from '@/lib/facade';
-import { jsonWithOverviewCache, OverviewHttpCacheSec } from '@/lib/api/overview-http-cache';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -11,7 +10,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const result = await getDashboardOrchestrators({ period });
-    return jsonWithOverviewCache(result, OverviewHttpCacheSec.orchestrators);
+    const res = NextResponse.json(result);
+    res.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
+    return res;
   } catch (err) {
     console.error('[dashboard/orchestrators] error:', err);
     return NextResponse.json(

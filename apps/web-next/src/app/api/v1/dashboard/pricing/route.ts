@@ -1,16 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getDashboardPricing } from '@/lib/facade';
-import { jsonWithOverviewCache, OverviewHttpCacheSec } from '@/lib/api/overview-http-cache';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
-// Literal required for Next segment config; matches OVERVIEW_HTTP_CACHE_SEC (30m).
-export const revalidate = 1800;
 
 export async function GET(): Promise<NextResponse> {
   try {
     const result = await getDashboardPricing();
-    return jsonWithOverviewCache(result, OverviewHttpCacheSec.pricing);
+    const res = NextResponse.json(result);
+    res.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
+    return res;
   } catch (err) {
     console.error('[dashboard/pricing] error:', err);
     return NextResponse.json(
