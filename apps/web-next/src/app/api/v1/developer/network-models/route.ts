@@ -1,6 +1,6 @@
 /**
  * Developer Network Models — live NAAP /v1/net/models via facade.
- * GET /api/v1/developer/network-models?limit=50
+ * GET /api/v1/developer/network-models?limit=50 | limit=all
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,12 +13,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;
   const limitStr = params.get('limit');
   const parsed = limitStr != null ? parseInt(limitStr, 10) : NaN;
-  const limit = Number.isFinite(parsed) && parsed >= 1
-    ? Math.min(parsed, 200)
-    : 50;
+  const unlimited = limitStr === 'all';
 
   try {
-    const { models, total } = await getNetworkModels({ limit });
+    const { models, total } = unlimited
+      ? await getNetworkModels({})
+      : await getNetworkModels({
+          limit: Number.isFinite(parsed) && parsed >= 1
+            ? Math.min(parsed, 200)
+            : 50,
+        });
     return NextResponse.json({
       models,
       count: models.length,

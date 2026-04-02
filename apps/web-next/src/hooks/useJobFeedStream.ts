@@ -241,6 +241,10 @@ export function useJobFeedStream(
             queryFailed: true,
             fetchFailed: true,
           });
+          setError({
+            type: 'unknown',
+            message: `Could not load the job feed (HTTP ${res.status}). Check the network or try again.`,
+          });
           return;
         }
 
@@ -258,6 +262,10 @@ export function useJobFeedStream(
           clickhouseConfigured: false,
           queryFailed: true,
           fetchFailed: true,
+        });
+        setError({
+          type: 'unknown',
+          message: 'Could not reach the job feed. Check your network connection.',
         });
       }
     }

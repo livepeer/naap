@@ -13,7 +13,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/auth-context';
-import { useDashboardQuery } from '@/hooks/useDashboardQuery';
+import { useDashboardQuery, type DashboardError } from '@/hooks/useDashboardQuery';
 import { useJobFeedStream, type JobFeedConnectionMeta } from '@/hooks/useJobFeedStream';
 import type {
   DashboardData,
@@ -280,6 +280,14 @@ function jobFeedPipelineParts(pipelineSlug: string): {
   }
 
   return { pipelineLabel: slug, modelLabel: '—', matched: false };
+}
+
+/** Prefer explicit job.model, else pipeline-derived modelLabel so slugs sort and display consistently. */
+function jobFeedRowModelLabel(job: JobFeedEntry): string {
+  const m = job.model?.trim();
+  if (m) return m;
+  const { modelLabel } = jobFeedPipelineParts(job.pipeline);
+  return modelLabel || '—';
 }
 
 // ============================================================================
@@ -805,7 +813,7 @@ function ProtocolFeesCard({
 function GPUCapacityCard({ data, timeframeHours }: { data: DashboardGPUCapacity; timeframeHours: number }) {
   return (
     <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
-      <div className="flex items-center gap-2 mb-4 shrink-0">
+      <div className="flex items-center gap-2 mb-2 shrink-0">
         <div className="p-1 rounded-md bg-muted text-muted-foreground">
           <Cpu className="w-3.5 h-3.5" />
         </div>
@@ -813,9 +821,12 @@ function GPUCapacityCard({ data, timeframeHours }: { data: DashboardGPUCapacity;
           Network GPUs ({formatTimeframeLabel(timeframeHours)})
         </span>
       </div>
+      <p className="text-[11px] text-muted-foreground mb-3 shrink-0">
+        {formatNumber(data.totalGPUs)} total, {formatNumber(data.activeGPUs)} active
+      </p>
 
       {data.pipelineGPUs.length === 0 ? (
-        <p className="text-xs text-muted-foreground py-4 text-center">No GPU data available</p>
+        <p className="text-xs text-muted-foreground py-4 text-center">No pipeline breakdown available</p>
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
           {data.pipelineGPUs.map((p) => {
@@ -877,12 +888,14 @@ function JobFeedCard({
   pollInterval,
   onPollIntervalChange,
   feedMeta,
+  feedError,
 }: {
   jobs: JobFeedEntry[];
   connected: boolean;
   pollInterval: number;
   onPollIntervalChange: (ms: number) => void;
   feedMeta: JobFeedConnectionMeta | null;
+  feedError: DashboardError | null;
 }) {
   const [sortCol, setSortCol] = useState<JobFeedSortCol>('durationSeconds');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -900,8 +913,8 @@ function JobFeedCard({
     return [...jobs].sort((a, b) => {
       let av: string | number = 0;
       let bv: string | number = 0;
-      const am = a.model ?? '—';
-      const bm = b.model ?? '—';
+      const am = jobFeedRowModelLabel(a);
+      const bm = jobFeedRowModelLabel(b);
       const aLast = a.lastSeen ?? a.startedAt ?? '';
       const bLast = b.lastSeen ?? b.startedAt ?? '';
       switch (sortCol) {
@@ -977,15 +990,17 @@ function JobFeedCard({
           <div className="flex flex-col items-center justify-center h-32 text-center px-2">
             <Radio className="w-5 h-5 text-muted-foreground/30 mb-2" />
             <span className="text-xs text-muted-foreground">
-              {feedMeta?.fetchFailed
-                ? 'Could not load the job feed. Check the network or try again.'
-                : feedMeta && !feedMeta.clickhouseConfigured
-                  ? 'Live job feed is not configured on the server.'
-                  : feedMeta?.queryFailed
-                    ? 'Live job feed query failed. See server logs for details.'
-                    : 'No active streams'}
+              {feedError
+                ? feedError.message
+                : feedMeta?.fetchFailed
+                  ? 'Could not load the job feed. Check the network or try again.'
+                  : feedMeta && !feedMeta.clickhouseConfigured
+                    ? 'Live job feed is not configured on the server.'
+                    : feedMeta?.queryFailed
+                      ? 'Live job feed query failed. See server logs for details.'
+                      : 'No active streams'}
             </span>
-            {feedMeta && !feedMeta.fetchFailed && !feedMeta.queryFailed && feedMeta.clickhouseConfigured ? (
+            {feedMeta && !feedError && !feedMeta.fetchFailed && !feedMeta.queryFailed && feedMeta.clickhouseConfigured ? (
               <span className="text-[10px] text-muted-foreground/70 mt-2 max-w-sm">
                 Streams with events in the last 3 minutes are shown. If you expect rows, confirm the
                 upstream dashboard job-feed endpoint is healthy and optionally set{' '}
@@ -1006,7 +1021,7 @@ function JobFeedCard({
             <tbody>
               {sorted.map((job) => {
                 const { pipelineLabel } = jobFeedPipelineParts(job.pipeline);
-                const modelLabel = job.model ?? '—';
+                const modelLabel = jobFeedRowModelLabel(job);
                 const rowTooltip = [
                   `Stream: ${job.id}`,
                   `Pipeline: ${pipelineLabel}`,
@@ -1449,7 +1464,7 @@ export default function DashboardPage() {
     { timeout: NAAP_API_QUERY_TIMEOUT_MS, skip: !prefsReady }
   );
 
-  const { jobs, connected: jobFeedConnected, feedMeta: jobFeedMeta } = useJobFeedStream({
+  const { jobs, connected: jobFeedConnected, feedMeta: jobFeedMeta, error: jobFeedError } = useJobFeedStream({
     maxItems: 50,
     pollInterval: jobFeedPollInterval,
   });
@@ -1472,7 +1487,11 @@ export default function DashboardPage() {
       .sort((a, b) => a.pipeline.localeCompare(b.pipeline) || a.model.localeCompare(b.model));
     const key = JSON.stringify({ catalog: catalogKeyPart, pricing: pricingKeyPart });
 
-    if (!catalogNeedsNetCapacityFetch(catalog, pricing)) return;
+    if (!catalogNeedsNetCapacityFetch(catalog, pricing)) {
+      lastFetchedNetCapacityKeyRef.current = null;
+      setNetCapacity({});
+      return;
+    }
     if (lastFetchedNetCapacityKeyRef.current === key) return;
 
     let cancelled = false;
@@ -1502,14 +1521,12 @@ export default function DashboardPage() {
     if (!liveVideoEntry?.models.length) return;
 
     const modelsKey = [...liveVideoEntry.models].sort().join(',');
-    if (liveVideoCapacityModelsRef.current === modelsKey) return;
-    liveVideoCapacityModelsRef.current = modelsKey;
-
     let cancelled = false;
     fetch(`/api/v1/network/live-video-capacity?models=${encodeURIComponent(liveVideoEntry.models.join(','))}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body: { capacityByModel?: Record<string, number> } | null) => {
         if (cancelled || !body?.capacityByModel || typeof body.capacityByModel !== 'object') return;
+        liveVideoCapacityModelsRef.current = modelsKey;
         setLiveVideoCapacity(body.capacityByModel);
       })
       .catch(() => {});
@@ -1526,15 +1543,10 @@ export default function DashboardPage() {
     fetch(`/api/v1/network/perf-by-model?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body: { fpsByPipelineModel?: Record<string, number> } | null) => {
-        if (cancelled || !body?.fpsByPipelineModel || typeof body.fpsByPipelineModel !== 'object') {
-          setModelFpsByPipelineModel({});
-          return;
-        }
+        if (cancelled || !body?.fpsByPipelineModel || typeof body.fpsByPipelineModel !== 'object') return;
         setModelFpsByPipelineModel(body.fpsByPipelineModel);
       })
-      .catch(() => {
-        setModelFpsByPipelineModel({});
-      });
+      .catch(() => {});
 
     return () => {
       cancelled = true;
@@ -1642,6 +1654,7 @@ export default function DashboardPage() {
             pollInterval={jobFeedPollInterval}
             onPollIntervalChange={handleJobFeedPollIntervalChange}
             feedMeta={jobFeedMeta}
+            feedError={jobFeedError}
           />
           {lbData?.orchestrators ? (
             <RefreshWrap refreshing={lbRefreshing} className="h-full min-h-0 flex flex-col">

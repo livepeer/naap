@@ -230,15 +230,26 @@ export const DeveloperView: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      const [keysRes, projectsRes] = await Promise.all([
+        fetch('/api/v1/developer/keys'),
+        fetch('/api/v1/developer/projects'),
+      ]);
+      if (!keysRes.ok) {
+        throw new Error(`Failed to load API keys (HTTP ${keysRes.status})`);
+      }
+      if (!projectsRes.ok) {
+        throw new Error(`Failed to load projects (HTTP ${projectsRes.status})`);
+      }
       const [keysJson, projectsJson] = await Promise.all([
-        fetch('/api/v1/developer/keys').then(r => r.json()),
-        fetch('/api/v1/developer/projects').then(r => r.json()),
+        keysRes.json(),
+        projectsRes.json(),
       ]);
       setApiKeys((keysJson.data ?? keysJson).keys || []);
       setProjects((projectsJson.data ?? projectsJson).projects || []);
     } catch (err) {
       console.error('Failed to load data:', err);
       setApiKeys([]);
+      setProjects([]);
     } finally {
       setLoading(false);
     }
@@ -280,7 +291,7 @@ export const DeveloperView: React.FC = () => {
     setNetworkModelsLoading(true);
     setNetworkModelsError(null);
     try {
-      const res = await fetch('/api/v1/developer/network-models?limit=50');
+      const res = await fetch('/api/v1/developer/network-models?limit=all');
       if (!res.ok) {
         setNetworkModelsError(`Failed to load models (HTTP ${res.status})`);
         return;
