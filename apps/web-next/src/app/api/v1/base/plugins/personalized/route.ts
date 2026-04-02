@@ -77,15 +77,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const isCorePlugin = (name: string) =>
       corePluginNamesFromDB.has(normalizePluginName(name));
 
+    // Publish-gated global plugins (visibility filter NOT applied yet).
+    // Used to extract headless plugins which must always load.
+    const publishedGlobalPlugins = globalPlugins.filter((p) =>
+      publishedNames.has(normalizePluginName(p.name))
+    );
+
     // Apply publish-gate + visibility-gate. Deferred into a function so it
     // can be called after admin status is fully resolved (token OR DB lookup).
     const applyVisibilityFilter = (adminFlag: boolean) =>
-      globalPlugins.filter((p) => {
-        const normalized = normalizePluginName(p.name);
-        if (!publishedNames.has(normalized)) return false;
-        if (!adminFlag && hiddenNames.has(normalized)) return false;
+      publishedGlobalPlugins.filter((p) => {
+        if (!adminFlag && hiddenNames.has(normalizePluginName(p.name))) return false;
         return true;
       });
+
+    // Headless plugins (no routes) are background data providers that must always
+    // be loaded regardless of context — they register event bus handlers the shell
+    // and dashboard rely on. Derived from the publish-gated set WITHOUT the
+    // visibility gate so hidden headless providers still load for non-admin users.
+    const headlessPlugins = publishedGlobalPlugins.filter(
+      (p) => !p.routes || (Array.isArray(p.routes) && (p.routes as string[]).length === 0),
+    );
 
     if (!userIdOrAddress) {
       const visibleGlobalPlugins = applyVisibilityFilter(isAdmin);
@@ -116,13 +128,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Apply visibility filter with fully resolved admin status
     const visibleGlobalPlugins = applyVisibilityFilter(isAdmin);
-
-    // Headless plugins (no routes) are background data providers that must always
-    // be loaded regardless of context — they register event bus handlers the shell
-    // and dashboard rely on. We extract them once and append to every response.
-    const headlessPlugins = visibleGlobalPlugins.filter(
-      (p) => !p.routes || (Array.isArray(p.routes) && (p.routes as string[]).length === 0),
-    );
 
     // If team context, get team-specific plugin preferences
     if (teamId) {
