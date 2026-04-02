@@ -17,7 +17,7 @@ export function PublicTopBar() {
             <path d="M560.869 88.6863V52.5316H577.891V37.121H560.869V0.97998H627.785V16.0258H577.891V37.121H620.2V52.5316H577.891V73.6405H629.081V88.6863H560.869Z" fill="currentColor"/>
             <path d="M641.85 88.6863V0.97998H682.925C698.488 0.983166 710.061 8.54418 710.061 22.8274C710.061 33.708 705.127 40.3254 695.013 44.0563C704.202 44.0563 708.766 48.2153 708.766 56.4722V88.6863H691.744V60.6923C691.744 54.3927 689.894 52.5578 683.541 52.5578H658.872V88.6863H641.85ZM658.872 37.0884H677.867C687.797 37.0884 692.977 33.7995 692.977 26.616C692.977 19.4325 687.982 16.0258 677.867 16.0258H658.872V37.0884Z" fill="currentColor"/>
           </svg>
-          <span className="text-[13px] font-semibold text-foreground">Network Overview</span>
+          <span className="text-[13px] font-semibold text-foreground">Network Platform</span>
         </div>
 
         <div className="flex items-center gap-2">

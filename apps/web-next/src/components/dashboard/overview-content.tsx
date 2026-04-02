@@ -1056,8 +1056,8 @@ function DashboardHeader({ timeframe, onTimeframeChange }: { timeframe: string; 
   return (
     <div className="flex items-end justify-between">
       <div className="space-y-0.5">
-        <h1 className="text-lg font-semibold text-foreground">Network Overview</h1>
-        <p className="text-[13px] text-muted-foreground">Livepeer network health, performance, and cost at a glance</p>
+        <h1 className="text-lg font-semibold text-foreground">Network Platform</h1>
+        <p className="text-[13px] text-muted-foreground">Overview</p>
       </div>
       <div className="flex items-center gap-2">
         <TimeframeSelector value={timeframe} onChange={onTimeframeChange} />
