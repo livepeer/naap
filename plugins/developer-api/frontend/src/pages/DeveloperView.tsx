@@ -280,7 +280,7 @@ export const DeveloperView: React.FC = () => {
     setNetworkModelsLoading(true);
     setNetworkModelsError(null);
     try {
-      const res = await fetch('/api/v1/developer-api/developer/network-models?limit=50');
+      const res = await fetch('/api/v1/developer/network-models?limit=50');
       if (!res.ok) {
         setNetworkModelsError(`Failed to load models (HTTP ${res.status})`);
         return;
