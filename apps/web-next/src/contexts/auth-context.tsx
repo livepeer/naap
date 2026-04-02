@@ -307,24 +307,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await fetch(`${API_BASE}/v1/auth/logout`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
-          credentials: 'include', // Include cookies
+          credentials: 'include',
         });
       } catch (error) {
         console.error('Logout error:', error);
       }
     }
-    // Clear ALL auth storage to ensure clean state
     clearAllAuthStorage();
-    setState({
-      user: null,
-      isAuthenticated: false,
-      isLoading: false,
-      sessionExpiresAt: null,
-      authErrorStatus: null,
-    });
-    // Force hard navigation to clear any cached state
-    window.location.href = '/login';
-  }, [getToken, router]);
+    // Navigate BEFORE updating React state to prevent RequireAuth from
+    // racing us to /login when isAuthenticated flips to false.
+    window.location.href = '/';
+  }, [getToken]);
 
   const refreshSession = useCallback(async () => {
     const token = getToken();
