@@ -334,7 +334,7 @@ export const CapacityPage: React.FC = () => {
               <Zap size={22} />
             </div>
             <div>
-              <h1 className="text-2xl font-outfit font-bold text-text-primary">
+              <h1 className="text-2xl font-bold text-text-primary">
                 Capacity Requests
               </h1>
               <p className="text-sm text-text-secondary">

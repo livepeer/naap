@@ -78,7 +78,7 @@ export const CapacityPage: React.FC = () => {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-outfit font-bold text-text-primary">Capacity Requests</h1>
+          <h1 className="text-3xl font-bold text-text-primary">Capacity Requests</h1>
           <p className="text-text-secondary mt-1">Coordinate GPU capacity with network operators</p>
         </div>
         <button className="flex items-center gap-2 px-6 py-3 bg-accent-emerald text-white rounded-xl font-bold shadow-lg shadow-accent-emerald/20 hover:bg-accent-emerald/90 transition-all">

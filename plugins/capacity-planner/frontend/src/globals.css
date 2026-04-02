@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap';
 
 @tailwind base;
 @tailwind components;
@@ -16,10 +16,15 @@
   /* Text - High contrast */
   --text-primary: #0f172a;
   --text-secondary: #475569;
+  --text-body: #475569;
+  --text-supporting: #64748b;
+  --text-muted: #94a3b8;
+  --text-disabled: #cbd5e1;
   --text-tertiary: #94a3b8;
 
-  /* Accents - Darker for light backgrounds */
+  /* Accents - Livepeer green */
   --accent-emerald: #18794E;
+  --accent-green: #18794E;
   --accent-blue: #18794E;
   --accent-amber: #d97706;
   --accent-rose: #dc2626;
@@ -32,21 +37,26 @@
    Dark Mode
    ============================================ */
 .dark {
-  --bg-primary: #0a0f1a;
-  --bg-secondary: #111827;
-  --bg-tertiary: #1f2937;
-  --text-primary: #f9fafb;
-  --text-secondary: #9ca3af;
-  --text-tertiary: #6b7280;
+  --bg-primary: #121212;
+  --bg-secondary: #1A1A1A;
+  --bg-tertiary: #222222;
+  --text-primary: rgba(255, 255, 255, 1);
+  --text-secondary: rgba(255, 255, 255, 0.7);
+  --text-body: rgba(255, 255, 255, 0.6);
+  --text-supporting: rgba(255, 255, 255, 0.5);
+  --text-muted: rgba(255, 255, 255, 0.4);
+  --text-disabled: rgba(255, 255, 255, 0.25);
+  --text-tertiary: rgba(255, 255, 255, 0.4);
   --accent-emerald: #1E9960;
+  --accent-green: #1E9960;
   --accent-blue: #1E9960;
   --accent-amber: #f59e0b;
   --accent-rose: #f43f5e;
-  --border-color: rgba(255, 255, 255, 0.1);
+  --border-color: #2A2A2A;
 }
 
 body {
-  font-family: 'Outfit', sans-serif;
+  font-family: Inter, system-ui, sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
 }
@@ -60,5 +70,5 @@ body {
 }
 
 .dark .glass-card {
-  background-color: rgba(17, 24, 39, 0.8);
+  background-color: #1A1A1A;
 }

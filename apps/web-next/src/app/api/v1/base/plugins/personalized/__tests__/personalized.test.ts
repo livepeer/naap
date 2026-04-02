@@ -45,6 +45,19 @@ function applyFilters(
   });
 }
 
+function extractHeadlessPlugins(
+  globalPlugins: MockPlugin[],
+  publishedPackages: MockPublishedPackage[]
+): MockPlugin[] {
+  const publishedNames = new Set(
+    publishedPackages.map((p) => normalizePluginName(p.name))
+  );
+  return globalPlugins.filter((p) => {
+    if (!publishedNames.has(normalizePluginName(p.name))) return false;
+    return !p.routes || p.routes.length === 0;
+  });
+}
+
 const makePlugin = (name: string, enabled = true): MockPlugin => ({
   name,
   enabled,
@@ -130,10 +143,10 @@ describe('Personalized API: visibility-gate', () => {
     expect(result).toHaveLength(2);
   });
 
-  it('handles headless plugins that are hidden (excluded for non-admin)', () => {
-    const globalPlugins = [makeHeadlessPlugin('bg-provider')];
+  it('excludes hidden non-headless plugins for non-admin', () => {
+    const globalPlugins = [makePlugin('secret-ui')];
     const publishedPackages = [
-      makePackage('bg-provider', { visibleToUsers: false }),
+      makePackage('secret-ui', { visibleToUsers: false }),
     ];
 
     const resultNonAdmin = applyFilters(globalPlugins, publishedPackages, false);
@@ -141,6 +154,17 @@ describe('Personalized API: visibility-gate', () => {
 
     const resultAdmin = applyFilters(globalPlugins, publishedPackages, true);
     expect(resultAdmin).toHaveLength(1);
+  });
+
+  it('headless plugins bypass visibility gate (always load)', () => {
+    const globalPlugins = [makeHeadlessPlugin('bg-provider')];
+    const publishedPackages = [
+      makePackage('bg-provider', { visibleToUsers: false }),
+    ];
+
+    const headless = extractHeadlessPlugins(globalPlugins, publishedPackages);
+    expect(headless).toHaveLength(1);
+    expect(headless[0].name).toBe('bg-provider');
   });
 });
 

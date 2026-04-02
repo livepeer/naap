@@ -20,14 +20,15 @@ import { invalidateConnectorCache } from '@/lib/gateway/resolve';
 
 /** List all available connector templates with basic metadata. */
 export async function GET(request: NextRequest) {
-  let isAdmin = false;
   const token = getAuthToken(request);
-  if (token) {
-    const sessionUser = await validateSession(token);
-    if (sessionUser) {
-      isAdmin = sessionUser.roles?.includes('system:admin') ?? false;
-    }
+  if (!token) {
+    return errors.unauthorized('Authentication required');
   }
+  const sessionUser = await validateSession(token);
+  if (!sessionUser) {
+    return errors.unauthorized('Invalid or expired session');
+  }
+  const isAdmin = sessionUser.roles?.includes('system:admin') ?? false;
 
   const templates = await loadConnectorTemplates({ visibleOnly: !isAdmin });
 

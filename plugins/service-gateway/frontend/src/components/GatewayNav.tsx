@@ -54,10 +54,10 @@ export const GatewayNav: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <aside className="w-52 shrink-0 border-r border-gray-800 flex flex-col bg-gray-950/40">
+    <aside className="w-52 shrink-0 border-r border-[var(--border-color)] flex flex-col bg-bg-primary">
       <div className="px-5 pt-5 pb-4">
-        <h1 className="text-lg font-semibold text-gray-100 tracking-tight">Service Gateway</h1>
-        <p className="text-xs text-gray-500 mt-0.5">API Management</p>
+        <h1 className="text-lg font-semibold text-text-primary tracking-tight">Service Gateway</h1>
+        <p className="text-xs text-text-tertiary mt-0.5">API Management</p>
       </div>
       <nav aria-label="Service Gateway" className="flex-1 px-2 space-y-0.5">
         {NAV_ITEMS.map((item) => {
@@ -70,11 +70,11 @@ export const GatewayNav: React.FC = () => {
               onClick={() => navigate(item.path)}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors ${
                 active
-                  ? 'bg-blue-600/10 text-blue-400 font-medium'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50'
+                  ? 'bg-accent-emerald/10 text-accent-emerald font-medium'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-secondary'
               }`}
             >
-              <span className={active ? 'text-blue-400' : 'text-gray-500'}>{item.icon}</span>
+              <span className={active ? 'text-accent-emerald' : 'text-text-tertiary'}>{item.icon}</span>
               {item.label}
             </button>
           );

@@ -1,0 +1,252 @@
+---
+title: "Service Gateway Setup"
+description: "Hands-on guide to creating connectors, adding endpoints, configuring transforms, and publishing through the Service Gateway."
+order: 11
+---
+
+## Overview
+
+This guide walks through setting up a new connector in the NaaP Service Gateway — from creating the connector to adding endpoints, configuring transforms, and publishing for consumers.
+
+The Service Gateway exposes third-party APIs as managed connectors under `/api/v1/gw/[connector]/*`. For the conceptual overview, see [Service Gateway](/docs/concepts/service-gateway).
+
+---
+
+## Prerequisites
+
+- A running NaaP instance (local or deployed)
+- An authenticated session with a valid JWT (or admin access)
+- The upstream API's base URL and authentication credentials
+
+---
+
+## Step 1: Create a Connector
+
+Create a new connector via the admin API:
+
+```bash
+curl -X POST /api/v1/gw/admin/connectors \
+  -H "Authorization: Bearer <jwt>" \
+  -H "x-team-id: <team-id>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "slug": "my-api",
+    "displayName": "My API",
+    "description": "Proxy to My API service",
+    "category": "integration",
+    "upstreamBaseUrl": "https://api.example.com",
+    "allowedHosts": ["api.example.com"],
+    "defaultTimeout": 30000,
+    "authType": "bearer",
+    "authConfig": { "tokenRef": "token" },
+    "secretRefs": ["token"],
+    "streamingEnabled": false,
+    "responseWrapper": true
+  }'
+```
+
+The connector is created in `draft` status. Key fields:
+
+| Field | Description |
+|---|---|
+| `slug` | URL-safe identifier used in proxy paths |
+| `upstreamBaseUrl` | Where requests are forwarded to |
+| `allowedHosts` | Whitelist of allowed upstream hosts (SSRF protection) |
+| `authType` | How to authenticate to the upstream: `bearer`, `basic`, `header`, `query`, `aws-s3`, or `none` |
+| `authConfig` | Auth-specific config (e.g., `{ "tokenRef": "token" }` for bearer) |
+| `secretRefs` | Names of secrets the connector needs (stored encrypted) |
+| `responseWrapper` | Whether to wrap responses in the NaaP envelope |
+
+---
+
+## Step 2: Store Secrets
+
+Store the upstream API credentials in the gateway's encrypted secret vault:
+
+```bash
+curl -X POST /api/v1/gw/admin/connectors/<connector-id>/secrets \
+  -H "Authorization: Bearer <jwt>" \
+  -H "x-team-id: <team-id>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key": "token",
+    "value": "sk-your-api-key-here"
+  }'
+```
+
+Secrets are encrypted at rest. The `key` must match one of the values in `secretRefs` from the connector configuration.
+
+---
+
+## Step 3: Add Endpoints
+
+Define the consumer-facing routes that map to upstream paths:
+
+```bash
+curl -X POST /api/v1/gw/admin/connectors/<connector-id>/endpoints \
+  -H "Authorization: Bearer <jwt>" \
+  -H "x-team-id: <team-id>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "list-resources",
+    "description": "List all resources",
+    "method": "GET",
+    "path": "/resources",
+    "upstreamPath": "/v1/resources",
+    "bodyTransform": "passthrough",
+    "responseBodyTransform": "envelope",
+    "policies": {
+      "rateLimit": 100,
+      "timeout": 30000,
+      "maxBodySize": 1048576
+    }
+  }'
+```
+
+### Endpoint Fields
+
+| Field | Description |
+|---|---|
+| `method` | HTTP method: `GET`, `POST`, `PUT`, `PATCH`, `DELETE` |
+| `path` | Consumer-facing path (appended to `/api/v1/gw/{slug}`) |
+| `upstreamPath` | The actual path sent to the upstream service |
+| `bodyTransform` | How to transform the request body before forwarding |
+| `responseBodyTransform` | How to transform the upstream response |
+| `policies.rateLimit` | Requests per minute per key |
+| `policies.timeout` | Max upstream wait time in milliseconds |
+| `policies.maxBodySize` | Max request body size in bytes |
+| `policies.cacheTtl` | Cache duration in seconds (0 = no caching) |
+| `policies.retries` | Number of retry attempts on upstream failure |
+
+---
+
+## Step 4: Choose Transforms
+
+Select the appropriate transform strategy for each endpoint based on the upstream API requirements.
+
+### Body Transforms
+
+| Strategy | When to Use |
+|---|---|
+| `passthrough` | Default — forward JSON body unchanged (most APIs) |
+| `static` | Replace body with a pre-configured payload (e.g., fixed analytics queries) |
+| `template` | Reshape the consumer body using a template (e.g., wrapping in an upstream-specific format) |
+| `extract` | Pull a specific nested field from the consumer body |
+| `binary` | Forward raw binary data (file uploads, S3 objects) |
+| `form-encode` | Convert JSON to `application/x-www-form-urlencoded` (Stripe, Twilio) |
+
+### Response Transforms
+
+| Strategy | When to Use |
+|---|---|
+| `envelope` | Wrap upstream response in the NaaP standard envelope (`{ success, data }`) |
+| `raw` | Return the upstream response unchanged |
+| `streaming` | Pass through SSE streams for LLM-style streaming responses |
+| `field-map` | Restructure the response using a field mapping config |
+
+---
+
+## Step 5: Test Connectivity
+
+Verify the connector can reach the upstream:
+
+```bash
+curl -X POST /api/v1/gw/admin/connectors/<connector-id>/test \
+  -H "Authorization: Bearer <jwt>" \
+  -H "x-team-id: <team-id>"
+```
+
+The test endpoint attempts to connect to the upstream base URL and reports connectivity status, latency, and any errors.
+
+---
+
+## Step 6: Publish
+
+Once testing passes, publish the connector to make it available for consumers:
+
+```bash
+curl -X POST /api/v1/gw/admin/connectors/<connector-id>/publish \
+  -H "Authorization: Bearer <jwt>" \
+  -H "x-team-id: <team-id>"
+```
+
+Publishing changes the connector status from `draft` to `published`. You can also set visibility:
+- **`private`**: Only the owning team can access the connector
+- **`public`**: The connector appears in the catalog for all users
+
+---
+
+## Step 7: Create API Keys
+
+Create API keys for external consumers:
+
+```bash
+curl -X POST /api/v1/gw/admin/keys \
+  -H "Authorization: Bearer <jwt>" \
+  -H "x-team-id: <team-id>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Production Key",
+    "connectorIds": ["<connector-id>"],
+    "allowedEndpoints": ["/resources"],
+    "ipAllowlist": ["10.0.0.0/8"]
+  }'
+```
+
+The response includes a `gw_`-prefixed key. This key is only shown once — store it securely.
+
+---
+
+## Using a Connector
+
+Once published, consumers can proxy requests through the gateway:
+
+```bash
+# With API key
+curl https://your-naap.vercel.app/api/v1/gw/my-api/resources \
+  -H "Authorization: Bearer gw_xxxxxxxxxxxxx"
+
+# With JWT (NaaP plugins)
+curl https://your-naap.vercel.app/api/v1/gw/my-api/resources \
+  -H "Authorization: Bearer <jwt>" \
+  -H "x-team-id: <team-id>"
+```
+
+---
+
+## Using Connector Templates
+
+The gateway includes 19 pre-built connector templates for common APIs (OpenAI, Stripe, ClickHouse, etc.). To create a connector from a template:
+
+1. List available templates: `GET /api/v1/gw/admin/templates`
+2. Create a connector from a template — the template pre-fills the upstream URL, auth type, endpoints, and transform strategies
+3. You only need to provide your own secrets (API keys/credentials)
+
+---
+
+## Agent Integration
+
+Published connectors are automatically available as agent-callable tools:
+
+```bash
+# Native catalog (full metadata)
+GET /api/v1/gw/catalog
+
+# OpenAI function calling format
+GET /api/v1/gw/catalog?format=openai
+
+# MCP tools
+POST /api/v1/gw/mcp
+{"jsonrpc": "2.0", "method": "tools/list", "id": 1}
+```
+
+To enhance agent discoverability, add agent metadata to your connector:
+- `agentDescription`: A natural-language description for the LLM
+- `inputSchema` / `outputSchema`: JSON Schema for endpoint request/response
+
+---
+
+## Next Steps
+
+- [Service Gateway Concept](/docs/concepts/service-gateway) — Architecture and pipeline details
+- [Service Gateway API Reference](/docs/api-reference/service-gateway-api) — Full REST API reference

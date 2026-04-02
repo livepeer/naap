@@ -9,35 +9,35 @@ order: 2
 NaaP follows a **micro-frontend architecture** where the shell application acts as a host and plugins are independently deployable frontends loaded at runtime.
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                 Shell (Next.js Host)                 │
-│                                                     │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │
-│  │   Auth   │  │  Theme   │  │  Plugin Registry  │  │
-│  └──────────┘  └──────────┘  └──────────────────┘  │
-│                                                     │
-│  ┌───────────────────────────────────────────────┐  │
-│  │            Plugin Container (UMD)             │  │
-│  │  ┌────────┐  ┌────────┐  ┌────────┐          │  │
-│  │  │Plugin A│  │Plugin B│  │Plugin C│  ...      │  │
-│  │  │(React) │  │(React) │  │(React) │          │  │
-│  │  └───┬────┘  └───┬────┘  └───┬────┘          │  │
-│  └──────┼───────────┼───────────┼────────────────┘  │
-└─────────┼───────────┼───────────┼───────────────────┘
-          │           │           │
-          ▼           ▼           ▼
-   ┌──────────┐ ┌──────────┐ ┌──────────┐
-   │Backend A │ │Backend B │ │Backend C │
-   │(Express) │ │(Express) │ │(Express) │
-   └────┬─────┘ └────┬─────┘ └────┬─────┘
-        │             │            │
-        └──────┬──────┘            │
-               ▼                   ▼
-        ┌─────────────────────────────┐
-        │  @naap/database (shared)    │
-        │  Single PostgreSQL + Schemas│
-        └─────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                   Shell (Next.js Host)                      │
+│                                                            │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐         │
+│  │   Auth   │  │  Theme   │  │  Plugin Registry  │         │
+│  └──────────┘  └──────────┘  └──────────────────┘         │
+│                                                            │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │             Plugin Container (UMD)                 │    │
+│  │  ┌────────┐  ┌────────┐  ┌────────┐               │    │
+│  │  │Plugin A│  │Plugin B│  │Plugin C│  ...           │    │
+│  │  │(React) │  │(React) │  │(React) │               │    │
+│  │  └───┬────┘  └───┬────┘  └───┬────┘               │    │
+│  └──────┼───────────┼───────────┼─────────────────────┘    │
+│         │           │           │                          │
+│  ┌──────▼───────────▼───────────▼─────────────────────┐    │
+│  │         Next.js API Route Handlers (Production)    │    │
+│  │         /api/v1/[plugin]/* + Service Gateway       │    │
+│  └──────────────────────┬─────────────────────────────┘    │
+└─────────────────────────┼──────────────────────────────────┘
+                          │
+               ┌──────────▼──────────┐
+               │  @naap/database     │
+               │  Single PostgreSQL  │
+               │  (Neon in prod)     │
+               └─────────────────────┘
 ```
+
+> **Local development** uses standalone Express backends on ports 4001-4012. The shell proxies API requests to these servers. On **Vercel (production)**, the same API logic runs as Next.js API route handlers — no separate backend servers are deployed.
 
 ## Core Principles
 
@@ -116,14 +116,18 @@ This ensures:
 
 ### Vercel (Production)
 The entire platform is deployed to **Vercel** as a single Next.js application:
-- **Shell + API Routes**: The Next.js App Router serves the shell UI and 46+ API route handlers that replace the standalone Express backends
+- **Shell + API Routes**: The Next.js App Router serves the shell UI and 197+ API route handlers that replace the standalone Express backends
 - **Plugin Assets**: UMD bundles are served via the same-origin CDN route at `/cdn/plugins/[name]/[version]/[file]`
-- **Database**: Single PostgreSQL (e.g. Neon) connected via `DATABASE_URL`
+- **Database**: Neon PostgreSQL connected via `DATABASE_URL`
+- **Preview Environments**: Vercel preview deployments automatically create Neon preview database branches, giving each PR its own isolated database
 
 ### Local Development
-For local development, plugin backends run as standalone Express servers on individual ports (4001-4012). The shell proxies API requests to the appropriate backend.
+For local development, plugin backends run as standalone Express servers on individual ports (4001-4012). The shell proxies API requests to the appropriate backend. Plugins are developed using Express but the same API logic is mapped to Next.js API route handlers for production.
 
 ### Multi-Tenant
 - **Virtual installations**: Per-user/team installations with isolated configs
 - **Data isolation**: Each plugin uses its own PostgreSQL schema within the shared database
 - **Reference counting**: Cleanup when the last user uninstalls
+
+### Service Gateway
+The platform includes a built-in [Service Gateway](/docs/concepts/service-gateway) that acts as a serverless HTTP proxy for third-party APIs. Connectors are managed through admin APIs and exposed to consumers via `/api/v1/gw/[connector]/*`. The gateway supports JWT, API key, and master key authentication, with built-in transforms, caching, rate limiting, and agent/MCP integration. See [Service Gateway](/docs/concepts/service-gateway) for details.

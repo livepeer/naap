@@ -1,0 +1,325 @@
+---
+title: "Service Gateway API"
+description: "Complete REST API reference for the NaaP Service Gateway — public endpoints, admin management, and agent/MCP integration."
+order: 8
+---
+
+## Overview
+
+The Service Gateway API is organized into three groups:
+
+- **Public Routes** — Discovery, catalog, pricing, rankings, health (some require auth)
+- **Proxy Route** — The core engine route that forwards consumer requests to upstreams
+- **Admin Routes** — Connector CRUD, endpoint management, secrets, keys, plans, usage, templates
+
+All routes are under `/api/v1/gw/`. Admin routes require a valid JWT session and respond based on the caller's team scope (via the `x-team-id` header).
+
+---
+
+## Public Routes
+
+### Discovery
+
+```
+GET /api/v1/gw/discovery
+```
+
+Returns the gateway discovery document with available endpoints, supported formats, and auth methods. No authentication required.
+
+**Response:**
+```json
+{
+  "name": "NaaP Service Gateway",
+  "version": "1.0.0",
+  "endpoints": {
+    "catalog": "/api/v1/gw/catalog",
+    "pricing": "/api/v1/gw/pricing",
+    "rankings": "/api/v1/gw/rankings",
+    "mcp": "/api/v1/gw/mcp",
+    "discovery": "/api/v1/gw/discovery",
+    "proxy": "/api/v1/gw/{connector}/{path}"
+  },
+  "formats": ["native", "openai", "mcp"],
+  "auth": {
+    "masterKey": { "prefix": "gwm_", "header": "Authorization", "scheme": "Bearer" },
+    "connectorKey": { "prefix": "gw_", "header": "Authorization", "scheme": "Bearer" },
+    "jwt": { "header": "Authorization", "scheme": "Bearer" }
+  }
+}
+```
+
+### Catalog
+
+```
+GET /api/v1/gw/catalog
+```
+
+Returns the tool catalog of published connectors. Requires authentication.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `format` | `string` | `native` | Response format: `native`, `openai`, or `mcp` |
+| `category` | `string` | — | Filter by connector category |
+| `page` | `number` | `1` | Page number |
+| `pageSize` | `number` | `50` | Results per page (max 200) |
+
+**Formats:**
+- `native` — Full metadata including pricing, health, metrics, rankings, and gateway info
+- `openai` — OpenAI-compatible function definitions for tool calling
+- `mcp` — MCP-compatible tools list
+
+### Catalog Detail
+
+```
+GET /api/v1/gw/catalog/{slug}
+GET /api/v1/gw/catalog/{slug}/metrics
+GET /api/v1/gw/catalog/{slug}/rankings
+```
+
+Returns detailed information, metrics, or capability rankings for a specific connector.
+
+### Pricing
+
+```
+GET /api/v1/gw/pricing
+GET /api/v1/gw/pricing/{slug}
+GET /api/v1/gw/pricing/{slug}/estimate
+```
+
+Returns pricing information for connectors. The estimate endpoint accepts usage parameters and returns projected costs.
+
+### Rankings
+
+```
+GET /api/v1/gw/rankings
+```
+
+Returns capability rankings across all published connectors, useful for agent tool selection.
+
+### Health
+
+```
+GET /api/v1/gw/health
+```
+
+Returns overall gateway health status.
+
+### MCP (Model Context Protocol)
+
+```
+POST /api/v1/gw/mcp
+```
+
+JSON-RPC endpoint implementing the MCP protocol. Supports two methods:
+
+**`tools/list`** — List available tools:
+```json
+{"jsonrpc": "2.0", "method": "tools/list", "id": 1}
+```
+
+**`tools/call`** — Execute a tool (routed through the proxy pipeline):
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "openai__chat-completions",
+    "arguments": { "model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}] }
+  },
+  "id": 2
+}
+```
+
+Tool names follow the `{connector}__{endpoint}` convention.
+
+---
+
+## Proxy Route
+
+```
+GET|POST|PUT|PATCH|DELETE /api/v1/gw/{connector}/{...path}
+```
+
+The core engine route. Accepts any HTTP method and routes the request through the full pipeline (Authorize, Resolve, Policy, Validate, Cache, Secrets, Transform, Proxy, Respond, Log).
+
+**Auth:** JWT (`Bearer <token>` + `x-team-id`), API key (`Bearer gw_xxx`), or master key (`Bearer gwm_xxx`)
+
+**Request Headers:**
+
+| Header | Description |
+|---|---|
+| `Authorization` | Bearer token (JWT, API key, or master key) |
+| `x-team-id` | Team context (for JWT auth) |
+| `x-request-id` | Optional — correlates logs |
+| `x-trace-id` | Optional — distributed tracing |
+| `Idempotency-Key` | Optional — prevents duplicate non-GET requests |
+
+**Error Response Format:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "RATE_LIMITED",
+    "message": "Rate limit exceeded"
+  },
+  "requestId": "...",
+  "traceId": "..."
+}
+```
+
+### Special Route: Daydream WHIP
+
+```
+POST /api/v1/gw/daydream-whip
+```
+
+WebRTC WHIP SDP proxy for Daydream video streaming. Bypasses the generic engine for WebRTC-specific handling.
+
+---
+
+## Admin Routes
+
+All admin routes require a valid JWT session. Team scope is determined by the `x-team-id` header. Results are filtered to the caller's team (or personal scope if no team header).
+
+### Connectors
+
+```
+GET    /api/v1/gw/admin/connectors                     — List connectors
+POST   /api/v1/gw/admin/connectors                     — Create draft connector
+GET    /api/v1/gw/admin/connectors/{id}                — Get connector detail
+PATCH  /api/v1/gw/admin/connectors/{id}                — Update connector
+DELETE /api/v1/gw/admin/connectors/{id}                — Delete connector
+```
+
+**List Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `scope` | `string` | `own`, `public`, or `all` (default) |
+| `status` | `string` | Filter by status (`draft`, `published`) |
+| `category` | `string` | Filter by category |
+| `page` / `pageSize` | `number` | Pagination |
+
+**Create Body Fields:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `slug` | `string` | Yes | URL-safe identifier |
+| `displayName` | `string` | Yes | Human-readable name |
+| `description` | `string` | No | Description |
+| `category` | `string` | No | Category tag |
+| `upstreamBaseUrl` | `string` | Yes | Target API base URL |
+| `allowedHosts` | `string[]` | Yes | SSRF-safe host whitelist |
+| `authType` | `string` | Yes | `bearer`, `basic`, `header`, `query`, `aws-s3`, `none` |
+| `authConfig` | `object` | No | Auth-specific configuration |
+| `secretRefs` | `string[]` | No | Secret names needed by the connector |
+| `defaultTimeout` | `number` | No | Default timeout in ms |
+| `streamingEnabled` | `boolean` | No | Enable SSE passthrough |
+| `responseWrapper` | `boolean` | No | Wrap responses in NaaP envelope |
+| `visibility` | `string` | No | `private` or `public` |
+| `agentDescription` | `string` | No | LLM-readable description |
+
+### Endpoints
+
+```
+GET    /api/v1/gw/admin/connectors/{id}/endpoints              — List endpoints
+POST   /api/v1/gw/admin/connectors/{id}/endpoints              — Add endpoint
+GET    /api/v1/gw/admin/connectors/{id}/endpoints/{endpointId} — Get endpoint
+PATCH  /api/v1/gw/admin/connectors/{id}/endpoints/{endpointId} — Update endpoint
+DELETE /api/v1/gw/admin/connectors/{id}/endpoints/{endpointId} — Delete endpoint
+```
+
+### Secrets
+
+```
+GET    /api/v1/gw/admin/connectors/{id}/secrets         — List secret names (values never returned)
+POST   /api/v1/gw/admin/connectors/{id}/secrets         — Store a secret
+DELETE /api/v1/gw/admin/connectors/{id}/secrets/{name}  — Delete a secret
+```
+
+### Publish & Test
+
+```
+POST   /api/v1/gw/admin/connectors/{id}/publish   — Publish connector (draft → published)
+POST   /api/v1/gw/admin/connectors/{id}/test      — Test upstream connectivity
+```
+
+### OpenAPI
+
+```
+GET    /api/v1/gw/admin/connectors/{id}/openapi    — Generate OpenAPI spec for the connector
+```
+
+### Pricing & Rankings
+
+```
+GET    /api/v1/gw/admin/connectors/{id}/pricing    — Get/set connector pricing
+PUT    /api/v1/gw/admin/connectors/{id}/pricing    — Update pricing
+GET    /api/v1/gw/admin/connectors/{id}/rankings   — Get capability rankings
+PUT    /api/v1/gw/admin/connectors/{id}/rankings   — Update rankings
+```
+
+### API Keys
+
+```
+GET    /api/v1/gw/admin/keys              — List API keys
+POST   /api/v1/gw/admin/keys              — Create API key (returns gw_ key once)
+GET    /api/v1/gw/admin/keys/{id}         — Get key details
+DELETE /api/v1/gw/admin/keys/{id}         — Revoke key
+POST   /api/v1/gw/admin/keys/{id}/rotate  — Rotate key (returns new gw_ key)
+```
+
+### Master Keys
+
+```
+GET    /api/v1/gw/admin/master-keys              — List master keys
+POST   /api/v1/gw/admin/master-keys              — Create master key (returns gwm_ key once)
+GET    /api/v1/gw/admin/master-keys/{id}         — Get key details
+DELETE /api/v1/gw/admin/master-keys/{id}         — Revoke key
+POST   /api/v1/gw/admin/master-keys/{id}/rotate  — Rotate key
+```
+
+### Usage Plans
+
+```
+GET    /api/v1/gw/admin/plans         — List usage plans
+POST   /api/v1/gw/admin/plans         — Create plan
+GET    /api/v1/gw/admin/plans/{id}    — Get plan
+PATCH  /api/v1/gw/admin/plans/{id}    — Update plan
+DELETE /api/v1/gw/admin/plans/{id}    — Delete plan
+```
+
+### Usage & Metrics
+
+```
+GET    /api/v1/gw/admin/usage/summary       — Usage summary for the team
+GET    /api/v1/gw/admin/usage/by-connector  — Usage broken down by connector
+GET    /api/v1/gw/admin/usage/by-key        — Usage broken down by API key
+GET    /api/v1/gw/admin/usage/timeseries    — Usage over time
+GET    /api/v1/gw/admin/metrics/aggregate   — Aggregated performance metrics
+```
+
+### Health Checks
+
+```
+GET    /api/v1/gw/admin/health              — List all health check results
+GET    /api/v1/gw/admin/health/{id}         — Health history for a connector
+POST   /api/v1/gw/admin/health/check        — Trigger health checks
+```
+
+### Templates
+
+```
+GET    /api/v1/gw/admin/templates           — List available connector templates
+```
+
+Returns the 19 pre-built connector templates (OpenAI, Stripe, ClickHouse, etc.) that can be used to quickly create new connector instances.
+
+---
+
+## Next Steps
+
+- [Service Gateway Concept](/docs/concepts/service-gateway) — Architecture and pipeline details
+- [Service Gateway Setup Guide](/docs/guides/service-gateway-setup) — Step-by-step connector creation

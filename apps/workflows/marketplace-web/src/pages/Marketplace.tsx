@@ -171,7 +171,7 @@ export const MarketplacePage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-outfit font-bold text-text-primary">Plugin Marketplace</h1>
+          <h1 className="text-3xl font-bold text-text-primary">Plugin Marketplace</h1>
           <p className="text-text-secondary mt-1">Discover and install plugins to extend your experience</p>
         </div>
         <div className="flex items-center gap-2">

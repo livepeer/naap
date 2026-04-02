@@ -1,0 +1,216 @@
+---
+title: "Service Gateway"
+description: "A zero-code, serverless HTTP gateway for proxying and managing third-party API connectors with built-in transforms, caching, auth, and agent/MCP integration."
+order: 7
+---
+
+## What is the Service Gateway?
+
+The Service Gateway is NaaP's built-in serverless HTTP proxy that lets you expose third-party REST APIs as managed **connectors**. Instead of writing custom proxy code per upstream API, you configure connectors declaratively and the gateway handles authentication, request transformation, response shaping, rate limiting, caching, usage tracking, and more.
+
+All gateway traffic flows through `/api/v1/gw/[connector]/[...path]` — a single Next.js API route handler that implements the full proxy pipeline.
+
+---
+
+## Proxy Pipeline
+
+Every request to the gateway goes through a multi-stage pipeline:
+
+```
+Consumer Request
+      │
+      ▼
+┌─ Authorize ──── Verify JWT, API key (gw_), or master key (gwm_)
+│
+├─ Resolve ────── Map connector slug + path to upstream URL and config
+│
+├─ Access ─────── Verify caller can access this connector (team scope)
+│
+├─ IP Check ───── Enforce IP allowlists (if configured on the API key)
+│
+├─ Policy ─────── Apply rate limits, timeout, max body size
+│
+├─ Validate ───── Regex, blacklist, and JSON Schema validation on the request
+│
+├─ Cache ──────── Return cached response if available (by method + path + body hash)
+│
+├─ Secrets ────── Resolve secret references to actual credentials
+│
+├─ Transform ──── Apply body, auth, and header transforms for the upstream
+│
+├─ Proxy ──────── Forward to upstream with circuit breaking and retries
+│
+├─ Respond ────── Apply response transform (envelope, raw, streaming, field-map)
+│
+└─ Log ─────────── Buffer usage data asynchronously (via next/server `after()`)
+```
+
+### Idempotency
+
+For non-GET requests, callers can include an `Idempotency-Key` header. The gateway stores the response keyed by this value and returns it on duplicate requests without re-executing the upstream call.
+
+---
+
+## Connectors and Endpoints
+
+A **connector** (`ServiceConnector` in the database) represents a single upstream API. Each connector has:
+
+- **Slug**: URL-safe identifier used in the proxy path (e.g., `openai`, `stripe`, `ssh-bridge`)
+- **Upstream URL**: The base URL of the target API
+- **Auth config**: How to authenticate to the upstream (bearer, basic, header, query, aws-s3, or none)
+- **Secret references**: Keys stored in the encrypted secret vault, never in plaintext
+- **Team scope**: Owner team ID (or personal scope)
+- **Visibility**: `private` (owner only) or `public` (discoverable in catalog)
+- **Agent metadata**: `agentDescription`, input/output schemas for LLM tool calling
+
+An **endpoint** (`ConnectorEndpoint`) maps a consumer-facing method/path to an upstream path with:
+
+- **Body transform**: How to transform the request body (passthrough, static, template, extract, binary, form-encode)
+- **Response mode**: How to shape the response (envelope, raw, streaming, field-map)
+- **Policies**: Rate limit, timeout, max body size, cache TTL, retry count
+- **Validation**: Regex patterns, keyword blacklists, JSON Schema for the request body
+- **Examples**: Request/response examples for agent tool calling
+
+---
+
+## Authentication Modes
+
+The gateway supports three authentication paths for consumers:
+
+### JWT (NaaP Plugins)
+
+Internal plugins authenticate with their session JWT. Team context comes from the `x-team-id` header:
+
+```
+Authorization: Bearer <jwt-token>
+x-team-id: <team-id>
+```
+
+### API Keys (External Consumers)
+
+Connector-scoped API keys with the `gw_` prefix. Keys can be restricted to specific connectors, endpoints, and IP ranges, and linked to usage plans with quotas:
+
+```
+Authorization: Bearer gw_xxxxxxxxxxxxx
+```
+
+### Master Keys (Cross-Connector Access)
+
+Master keys with the `gwm_` prefix provide cross-connector access with configurable scopes (e.g., `proxy`, `catalog`, `mcp`):
+
+```
+Authorization: Bearer gwm_xxxxxxxxxxxxx
+```
+
+All auth paths include brute-force protection with rate limiting on failed attempts.
+
+---
+
+## Transforms
+
+The gateway uses a **Strategy + Registry** pattern (SOLID-compliant) for request/response transformation. Strategies are registered by name at startup and looked up via O(1) map access at runtime.
+
+### Body Transforms
+
+| Strategy | Description |
+|---|---|
+| `passthrough` | Forward the consumer body unchanged |
+| `static` | Replace the body with a pre-configured static payload |
+| `template` | Interpolate consumer fields into a template |
+| `extract` | Pull a nested field from the consumer body |
+| `binary` | Forward raw binary data (file uploads, images) |
+| `form-encode` | Convert JSON body to `application/x-www-form-urlencoded` |
+
+### Auth Transforms
+
+| Strategy | Description |
+|---|---|
+| `bearer` | Set `Authorization: Bearer {token}` |
+| `basic` | Set `Authorization: Basic {base64(user:pass)}` |
+| `header` | Set a custom header (e.g., `Api-Key: {key}`) |
+| `query` | Append the credential as a query parameter |
+| `aws-s3` | AWS Signature V4 signing |
+| `none` | No upstream authentication |
+
+### Response Transforms
+
+| Strategy | Description |
+|---|---|
+| `envelope` | Wrap the upstream response in the NaaP standard envelope |
+| `raw` | Return the upstream response unchanged |
+| `streaming` | Pass through SSE streams (for LLM-style endpoints) |
+| `field-map` | Restructure the response using a field mapping config |
+
+---
+
+## Multi-Tenancy
+
+Connectors are scoped to teams or personal accounts:
+
+- **Personal scope**: Connectors owned by a user without team context
+- **Team scope**: Connectors owned by a specific team
+- **Public visibility**: Connectors can be made `public` to appear in the catalog for other teams
+- **Access isolation**: API keys from Team A cannot access Team B's private connectors
+
+---
+
+## Built-in Connectors
+
+The gateway ships with 19 pre-built connector templates covering AI, databases, storage, payments, messaging, and infrastructure:
+
+| Category | Connectors |
+|---|---|
+| **AI** | OpenAI, Google Gemini, Cloudflare Workers AI, Livepeer AI Leaderboard |
+| **Video** | Daydream, Livepeer Studio |
+| **Database** | ClickHouse, ClickHouse Query, Neon Postgres, Pinecone, Supabase, Upstash Redis |
+| **Storage** | Storj S3, Vercel Blob |
+| **Payments** | Stripe |
+| **Messaging** | Twilio, Resend, Confluent Kafka |
+| **Infrastructure** | SSH Bridge |
+
+Templates are synced from the database (`GatewayConnectorTemplate`) and can be used to quickly create new connector instances.
+
+---
+
+## Agent & MCP Integration
+
+The gateway exposes connectors as agent-callable tools in multiple formats:
+
+### Native Catalog
+`GET /api/v1/gw/catalog` — structured JSON with pricing, health, metrics, and ranking data for each tool.
+
+### OpenAI Function Format
+`GET /api/v1/gw/catalog?format=openai` — returns function definitions compatible with OpenAI tool calling.
+
+### MCP (Model Context Protocol)
+`POST /api/v1/gw/mcp` — implements JSON-RPC `tools/list` and `tools/call`. Tools are named `{connector}__{endpoint}` and routed through the proxy pipeline.
+
+### Discovery
+`GET /api/v1/gw/discovery` — returns gateway metadata including available endpoints, supported formats, and auth methods.
+
+---
+
+## Database Schema
+
+The gateway uses the `plugin_service_gateway` PostgreSQL schema with 11 models:
+
+| Model | Purpose |
+|---|---|
+| `ServiceConnector` | Connector definitions (upstream URL, auth, metadata) |
+| `ConnectorEndpoint` | Per-route mappings with transforms and policies |
+| `GatewayApiKey` | Consumer API keys (hash stored, never plaintext) |
+| `GatewayPlan` | Usage plans with rate limits and quotas |
+| `GatewayUsageRecord` | Per-request usage logs |
+| `GatewayConnectorTemplate` | Pre-built connector templates |
+| `GatewayHealthCheck` | Health check snapshots |
+| `ConnectorPricing` | Billing metadata and volume tiers |
+| `GatewayMasterKey` | Cross-connector master keys |
+| `ConnectorMetrics` | Aggregated performance metrics |
+| `ConnectorCapabilityRanking` | Rankings for agent tool selection |
+
+---
+
+## Next Steps
+
+- [Service Gateway Setup Guide](/docs/guides/service-gateway-setup) — Hands-on guide to creating and configuring connectors
+- [Service Gateway API Reference](/docs/api-reference/service-gateway-api) — Full REST API reference for public and admin routes

@@ -4,6 +4,71 @@ description: "Version history and release notes for the NaaP platform."
 order: 3
 ---
 
+## Post-v0.1.0 Updates
+
+### Service Gateway (10-part feature series)
+
+- **Foundation**: Database schema (`plugin_service_gateway`) and core HTTP proxy engine with full pipeline — Authorize, Resolve, Policy, Validate, Cache, Secrets, Transform, Proxy
+- **Admin APIs**: Connector CRUD, endpoint management, secrets, API key management, usage tracking
+- **Policy Engine**: Rate limiting, timeout enforcement, request size limits, caching policies, retry strategies
+- **Multi-Tenancy**: Personal ownership and public visibility for connectors, team-scoped access
+- **Daydream Integration**: WHIP SDP proxy and Daydream gateway connector
+- **Connector Catalog**: 19 built-in connectors (OpenAI, Gemini, Stripe, ClickHouse, and more) with Intelligent Dashboard example
+- **Transform Architecture**: Strategy + Registry pattern (SOLID) for body, auth, and response transforms
+- **Production Hardening**: Encryption, SSRF protection, IP allowlists, circuit breaking, idempotency, brute-force limits, audit logging
+
+### Agent Tool Interface
+
+- **Tool Catalog**: Published connectors exposed as agent-callable tools with pricing summaries, metrics, and rankings
+- **OpenAI Format**: `GET /api/v1/gw/catalog?format=openai` returns function definitions for LLM tool calling
+- **MCP Integration**: `POST /api/v1/gw/mcp` implements JSON-RPC `tools/list` and `tools/call` for Model Context Protocol
+- **Discovery Endpoint**: `GET /api/v1/gw/discovery` for programmatic gateway feature discovery
+- **Master Keys**: `gwm_` prefixed keys with configurable scopes for cross-connector access
+
+### ClickHouse HTTP Query Connector
+
+- Static query support for pre-configured analytics queries
+- Dynamic query mode with SQL validation (SELECT-only enforcement, keyword blacklisting)
+
+### SSH Bridge Connector
+
+- Async execution, script deployment, and GitHub CD action support
+- HTTP interface to SSH-accessible infrastructure via the gateway proxy
+
+### Dashboard & Metrics
+
+- **NAAP Metrics APIs**: BFF (Backend for Frontend) caching layer for dashboard data (`/api/v1/dashboard/*`)
+- **Protocol & Fees**: Live data integration from Livepeer subgraph (The Graph)
+- **Leaderboard**: Network metrics leaderboard API integration
+- **Data Facade**: Unified facade layer abstracting NAAP API and subgraph data sources
+
+### Auth Hardening
+
+- **OAuth Providers**: Google and GitHub SSO sign-in flows
+- **Email Verification**: Verification email on registration with Resend delivery
+- **Forgot Password**: Password reset flow with rate limiting
+- **Rate Limiting**: Auth endpoint protection against brute-force attacks
+- **Session Management**: Enhanced middleware and auth context for sessions
+
+### Developer Experience
+
+- **Architecture Simplification**: Streamlined startup scripts and tooling
+- **Docker Compose v2**: Migrated from docker-compose v1
+- **Neon Preview DB**: Automatic preview database branches for Vercel preview deployments
+- **Example Plugin Publishing**: Route convention enforcement and publishing flow for example plugins
+- **Plugin SDK Build**: Automated plugin-sdk build step for up-to-date types and exports
+
+### Deprecated Plugins Removed
+
+The following plugins were removed from the core platform and are no longer built-in:
+- Gateway Manager (replaced by Service Gateway)
+- Orchestrator Manager
+- Network Analytics
+- Hello World (moved to examples)
+- Todo List (moved to examples)
+
+---
+
 ## v0.1.0 - Initial MVP (February 9, 2026)
 
 ### Platform
@@ -24,25 +89,23 @@ order: 3
 
 ### Built-in Plugins
 
-- **Gateway Manager**: Monitor and manage AI gateways
-- **Orchestrator Manager**: Manage orchestrator nodes
+- **Service Gateway**: Serverless HTTP gateway for proxying and managing third-party API connectors
 - **Capacity Planner**: Plan and scale infrastructure
-- **Network Analytics**: Network-wide statistics and leaderboards
 - **Community Forum**: Discussion forums
 - **Developer API**: API key management and documentation
 - **Marketplace**: Discover and install plugins
 - **Plugin Publisher**: Publish plugins to the registry
-- **My Dashboard**: Embedded analytics dashboard
+- **My Dashboard**: Embedded analytics dashboard with live network metrics
 - **My Wallet**: Token management and transactions
 - **Daydream Video**: Real-time AI video generation
 
 ### Infrastructure
 
-- **Authentication**: JWT-based auth with RBAC
+- **Authentication**: JWT-based auth with RBAC, OAuth (Google/GitHub), email verification
 - **Event Bus**: Inter-plugin communication
 - **Theme System**: Light/dark mode with CSS variables
 - **Notification System**: Toast notifications
-- **Integration Services**: AI (OpenAI), Storage (Vercel Blob), Email (SendGrid)
+- **Integration Services**: AI (OpenAI), Storage (Vercel Blob), Email (Resend)
 - **Real-time**: Ably-based real-time features
 
 ---
@@ -56,7 +119,6 @@ order: 3
 - **WebSocket Events**: Real-time event bus via WebSocket
 - **Plugin Sandboxing**: Enhanced security isolation
 - **Custom Themes**: User-created theme presets
-- **Mobile App**: React Native companion app
 - **Plugin Analytics**: Usage metrics and crash reporting
 
 ### Under Consideration

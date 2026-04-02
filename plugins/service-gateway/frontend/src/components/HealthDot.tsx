@@ -34,7 +34,7 @@ export const HealthDot: React.FC<HealthDotProps> = ({ status, size = 'sm', showL
     <span className="inline-flex items-center gap-1.5" title={label}>
       <span className={`${sizeClass} rounded-full ${color} ${status === 'up' ? '' : ''}`} />
       {showLabel && (
-        <span className={`text-xs ${status === 'up' ? 'text-green-400' : status === 'down' ? 'text-red-400' : status === 'degraded' ? 'text-yellow-400' : 'text-gray-500'}`}>
+        <span className={`text-xs ${status === 'up' ? 'text-green-400' : status === 'down' ? 'text-red-400' : status === 'degraded' ? 'text-yellow-400' : 'text-text-tertiary'}`}>
           {label}
         </span>
       )}
