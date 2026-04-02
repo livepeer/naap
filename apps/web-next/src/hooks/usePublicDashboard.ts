@@ -124,25 +124,22 @@ export function usePublicDashboard(
       fetchJson<DashboardPipelineUsage[]>(`${API}/pipelines?timeframe=${timeframe}&limit=200`),
       fetchJson<DashboardPipelineCatalogEntry[]>(`${API}/pipeline-catalog`),
       fetchJson<DashboardOrchestrator[]>(`${API}/orchestrators?period=${period}`),
-      fetchJson<DashboardProtocol>(`${API}/protocol`),
-      fetchJson<DashboardGPUCapacity>(`${API}/gpu-capacity?timeframe=${timeframe}`),
-      fetchJson<DashboardPipelinePricing[]>(`${API}/pricing`),
-      fetchJson<DashboardFeesInfo>(`${API}/fees?days=180`),
       fetchJson<{ streams: JobFeedEntry[]; queryFailed?: boolean }>(jobFeedUrl),
     ]);
 
     if (!mountedRef.current) return;
 
-    const val = <T,>(r: PromiseSettledResult<T>): T | null =>
+    const val = (r: PromiseSettledResult<unknown>) =>
       r.status === 'fulfilled' ? r.value : null;
 
-    const [kpi, pipelines, catalog, orchestrators, jobFeedRaw] = settled.map(val) as [
-      DashboardKPI | null,
-      DashboardPipelineUsage[] | null,
-      DashboardPipelineCatalogEntry[] | null,
-      DashboardOrchestrator[] | null,
-      { streams: JobFeedEntry[]; queryFailed?: boolean } | null,
-    ];
+    const kpi = val(settled[0]) as DashboardKPI | null;
+    const pipelines = val(settled[1]) as DashboardPipelineUsage[] | null;
+    const catalog = val(settled[2]) as DashboardPipelineCatalogEntry[] | null;
+    const orchestrators = val(settled[3]) as DashboardOrchestrator[] | null;
+    const jobFeedRaw = val(settled[4]) as {
+      streams: JobFeedEntry[];
+      queryFailed?: boolean;
+    } | null;
 
     const failures = settled
       .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
@@ -162,7 +159,7 @@ export function usePublicDashboard(
     syncError();
     setLbHasFetched(true);
     setLbLoading(false);
-  }, [timeframe, syncError]);
+  }, [timeframe, jobFeedPollInterval, syncError]);
 
   // Group 2: protocol, GPU capacity, pricing
   const fetchRt = useCallback(async () => {
@@ -177,14 +174,12 @@ export function usePublicDashboard(
 
     if (!mountedRef.current) return;
 
-    const val = <T,>(r: PromiseSettledResult<T>): T | null =>
+    const val = (r: PromiseSettledResult<unknown>) =>
       r.status === 'fulfilled' ? r.value : null;
 
-    const [protocol, gpuCap, pricing] = settled.map(val) as [
-      DashboardProtocol | null,
-      DashboardGPUCapacity | null,
-      DashboardPipelinePricing[] | null,
-    ];
+    const protocol = val(settled[0]) as DashboardProtocol | null;
+    const gpuCap = val(settled[1]) as DashboardGPUCapacity | null;
+    const pricing = val(settled[2]) as DashboardPipelinePricing[] | null;
 
     const failures = settled
       .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
@@ -195,14 +190,40 @@ export function usePublicDashboard(
       protocol,
       gpuCapacity: gpuCap,
       pricing: pricing ?? [],
-      fees,
-      jobs: jobFeedRaw?.streams ?? [],
-      jobFeedConnected: !!(jobFeedRaw && !jobFeedRaw.queryFailed),
     }));
-    setError(failures.length > 0 ? failures.join('; ') : null);
-    setHasFetched(true);
-    setLoading(false);
-  }, [timeframe, jobFeedPollInterval]);
+
+    errorsRef.current = [...errorsRef.current.filter((e) => !e.includes('/protocol') && !e.includes('/gpu-capacity') && !e.includes('/pricing')), ...failures];
+    syncError();
+    setRtHasFetched(true);
+    setRtLoading(false);
+  }, [timeframe, syncError]);
+
+  // Group 3: fees
+  const fetchFees = useCallback(async () => {
+    if (!mountedRef.current) return;
+    setFeesLoading(true);
+
+    try {
+      const fees = await fetchJson<DashboardFeesInfo>(`${API}/fees?days=180`);
+      if (!mountedRef.current) return;
+      setData((prev) => ({ ...prev, fees }));
+      errorsRef.current = errorsRef.current.filter((e) => !e.includes('/fees'));
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setData((prev) => ({ ...prev, fees: null }));
+      errorsRef.current = [...errorsRef.current.filter((e) => !e.includes('/fees')), (err as Error)?.message ?? 'Fees fetch failed'];
+    }
+
+    syncError();
+    setFeesHasFetched(true);
+    setFeesLoading(false);
+  }, [syncError]);
+
+  const refetch = useCallback(() => {
+    fetchLb();
+    fetchRt();
+    fetchFees();
+  }, [fetchLb, fetchRt, fetchFees]);
 
   // Initial fetch — all three groups fire concurrently
   useEffect(() => {

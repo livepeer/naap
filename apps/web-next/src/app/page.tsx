@@ -78,7 +78,7 @@ export default function PublicOverviewPage() {
               onJobFeedPollIntervalChange={handleJobFeedPollIntervalChange}
               jobFeedMeta={null}
               jobFeedError={null}
-              jobFeedLoading={!prefsReady || loading}
+              jobFeedLoading={!prefsReady || lbLoading}
               timeframe={timeframe}
               onTimeframeChange={handleTimeframeChange}
               lbLoading={lbLoading}
