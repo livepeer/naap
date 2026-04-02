@@ -19,6 +19,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useShell } from '@/contexts/shell-context';
 import { DASHBOARD_JOB_FEED_EVENT, DASHBOARD_JOB_FEED_EMIT_EVENT } from './dashboard-constants';
 import type { JobFeedSubscribeResponse, JobFeedEntry } from '@naap/plugin-sdk';
+import { mapApiRowToJobFeedEntry } from '@/lib/facade/map-job-feed-entry';
 import type { DashboardError } from './useDashboardQuery';
 
 // ============================================================================
@@ -56,21 +57,6 @@ export interface UseJobFeedStreamResult {
 // Helpers
 // ============================================================================
 
-interface ActiveStreamRow {
-  id: string;
-  pipeline: string;
-  model?: string;
-  gateway: string;
-  orchestratorUrl: string;
-  state: string;
-  inputFps: number;
-  outputFps: number;
-  firstSeen: string;
-  lastSeen: string;
-  durationSeconds?: number;
-  runningFor?: string;
-}
-
 const STATUS_RANK: Record<string, number> = {
   running: 3,
   online: 3,
@@ -83,40 +69,6 @@ const STATUS_RANK: Record<string, number> = {
   offline: 0,
   error: 0,
 };
-
-function normalizeJobStatus(rawState: string | undefined): string {
-  const state = rawState?.trim().toLowerCase() ?? '';
-  return state || 'unknown';
-}
-
-function parseIsoMs(value: string | undefined): number | null {
-  if (!value) return null;
-  const ms = Date.parse(value);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-function formatDuration(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return '—';
-  const total = Math.floor(seconds);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  if (h > 0) return `${h}h ${m}m ${s}s`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-
-function deriveDurationSeconds(row: ActiveStreamRow): number | undefined {
-  if (Number.isFinite(row.durationSeconds)) {
-    const val = Number(row.durationSeconds);
-    return val >= 0 ? val : undefined;
-  }
-  const firstMs = parseIsoMs(row.firstSeen);
-  const lastMs = parseIsoMs(row.lastSeen);
-  if (firstMs == null || lastMs == null) return undefined;
-  const diff = Math.max(0, Math.floor((lastMs - firstMs) / 1000));
-  return diff;
-}
 
 function dedupeAndSortJobs(entries: JobFeedEntry[], maxItems: number): JobFeedEntry[] {
   const byId = new Map<string, JobFeedEntry>();
@@ -145,26 +97,6 @@ function dedupeAndSortJobs(entries: JobFeedEntry[], maxItems: number): JobFeedEn
     });
 
   return sorted.slice(0, maxItems);
-}
-
-function streamToJobFeedEntry(row: ActiveStreamRow): JobFeedEntry {
-  const status = normalizeJobStatus(row.state);
-  const durationSeconds = deriveDurationSeconds(row);
-  const runningFor = row.runningFor?.trim() || (durationSeconds != null ? formatDuration(durationSeconds) : undefined);
-  return {
-    id: row.id,
-    pipeline: row.pipeline,
-    model: row.model,
-    status,
-    startedAt: row.firstSeen,
-    gateway: row.gateway,
-    orchestratorUrl: row.orchestratorUrl,
-    inputFps: row.inputFps,
-    outputFps: row.outputFps,
-    lastSeen: row.lastSeen,
-    durationSeconds,
-    runningFor,
-  };
 }
 
 // ============================================================================
@@ -224,7 +156,7 @@ export function useJobFeedStream(
       try {
         const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(10_000) });
         let body = {} as {
-          streams?: ActiveStreamRow[];
+          streams?: unknown[];
           clickhouseConfigured?: boolean;
           queryFailed?: boolean;
         };
@@ -264,7 +196,9 @@ export function useJobFeedStream(
           return;
         }
 
-        const entries = (body.streams ?? []).map(streamToJobFeedEntry);
+        const entries = (body.streams ?? [])
+          .map((row) => mapApiRowToJobFeedEntry(row))
+          .filter((e): e is JobFeedEntry => e != null);
         replaceJobs(entries);
         setFeedMeta({
           clickhouseConfigured: body.clickhouseConfigured ?? true,

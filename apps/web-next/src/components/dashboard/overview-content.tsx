@@ -596,6 +596,17 @@ function GPUCapacityCard({ data, timeframeHours }: { data: DashboardGPUCapacity;
   );
 }
 
+/** Model rows: union catalog + usage so seeded/empty catalog entries still show demand. */
+function pipelineTableModelIds(
+  entry: DashboardPipelineCatalogEntry,
+  data: DashboardPipelineUsage[],
+): string[] {
+  const pipelineUsage = data.find((d) => d.name === entry.id);
+  const fromUsage = pipelineUsage?.modelMins?.map((m) => m.model).filter(Boolean) ?? [];
+  const set = new Set<string>([...entry.models, ...fromUsage]);
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
 function PipelinesCard({
   data, catalog, pricing, netCapacity, liveVideoCapacity, modelFpsByPipelineModel, timeframeHours,
 }: {
@@ -628,13 +639,14 @@ function PipelinesCard({
         <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
           {sortedCatalog.map((entry) => {
             const color = PIPELINE_COLOR[entry.id] ?? DEFAULT_PIPELINE_COLOR;
+            const modelRows = pipelineTableModelIds(entry, data);
             return (
               <div key={entry.id}>
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} aria-hidden="true" />
                   <span className="text-xs font-semibold text-foreground">{entry.name}</span>
                 </div>
-                {entry.models.length === 0 ? (
+                {modelRows.length === 0 ? (
                   <p className="text-[10px] text-muted-foreground pl-4">No models</p>
                 ) : (
                   <table className="w-full text-[11px]">
@@ -648,7 +660,7 @@ function PipelinesCard({
                       </tr>
                     </thead>
                     <tbody>
-                      {entry.models.map((model) => {
+                      {modelRows.map((model) => {
                         const p = pricing.find((x) => x.pipeline === entry.id && x.model === model);
                         const pipelineUsage = data.find((d) => d.name === entry.id);
                         const modelUsage = pipelineUsage?.modelMins?.find((m) => m.model === model);

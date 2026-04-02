@@ -93,7 +93,7 @@ export function usePublicDashboard(
     const period = timeframeToPeriod(timeframe);
     const settled = await Promise.allSettled([
       fetchJson<DashboardKPI>(`${API}/kpi?timeframe=${timeframe}`),
-      fetchJson<DashboardPipelineUsage[]>(`${API}/pipelines?timeframe=${timeframe}&limit=50`),
+      fetchJson<DashboardPipelineUsage[]>(`${API}/pipelines?timeframe=${timeframe}&limit=200`),
       fetchJson<DashboardPipelineCatalogEntry[]>(`${API}/pipeline-catalog`),
       fetchJson<DashboardOrchestrator[]>(`${API}/orchestrators?period=${period}`),
       fetchJson<DashboardProtocol>(`${API}/protocol`),
