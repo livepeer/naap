@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ElementType, ReactNode } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useDashboardQuery, type DashboardError } from '@/hooks/useDashboardQuery';
 import { useJobFeedStream, type JobFeedConnectionMeta } from '@/hooks/useJobFeedStream';
@@ -327,7 +328,7 @@ function RefreshWrap({
   className = '',
 }: {
   refreshing: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
 }) {
   return (
@@ -748,7 +749,7 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
   const tfLabel = formatTimeframeLabel(data.timeframeHours);
 
   const tile = (
-    icon: React.ElementType,
+    icon: ElementType,
     label: string,
     value: string | number,
     suffix?: string,

@@ -9,7 +9,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const daysStr = params.get('days');
   let days: number | undefined;
   if (daysStr !== null) {
-    const parsed = parseInt(daysStr, 10);
+    const trimmed = daysStr.trim();
+    if (!/^\d+$/.test(trimmed)) {
+      return NextResponse.json(
+        { error: { code: 'BAD_REQUEST', message: 'Invalid days: must be a non-negative integer string' } },
+        { status: 400 },
+      );
+    }
+    const parsed = parseInt(trimmed, 10);
     if (!Number.isInteger(parsed) || parsed < 0) {
       return NextResponse.json(
         { error: { code: 'BAD_REQUEST', message: 'Invalid days: must be a non-negative integer' } },

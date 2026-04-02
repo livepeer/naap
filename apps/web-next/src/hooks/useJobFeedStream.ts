@@ -75,6 +75,7 @@ const STATUS_RANK: Record<string, number> = {
   running: 3,
   online: 3,
   degraded_input: 2,
+  degraded_inference: 2,
   degraded_output: 2,
   degraded: 2,
   completed: 1,
@@ -332,12 +333,11 @@ export function useJobFeedStream(
           setError(null);
         }
 
+        const snapshotBusCleanup = eventBusCleanup;
+        const snapshotFetchPollTimer = fetchPollTimer;
         cleanupRef.current = () => {
-          eventBusCleanup?.();
-          if (fetchPollTimer) {
-            clearInterval(fetchPollTimer);
-            fetchPollTimer = null;
-          }
+          snapshotBusCleanup?.();
+          if (snapshotFetchPollTimer) clearInterval(snapshotFetchPollTimer);
         };
         if (oldCleanup && oldCleanup !== cleanupRef.current) {
           oldCleanup();

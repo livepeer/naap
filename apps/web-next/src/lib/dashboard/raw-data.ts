@@ -227,10 +227,19 @@ function cachedFetch<T>(key: string, ttlMs: number, fetcher: () => Promise<T>): 
   }
 
   console.log(`[dashboard/raw-data] CACHE MISS ${key} — fetching upstream`);
-  const promise = fetcher().catch((err) => {
-    memCache.delete(key);
-    throw err;
-  });
+  const promise = (async () => {
+    try {
+      const value = await fetcher();
+      const entry = memCache.get(key) as CacheEntry<T> | undefined;
+      if (entry) {
+        entry.expiresAt = Date.now() + ttlMs;
+      }
+      return value;
+    } catch (err) {
+      memCache.delete(key);
+      throw err;
+    }
+  })();
 
   memCache.set(key, { expiresAt: now + ttlMs, promise: promise as Promise<unknown> });
   return promise;
@@ -248,12 +257,39 @@ function parseTotalPages(pagination: { total_pages?: unknown } | undefined): num
   return Math.floor(n);
 }
 
+/** Limit parallel page fetches so a cold cache does not open hundreds of sockets at once. */
+const NAAP_PAGE_FETCH_CONCURRENCY = 8;
+
 async function fetchNaapPage(path: string, searchParams: URLSearchParams): Promise<Response> {
   const url = new URL(naapApiUpstreamUrl(path));
   for (const [k, v] of searchParams.entries()) {
     url.searchParams.set(k, v);
   }
-  return fetch(url.toString(), { next: { revalidate: 60 } });
+  return fetch(url.toString(), {
+    next: { revalidate: 60 },
+    signal: AbortSignal.timeout(120_000),
+  });
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const i = nextIndex++;
+        if (i >= items.length) break;
+        results[i] = await mapper(items[i], i);
+      }
+    }),
+  );
+  return results;
 }
 
 async function fetchAllPages<T>(
@@ -299,8 +335,10 @@ async function fetchAllPages<T>(
   }
 
   const pageNums = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
-  const pageResults = await Promise.all(
-    pageNums.map(async (page) => {
+  const pageResults = await mapWithConcurrency(
+    pageNums,
+    NAAP_PAGE_FETCH_CONCURRENCY,
+    async (page) => {
       const pageParams = new URLSearchParams(params);
       pageParams.set('page', String(page));
       try {
@@ -325,7 +363,7 @@ async function fetchAllPages<T>(
           }`,
         );
       }
-    }),
+    },
   );
 
   const allRows = [...firstRows, ...pageResults.flat()];

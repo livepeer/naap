@@ -152,6 +152,12 @@ const NET_MODELS_API_BASE = (
   process.env.NAAP_API_SERVER_URL?.trim() || DEFAULT_NET_MODELS_API_BASE
 ).replace(/\/+$/, '');
 
+const NET_MODELS_CACHE_TTL_MS = 60_000;
+const netModelsJsonCache = new Map<
+  string,
+  { expiresAt: number; body: { models: unknown[]; total: number } }
+>();
+
 function parseNetModelsJson(payload: unknown): unknown[] {
   if (Array.isArray(payload)) {
     return payload;
@@ -174,6 +180,12 @@ app.get('/api/v1/developer/network-models', async (req, res) => {
     const limit = typeof limitParam === 'string' && /^\d+$/.test(limitParam)
       ? Math.min(parseInt(limitParam, 10), 200)
       : 50;
+    const cacheKey = String(limit);
+    const cached = netModelsJsonCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.json(cached.body);
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     let upstream: Response;
@@ -196,7 +208,12 @@ app.get('/api/v1/developer/network-models', async (req, res) => {
 
     const payload = await upstream.json();
     const models = parseNetModelsJson(payload);
-    res.json({ models, total: models.length });
+    const body = { models, total: models.length };
+    netModelsJsonCache.set(cacheKey, {
+      expiresAt: Date.now() + NET_MODELS_CACHE_TTL_MS,
+      body,
+    });
+    res.json(body);
   } catch (error) {
     console.error('Error fetching network models:', error);
     res.status(502).json({ error: 'Failed to fetch network models from NAAP API' });

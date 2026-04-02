@@ -232,6 +232,7 @@ export const pipelineCatalog: DashboardPipelineCatalogEntry[] = [
 export const orchestrators: DashboardOrchestrator[] = [
   {
     address: '0x3b28a7d785356dc67c7970666747e042305bfb79', // ai.ad-astra.live — top live-v2v orch
+    uri: 'https://ai.ad-astra.live/',
     knownSessions: 8_420,
     successSessions: 6_854,
     successRatio: 81.4,
@@ -246,6 +247,7 @@ export const orchestrators: DashboardOrchestrator[] = [
   },
   {
     address: '0xd00354656922168815fcd1e51cbddb9e359e3c7f', // rtav-orch.xodeapp.xyz
+    uri: 'https://rtav-orch.xodeapp.xyz/',
     knownSessions: 5_130,
     successSessions: 4_217,
     successRatio: 82.2,
@@ -260,6 +262,7 @@ export const orchestrators: DashboardOrchestrator[] = [
   },
   {
     address: '0x22b1bcc0c0db224bfc56c9b95a2db407548666ee', // lpt.thomasblock.io
+    uri: 'https://lpt.thomasblock.io/',
     knownSessions: 4_890,
     successSessions: 3_921,
     successRatio: 80.2,
@@ -274,6 +277,7 @@ export const orchestrators: DashboardOrchestrator[] = [
   },
   {
     address: '0xb8c66a19c2d4ccfe79e002d9e3a02dff73de4aba', // ai.organic-node.uk
+    uri: 'https://ai.organic-node.uk/',
     knownSessions: 3_210,
     successSessions: 2_589,
     successRatio: 80.7,
@@ -288,6 +292,7 @@ export const orchestrators: DashboardOrchestrator[] = [
   },
   {
     address: '0xd4c467d8c13752ab7bb9711bc77de2a9f52a65f6', // 2.9.173.59 — top orch for llm/upscale/text-to-image
+    uri: 'https://example.invalid/orch/d4c467d8',
     knownSessions: 0,
     successSessions: 0,
     successRatio: 0,

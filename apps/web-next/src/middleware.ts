@@ -135,13 +135,6 @@ function getPluginForPath(pathname: string): string | null {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Legacy plugin URLs (singular /developer is canonical; see developer-api plugin.json).
-  if (pathname === '/developers' || pathname.startsWith('/developers/')) {
-    const url = request.nextUrl.clone();
-    url.pathname = pathname.replace(/^\/developers(?=\/|$)/, '/developer');
-    return NextResponse.redirect(url);
-  }
-
   // --- Observability: inject request-id and trace-id on every request ---
   const requestId = request.headers.get('x-request-id') || crypto.randomUUID();
   const traceId = request.headers.get('x-trace-id') || crypto.randomUUID();

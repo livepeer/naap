@@ -21,7 +21,11 @@ interface DashboardPipelineRow {
 }
 
 export async function resolvePipelines(opts: { limit?: number; timeframe?: string }): Promise<DashboardPipelineUsage[]> {
-  const limit = opts.limit ?? 5;
+  const rawLimit = opts.limit;
+  const limit =
+    rawLimit === undefined || typeof rawLimit !== 'number' || !Number.isFinite(rawLimit)
+      ? 5
+      : Math.max(1, Math.min(Math.floor(rawLimit), 200));
   const parsed = parseInt(opts.timeframe ?? '24', 10);
   const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
   const window = `${hours}h`;

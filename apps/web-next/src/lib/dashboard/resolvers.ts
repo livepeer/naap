@@ -360,7 +360,8 @@ export async function resolveOrchestrators({
     pipelines: Set<string>;
     pipelineModels: Map<string, Set<string>>;
     gpuIds: Set<string>;
-    rowsWithoutGpuIdWithSessions: number;
+    /** Distinct pipeline:model keys missing gpu_id — avoids counting every hourly SLA row as another GPU. */
+    anonymousWithoutGpuKeys: Set<string>;
   };
 
   const byAddress = new Map<string, Accum>();
@@ -374,7 +375,7 @@ export async function resolveOrchestrators({
         unexcusedSessions: 0, swappedSessions: 0,
         effectiveSuccessWeighted: 0,
         pipelines: new Set(), pipelineModels: new Map(),
-        gpuIds: new Set(), rowsWithoutGpuIdWithSessions: 0,
+        gpuIds: new Set(), anonymousWithoutGpuKeys: new Set(),
       });
     }
 
@@ -397,8 +398,8 @@ export async function resolveOrchestrators({
     if (knownSessions <= 0) continue;
     if (row.gpu_id) {
       d.gpuIds.add(row.gpu_id);
-    } else {
-      d.rowsWithoutGpuIdWithSessions += 1;
+    } else if (knownSessions > 0) {
+      d.anonymousWithoutGpuKeys.add(`${row.pipeline_id}:${row.model_id?.trim() ?? ''}`);
     }
   }
 
@@ -411,7 +412,7 @@ export async function resolveOrchestrators({
       const noSwapRatio = d.knownSessions > 0 ? 1 - (d.swappedSessions / d.knownSessions) : null;
       const slaScore = d.knownSessions > 0 ? (0.7 * successRatio + 0.3 * (noSwapRatio || 0)) * 100 : null;
 
-      const gpuCount = d.gpuIds.size + d.rowsWithoutGpuIdWithSessions;
+      const gpuCount = d.gpuIds.size + d.anonymousWithoutGpuKeys.size;
 
       const pipelineModels = [...d.pipelineModels.entries()]
         .map(([pipelineId, modelIds]) => ({ pipelineId, modelIds: [...modelIds].sort() }))
@@ -439,12 +440,14 @@ export async function resolveOrchestrators({
 
 export async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
   const catalog = await getRawPipelineCatalog();
-  return catalog.map((entry) => ({
-    id: entry.id,
-    name: PIPELINE_DISPLAY[entry.id] ?? entry.id,
-    models: entry.models ?? [],
-    regions: entry.regions ?? [],
-  }));
+  return catalog
+    .filter((entry) => PIPELINE_DISPLAY[entry.id] !== null)
+    .map((entry) => ({
+      id: entry.id,
+      name: PIPELINE_DISPLAY[entry.id] ?? entry.id,
+      models: entry.models ?? [],
+      regions: entry.regions ?? [],
+    }));
 }
 
 // ---------------------------------------------------------------------------

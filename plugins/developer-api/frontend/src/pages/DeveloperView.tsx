@@ -44,7 +44,7 @@ function resolveTabFromPath(pathname: string): TabId {
   const parts = pathname.split('/').filter(Boolean);
   const maybeRoot = parts[0];
   const maybeTab = parts[1];
-  if (maybeRoot !== 'developer' && maybeRoot !== 'developers') {
+  if (maybeRoot !== 'developer') {
     return 'models';
   }
   return TAB_FROM_SEGMENT[maybeTab ?? ''] ?? 'models';
@@ -335,10 +335,17 @@ export const DeveloperView: React.FC = () => {
 
   const loadBillingProviders = useCallback(async () => {
     try {
-      const json = await fetch('/api/v1/billing-providers').then(r => r.json());
+      const res = await fetch('/api/v1/billing-providers');
+      if (!res.ok) {
+        console.error('Failed to load billing providers:', res.status);
+        setBillingProviders([]);
+        return;
+      }
+      const json = await res.json();
       setBillingProviders((json.data ?? json).providers || []);
     } catch (err) {
       console.error('Failed to load billing providers:', err);
+      setBillingProviders([]);
     }
   }, []);
 

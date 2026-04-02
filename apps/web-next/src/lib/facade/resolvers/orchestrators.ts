@@ -55,8 +55,20 @@ function pct(v: number | null): number | null {
 
 function normalizeOrchestratorWindow(period: string | undefined): string {
   const raw = (period ?? '24h').trim();
-  if (/^\d+$/.test(raw)) return `${raw}h`;
-  return raw;
+  if (!raw) return '24h';
+
+  if (/^\d+$/.test(raw)) {
+    const h = Math.max(1, Math.min(parseInt(raw, 10), 168));
+    return `${h}h`;
+  }
+
+  const suffixed = raw.match(/^(\d+)h$/i);
+  if (suffixed) {
+    const h = Math.max(1, Math.min(parseInt(suffixed[1], 10), 168));
+    return `${h}h`;
+  }
+
+  return '24h';
 }
 
 export async function resolveOrchestrators(opts: { period?: string }): Promise<DashboardOrchestrator[]> {
