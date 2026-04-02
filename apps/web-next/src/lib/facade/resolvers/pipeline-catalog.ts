@@ -17,12 +17,14 @@ import type { DashboardPipelineCatalogEntry } from '@naap/plugin-sdk';
 import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
 import { getRawNetModels } from '../network-data.js';
 import { cachedFetch, TTL } from '../cache.js';
+
+const WARM_CATALOG_REVALIDATE_SEC = Math.floor(TTL.PIPELINE_CATALOG / 1000);
 import { PIPELINE_DISPLAY } from '@/lib/dashboard/pipeline-config';
 
 async function fetchWarmCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
   try {
     const res = await fetch(naapApiUpstreamUrl('dashboard/pipeline-catalog'), {
-      next: { revalidate: 60 },
+      next: { revalidate: WARM_CATALOG_REVALIDATE_SEC },
     } as RequestInit & { next: { revalidate: number } });
     if (!res.ok) {
       console.warn(`[facade/pipeline-catalog] warm catalog HTTP ${res.status} — using stable only`);

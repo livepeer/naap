@@ -28,6 +28,7 @@ function aggregateEntries(entries: NetCapacityEntry[]): Record<string, number> {
     if (!pipeline) continue;
 
     const warm = Number(row.WarmOrchCount ?? 0);
+    if (!Number.isFinite(warm) || warm < 0) continue;
     const key = `${pipeline}:${modelId}`;
     map.set(key, (map.get(key) ?? 0) + warm);
   }

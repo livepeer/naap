@@ -23,9 +23,10 @@ export function naapApiBaseUrl(): string {
   return stripTrailingSlashes(raw);
 }
 
-/** Same as {@link naapApiBaseUrl} — useful for logs and errors. */
+/** Safe label for logs when the env var may be unset (never throws). */
 export function naapApiBaseLabel(): string {
-  return naapApiBaseUrl();
+  const raw = process.env.NAAP_API_SERVER_URL?.trim();
+  return raw ? stripTrailingSlashes(raw) : '<NAAP_API_SERVER_URL unset>';
 }
 
 /**

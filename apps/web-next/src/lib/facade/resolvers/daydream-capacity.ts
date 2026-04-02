@@ -16,11 +16,13 @@ interface DaydreamCapacityResponse {
   idleContainers?: number;
 }
 
+const DAYDREAM_REVALIDATE_SEC = Math.floor(TTL.DAYDREAM_CAPACITY / 1000);
+
 async function fetchOneModel(model: string): Promise<number> {
   return cachedFetch(`facade:daydream-capacity:${model}`, TTL.DAYDREAM_CAPACITY, async () => {
     const url = new URL(DAYDREAM_CAPACITY_BASE_URL);
     url.searchParams.set('models', model);
-    const res = await fetch(url.toString(), { next: { revalidate: 60 } });
+    const res = await fetch(url.toString(), { next: { revalidate: DAYDREAM_REVALIDATE_SEC } });
     if (!res.ok) {
       throw new Error(`[facade/daydream-capacity] returned HTTP ${res.status}`);
     }

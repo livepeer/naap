@@ -204,5 +204,7 @@ export type {
   AuthUser as NaapAuthUser,
 } from '@naap/types';
 
+export type { NetworkModel } from './types/network-model.js';
+
 // SDK version
 export const SDK_VERSION = '1.0.0';

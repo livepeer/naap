@@ -321,6 +321,7 @@ describe('registerDashboardProvider', () => {
       pipeline: expect.any(String),
       unit: expect.any(String),
       price: expect.any(Number),
+      pixelsPerUnit: expect.any(Number),
       outputPerDollar: expect.any(String),
     });
   });

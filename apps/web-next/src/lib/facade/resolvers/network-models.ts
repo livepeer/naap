@@ -19,7 +19,9 @@ export async function resolveNetworkModels(opts: {
 }): Promise<{ models: NetworkModel[]; total: number }> {
   const rows = await getRawNetModels();
   const total = rows.length;
-  const models =
-    opts.limit === undefined ? rows : rows.slice(0, Math.max(0, opts.limit));
-  return { models, total };
+  if (opts.limit === undefined) {
+    return { models: rows, total };
+  }
+  const safeLimit = Math.max(0, Math.floor(opts.limit));
+  return { models: rows.slice(0, safeLimit), total };
 }

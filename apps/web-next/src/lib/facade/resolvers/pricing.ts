@@ -12,9 +12,9 @@
  */
 
 import type { DashboardPipelinePricing } from '@naap/plugin-sdk';
-import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
 import { cachedFetch, TTL } from '../cache.js';
 import { resolveNetCapacity } from './net-capacity.js';
+import { naapGet } from '../naap-get.js';
 
 const LIVE_VIDEO_PIPELINE = 'live-video-to-video';
 
@@ -51,17 +51,15 @@ function computeOutputPerDollar(avgWei: number, unit: string, ethUsd: number): s
   return `~${unitsPerDollar.toFixed(0)} ${unit}s`;
 }
 
-async function naapGet<T>(path: string): Promise<T> {
-  const res = await fetch(naapApiUpstreamUrl(path), { next: { revalidate: 60 } });
-  if (!res.ok) throw new Error(`[facade/pricing] ${path} returned HTTP ${res.status}`);
-  return res.json() as Promise<T>;
-}
-
 export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
+  const revalidateSec = Math.floor(TTL.PRICING / 1000);
   return cachedFetch('facade:pricing', TTL.PRICING, async () => {
     const ethUsd = parseEthUsdReference();
     const [rows, netCapacity] = await Promise.all([
-      naapGet<ApiPipelinePricing[]>('dashboard/pricing'),
+      naapGet<ApiPipelinePricing[]>('dashboard/pricing', undefined, {
+        next: { revalidate: revalidateSec },
+        errorLabel: 'pricing',
+      }),
       resolveNetCapacity().catch((err) => {
         console.warn('[facade/pricing] net/capacity merge skipped:', err);
         return {} as Record<string, number>;

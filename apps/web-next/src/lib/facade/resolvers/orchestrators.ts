@@ -12,8 +12,8 @@
  */
 
 import type { DashboardOrchestrator } from '@naap/plugin-sdk';
-import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
 import { cachedFetch, TTL } from '../cache.js';
+import { naapGet } from '../naap-get.js';
 
 interface ApiOrchestrator {
   address: string;
@@ -33,19 +33,15 @@ interface NaapNetOrchestrator {
   URI: string;
 }
 
-async function naapGet<T>(path: string, params: Record<string, string>): Promise<T> {
-  const url = new URL(naapApiUpstreamUrl(path));
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const res = await fetch(url.toString(), { next: { revalidate: 60 } });
-  if (!res.ok) throw new Error(`[facade/orchestrators] ${path} returned HTTP ${res.status}`);
-  return res.json() as Promise<T>;
-}
-
 async function fetchURIMap(): Promise<Map<string, string>> {
   try {
+    const revalidateSec = Math.floor(TTL.NET_MODELS / 1000);
     const rows = await naapGet<NaapNetOrchestrator[]>('net/orchestrators', {
       active_only: 'false',
       limit: '200',
+    }, {
+      next: { revalidate: revalidateSec },
+      errorLabel: 'orchestrators-uri-map',
     });
     return new Map(rows.map((r) => [r.Address.toLowerCase(), r.URI]));
   } catch {
@@ -65,9 +61,13 @@ function normalizeOrchestratorWindow(period: string | undefined): string {
 
 export async function resolveOrchestrators(opts: { period?: string }): Promise<DashboardOrchestrator[]> {
   const window = normalizeOrchestratorWindow(opts.period);
+  const revalidateSec = Math.floor(TTL.ORCHESTRATORS / 1000);
   return cachedFetch(`facade:orchestrators:${window}`, TTL.ORCHESTRATORS, async () => {
     const [rows, uriMap] = await Promise.all([
-      naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window }),
+      naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window }, {
+        next: { revalidate: revalidateSec },
+        errorLabel: 'orchestrators',
+      }),
       fetchURIMap(),
     ]);
     return rows.map((r): DashboardOrchestrator => ({
@@ -75,7 +75,7 @@ export async function resolveOrchestrators(opts: { period?: string }): Promise<D
       uri: uriMap.get(r.address.toLowerCase()),
       knownSessions: r.knownSessions,
       successSessions: r.successSessions,
-      successRatio: Math.round(r.successRatio * 1000) / 10,
+      successRatio: pct(r.successRatio) ?? 0,
       effectiveSuccessRate: pct(r.effectiveSuccessRate),
       noSwapRatio: pct(r.noSwapRatio),
       slaScore: r.slaScore !== null ? Math.round(r.slaScore * 100) : null,

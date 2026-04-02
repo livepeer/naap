@@ -9,20 +9,15 @@
  */
 
 import type { JobFeedItem } from '../types.js';
-import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
-import { cachedFetch } from '../cache.js';
-
-async function naapGet<T>(path: string, params: Record<string, string>): Promise<T> {
-  const url = new URL(naapApiUpstreamUrl(path));
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const res = await fetch(url.toString(), { cache: 'no-store' });
-  if (!res.ok) throw new Error(`[facade/job-feed] ${path} returned HTTP ${res.status}`);
-  return res.json() as Promise<T>;
-}
+import { cachedFetch, TTL } from '../cache.js';
+import { naapGet } from '../naap-get.js';
 
 export async function resolveJobFeed(opts: { limit?: number }): Promise<JobFeedItem[]> {
   const limit = opts.limit ?? 50;
-  return cachedFetch(`facade:job-feed:${limit}`, 15 * 1000, () =>
-    naapGet<JobFeedItem[]>('dashboard/job-feed', { limit: String(limit) })
+  return cachedFetch(`facade:job-feed:${limit}`, TTL.JOB_FEED, () =>
+    naapGet<JobFeedItem[]>('dashboard/job-feed', { limit: String(limit) }, {
+      cache: 'no-store',
+      errorLabel: 'job-feed',
+    })
   );
 }

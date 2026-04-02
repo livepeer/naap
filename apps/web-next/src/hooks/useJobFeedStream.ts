@@ -221,7 +221,7 @@ export function useJobFeedStream(
 
     async function fetchJobFeed(fetchUrl: string) {
       try {
-        const res = await fetch(fetchUrl);
+        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(10_000) });
         let body = {} as {
           streams?: ActiveStreamRow[];
           clickhouseConfigured?: boolean;
@@ -309,6 +309,8 @@ export function useJobFeedStream(
           setConnected(true);
           setError(null);
 
+          // Re-run full connect() on an interval so we pick up a late-registered provider
+          // (this is not HTTP polling — the provider pushes over the event bus).
           if (pollIntervalMs > 0 && mountedRef.current) {
             if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
             pollTimerRef.current = setTimeout(() => {

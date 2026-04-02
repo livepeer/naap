@@ -176,14 +176,18 @@ app.get('/api/v1/developer/network-models', async (req, res) => {
       : 50;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
-    const upstream = await fetch(
-      `${NET_MODELS_API_BASE}/net/models?limit=${limit}`,
-      {
-        headers: { Accept: 'application/json' },
-        signal: controller.signal,
-      }
-    );
-    clearTimeout(timeout);
+    let upstream: Response;
+    try {
+      upstream = await fetch(
+        `${NET_MODELS_API_BASE}/net/models?limit=${limit}`,
+        {
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        }
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!upstream.ok) {
       console.error(`[developer-api] NAAP net/models returned ${upstream.status}`);

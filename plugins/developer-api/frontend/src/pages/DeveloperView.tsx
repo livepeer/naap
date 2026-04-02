@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { Card, Badge, Modal } from '@naap/ui';
+import type { NetworkModel } from '@naap/plugin-sdk';
 
 type TabId = 'models' | 'api-keys' | 'usage' | 'docs';
 
@@ -83,16 +84,6 @@ interface ProjectInfo {
   id: string;
   name: string;
   isDefault: boolean;
-}
-
-interface NetworkModel {
-  Pipeline: string;
-  Model: string;
-  WarmOrchCount: number;
-  TotalCapacity: number;
-  PriceMinWeiPerPixel: number;
-  PriceMaxWeiPerPixel: number;
-  PriceAvgWeiPerPixel: number;
 }
 
 async function fetchCsrfToken(): Promise<string> {
@@ -358,9 +349,22 @@ export const DeveloperView: React.FC = () => {
   const loadModalData = useCallback(async () => {
     setModalDataLoading(true);
     try {
+      const [projectsRes, bpRes] = await Promise.all([
+        fetch('/api/v1/developer/projects'),
+        fetch('/api/v1/billing-providers'),
+      ]);
+      if (!projectsRes.ok || !bpRes.ok) {
+        console.error(
+          'Failed to load modal data:',
+          `projects HTTP ${projectsRes.status}, billing HTTP ${bpRes.status}`,
+        );
+        setProjects([]);
+        setBillingProviders([]);
+        return;
+      }
       const [projectsJson, bpJson] = await Promise.all([
-        fetch('/api/v1/developer/projects').then(r => r.json()),
-        fetch('/api/v1/billing-providers').then(r => r.json()),
+        projectsRes.json(),
+        bpRes.json(),
       ]);
       const projectList: ProjectInfo[] = (projectsJson.data ?? projectsJson).projects || [];
       const providerList: BillingProviderInfo[] = (bpJson.data ?? bpJson).providers || [];
@@ -374,6 +378,8 @@ export const DeveloperView: React.FC = () => {
       }
     } catch (err) {
       console.error('Failed to load modal data:', err);
+      setProjects([]);
+      setBillingProviders([]);
     } finally {
       setModalDataLoading(false);
     }

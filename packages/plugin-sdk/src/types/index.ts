@@ -8,6 +8,7 @@
 
 export * from './manifest.js';
 export * from './context.js';
+export * from './network-model.js';
 
 // Export all integration types (no longer has duplicate option types)
 export * from './integrations.js';

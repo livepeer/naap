@@ -7,24 +7,20 @@
  */
 
 import type { NetworkModel } from './types.js';
-import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
 import { cachedFetch, TTL } from './cache.js';
-
-async function naapGet<T>(path: string, params?: Record<string, string>): Promise<T> {
-  const url = new URL(naapApiUpstreamUrl(path));
-  if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url.toString(), { next: { revalidate: 60 } });
-  if (!res.ok) throw new Error(`[facade/network-data] ${path} returned HTTP ${res.status}`);
-  return res.json() as Promise<T>;
-}
+import { naapGet } from './naap-get.js';
 
 /**
  * All pipeline/model rows from /v1/net/models.
  * Used by the network-models resolver.
  */
 export function getRawNetModels(): Promise<NetworkModel[]> {
+  const revalidateSec = Math.floor(TTL.NET_MODELS / 1000);
   return cachedFetch('facade:raw:net-models', TTL.NET_MODELS, () =>
-    naapGet<NetworkModel[]>('net/models', { limit: '200' })
+    naapGet<NetworkModel[]>('net/models', { limit: '200' }, {
+      next: { revalidate: revalidateSec },
+      errorLabel: 'network-data',
+    })
   );
 }
 

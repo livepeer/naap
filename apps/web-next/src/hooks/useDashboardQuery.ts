@@ -92,6 +92,7 @@ export function useDashboardQuery<T = Record<string, unknown>>(
   const fetchData = useCallback(async () => {
     if (!mountedRef.current) return;
     setLoading(true);
+    let retryScheduled = false;
 
     try {
       const request: DashboardQueryRequest = {
@@ -139,6 +140,7 @@ export function useDashboardQuery<T = Record<string, unknown>>(
           retryTimerRef.current = setTimeout(() => {
             if (mountedRef.current) fetchData();
           }, delay);
+          retryScheduled = true;
           return; // Keep loading=true, don't set error yet
         }
         // All retries exhausted — permanent: no provider
@@ -155,7 +157,7 @@ export function useDashboardQuery<T = Record<string, unknown>>(
         // Do not clear data — keep stale dashboard visible under RefreshWrap
       }
     } finally {
-      if (mountedRef.current) {
+      if (mountedRef.current && !retryScheduled) {
         setLoading(false);
       }
     }

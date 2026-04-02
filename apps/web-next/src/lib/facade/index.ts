@@ -132,7 +132,9 @@ export async function getNetworkModels(opts: { limit?: number }): Promise<{
   if (USE_STUBS) {
     const all = stubs.networkModels;
     const models =
-      opts.limit === undefined ? all : all.slice(0, Math.max(0, opts.limit));
+      opts.limit === undefined
+        ? all
+        : all.slice(0, Math.max(0, Math.floor(opts.limit)));
     return { models, total: all.length };
   }
   return resolveNetworkModels(opts);

@@ -9,9 +9,9 @@
  */
 
 import type { DashboardPipelineUsage } from '@naap/plugin-sdk';
-import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
 import { PIPELINE_COLOR, DEFAULT_PIPELINE_COLOR } from '@/lib/dashboard/pipeline-config';
 import { cachedFetch, TTL } from '../cache.js';
+import { naapGet } from '../naap-get.js';
 
 interface DashboardPipelineRow {
   name: string;
@@ -20,23 +20,19 @@ interface DashboardPipelineRow {
   avgFps: number;
 }
 
-async function naapGet<T>(path: string, params: Record<string, string>): Promise<T> {
-  const url = new URL(naapApiUpstreamUrl(path));
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const res = await fetch(url.toString(), { next: { revalidate: 60 } });
-  if (!res.ok) throw new Error(`[facade/pipelines] ${path} returned HTTP ${res.status}`);
-  return res.json() as Promise<T>;
-}
-
 export async function resolvePipelines(opts: { limit?: number; timeframe?: string }): Promise<DashboardPipelineUsage[]> {
   const limit = opts.limit ?? 5;
   const parsed = parseInt(opts.timeframe ?? '24', 10);
   const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
   const window = `${hours}h`;
+  const revalidateSec = Math.floor(TTL.PIPELINES / 1000);
   return cachedFetch(`facade:pipelines:${limit}:${hours}`, TTL.PIPELINES, async () => {
     const rows = await naapGet<DashboardPipelineRow[]>('dashboard/pipelines', {
       limit: String(limit),
       window,
+    }, {
+      next: { revalidate: revalidateSec },
+      errorLabel: 'pipelines',
     });
     return rows.map((r): DashboardPipelineUsage => ({
       name: r.name,
