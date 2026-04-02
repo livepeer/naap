@@ -1111,13 +1111,13 @@ export function OverviewContent(props: OverviewContentProps) {
 
     let cancelled = false;
     fetch('/api/v1/network/capacity')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body: { capacityByPipelineModel?: Record<string, number> } | null) => {
+      ?.then((res) => (res.ok ? res.json() : null))
+      ?.then((body: { capacityByPipelineModel?: Record<string, number> } | null) => {
         if (cancelled || !body?.capacityByPipelineModel || typeof body.capacityByPipelineModel !== 'object') return;
         setNetCapacity(body.capacityByPipelineModel);
         lastFetchedNetCapacityKeyRef.current = key;
       })
-      .catch(() => {});
+      ?.catch(() => {});
     return () => { cancelled = true; };
   }, [prefsReady, rtLoading, lbLoading, pipelineCatalog, pricing]);
 
@@ -1130,12 +1130,12 @@ export function OverviewContent(props: OverviewContentProps) {
     liveVideoCapacityModelsRef.current = modelsKey;
     let cancelled = false;
     fetch(`/api/v1/network/live-video-capacity?models=${encodeURIComponent(liveVideoEntry.models.join(','))}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body: { capacityByModel?: Record<string, number> } | null) => {
+      ?.then((res) => (res.ok ? res.json() : null))
+      ?.then((body: { capacityByModel?: Record<string, number> } | null) => {
         if (cancelled || !body?.capacityByModel || typeof body.capacityByModel !== 'object') return;
         setLiveVideoCapacity(body.capacityByModel);
       })
-      .catch(() => { if (!cancelled) liveVideoCapacityModelsRef.current = ''; });
+      ?.catch(() => { if (!cancelled) liveVideoCapacityModelsRef.current = ''; });
     return () => { cancelled = true; };
   }, [prefsReady, pipelineCatalog]);
 
@@ -1144,12 +1144,12 @@ export function OverviewContent(props: OverviewContentProps) {
     const { start, end } = getTimeframeRangeIso(timeframe);
     let cancelled = false;
     fetch(`/api/v1/network/perf-by-model?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body: { fpsByPipelineModel?: Record<string, number> } | null) => {
+      ?.then((res) => (res.ok ? res.json() : null))
+      ?.then((body: { fpsByPipelineModel?: Record<string, number> } | null) => {
         if (cancelled || !body?.fpsByPipelineModel || typeof body.fpsByPipelineModel !== 'object') return;
         setModelFpsByPipelineModel(body.fpsByPipelineModel);
       })
-      .catch(() => {});
+      ?.catch(() => {});
     return () => { cancelled = true; };
   }, [prefsReady, timeframe]);
 

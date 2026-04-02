@@ -50,14 +50,12 @@ export interface UsePublicDashboardResult {
 
 const API = '/api/v1/dashboard';
 
-async function fetchJson<T>(url: string): Promise<T | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Request to ${url} failed with status ${res.status}`);
   }
+  return (await res.json()) as T;
 }
 
 function timeframeToPeriod(tf: string): string {
@@ -84,51 +82,60 @@ export function usePublicDashboard(
     jobFeedConnected: false,
   });
   const [loading, setLoading] = useState(!skip);
+  const [hasFetched, setHasFetched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
-  const hasFetchedRef = useRef(false);
 
   const fetchAll = useCallback(async () => {
     if (!mountedRef.current) return;
     setLoading(true);
 
-    try {
-      const period = timeframeToPeriod(timeframe);
-      const [kpi, pipelines, catalog, orchestrators, protocol, gpuCap, pricing, fees, jobFeedRaw] =
-        await Promise.all([
-          fetchJson<DashboardKPI>(`${API}/kpi?timeframe=${timeframe}`),
-          fetchJson<DashboardPipelineUsage[]>(`${API}/pipelines?timeframe=${timeframe}&limit=50`),
-          fetchJson<DashboardPipelineCatalogEntry[]>(`${API}/pipeline-catalog`),
-          fetchJson<DashboardOrchestrator[]>(`${API}/orchestrators?period=${period}`),
-          fetchJson<DashboardProtocol>(`${API}/protocol`),
-          fetchJson<DashboardGPUCapacity>(`${API}/gpu-capacity?timeframe=${timeframe}`),
-          fetchJson<DashboardPipelinePricing[]>(`${API}/pricing`),
-          fetchJson<DashboardFeesInfo>(`${API}/fees?days=180`),
-          fetchJson<{ streams: JobFeedEntry[]; queryFailed?: boolean }>(`${API}/job-feed`),
-        ]);
+    const period = timeframeToPeriod(timeframe);
+    const settled = await Promise.allSettled([
+      fetchJson<DashboardKPI>(`${API}/kpi?timeframe=${timeframe}`),
+      fetchJson<DashboardPipelineUsage[]>(`${API}/pipelines?timeframe=${timeframe}&limit=50`),
+      fetchJson<DashboardPipelineCatalogEntry[]>(`${API}/pipeline-catalog`),
+      fetchJson<DashboardOrchestrator[]>(`${API}/orchestrators?period=${period}`),
+      fetchJson<DashboardProtocol>(`${API}/protocol`),
+      fetchJson<DashboardGPUCapacity>(`${API}/gpu-capacity?timeframe=${timeframe}`),
+      fetchJson<DashboardPipelinePricing[]>(`${API}/pricing`),
+      fetchJson<DashboardFeesInfo>(`${API}/fees?days=180`),
+      fetchJson<{ streams: JobFeedEntry[]; queryFailed?: boolean }>(`${API}/job-feed`),
+    ]);
 
-      if (!mountedRef.current) return;
+    if (!mountedRef.current) return;
 
-      setData({
-        kpi: kpi,
-        pipelines: pipelines ?? [],
-        pipelineCatalog: catalog ?? [],
-        orchestrators: orchestrators ?? [],
-        protocol: protocol,
-        gpuCapacity: gpuCap,
-        pricing: pricing ?? [],
-        fees: fees,
-        jobs: jobFeedRaw?.streams ?? [],
-        jobFeedConnected: !!(jobFeedRaw && !jobFeedRaw.queryFailed),
-      });
-      setError(null);
-      hasFetchedRef.current = true;
-    } catch (err) {
-      if (!mountedRef.current) return;
-      setError((err as Error)?.message ?? 'Failed to fetch dashboard data');
-    } finally {
-      if (mountedRef.current) setLoading(false);
-    }
+    const val = <T,>(r: PromiseSettledResult<T>): T | null =>
+      r.status === 'fulfilled' ? r.value : null;
+
+    const [kpi, pipelines, catalog, orchestrators, protocol, gpuCap, pricing, fees, jobFeedRaw] =
+      settled.map(val) as [
+        DashboardKPI | null, DashboardPipelineUsage[] | null,
+        DashboardPipelineCatalogEntry[] | null, DashboardOrchestrator[] | null,
+        DashboardProtocol | null, DashboardGPUCapacity | null,
+        DashboardPipelinePricing[] | null, DashboardFeesInfo | null,
+        { streams: JobFeedEntry[]; queryFailed?: boolean } | null,
+      ];
+
+    const failures = settled
+      .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+      .map((r) => (r.reason as Error)?.message ?? 'Unknown error');
+
+    setData({
+      kpi,
+      pipelines: pipelines ?? [],
+      pipelineCatalog: catalog ?? [],
+      orchestrators: orchestrators ?? [],
+      protocol,
+      gpuCapacity: gpuCap,
+      pricing: pricing ?? [],
+      fees,
+      jobs: jobFeedRaw?.streams ?? [],
+      jobFeedConnected: !!(jobFeedRaw && !jobFeedRaw.queryFailed),
+    });
+    setError(failures.length > 0 ? failures.join('; ') : null);
+    setHasFetched(true);
+    setLoading(false);
   }, [timeframe]);
 
   // Initial fetch
@@ -138,26 +145,29 @@ export function usePublicDashboard(
     return () => { mountedRef.current = false; };
   }, [fetchAll, skip]);
 
-  // Job feed polling (only polls job-feed, not everything)
+  // Job feed polling — starts after the initial fetch completes (hasFetched is reactive)
   useEffect(() => {
-    if (skip || !jobFeedPollInterval || jobFeedPollInterval <= 0) return;
-    if (!hasFetchedRef.current) return;
+    if (skip || !hasFetched || !jobFeedPollInterval || jobFeedPollInterval <= 0) return;
 
     const id = setInterval(async () => {
-      const result = await fetchJson<{ streams: JobFeedEntry[]; queryFailed?: boolean }>(`${API}/job-feed`);
-      if (mountedRef.current && result) {
-        setData(prev => ({
-          ...prev,
-          jobs: result.streams ?? [],
-          jobFeedConnected: !result.queryFailed,
-        }));
+      try {
+        const result = await fetchJson<{ streams: JobFeedEntry[]; queryFailed?: boolean }>(`${API}/job-feed`);
+        if (mountedRef.current && result) {
+          setData(prev => ({
+            ...prev,
+            jobs: result.streams ?? [],
+            jobFeedConnected: !result.queryFailed,
+          }));
+        }
+      } catch {
+        // polling failure is non-critical; next tick will retry
       }
     }, jobFeedPollInterval);
 
     return () => clearInterval(id);
-  }, [skip, jobFeedPollInterval]);
+  }, [skip, hasFetched, jobFeedPollInterval]);
 
-  const refreshing = loading && hasFetchedRef.current;
+  const refreshing = loading && hasFetched;
 
   return { data, loading, refreshing, error, refetch: fetchAll };
 }
