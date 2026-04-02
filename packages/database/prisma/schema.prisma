@@ -457,15 +457,16 @@ model PluginPackage {
   rating        Float?
   deprecated    Boolean              @default(false)
   isCore        Boolean              @default(false)
-  publishStatus String               @default("draft")
-  publisherId   String?
-  publisher     Publisher?           @relation("PackagePublisher", fields: [publisherId], references: [id])
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
-  versions      PluginVersion[]
-  installations PluginInstallation[]
-  deployment    PluginDeployment?
-  reviews       PluginReview[]
+  publishStatus  String               @default("draft")
+  visibleToUsers Boolean              @default(true)
+  publisherId    String?
+  publisher      Publisher?           @relation("PackagePublisher", fields: [publisherId], references: [id])
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  versions       PluginVersion[]
+  installations  PluginInstallation[]
+  deployment     PluginDeployment?
+  reviews        PluginReview[]
 
   @@index([category])
   @@index([deprecated])
@@ -1821,16 +1822,17 @@ model GatewayUsageRecord {
 
 /// Pre-built connector template — synced from templates/*.json during deploy.
 model GatewayConnectorTemplate {
-  id            String   @id
-  name          String
-  description   String
-  icon          String   @default("")
-  category      String   @default("")
-  connector     Json
-  endpoints     Json
-  source        String   @default("builtin")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id             String   @id
+  name           String
+  description    String
+  icon           String   @default("")
+  category       String   @default("")
+  connector      Json
+  endpoints      Json
+  source         String   @default("builtin")
+  visibleToUsers Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@schema("plugin_service_gateway")
 }

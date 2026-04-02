@@ -1,12 +1,16 @@
 /**
  * Admin Core Plugins API
  *
- * GET  /api/v1/admin/plugins/core - List all plugins with isCore status
- * PUT  /api/v1/admin/plugins/core - Update which plugins are core
+ * GET  /api/v1/admin/plugins/core - List all plugins with isCore and visibleToUsers status
+ * PUT  /api/v1/admin/plugins/core - Update which plugins are core and/or hidden
  *
  * When a plugin is marked as core, a UserPluginPreference record is
  * automatically created for every existing user who doesn't have one,
  * ensuring the plugin is installed for all users.
+ *
+ * Visibility (visibleToUsers) controls whether non-admin users see the
+ * plugin in the sidebar and marketplace. Hidden plugins are still accessible
+ * to admin users.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -31,7 +35,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return errors.forbidden('Admin permission required');
     }
 
-    // Get all plugin packages with their core status
     const packages = await prisma.pluginPackage.findMany({
       where: { deprecated: false },
       select: {
@@ -42,6 +45,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         category: true,
         icon: true,
         isCore: true,
+        visibleToUsers: true,
       },
       orderBy: [{ isCore: 'desc' }, { displayName: 'asc' }],
     });
@@ -71,7 +75,10 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     }
 
     const body = await request.json();
-    const { corePluginNames } = body as { corePluginNames: string[] };
+    const { corePluginNames, hiddenPluginNames } = body as {
+      corePluginNames: string[];
+      hiddenPluginNames?: string[];
+    };
 
     if (!Array.isArray(corePluginNames)) {
       return errors.badRequest('corePluginNames must be an array of plugin names');
@@ -87,8 +94,8 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     // Determine newly added core plugins
     const newlyCore = corePluginNames.filter((name) => !previousCoreNames.has(name));
 
-    // Update all packages: set isCore=false for all, then isCore=true for selected
-    await prisma.$transaction([
+    // Update core status and visibility in a single transaction
+    const txOps = [
       prisma.pluginPackage.updateMany({
         where: { isCore: true },
         data: { isCore: false },
@@ -101,7 +108,27 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
             }),
           ]
         : []),
-    ]);
+    ];
+
+    // Update visibility if hiddenPluginNames is provided
+    if (Array.isArray(hiddenPluginNames)) {
+      txOps.push(
+        prisma.pluginPackage.updateMany({
+          where: { deprecated: false },
+          data: { visibleToUsers: true },
+        }),
+      );
+      if (hiddenPluginNames.length > 0) {
+        txOps.push(
+          prisma.pluginPackage.updateMany({
+            where: { name: { in: hiddenPluginNames } },
+            data: { visibleToUsers: false },
+          }),
+        );
+      }
+    }
+
+    await prisma.$transaction(txOps);
 
     // Auto-install newly-core plugins for all existing users who don't have them
     if (newlyCore.length > 0) {
@@ -143,14 +170,23 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         category: true,
         icon: true,
         isCore: true,
+        visibleToUsers: true,
       },
       orderBy: [{ isCore: 'desc' }, { displayName: 'asc' }],
     });
 
+    const parts: string[] = [];
+    if (newlyCore.length > 0) {
+      parts.push(`Auto-installed ${newlyCore.join(', ')} for all users.`);
+    }
+    if (Array.isArray(hiddenPluginNames) && hiddenPluginNames.length > 0) {
+      parts.push(`${hiddenPluginNames.length} plugin(s) hidden from non-admin users.`);
+    }
+
     return success({
       plugins: updated,
       autoInstalled: newlyCore,
-      message: `Core plugins updated. ${newlyCore.length > 0 ? `Auto-installed ${newlyCore.join(', ')} for all users.` : ''}`,
+      message: parts.length > 0 ? parts.join(' ') : 'Plugin configuration updated.',
     });
   } catch (err) {
     console.error('Error updating core plugins:', err);

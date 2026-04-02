@@ -52,9 +52,13 @@ export interface ConnectorTemplate {
   endpoints: ConnectorTemplateEndpoint[];
 }
 
-export async function loadConnectorTemplates(): Promise<ConnectorTemplate[]> {
+export async function loadConnectorTemplates(
+  options?: { visibleOnly?: boolean }
+): Promise<ConnectorTemplate[]> {
   try {
+    const where = options?.visibleOnly ? { visibleToUsers: true } : {};
     const rows = await prisma.gatewayConnectorTemplate.findMany({
+      where,
       orderBy: { name: 'asc' },
     });
 

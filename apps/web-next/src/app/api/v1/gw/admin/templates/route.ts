@@ -8,7 +8,8 @@ export const runtime = 'nodejs';
 
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
-import { success, errors } from '@/lib/api/response';
+import { validateSession } from '@/lib/api/auth';
+import { success, errors, getAuthToken } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard';
 import {
   loadConnectorTemplates,
@@ -18,8 +19,17 @@ import {
 import { invalidateConnectorCache } from '@/lib/gateway/resolve';
 
 /** List all available connector templates with basic metadata. */
-export async function GET() {
-  const templates = await loadConnectorTemplates();
+export async function GET(request: NextRequest) {
+  let isAdmin = false;
+  const token = getAuthToken(request);
+  if (token) {
+    const sessionUser = await validateSession(token);
+    if (sessionUser) {
+      isAdmin = sessionUser.roles?.includes('system:admin') ?? false;
+    }
+  }
+
+  const templates = await loadConnectorTemplates({ visibleOnly: !isAdmin });
 
   const summaries = templates.map((t) => ({
     id: t.id,
