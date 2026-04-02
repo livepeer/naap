@@ -185,12 +185,12 @@ export function middleware(request: NextRequest) {
     return response;
   }
 
-  // Handle root path - always redirect
+  // Handle root path
   if (pathname === '/') {
     if (token) {
       return NextResponse.redirect(new URL('/dashboard', request.url));
     }
-    return NextResponse.redirect(new URL('/login', request.url));
+    // Unauthenticated: show public overview (fall through to NextResponse.next())
   }
 
   // Check if trying to access protected route without auth

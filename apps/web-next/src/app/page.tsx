@@ -1,55 +1,85 @@
-import Link from 'next/link';
+'use client';
 
-export default function HomePage() {
+import { useEffect, useState } from 'react';
+import { PublicTopBar } from '@/components/layout/public-top-bar';
+import { OverviewContent } from '@/components/dashboard/overview-content';
+import { usePublicDashboard } from '@/hooks/usePublicDashboard';
+
+const POLL_INTERVAL_KEY = 'naap_dashboard_poll_interval';
+const TIMEFRAME_KEY = 'naap_dashboard_timeframe';
+const DEFAULT_POLL_INTERVAL = 15_000;
+const DEFAULT_TIMEFRAME = '12';
+
+export default function PublicOverviewPage() {
+  const [jobFeedPollInterval, setJobFeedPollInterval] = useState(DEFAULT_POLL_INTERVAL);
+  const [timeframe, setTimeframe] = useState(DEFAULT_TIMEFRAME);
+  const [prefsReady, setPrefsReady] = useState(false);
+
+  useEffect(() => {
+    const storedPoll = localStorage.getItem(POLL_INTERVAL_KEY);
+    if (storedPoll) {
+      const parsed = Number(storedPoll);
+      if ([5_000, 15_000, 30_000, 90_000].includes(parsed)) setJobFeedPollInterval(parsed);
+    }
+    const storedTf = localStorage.getItem(TIMEFRAME_KEY);
+    if (storedTf && ['1', '6', '12', '18', '24'].includes(storedTf)) setTimeframe(storedTf);
+    setPrefsReady(true);
+  }, []);
+
+  const { data, loading, refreshing } = usePublicDashboard({
+    timeframe,
+    jobFeedPollInterval,
+    skip: !prefsReady,
+  });
+
+  const handleJobFeedPollIntervalChange = (ms: number) => {
+    setJobFeedPollInterval(ms);
+    localStorage.setItem(POLL_INTERVAL_KEY, String(ms));
+  };
+
+  const handleTimeframeChange = (tf: string) => {
+    setTimeframe(tf);
+    localStorage.setItem(TIMEFRAME_KEY, tf);
+  };
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-gradient-to-b from-background to-muted">
-      <div className="z-10 max-w-5xl w-full items-center justify-center text-center">
-        <h1 className="text-6xl font-bold tracking-tight mb-6">
-          NaaP Platform
-        </h1>
-        <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-          Network as a Platform - Decentralized Infrastructure Management for the Next Generation
-        </p>
-
-        <div className="flex gap-4 justify-center mb-12">
-          <Link
-            href="/login"
-            className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 transition-opacity"
-          >
-            Get Started
-          </Link>
-          <Link
-            href="/docs"
-            className="px-6 py-3 border border-border rounded-lg font-medium hover:bg-muted transition-colors"
-          >
-            Documentation
-          </Link>
+    <div className="flex flex-col min-h-screen bg-background">
+      <PublicTopBar />
+      <main className="flex-1 p-2">
+        <div className="rounded-lg bg-card border border-border/60">
+          <div className="px-5 py-4">
+            <OverviewContent
+              isPublic
+              kpi={data.kpi}
+              pipelines={data.pipelines}
+              pipelineCatalog={data.pipelineCatalog}
+              orchestrators={data.orchestrators}
+              protocol={data.protocol}
+              gpuCapacity={data.gpuCapacity}
+              pricing={data.pricing}
+              fees={data.fees}
+              jobs={data.jobs}
+              jobFeedConnected={data.jobFeedConnected}
+              jobFeedPollInterval={jobFeedPollInterval}
+              onJobFeedPollIntervalChange={handleJobFeedPollIntervalChange}
+              jobFeedMeta={null}
+              jobFeedError={null}
+              timeframe={timeframe}
+              onTimeframeChange={handleTimeframeChange}
+              lbLoading={loading}
+              rtLoading={loading}
+              feesLoading={loading}
+              lbRefreshing={refreshing}
+              rtRefreshing={refreshing}
+              feesRefreshing={refreshing}
+              lbError={null}
+              rtError={null}
+              feesError={null}
+              prefsReady={prefsReady}
+            />
+          </div>
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
-          <FeatureCard
-            title="Gateway Management"
-            description="Monitor and manage your AI gateways with real-time analytics and automated scaling."
-          />
-          <FeatureCard
-            title="Plugin Ecosystem"
-            description="Extend functionality with a rich ecosystem of plugins for video, AI, and more."
-          />
-          <FeatureCard
-            title="Vercel-Ready"
-            description="Deploy globally with edge functions, serverless APIs, and zero configuration."
-          />
-        </div>
-      </div>
-    </main>
-  );
-}
-
-function FeatureCard({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="p-6 border border-border rounded-xl bg-card hover:border-primary/50 transition-colors">
-      <h3 className="text-lg font-semibold mb-2">{title}</h3>
-      <p className="text-muted-foreground text-sm">{description}</p>
+      </main>
     </div>
   );
 }

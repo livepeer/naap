@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ArrowLeft } from 'lucide-react';
 
 function formatOAuthError(errorCode: string): string {
   const errorMessages: Record<string, string> = {
@@ -54,6 +54,10 @@ export default function LoginForm() {
 
   return (
     <div className="w-full max-w-sm px-4">
+      <Link href="/" className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors mb-6">
+        <ArrowLeft className="w-3.5 h-3.5" />
+        Back to Overview
+      </Link>
       {/* Livepeer textmark */}
       <div className="text-center mb-8">
         <div className="inline-block vhs-scanlines">
