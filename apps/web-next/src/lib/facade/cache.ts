@@ -46,18 +46,18 @@ export function cachedFetch<T>(key: string, ttlMs: number, fetcher: () => Promis
   return promise;
 }
 
-/** TTL constants (seconds) — keep in sync with data-fetching-reference.md */
+/** TTL constants in milliseconds for {@link cachedFetch} — keep in sync with data-fetching-reference.md */
 export const TTL = {
-  KPI: 180,
-  PIPELINES: 180,
-  PIPELINE_CATALOG: 900,
-  ORCHESTRATORS: 300,
-  GPU_CAPACITY: 60,
-  PRICING: 300,
-  JOB_FEED: 10,
-  NETWORK_MODELS: 60,
+  KPI: 180 * 1000,
+  PIPELINES: 180 * 1000,
+  PIPELINE_CATALOG: 900 * 1000,
+  ORCHESTRATORS: 300 * 1000,
+  GPU_CAPACITY: 60 * 1000,
+  PRICING: 300 * 1000,
+  JOB_FEED: 10 * 1000,
+  NETWORK_MODELS: 60 * 1000,
   /** Shared raw /v1/net/models cache — used by network-models resolver */
-  NET_MODELS: 300,
+  NET_MODELS: 300 * 1000,
   /** api.daydream.live /v1/capacity per-model idle container count */
-  DAYDREAM_CAPACITY: 60,
+  DAYDREAM_CAPACITY: 60 * 1000,
 } as const;

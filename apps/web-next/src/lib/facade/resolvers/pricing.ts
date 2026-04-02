@@ -5,7 +5,7 @@
  * orchestrators) and converts to human-readable DashboardPipelinePricing[].
  *
  * Price conversion: price = priceAvgWeiPerUnit / 1e12
- * outputPerDollar: assumes ETH reference price of $3000
+ * outputPerDollar: uses ETH_USD_PRICE (USD per ETH) or defaults to 3000
  *
  * Source:
  *   GET /v1/dashboard/pricing
@@ -34,9 +34,17 @@ const PIPELINE_UNIT: Record<string, string> = {
   'text-to-speech': 'second',
 };
 
-function computeOutputPerDollar(avgWei: number, unit: string): string {
-  if (avgWei <= 0) return '';
-  const unitsPerDollar = 1e18 / (3000 * avgWei);
+function parseEthUsdReference(): number {
+  const raw = process.env.ETH_USD_PRICE?.trim();
+  if (!raw) return 3000;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 3000;
+  return n;
+}
+
+function computeOutputPerDollar(avgWei: number, unit: string, ethUsd: number): string {
+  if (avgWei <= 0 || !Number.isFinite(ethUsd) || ethUsd <= 0) return '';
+  const unitsPerDollar = 1e18 / (ethUsd * avgWei);
   if (unitsPerDollar >= 1e9) return `~${(unitsPerDollar / 1e9).toFixed(0)}B ${unit}s`;
   if (unitsPerDollar >= 1e6) return `~${(unitsPerDollar / 1e6).toFixed(0)}M ${unit}s`;
   if (unitsPerDollar >= 1e3) return `~${(unitsPerDollar / 1e3).toFixed(0)}K ${unit}s`;
@@ -50,7 +58,8 @@ async function naapGet<T>(path: string): Promise<T> {
 }
 
 export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
-  return cachedFetch('facade:pricing', TTL.PRICING * 1000, async () => {
+  return cachedFetch('facade:pricing', TTL.PRICING, async () => {
+    const ethUsd = parseEthUsdReference();
     const [rows, netCapacity] = await Promise.all([
       naapGet<ApiPipelinePricing[]>('dashboard/pricing'),
       resolveNetCapacity().catch((err) => {
@@ -74,7 +83,7 @@ export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
           unit,
           price,
           pixelsPerUnit: r.pixelsPerUnit > 0 ? r.pixelsPerUnit : null,
-          outputPerDollar: computeOutputPerDollar(r.priceAvgWeiPerUnit, unit),
+          outputPerDollar: computeOutputPerDollar(r.priceAvgWeiPerUnit, unit, ethUsd),
           capacity,
         };
       })

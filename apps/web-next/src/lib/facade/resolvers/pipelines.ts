@@ -28,10 +28,16 @@ async function naapGet<T>(path: string, params: Record<string, string>): Promise
   return res.json() as Promise<T>;
 }
 
-export async function resolvePipelines(opts: { limit?: number }): Promise<DashboardPipelineUsage[]> {
+export async function resolvePipelines(opts: { limit?: number; timeframe?: string }): Promise<DashboardPipelineUsage[]> {
   const limit = opts.limit ?? 5;
-  return cachedFetch(`facade:pipelines:${limit}`, TTL.PIPELINES * 1000, async () => {
-    const rows = await naapGet<DashboardPipelineRow[]>('dashboard/pipelines', { limit: String(limit) });
+  const parsed = parseInt(opts.timeframe ?? '24', 10);
+  const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
+  const window = `${hours}h`;
+  return cachedFetch(`facade:pipelines:${limit}:${hours}`, TTL.PIPELINES, async () => {
+    const rows = await naapGet<DashboardPipelineRow[]>('dashboard/pipelines', {
+      limit: String(limit),
+      window,
+    });
     return rows.map((r): DashboardPipelineUsage => ({
       name: r.name,
       sessions: r.sessions,

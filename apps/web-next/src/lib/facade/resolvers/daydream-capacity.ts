@@ -17,7 +17,7 @@ interface DaydreamCapacityResponse {
 }
 
 async function fetchOneModel(model: string): Promise<number> {
-  return cachedFetch(`facade:daydream-capacity:${model}`, TTL.DAYDREAM_CAPACITY * 1000, async () => {
+  return cachedFetch(`facade:daydream-capacity:${model}`, TTL.DAYDREAM_CAPACITY, async () => {
     const url = new URL(DAYDREAM_CAPACITY_BASE_URL);
     url.searchParams.set('models', model);
     const res = await fetch(url.toString(), { next: { revalidate: 60 } });

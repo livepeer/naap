@@ -14,7 +14,7 @@
 import type { DashboardProtocol } from '@naap/plugin-sdk';
 import { createPublicClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
-import { cachedFetch, TTL } from '../cache.js';
+import { cachedFetch } from '../cache.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,7 +60,6 @@ export async function resolveProtocol(): Promise<DashboardProtocol> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query }),
       signal: AbortSignal.timeout(60_000),
-      // @ts-expect-error — Next.js extended fetch options
       next: { revalidate: 60 },
     });
 
@@ -93,7 +92,10 @@ export async function resolveProtocol(): Promise<DashboardProtocol> {
     try {
       const rpcUrl = process.env.L1_RPC_URL?.trim();
       if (rpcUrl) {
-        const client = createPublicClient({ chain: mainnet, transport: http(rpcUrl) });
+        const client = createPublicClient({
+          chain: mainnet,
+          transport: http(rpcUrl, { timeout: 60_000 }),
+        });
         currentBlock = Number(await client.getBlockNumber());
       }
     } catch (err) {

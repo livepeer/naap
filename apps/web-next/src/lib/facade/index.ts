@@ -36,9 +36,9 @@ import { resolveOrchestrators } from './resolvers/orchestrators.js';
 import { resolveGPUCapacity } from './resolvers/gpu-capacity.js';
 import { resolvePricing } from './resolvers/pricing.js';
 import { resolveNetworkModels } from './resolvers/network-models.js';
-import { resolveNetCapacity } from './resolvers/net-capacity';
-import { resolvePerfByModel } from './resolvers/perf-by-model';
-import { resolveDaydreamCapacity } from './resolvers/daydream-capacity';
+import { resolveNetCapacity } from './resolvers/net-capacity.js';
+import { resolvePerfByModel } from './resolvers/perf-by-model.js';
+import { resolveDaydreamCapacity } from './resolvers/daydream-capacity.js';
 import { resolveProtocol } from './resolvers/protocol.js';
 import { resolveFees } from './resolvers/fees.js';
 import { resolveJobFeed } from './resolvers/job-feed.js';
@@ -58,8 +58,20 @@ export async function getDashboardPipelines(opts: {
   limit?: number;
   timeframe?: string;
 }): Promise<DashboardPipelineUsage[]> {
-  if (USE_STUBS) return stubs.pipelines.slice(0, opts.limit ?? 5);
-  return resolvePipelines({ limit: opts.limit });
+  if (USE_STUBS) {
+    const lim = opts.limit ?? 5;
+    const parsed = parseInt(opts.timeframe ?? '24', 10);
+    const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
+    const factor = hours / 24;
+    return stubs.pipelines
+      .map((p) => ({
+        ...p,
+        mins: Math.round(p.mins * factor),
+        sessions: Math.max(0, Math.round(p.sessions * factor)),
+      }))
+      .slice(0, lim);
+  }
+  return resolvePipelines({ limit: opts.limit, timeframe: opts.timeframe });
 }
 
 export async function getDashboardPipelineCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
@@ -119,8 +131,9 @@ export async function getNetworkModels(opts: { limit?: number }): Promise<{
 }> {
   if (USE_STUBS) {
     const all = stubs.networkModels;
-    const lim = opts.limit ?? 50;
-    return { models: all.slice(0, lim), total: all.length };
+    const models =
+      opts.limit === undefined ? all : all.slice(0, Math.max(0, opts.limit));
+    return { models, total: all.length };
   }
   return resolveNetworkModels(opts);
 }

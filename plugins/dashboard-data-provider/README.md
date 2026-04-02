@@ -45,8 +45,7 @@ The plugin uses `createDashboardProvider()` from the SDK, which:
 
 | File | Purpose |
 |---|---|
-| `frontend/src/provider.ts` | Registers all dashboard resolvers (live API + fallbacks) |
-| `frontend/src/provider.ts` | BFF thin adapter — fetches widget-ready JSON from `/api/v1/dashboard/*` |
+| `frontend/src/provider.ts` | Registers dashboard resolvers and fetches widget JSON from `/api/v1/dashboard/*` |
 | `frontend/src/job-feed-emitter.ts` | Simulates live job events |
 | `frontend/src/data/*.ts` | Pipeline config and seed data |
 | `frontend/src/App.tsx` | Plugin entry — registers providers on mount |

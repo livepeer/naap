@@ -57,10 +57,17 @@ function pct(v: number | null): number | null {
   return v !== null ? Math.round(v * 1000) / 10 : null;
 }
 
-export async function resolveOrchestrators(_opts: { period?: string }): Promise<DashboardOrchestrator[]> {
-  return cachedFetch('facade:orchestrators', TTL.ORCHESTRATORS * 1000, async () => {
+function normalizeOrchestratorWindow(period: string | undefined): string {
+  const raw = (period ?? '24h').trim();
+  if (/^\d+$/.test(raw)) return `${raw}h`;
+  return raw;
+}
+
+export async function resolveOrchestrators(opts: { period?: string }): Promise<DashboardOrchestrator[]> {
+  const window = normalizeOrchestratorWindow(opts.period);
+  return cachedFetch(`facade:orchestrators:${window}`, TTL.ORCHESTRATORS, async () => {
     const [rows, uriMap] = await Promise.all([
-      naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window: '24h' }),
+      naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window }),
       fetchURIMap(),
     ]);
     return rows.map((r): DashboardOrchestrator => ({

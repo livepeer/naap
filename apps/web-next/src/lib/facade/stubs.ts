@@ -352,10 +352,10 @@ export const gpuCapacity: DashboardGPUCapacity = {
   activeGPUs: 67,
   availableCapacity: 1.0,
   models: [
-    { model: 'NVIDIA RTX 4090', count: 38 },
+    { model: 'NVIDIA RTX 4090', count: 36 },
     { model: 'NVIDIA RTX 3090', count: 18 },
-    { model: 'NVIDIA A100', count: 8 },
-    { model: 'NVIDIA RTX 4080', count: 3 },
+    { model: 'NVIDIA A100', count: 5 },
+    { model: 'NVIDIA RTX 4080', count: 8 },
   ],
   pipelineGPUs: [
     {
@@ -387,7 +387,7 @@ export const gpuCapacity: DashboardGPUCapacity = {
 // ---------------------------------------------------------------------------
 // Pricing — derived from real /v1/net/models data (2026-03-31)
 // price = PriceAvgWeiPerPixel / 1e12
-// outputPerDollar = 1e18 / (3000 * PriceAvgWeiPerPixel)
+// outputPerDollar = 1e18 / (ETH_USD_PRICE * PriceAvgWeiPerPixel) — see pricing resolver
 // ---------------------------------------------------------------------------
 
 export const pricing: DashboardPipelinePricing[] = [

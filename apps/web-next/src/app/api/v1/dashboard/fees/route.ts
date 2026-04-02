@@ -7,7 +7,17 @@ export const maxDuration = 60;
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;
   const daysStr = params.get('days');
-  const days = daysStr != null ? parseInt(daysStr, 10) : undefined;
+  let days: number | undefined;
+  if (daysStr !== null) {
+    const parsed = parseInt(daysStr, 10);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      return NextResponse.json(
+        { error: { code: 'BAD_REQUEST', message: 'Invalid days: must be a non-negative integer' } },
+        { status: 400 },
+      );
+    }
+    days = parsed;
+  }
 
   try {
     const result = await getDashboardFees({ days });

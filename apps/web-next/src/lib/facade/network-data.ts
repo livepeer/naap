@@ -23,7 +23,7 @@ async function naapGet<T>(path: string, params?: Record<string, string>): Promis
  * Used by the network-models resolver.
  */
 export function getRawNetModels(): Promise<NetworkModel[]> {
-  return cachedFetch('facade:raw:net-models', TTL.NET_MODELS * 1000, () =>
+  return cachedFetch('facade:raw:net-models', TTL.NET_MODELS, () =>
     naapGet<NetworkModel[]>('net/models', { limit: '200' })
   );
 }

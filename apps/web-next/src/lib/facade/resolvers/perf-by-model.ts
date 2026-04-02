@@ -23,8 +23,12 @@ export async function resolvePerfByModel(opts: {
   // Round to minute precision so nearby requests share the same cache entry.
   const cacheKey = `facade:perf-by-model:${start.slice(0, 16)}:${end.slice(0, 16)}`;
 
-  return cachedFetch(cacheKey, TTL.PIPELINES * 1000, async () => {
-    const rows = await naapGet<PerfByModelRow[]>('perf/by-model', { start, end });
+  return cachedFetch(cacheKey, TTL.PIPELINES, async () => {
+    const rawRows = await naapGet<PerfByModelRow[] | null | undefined>('perf/by-model', { start, end });
+    const rows = Array.isArray(rawRows) ? rawRows : [];
+    if (rawRows != null && !Array.isArray(rawRows)) {
+      console.warn('[facade/perf-by-model] unexpected non-array response, treating as empty');
+    }
     const out = new Map<string, number>();
 
     for (const row of rows) {

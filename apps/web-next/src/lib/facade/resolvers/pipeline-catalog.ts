@@ -95,7 +95,7 @@ function buildStableCatalog(
 }
 
 export async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
-  return cachedFetch('facade:pipeline-catalog', TTL.PIPELINE_CATALOG * 1000, async () => {
+  return cachedFetch('facade:pipeline-catalog', TTL.PIPELINE_CATALOG, async () => {
     const [netModels, warmCatalog] = await Promise.all([
       getRawNetModels(),
       fetchWarmCatalog(),

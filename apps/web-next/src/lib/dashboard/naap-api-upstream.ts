@@ -33,5 +33,7 @@ export function naapApiBaseLabel(): string {
  */
 export function naapApiUpstreamUrl(resourcePath: string): string {
   const rel = resourcePath.replace(/^\/+/, '');
-  return `${naapApiBaseUrl()}/${rel}`;
+  const base = naapApiBaseUrl();
+  if (!rel) return base;
+  return `${base}/${rel}`;
 }

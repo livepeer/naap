@@ -200,9 +200,9 @@ function normalizePipelineCatalog(rawRows: unknown[]): PipelineCatalogEntry[] {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEMAND_TTL = 60 * 60;     // 3600 seconds (1 hour)
-const SLA_TTL = 60 * 60;        // 3600 seconds (1 hour)
-const PIPELINES_TTL = 60 * 60;  // 3600 seconds (1 hour)
+const DEMAND_TTL = 180;   // seconds — align with raw-data doc / BFF expectations
+const SLA_TTL = 300;
+const PIPELINES_TTL = 900;
 
 // ---------------------------------------------------------------------------
 // In-process TTL cache
