@@ -7,7 +7,9 @@ export const maxDuration = 60;
 export async function GET(): Promise<NextResponse> {
   try {
     const result = await getDashboardProtocol();
-    return NextResponse.json(result);
+    const res = NextResponse.json(result);
+    res.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    return res;
   } catch (err) {
     console.error('[dashboard/protocol] error:', err);
     return NextResponse.json(

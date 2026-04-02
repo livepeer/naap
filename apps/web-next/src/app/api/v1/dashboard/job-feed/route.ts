@@ -8,11 +8,13 @@ export const revalidate = 10;
 export async function GET(): Promise<NextResponse> {
   try {
     const streams = await getDashboardJobFeed();
-    return NextResponse.json({
+    const res = NextResponse.json({
       streams,
       clickhouseConfigured: true,
       queryFailed: false,
     });
+    res.headers.set('Cache-Control', 'public, s-maxage=10, stale-while-revalidate=30');
+    return res;
   } catch (err) {
     console.error('[dashboard/job-feed] error:', err);
     return NextResponse.json({

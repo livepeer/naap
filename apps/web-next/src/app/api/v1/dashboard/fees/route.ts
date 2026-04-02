@@ -33,7 +33,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const result = await getDashboardFees({ days });
-    return NextResponse.json(result);
+    const res = NextResponse.json(result);
+    res.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=900');
+    return res;
   } catch (err) {
     console.error('[dashboard/fees] error:', err);
     return NextResponse.json(

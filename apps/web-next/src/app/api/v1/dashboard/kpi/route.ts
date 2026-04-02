@@ -10,7 +10,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const result = await getDashboardKPI({ timeframe });
-    return NextResponse.json(result);
+    const res = NextResponse.json(result);
+    res.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    return res;
   } catch (err) {
     console.error('[dashboard/kpi] error:', err);
     return NextResponse.json(

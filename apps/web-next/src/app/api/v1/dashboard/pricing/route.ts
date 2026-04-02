@@ -7,7 +7,9 @@ export const maxDuration = 60;
 export async function GET(): Promise<NextResponse> {
   try {
     const result = await getDashboardPricing();
-    return NextResponse.json(result);
+    const res = NextResponse.json(result);
+    res.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
+    return res;
   } catch (err) {
     console.error('[dashboard/pricing] error:', err);
     return NextResponse.json(

@@ -10,7 +10,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const result = await getDashboardOrchestrators({ period });
-    return NextResponse.json(result);
+    const res = NextResponse.json(result);
+    res.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
+    return res;
   } catch (err) {
     console.error('[dashboard/orchestrators] error:', err);
     return NextResponse.json(
