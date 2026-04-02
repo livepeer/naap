@@ -90,7 +90,7 @@ export const ApiKeysPage: React.FC = () => {
               <code className="flex-1 px-3 py-2 bg-bg-primary rounded text-xs text-text-primary font-mono break-all">{createdKey}</code>
               <button
                 onClick={() => navigator.clipboard.writeText(createdKey)}
-                className="px-3 py-2 bg-bg-tertiary hover:bg-bg-tertiary text-text-primary text-xs rounded shrink-0"
+                className="px-3 py-2 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-xs rounded shrink-0"
               >
                 Copy
               </button>

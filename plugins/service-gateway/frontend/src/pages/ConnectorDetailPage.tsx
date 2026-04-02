@@ -421,7 +421,7 @@ export const ConnectorDetailPage: React.FC = () => {
             <button
               onClick={handleTestConnection}
               disabled={testing}
-              className="px-3 py-1.5 bg-bg-tertiary hover:bg-bg-tertiary text-text-primary text-sm rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
+              className="px-3 py-1.5 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-sm rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
             >
               {testing ? (
                 <>
@@ -493,7 +493,7 @@ export const ConnectorDetailPage: React.FC = () => {
               <>
                 <button
                   onClick={() => navigate(`/connectors/${id}/edit`)}
-                  className="px-3 py-1.5 bg-bg-tertiary hover:bg-bg-tertiary text-text-primary text-sm rounded-lg"
+                  className="px-3 py-1.5 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-sm rounded-lg"
                 >
                   Edit
                 </button>
@@ -613,7 +613,7 @@ export const ConnectorDetailPage: React.FC = () => {
                         setSpecCopied(true);
                         setTimeout(() => setSpecCopied(false), 2000);
                       }}
-                      className="px-3 py-1.5 bg-bg-tertiary hover:bg-bg-tertiary text-text-primary text-xs rounded-lg"
+                      className="px-3 py-1.5 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-xs rounded-lg"
                     >
                       {specCopied ? 'Copied!' : 'Copy JSON'}
                     </button>
@@ -786,7 +786,7 @@ export const ConnectorDetailPage: React.FC = () => {
                     onClick={() => {
                       navigator.clipboard.writeText(createdKey);
                     }}
-                    className="px-3 py-2 bg-bg-tertiary hover:bg-bg-tertiary text-text-primary text-xs rounded"
+                    className="px-3 py-2 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-xs rounded"
                   >
                     Copy
                   </button>
@@ -1039,7 +1039,7 @@ export const ConnectorDetailPage: React.FC = () => {
                     className={`px-3 py-1 text-xs rounded-lg ${
                       usageRange === i
                         ? 'bg-accent-emerald text-white'
-                        : 'bg-bg-tertiary text-text-secondary hover:bg-bg-tertiary'
+                        : 'bg-bg-tertiary text-text-secondary hover:bg-bg-secondary'
                     }`}
                   >
                     {r.label}
@@ -1375,7 +1375,7 @@ function PerformanceTab({ connectorSlug, teamId }: { connectorSlug: string; team
           <button
             key={w}
             onClick={() => setTimeWindow(w)}
-            className={`px-3 py-1.5 text-xs rounded-lg ${timeWindow === w ? 'bg-accent-emerald text-white' : 'bg-bg-secondary text-text-tertiary hover:bg-bg-tertiary'}`}
+            className={`px-3 py-1.5 text-xs rounded-lg ${timeWindow === w ? 'bg-accent-emerald text-white' : 'bg-bg-secondary text-text-tertiary hover:bg-bg-secondary'}`}
           >
             {w}
           </button>

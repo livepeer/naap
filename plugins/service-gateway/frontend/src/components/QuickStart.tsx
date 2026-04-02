@@ -91,7 +91,7 @@ print(response.json())`,
         </div>
         <button
           onClick={handleCopy}
-          className="text-xs text-text-tertiary hover:text-white flex items-center gap-1"
+          className="text-xs text-text-tertiary hover:text-text-primary flex items-center gap-1"
         >
           {copied ? '✓ Copied' : 'Copy'}
         </button>

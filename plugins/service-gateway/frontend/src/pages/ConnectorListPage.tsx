@@ -163,7 +163,7 @@ export const ConnectorListPage: React.FC = () => {
               className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
                 !categoryFilter
                   ? 'bg-accent-emerald/20 text-accent-emerald border-accent-emerald/40'
-                  : 'bg-bg-secondary text-text-secondary border-[var(--border-color)] hover:border-[var(--border-color)]'
+                  : 'bg-bg-secondary text-text-secondary border-[var(--border-color)] hover:border-accent-emerald/30'
               }`}
             >
               All ({connectors.length})
@@ -178,7 +178,7 @@ export const ConnectorListPage: React.FC = () => {
                   className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
                     categoryFilter === key
                       ? meta.color
-                      : 'bg-bg-secondary text-text-secondary border-[var(--border-color)] hover:border-[var(--border-color)]'
+                      : 'bg-bg-secondary text-text-secondary border-[var(--border-color)] hover:border-accent-emerald/30'
                   }`}
                 >
                   {meta.icon} {meta.label} ({count})
@@ -243,7 +243,7 @@ export const ConnectorListPage: React.FC = () => {
               <button
                 key={connector.id}
                 onClick={() => navigate(`/connectors/${connector.id}`)}
-                className="bg-bg-secondary/50 hover:bg-bg-secondary border border-[var(--border-color)] hover:border-[var(--border-color)] rounded-lg p-5 text-left transition-colors"
+                className="bg-bg-secondary/50 hover:bg-bg-secondary border border-[var(--border-color)] hover:border-accent-emerald/30 rounded-lg p-5 text-left transition-colors"
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-2 min-w-0">

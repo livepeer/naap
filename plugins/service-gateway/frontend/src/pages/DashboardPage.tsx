@@ -172,7 +172,7 @@ export const DashboardPage: React.FC = () => {
                   : 'bg-bg-secondary text-text-secondary border border-[var(--border-color)]'
               }`}
             >
-              <div className={`w-1.5 h-1.5 rounded-full ${autoRefresh ? 'bg-green-400 animate-pulse' : 'bg-text-tertiary'}`} />
+              <div className={`w-1.5 h-1.5 rounded-full ${autoRefresh ? 'bg-green-400 animate-pulse' : 'bg-bg-tertiary'}`} />
               {autoRefresh ? 'Live' : 'Auto-refresh off'}
             </button>
           </div>

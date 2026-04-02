@@ -158,7 +158,7 @@ export const MasterKeysPage: React.FC = () => {
                   setTimeout(() => setCopied(false), 2000);
                 } catch { /* clipboard not available */ }
               }}
-              className="px-3 py-2 bg-bg-tertiary hover:bg-bg-tertiary text-text-primary text-xs rounded shrink-0"
+              className="px-3 py-2 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-xs rounded shrink-0"
             >
               {copied ? 'Copied!' : 'Copy'}
             </button>

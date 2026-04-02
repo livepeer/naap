@@ -636,7 +636,7 @@ export const ConnectorWizardPage: React.FC = () => {
                   type="button"
                   onClick={handleTestConnection}
                   disabled={testing}
-                  className="px-4 py-2 bg-bg-tertiary hover:bg-bg-tertiary text-text-primary text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
                 >
                   {testing ? 'Testing...' : 'Test Connection'}
                 </button>
@@ -659,7 +659,7 @@ export const ConnectorWizardPage: React.FC = () => {
               <h2 className="text-lg font-semibold text-text-primary">Configure Endpoints</h2>
               <button
                 onClick={addEndpoint}
-                className="px-3 py-1.5 bg-bg-tertiary hover:bg-bg-tertiary text-text-primary text-sm rounded-lg transition-colors"
+                className="px-3 py-1.5 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-sm rounded-lg transition-colors"
               >
                 + Add Endpoint
               </button>
@@ -784,7 +784,7 @@ export const ConnectorWizardPage: React.FC = () => {
                 <button
                   onClick={() => handleSave(false)}
                   disabled={saving}
-                  className="px-4 py-2 bg-bg-tertiary hover:bg-bg-tertiary text-text-primary text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
                 >
                   {editId ? 'Update' : 'Save as Draft'}
                 </button>
