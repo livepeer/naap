@@ -31,16 +31,16 @@ export const SecretField: React.FC<SecretFieldProps> = ({
   if (saved && !editing) {
     return (
       <div className="space-y-1">
-        <label className="block text-sm font-medium text-gray-300">{label}</label>
+        <label className="block text-sm font-medium text-text-secondary">{label}</label>
         <div className="flex items-center gap-2">
-          <div className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 text-sm">
+          <div className="flex-1 px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-tertiary text-sm">
             ••••••••••••••••
           </div>
           <span className="text-xs text-green-400 font-medium">Saved</span>
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="text-xs text-blue-400 hover:text-blue-300"
+            className="text-xs text-accent-emerald hover:text-accent-emerald/80"
           >
             Update
           </button>
@@ -51,13 +51,13 @@ export const SecretField: React.FC<SecretFieldProps> = ({
 
   return (
     <div className="space-y-1">
-      <label className="block text-sm font-medium text-gray-300">{label}</label>
+      <label className="block text-sm font-medium text-text-secondary">{label}</label>
       <input
         type="password"
         value={value}
         onChange={handleChange}
         placeholder={placeholder}
-        className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        className="w-full px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm focus:ring-2 focus:ring-accent-emerald focus:border-accent-emerald"
       />
     </div>
   );

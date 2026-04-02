@@ -40,7 +40,7 @@ interface Connector {
 const VISIBILITY_BADGES: Record<string, { label: string; className: string }> = {
   private: { label: '🔒 Private', className: 'bg-gray-500/10 text-gray-400' },
   team: { label: '👥 Team', className: 'bg-purple-500/10 text-purple-400' },
-  public: { label: '🌐 Public', className: 'bg-blue-500/10 text-blue-400' },
+  public: { label: '🌐 Public', className: 'bg-accent-emerald/10 text-accent-emerald' },
 };
 
 interface ApiKey {
@@ -379,9 +379,9 @@ export const ConnectorDetailPage: React.FC = () => {
     return (
       <div className="p-6 max-w-5xl mx-auto">
         <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-gray-800 rounded w-1/3" />
-          <div className="h-4 bg-gray-800 rounded w-1/2" />
-          <div className="h-64 bg-gray-800 rounded" />
+          <div className="h-8 bg-bg-secondary rounded w-1/3" />
+          <div className="h-4 bg-bg-secondary rounded w-1/2" />
+          <div className="h-64 bg-bg-secondary rounded" />
         </div>
       </div>
     );
@@ -398,11 +398,11 @@ export const ConnectorDetailPage: React.FC = () => {
         <div className="flex items-start justify-between mb-6">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <button onClick={() => navigate('/')} className="text-gray-400 hover:text-gray-200 text-sm">
+              <button onClick={() => navigate('/')} className="text-text-tertiary hover:text-text-primary text-sm">
                 ← Back
               </button>
             </div>
-            <h1 className="text-2xl font-bold text-gray-100">{connector.displayName}</h1>
+            <h1 className="text-2xl font-bold text-text-primary">{connector.displayName}</h1>
             <div className="flex items-center gap-3 mt-2">
               <HealthDot status={connector.healthStatus || 'unknown'} size="md" showLabel />
               <span className={`px-2 py-0.5 text-xs font-medium rounded ${STATUS_COLORS[connector.status]}`}>
@@ -413,15 +413,15 @@ export const ConnectorDetailPage: React.FC = () => {
                   {VISIBILITY_BADGES[connector.visibility].label}
                 </span>
               )}
-              <span className="text-xs text-gray-500 font-mono">{connector.slug}</span>
-              <span className="text-xs text-gray-500">v{connector.version}</span>
+              <span className="text-xs text-text-tertiary font-mono">{connector.slug}</span>
+              <span className="text-xs text-text-tertiary">v{connector.version}</span>
             </div>
           </div>
           <div className="flex gap-2 items-center">
             <button
               onClick={handleTestConnection}
               disabled={testing}
-              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
+              className="px-3 py-1.5 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-sm rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
             >
               {testing ? (
                 <>
@@ -458,7 +458,7 @@ export const ConnectorDetailPage: React.FC = () => {
                 <button
                   onClick={handleRecover}
                   disabled={recovering}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+                  className="px-3 py-1.5 bg-accent-emerald hover:bg-accent-emerald/90 text-white text-sm font-medium rounded-lg disabled:opacity-50"
                 >
                   {recovering ? 'Recovering...' : 'Recover to Draft'}
                 </button>
@@ -481,7 +481,7 @@ export const ConnectorDetailPage: React.FC = () => {
                     </button>
                     <button
                       onClick={() => setConfirmPurge(false)}
-                      className="px-3 py-1.5 text-gray-400 hover:text-gray-200 text-sm"
+                      className="px-3 py-1.5 text-text-tertiary hover:text-text-primary text-sm"
                     >
                       Cancel
                     </button>
@@ -493,7 +493,7 @@ export const ConnectorDetailPage: React.FC = () => {
               <>
                 <button
                   onClick={() => navigate(`/connectors/${id}/edit`)}
-                  className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm rounded-lg"
+                  className="px-3 py-1.5 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-sm rounded-lg"
                 >
                   Edit
                 </button>
@@ -524,7 +524,7 @@ export const ConnectorDetailPage: React.FC = () => {
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 border-b border-gray-700 mb-6 overflow-x-auto" role="tablist" aria-label="Connector details">
+        <div className="flex gap-1 border-b border-[var(--border-color)] mb-6 overflow-x-auto" role="tablist" aria-label="Connector details">
           {TABS.map((tab) => (
             <button
               key={tab}
@@ -533,8 +533,8 @@ export const ConnectorDetailPage: React.FC = () => {
               onClick={() => setActiveTab(tab)}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab
-                  ? 'border-blue-500 text-blue-400'
-                  : 'border-transparent text-gray-400 hover:text-gray-200'
+                  ? 'border-accent-emerald text-accent-emerald'
+                  : 'border-transparent text-text-secondary hover:text-text-primary'
               }`}
             >
               {tab}
@@ -546,32 +546,32 @@ export const ConnectorDetailPage: React.FC = () => {
         {activeTab === 'Overview' && (
           <div className="space-y-6">
             {connector.description && (
-              <p className="text-gray-400 text-sm">{connector.description}</p>
+              <p className="text-text-tertiary text-sm">{connector.description}</p>
             )}
 
             <div>
-              <h3 className="text-sm font-semibold text-gray-300 mb-3">Endpoints</h3>
-              <div className="bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
+              <h3 className="text-sm font-semibold text-text-secondary mb-3">Endpoints</h3>
+              <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-700">
-                      <th className="px-4 py-2 text-left text-gray-400 font-medium">Method</th>
-                      <th className="px-4 py-2 text-left text-gray-400 font-medium">Path</th>
-                      <th className="px-4 py-2 text-left text-gray-400 font-medium">Name</th>
-                      <th className="px-4 py-2 text-left text-gray-400 font-medium">Upstream</th>
+                    <tr className="border-b border-[var(--border-color)]">
+                      <th className="px-4 py-2 text-left text-text-secondary font-medium">Method</th>
+                      <th className="px-4 py-2 text-left text-text-secondary font-medium">Path</th>
+                      <th className="px-4 py-2 text-left text-text-secondary font-medium">Name</th>
+                      <th className="px-4 py-2 text-left text-text-secondary font-medium">Upstream</th>
                     </tr>
                   </thead>
                   <tbody>
                     {connector.endpoints.map((ep) => (
-                      <tr key={ep.id} className="border-b border-gray-700/50">
+                      <tr key={ep.id} className="border-b border-[var(--border-color)]">
                         <td className="px-4 py-2">
-                          <span className="px-2 py-0.5 bg-gray-700 text-gray-300 rounded font-mono text-xs">{ep.method}</span>
+                          <span className="px-2 py-0.5 bg-bg-tertiary text-text-secondary rounded font-mono text-xs">{ep.method}</span>
                         </td>
-                        <td className="px-4 py-2 font-mono text-gray-200 text-xs">
+                        <td className="px-4 py-2 font-mono text-text-primary text-xs">
                           /api/v1/gw/{connector.slug}{ep.path}
                         </td>
-                        <td className="px-4 py-2 text-gray-300">{ep.name}</td>
-                        <td className="px-4 py-2 font-mono text-gray-500 text-xs">{ep.upstreamPath}</td>
+                        <td className="px-4 py-2 text-text-secondary">{ep.name}</td>
+                        <td className="px-4 py-2 font-mono text-text-tertiary text-xs">{ep.upstreamPath}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -581,7 +581,7 @@ export const ConnectorDetailPage: React.FC = () => {
 
             {connector.status === 'published' && (
               <div>
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">Quick Start</h3>
+                <h3 className="text-sm font-semibold text-text-secondary mb-3">Quick Start</h3>
                 <QuickStart
                   baseUrl={window.location.origin}
                   connectorSlug={connector.slug}
@@ -597,13 +597,13 @@ export const ConnectorDetailPage: React.FC = () => {
           <div className="space-y-4">
             {specLoading ? (
               <div className="animate-pulse space-y-3">
-                <div className="h-6 bg-gray-800 rounded w-1/4" />
-                <div className="h-40 bg-gray-800 rounded" />
+                <div className="h-6 bg-bg-secondary rounded w-1/4" />
+                <div className="h-40 bg-bg-secondary rounded" />
               </div>
             ) : openApiSpec ? (
               <>
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-gray-300">
+                  <h3 className="text-sm font-semibold text-text-secondary">
                     OpenAPI 3.0.3 Specification
                   </h3>
                   <div className="flex gap-2">
@@ -613,7 +613,7 @@ export const ConnectorDetailPage: React.FC = () => {
                         setSpecCopied(true);
                         setTimeout(() => setSpecCopied(false), 2000);
                       }}
-                      className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs rounded-lg"
+                      className="px-3 py-1.5 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-xs rounded-lg"
                     >
                       {specCopied ? 'Copied!' : 'Copy JSON'}
                     </button>
@@ -627,7 +627,7 @@ export const ConnectorDetailPage: React.FC = () => {
                         a.click();
                         URL.revokeObjectURL(url);
                       }}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg"
+                      className="px-3 py-1.5 bg-accent-emerald hover:bg-accent-emerald/90 text-white text-xs rounded-lg"
                     >
                       Download
                     </button>
@@ -642,7 +642,7 @@ export const ConnectorDetailPage: React.FC = () => {
                         Object.entries(methods).map(([method, op]) => (
                           <div
                             key={`${method}-${path}`}
-                            className="bg-gray-800/50 border border-gray-700 rounded-lg p-4"
+                            className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-4"
                           >
                             <div className="flex items-center gap-3 mb-2">
                               <span
@@ -650,7 +650,7 @@ export const ConnectorDetailPage: React.FC = () => {
                                   method === 'get'
                                     ? 'bg-green-500/20 text-green-400'
                                     : method === 'post'
-                                    ? 'bg-blue-500/20 text-blue-400'
+                                    ? 'bg-accent-emerald/20 text-accent-emerald'
                                     : method === 'put'
                                     ? 'bg-yellow-500/20 text-yellow-400'
                                     : method === 'delete'
@@ -660,13 +660,13 @@ export const ConnectorDetailPage: React.FC = () => {
                               >
                                 {method}
                               </span>
-                              <code className="text-sm text-gray-200 font-mono">{path}</code>
+                              <code className="text-sm text-text-primary font-mono">{path}</code>
                             </div>
                             {op.summary ? (
-                              <p className="text-sm text-gray-300 mb-1">{String(op.summary)}</p>
+                              <p className="text-sm text-text-secondary mb-1">{String(op.summary)}</p>
                             ) : null}
                             {op.description ? (
-                              <p className="text-xs text-gray-500 mb-2">{String(op.description)}</p>
+                              <p className="text-xs text-text-tertiary mb-2">{String(op.description)}</p>
                             ) : null}
 
                             {/* Parameters */}
@@ -675,14 +675,14 @@ export const ConnectorDetailPage: React.FC = () => {
                               if (!Array.isArray(params) || params.length === 0) return null;
                               return (
                                 <div className="mt-2">
-                                  <p className="text-xs font-semibold text-gray-400 mb-1">Parameters</p>
+                                  <p className="text-xs font-semibold text-text-secondary mb-1">Parameters</p>
                                   <div className="space-y-1">
                                     {params.map((param, i) => (
                                       <div key={i} className="flex items-center gap-2 text-xs">
-                                        <span className="px-1.5 py-0.5 bg-gray-700 text-gray-400 rounded font-mono">
+                                        <span className="px-1.5 py-0.5 bg-bg-tertiary text-text-secondary rounded font-mono">
                                           {String(param.in)}
                                         </span>
-                                        <span className="text-gray-300 font-mono">{String(param.name)}</span>
+                                        <span className="text-text-secondary font-mono">{String(param.name)}</span>
                                         {Boolean(param.required) ? (
                                           <span className="text-red-400 text-[10px]">required</span>
                                         ) : null}
@@ -696,8 +696,8 @@ export const ConnectorDetailPage: React.FC = () => {
                             {/* Request Body Schema */}
                             {op.requestBody && typeof op.requestBody === 'object' && (
                               <div className="mt-2">
-                                <p className="text-xs font-semibold text-gray-400 mb-1">Request Body</p>
-                                <pre className="text-xs bg-gray-900 rounded p-2 text-gray-300 overflow-x-auto font-mono">
+                                <p className="text-xs font-semibold text-text-secondary mb-1">Request Body</p>
+                                <pre className="text-xs bg-bg-primary rounded p-2 text-text-secondary overflow-x-auto font-mono">
                                   {JSON.stringify(
                                     Object.values(
                                       ((op.requestBody as Record<string, unknown>).content as Record<string, { schema: unknown }>) || {}
@@ -710,7 +710,7 @@ export const ConnectorDetailPage: React.FC = () => {
                             )}
 
                             {/* Extension metadata */}
-                            <div className="flex gap-3 mt-2 text-[10px] text-gray-500">
+                            <div className="flex gap-3 mt-2 text-[10px] text-text-tertiary">
                               {op['x-cache-ttl'] ? <span>Cache: {String(op['x-cache-ttl'])}s</span> : null}
                               {op['x-rate-limit'] ? <span>Rate: {String(op['x-rate-limit'])} req/min</span> : null}
                               {op['x-timeout'] ? <span>Timeout: {String(op['x-timeout'])}ms</span> : null}
@@ -723,16 +723,16 @@ export const ConnectorDetailPage: React.FC = () => {
 
                 {/* Raw JSON viewer */}
                 <details className="mt-4">
-                  <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300">
+                  <summary className="text-xs text-text-tertiary cursor-pointer hover:text-text-primary">
                     View raw JSON spec
                   </summary>
-                  <pre className="mt-2 text-xs bg-gray-900 border border-gray-700 rounded-lg p-4 text-gray-300 overflow-x-auto font-mono max-h-96 overflow-y-auto">
+                  <pre className="mt-2 text-xs bg-bg-primary border border-[var(--border-color)] rounded-lg p-4 text-text-secondary overflow-x-auto font-mono max-h-96 overflow-y-auto">
                     {JSON.stringify(openApiSpec, null, 2)}
                   </pre>
                 </details>
               </>
             ) : (
-              <div className="text-center py-12 text-gray-400 text-sm">
+              <div className="text-center py-12 text-text-tertiary text-sm">
                 Failed to load OpenAPI spec. Make sure the connector is published.
               </div>
             )}
@@ -745,21 +745,21 @@ export const ConnectorDetailPage: React.FC = () => {
             {/* Create Key */}
             <div className="flex gap-3 items-end">
               <div className="flex-1 space-y-1">
-                <label className="block text-xs text-gray-400">Key Name</label>
+                <label className="block text-xs text-text-secondary">Key Name</label>
                 <input
                   type="text"
                   value={newKeyName}
                   onChange={(e) => setNewKeyName(e.target.value)}
                   placeholder="e.g., mobile-app"
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm"
+                  className="w-full px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm"
                 />
               </div>
               <div className="w-48 space-y-1">
-                <label className="block text-xs text-gray-400">Plan</label>
+                <label className="block text-xs text-text-secondary">Plan</label>
                 <select
                   value={newKeyPlanId}
                   onChange={(e) => setNewKeyPlanId(e.target.value)}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm"
+                  className="w-full px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm"
                 >
                   <option value="">No plan (unlimited)</option>
                   {plans.map((p) => (
@@ -770,7 +770,7 @@ export const ConnectorDetailPage: React.FC = () => {
               <button
                 onClick={handleCreateKey}
                 disabled={!newKeyName || keyCreating}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+                className="px-4 py-2 bg-accent-emerald hover:bg-accent-emerald/90 text-white text-sm font-medium rounded-lg disabled:opacity-50"
               >
                 Create Key
               </button>
@@ -781,12 +781,12 @@ export const ConnectorDetailPage: React.FC = () => {
               <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
                 <p className="text-sm text-green-400 mb-2 font-medium">API Key Created — copy it now, it won't be shown again!</p>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 px-3 py-2 bg-gray-900 rounded text-xs text-gray-200 font-mono">{createdKey}</code>
+                  <code className="flex-1 px-3 py-2 bg-bg-primary rounded text-xs text-text-primary font-mono">{createdKey}</code>
                   <button
                     onClick={() => {
                       navigator.clipboard.writeText(createdKey);
                     }}
-                    className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs rounded"
+                    className="px-3 py-2 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-xs rounded"
                   >
                     Copy
                   </button>
@@ -795,35 +795,35 @@ export const ConnectorDetailPage: React.FC = () => {
             )}
 
             {/* Keys table */}
-            <div className="bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
+            <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-700">
-                    <th className="px-4 py-2 text-left text-gray-400 font-medium">Name</th>
-                    <th className="px-4 py-2 text-left text-gray-400 font-medium">Key</th>
-                    <th className="px-4 py-2 text-left text-gray-400 font-medium">Plan</th>
-                    <th className="px-4 py-2 text-left text-gray-400 font-medium">Status</th>
-                    <th className="px-4 py-2 text-left text-gray-400 font-medium">Last Used</th>
-                    <th className="px-4 py-2 text-right text-gray-400 font-medium">Actions</th>
+                  <tr className="border-b border-[var(--border-color)]">
+                    <th className="px-4 py-2 text-left text-text-secondary font-medium">Name</th>
+                    <th className="px-4 py-2 text-left text-text-secondary font-medium">Key</th>
+                    <th className="px-4 py-2 text-left text-text-secondary font-medium">Plan</th>
+                    <th className="px-4 py-2 text-left text-text-secondary font-medium">Status</th>
+                    <th className="px-4 py-2 text-left text-text-secondary font-medium">Last Used</th>
+                    <th className="px-4 py-2 text-right text-text-secondary font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {keys.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500 text-sm">
+                      <td colSpan={6} className="px-4 py-8 text-center text-text-tertiary text-sm">
                         No API keys yet. Create one above.
                       </td>
                     </tr>
                   )}
                   {keys.map((key) => (
-                    <tr key={key.id} className="border-b border-gray-700/50">
-                      <td className="px-4 py-2 text-gray-200">{key.name}</td>
-                      <td className="px-4 py-2 font-mono text-gray-400 text-xs">{key.keyPrefix}...</td>
-                      <td className="px-4 py-2 text-gray-300 text-xs">{key.plan?.displayName || <span className="text-gray-500 italic">Default</span>}</td>
+                    <tr key={key.id} className="border-b border-[var(--border-color)]">
+                      <td className="px-4 py-2 text-text-primary">{key.name}</td>
+                      <td className="px-4 py-2 font-mono text-text-tertiary text-xs">{key.keyPrefix}...</td>
+                      <td className="px-4 py-2 text-text-secondary text-xs">{key.plan?.displayName || <span className="text-text-tertiary italic">Default</span>}</td>
                       <td className="px-4 py-2">
                         <span className={`px-2 py-0.5 text-xs rounded ${STATUS_COLORS[key.status]}`}>{key.status}</span>
                       </td>
-                      <td className="px-4 py-2 text-gray-500 text-xs">
+                      <td className="px-4 py-2 text-text-tertiary text-xs">
                         {key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : 'Never'}
                       </td>
                       <td className="px-4 py-2 text-right">
@@ -847,10 +847,10 @@ export const ConnectorDetailPage: React.FC = () => {
         {/* Tab: Play */}
         {activeTab === 'Play' && (
           <div className="space-y-5">
-            <h3 className="text-sm font-semibold text-gray-300">API Playground</h3>
+            <h3 className="text-sm font-semibold text-text-secondary">API Playground</h3>
 
             {connector.endpoints.length === 0 ? (
-              <div className="text-center py-12 text-gray-400 text-sm">
+              <div className="text-center py-12 text-text-tertiary text-sm">
                 No endpoints configured. Add endpoints before testing.
               </div>
             ) : (
@@ -858,7 +858,7 @@ export const ConnectorDetailPage: React.FC = () => {
                 {/* Endpoint selector */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="block text-xs text-gray-400">Endpoint</label>
+                    <label className="block text-xs text-text-secondary">Endpoint</label>
                     <select
                       value={playEndpointIdx}
                       onChange={(e) => {
@@ -874,7 +874,7 @@ export const ConnectorDetailPage: React.FC = () => {
                           setPlayPathParams(params);
                         }
                       }}
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm"
+                      className="w-full px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm"
                     >
                       {connector.endpoints.map((ep, i) => (
                         <option key={ep.id} value={i}>
@@ -884,15 +884,15 @@ export const ConnectorDetailPage: React.FC = () => {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-xs text-gray-400">API Key</label>
+                    <label className="block text-xs text-text-secondary">API Key</label>
                     <input
                       type="text"
                       value={playApiKey}
                       onChange={(e) => setPlayApiKey(e.target.value)}
                       placeholder="Optional — uses your session if blank"
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm font-mono"
+                      className="w-full px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm font-mono"
                     />
-                    <p className="text-[11px] text-gray-500 mt-1">Leave blank to authenticate with your current session, or paste a gw_ API key.</p>
+                    <p className="text-[11px] text-text-tertiary mt-1">Leave blank to authenticate with your current session, or paste a gw_ API key.</p>
                   </div>
                 </div>
 
@@ -905,17 +905,17 @@ export const ConnectorDetailPage: React.FC = () => {
                     resolvedPath = resolvedPath.replace(`:${param}`, value || `:${param}`);
                   }
                   return (
-                    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3 flex items-center gap-3">
+                    <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-3 flex items-center gap-3">
                       <span className={`px-2 py-0.5 text-xs font-bold rounded uppercase ${
                         ep.method === 'GET' ? 'bg-green-500/20 text-green-400'
-                        : ep.method === 'POST' ? 'bg-blue-500/20 text-blue-400'
+                        : ep.method === 'POST' ? 'bg-accent-emerald/20 text-accent-emerald'
                         : ep.method === 'PUT' ? 'bg-yellow-500/20 text-yellow-400'
                         : ep.method === 'DELETE' ? 'bg-red-500/20 text-red-400'
                         : 'bg-gray-500/20 text-gray-400'
                       }`}>
                         {ep.method}
                       </span>
-                      <code className="text-sm text-gray-300 font-mono break-all">
+                      <code className="text-sm text-text-secondary font-mono break-all">
                         {window.location.origin}/api/v1/gw/{connector.slug}{resolvedPath}
                       </code>
                     </div>
@@ -925,17 +925,17 @@ export const ConnectorDetailPage: React.FC = () => {
                 {/* Path params */}
                 {Object.keys(playPathParams).length > 0 && (
                   <div className="space-y-2">
-                    <label className="block text-xs text-gray-400">Path Parameters</label>
+                    <label className="block text-xs text-text-secondary">Path Parameters</label>
                     <div className="grid grid-cols-2 gap-3">
                       {Object.entries(playPathParams).map(([param, value]) => (
                         <div key={param} className="flex items-center gap-2">
-                          <span className="text-xs text-gray-400 font-mono w-20 flex-shrink-0">:{param}</span>
+                          <span className="text-xs text-text-secondary font-mono w-20 flex-shrink-0">:{param}</span>
                           <input
                             type="text"
                             value={value}
                             onChange={(e) => setPlayPathParams(prev => ({ ...prev, [param]: e.target.value }))}
                             placeholder={`Value for ${param}`}
-                            className="flex-1 px-2 py-1.5 bg-gray-900 border border-gray-700 rounded text-gray-200 text-sm font-mono"
+                            className="flex-1 px-2 py-1.5 bg-bg-primary border border-[var(--border-color)] rounded text-text-primary text-sm font-mono"
                           />
                         </div>
                       ))}
@@ -945,26 +945,26 @@ export const ConnectorDetailPage: React.FC = () => {
 
                 {/* Headers */}
                 <div className="space-y-1">
-                  <label className="block text-xs text-gray-400">Additional Headers (one per line, Key: Value)</label>
+                  <label className="block text-xs text-text-secondary">Additional Headers (one per line, Key: Value)</label>
                   <textarea
                     value={playHeaders}
                     onChange={(e) => setPlayHeaders(e.target.value)}
                     placeholder="Authorization: Bearer token123"
                     rows={2}
-                    className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-xs font-mono"
+                    className="w-full px-3 py-2 bg-bg-primary border border-[var(--border-color)] rounded-lg text-text-primary text-xs font-mono"
                   />
                 </div>
 
                 {/* Request body */}
                 {connector.endpoints[playEndpointIdx]?.method !== 'GET' && connector.endpoints[playEndpointIdx]?.method !== 'DELETE' && (
                   <div className="space-y-1">
-                    <label className="block text-xs text-gray-400">Request Body (JSON)</label>
+                    <label className="block text-xs text-text-secondary">Request Body (JSON)</label>
                     <textarea
                       value={playBody}
                       onChange={(e) => setPlayBody(e.target.value)}
                       placeholder='{"key": "value"}'
                       rows={6}
-                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-xs font-mono"
+                      className="w-full px-3 py-2 bg-bg-primary border border-[var(--border-color)] rounded-lg text-text-primary text-xs font-mono"
                     />
                   </div>
                 )}
@@ -973,7 +973,7 @@ export const ConnectorDetailPage: React.FC = () => {
                 <button
                   onClick={handlePlaySend}
                   disabled={playSending}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 flex items-center gap-2"
+                  className="px-5 py-2 bg-accent-emerald hover:bg-accent-emerald/90 text-white text-sm font-medium rounded-lg disabled:opacity-50 flex items-center gap-2"
                 >
                   {playSending ? (
                     <>
@@ -996,25 +996,25 @@ export const ConnectorDetailPage: React.FC = () => {
                     <div className="flex items-center gap-3">
                       <span className={`px-2 py-0.5 text-xs font-bold rounded ${
                         playResponse.status < 300 ? 'bg-green-500/20 text-green-400'
-                        : playResponse.status < 400 ? 'bg-blue-500/20 text-blue-400'
+                        : playResponse.status < 400 ? 'bg-accent-emerald/20 text-accent-emerald'
                         : playResponse.status < 500 ? 'bg-yellow-500/20 text-yellow-400'
                         : 'bg-red-500/20 text-red-400'
                       }`}>
                         {playResponse.status} {playResponse.statusText}
                       </span>
-                      <span className="text-xs text-gray-400">{playResponse.latencyMs}ms</span>
+                      <span className="text-xs text-text-tertiary">{playResponse.latencyMs}ms</span>
                     </div>
 
                     <details className="text-xs">
-                      <summary className="text-gray-500 cursor-pointer hover:text-gray-300">Response Headers</summary>
-                      <pre className="mt-1 bg-gray-900 border border-gray-700 rounded p-2 text-gray-400 font-mono overflow-x-auto">
+                      <summary className="text-text-tertiary cursor-pointer hover:text-text-primary">Response Headers</summary>
+                      <pre className="mt-1 bg-bg-primary border border-[var(--border-color)] rounded p-2 text-text-secondary font-mono overflow-x-auto">
 {Object.entries(playResponse.headers).map(([k, v]) => `${k}: ${v}`).join('\n')}
                       </pre>
                     </details>
 
                     <div className="space-y-1">
-                      <label className="block text-xs text-gray-400">Response Body</label>
-                      <pre className="bg-gray-900 border border-gray-700 rounded-lg p-4 text-xs text-gray-300 font-mono overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">
+                      <label className="block text-xs text-text-secondary">Response Body</label>
+                      <pre className="bg-bg-primary border border-[var(--border-color)] rounded-lg p-4 text-xs text-text-secondary font-mono overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">
 {playResponse.body}
                       </pre>
                     </div>
@@ -1030,7 +1030,7 @@ export const ConnectorDetailPage: React.FC = () => {
           <div className="space-y-6">
             {/* Time range selector */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-400">Time range:</span>
+              <span className="text-xs text-text-secondary">Time range:</span>
               <div className="flex gap-1">
                 {TIME_RANGES.map((r, i) => (
                   <button
@@ -1038,8 +1038,8 @@ export const ConnectorDetailPage: React.FC = () => {
                     onClick={() => setUsageRange(i)}
                     className={`px-3 py-1 text-xs rounded-lg ${
                       usageRange === i
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        ? 'bg-accent-emerald text-white'
+                        : 'bg-bg-tertiary text-text-secondary hover:bg-bg-secondary'
                     }`}
                   >
                     {r.label}
@@ -1051,38 +1051,38 @@ export const ConnectorDetailPage: React.FC = () => {
             {usageLoading ? (
               <div className="animate-pulse space-y-4">
                 <div className="grid grid-cols-4 gap-3">
-                  {[1,2,3,4].map(i => <div key={i} className="h-20 bg-gray-800 rounded-lg" />)}
+                  {[1,2,3,4].map(i => <div key={i} className="h-20 bg-bg-secondary rounded-lg" />)}
                 </div>
-                <div className="h-40 bg-gray-800 rounded-lg" />
+                <div className="h-40 bg-bg-secondary rounded-lg" />
               </div>
             ) : (
               <>
                 {/* Summary Cards */}
                 {usageSummary && (
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-                      <p className="text-xs text-gray-400">Total Requests</p>
-                      <p className="text-2xl font-bold text-gray-100 mt-1">{usageSummary.totalRequests.toLocaleString()}</p>
+                    <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-4">
+                      <p className="text-xs text-text-secondary">Total Requests</p>
+                      <p className="text-2xl font-bold text-text-primary mt-1">{usageSummary.totalRequests.toLocaleString()}</p>
                     </div>
-                    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-                      <p className="text-xs text-gray-400">Avg Latency</p>
-                      <p className="text-2xl font-bold text-gray-100 mt-1">{usageSummary.avgLatencyMs}<span className="text-sm text-gray-400 ml-1">ms</span></p>
+                    <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-4">
+                      <p className="text-xs text-text-secondary">Avg Latency</p>
+                      <p className="text-2xl font-bold text-text-primary mt-1">{usageSummary.avgLatencyMs}<span className="text-sm text-text-tertiary ml-1">ms</span></p>
                     </div>
-                    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-                      <p className="text-xs text-gray-400">Error Rate</p>
+                    <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-4">
+                      <p className="text-xs text-text-secondary">Error Rate</p>
                       <p className={`text-2xl font-bold mt-1 ${usageSummary.errorRate > 5 ? 'text-red-400' : 'text-green-400'}`}>
                         {usageSummary.errorRate}%
                       </p>
                     </div>
-                    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-                      <p className="text-xs text-gray-400">Data Transferred</p>
-                      <p className="text-2xl font-bold text-gray-100 mt-1">
+                    <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-4">
+                      <p className="text-xs text-text-secondary">Data Transferred</p>
+                      <p className="text-2xl font-bold text-text-primary mt-1">
                         {(() => {
                           const bytes = usageSummary.totalRequestBytes + usageSummary.totalResponseBytes;
-                          if (bytes >= 1024 * 1024 * 1024) return <>{(bytes / (1024 * 1024 * 1024)).toFixed(1)}<span className="text-sm text-gray-400 ml-1">GB</span></>;
-                          if (bytes >= 1024 * 1024) return <>{(bytes / (1024 * 1024)).toFixed(1)}<span className="text-sm text-gray-400 ml-1">MB</span></>;
-                          if (bytes >= 1024) return <>{(bytes / 1024).toFixed(1)}<span className="text-sm text-gray-400 ml-1">KB</span></>;
-                          return <>{bytes}<span className="text-sm text-gray-400 ml-1">B</span></>;
+                          if (bytes >= 1024 * 1024 * 1024) return <>{(bytes / (1024 * 1024 * 1024)).toFixed(1)}<span className="text-sm text-text-tertiary ml-1">GB</span></>;
+                          if (bytes >= 1024 * 1024) return <>{(bytes / (1024 * 1024)).toFixed(1)}<span className="text-sm text-text-tertiary ml-1">MB</span></>;
+                          if (bytes >= 1024) return <>{(bytes / 1024).toFixed(1)}<span className="text-sm text-text-tertiary ml-1">KB</span></>;
+                          return <>{bytes}<span className="text-sm text-text-tertiary ml-1">B</span></>;
                         })()}
                       </p>
                     </div>
@@ -1091,8 +1091,8 @@ export const ConnectorDetailPage: React.FC = () => {
 
                 {/* Timeseries Chart */}
                 {usageTimeseries.length > 0 && (
-                  <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-                    <h3 className="text-sm font-semibold text-gray-300 mb-3">Requests Over Time</h3>
+                  <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-4">
+                    <h3 className="text-sm font-semibold text-text-secondary mb-3">Requests Over Time</h3>
                     <div className="flex items-end gap-px h-32">
                       {(() => {
                         const maxReqs = Math.max(...usageTimeseries.map(p => p.requests), 1);
@@ -1105,7 +1105,7 @@ export const ConnectorDetailPage: React.FC = () => {
                               className="flex-1 flex flex-col justify-end group relative min-w-[2px]"
                               style={{ height: '100%' }}
                             >
-                              <div className="hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-[10px] text-gray-300 whitespace-nowrap z-10">
+                              <div className="hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-bg-primary border border-[var(--border-color)] rounded px-2 py-1 text-[10px] text-text-secondary whitespace-nowrap z-10">
                                 {new Date(point.timestamp).toLocaleString()}<br/>
                                 {point.requests} req, {point.errors} err
                               </div>
@@ -1118,7 +1118,7 @@ export const ConnectorDetailPage: React.FC = () => {
                         });
                       })()}
                     </div>
-                    <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                    <div className="flex justify-between text-[10px] text-text-tertiary mt-1">
                       <span>{usageTimeseries.length > 0 ? new Date(usageTimeseries[0].timestamp).toLocaleTimeString() : ''}</span>
                       <span>{usageTimeseries.length > 0 ? new Date(usageTimeseries[usageTimeseries.length - 1].timestamp).toLocaleTimeString() : ''}</span>
                     </div>
@@ -1127,34 +1127,34 @@ export const ConnectorDetailPage: React.FC = () => {
 
                 {/* Per-API-Key Breakdown */}
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-300 mb-3">Usage by API Key</h3>
-                  <div className="bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
+                  <h3 className="text-sm font-semibold text-text-secondary mb-3">Usage by API Key</h3>
+                  <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg overflow-hidden">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b border-gray-700">
-                          <th className="px-4 py-2 text-left text-gray-400 font-medium">Key Name</th>
-                          <th className="px-4 py-2 text-left text-gray-400 font-medium">Prefix</th>
-                          <th className="px-4 py-2 text-left text-gray-400 font-medium">Plan</th>
-                          <th className="px-4 py-2 text-right text-gray-400 font-medium">Requests</th>
-                          <th className="px-4 py-2 text-right text-gray-400 font-medium">Avg Latency</th>
-                          <th className="px-4 py-2 text-left text-gray-400 font-medium">Status</th>
+                        <tr className="border-b border-[var(--border-color)]">
+                          <th className="px-4 py-2 text-left text-text-secondary font-medium">Key Name</th>
+                          <th className="px-4 py-2 text-left text-text-secondary font-medium">Prefix</th>
+                          <th className="px-4 py-2 text-left text-text-secondary font-medium">Plan</th>
+                          <th className="px-4 py-2 text-right text-text-secondary font-medium">Requests</th>
+                          <th className="px-4 py-2 text-right text-text-secondary font-medium">Avg Latency</th>
+                          <th className="px-4 py-2 text-left text-text-secondary font-medium">Status</th>
                         </tr>
                       </thead>
                       <tbody>
                         {usageByKey.length === 0 && (
                           <tr>
-                            <td colSpan={6} className="px-4 py-8 text-center text-gray-500 text-sm">
+                            <td colSpan={6} className="px-4 py-8 text-center text-text-tertiary text-sm">
                               No API key usage recorded in this time range.
                             </td>
                           </tr>
                         )}
                         {usageByKey.map((k) => (
-                          <tr key={k.apiKeyId} className="border-b border-gray-700/50">
-                            <td className="px-4 py-2 text-gray-200">{k.keyName}</td>
-                            <td className="px-4 py-2 font-mono text-gray-400 text-xs">{k.keyPrefix}...</td>
-                            <td className="px-4 py-2 text-gray-300 text-xs">{k.plan?.name || '-'}</td>
-                            <td className="px-4 py-2 text-right text-gray-200">{k.requests.toLocaleString()}</td>
-                            <td className="px-4 py-2 text-right text-gray-300">{k.avgLatencyMs}ms</td>
+                          <tr key={k.apiKeyId} className="border-b border-[var(--border-color)]">
+                            <td className="px-4 py-2 text-text-primary">{k.keyName}</td>
+                            <td className="px-4 py-2 font-mono text-text-tertiary text-xs">{k.keyPrefix}...</td>
+                            <td className="px-4 py-2 text-text-secondary text-xs">{k.plan?.name || '-'}</td>
+                            <td className="px-4 py-2 text-right text-text-primary">{k.requests.toLocaleString()}</td>
+                            <td className="px-4 py-2 text-right text-text-secondary">{k.avgLatencyMs}ms</td>
                             <td className="px-4 py-2">
                               <span className={`px-2 py-0.5 text-xs rounded ${STATUS_COLORS[k.status] || 'bg-gray-500/10 text-gray-400'}`}>
                                 {k.status}
@@ -1168,7 +1168,7 @@ export const ConnectorDetailPage: React.FC = () => {
                 </div>
 
                 {!usageSummary && usageByKey.length === 0 && (
-                  <div className="text-center py-12 text-gray-400 text-sm">
+                  <div className="text-center py-12 text-text-tertiary text-sm">
                     No usage data recorded yet. Make some API calls to see analytics here.
                   </div>
                 )}
@@ -1190,14 +1190,14 @@ export const ConnectorDetailPage: React.FC = () => {
         {/* Tab: Settings */}
         {activeTab === 'Settings' && (
           <div className="space-y-4">
-            <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
-              <h3 className="text-sm font-semibold text-gray-300">Configuration</h3>
+            <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-5 space-y-3">
+              <h3 className="text-sm font-semibold text-text-secondary">Configuration</h3>
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><span className="text-gray-400">Upstream URL:</span> <span className="text-gray-200 font-mono text-xs ml-1">{connector.upstreamBaseUrl}</span></div>
-                <div><span className="text-gray-400">Auth Type:</span> <span className="text-gray-200 ml-1">{connector.authType}</span></div>
-                <div><span className="text-gray-400">Streaming:</span> <span className="text-gray-200 ml-1">{connector.streamingEnabled ? 'Enabled' : 'Disabled'}</span></div>
-                <div><span className="text-gray-400">Visibility:</span> <span className="text-gray-200 ml-1 capitalize">{connector.visibility || 'private'}</span></div>
-                <div><span className="text-gray-400">Endpoints:</span> <span className="text-gray-200 ml-1">{connector.endpoints.length}</span></div>
+                <div><span className="text-text-secondary">Upstream URL:</span> <span className="text-text-primary font-mono text-xs ml-1">{connector.upstreamBaseUrl}</span></div>
+                <div><span className="text-text-secondary">Auth Type:</span> <span className="text-text-primary ml-1">{connector.authType}</span></div>
+                <div><span className="text-text-secondary">Streaming:</span> <span className="text-text-primary ml-1">{connector.streamingEnabled ? 'Enabled' : 'Disabled'}</span></div>
+                <div><span className="text-text-secondary">Visibility:</span> <span className="text-text-primary ml-1 capitalize">{connector.visibility || 'private'}</span></div>
+                <div><span className="text-text-secondary">Endpoints:</span> <span className="text-text-primary ml-1">{connector.endpoints.length}</span></div>
               </div>
             </div>
 
@@ -1224,9 +1224,9 @@ export const ConnectorDetailPage: React.FC = () => {
 
             {/* Upstream Secrets (owner-only) */}
             {secretsLoaded && secrets.length > 0 && (
-              <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
-                <h3 className="text-sm font-semibold text-gray-300">Upstream Secrets</h3>
-                <p className="text-xs text-gray-500">
+              <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-5 space-y-3">
+                <h3 className="text-sm font-semibold text-text-secondary">Upstream Secrets</h3>
+                <p className="text-xs text-text-tertiary">
                   Configure API keys and credentials for the upstream service. These are encrypted and only visible to the connector owner.
                 </p>
                 {secretError && (
@@ -1238,7 +1238,7 @@ export const ConnectorDetailPage: React.FC = () => {
                   {secrets.map((secret) => (
                     <div key={secret.name} className="flex items-center gap-3">
                       <div className="w-24">
-                        <span className="text-sm text-gray-300 font-mono">{secret.name}</span>
+                        <span className="text-sm text-text-secondary font-mono">{secret.name}</span>
                       </div>
                       <span className={`px-2 py-0.5 text-xs rounded ${
                         secret.configured
@@ -1252,7 +1252,7 @@ export const ConnectorDetailPage: React.FC = () => {
                         value={secretInputs[secret.name] || ''}
                         onChange={(e) => setSecretInputs(prev => ({ ...prev, [secret.name]: e.target.value }))}
                         placeholder={secret.configured ? 'Enter new value to update' : 'Enter secret value'}
-                        className="flex-1 px-3 py-1.5 bg-gray-900 border border-gray-600 rounded text-gray-200 text-xs font-mono"
+                        className="flex-1 px-3 py-1.5 bg-bg-primary border border-[var(--border-color)] rounded text-text-primary text-xs font-mono"
                       />
                       <button
                         onClick={async () => {
@@ -1271,7 +1271,7 @@ export const ConnectorDetailPage: React.FC = () => {
                           }
                         }}
                         disabled={!secretInputs[secret.name]?.trim() || secretSaving[secret.name]}
-                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded disabled:opacity-50"
+                        className="px-3 py-1.5 bg-accent-emerald hover:bg-accent-emerald/90 text-white text-xs rounded disabled:opacity-50"
                       >
                         {secretSaving[secret.name] ? 'Saving...' : 'Save'}
                       </button>
@@ -1349,22 +1349,22 @@ function PerformanceTab({ connectorSlug, teamId }: { connectorSlug: string; team
       .catch(() => setLoaded(true));
   }, [connectorSlug, timeWindow, teamId]);
 
-  if (!loaded) return <div className="text-gray-500 text-sm">Loading performance data...</div>;
+  if (!loaded) return <div className="text-text-tertiary text-sm">Loading performance data...</div>;
 
   if (!metrics) {
     return (
-      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-8 text-center">
-        <p className="text-gray-400 text-sm">No performance data available yet.</p>
-        <p className="text-gray-500 text-xs mt-1">Metrics are computed hourly from real usage data.</p>
+      <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-8 text-center">
+        <p className="text-text-tertiary text-sm">No performance data available yet.</p>
+        <p className="text-text-tertiary text-xs mt-1">Metrics are computed hourly from real usage data.</p>
       </div>
     );
   }
 
   const statCard = (label: string, value: string | number, sub?: string) => (
-    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-      <div className="text-xs text-gray-400 mb-1">{label}</div>
-      <div className="text-xl font-bold text-gray-100">{value}</div>
-      {sub && <div className="text-xs text-gray-500 mt-0.5">{sub}</div>}
+    <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-4">
+      <div className="text-xs text-text-secondary mb-1">{label}</div>
+      <div className="text-xl font-bold text-text-primary">{value}</div>
+      {sub && <div className="text-xs text-text-tertiary mt-0.5">{sub}</div>}
     </div>
   );
 
@@ -1375,7 +1375,7 @@ function PerformanceTab({ connectorSlug, teamId }: { connectorSlug: string; team
           <button
             key={w}
             onClick={() => setTimeWindow(w)}
-            className={`px-3 py-1.5 text-xs rounded-lg ${timeWindow === w ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+            className={`px-3 py-1.5 text-xs rounded-lg ${timeWindow === w ? 'bg-accent-emerald text-white' : 'bg-bg-secondary text-text-tertiary hover:bg-bg-secondary'}`}
           >
             {w}
           </button>
@@ -1387,24 +1387,24 @@ function PerformanceTab({ connectorSlug, teamId }: { connectorSlug: string; team
         {statCard('Latency (Mean)', `${Math.round(metrics.latencyMeanMs)}ms`)}
         {statCard('Throughput', `${metrics.throughputRpm.toFixed(0)} rpm`)}
       </div>
-      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
-        <h3 className="text-sm font-semibold text-gray-300">Latency Distribution</h3>
+      <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-text-secondary">Latency Distribution</h3>
         <div className="grid grid-cols-4 gap-4 text-sm">
           <div>
-            <span className="text-gray-400 text-xs">P50</span>
-            <div className="text-gray-200 font-mono">{Math.round(metrics.latencyP50Ms)}ms</div>
+            <span className="text-text-secondary text-xs">P50</span>
+            <div className="text-text-primary font-mono">{Math.round(metrics.latencyP50Ms)}ms</div>
           </div>
           <div>
-            <span className="text-gray-400 text-xs">P95</span>
-            <div className="text-gray-200 font-mono">{Math.round(metrics.latencyP95Ms)}ms</div>
+            <span className="text-text-secondary text-xs">P95</span>
+            <div className="text-text-primary font-mono">{Math.round(metrics.latencyP95Ms)}ms</div>
           </div>
           <div>
-            <span className="text-gray-400 text-xs">P99</span>
-            <div className="text-gray-200 font-mono">{Math.round(metrics.latencyP99Ms)}ms</div>
+            <span className="text-text-secondary text-xs">P99</span>
+            <div className="text-text-primary font-mono">{Math.round(metrics.latencyP99Ms)}ms</div>
           </div>
           <div>
-            <span className="text-gray-400 text-xs">Gateway Overhead</span>
-            <div className="text-gray-200 font-mono">{Math.round(metrics.gatewayOverheadMs)}ms</div>
+            <span className="text-text-secondary text-xs">Gateway Overhead</span>
+            <div className="text-text-primary font-mono">{Math.round(metrics.gatewayOverheadMs)}ms</div>
           </div>
         </div>
       </div>
@@ -1472,54 +1472,54 @@ function PricingTab({ connectorId, api }: { connectorId: string; api: ReturnType
     }
   };
 
-  if (!loaded) return <div className="text-gray-500 text-sm">Loading pricing...</div>;
+  if (!loaded) return <div className="text-text-tertiary text-sm">Loading pricing...</div>;
 
-  const inputClass = 'px-3 py-1.5 bg-gray-900 border border-gray-600 rounded text-gray-200 text-sm';
+  const inputClass = 'px-3 py-1.5 bg-bg-primary border border-[var(--border-color)] rounded text-text-primary text-sm';
 
   return (
     <div className="space-y-4">
-      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
-        <h3 className="text-sm font-semibold text-gray-300">Upstream Cost</h3>
+      <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-text-secondary">Upstream Cost</h3>
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Cost Per Unit</label>
+            <label className="block text-xs text-text-secondary mb-1">Cost Per Unit</label>
             <input type="number" step="any" value={form.upstreamCostPerUnit} onChange={(e) => setForm({ ...form, upstreamCostPerUnit: e.target.value })} className={inputClass + ' w-full'} />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Unit</label>
+            <label className="block text-xs text-text-secondary mb-1">Unit</label>
             <select value={form.upstreamUnit} onChange={(e) => setForm({ ...form, upstreamUnit: e.target.value })} className={inputClass + ' w-full'}>
               <option value="">Select...</option>
               {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Notes</label>
+            <label className="block text-xs text-text-secondary mb-1">Notes</label>
             <input type="text" value={form.upstreamNotes} onChange={(e) => setForm({ ...form, upstreamNotes: e.target.value })} className={inputClass + ' w-full'} />
           </div>
         </div>
       </div>
-      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
-        <h3 className="text-sm font-semibold text-gray-300">Connector Pricing</h3>
+      <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-text-secondary">Connector Pricing</h3>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Cost Per Unit</label>
+            <label className="block text-xs text-text-secondary mb-1">Cost Per Unit</label>
             <input type="number" step="any" value={form.costPerUnit} onChange={(e) => setForm({ ...form, costPerUnit: e.target.value })} className={inputClass + ' w-full'} />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Unit</label>
+            <label className="block text-xs text-text-secondary mb-1">Unit</label>
             <select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className={inputClass + ' w-full'}>
               {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Currency</label>
+            <label className="block text-xs text-text-secondary mb-1">Currency</label>
             <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className={inputClass + ' w-full'}>
               <option value="USD">USD</option>
               <option value="EUR">EUR</option>
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Billing Model</label>
+            <label className="block text-xs text-text-secondary mb-1">Billing Model</label>
             <select value={form.billingModel} onChange={(e) => setForm({ ...form, billingModel: e.target.value })} className={inputClass + ' w-full'}>
               <option value="free">Free</option>
               <option value="per-unit">Per Unit</option>
@@ -1528,12 +1528,12 @@ function PricingTab({ connectorId, api }: { connectorId: string; api: ReturnType
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Free Quota</label>
+            <label className="block text-xs text-text-secondary mb-1">Free Quota</label>
             <input type="number" value={form.freeQuota} onChange={(e) => setForm({ ...form, freeQuota: e.target.value })} className={inputClass + ' w-full'} placeholder="Unlimited" />
           </div>
         </div>
       </div>
-      <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">
+      <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-accent-emerald hover:bg-accent-emerald/90 text-white text-sm font-medium rounded-lg disabled:opacity-50">
         {saving ? 'Saving...' : 'Save Pricing'}
       </button>
     </div>
@@ -1588,32 +1588,32 @@ function AgentMetadataSection({ connectorId, api }: { connectorId: string; api: 
     }
   };
 
-  if (!loaded) return <div className="text-gray-500 text-sm">Loading agent metadata...</div>;
+  if (!loaded) return <div className="text-text-tertiary text-sm">Loading agent metadata...</div>;
 
-  const inputClass = 'w-full px-3 py-1.5 bg-gray-900 border border-gray-600 rounded text-gray-200 text-sm';
+  const inputClass = 'w-full px-3 py-1.5 bg-bg-primary border border-[var(--border-color)] rounded text-text-primary text-sm';
 
   return (
-    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 space-y-3">
-      <h3 className="text-sm font-semibold text-gray-300">Agent Metadata</h3>
-      <p className="text-xs text-gray-500">Provide metadata to help AI agents understand and use this connector.</p>
+    <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-5 space-y-3">
+      <h3 className="text-sm font-semibold text-text-secondary">Agent Metadata</h3>
+      <p className="text-xs text-text-tertiary">Provide metadata to help AI agents understand and use this connector.</p>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">Agent Description</label>
+        <label className="block text-xs text-text-secondary mb-1">Agent Description</label>
         <textarea value={agentDescription} onChange={(e) => setAgentDescription(e.target.value)} rows={2} className={inputClass} placeholder="Describe what this tool does for an AI agent..." />
       </div>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">Not For (what the tool should NOT be used for)</label>
+        <label className="block text-xs text-text-secondary mb-1">Not For (what the tool should NOT be used for)</label>
         <textarea value={agentNotFor} onChange={(e) => setAgentNotFor(e.target.value)} rows={2} className={inputClass} placeholder="e.g. Not for web browsing or file system access" />
       </div>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">Input Schema (JSON)</label>
+        <label className="block text-xs text-text-secondary mb-1">Input Schema (JSON)</label>
         <textarea value={inputSchemaStr} onChange={(e) => setInputSchemaStr(e.target.value)} rows={4} className={inputClass + ' font-mono text-xs'} placeholder='{"type":"object","properties":{...}}' />
       </div>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">Output Schema (JSON)</label>
+        <label className="block text-xs text-text-secondary mb-1">Output Schema (JSON)</label>
         <textarea value={outputSchemaStr} onChange={(e) => setOutputSchemaStr(e.target.value)} rows={4} className={inputClass + ' font-mono text-xs'} placeholder='{"type":"object","properties":{...}}' />
       </div>
       {metaError && <p className="text-red-400 text-xs">{metaError}</p>}
-      <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">
+      <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-accent-emerald hover:bg-accent-emerald/90 text-white text-sm font-medium rounded-lg disabled:opacity-50">
         {saving ? 'Saving...' : 'Save Agent Metadata'}
       </button>
     </div>

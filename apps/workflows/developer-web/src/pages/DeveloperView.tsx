@@ -28,7 +28,7 @@ export const DeveloperView: React.FC = () => {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-outfit font-bold text-text-primary">Developer API Manager</h1>
+        <h1 className="text-3xl font-bold text-text-primary">Developer API Manager</h1>
         <p className="text-text-secondary mt-1">Explore models, manage API keys, and track usage</p>
       </div>
 

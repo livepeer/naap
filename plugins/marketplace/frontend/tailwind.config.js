@@ -8,7 +8,7 @@ export default {
         'accent-emerald': 'var(--accent-emerald)', 'accent-blue': 'var(--accent-blue)',
         'accent-amber': 'var(--accent-amber)', 'accent-rose': 'var(--accent-rose)',
       },
-      fontFamily: { outfit: ['Outfit', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+      fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
     },
   },
   plugins: [],

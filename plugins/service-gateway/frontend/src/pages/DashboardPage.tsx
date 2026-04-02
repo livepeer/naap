@@ -62,12 +62,12 @@ const StatCard: React.FC<{ label: string; value: string; trend?: string; color?:
   label,
   value,
   trend,
-  color = 'text-gray-200',
+  color = 'text-text-primary',
 }) => (
-  <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-    <div className="text-xs text-gray-400 mb-1">{label}</div>
+  <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-4">
+    <div className="text-xs text-text-secondary mb-1">{label}</div>
     <div className={`text-2xl font-bold ${color}`}>{value}</div>
-    {trend && <div className="text-xs text-gray-500 mt-1">{trend}</div>}
+    {trend && <div className="text-xs text-text-tertiary mt-1">{trend}</div>}
   </div>
 );
 
@@ -77,7 +77,7 @@ const MiniChart: React.FC<{ points: TimeseriesPoint[]; field: 'requests' | 'avgL
   points,
   field,
 }) => {
-  if (points.length === 0) return <div className="text-gray-500 text-xs py-4 text-center">No data</div>;
+  if (points.length === 0) return <div className="text-text-tertiary text-xs py-4 text-center">No data</div>;
   const max = Math.max(1, ...points.map((p) => p[field]));
   const displayPoints = points.slice(-60); // last 60 data points
 
@@ -92,7 +92,7 @@ const MiniChart: React.FC<{ points: TimeseriesPoint[]; field: 'requests' | 'avgL
             className={`flex-1 min-w-[2px] rounded-t ${
               isError && point[field] > 0
                 ? 'bg-red-400/60'
-                : 'bg-blue-400/60'
+                : 'bg-accent-emerald/60'
             }`}
             style={{ height: `${Math.max(1, height)}%` }}
             title={`${new Date(point.timestamp).toLocaleTimeString()}: ${point[field]}`}
@@ -144,18 +144,18 @@ export const DashboardPage: React.FC = () => {
     <div className="p-6 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-100">Dashboard</h1>
+          <h1 className="text-2xl font-bold text-text-primary">Dashboard</h1>
           <div className="flex items-center gap-3">
             {/* Time Range Selector */}
-            <div className="flex gap-1 bg-gray-800 rounded-lg p-1">
+            <div className="flex gap-1 bg-bg-secondary rounded-lg p-1">
               {TIME_RANGES.map((tr) => (
                 <button
                   key={tr.label}
                   onClick={() => setTimeRange(tr)}
                   className={`px-3 py-1 text-xs font-medium rounded ${
                     timeRange.label === tr.label
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-400 hover:text-gray-200'
+                      ? 'bg-accent-emerald text-white'
+                      : 'text-text-secondary hover:text-text-primary'
                   }`}
                 >
                   {tr.label}
@@ -169,10 +169,10 @@ export const DashboardPage: React.FC = () => {
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${
                 autoRefresh
                   ? 'bg-green-600/20 text-green-400 border border-green-600/30'
-                  : 'bg-gray-800 text-gray-400 border border-gray-700'
+                  : 'bg-bg-secondary text-text-secondary border border-[var(--border-color)]'
               }`}
             >
-              <div className={`w-1.5 h-1.5 rounded-full ${autoRefresh ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`} />
+              <div className={`w-1.5 h-1.5 rounded-full ${autoRefresh ? 'bg-green-400 animate-pulse' : 'bg-bg-tertiary'}`} />
               {autoRefresh ? 'Live' : 'Auto-refresh off'}
             </button>
           </div>
@@ -187,12 +187,12 @@ export const DashboardPage: React.FC = () => {
           <StatCard
             label="Avg Latency"
             value={`${summary?.avgLatencyMs || 0}ms`}
-            color={summary && summary.avgLatencyMs > 1000 ? 'text-yellow-400' : 'text-gray-200'}
+            color={summary && summary.avgLatencyMs > 1000 ? 'text-yellow-400' : 'text-text-primary'}
           />
           <StatCard
             label="Error Rate"
             value={`${summary?.errorRate || 0}%`}
-            color={summary && summary.errorRate > 5 ? 'text-red-400' : 'text-gray-200'}
+            color={summary && summary.errorRate > 5 ? 'text-red-400' : 'text-text-primary'}
           />
           <StatCard
             label="Upstreams"
@@ -203,16 +203,16 @@ export const DashboardPage: React.FC = () => {
 
         {/* Charts */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-            <h3 className="text-xs text-gray-400 mb-3">Requests</h3>
+          <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-4">
+            <h3 className="text-xs text-text-secondary mb-3">Requests</h3>
             <MiniChart points={timeseries} field="requests" />
           </div>
-          <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-            <h3 className="text-xs text-gray-400 mb-3">Avg Latency (ms)</h3>
+          <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-4">
+            <h3 className="text-xs text-text-secondary mb-3">Avg Latency (ms)</h3>
             <MiniChart points={timeseries} field="avgLatencyMs" />
           </div>
-          <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-            <h3 className="text-xs text-gray-400 mb-3">Errors</h3>
+          <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg p-4">
+            <h3 className="text-xs text-text-secondary mb-3">Errors</h3>
             <MiniChart points={timeseries} field="errors" />
           </div>
         </div>
@@ -220,30 +220,30 @@ export const DashboardPage: React.FC = () => {
         {/* Tables Row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           {/* Per-Connector Breakdown */}
-          <div className="bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-300">By Connector</h3>
+          <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg overflow-hidden">
+            <div className="px-4 py-3 border-b border-[var(--border-color)]">
+              <h3 className="text-sm font-semibold text-text-secondary">By Connector</h3>
             </div>
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="px-4 py-2 text-left text-gray-400">Connector</th>
-                  <th className="px-4 py-2 text-right text-gray-400">Requests</th>
-                  <th className="px-4 py-2 text-right text-gray-400">Latency</th>
-                  <th className="px-4 py-2 text-right text-gray-400">Errors</th>
+                <tr className="border-b border-[var(--border-color)]">
+                  <th className="px-4 py-2 text-left text-text-secondary">Connector</th>
+                  <th className="px-4 py-2 text-right text-text-secondary">Requests</th>
+                  <th className="px-4 py-2 text-right text-text-secondary">Latency</th>
+                  <th className="px-4 py-2 text-right text-text-secondary">Errors</th>
                 </tr>
               </thead>
               <tbody>
                 {connectors.length === 0 && (
-                  <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-500">No traffic yet</td></tr>
+                  <tr><td colSpan={4} className="px-4 py-6 text-center text-text-tertiary">No traffic yet</td></tr>
                 )}
                 {connectors.map((c) => (
-                  <tr key={c.connectorId} className="border-b border-gray-700/50">
-                    <td className="px-4 py-2 text-gray-200">{c.displayName}</td>
-                    <td className="px-4 py-2 text-right text-gray-300">{c.requests.toLocaleString()}</td>
-                    <td className="px-4 py-2 text-right text-gray-300">{c.avgLatencyMs}ms</td>
+                  <tr key={c.connectorId} className="border-b border-[var(--border-color)]">
+                    <td className="px-4 py-2 text-text-primary">{c.displayName}</td>
+                    <td className="px-4 py-2 text-right text-text-secondary">{c.requests.toLocaleString()}</td>
+                    <td className="px-4 py-2 text-right text-text-secondary">{c.avgLatencyMs}ms</td>
                     <td className="px-4 py-2 text-right">
-                      <span className={c.errorRate > 5 ? 'text-red-400' : 'text-gray-300'}>{c.errorRate}%</span>
+                      <span className={c.errorRate > 5 ? 'text-red-400' : 'text-text-secondary'}>{c.errorRate}%</span>
                     </td>
                   </tr>
                 ))}
@@ -252,21 +252,21 @@ export const DashboardPage: React.FC = () => {
           </div>
 
           {/* Health Panel */}
-          <div className="bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-300">Upstream Health</h3>
+          <div className="bg-bg-secondary border border-[var(--border-color)] rounded-lg overflow-hidden">
+            <div className="px-4 py-3 border-b border-[var(--border-color)]">
+              <h3 className="text-sm font-semibold text-text-secondary">Upstream Health</h3>
             </div>
-            <div className="divide-y divide-gray-700/50">
+            <div className="divide-y divide-[var(--border-color)]">
               {(!health || health.connectors.length === 0) && (
-                <div className="px-4 py-6 text-center text-gray-500 text-xs">No published connectors</div>
+                <div className="px-4 py-6 text-center text-text-tertiary text-xs">No published connectors</div>
               )}
               {health?.connectors.map((c) => (
                 <div key={c.connectorId} className="flex items-center justify-between px-4 py-3">
                   <div className="flex items-center gap-2">
                     <HealthDot status={c.status} />
-                    <span className="text-sm text-gray-200">{c.displayName}</span>
+                    <span className="text-sm text-text-primary">{c.displayName}</span>
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-gray-400">
+                  <div className="flex items-center gap-3 text-xs text-text-secondary">
                     {c.latencyMs !== null && <span>{c.latencyMs}ms</span>}
                     <span className="capitalize">{c.status}</span>
                   </div>
