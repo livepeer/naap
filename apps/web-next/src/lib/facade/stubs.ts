@@ -26,8 +26,24 @@ import type { NetworkModel, JobFeedItem } from './types.js';
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Fixed base timestamp for deterministic stub data (2026-03-31T12:00:00Z). */
+const STUB_BASE_TS = 1_743_339_600_000;
+
+/** Mulberry32 seeded PRNG — deterministic replacement for Math.random(). */
+function seededRandom(seed: number): () => number {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+const rand = seededRandom(42);
+
 function hourlyBuckets(baseValue: number, count = 24) {
-  const now = new Date();
+  const now = new Date(STUB_BASE_TS);
   return Array.from({ length: count }, (_, i) => {
     const h = new Date(now);
     h.setHours(now.getHours() - (count - 1 - i), 0, 0, 0);
@@ -36,28 +52,9 @@ function hourlyBuckets(baseValue: number, count = 24) {
   });
 }
 
-function daysAgoUnix(n: number) {
-  return Math.floor((Date.now() - n * 86_400_000) / 1000);
+function daysAgoUnix(n: number, baseTs = STUB_BASE_TS) {
+  return Math.floor((baseTs - n * 86_400_000) / 1000);
 }
-
-// ---------------------------------------------------------------------------
-// KPI — derived from real /v1/streams/history + /v1/net/summary patterns
-// ---------------------------------------------------------------------------
-
-// hourlyUsage buckets at ~1140 mins/hour → 24h total ≈ 27 360 mins
-const _hourlyUsage = hourlyBuckets(1_140);
-const _totalUsageMins = _hourlyUsage.reduce((s, b) => s + b.value, 0);
-
-export const kpi: DashboardKPI = {
-  successRate: { value: 77.8, delta: -2.1 },
-  orchestratorsOnline: { value: 33, delta: 0 },
-  dailyUsageMins: { value: _totalUsageMins, delta: 3.4 },
-  dailySessionCount: { value: 36_456, delta: 5.2 },
-  dailyNetworkFeesEth: { value: 0, delta: 0 },
-  timeframeHours: 24,
-  hourlyUsage: _hourlyUsage,
-  hourlySessions: hourlyBuckets(1_519),
-};
 
 // ---------------------------------------------------------------------------
 // Pipelines — real pipeline counts from /v1/net/orchestrators RawCapabilities (2026-03-31)
@@ -162,6 +159,26 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
 ];
+
+// ---------------------------------------------------------------------------
+// KPI — derived from pipeline stubs + /v1/net/summary patterns
+// ---------------------------------------------------------------------------
+
+const _totalPipelineMins = pipelines.reduce((s, p) => s + p.mins, 0);
+const _totalPipelineSessions = pipelines.reduce((s, p) => s + p.sessions, 0);
+const _hourlyUsage = hourlyBuckets(Math.round(_totalPipelineMins / 24));
+const _hourlySessions = hourlyBuckets(Math.round(_totalPipelineSessions / 24));
+
+export const kpi: DashboardKPI = {
+  successRate: { value: 77.8, delta: -2.1 },
+  orchestratorsOnline: { value: 33, delta: 0 },
+  dailyUsageMins: { value: _hourlyUsage.reduce((s, b) => s + b.value, 0), delta: 3.4 },
+  dailySessionCount: { value: _hourlySessions.reduce((s, b) => s + b.value, 0), delta: 5.2 },
+  dailyNetworkFeesEth: { value: 6.43, delta: 7.2 },
+  timeframeHours: 24,
+  hourlyUsage: _hourlyUsage,
+  hourlySessions: _hourlySessions,
+};
 
 // ---------------------------------------------------------------------------
 // Pipeline catalog — all pipelines+models from /v1/net/orchestrators (2026-03-31)
@@ -338,13 +355,13 @@ export const fees: DashboardFeesInfo = {
   weeklyVolumeChangeEth: 2.8,
   dayData: Array.from({ length: dayDataCount }, (_, i) => ({
     dateS: daysAgoUnix(dayDataCount - i - 1),
-    volumeEth: parseFloat((Math.random() * 8 + 2).toFixed(4)),
-    volumeUsd: Math.round(Math.random() * 25_000 + 5_000),
+    volumeEth: parseFloat((rand() * 8 + 2).toFixed(4)),
+    volumeUsd: Math.round(rand() * 25_000 + 5_000),
   })),
   weeklyData: Array.from({ length: 26 }, (_, i) => ({
     date: daysAgoUnix((26 - i - 1) * 7),
-    weeklyVolumeUsd: Math.round(Math.random() * 120_000 + 40_000),
-    weeklyVolumeEth: parseFloat((Math.random() * 40 + 15).toFixed(4)),
+    weeklyVolumeUsd: Math.round(rand() * 120_000 + 40_000),
+    weeklyVolumeEth: parseFloat((rand() * 40 + 15).toFixed(4)),
   })),
 };
 

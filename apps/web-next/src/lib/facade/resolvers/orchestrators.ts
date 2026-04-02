@@ -33,6 +33,15 @@ interface NaapNetOrchestrator {
   URI: string;
 }
 
+/** Hours with optional trailing `h`, clamped to [1, 168] (same semantics as KPI `window`). */
+function orchestratorWindowFromPeriod(period?: string): string {
+  const raw = (period ?? '24').trim();
+  const stripped = raw.toLowerCase().endsWith('h') ? raw.slice(0, -1).trim() : raw;
+  const parsed = parseInt(stripped, 10);
+  const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
+  return `${hours}h`;
+}
+
 async function fetchURIMap(): Promise<Map<string, string>> {
   try {
     const revalidateSec = Math.floor(TTL.NET_MODELS / 1000);
@@ -53,11 +62,11 @@ function pct(v: number | null): number | null {
 }
 
 export async function resolveOrchestrators(opts?: { period?: string }): Promise<DashboardOrchestrator[]> {
-  const period = opts?.period ?? '1000';
+  const window = orchestratorWindowFromPeriod(opts?.period);
   const revalidateSec = Math.floor(TTL.ORCHESTRATORS / 1000);
-  return cachedFetch(`facade:orchestrators:${period}`, TTL.ORCHESTRATORS, async () => {
+  return cachedFetch(`facade:orchestrators:${window}`, TTL.ORCHESTRATORS, async () => {
     const [rows, uriMap] = await Promise.all([
-      naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window: period }, {
+      naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window }, {
         next: { revalidate: revalidateSec },
         errorLabel: 'orchestrators',
       }),

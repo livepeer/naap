@@ -238,7 +238,6 @@ function modelBadgeColor(modelId: string): (typeof MODEL_BADGE_COLORS)[number] {
 }
 
 /** Capability id shown as a gray monospace slug (same spirit as model ids under GPU breakdown). */
-const LIVE_VIDEO_TO_VIDEO_PIPELINE_ID = 'live-video-to-video';
 
 /**
  * Split stream_events `pipeline` slug into a dashboard pipeline label (from
@@ -255,7 +254,7 @@ function jobFeedPipelineParts(pipelineSlug: string): {
   // In stream events, these are model/constraint values for live-video-to-video.
   if (slug === 'noop' || slug.startsWith('streamdiffusion')) {
     return {
-      pipelineLabel: PIPELINE_DISPLAY[LIVE_VIDEO_TO_VIDEO_PIPELINE_ID] ?? LIVE_VIDEO_TO_VIDEO_PIPELINE_ID,
+      pipelineLabel: PIPELINE_DISPLAY[LIVE_VIDEO_PIPELINE_ID] ?? LIVE_VIDEO_PIPELINE_ID,
       modelLabel: slug,
       matched: true,
     };
@@ -1524,15 +1523,18 @@ export default function DashboardPage() {
     if (!liveVideoEntry?.models.length) return;
 
     const modelsKey = [...liveVideoEntry.models].sort().join(',');
+    if (liveVideoCapacityModelsRef.current === modelsKey) return;
+    liveVideoCapacityModelsRef.current = modelsKey;
     let cancelled = false;
     fetch(`/api/v1/network/live-video-capacity?models=${encodeURIComponent(liveVideoEntry.models.join(','))}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body: { capacityByModel?: Record<string, number> } | null) => {
         if (cancelled || !body?.capacityByModel || typeof body.capacityByModel !== 'object') return;
-        liveVideoCapacityModelsRef.current = modelsKey;
         setLiveVideoCapacity(body.capacityByModel);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) liveVideoCapacityModelsRef.current = null;
+      });
     return () => {
       cancelled = true;
     };

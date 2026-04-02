@@ -239,7 +239,7 @@ export function useJobFeedStream(
           console.warn('[useJobFeedStream] job-feed HTTP', res.status, fetchUrl);
           setFeedMeta({
             clickhouseConfigured: body.clickhouseConfigured ?? false,
-            queryFailed: true,
+            queryFailed: body.queryFailed ?? true,
             fetchFailed: true,
           });
           setError({

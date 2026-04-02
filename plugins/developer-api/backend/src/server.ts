@@ -179,11 +179,12 @@ function parseNetModelsJson(payload: unknown): unknown[] {
 
 app.get('/api/v1/developer/network-models', async (req, res) => {
   try {
-    const limitParam = req.query.limit;
-    const limit = typeof limitParam === 'string' && /^\d+$/.test(limitParam)
-      ? Math.min(parseInt(limitParam, 10), 200)
-      : 50;
-    const cacheKey = String(limit);
+    const limitParam = typeof req.query.limit === 'string' ? req.query.limit : undefined;
+    const limitIsAll = limitParam === 'all' || limitParam === '0' || limitParam == null;
+    const limit = limitIsAll
+      ? undefined
+      : Math.min(parseInt(limitParam!, 10) || 50, 200);
+    const cacheKey = limitIsAll ? 'all' : String(limit);
     const cached = netModelsJsonCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       return res.json(cached.body);
@@ -198,10 +199,13 @@ app.get('/api/v1/developer/network-models', async (req, res) => {
     const fetchPromise = (async () => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10_000);
+      const upstreamUrl = limitIsAll
+        ? `${NET_MODELS_API_BASE}/net/models`
+        : `${NET_MODELS_API_BASE}/net/models?limit=${limit}`;
       let upstream: Response;
       try {
         upstream = await fetch(
-          `${NET_MODELS_API_BASE}/net/models?limit=${limit}`,
+          upstreamUrl,
           {
             headers: { Accept: 'application/json' },
             signal: controller.signal,

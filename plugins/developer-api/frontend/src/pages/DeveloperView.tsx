@@ -150,7 +150,8 @@ export const DeveloperView: React.FC = () => {
   const [keyCopied, setKeyCopied] = useState(false);
 
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
-  const [billingProviders, setBillingProviders] = useState<BillingProviderInfo[]>([]);
+  const [billingProviders, setBillingProviders] = useState<BillingProviderInfo[] | null>(null);
+  const [billingProvidersError, setBillingProvidersError] = useState(false);
   const [modalDataLoading, setModalDataLoading] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [newProjectName, setNewProjectName] = useState('');
@@ -182,7 +183,7 @@ export const DeveloperView: React.FC = () => {
   );
 
   const providerOptions = useMemo(() => {
-    if (billingProviders.length > 0) {
+    if (billingProviders && billingProviders.length > 0) {
       return billingProviders
         .map((provider) => ({ id: provider.id, displayName: provider.displayName }))
         .sort((a, b) => a.displayName.localeCompare(b.displayName));
@@ -337,18 +338,19 @@ export const DeveloperView: React.FC = () => {
   }, [networkModels, pipelineFilter, networkModelSearch]);
 
   const loadBillingProviders = useCallback(async () => {
+    setBillingProvidersError(false);
     try {
       const res = await fetch('/api/v1/billing-providers');
       if (!res.ok) {
         console.error('Failed to load billing providers:', res.status);
-        setBillingProviders([]);
+        setBillingProvidersError(true);
         return;
       }
       const json = await res.json();
       setBillingProviders((json.data ?? json).providers || []);
     } catch (err) {
       console.error('Failed to load billing providers:', err);
-      setBillingProviders([]);
+      setBillingProvidersError(true);
     }
   }, []);
 
@@ -368,10 +370,11 @@ export const DeveloperView: React.FC = () => {
           'Failed to load modal data:',
           `projects HTTP ${projectsRes.status}, billing HTTP ${bpRes.status}`,
         );
-        setProjects([]);
-        setBillingProviders([]);
+        if (!projectsRes.ok) setProjects([]);
+        if (!bpRes.ok) setBillingProvidersError(true);
         return;
       }
+      setBillingProvidersError(false);
       const [projectsJson, bpJson] = await Promise.all([
         projectsRes.json(),
         bpRes.json(),
@@ -428,7 +431,7 @@ export const DeveloperView: React.FC = () => {
       setCreateError('Please select a billing provider.');
       return;
     }
-    const selectedProvider = billingProviders.find(bp => bp.id === selectedBillingProviderId);
+    const selectedProvider = billingProviders?.find(bp => bp.id === selectedBillingProviderId);
     if (!selectedProvider) {
       setCreateError('Selected billing provider not found.');
       return;
@@ -928,7 +931,15 @@ export const DeveloperView: React.FC = () => {
                   </div>
                 </div>
                 <div className="space-y-3">
-                  {billingProviders.length === 0 ? (
+                  {billingProvidersError ? (
+                    <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                      <AlertTriangle size={18} className="text-red-400 flex-shrink-0" />
+                      <div className="text-sm">
+                        <p className="text-red-200 font-medium">Failed to load billing providers</p>
+                        <button onClick={loadBillingProviders} className="text-accent-blue hover:underline mt-1">Retry</button>
+                      </div>
+                    </div>
+                  ) : !billingProviders || billingProviders.length === 0 ? (
                     <div className="text-center py-6 text-text-secondary">
                       <CreditCard size={24} className="mx-auto mb-3 opacity-30" />
                       <p>No billing providers available</p>
@@ -1026,7 +1037,15 @@ export const DeveloperView: React.FC = () => {
                   <Loader2 size={18} className="text-text-secondary animate-spin flex-shrink-0" />
                   <span className="text-sm text-text-secondary">Loading billing providers...</span>
                 </div>
-              ) : billingProviders.length === 0 ? (
+              ) : billingProvidersError ? (
+                <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                  <AlertTriangle size={18} className="text-red-400 flex-shrink-0" />
+                  <div className="text-sm">
+                    <p className="text-red-200 font-medium">Failed to load billing providers</p>
+                    <button onClick={loadBillingProviders} className="text-accent-blue hover:underline mt-1">Retry</button>
+                  </div>
+                </div>
+              ) : !billingProviders || billingProviders.length === 0 ? (
                 <div className="flex items-center gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
                   <AlertTriangle size={18} className="text-amber-400 flex-shrink-0" />
                   <div className="text-sm">
@@ -1052,7 +1071,7 @@ export const DeveloperView: React.FC = () => {
             <div className="flex justify-end gap-3 pt-2">
               <button
                 onClick={handleCreateKey}
-                disabled={creating || modalDataLoading || billingProviders.length === 0 || !selectedBillingProviderId}
+                disabled={creating || modalDataLoading || billingProvidersError || !billingProviders?.length || !selectedBillingProviderId}
                 className="order-2 flex items-center gap-2 px-3 py-1.5 bg-accent-emerald text-white rounded-md text-xs font-medium hover:bg-accent-emerald/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Key size={16} /> Create API Key

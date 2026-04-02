@@ -399,7 +399,7 @@ export async function resolveOrchestrators({
     if (knownSessions <= 0) continue;
     if (row.gpu_id) {
       d.gpuIds.add(row.gpu_id);
-    } else if (knownSessions > 0) {
+    } else {
       d.hasAnonymousGpu = true;
     }
   }

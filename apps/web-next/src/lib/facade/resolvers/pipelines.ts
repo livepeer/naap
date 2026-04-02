@@ -38,12 +38,15 @@ export async function resolvePipelines(opts: { limit?: number; timeframe?: strin
       next: { revalidate: revalidateSec },
       errorLabel: 'pipelines',
     });
-    return rows.map((r): DashboardPipelineUsage => ({
-      name: r.name,
-      sessions: r.sessions,
-      mins: r.mins,
-      avgFps: r.avgFps,
-      color: PIPELINE_COLOR[r.name] ?? DEFAULT_PIPELINE_COLOR,
-    }));
+    return rows.map((r): DashboardPipelineUsage => {
+      const colorKey = r.name.trim().toLowerCase().replace(/\s+/g, '-');
+      return {
+        name: r.name,
+        sessions: r.sessions,
+        mins: r.mins,
+        avgFps: r.avgFps,
+        color: PIPELINE_COLOR[colorKey] ?? DEFAULT_PIPELINE_COLOR,
+      };
+    });
   });
 }
