@@ -1036,7 +1036,7 @@ function PipelinesCard({
                       <td className="py-1 pl-3 pr-2 align-middle">
                         <div className="group/pipeline flex min-w-0 items-center gap-2">
                           <span className="w-2 h-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
-                          <span className="min-w-0 truncate text-xs font-semibold text-foreground">{entry.name}</span>
+                          <span className="min-w-0 truncate text-xs font-semibold text-foreground">{entry.id}</span>
                           <PipelineTableCopyButton
                             inline
                             inlineGroup="pipeline"

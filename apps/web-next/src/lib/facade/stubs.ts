@@ -63,7 +63,7 @@ function daysAgoUnix(n: number, baseTs = STUB_BASE_TS) {
 
 export const pipelines: DashboardPipelineUsage[] = [
   {
-    name: 'Live Video-to-Video',
+    name: 'live-video-to-video',
     mins: 0,
     sessions: 36_456,
     avgFps: 15.7,
@@ -76,7 +76,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Text-to-Image',
+    name: 'text-to-image',
     mins: 0,
     sessions: 124,
     avgFps: 0,
@@ -87,7 +87,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Upscale',
+    name: 'upscale',
     mins: 0,
     sessions: 87,
     avgFps: 0,
@@ -97,7 +97,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Audio-to-Text',
+    name: 'audio-to-text',
     mins: 0,
     sessions: 62,
     avgFps: 0,
@@ -107,7 +107,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'LLM',
+    name: 'llm',
     mins: 0,
     sessions: 38,
     avgFps: 0,
@@ -119,7 +119,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Image-to-Image',
+    name: 'image-to-image',
     mins: 0,
     sessions: 29,
     avgFps: 0,
@@ -129,7 +129,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Image-to-Video',
+    name: 'image-to-video',
     mins: 0,
     sessions: 21,
     avgFps: 0,
@@ -139,7 +139,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Segment Anything 2',
+    name: 'segment-anything-2',
     mins: 0,
     sessions: 14,
     avgFps: 0,
@@ -149,7 +149,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Text-to-Speech',
+    name: 'text-to-speech',
     mins: 0,
     sessions: 9,
     avgFps: 0,

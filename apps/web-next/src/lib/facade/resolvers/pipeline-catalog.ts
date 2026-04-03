@@ -15,9 +15,10 @@
  * 4. **Demand augment:** `network/demand` (24h cache) supplies pipeline/model
  *    ids seen in the lookback window when net/models is activity-only.
  *
- * 5. **Display seed:** If the union still collapses to a single pipeline, merge
- *    empty shells for every id in {@link PIPELINE_DISPLAY} so the Pipelines panel
- *    does not hide other capabilities until data arrives.
+ * 5. **Display seed (stubs only):** If {@link FACADE_USE_STUBS} is set and the
+ *    union still collapses to a single pipeline, merge empty shells for every id
+ *    in {@link PIPELINE_DISPLAY}. Disabled in production to avoid injecting
+ *    placeholder rows when upstream data is temporarily incomplete.
  */
 
 import type { DashboardPipelineCatalogEntry } from '@naap/plugin-sdk';
@@ -251,11 +252,13 @@ export async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalog
     const fromDemand = catalogFromDemandRows(demandRows);
     let merged = unionCatalogEntries(base, fromPipelinesEndpoint, fromDemand);
 
-    const catalogLooksIncomplete =
-      merged.length <= 1
-      || (merged.length > 0 && merged.every((e) => e.id === LIVE_VIDEO_PIPELINE_ID));
-    if (catalogLooksIncomplete) {
-      merged = unionCatalogEntries(merged, catalogSeedFromDisplay());
+    if (process.env.FACADE_USE_STUBS === 'true') {
+      const catalogLooksIncomplete =
+        merged.length <= 1
+        || (merged.length > 0 && merged.every((e) => e.id === LIVE_VIDEO_PIPELINE_ID));
+      if (catalogLooksIncomplete) {
+        merged = unionCatalogEntries(merged, catalogSeedFromDisplay());
+      }
     }
 
     return merged;
