@@ -130,19 +130,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Auto-discover plugins: find all plugin directories that have a frontend vite config
-# This means any new plugin with plugins/{name}/frontend/vite.config.ts is automatically included.
+# Auto-discover plugins: find all plugin directories that have a frontend vite config.
+# Scans both plugins/ (production plugins) and examples/ (example plugins that can
+# be published via Plugin Publisher). Deduplicates in case a symlink in plugins/
+# points to an examples/ directory.
 if [ -n "$SPECIFIC_PLUGIN" ]; then
   PLUGINS=("$SPECIFIC_PLUGIN")
 else
   PLUGINS=()
-  for config in "$PLUGINS_DIR"/*/frontend/vite.config.ts; do
+  for config in "$PLUGINS_DIR"/*/frontend/vite.config.ts "$ROOT_DIR"/examples/*/frontend/vite.config.ts; do
     [ -f "$config" ] || continue
     plugin_name="$(basename "$(dirname "$(dirname "$config")")")"
     PLUGINS+=("$plugin_name")
   done
-  # Sort for deterministic output
-  IFS=$'\n' PLUGINS=($(sort <<<"${PLUGINS[*]}")); unset IFS
+  # Sort and deduplicate (symlinks in plugins/ may point to examples/)
+  IFS=$'\n' PLUGINS=($(echo "${PLUGINS[*]}" | tr ' ' '\n' | sort -u)); unset IFS
 fi
 
 if [ ${#PLUGINS[@]} -eq 0 ]; then
@@ -174,8 +176,14 @@ mkdir -p "$OUTPUT_DIR"
 # Build a single plugin
 build_plugin() {
   local plugin_name=$1
-  local plugin_dir="$PLUGINS_DIR/$plugin_name/frontend"
   local plugin_root="$PLUGINS_DIR/$plugin_name"
+
+  # Fallback: if plugin not in plugins/, check examples/ (for --plugin mode)
+  if [ ! -d "$plugin_root/frontend" ] && [ -d "$ROOT_DIR/examples/$plugin_name/frontend" ]; then
+    plugin_root="$ROOT_DIR/examples/$plugin_name"
+  fi
+
+  local plugin_dir="$plugin_root/frontend"
   local output_subdir="$OUTPUT_DIR/$plugin_name/1.0.0"
 
   # Check if vite config exists

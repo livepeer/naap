@@ -50,11 +50,16 @@ export default defineConfig({
     },
   ],
 
-  // Run local dev server before tests
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3001',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120000,
-  },
+  // Only start a local dev server when testing against localhost.
+  // When PLAYWRIGHT_BASE_URL points to a Vercel deployment, skip it.
+  ...(process.env.PLAYWRIGHT_BASE_URL && !process.env.PLAYWRIGHT_BASE_URL.includes('localhost')
+    ? {}
+    : {
+        webServer: {
+          command: 'npm run dev',
+          url: 'http://localhost:3001',
+          reuseExistingServer: !process.env.CI,
+          timeout: 120000,
+        },
+      }),
 });

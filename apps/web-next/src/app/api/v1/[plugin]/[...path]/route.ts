@@ -4,11 +4,18 @@
  *
  * This route proxies requests to plugin backend services.
  * In production, these would be handled by the plugin's serverless functions.
+ *
+ * On Vercel, the static registry/* routes may not take priority over this
+ * catch-all. When that happens, this route handles registry/examples
+ * requests inline using the generated examples manifest.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthToken } from '@/lib/api/response';
 import { PLUGIN_PORTS, DEFAULT_PORT } from '@/lib/plugin-ports';
+import { prisma } from '@/lib/db';
+import { validateSession } from '@/lib/api/auth';
+import { EXAMPLES_MANIFEST } from '../../../../../generated/examples-manifest';
 
 // ─── Plugin service URL map ─────────────────────────────────────────────────
 // Ports come from PLUGIN_PORTS (which mirrors plugin.json devPort values).
@@ -55,11 +62,260 @@ function buildPluginServices(): Record<string, string> {
 
 const PLUGIN_SERVICES = buildPluginServices();
 
+const PLUGIN_CDN_URL = process.env.PLUGIN_CDN_URL || '/cdn/plugins';
+const IS_VERCEL = process.env.VERCEL === '1';
+
+/**
+ * Prefixes that have their own dedicated Next.js route handlers and must
+ * never be treated as plugin names by this catch-all proxy.
+ */
+const RESERVED_PREFIXES = new Set([
+  'auth', 'base', 'storage', 'livepeer', 'pipelines', 'gw',
+]);
+
+// ─── Registry examples handlers (inlined for Vercel compatibility) ──────────
+
+async function handleListExamples(request: NextRequest): Promise<NextResponse> {
+  const token = getAuthToken(request);
+  if (!token) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+  }
+
+  const user = await validateSession(token);
+  if (!user) {
+    return NextResponse.json({ error: 'Invalid or expired session' }, { status: 401 });
+  }
+
+  const flag = await prisma.featureFlag.findUnique({
+    where: { key: 'enableExamplePublishing' },
+  });
+  if (!flag?.enabled) {
+    return NextResponse.json({ error: 'Example plugin publishing is not enabled' }, { status: 403 });
+  }
+
+  const examples = EXAMPLES_MANIFEST;
+
+  const publishedPkgs = examples.length > 0
+    ? await prisma.pluginPackage.findMany({
+        where: { name: { in: examples.map((e) => e.name) }, publishStatus: 'published' },
+        select: { name: true },
+      })
+    : [];
+  const publishedSet = new Set(publishedPkgs.map((p) => p.name));
+
+  const result = examples.map((e) => ({ ...e, alreadyPublished: publishedSet.has(e.name) }));
+  return NextResponse.json({ success: true, examples: result });
+}
+
+async function handlePublishExample(
+  request: NextRequest,
+  pluginName: string,
+): Promise<NextResponse> {
+  const token = getAuthToken(request);
+  if (!token) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+  }
+
+  const user = await validateSession(token);
+  if (!user) {
+    return NextResponse.json({ error: 'Invalid or expired session' }, { status: 401 });
+  }
+
+  const flag = await prisma.featureFlag.findUnique({
+    where: { key: 'enableExamplePublishing' },
+  });
+  if (!flag?.enabled) {
+    return NextResponse.json({ error: 'Example plugin publishing is not enabled' }, { status: 403 });
+  }
+
+  const example = EXAMPLES_MANIFEST.find((e) => e.name === pluginName);
+  if (!example) {
+    return NextResponse.json({ error: 'Example plugin not found' }, { status: 404 });
+  }
+
+  // On Vercel, bundles are in public/cdn/ (served statically). Locally, check dist/.
+  if (!IS_VERCEL && !example.hasBuild) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const fs = require('fs');
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const pathMod = require('path');
+      let rootDir = process.cwd();
+      for (let i = 0; i < 5; i++) {
+        if (fs.existsSync(pathMod.join(rootDir, 'examples'))) break;
+        rootDir = pathMod.dirname(rootDir);
+      }
+      const distBundle = pathMod.join(rootDir, 'dist', 'plugins', example.dirName, example.version, `${example.dirName}.js`);
+      if (!fs.existsSync(distBundle)) {
+        return NextResponse.json(
+          { error: `Plugin "${example.dirName}" must be built first`, hint: `Run: bin/build-plugins.sh --plugin ${example.dirName}` },
+          { status: 400 },
+        );
+      }
+    } catch { /* fall through */ }
+  }
+
+  const bundleUrl = `${PLUGIN_CDN_URL}/${example.dirName}/${example.version}/${example.dirName}.js`;
+
+  const result = await prisma.$transaction(async (tx) => {
+    const pkg = await tx.pluginPackage.upsert({
+      where: { name: example.name },
+      update: {
+        displayName: example.displayName, description: example.description,
+        category: example.category, author: example.author,
+        authorEmail: example.authorEmail || 'team@naap.io',
+        repository: example.repository, license: example.license,
+        keywords: example.keywords, icon: example.icon, publishStatus: 'published',
+      },
+      create: {
+        name: example.name, displayName: example.displayName,
+        description: example.description || `${example.displayName} plugin for NAAP`,
+        category: example.category || 'other', author: example.author || 'NAAP Team',
+        authorEmail: example.authorEmail || 'team@naap.io',
+        repository: example.repository, license: example.license,
+        keywords: example.keywords, icon: example.icon, isCore: false,
+        publishStatus: 'published',
+      },
+    });
+
+    const version = await tx.pluginVersion.upsert({
+      where: { packageId_version: { packageId: pkg.id, version: example.version } },
+      update: {
+        frontendUrl: bundleUrl,
+        manifest: { name: example.name, displayName: example.displayName, version: example.version, description: example.description, category: example.category, icon: example.icon } as any,
+      },
+      create: {
+        packageId: pkg.id, version: example.version, frontendUrl: bundleUrl,
+        manifest: { name: example.name, displayName: example.displayName, version: example.version, description: example.description, category: example.category, icon: example.icon },
+      },
+    });
+
+    const existingWP = await tx.workflowPlugin.findUnique({ where: { name: example.name }, select: { metadata: true } });
+    const mergedMetadata = { ...((existingWP?.metadata as Record<string, unknown>) || {}), originalRoutes: example.originalRoutes };
+    await tx.workflowPlugin.upsert({
+      where: { name: example.name },
+      update: {
+        displayName: example.displayName, version: example.version,
+        remoteUrl: bundleUrl, bundleUrl, stylesUrl: null,
+        globalName: example.globalName, deploymentType: 'cdn',
+        routes: example.routes, enabled: true, order: example.order,
+        icon: example.icon, metadata: mergedMetadata,
+      },
+      create: {
+        name: example.name, displayName: example.displayName,
+        version: example.version, remoteUrl: bundleUrl, bundleUrl,
+        stylesUrl: null, globalName: example.globalName,
+        deploymentType: 'cdn', routes: example.routes, enabled: true,
+        order: example.order, icon: example.icon, metadata: mergedMetadata,
+      },
+    });
+
+    const deployment = await tx.pluginDeployment.upsert({
+      where: { packageId: pkg.id },
+      update: { versionId: version.id, status: 'running', frontendUrl: bundleUrl, deployedAt: new Date(), healthStatus: 'healthy' },
+      create: { packageId: pkg.id, versionId: version.id, status: 'running', frontendUrl: bundleUrl, deployedAt: new Date(), healthStatus: 'healthy', activeInstalls: 0 },
+    });
+
+    const existingInstall = await tx.tenantPluginInstall.findFirst({
+      where: { userId: user.id, deploymentId: deployment.id, status: { not: 'uninstalled' } },
+    });
+    if (!existingInstall) {
+      await tx.tenantPluginInstall.create({ data: { userId: user.id, deploymentId: deployment.id, status: 'active', enabled: true } });
+      await tx.pluginDeployment.update({ where: { id: deployment.id }, data: { activeInstalls: { increment: 1 } } });
+    }
+
+    await tx.userPluginPreference.upsert({
+      where: { userId_pluginName: { userId: user.id, pluginName: example.name } },
+      update: { enabled: true },
+      create: { userId: user.id, pluginName: example.name, enabled: true, order: 0, pinned: false },
+    });
+
+    return { package: pkg, version };
+  });
+
+  // Symlink for local dev only
+  if (!IS_VERCEL && /^[a-z0-9][a-z0-9-]*$/.test(example.dirName)) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const fs = require('fs');
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const pathMod = require('path');
+      let rootDir = process.cwd();
+      for (let i = 0; i < 5; i++) {
+        if (fs.existsSync(pathMod.join(rootDir, 'examples'))) break;
+        rootDir = pathMod.dirname(rootDir);
+      }
+      const target = pathMod.join(rootDir, 'plugins', example.dirName);
+      const source = pathMod.join(rootDir, 'examples', example.dirName);
+      if (!fs.existsSync(target) && fs.existsSync(source)) {
+        fs.symlinkSync(source, target, 'dir');
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  return NextResponse.json({ success: true, ...result }, { status: 201 });
+}
+
+/**
+ * Handle registry/* requests that reach this catch-all.
+ * On Vercel, the dedicated registry routes may not take priority.
+ */
+async function handleRegistryRequest(
+  request: NextRequest,
+  pathSegments: string[],
+): Promise<NextResponse> {
+  try {
+    // GET /api/v1/registry/examples
+    if (pathSegments[0] === 'examples' && pathSegments.length === 1 && request.method === 'GET') {
+      return handleListExamples(request);
+    }
+
+    // POST /api/v1/registry/examples/:name/publish
+    if (
+      pathSegments[0] === 'examples' &&
+      pathSegments.length === 3 &&
+      pathSegments[2] === 'publish' &&
+      request.method === 'POST'
+    ) {
+      return handlePublishExample(request, pathSegments[1]);
+    }
+  } catch (err) {
+    console.error('[registry] Error:', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+
+  return NextResponse.json(
+    { success: false, error: { code: 'NOT_FOUND', message: `/registry/${pathSegments.join('/')} not found` } },
+    { status: 404 },
+  );
+}
+
+// ─── Main handler ───────────────────────────────────────────────────────────
+
 async function handleRequest(
   request: NextRequest,
   { params }: { params: Promise<{ plugin: string; path: string[] }> }
 ): Promise<NextResponse> {
   const { plugin, path } = await params;
+
+  // Handle registry requests inline (Vercel catch-all routing workaround)
+  if (plugin === 'registry') {
+    return handleRegistryRequest(request, path);
+  }
+
+  if (RESERVED_PREFIXES.has(plugin)) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: 'ROUTE_MISMATCH',
+          message: `/${plugin} has dedicated routes — this catch-all should not handle it`,
+        },
+        meta: { timestamp: new Date().toISOString() },
+      },
+      { status: 404 }
+    );
+  }
 
   // Check if plugin is known
   const serviceUrl = PLUGIN_SERVICES[plugin];
@@ -79,8 +335,6 @@ async function handleRequest(
   }
 
   // On Vercel (production), localhost services are not available.
-  // Every plugin endpoint should have a dedicated Next.js route handler.
-  // If a request reaches this catch-all, it means the route is missing.
   const isVercel = process.env.VERCEL === '1';
   if (isVercel && serviceUrl.includes('localhost')) {
     console.warn(
@@ -109,8 +363,6 @@ async function handleRequest(
   const headers = new Headers();
   headers.set('Content-Type', request.headers.get('Content-Type') || 'application/json');
 
-  // Forward Authorization exactly as received when present.
-  // Fallback to cookie-derived Bearer token for browser flows that rely on session cookies.
   const incomingAuthorization = request.headers.get('authorization');
   if (incomingAuthorization) {
     headers.set('Authorization', incomingAuthorization);
@@ -121,42 +373,25 @@ async function handleRequest(
     }
   }
 
-  // Forward observability headers
   const requestId = request.headers.get('x-request-id');
-  if (requestId) {
-    headers.set('x-request-id', requestId);
-  }
+  if (requestId) headers.set('x-request-id', requestId);
 
   const traceId = request.headers.get('x-trace-id');
-  if (traceId) {
-    headers.set('x-trace-id', traceId);
-  }
+  if (traceId) headers.set('x-trace-id', traceId);
 
-  // Forward other relevant headers
   const forwardedFor = request.headers.get('x-forwarded-for');
-  if (forwardedFor) {
-    headers.set('x-forwarded-for', forwardedFor);
-  }
+  if (forwardedFor) headers.set('x-forwarded-for', forwardedFor);
 
   const realIp = request.headers.get('x-real-ip');
-  if (realIp) {
-    headers.set('x-real-ip', realIp);
-  }
+  if (realIp) headers.set('x-real-ip', realIp);
 
-  // Forward team context if present
   const teamId = request.headers.get('x-team-id');
-  if (teamId) {
-    headers.set('x-team-id', teamId);
-  }
+  if (teamId) headers.set('x-team-id', teamId);
 
-  // Forward CSRF token
   const csrfToken = request.headers.get('x-csrf-token');
-  if (csrfToken) {
-    headers.set('x-csrf-token', csrfToken);
-  }
+  if (csrfToken) headers.set('x-csrf-token', csrfToken);
 
   try {
-    // Get request body if present
     let body: string | undefined;
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       try {
@@ -166,14 +401,12 @@ async function handleRequest(
       }
     }
 
-    // Proxy the request
     const response = await fetch(targetUrl, {
       method: request.method,
       headers,
       body,
     });
 
-    // Forward the response
     const responseBody = await response.text();
 
     const responseHeaders: Record<string, string> = {
@@ -189,7 +422,6 @@ async function handleRequest(
   } catch (err) {
     console.error(`Proxy error for ${plugin}:`, err);
 
-    // Return a service unavailable error if the backend is down
     return NextResponse.json(
       {
         success: false,

@@ -1,14 +1,18 @@
 /**
  * useMetaMask - Core hook for MetaMask wallet connection
+ *
+ * Handles account switching, multiple accounts, and chain changes.
+ * Exposes `accounts` (all permitted) and `address` (active selection).
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { BrowserProvider, JsonRpcSigner } from 'ethers';
 import { isMetaMaskInstalled, delay } from '../lib/utils';
 import { SUPPORTED_CHAIN_IDS, getNetworkByChainId } from '../lib/contracts';
 
 export interface MetaMaskState {
   address: string | null;
+  accounts: string[];          // all permitted accounts
   chainId: number | null;
   balance: bigint | null;
   isConnected: boolean;
@@ -22,6 +26,7 @@ export interface UseMetaMaskReturn extends MetaMaskState {
   connect: () => Promise<void>;
   disconnect: () => void;
   switchNetwork: (chainId: number) => Promise<void>;
+  switchAccount: (address: string) => Promise<void>;
   signMessage: (message: string) => Promise<string>;
   isMetaMaskInstalled: boolean;
   isSupportedNetwork: boolean;
@@ -30,6 +35,7 @@ export interface UseMetaMaskReturn extends MetaMaskState {
 
 const initialState: MetaMaskState = {
   address: null,
+  accounts: [],
   chainId: null,
   balance: null,
   isConnected: false,
@@ -42,40 +48,66 @@ const initialState: MetaMaskState = {
 export function useMetaMask(): UseMetaMaskReturn {
   const [state, setState] = useState<MetaMaskState>(initialState);
   const installed = isMetaMaskInstalled();
+  const providerRef = useRef<BrowserProvider | null>(null);
 
-  // Update balance
-  const updateBalance = useCallback(async (provider: BrowserProvider, address: string) => {
+  // Re-create provider + signer for a given address
+  const setupProviderForAddress = useCallback(async (address: string, allAccounts: string[]) => {
     try {
-      const balance = await provider.getBalance(address);
-      setState(prev => ({ ...prev, balance }));
-    } catch (err) {
-      console.error('Failed to get balance:', err);
+      const provider = new BrowserProvider(window.ethereum as any);
+      providerRef.current = provider;
+      const network = await provider.getNetwork();
+      const chainId = Number(network.chainId);
+      const signer = await provider.getSigner(address);
+      let balance: bigint | null = null;
+      try {
+        balance = await provider.getBalance(address);
+      } catch {}
+
+      setState({
+        address,
+        accounts: allAccounts,
+        chainId,
+        balance,
+        isConnected: true,
+        isConnecting: false,
+        error: null,
+        provider,
+        signer,
+      });
+
+      localStorage.setItem('wallet_connected', 'true');
+      localStorage.setItem('wallet_active_address', address);
+    } catch (err: any) {
+      console.error('Failed to setup provider:', err);
+      setState(prev => ({
+        ...prev,
+        isConnecting: false,
+        error: err?.message || 'Failed to setup wallet',
+      }));
     }
   }, []);
 
-  // Handle account changes
+  // Handle account changes from MetaMask
   const handleAccountsChanged = useCallback((accounts: string[]) => {
     if (accounts.length === 0) {
-      // Disconnected
       setState(initialState);
+      providerRef.current = null;
       localStorage.removeItem('wallet_connected');
+      localStorage.removeItem('wallet_active_address');
     } else {
-      setState(prev => ({ ...prev, address: accounts[0] }));
-      if (state.provider && accounts[0]) {
-        updateBalance(state.provider, accounts[0]);
-      }
+      // Re-setup provider with the new active account (first in list)
+      // but keep all accounts
+      setupProviderForAddress(accounts[0], accounts);
     }
-  }, [state.provider, updateBalance]);
+  }, [setupProviderForAddress]);
 
   // Handle chain changes
-  const handleChainChanged = useCallback((chainIdHex: string) => {
-    const chainId = parseInt(chainIdHex, 16);
-    setState(prev => ({ ...prev, chainId }));
-    // Reload balance on network change
-    if (state.provider && state.address) {
-      updateBalance(state.provider, state.address);
+  const handleChainChanged = useCallback((_chainIdHex: string) => {
+    // Full re-setup needed: provider, signer, balance all change on chain switch
+    if (state.address && state.accounts.length > 0) {
+      setupProviderForAddress(state.address, state.accounts);
     }
-  }, [state.provider, state.address, updateBalance]);
+  }, [state.address, state.accounts, setupProviderForAddress]);
 
   // Connect wallet
   const connect = useCallback(async () => {
@@ -88,48 +120,47 @@ export function useMetaMask(): UseMetaMaskReturn {
 
     try {
       const provider = new BrowserProvider(window.ethereum as any);
-      const accounts = await provider.send('eth_requestAccounts', []);
-      
+      const accounts: string[] = await provider.send('eth_requestAccounts', []);
+
       if (accounts.length === 0) {
         throw new Error('No accounts found');
       }
 
-      const address = accounts[0];
-      const network = await provider.getNetwork();
-      const chainId = Number(network.chainId);
-      const signer = await provider.getSigner();
-      const balance = await provider.getBalance(address);
+      // Use previously active address if it's still in the list, otherwise first
+      const savedAddr = localStorage.getItem('wallet_active_address')?.toLowerCase();
+      const activeAddr = (savedAddr && accounts.find(a => a.toLowerCase() === savedAddr))
+        ? accounts.find(a => a.toLowerCase() === savedAddr)!
+        : accounts[0];
 
-      setState({
-        address,
-        chainId,
-        balance,
-        isConnected: true,
-        isConnecting: false,
-        error: null,
-        provider,
-        signer,
-      });
-
-      localStorage.setItem('wallet_connected', 'true');
+      await setupProviderForAddress(activeAddr, accounts);
     } catch (err: any) {
-      const message = err?.code === 4001 
+      const message = err?.code === 4001
         ? 'Connection rejected by user'
         : err?.message || 'Failed to connect wallet';
-      
+
       setState(prev => ({
         ...prev,
         isConnecting: false,
         error: message,
       }));
     }
-  }, [installed]);
+  }, [installed, setupProviderForAddress]);
 
   // Disconnect wallet
   const disconnect = useCallback(() => {
     setState(initialState);
+    providerRef.current = null;
     localStorage.removeItem('wallet_connected');
+    localStorage.removeItem('wallet_active_address');
   }, []);
+
+  // Switch to a different permitted account (user picks from dropdown)
+  const switchAccount = useCallback(async (targetAddress: string) => {
+    if (!state.accounts.includes(targetAddress)) {
+      throw new Error('Account not permitted');
+    }
+    await setupProviderForAddress(targetAddress, state.accounts);
+  }, [state.accounts, setupProviderForAddress]);
 
   // Switch network
   const switchNetwork = useCallback(async (targetChainId: number) => {
@@ -145,12 +176,9 @@ export function useMetaMask(): UseMetaMaskReturn {
         params: [{ chainId: chainIdHex }],
       });
     } catch (err: any) {
-      // Chain not added, try to add it
       if (err.code === 4902) {
         const network = getNetworkByChainId(targetChainId);
-        if (!network) {
-          throw new Error('Unsupported network');
-        }
+        if (!network) throw new Error('Unsupported network');
 
         await window.ethereum.request({
           method: 'wallet_addEthereumChain',
@@ -169,9 +197,7 @@ export function useMetaMask(): UseMetaMaskReturn {
 
   // Sign message
   const signMessage = useCallback(async (message: string): Promise<string> => {
-    if (!state.signer) {
-      throw new Error('Wallet not connected');
-    }
+    if (!state.signer) throw new Error('Wallet not connected');
     return state.signer.signMessage(message);
   }, [state.signer]);
 
@@ -192,7 +218,6 @@ export function useMetaMask(): UseMetaMaskReturn {
   useEffect(() => {
     const wasConnected = localStorage.getItem('wallet_connected') === 'true';
     if (wasConnected && installed && !state.isConnected && !state.isConnecting) {
-      // Small delay to prevent flash
       delay(100).then(() => connect());
     }
   }, [installed, state.isConnected, state.isConnecting, connect]);
@@ -205,6 +230,7 @@ export function useMetaMask(): UseMetaMaskReturn {
     connect,
     disconnect,
     switchNetwork,
+    switchAccount,
     signMessage,
     isMetaMaskInstalled: installed,
     isSupportedNetwork,

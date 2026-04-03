@@ -1,21 +1,42 @@
 /**
  * My Wallet Plugin - Main App Entry
+ *
+ * Tab-based architecture: Earn | Explore | Optimize | Reports
+ * Settings lives in a slide-out drawer (gear icon in header)
  */
 
-import React, { useCallback } from 'react';
-import type { ReactNode } from 'react';
-import { MemoryRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useState, useCallback } from 'react';
 import { createPlugin, useShell, useNotify, useEvents, getPluginBackendUrl } from '@naap/plugin-sdk';
-import type { ShellContext } from '@naap/plugin-sdk';
-import { WalletProvider } from './context/WalletContext';
+import { WalletProvider, useWallet } from './context/WalletContext';
 import { ConnectPage } from './pages/Connect';
-import { DashboardPage } from './pages/Dashboard';
-import { StakingPage } from './pages/Staking';
-import { TransactionsPage } from './pages/Transactions';
-import { SettingsPage } from './pages/Settings';
+import { AppLayout, TabId } from './components/AppLayout';
+import { EarnTab } from './tabs/EarnTab';
+import { ExploreTab } from './tabs/ExploreTab';
+import { OptimizeTab } from './tabs/OptimizeTab';
+import { ReportsTab } from './tabs/ReportsTab';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './globals.css';
 
-// Wallet App Component -- now uses SDK hooks instead of getShellContext()
+/** Inner app that switches between connect screen and tab layout */
+const AppContent: React.FC = () => {
+  const { isConnected } = useWallet();
+  const [activeTab, setActiveTab] = useState<TabId>('earn');
+
+  if (!isConnected) {
+    return <ConnectPage />;
+  }
+
+  return (
+    <AppLayout activeTab={activeTab} onTabChange={setActiveTab}>
+      {activeTab === 'earn' && <ErrorBoundary fallbackMessage="Earn tab encountered an error"><EarnTab onNavigate={setActiveTab} /></ErrorBoundary>}
+      {activeTab === 'explore' && <ErrorBoundary fallbackMessage="Explore tab encountered an error"><ExploreTab /></ErrorBoundary>}
+      {activeTab === 'optimize' && <ErrorBoundary fallbackMessage="Optimize tab encountered an error"><OptimizeTab /></ErrorBoundary>}
+      {activeTab === 'reports' && <ErrorBoundary fallbackMessage="Reports tab encountered an error"><ReportsTab /></ErrorBoundary>}
+    </AppLayout>
+  );
+};
+
+// Wallet App Component -- uses SDK hooks
 const WalletApp: React.FC = () => {
   const shell = useShell();
   const notifications = useNotify();
@@ -56,18 +77,7 @@ const WalletApp: React.FC = () => {
 
   return (
     <WalletProvider onConnect={handleConnect} onDisconnect={handleDisconnect}>
-      <div className="space-y-6">
-        <MemoryRouter>
-          <Routes>
-            <Route path="/" element={<ConnectPage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/staking" element={<StakingPage />} />
-            <Route path="/transactions" element={<TransactionsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </MemoryRouter>
-      </div>
+      <AppContent />
     </WalletProvider>
   );
 };

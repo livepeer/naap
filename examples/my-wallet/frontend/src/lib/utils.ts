@@ -16,7 +16,13 @@ export function formatAddress(address: string, chars = 4): string {
  * Format a balance from wei to human-readable
  */
 export function formatBalance(wei: bigint | string, decimals = 18, displayDecimals = 4): string {
-  const value = typeof wei === 'string' ? BigInt(wei) : wei;
+  let value: bigint;
+  if (typeof wei === 'string') {
+    const dotIdx = wei.indexOf('.');
+    value = BigInt(dotIdx >= 0 ? (wei.slice(0, dotIdx) || '0') : (wei || '0'));
+  } else {
+    value = wei;
+  }
   const formatted = formatUnits(value, decimals);
   const num = parseFloat(formatted);
   
@@ -86,4 +92,15 @@ export function isMetaMaskInstalled(): boolean {
  */
 export function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
