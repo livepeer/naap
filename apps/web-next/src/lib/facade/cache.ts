@@ -54,7 +54,7 @@ export const TTL = {
   ORCHESTRATORS: 300 * 1000,
   GPU_CAPACITY: 60 * 1000,
   PRICING: 300 * 1000,
-  JOB_FEED: 10 * 1000,
+  JOB_FEED: 30 * 1000,
   NETWORK_MODELS: 60 * 1000,
   /** Shared raw /v1/net/models cache — used by network-models resolver */
   NET_MODELS: 300 * 1000,

@@ -181,7 +181,7 @@ export function useJobFeedStream(
 
     async function fetchJobFeed(fetchUrl: string) {
       try {
-        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(10_000) });
+        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(20_000) });
         let body = {} as {
           streams?: unknown[];
           clickhouseConfigured?: boolean;
