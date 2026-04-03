@@ -283,20 +283,58 @@ export const DeveloperView: React.FC = () => {
     setNetworkModelsLoading(true);
     setNetworkModelsError(null);
     try {
-      const res = await fetch('/api/v1/developer/network-models?limit=all');
-      if (!res.ok) {
+      const [netRes, catalogRes] = await Promise.allSettled([
+        fetch('/api/v1/developer/network-models?limit=all'),
+        fetch('/api/v1/dashboard/pipeline-catalog'),
+      ]);
+
+      // Require net/models to succeed
+      if (netRes.status !== 'fulfilled' || !netRes.value.ok) {
+        const status = netRes.status === 'fulfilled' ? netRes.value.status : 0;
         setNetworkModels([]);
-        setNetworkModelsError(`Failed to load models (HTTP ${res.status})`);
+        setNetworkModelsError(status ? `Failed to load models (HTTP ${status})` : 'Network error loading models');
         return;
       }
-      const json = await res.json();
+      const json = await netRes.value.json();
       const payload = json.data ?? json;
       if (!Array.isArray(payload?.models)) {
         setNetworkModels([]);
         setNetworkModelsError('Invalid response from server');
         return;
       }
-      setNetworkModels(payload.models);
+      const liveModels: NetworkModel[] = payload.models;
+      const seen = new Set(liveModels.map((m) => `${m.Pipeline}::${m.Model}`));
+      const merged: NetworkModel[] = [...liveModels];
+
+      // Supplement with pipeline-catalog entries (catalog-only rows have zero warm/capacity/price)
+      if (catalogRes.status === 'fulfilled' && catalogRes.value.ok) {
+        try {
+          const catalog: Array<{ id: string; models: string[] }> = await catalogRes.value.json();
+          for (const entry of catalog) {
+            const models = entry.models.length > 0 ? entry.models : ['—'];
+            for (const model of models) {
+              const key = `${entry.id}::${model}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                merged.push({
+                  Pipeline: entry.id,
+                  Model: model,
+                  WarmOrchCount: 0,
+                  TotalCapacity: 0,
+                  PriceMinWeiPerPixel: 0,
+                  PriceMaxWeiPerPixel: 0,
+                  PriceAvgWeiPerPixel: 0,
+                });
+              }
+            }
+          }
+          merged.sort((a, b) => a.Pipeline.localeCompare(b.Pipeline) || a.Model.localeCompare(b.Model));
+        } catch {
+          // catalog merge failed — use net/models only
+        }
+      }
+
+      setNetworkModels(merged);
     } catch (err) {
       console.error('Failed to load network models:', err);
       setNetworkModels([]);
@@ -741,7 +779,7 @@ export const DeveloperView: React.FC = () => {
                             <tr key={`${model.Pipeline}-${model.Model}`} className="hover:bg-white/5 transition-colors">
                               <td className="py-3 pr-4">
                                 <div className="flex items-center gap-2 group">
-                                  <Cpu size={12} className="text-accent-emerald flex-shrink-0" />
+                                  <Cpu size={12} className={model.WarmOrchCount > 0 ? 'text-accent-emerald flex-shrink-0' : 'text-text-secondary flex-shrink-0'} />
                                   <span className="text-sm font-medium text-text-primary font-mono">{model.Model}</span>
                                   <button
                                     type="button"
@@ -770,19 +808,21 @@ export const DeveloperView: React.FC = () => {
                               </td>
                               <td className="py-3 pr-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
-                                  <Users size={12} className="text-accent-blue" />
-                                  <span className="text-sm font-mono text-text-primary">{model.WarmOrchCount}</span>
+                                  <Users size={12} className={model.WarmOrchCount > 0 ? 'text-accent-blue' : 'text-text-secondary opacity-40'} />
+                                  <span className={`text-sm font-mono ${model.WarmOrchCount > 0 ? 'text-text-primary' : 'text-text-secondary opacity-40'}`}>{model.WarmOrchCount}</span>
                                 </div>
                               </td>
                               <td className="py-3 pr-4 text-right">
-                                <span className="text-sm font-mono text-text-primary">{model.TotalCapacity}</span>
+                                <span className={`text-sm font-mono ${model.TotalCapacity > 0 ? 'text-text-primary' : 'text-text-secondary opacity-40'}`}>{model.TotalCapacity > 0 ? model.TotalCapacity : '—'}</span>
                               </td>
                               <td className="py-3 pr-4 text-right">
-                                <span className="text-sm font-mono text-accent-emerald">{model.PriceAvgWeiPerPixel.toLocaleString()}</span>
+                                <span className={`text-sm font-mono ${model.PriceAvgWeiPerPixel > 0 ? 'text-accent-emerald' : 'text-text-secondary opacity-40'}`}>{model.PriceAvgWeiPerPixel > 0 ? model.PriceAvgWeiPerPixel.toLocaleString() : '—'}</span>
                               </td>
                               <td className="py-3 text-right">
                                 <span className="text-sm font-mono text-text-secondary">
-                                  {model.PriceMinWeiPerPixel.toLocaleString()} – {model.PriceMaxWeiPerPixel.toLocaleString()}
+                                  {model.PriceMinWeiPerPixel > 0 || model.PriceMaxWeiPerPixel > 0
+                                    ? `${model.PriceMinWeiPerPixel.toLocaleString()} – ${model.PriceMaxWeiPerPixel.toLocaleString()}`
+                                    : '—'}
                                 </span>
                               </td>
                             </tr>
