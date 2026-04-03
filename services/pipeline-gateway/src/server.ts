@@ -25,6 +25,7 @@ import {
   BYOCAdapter,
   type PipelineContext,
 } from './adapters/index.js';
+import { registerOpenAIRoutes } from './adapters/openai-compat/index.js';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -186,8 +187,12 @@ function selectAdapter(pipelineName: string) {
 const { router, start } = createPluginServer({
   name: 'pipeline-gateway',
   port: parseInt(process.env.PORT || '4020', 10),
-  publicRoutes: ['/healthz', '/api/v1/pipelines'],
+  publicRoutes: ['/healthz', '/api/v1/pipelines', '/v1/models', '/v1/chat/completions'],
 });
+
+// ─── OpenAI-Compatible Routes (Issue #203 - OpenRouter Provider) ─────────────
+
+registerOpenAIRoutes(router, aiClient);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 

@@ -11,6 +11,7 @@
 export { LivepeerCliClient } from './clients/CliClient.js';
 export { LivepeerMediaClient } from './clients/MediaClient.js';
 export { LivepeerAIClient } from './clients/AIClient.js';
+export type { LLMRequest, LLMResponse, LLMChunk } from './clients/AIClient.js';
 export type {
   NodeStatus,
   OrchestratorInfo,
