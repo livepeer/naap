@@ -19,10 +19,12 @@ interface RewardConsistency {
 export function useRewardConsistency(orchestratorAddr?: string) {
   const [data, setData] = useState<RewardConsistency | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetch_ = useCallback(async (signal?: AbortSignal) => {
     if (!orchestratorAddr) return;
     setIsLoading(true);
+    setError(null);
     try {
       const res = await fetch(
         `${getApiUrl()}/orchestrators/consistency?address=${encodeURIComponent(orchestratorAddr)}`,
@@ -31,10 +33,13 @@ export function useRewardConsistency(orchestratorAddr?: string) {
       if (res.ok) {
         const json = await res.json();
         setData(json.data);
+      } else {
+        setError(`Failed to load reward consistency (${res.status})`);
       }
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       console.error('Failed to fetch reward consistency:', err);
+      setError('Failed to load reward consistency data. Check your connection and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -46,5 +51,5 @@ export function useRewardConsistency(orchestratorAddr?: string) {
     return () => controller.abort();
   }, [fetch_]);
 
-  return { data, isLoading, refresh: fetch_ };
+  return { data, isLoading, error, refresh: fetch_ };
 }

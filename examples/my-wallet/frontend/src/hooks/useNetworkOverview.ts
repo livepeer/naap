@@ -56,6 +56,7 @@ export function useNetworkOverview(days = 90) {
   const [data, setData] = useState<NetworkOverviewData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [synced, setSynced] = useState(true);
 
   const fetch_ = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
@@ -65,6 +66,7 @@ export function useNetworkOverview(days = 90) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setData(json.data);
+      setSynced(json.data?.synced !== false);
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       console.error('Failed to fetch network overview:', err);
@@ -80,5 +82,5 @@ export function useNetworkOverview(days = 90) {
     return () => controller.abort();
   }, [fetch_]);
 
-  return { data, isLoading, error, refresh: fetch_ };
+  return { data, isLoading, error, synced, refresh: fetch_ };
 }

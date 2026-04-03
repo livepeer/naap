@@ -7,11 +7,29 @@ import { useShell } from '@naap/plugin-sdk';
 import { getApiUrl } from '../App';
 import { useWallet } from '../context/WalletContext';
 
+export interface PortfolioPosition {
+  address: string;
+  orchestrator: string;
+  stakedAmount: string;
+  pendingRewards?: string;
+  pendingFees?: string;
+  startRound?: string;
+  lastClaimRound?: string;
+  orchestratorInfo?: {
+    name: string | null;
+    rewardCut: number;
+    feeShare: number;
+    totalStake: string;
+    isActive: boolean;
+  };
+}
+
 interface PortfolioData {
   totalStaked: string;
   totalPendingRewards: string;
   totalPendingFees: string;
   addressCount: number;
+  positions?: PortfolioPosition[];
 }
 
 interface UsePortfolioReturn {
@@ -53,13 +71,11 @@ export function usePortfolio(): UsePortfolioReturn {
   }, [shell, address]);
 
   useEffect(() => {
-    const user = shell.auth.getUser();
-    if (user) {
-      const controller = new AbortController();
-      refresh(controller.signal);
-      return () => controller.abort();
-    }
-  }, [shell, refresh]);
+    if (!address) return;
+    const controller = new AbortController();
+    refresh(controller.signal);
+    return () => controller.abort();
+  }, [address, refresh]);
 
   return { portfolio, isLoading, error, refresh };
 }

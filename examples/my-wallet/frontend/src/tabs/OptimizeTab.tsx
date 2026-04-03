@@ -8,8 +8,9 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Sliders, BarChart3, Vote, Activity, ArrowRight, CheckCircle, XCircle, AlertTriangle, Download, Search } from 'lucide-react';
+import { Sliders, BarChart3, Vote, Activity, ArrowRight, CheckCircle, XCircle, AlertTriangle, Download, Search, ArrowLeft, Target, Zap, Shield } from 'lucide-react';
 import { useSimulator } from '../hooks/useSimulator';
+import { useMultiOSimulator, MultiOInput } from '../hooks/useMultiOSimulator';
 import { useGovernance } from '../hooks/useGovernance';
 import { useNetworkHistory } from '../hooks/useNetworkHistory';
 import { useOrchestratorCache, CachedOrchestrator } from '../hooks/useOrchestratorCache';
@@ -73,8 +74,85 @@ export const OptimizeTab: React.FC = () => {
   );
 };
 
-/** Rebalancing Simulator — uses cached orchestrators */
+/** Simulator Hub — card-based selector */
+const SIMULATORS = [
+  {
+    id: 'rebalance' as const,
+    title: 'Rebalance',
+    icon: <Zap className="w-6 h-6 text-accent-emerald" />,
+    description: 'Move stake from one orchestrator to another and compare yield impact',
+  },
+  {
+    id: 'multi-orchestrator' as const,
+    title: 'Multi-O Distribution',
+    icon: <Target className="w-6 h-6 text-accent-purple" />,
+    description: 'Distribute LPT across multiple orchestrators with 3 risk strategies',
+  },
+] as const;
+
+type SimulatorId = typeof SIMULATORS[number]['id'] | null;
+
 const SimulatorView: React.FC = () => {
+  const [selected, setSelected] = useState<SimulatorId>(null);
+
+  if (selected === 'rebalance') {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => setSelected(null)}
+          className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Simulators
+        </button>
+        <RebalanceSimulatorView />
+      </div>
+    );
+  }
+
+  if (selected === 'multi-orchestrator') {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => setSelected(null)}
+          className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Simulators
+        </button>
+        <MultiOrchestratorSimulatorView />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold text-text-primary mb-1">Simulators</h2>
+        <p className="text-xs text-text-tertiary">Choose a simulator to analyze staking strategies</p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {SIMULATORS.map(sim => (
+          <button
+            key={sim.id}
+            onClick={() => setSelected(sim.id)}
+            className="glass-card p-5 text-left hover:bg-bg-tertiary/50 transition-colors group"
+            role="button"
+            aria-label={`Open ${sim.title} simulator`}
+          >
+            <div className="mb-3">{sim.icon}</div>
+            <h3 className="text-sm font-semibold text-text-primary mb-1">{sim.title}</h3>
+            <p className="text-xs text-text-tertiary mb-3">{sim.description}</p>
+            <span className="text-xs text-accent-blue group-hover:underline flex items-center gap-1">
+              Open <ArrowRight className="w-3 h-3" />
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/** Rebalancing Simulator */
+const RebalanceSimulatorView: React.FC = () => {
   const simulator = useSimulator();
   const { orchestrators } = useOrchestratorCache();
   const [fromAddr, setFromAddr] = useState('');
@@ -226,6 +304,197 @@ const SimulatorView: React.FC = () => {
         <div className="glass-card p-8 text-center">
           <Sliders className="w-8 h-8 text-text-tertiary mx-auto mb-2" />
           <p className="text-sm text-text-secondary">Select orchestrators and amount to simulate a rebalance</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** Multi-Orchestrator Distribution Simulator */
+const MultiOrchestratorSimulatorView: React.FC = () => {
+  const { result, isSimulating, error, simulate, reset } = useMultiOSimulator();
+  const [amountLpt, setAmountLpt] = useState('');
+  const [durationMonths, setDurationMonths] = useState(12);
+  const [expectedReturnMin, setExpectedReturnMin] = useState('');
+  const [expectedReturnMax, setExpectedReturnMax] = useState('');
+
+  const handleGenerate = () => {
+    if (!amountLpt || parseFloat(amountLpt) <= 0) return;
+    simulate({
+      amountLpt: parseFloat(amountLpt),
+      durationMonths,
+      expectedReturnMin: parseFloat(expectedReturnMin || '0'),
+      expectedReturnMax: parseFloat(expectedReturnMax || '100'),
+    });
+  };
+
+  const riskColors = {
+    high: { bg: 'border-accent-rose/20 bg-accent-rose/5', badge: 'bg-accent-rose/15 text-accent-rose', icon: <Zap className="w-4 h-4 text-accent-rose" /> },
+    medium: { bg: 'border-accent-amber/20 bg-accent-amber/5', badge: 'bg-accent-amber/15 text-accent-amber', icon: <BarChart3 className="w-4 h-4 text-accent-amber" /> },
+    low: { bg: 'border-accent-emerald/20 bg-accent-emerald/5', badge: 'bg-accent-emerald/15 text-accent-emerald', icon: <Shield className="w-4 h-4 text-accent-emerald" /> },
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold text-text-primary mb-1">Multi-Orchestrator Distribution Simulator</h2>
+        <p className="text-xs text-text-tertiary">Find optimal ways to distribute your LPT across multiple orchestrators</p>
+      </div>
+
+      <div className="glass-card p-4 space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-[11px] text-text-secondary mb-1 block">Amount (LPT)</label>
+            <input
+              type="number"
+              value={amountLpt}
+              onChange={e => setAmountLpt(e.target.value)}
+              placeholder="e.g. 5000"
+              className="w-full p-2.5 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-sm text-text-primary font-mono placeholder:text-text-tertiary"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] text-text-secondary mb-1 block">Duration</label>
+            <select
+              value={durationMonths}
+              onChange={e => setDurationMonths(Number(e.target.value))}
+              className="w-full p-2.5 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-sm text-text-primary"
+            >
+              <option value={3}>3 months</option>
+              <option value={6}>6 months</option>
+              <option value={12}>12 months</option>
+              <option value={24}>24 months</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-[11px] text-text-secondary mb-1 block">Min Expected APR (%)</label>
+            <input
+              type="number"
+              value={expectedReturnMin}
+              onChange={e => setExpectedReturnMin(e.target.value)}
+              placeholder="e.g. 5"
+              className="w-full p-2.5 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-sm text-text-primary font-mono placeholder:text-text-tertiary"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] text-text-secondary mb-1 block">Max Expected APR (%)</label>
+            <input
+              type="number"
+              value={expectedReturnMax}
+              onChange={e => setExpectedReturnMax(e.target.value)}
+              placeholder="e.g. 20"
+              className="w-full p-2.5 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-sm text-text-primary font-mono placeholder:text-text-tertiary"
+            />
+          </div>
+        </div>
+
+        <button
+          onClick={handleGenerate}
+          disabled={!amountLpt || parseFloat(amountLpt) <= 0 || isSimulating}
+          className="w-full py-2.5 bg-accent-purple text-white text-sm font-medium rounded-lg hover:bg-accent-purple/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+        >
+          {isSimulating ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Generating Strategies...
+            </>
+          ) : (
+            <>
+              <Target className="w-4 h-4" />
+              Generate Strategies
+            </>
+          )}
+        </button>
+      </div>
+
+      {error && (
+        <div className="glass-card p-4 border border-accent-rose/20 bg-accent-rose/10">
+          <p className="text-sm text-accent-rose">{error}</p>
+        </div>
+      )}
+
+      {result && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-text-tertiary">
+              Network avg APR: {result.networkAvgApr}% · LPT: ${result.priceAtSimulation.lptUsd.toFixed(2)}
+            </p>
+            <button onClick={reset} className="text-xs text-text-secondary hover:text-text-primary transition-colors">
+              Reset
+            </button>
+          </div>
+
+          {result.strategies.map(strategy => {
+            const colors = riskColors[strategy.riskLevel];
+            return (
+              <div key={strategy.riskLevel} className={`glass-card p-4 border ${colors.bg}`} role="region" aria-label={`${strategy.label} strategy`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    {colors.icon}
+                    <span className="text-sm font-semibold text-text-primary">{strategy.label}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${colors.badge}`}>
+                      {strategy.riskLevel} risk
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold font-mono text-text-primary">{strategy.projectedApr}% APR</p>
+                    <p className="text-[10px] text-text-tertiary">
+                      +{strategy.projectedReturn.toFixed(2)} LPT over {result.input.durationMonths}mo
+                    </p>
+                  </div>
+                </div>
+
+                {strategy.allocations.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[11px]">
+                      <thead>
+                        <tr className="text-text-tertiary border-b border-white/5">
+                          <th className="text-left py-1.5 pr-2">Orchestrator</th>
+                          <th className="text-right py-1.5 px-2">Allocation</th>
+                          <th className="text-right py-1.5 px-2">LPT</th>
+                          <th className="text-right py-1.5 px-2">APR</th>
+                          <th className="text-left py-1.5 pl-2 hidden md:table-cell">Rationale</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {strategy.allocations.map(a => (
+                          <tr key={a.address} className="border-b border-white/3">
+                            <td className="py-1.5 pr-2 font-mono text-text-primary">
+                              {a.name || formatAddress(a.address, 8)}
+                            </td>
+                            <td className="py-1.5 px-2 text-right font-mono text-text-primary">{a.allocationPct}%</td>
+                            <td className="py-1.5 px-2 text-right font-mono text-text-primary">{a.allocationLpt.toFixed(1)}</td>
+                            <td className="py-1.5 px-2 text-right font-mono text-accent-emerald">{a.projectedApr.toFixed(1)}%</td>
+                            <td className="py-1.5 pl-2 text-text-tertiary hidden md:table-cell">{a.rationale}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {strategy.riskFactors.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {strategy.riskFactors.map((factor, i) => (
+                      <span key={i} className="text-[10px] px-2 py-0.5 rounded bg-white/5 text-text-tertiary">
+                        {factor}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!result && !isSimulating && !error && (
+        <div className="glass-card p-8 text-center">
+          <Target className="w-8 h-8 text-text-tertiary mx-auto mb-2" />
+          <p className="text-sm text-text-secondary">Enter your stake amount and duration to generate distribution strategies</p>
         </div>
       )}
     </div>

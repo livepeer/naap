@@ -625,6 +625,14 @@ const GasView: React.FC = () => {
             </div>
           )}
 
+          {summary.transactionCount > 0 && summary.totalGasCostEth === 0 && (
+            <div className="glass-card p-4 border border-accent-amber/20">
+              <p className="text-xs text-accent-amber">
+                Gas cost data is being synced. Costs will appear after transaction confirmation.
+              </p>
+            </div>
+          )}
+
           {summary.transactionCount === 0 && (
             <div className="glass-card p-4">
               <p className="text-xs text-text-tertiary">

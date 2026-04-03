@@ -30,9 +30,11 @@ export interface EnhancedOrchestrator {
 export function useEnhancedOrchestrators(from?: number, to?: number) {
   const [orchestrators, setOrchestrators] = useState<EnhancedOrchestrator[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetch_ = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams({ activeOnly: 'true' });
       if (from) params.set('from', from.toString());
@@ -42,10 +44,13 @@ export function useEnhancedOrchestrators(from?: number, to?: number) {
       if (res.ok) {
         const json = await res.json();
         setOrchestrators(json.data || []);
+      } else {
+        setError(`Failed to load orchestrator data (${res.status})`);
       }
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       console.error('Failed to fetch enhanced orchestrators:', err);
+      setError('Failed to load orchestrators. Check your connection and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -57,5 +62,5 @@ export function useEnhancedOrchestrators(from?: number, to?: number) {
     return () => controller.abort();
   }, [fetch_]);
 
-  return { orchestrators, isLoading, refresh: fetch_ };
+  return { orchestrators, isLoading, error, refresh: fetch_ };
 }

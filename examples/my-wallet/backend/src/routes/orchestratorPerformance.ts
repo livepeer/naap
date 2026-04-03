@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../db/client.js';
 import { monthlySnapshot } from '../jobs/monthlySnapshot.js';
+import { getOrchestrators } from '../lib/livepeer.js';
 import { isValidAddress } from '../lib/validators.js';
 
 const router = Router();
@@ -45,7 +46,7 @@ router.get('/api/v1/wallet/orchestrators/performance', async (req: Request, res:
       ? { address: { in: orchAddresses } }
       : { isActive: true };
 
-    const orchestrators = await prisma.walletOrchestrator.findMany({
+    let orchestrators = await prisma.walletOrchestrator.findMany({
       where: orchWhere,
       orderBy: { totalStake: 'desc' },
       take: mode === 'all' ? 50 : undefined,
@@ -55,6 +56,29 @@ router.get('/api/v1/wallet/orchestrators/performance', async (req: Request, res:
         },
       },
     });
+
+    // Fallback: when DB is empty, serve live subgraph data
+    let synced = true;
+    if (mode === 'all' && orchestrators.length === 0) {
+      synced = false;
+      try {
+        const live = await getOrchestrators();
+        const mapped = live.slice(0, 50).map((o: any) => ({
+          address: o.address,
+          name: o.name || null,
+          rewardCut: o.rewardCut ?? 0,
+          feeShare: o.feeShare ?? 0,
+          totalStake: o.totalStake || '0',
+          isActive: o.isActive ?? true,
+          totalVolumeETH: o.totalVolumeETH || '0',
+          rewardCallRatio: o.rewardCallRatio || 0,
+          capabilities: [],
+        }));
+        orchestrators = mapped as any;
+      } catch {
+        // Return empty — no data available from any source
+      }
+    }
 
     // Fetch monthly snapshots
     const cutoffMonth = new Date();
@@ -82,7 +106,7 @@ router.get('/api/v1/wallet/orchestrators/performance', async (req: Request, res:
 
     let totalLptRewards = 0n;
     let totalEthFees = 0n;
-    let totalStaked = 0n;
+    let totalStaked = 0;
 
     const orchData = orchestrators.map((o) => {
       const monthlySnapshots = (snapsByOrch.get(o.address) || []).map((s) => ({
@@ -103,7 +127,7 @@ router.get('/api/v1/wallet/orchestrators/performance', async (req: Request, res:
 
       totalLptRewards += orchLptRewards;
       totalEthFees += orchEthFees;
-      totalStaked += BigInt(o.totalStake || '0');
+      totalStaked += parseFloat(o.totalStake || '0');
 
       return {
         address: o.address,
@@ -132,10 +156,11 @@ router.get('/api/v1/wallet/orchestrators/performance', async (req: Request, res:
 
     res.json({
       orchestrators: orchData,
+      synced,
       summary: {
         totalLptRewards: totalLptRewards.toString(),
         totalEthFees: totalEthFees.toString(),
-        totalStaked: totalStaked.toString(),
+        totalStaked: totalStaked.toFixed(4),
         monthsTracked: allMonths.size,
       },
     });

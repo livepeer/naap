@@ -16,18 +16,23 @@ export interface CapabilityMap {
 export function useCapabilities() {
   const [data, setData] = useState<CapabilityMap>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetch_ = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
+    setError(null);
     try {
       const res = await fetch(`${getApiUrl()}/orchestrators/capabilities`, { signal });
       if (res.ok) {
         const json = await res.json();
         setData(json.data || {});
+      } else {
+        setError(`Failed to load capabilities (${res.status})`);
       }
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       console.error('Failed to fetch capabilities:', err);
+      setError('Failed to load capability data. Check your connection and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -39,5 +44,5 @@ export function useCapabilities() {
     return () => controller.abort();
   }, [fetch_]);
 
-  return { capabilities: data, isLoading, refresh: fetch_ };
+  return { capabilities: data, isLoading, error, refresh: fetch_ };
 }

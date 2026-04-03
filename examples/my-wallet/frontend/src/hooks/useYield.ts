@@ -50,16 +50,14 @@ export function useYield() {
     } finally {
       setIsLoading(false);
     }
-  }, [shell, period]);
+  }, [shell, period, address]);
 
   useEffect(() => {
-    const user = shell.auth.getUser();
-    if (user) {
-      const controller = new AbortController();
-      refresh(controller.signal);
-      return () => controller.abort();
-    }
-  }, [shell, refresh]);
+    if (!address) return;
+    const controller = new AbortController();
+    refresh(controller.signal);
+    return () => controller.abort();
+  }, [address, period, refresh]);
 
   return {
     rewardYield: data?.rewardYield ?? 0,

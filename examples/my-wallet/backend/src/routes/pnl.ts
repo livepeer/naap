@@ -13,14 +13,7 @@ router.get('/api/v1/wallet/export/pnl', async (req: Request, res: Response) => {
     const { format = 'json', startDate, endDate } = req.query;
 
     if (!address) {
-      return res.json({
-        data: {
-          rows: [],
-          totals: { totalStaked: '0', totalPrincipal: '0', totalRewards: '0', totalFees: '0', avgDailyReward: '0', avgAPR: '0' },
-          prices: { lptUsd: 0, ethUsd: 0 },
-          stakingEvents: [],
-        },
-      });
+      return res.status(400).json({ error: 'address is required' });
     }
 
     const start = startDate ? new Date(startDate as string) : undefined;

@@ -39,13 +39,10 @@ export function useBenchmarks() {
   }, [shell]);
 
   useEffect(() => {
-    const user = shell.auth.getUser();
-    if (user) {
-      const controller = new AbortController();
-      refresh(controller.signal);
-      return () => controller.abort();
-    }
-  }, [shell, refresh]);
+    const controller = new AbortController();
+    refresh(controller.signal);
+    return () => controller.abort();
+  }, [refresh]);
 
   return {
     participationRate: 0,

@@ -45,9 +45,12 @@ export function useOrchestratorPerformance(mode: 'all' | 'staked' = 'all', month
   const [orchestrators, setOrchestrators] = useState<OrchestratorPerformanceData[]>([]);
   const [summary, setSummary] = useState<PerformanceSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [synced, setSynced] = useState(true);
 
   const fetch_ = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams({ mode, months: months.toString() });
       if (address) params.set('address', address);
@@ -57,10 +60,14 @@ export function useOrchestratorPerformance(mode: 'all' | 'staked' = 'all', month
         const json = await res.json();
         setOrchestrators(json.orchestrators || []);
         setSummary(json.summary || null);
+        setSynced(json.synced !== false);
+      } else {
+        setError(`Failed to load performance data (${res.status})`);
       }
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       console.error('Failed to fetch orchestrator performance:', err);
+      setError('Failed to load orchestrator data. Check your connection and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -83,5 +90,5 @@ export function useOrchestratorPerformance(mode: 'all' | 'staked' = 'all', month
     return () => controller.abort();
   }, [fetch_]);
 
-  return { orchestrators, summary, isLoading, refresh: fetch_, triggerSnapshot };
+  return { orchestrators, summary, isLoading, error, synced, refresh: fetch_, triggerSnapshot };
 }

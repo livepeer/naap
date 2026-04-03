@@ -394,7 +394,7 @@ const TopOrchestratorsTable: React.FC<{ orchestrators: TopOrchestrator[] }> = ({
 
 export const NetworkOverview: React.FC = () => {
   const [days, setDays] = useState(90);
-  const { data, isLoading, error } = useNetworkOverview(days);
+  const { data, isLoading, error, synced } = useNetworkOverview(days);
   const feesByCap = useFeesByCapability(days);
   const feesByGw = useFeesByGateway(days);
 
@@ -420,6 +420,14 @@ export const NetworkOverview: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {!synced && (
+        <div className="glass-card p-3 border border-accent-amber/20 bg-accent-amber/10">
+          <p className="text-xs text-accent-amber">
+            Syncing network data... Showing live data while the database populates.
+          </p>
+        </div>
+      )}
+
       {/* Time range selector */}
       <div className="flex items-center gap-2">
         {[7, 30, 90, 180, 365].map((d) => (

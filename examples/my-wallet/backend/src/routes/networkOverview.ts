@@ -74,8 +74,31 @@ router.get('/api/v1/wallet/network/overview', async (req: Request, res: Response
       inflation: protocol.inflation || latestSnapshot?.inflation || '0',
     };
 
-    // Enrich DB orchestrators with live subgraph data when DB has zeros
-    let topOrchestrators = dbOrchestrators.map((o) => ({
+    let synced = dbOrchestrators.length > 0;
+    let orchestrators = dbOrchestrators as typeof dbOrchestrators;
+
+    // If DB is empty, fetch live orchestrators
+    if (dbOrchestrators.length === 0) {
+      try {
+        const liveOrchs = await getOrchestrators();
+        const mapped = liveOrchs.slice(0, 20);
+        orchestrators = mapped.map((o: any) => ({
+          address: o.address,
+          name: o.name || null,
+          totalStake: o.totalStake || '0',
+          rewardCut: o.rewardCut ?? 0,
+          feeShare: o.feeShare ?? 0,
+          totalVolumeETH: o.totalVolumeETH || '0',
+          thirtyDayVolumeETH: o.thirtyDayVolumeETH || '0',
+          delegatorCount: o.delegatorCount || 0,
+          rewardCallRatio: o.rewardCallRatio || 0,
+          isActive: true,
+          capabilities: [],
+        })) as any;
+      } catch { /* no live data either */ }
+    }
+
+    let topOrchestrators = orchestrators.map((o) => ({
       address: o.address,
       name: o.name,
       totalStake: o.totalStake,
@@ -116,6 +139,7 @@ router.get('/api/v1/wallet/network/overview', async (req: Request, res: Response
       data: {
         snapshots,
         topOrchestrators,
+        synced,
         prices: {
           lptUsd: prices.lptUsd,
           ethUsd: prices.ethUsd,

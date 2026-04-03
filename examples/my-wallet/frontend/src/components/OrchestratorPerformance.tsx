@@ -113,7 +113,7 @@ const MonthlyBarChart: React.FC<{
 export const OrchestratorPerformance: React.FC = () => {
   const [mode, setMode] = useState<'all' | 'staked'>('all');
   const [months] = useState(12);
-  const { orchestrators, summary, isLoading, refresh, triggerSnapshot } = useOrchestratorPerformance(mode, months);
+  const { orchestrators, summary, isLoading, error, synced, refresh, triggerSnapshot } = useOrchestratorPerformance(mode, months);
   const [isSnapshotting, setIsSnapshotting] = useState(false);
 
   const handleSnapshot = async () => {
@@ -231,11 +231,26 @@ export const OrchestratorPerformance: React.FC = () => {
       )}
 
       {/* Performance Table */}
+      {error && (
+        <div className="glass-card p-4 border border-accent-rose/20 bg-accent-rose/10 flex items-center justify-between">
+          <p className="text-xs text-accent-rose">{error}</p>
+          <button onClick={() => refresh()} className="text-xs text-accent-rose underline ml-2">Retry</button>
+        </div>
+      )}
+
+      {!synced && !error && (
+        <div className="glass-card p-3 border border-accent-amber/20 bg-accent-amber/10">
+          <p className="text-xs text-accent-amber">
+            Syncing orchestrator data... Showing live data while the database populates.
+          </p>
+        </div>
+      )}
+
       {isLoading && !orchestrators.length ? (
         <div className="space-y-2">
           {[1, 2, 3].map((i) => <div key={i} className="glass-card p-4 h-16 animate-pulse" />)}
         </div>
-      ) : orchestrators.length === 0 ? (
+      ) : orchestrators.length === 0 && !error ? (
         <div className="glass-card p-8 text-center">
           <BarChart3 className="w-8 h-8 text-text-tertiary mx-auto mb-2" />
           <p className="text-sm text-text-secondary">

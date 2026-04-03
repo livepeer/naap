@@ -112,7 +112,7 @@ const SUBGRAPH_ID = 'FE63YgkzcpVocxdCEyEYbvjYqEf2kb1A6daMYRxmejYC';
 
 let subgraphWarned = false;
 
-function getSubgraphUrls(): string[] {
+export function getSubgraphUrls(): string[] {
   if (process.env.LIVEPEER_SUBGRAPH_URL) return [process.env.LIVEPEER_SUBGRAPH_URL];
   const key = process.env.SUBGRAPH_API_KEY || process.env.NEXT_PUBLIC_SUBGRAPH_API_KEY;
   if (key) {
@@ -122,13 +122,12 @@ function getSubgraphUrls(): string[] {
     ];
   }
   if (!subgraphWarned) {
-    console.warn('[livepeer] No SUBGRAPH_API_KEY configured — subgraph queries will fail.');
-    console.warn('[livepeer] Get a free key at https://thegraph.com/studio/apikeys/');
+    console.warn('[livepeer] No SUBGRAPH_API_KEY configured — using free decentralized endpoint (rate-limited).');
+    console.warn('[livepeer] For better performance, get a key at https://thegraph.com/studio/apikeys/');
     console.warn('[livepeer] Set SUBGRAPH_API_KEY in examples/my-wallet/backend/.env');
-    console.warn('[livepeer] Falling back to RPC (delegator counts and volumes unavailable)');
     subgraphWarned = true;
   }
-  return [];
+  return [`https://gateway.thegraph.com/api/subgraphs/id/${SUBGRAPH_ID}`];
 }
 
 export async function querySubgraph<T = any>(query: string, variables?: Record<string, any>): Promise<T> {
@@ -249,6 +248,37 @@ function decodeAddressAt(hex: string, slot: number): string {
   const start = 2 + slot * 64;
   const chunk = hex.slice(start, start + 64);
   return '0x' + chunk.slice(24);
+}
+
+// ---------------------------------------------------------------------------
+// Transaction receipt (for gas accounting)
+// ---------------------------------------------------------------------------
+
+export interface TransactionReceiptResult {
+  gasUsed: string;
+  effectiveGasPrice: string;
+  status: string;
+  blockNumber: string;
+}
+
+export async function getTransactionReceipt(txHash: string): Promise<TransactionReceiptResult | null> {
+  try {
+    const res = await fetch(ARBITRUM_RPC, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_getTransactionReceipt',
+        params: [txHash],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const json = await res.json();
+    return json.result || null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

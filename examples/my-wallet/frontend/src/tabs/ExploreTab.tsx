@@ -45,7 +45,7 @@ export const ExploreTab: React.FC = () => {
   const { isConnected } = useWallet();
   const aiRecommend = useAiRecommend();
   const watchlist = useWatchlist();
-  const { orchestrators, isLoading: orchLoading, total: orchTotal, lastFetched } = useOrchestratorCache();
+  const { orchestrators, isLoading: orchLoading, error: orchError, total: orchTotal, lastFetched } = useOrchestratorCache();
   const { stake } = useStaking();
 
   const [subView, setSubView] = useState<SubView>('overview');
@@ -301,6 +301,12 @@ export const ExploreTab: React.FC = () => {
             <span>{processedList.length} orchestrator{processedList.length !== 1 ? 's' : ''}{searchQuery ? ' found' : ' total'}</span>
             {lastFetched && <span>Updated {lastFetched.toLocaleTimeString()}</span>}
           </div>
+
+          {orchError && (
+            <div className="glass-card p-4 border border-accent-rose/20 bg-accent-rose/10">
+              <p className="text-xs text-accent-rose">Failed to load orchestrators. Check your connection and try again.</p>
+            </div>
+          )}
 
           {orchLoading && orchestrators.length === 0 ? (
             <div className="space-y-3">

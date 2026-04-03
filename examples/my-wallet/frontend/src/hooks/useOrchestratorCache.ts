@@ -41,6 +41,9 @@ function getCacheTTL(): number {
 
 async function fetchOrchestrators(): Promise<CachedOrchestrator[]> {
   const res = await fetch(`${getApiUrl()}/staking/orchestrators?activeOnly=true`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch orchestrators (${res.status})`);
+  }
   const json = await res.json();
   const data = json.data ?? json;
   const seen = new Set<string>();
@@ -68,6 +71,7 @@ async function fetchOrchestrators(): Promise<CachedOrchestrator[]> {
 export function useOrchestratorCache() {
   const [orchestrators, setOrchestrators] = useState<CachedOrchestrator[]>(globalCache?.orchestrators || []);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [lastFetched, setLastFetched] = useState<Date | null>(
     globalCache ? new Date(globalCache.fetchedAt) : null
   );
@@ -80,9 +84,9 @@ export function useOrchestratorCache() {
       return;
     }
 
-    // Deduplicate concurrent fetches
     if (!fetchPromise) {
       setIsLoading(true);
+      setError(null);
       fetchPromise = fetchOrchestrators().finally(() => { fetchPromise = null; });
     }
 
@@ -90,8 +94,9 @@ export function useOrchestratorCache() {
       const list = await fetchPromise;
       setOrchestrators(list);
       setLastFetched(new Date());
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fetch orchestrators:', err);
+      setError('Failed to load orchestrators. Check your connection and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -102,6 +107,7 @@ export function useOrchestratorCache() {
   return {
     orchestrators,
     isLoading,
+    error,
     lastFetched,
     refresh: () => load(true),
     total: orchestrators.length,

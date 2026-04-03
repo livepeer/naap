@@ -122,8 +122,16 @@ export async function calculatePnl(
   // Fall back to live-only P&L
   if (!usedSnapshots && delegator && delegator.bondedAmount !== '0') {
     const staked = parseFloat(delegator.bondedAmount) / 1e18;
-    const principal = parseFloat(delegator.principal || '0') / 1e18;
+    let principal = parseFloat(delegator.principal || '0') / 1e18;
     const fees = parseFloat(delegator.fees || '0') / 1e18;
+
+    // When principal is missing or zero (RPC fallback), estimate from reward data
+    if (principal <= 0 && staked > 0 && rewardEstimate.dailyRewardLpt > 0) {
+      const estimatedTotalRewards = rewardEstimate.dailyRewardLpt * 365;
+      principal = Math.max(staked - estimatedTotalRewards, staked * 0.9);
+    } else if (principal <= 0 && staked > 0) {
+      principal = staked;
+    }
     const accumulated = staked - principal;
     const currentRound = protocol.currentRound;
     const lastClaimRound = parseInt(delegator.lastClaimRound || '0');

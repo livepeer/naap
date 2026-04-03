@@ -75,6 +75,7 @@ export function startScheduler(): void {
     try { await syncOrchestrators(); } catch (e) { console.error('[scheduler] initial syncOrchestrators error:', e); }
     try { await syncNetworkSnapshot(); } catch (e) { console.error('[scheduler] initial syncNetworkSnapshot error:', e); }
     try { await syncCapabilities(); } catch (e) { console.error('[scheduler] initial syncCapabilities error:', e); }
+    try { await monthlySnapshot(); } catch (e) { console.error('[scheduler] initial monthlySnapshot error:', e); }
   }, 10000);
 }
 

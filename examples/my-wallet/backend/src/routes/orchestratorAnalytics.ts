@@ -18,7 +18,7 @@ router.get('/api/v1/wallet/orchestrators/enhanced', async (req: Request, res: Re
     const where: any = {};
     if (activeOnly === 'true') where.isActive = true;
 
-    const orchestrators = await prisma.walletOrchestrator.findMany({
+    let orchestrators = await prisma.walletOrchestrator.findMany({
       where,
       orderBy: { totalStake: 'desc' },
       take: 200,
@@ -28,6 +28,32 @@ router.get('/api/v1/wallet/orchestrators/enhanced', async (req: Request, res: Re
         },
       },
     });
+
+    let synced = true;
+    if (orchestrators.length === 0) {
+      synced = false;
+      try {
+        const live = await getOrchestrators();
+        orchestrators = live.slice(0, 200).map((o: any) => ({
+          address: o.address,
+          name: o.name || null,
+          rewardCut: o.rewardCut ?? 0,
+          feeShare: o.feeShare ?? 0,
+          totalStake: o.totalStake || '0',
+          isActive: o.isActive ?? true,
+          totalVolumeETH: o.totalVolumeETH || '0',
+          thirtyDayVolumeETH: o.thirtyDayVolumeETH || '0',
+          ninetyDayVolumeETH: o.ninetyDayVolumeETH || '0',
+          totalRewardTokens: o.totalRewardTokens || '0',
+          lastRewardRound: o.lastRewardRound || 0,
+          delegatorCount: o.delegatorCount || 0,
+          rewardCallRatio: o.rewardCallRatio || 0,
+          capabilities: [],
+        })) as any;
+      } catch {
+        // No live data available either
+      }
+    }
 
     // If date range provided, fetch round history for that period
     let rangeStats: Record<string, any> = {};
@@ -83,7 +109,7 @@ router.get('/api/v1/wallet/orchestrators/enhanced', async (req: Request, res: Re
       } catch { /* serve DB data as-is */ }
     }
 
-    res.json({ data });
+    res.json({ data, synced });
   } catch (err: any) {
     console.error('[orchestratorAnalytics] enhanced error:', err.message);
     res.status(500).json({ error: 'Failed to fetch orchestrators' });

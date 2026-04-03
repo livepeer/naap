@@ -76,17 +76,22 @@ export const PortfolioPage: React.FC = () => {
   };
 
   const positions = portfolio
-    ? addresses.map(addr => ({
-        walletAddressId: addr.id,
-        address: addr.address,
-        label: addr.label,
-        chainId: addr.chainId,
-        orchestrator: null,
-        stakedAmount: '0',
-        pendingRewards: '0',
-        pendingFees: '0',
-        startRound: null,
-      }))
+    ? addresses.map(addr => {
+        const apiPos = portfolio.positions?.find(
+          p => p.address.toLowerCase() === addr.address.toLowerCase(),
+        );
+        return {
+          walletAddressId: addr.id,
+          address: addr.address,
+          label: addr.label,
+          chainId: addr.chainId,
+          orchestrator: apiPos?.orchestrator ?? null,
+          stakedAmount: apiPos?.stakedAmount ?? '0',
+          pendingRewards: apiPos?.pendingRewards ?? '0',
+          pendingFees: apiPos?.pendingFees ?? '0',
+          startRound: apiPos?.startRound ?? null,
+        };
+      })
     : [];
 
   // Calculate USD portfolio value
