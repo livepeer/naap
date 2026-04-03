@@ -143,6 +143,7 @@ export async function querySubgraph<T = any>(query: string, variables?: Record<s
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, variables }),
+        signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -177,6 +178,7 @@ async function ethCall(to: string, data: string, retries = 5): Promise<string> {
           jsonrpc: '2.0', id: 1, method: 'eth_call',
           params: [{ to, data }, 'latest'],
         }),
+        signal: AbortSignal.timeout(10_000),
       });
       if (res.status === 429) {
         await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
@@ -783,6 +785,109 @@ export function getNetworkDays(count = 30): Promise<DayData[]> {
       return data.days || [];
     } catch (err) {
       console.warn('Subgraph unavailable for network days');
+      return [];
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Round Progress
+// ---------------------------------------------------------------------------
+
+export interface RoundProgress {
+  currentRound: number;
+  roundLength: number;
+  blocksElapsed: number;
+  blocksRemaining: number;
+  initialized: boolean;
+  estimatedHoursRemaining: number;
+}
+
+const L1_RPC = 'https://ethereum-rpc.publicnode.com';
+
+export async function getRoundProgress(): Promise<RoundProgress> {
+  // Livepeer rounds are tracked in L1 (Ethereum mainnet) blocks
+  const [roundData, l1BlockHex] = await Promise.all([
+    querySubgraph<{
+      protocol: { currentRound: { id: string; startBlock: string; length: string; initialized: boolean } };
+    }>(`{ protocol(id: "0") { currentRound { id startBlock length initialized } } }`),
+    fetch(L1_RPC, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }),
+      signal: AbortSignal.timeout(10_000),
+    }).then(r => r.json()).then(j => j.result as string),
+  ]);
+
+  const round = roundData.protocol.currentRound;
+  const currentRound = parseInt(round.id, 10);
+  const startBlock = parseInt(round.startBlock, 10);
+  const roundLength = parseInt(round.length, 10);
+  const l1Block = Number(l1BlockHex);
+  const blocksElapsed = Math.max(0, l1Block - startBlock);
+  const blocksRemaining = Math.max(0, roundLength - blocksElapsed);
+  // L1 Ethereum: ~12s per block
+  const estimatedHoursRemaining = (blocksRemaining * 12) / 3600;
+
+  return {
+    currentRound,
+    roundLength,
+    blocksElapsed,
+    blocksRemaining,
+    initialized: round.initialized,
+    estimatedHoursRemaining: Math.round(estimatedHoursRemaining * 10) / 10,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Winning Ticket Events
+// ---------------------------------------------------------------------------
+
+export interface WinningTicketEvent {
+  id: string;
+  timestamp: number;
+  sender: string;
+  recipient: string;
+  faceValue: string;
+  faceValueUSD: string;
+  txHash: string;
+  round: string;
+}
+
+export function getWinningTicketEvents(limit = 20): Promise<WinningTicketEvent[]> {
+  return cached(`tickets-${limit}`, 2 * 60_000, async () => {
+    try {
+      const data = await querySubgraph<{
+        winningTicketRedeemedEvents: Array<{
+          id: string;
+          timestamp: string;
+          sender: { id: string };
+          recipient: { id: string };
+          faceValue: string;
+          faceValueUSD: string;
+          transaction: { id: string };
+          round: { id: string };
+        }>;
+      }>(`{
+        winningTicketRedeemedEvents(first: ${limit}, orderBy: timestamp, orderDirection: desc) {
+          id timestamp
+          sender { id } recipient { id }
+          faceValue faceValueUSD
+          transaction { id } round { id }
+        }
+      }`);
+      return (data.winningTicketRedeemedEvents || []).map(e => ({
+        id: e.id,
+        timestamp: parseInt(e.timestamp, 10),
+        sender: e.sender.id,
+        recipient: e.recipient.id,
+        faceValue: e.faceValue,
+        faceValueUSD: e.faceValueUSD,
+        txHash: e.transaction.id,
+        round: e.round.id,
+      }));
+    } catch (err) {
+      console.warn('Failed to fetch winning ticket events:', err);
       return [];
     }
   });
