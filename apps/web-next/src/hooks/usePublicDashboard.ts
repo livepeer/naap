@@ -52,6 +52,7 @@ export interface UsePublicDashboardResult {
   lbLoading: boolean;
   rtLoading: boolean;
   feesLoading: boolean;
+  jobFeedLoading: boolean;
   lbRefreshing: boolean;
   rtRefreshing: boolean;
   feesRefreshing: boolean;
@@ -102,6 +103,7 @@ export function usePublicDashboard(
   const [lbLoading, setLbLoading] = useState(!skip);
   const [rtLoading, setRtLoading] = useState(!skip);
   const [feesLoading, setFeesLoading] = useState(!skip);
+  const [jobFeedLoading, setJobFeedLoading] = useState(!skip);
   const [lbHasFetched, setLbHasFetched] = useState(false);
   const [rtHasFetched, setRtHasFetched] = useState(false);
   const [feesHasFetched, setFeesHasFetched] = useState(false);
@@ -113,19 +115,17 @@ export function usePublicDashboard(
     setError(errorsRef.current.length > 0 ? errorsRef.current.join('; ') : null);
   }, []);
 
-  // Group 1: KPI, pipelines, catalog, orchestrators, job feed
-  const fetchLb = useCallback(async (options?: { bustJobFeedCache?: boolean }) => {
+  // Group 1: KPI, pipelines, catalog, orchestrators
+  const fetchLb = useCallback(async () => {
     if (!mountedRef.current) return;
     setLbLoading(true);
 
     const period = timeframeToPeriod(timeframe);
-    const jobFeedUrl = jobFeedDashboardUrl(jobFeedPollInterval, options?.bustJobFeedCache ?? false);
     const settled = await Promise.allSettled([
       fetchJson<DashboardKPI>(`${API}/kpi?timeframe=${timeframe}`),
       fetchJson<DashboardPipelineUsage[]>(`${API}/pipelines?timeframe=${timeframe}&limit=200`),
       fetchJson<DashboardPipelineCatalogEntry[]>(`${API}/pipeline-catalog`),
       fetchJson<DashboardOrchestrator[]>(`${API}/orchestrators?period=${period}`),
-      fetchJson<{ streams: JobFeedEntry[]; queryFailed?: boolean }>(jobFeedUrl),
     ]);
 
     if (!mountedRef.current) return;
@@ -137,10 +137,6 @@ export function usePublicDashboard(
     const pipelines = val(settled[1]) as DashboardPipelineUsage[] | null;
     const catalog = val(settled[2]) as DashboardPipelineCatalogEntry[] | null;
     const orchestrators = val(settled[3]) as DashboardOrchestrator[] | null;
-    const jobFeedRaw = val(settled[4]) as {
-      streams: JobFeedEntry[];
-      queryFailed?: boolean;
-    } | null;
 
     const failures = settled
       .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
@@ -152,15 +148,35 @@ export function usePublicDashboard(
       pipelines: pipelines ?? [],
       pipelineCatalog: catalog ?? [],
       orchestrators: orchestrators ?? [],
-      jobs: jobFeedRaw?.streams ?? [],
-      jobFeedConnected: !!(jobFeedRaw && !jobFeedRaw.queryFailed),
     }));
 
-    errorsRef.current = [...errorsRef.current.filter((e) => !e.includes('/kpi') && !e.includes('/pipelines') && !e.includes('/pipeline-catalog') && !e.includes('/orchestrators') && !e.includes('/job-feed')), ...failures];
+    errorsRef.current = [...errorsRef.current.filter((e) => !e.includes('/kpi') && !e.includes('/pipelines') && !e.includes('/pipeline-catalog') && !e.includes('/orchestrators')), ...failures];
     syncError();
     setLbHasFetched(true);
     setLbLoading(false);
-  }, [timeframe, jobFeedPollInterval, syncError]);
+  }, [timeframe, syncError]);
+
+  // Group 1b: job feed — independent so slow upstream doesn't block KPI/pipelines
+  const fetchJobFeed = useCallback(async (options?: { bustCache?: boolean }) => {
+    if (!mountedRef.current) return;
+    setJobFeedLoading(true);
+    const url = jobFeedDashboardUrl(jobFeedPollInterval, options?.bustCache ?? false);
+    try {
+      const result = await fetchJson<{ streams: JobFeedEntry[]; queryFailed?: boolean }>(url);
+      if (!mountedRef.current) return;
+      setData((prev) => ({
+        ...prev,
+        jobs: result.streams ?? [],
+        jobFeedConnected: !result.queryFailed,
+      }));
+      errorsRef.current = errorsRef.current.filter((e) => !e.includes('/job-feed'));
+    } catch (err) {
+      if (!mountedRef.current) return;
+      errorsRef.current = [...errorsRef.current.filter((e) => !e.includes('/job-feed')), (err as Error)?.message ?? 'Job feed fetch failed'];
+    }
+    syncError();
+    setJobFeedLoading(false);
+  }, [jobFeedPollInterval, syncError]);
 
   // Group 2: protocol, GPU capacity, pricing
   const fetchRt = useCallback(async () => {
@@ -221,51 +237,41 @@ export function usePublicDashboard(
   }, [syncError]);
 
   const refetch = useCallback(() => {
-    fetchLb({ bustJobFeedCache: true });
+    fetchLb();
+    fetchJobFeed({ bustCache: true });
     fetchRt();
     fetchFees();
-  }, [fetchLb, fetchRt, fetchFees]);
+  }, [fetchLb, fetchJobFeed, fetchRt, fetchFees]);
 
-  // Initial fetch — all three groups fire concurrently
+  // Initial fetch — all four groups fire concurrently
   useEffect(() => {
     mountedRef.current = true;
     if (!skip) {
       fetchLb();
+      fetchJobFeed();
       fetchRt();
       fetchFees();
     }
     return () => { mountedRef.current = false; };
-  }, [fetchLb, fetchRt, fetchFees, skip]);
+  }, [fetchLb, fetchJobFeed, fetchRt, fetchFees, skip]);
 
-  // Job feed polling — starts after the lb group's initial fetch
+  // Job feed polling — starts after the initial job feed fetch
   useEffect(() => {
     if (skip || !lbHasFetched || !jobFeedPollInterval || jobFeedPollInterval <= 0) return;
 
-    const id = setInterval(async () => {
-      try {
-        const result = await fetchJson<{ streams: JobFeedEntry[]; queryFailed?: boolean }>(
-          jobFeedDashboardUrl(jobFeedPollInterval),
-        );
-        if (mountedRef.current && result) {
-          setData((prev) => ({
-            ...prev,
-            jobs: result.streams ?? [],
-            jobFeedConnected: !result.queryFailed,
-          }));
-        }
-      } catch {
-        // polling failure is non-critical; next tick will retry
-      }
+    const id = setInterval(() => {
+      void fetchJobFeed();
     }, jobFeedPollInterval);
 
     return () => clearInterval(id);
-  }, [skip, lbHasFetched, jobFeedPollInterval]);
+  }, [skip, lbHasFetched, jobFeedPollInterval, fetchJobFeed]);
 
   return {
     data,
     lbLoading,
     rtLoading,
     feesLoading,
+    jobFeedLoading,
     lbRefreshing: lbLoading && lbHasFetched,
     rtRefreshing: rtLoading && rtHasFetched,
     feesRefreshing: feesLoading && feesHasFetched,

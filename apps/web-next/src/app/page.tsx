@@ -31,6 +31,7 @@ export default function PublicOverviewPage() {
     lbLoading,
     rtLoading,
     feesLoading,
+    jobFeedLoading,
     lbRefreshing,
     rtRefreshing,
     feesRefreshing,
@@ -78,7 +79,7 @@ export default function PublicOverviewPage() {
               onJobFeedPollIntervalChange={handleJobFeedPollIntervalChange}
               jobFeedMeta={null}
               jobFeedError={null}
-              jobFeedLoading={!prefsReady || lbLoading}
+              jobFeedLoading={jobFeedLoading}
               timeframe={timeframe}
               onTimeframeChange={handleTimeframeChange}
               lbLoading={lbLoading}
