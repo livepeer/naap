@@ -170,6 +170,8 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     model: String
     unit: String!
     price: Float!
+    """Average wei per billing unit (integer string from pricing API; lossless for clipboard)."""
+    avgWeiPerUnit: String
     """Average pixelsPerUnit for this capability (billing step size in pixels)."""
     pixelsPerUnit: Float
     outputPerDollar: String!
@@ -339,6 +341,8 @@ export interface DashboardPipelinePricing {
   model?: string;
   unit: string;
   price: number;
+  /** Average wei per unit as decimal integer string (from pricing API; preferred for exact clipboard). */
+  avgWeiPerUnit?: string | null;
   /** Weighted avg pixelsPerUnit from capabilities_prices (pixel block size for price). */
   pixelsPerUnit?: number | null;
   outputPerDollar: string;

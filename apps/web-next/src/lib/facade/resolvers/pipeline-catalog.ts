@@ -1,5 +1,5 @@
 /**
- * Pipeline catalog resolver — merged from three sources for cold-start stability.
+ * Pipeline catalog resolver — merged from several sources for cold-start stability.
  *
  * 1. **Stable baseline:** `GET /v1/net/models` (already warmed on startup via
  *    `instrumentation.ts → warmNetworkData()`). Intended to list every
@@ -9,20 +9,38 @@
  *    snapshot). Provides regions and may lag on cold start.
  *
  * 3. **REST catalog:** `GET /v1/pipelines` (see `getRawPipelineCatalog`).
- *    Merged because `net/models` can intermittently return only pipelines with
- *    current activity (e.g. just `live-video-to-video`) while the warm catalog
- *    fetch fails or is empty — which previously collapsed the Pipelines panel
- *    to a single section after refresh.
+ *    Retried on failure/empty so we do not rely solely on `net/models`, which can
+ *    intermittently return only pipelines with current activity.
+ *
+ * 4. **Demand augment:** `network/demand` (24h cache) supplies pipeline/model
+ *    ids seen in the lookback window when net/models is activity-only.
+ *
+ * 5. **Display seed (stubs only):** If {@link FACADE_USE_STUBS} is set and the
+ *    union still collapses to a single pipeline, merge empty shells for every id
+ *    in {@link PIPELINE_DISPLAY}. Disabled in production to avoid injecting
+ *    placeholder rows when upstream data is temporarily incomplete.
  */
 
 import type { DashboardPipelineCatalogEntry } from '@naap/plugin-sdk';
 import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
-import { getRawPipelineCatalog, type PipelineCatalogEntry } from '@/lib/dashboard/raw-data';
+import {
+  getRawDemandRows,
+  getRawPipelineCatalog,
+  type NetworkDemandRow,
+  type PipelineCatalogEntry,
+} from '@/lib/dashboard/raw-data';
+import {
+  LIVE_VIDEO_PIPELINE_ID,
+  demandRowHasActivity,
+  pipelineKeysFromDemandRow,
+} from '@/lib/dashboard/demand-pipeline-key';
 import { getRawNetModels } from '../network-data.js';
 import { cachedFetch, TTL } from '../cache.js';
 
 const WARM_CATALOG_REVALIDATE_SEC = Math.floor(TTL.PIPELINE_CATALOG / 1000);
 import { PIPELINE_DISPLAY } from '@/lib/dashboard/pipeline-config';
+
+const PIPELINES_RETRY_BACKOFF_MS = [0, 500, 1500] as const;
 
 async function fetchWarmCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
   try {
@@ -111,6 +129,79 @@ function pipelinesEndpointToDashboard(rows: PipelineCatalogEntry[]): DashboardPi
     }));
 }
 
+async function fetchPipelinesCatalogReliable(): Promise<PipelineCatalogEntry[]> {
+  let lastErr: unknown;
+  for (let i = 0; i < PIPELINES_RETRY_BACKOFF_MS.length; i++) {
+    const delay = PIPELINES_RETRY_BACKOFF_MS[i];
+    if (delay > 0) {
+      await new Promise((r) => setTimeout(r, delay));
+    }
+    try {
+      const rows = await getRawPipelineCatalog();
+      if (rows.length > 0) {
+        return rows;
+      }
+      lastErr = new Error('[facade/pipeline-catalog] /v1/pipelines returned empty catalog');
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[facade/pipeline-catalog] /v1/pipelines attempt ${i + 1} failed:`, err);
+    }
+  }
+  console.warn(
+    '[facade/pipeline-catalog] /v1/pipelines exhausted retries — continuing without REST catalog',
+    lastErr,
+  );
+  return [];
+}
+
+/**
+ * Pipeline + model ids from demand rows (broader than activity-only net/models).
+ * Uses the same pipeline/model keys as {@link resolvePipelines} so rows with empty
+ * `pipeline_id` (e.g. live-video) still augment the catalog.
+ */
+function catalogFromDemandRows(rows: NetworkDemandRow[]): DashboardPipelineCatalogEntry[] {
+  const byPipeline = new Map<string, { name: string; models: Set<string> }>();
+
+  for (const row of rows) {
+    const keys = pipelineKeysFromDemandRow(row);
+    if (!keys) continue;
+    if (!demandRowHasActivity(row)) continue;
+
+    const { pipelineKey, modelKey } = keys;
+    if (PIPELINE_DISPLAY[pipelineKey] === null) continue;
+
+    const displayName = PIPELINE_DISPLAY[pipelineKey] ?? pipelineKey;
+
+    let slot = byPipeline.get(pipelineKey);
+    if (!slot) {
+      slot = { name: displayName, models: new Set() };
+      byPipeline.set(pipelineKey, slot);
+    }
+    if (modelKey) {
+      slot.models.add(modelKey);
+    }
+  }
+
+  return [...byPipeline.entries()].map(([id, o]) => ({
+    id,
+    name: o.name,
+    models: [...o.models],
+    regions: [],
+  }));
+}
+
+/** Empty shells for known pipeline ids — last resort when upstream merges to one row. */
+function catalogSeedFromDisplay(): DashboardPipelineCatalogEntry[] {
+  return Object.entries(PIPELINE_DISPLAY)
+    .filter((row): row is [string, string] => row[1] !== null)
+    .map(([id, name]) => ({
+      id,
+      name,
+      models: [],
+      regions: [],
+    }));
+}
+
 /** Union pipeline ids, merging model and region sets (order-stable). */
 function unionCatalogEntries(...parts: DashboardPipelineCatalogEntry[][]): DashboardPipelineCatalogEntry[] {
   const map = new Map<string, { name: string; models: Set<string>; regions: Set<string> }>();
@@ -147,16 +238,29 @@ function unionCatalogEntries(...parts: DashboardPipelineCatalogEntry[][]): Dashb
 
 export async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
   return cachedFetch('facade:pipeline-catalog', TTL.PIPELINE_CATALOG, async () => {
-    const [netModels, warmCatalog, rawPipelines] = await Promise.all([
+    const [netModels, warmCatalog, rawPipelines, demandRows] = await Promise.all([
       getRawNetModels(),
       fetchWarmCatalog(),
-      getRawPipelineCatalog().catch((err) => {
-        console.warn('[facade/pipeline-catalog] /v1/pipelines merge skipped:', err);
-        return [] as PipelineCatalogEntry[];
+      fetchPipelinesCatalogReliable(),
+      getRawDemandRows().catch((err) => {
+        console.warn('[facade/pipeline-catalog] demand augment skipped:', err);
+        return [] as NetworkDemandRow[];
       }),
     ]);
     const base = buildStableCatalog(netModels, warmCatalog);
     const fromPipelinesEndpoint = pipelinesEndpointToDashboard(rawPipelines);
-    return unionCatalogEntries(base, fromPipelinesEndpoint);
+    const fromDemand = catalogFromDemandRows(demandRows);
+    let merged = unionCatalogEntries(base, fromPipelinesEndpoint, fromDemand);
+
+    if (process.env.FACADE_USE_STUBS === 'true') {
+      const catalogLooksIncomplete =
+        merged.length <= 1
+        || (merged.length > 0 && merged.every((e) => e.id === LIVE_VIDEO_PIPELINE_ID));
+      if (catalogLooksIncomplete) {
+        merged = unionCatalogEntries(merged, catalogSeedFromDisplay());
+      }
+    }
+
+    return merged;
   });
 }

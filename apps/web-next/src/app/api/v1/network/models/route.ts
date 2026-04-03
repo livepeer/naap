@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getNetworkModels } from '@/lib/facade';
+import { jsonWithOverviewCache, OverviewHttpCacheSec } from '@/lib/api/overview-http-cache';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
+// Literal required for Next segment config; matches OVERVIEW_HTTP_CACHE_SEC (30m).
+export const revalidate = 1800;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;
@@ -14,11 +17,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const { models, total } = await getNetworkModels({ limit });
-    return NextResponse.json({
-      models,
-      count: models.length,
-      total,
-    });
+    return jsonWithOverviewCache(
+      {
+        models,
+        count: models.length,
+        total,
+      },
+      OverviewHttpCacheSec.networkModels,
+    );
   } catch (err) {
     console.error('[network/models] error:', err);
     return NextResponse.json(

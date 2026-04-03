@@ -14,7 +14,7 @@
 import type { DashboardProtocol } from '@naap/plugin-sdk';
 import { createPublicClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
-import { cachedFetch } from '../cache.js';
+import { cachedFetch, TTL } from '../cache.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,7 +38,7 @@ function toNumber(value: string | number | null | undefined): number {
 // ---------------------------------------------------------------------------
 
 export async function resolveProtocol(): Promise<DashboardProtocol> {
-  return cachedFetch('facade:protocol', 60 * 1000, async () => {
+  return cachedFetch('facade:protocol', TTL.PROTOCOL, async () => {
     const subgraphUrl = getSubgraphUrl();
 
     const query = /* GraphQL */ `
@@ -60,7 +60,7 @@ export async function resolveProtocol(): Promise<DashboardProtocol> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query }),
       signal: AbortSignal.timeout(60_000),
-      next: { revalidate: 60 },
+      next: { revalidate: Math.floor(TTL.PROTOCOL / 1000) },
     });
 
     if (!res.ok) throw new Error(`[facade/protocol] subgraph HTTP ${res.status}`);

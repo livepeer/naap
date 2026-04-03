@@ -37,7 +37,7 @@ function aggregateEntries(entries: NetCapacityEntry[]): Record<string, number> {
 }
 
 export async function resolveNetCapacity(): Promise<Record<string, number>> {
-  return cachedFetch('facade:net-capacity', TTL.PRICING, async () => {
+  return cachedFetch('facade:net-capacity', TTL.NET_CAPACITY, async () => {
     const body = await naapGet<NetCapacityResponse | NetCapacityEntry[]>('net/capacity');
     const entries: NetCapacityEntry[] = Array.isArray(body)
       ? body

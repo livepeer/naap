@@ -60,4 +60,10 @@ export const TTL = {
   NET_MODELS: 300 * 1000,
   /** api.daydream.live /v1/capacity per-model idle container count */
   DAYDREAM_CAPACITY: 60 * 1000,
+  /** The Graph subgraph protocol/round data — matches dashboard protocol route s-maxage */
+  PROTOCOL: 60 * 1000,
+  /** The Graph subgraph fees/volume data — 15 minutes; origin amortises expensive subgraph calls */
+  FEES: 15 * 60 * 1000,
+  /** NAAP /v1/net/capacity — warm-orch capacity snapshot; semantically distinct from PRICING */
+  NET_CAPACITY: 300 * 1000,
 } as const;

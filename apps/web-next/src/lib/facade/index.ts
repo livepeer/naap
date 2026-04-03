@@ -6,8 +6,8 @@
  * resolvers, raw-data, or external services directly.
  *
  * FACADE_USE_STUBS=true — forces all functions to return hardcoded stub data.
- * Unset (or "false") — implemented resolvers call the live NAAP API;
- * unimplemented resolvers (phases not yet complete) return stub data silently.
+ * Unset (or "false") — all resolvers call the live NAAP API; stub data is never
+ * injected, including catalog seeding from PIPELINE_DISPLAY.
  *
  * Adding a new data domain:
  *   1. Add the function signature here

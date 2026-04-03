@@ -10,7 +10,7 @@
  */
 
 import type { DashboardFeesInfo, DashboardFeeWeeklyData } from '@naap/plugin-sdk';
-import { cachedFetch } from '../cache.js';
+import { cachedFetch, TTL } from '../cache.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,7 +60,7 @@ function clampDays(days?: number): number {
 
 export async function resolveFees(opts: { days?: number }): Promise<DashboardFeesInfo> {
   const first = clampDays(opts.days);
-  return cachedFetch(`facade:fees:${first}`, 15 * 60 * 1000, async () => {
+  return cachedFetch(`facade:fees:${first}`, TTL.FEES, async () => {
     const subgraphUrl = getSubgraphUrl();
 
     const query = /* GraphQL */ `
@@ -82,7 +82,7 @@ export async function resolveFees(opts: { days?: number }): Promise<DashboardFee
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, variables: { first } }),
       signal: AbortSignal.timeout(60_000),
-      next: { revalidate: 15 * 60 },
+      next: { revalidate: Math.floor(TTL.FEES / 1000) },
     } as RequestInit & { next: { revalidate: number } });
 
     if (!res.ok) throw new Error(`[facade/fees] subgraph HTTP ${res.status}`);

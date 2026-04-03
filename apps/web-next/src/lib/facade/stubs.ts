@@ -63,7 +63,7 @@ function daysAgoUnix(n: number, baseTs = STUB_BASE_TS) {
 
 export const pipelines: DashboardPipelineUsage[] = [
   {
-    name: 'Live Video-to-Video',
+    name: 'live-video-to-video',
     mins: 0,
     sessions: 36_456,
     avgFps: 15.7,
@@ -76,7 +76,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Text-to-Image',
+    name: 'text-to-image',
     mins: 0,
     sessions: 124,
     avgFps: 0,
@@ -87,7 +87,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Upscale',
+    name: 'upscale',
     mins: 0,
     sessions: 87,
     avgFps: 0,
@@ -97,7 +97,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Audio-to-Text',
+    name: 'audio-to-text',
     mins: 0,
     sessions: 62,
     avgFps: 0,
@@ -107,7 +107,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'LLM',
+    name: 'llm',
     mins: 0,
     sessions: 38,
     avgFps: 0,
@@ -119,7 +119,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Image-to-Image',
+    name: 'image-to-image',
     mins: 0,
     sessions: 29,
     avgFps: 0,
@@ -129,7 +129,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Image-to-Video',
+    name: 'image-to-video',
     mins: 0,
     sessions: 21,
     avgFps: 0,
@@ -139,7 +139,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Segment Anything 2',
+    name: 'segment-anything-2',
     mins: 0,
     sessions: 14,
     avgFps: 0,
@@ -149,7 +149,7 @@ export const pipelines: DashboardPipelineUsage[] = [
     ],
   },
   {
-    name: 'Text-to-Speech',
+    name: 'text-to-speech',
     mins: 0,
     sessions: 9,
     avgFps: 0,
@@ -414,18 +414,18 @@ export const gpuCapacity: DashboardGPUCapacity = {
 
 export const pricing: DashboardPipelinePricing[] = [
   // live-video-to-video models (Wei/pixel scale ~2400 → ~2.4e-9 per pixel)
-  { pipeline: 'live-video-to-video', model: 'streamdiffusion-sdxl',     unit: 'pixel', price: 0.000_000_002_23, pixelsPerUnit: 1, outputPerDollar: '~149B pixels' },
-  { pipeline: 'live-video-to-video', model: 'streamdiffusion-sdxl-v2v', unit: 'pixel', price: 0.000_000_002_40, pixelsPerUnit: 1, outputPerDollar: '~139B pixels' },
-  { pipeline: 'live-video-to-video', model: 'streamdiffusion',          unit: 'pixel', price: 0.000_000_002_40, pixelsPerUnit: 1, outputPerDollar: '~139B pixels' },
-  { pipeline: 'live-video-to-video', model: 'streamdiffusion-sdturbo',  unit: 'pixel', price: 0.000_000_002_40, pixelsPerUnit: 1, outputPerDollar: '~139B pixels' },
+  { pipeline: 'live-video-to-video', model: 'streamdiffusion-sdxl',     unit: 'pixel', price: 0.000_000_002_23, avgWeiPerUnit: '2230', pixelsPerUnit: 1, outputPerDollar: '~149B pixels' },
+  { pipeline: 'live-video-to-video', model: 'streamdiffusion-sdxl-v2v', unit: 'pixel', price: 0.000_000_002_40, avgWeiPerUnit: '2400', pixelsPerUnit: 1, outputPerDollar: '~139B pixels' },
+  { pipeline: 'live-video-to-video', model: 'streamdiffusion',          unit: 'pixel', price: 0.000_000_002_40, avgWeiPerUnit: '2400', pixelsPerUnit: 1, outputPerDollar: '~139B pixels' },
+  { pipeline: 'live-video-to-video', model: 'streamdiffusion-sdturbo',  unit: 'pixel', price: 0.000_000_002_40, avgWeiPerUnit: '2400', pixelsPerUnit: 1, outputPerDollar: '~139B pixels' },
   // text-to-image
-  { pipeline: 'text-to-image', model: 'SG161222/RealVisXL_V4.0_Lightning', unit: 'pixel', price: 0.000_004_77, pixelsPerUnit: 1, outputPerDollar: '~70K pixels' },
+  { pipeline: 'text-to-image', model: 'SG161222/RealVisXL_V4.0_Lightning', unit: 'pixel', price: 0.000_004_77, avgWeiPerUnit: '4770000', pixelsPerUnit: 1, outputPerDollar: '~70K pixels' },
   // upscale
-  { pipeline: 'upscale', model: 'stabilityai/stable-diffusion-x4-upscaler', unit: 'pixel', price: 0.000_009_12, pixelsPerUnit: 1, outputPerDollar: '~37K pixels' },
+  { pipeline: 'upscale', model: 'stabilityai/stable-diffusion-x4-upscaler', unit: 'pixel', price: 0.000_009_12, avgWeiPerUnit: '9120000', pixelsPerUnit: 1, outputPerDollar: '~37K pixels' },
   // llm (Wei/token scale ~24M–43M → ~0.024–0.043 per token)
-  { pipeline: 'llm', model: 'glm-4.7-flash',                            unit: 'token', price: 0.000_023_92, pixelsPerUnit: null, outputPerDollar: '~14K tokens' },
-  { pipeline: 'llm', model: 'meta-llama/Meta-Llama-3.1-8B-Instruct',   unit: 'token', price: 0.000_038_27, pixelsPerUnit: null, outputPerDollar: '~8.7K tokens' },
-  { pipeline: 'llm', model: 'llama3.2-vision',                          unit: 'token', price: 0.000_043_05, pixelsPerUnit: null, outputPerDollar: '~7.7K tokens' },
+  { pipeline: 'llm', model: 'glm-4.7-flash',                            unit: 'token', price: 0.000_023_92, avgWeiPerUnit: '23920000', pixelsPerUnit: null, outputPerDollar: '~14K tokens' },
+  { pipeline: 'llm', model: 'meta-llama/Meta-Llama-3.1-8B-Instruct',   unit: 'token', price: 0.000_038_27, avgWeiPerUnit: '38270000', pixelsPerUnit: null, outputPerDollar: '~8.7K tokens' },
+  { pipeline: 'llm', model: 'llama3.2-vision',                          unit: 'token', price: 0.000_043_05, avgWeiPerUnit: '43050000', pixelsPerUnit: null, outputPerDollar: '~7.7K tokens' },
 ];
 
 // ---------------------------------------------------------------------------

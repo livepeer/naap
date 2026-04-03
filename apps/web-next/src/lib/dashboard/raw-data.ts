@@ -438,6 +438,9 @@ export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
       );
     }
     const pipelines = normalizePipelineCatalog(rawRows);
+    if (pipelines.length === 0) {
+      throw new Error('[dashboard/raw-data] /pipelines returned no recognizable pipeline entries');
+    }
     console.log(`[dashboard/raw-data] pipelines fetched (${pipelines.length} entries) in ${Date.now() - t0}ms`);
     return pipelines;
   });
@@ -468,14 +471,17 @@ export async function warmDashboardCaches(): Promise<{
   sla: { rows: number };
   pipelines: { count: number };
 }> {
-  const [demandRows, slaRows, pipelines] = await Promise.all([
-    getRawDemandRows(),
-    getRawSLARows(),
-    getRawPipelineCatalog(),
-  ]);
+  const [demandRows, slaRows] = await Promise.all([getRawDemandRows(), getRawSLARows()]);
+  let pipelinesCount = 0;
+  try {
+    const pipelines = await getRawPipelineCatalog();
+    pipelinesCount = pipelines.length;
+  } catch (err) {
+    console.warn('[dashboard/raw-data] warm: pipelines fetch skipped:', err);
+  }
   return {
     demand: { rows: demandRows.length },
     sla: { rows: slaRows.length },
-    pipelines: { count: pipelines.length },
+    pipelines: { count: pipelinesCount },
   };
 }

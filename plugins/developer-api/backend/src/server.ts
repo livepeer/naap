@@ -184,6 +184,189 @@ function parseNetModelsJson(payload: unknown): unknown[] {
   );
 }
 
+/** Row shape aligned with NAAP `GET /v1/net/models` and plugin-sdk `NetworkModel`. */
+interface NetModelRow {
+  Pipeline: string;
+  Model: string;
+  WarmOrchCount: number;
+  TotalCapacity: number;
+  PriceMinWeiPerPixel: number;
+  PriceMaxWeiPerPixel: number;
+  PriceAvgWeiPerPixel: number;
+}
+
+function netModelRowKey(pipeline: string, model: string): string {
+  return `${pipeline.trim()}:${model.trim()}`;
+}
+
+function numField(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeNetModelRow(raw: unknown): NetModelRow | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const o = raw as Record<string, unknown>;
+  const pipeline = String(o.Pipeline ?? o.pipeline ?? '').trim();
+  const model = String(o.Model ?? o.model ?? '').trim();
+  if (!pipeline || !model) {
+    return null;
+  }
+  return {
+    Pipeline: pipeline,
+    Model: model,
+    WarmOrchCount: numField(o.WarmOrchCount),
+    TotalCapacity: numField(o.TotalCapacity),
+    PriceMinWeiPerPixel: numField(o.PriceMinWeiPerPixel),
+    PriceMaxWeiPerPixel: numField(o.PriceMaxWeiPerPixel),
+    PriceAvgWeiPerPixel: numField(o.PriceAvgWeiPerPixel),
+  };
+}
+
+function parsePipelinesCatalog(payload: unknown): Array<{ id: string; models: string[] }> {
+  const rawRows = Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === 'object' && Array.isArray((payload as { pipelines?: unknown }).pipelines)
+      ? (payload as { pipelines: unknown[] }).pipelines
+      : [];
+  const out: Array<{ id: string; models: string[] }> = [];
+  for (const raw of rawRows) {
+    if (typeof raw === 'string') {
+      const id = raw.trim();
+      if (id) {
+        out.push({ id, models: [] });
+      }
+      continue;
+    }
+    if (!raw || typeof raw !== 'object') {
+      continue;
+    }
+    const obj = raw as Record<string, unknown>;
+    const id = String(
+      obj.id ??
+        obj.pipeline_id ??
+        obj.pipelineId ??
+        obj.Pipeline ??
+        obj.pipeline ??
+        obj.name ??
+        '',
+    ).trim();
+    if (!id) {
+      continue;
+    }
+    const modelsRaw = obj.models ?? obj.Models ?? obj.model_ids ?? obj.modelIds;
+    const models = Array.isArray(modelsRaw)
+      ? modelsRaw
+          .filter((v): v is string => typeof v === 'string')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    out.push({ id, models });
+  }
+  return out;
+}
+
+function catalogOnlyRow(pipeline: string, model: string): NetModelRow {
+  return {
+    Pipeline: pipeline,
+    Model: model,
+    WarmOrchCount: 0,
+    TotalCapacity: 0,
+    PriceMinWeiPerPixel: 0,
+    PriceMaxWeiPerPixel: 0,
+    PriceAvgWeiPerPixel: 0,
+  };
+}
+
+/**
+ * `/v1/net/models` can be activity-biased; union with `/v1/pipelines` so Developer
+ * Models tab lists every registered pipeline + model (zeros for capacity when cold).
+ */
+async function fetchMergedNetModels(
+  upstreamBase: string,
+  limitIsAll: boolean,
+  limit: number | undefined,
+  signal: AbortSignal,
+): Promise<NetModelRow[]> {
+  const netUrl = limitIsAll
+    ? `${upstreamBase}/net/models`
+    : `${upstreamBase}/net/models?limit=${limit}`;
+
+  const [netResult, pipeResult] = await Promise.allSettled([
+    fetch(netUrl, { headers: { Accept: 'application/json' }, signal }),
+    fetch(`${upstreamBase}/pipelines`, { headers: { Accept: 'application/json' }, signal }),
+  ]);
+
+  if (netResult.status !== 'fulfilled') {
+    throw netResult.reason;
+  }
+  const netRes = netResult.value;
+  const pipeRes = pipeResult.status === 'fulfilled' ? pipeResult.value : null;
+
+  if (!netRes.ok) {
+    throw new Error(`upstream net/models HTTP ${netRes.status}`);
+  }
+
+  const netPayload = await netRes.json();
+  const rawNet = parseNetModelsJson(netPayload);
+  const merged: NetModelRow[] = [];
+  const seen = new Set<string>();
+
+  for (const r of rawNet) {
+    const row = normalizeNetModelRow(r);
+    if (!row) {
+      continue;
+    }
+    const k = netModelRowKey(row.Pipeline, row.Model);
+    if (seen.has(k)) {
+      continue;
+    }
+    seen.add(k);
+    merged.push(row);
+  }
+
+  let catalogSlotsRemaining = limitIsAll
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, (limit ?? 0) - merged.length);
+
+  if (pipeRes?.ok) {
+    try {
+      const pipePayload = await pipeRes.json();
+      const catalog = parsePipelinesCatalog(pipePayload);
+      outer: for (const entry of catalog) {
+        const models =
+          entry.models.length > 0 ? entry.models : ['—'];
+        for (const model of models) {
+          if (!limitIsAll && catalogSlotsRemaining <= 0) break outer;
+          const k = netModelRowKey(entry.id, model);
+          if (seen.has(k)) {
+            continue;
+          }
+          seen.add(k);
+          merged.push(catalogOnlyRow(entry.id, model));
+          if (!limitIsAll) catalogSlotsRemaining -= 1;
+        }
+      }
+    } catch (err) {
+      console.warn('[developer-api] pipelines merge skipped:', err);
+    }
+  } else if (pipeRes) {
+    console.warn(`[developer-api] NAAP /pipelines HTTP ${pipeRes.status} — net/models only`);
+  } else {
+    console.warn('[developer-api] pipelines merge skipped: request failed');
+  }
+
+  merged.sort(
+    (a, b) => a.Pipeline.localeCompare(b.Pipeline) || a.Model.localeCompare(b.Model),
+  );
+  return merged;
+}
+
 app.get('/api/v1/developer/network-models', async (req, res) => {
   try {
     const limitParam = typeof req.query.limit === 'string' ? req.query.limit : undefined;
@@ -205,31 +388,18 @@ app.get('/api/v1/developer/network-models', async (req, res) => {
 
     const fetchPromise = (async () => {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10_000);
-      const upstreamUrl = limitIsAll
-        ? `${NET_MODELS_API_BASE}/net/models`
-        : `${NET_MODELS_API_BASE}/net/models?limit=${limit}`;
-      let upstream: Response;
+      const timeout = setTimeout(() => controller.abort(), 15_000);
       try {
-        upstream = await fetch(
-          upstreamUrl,
-          {
-            headers: { Accept: 'application/json' },
-            signal: controller.signal,
-          }
+        const models = await fetchMergedNetModels(
+          NET_MODELS_API_BASE,
+          limitIsAll,
+          limit,
+          controller.signal,
         );
+        return { models, total: models.length };
       } finally {
         clearTimeout(timeout);
       }
-
-      if (!upstream.ok) {
-        console.error(`[developer-api] NAAP net/models returned ${upstream.status}`);
-        throw new Error(`upstream HTTP ${upstream.status}`);
-      }
-
-      const payload = await upstream.json();
-      const models = parseNetModelsJson(payload);
-      return { models, total: models.length };
     })();
 
     netModelsInflight.set(cacheKey, fetchPromise);
