@@ -4,6 +4,8 @@ import { jsonWithOverviewCache, OverviewHttpCacheSec } from '@/lib/api/overview-
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
+// Literal required for Next segment config; matches OVERVIEW_HTTP_CACHE_SEC (30m).
+export const revalidate = 1800;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;

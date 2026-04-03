@@ -73,19 +73,23 @@ export function mapApiRowToJobFeedEntry(raw: unknown): JobFeedEntry | null {
   if (!id || !pipeline) return null;
 
   const model = str(o.model ?? o.model_id ?? o.modelId ?? o.Model);
-  const gateway = str(o.gateway ?? o.gateway_url ?? o.gatewayHost ?? o.Gateway) ?? '';
-  const orchestratorUrl =
-    str(o.orchestratorUrl ?? o.orchestrator_url ?? o.orchestratorURL ?? o.orchestrator) ?? '';
+  const gateway = str(o.gateway ?? o.gateway_url ?? o.gatewayHost ?? o.Gateway);
+  const orchestratorUrl = str(
+    o.orchestratorUrl ?? o.orchestrator_url ?? o.orchestratorURL ?? o.orchestrator,
+  );
 
   const stateRaw = str(o.state ?? o.status ?? o.State ?? o.stream_state);
   const status = normalizeJobStatus(stateRaw);
 
-  const firstSeen =
-    str(o.firstSeen ?? o.first_seen ?? o.startedAt ?? o.started_at ?? o.created_at ?? o.CreatedAt) ?? '';
-  const lastSeen = str(o.lastSeen ?? o.last_seen ?? o.updated_at ?? o.UpdatedAt) ?? '';
+  const firstSeen = str(
+    o.firstSeen ?? o.first_seen ?? o.startedAt ?? o.started_at ?? o.created_at ?? o.CreatedAt,
+  );
+  if (!firstSeen) return null;
 
-  const inputFps = num(o.inputFps ?? o.input_fps ?? o.InputFps) ?? 0;
-  const outputFps = num(o.outputFps ?? o.output_fps ?? o.OutputFps) ?? 0;
+  const lastSeen = str(o.lastSeen ?? o.last_seen ?? o.updated_at ?? o.UpdatedAt);
+
+  const inputFps = num(o.inputFps ?? o.input_fps ?? o.InputFps);
+  const outputFps = num(o.outputFps ?? o.output_fps ?? o.OutputFps);
 
   const durationSeconds = deriveDurationSeconds({
     durationSeconds: num(o.durationSeconds ?? o.duration_seconds),

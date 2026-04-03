@@ -297,10 +297,16 @@ async function fetchMergedNetModels(
     ? `${upstreamBase}/net/models`
     : `${upstreamBase}/net/models?limit=${limit}`;
 
-  const [netRes, pipeRes] = await Promise.all([
+  const [netResult, pipeResult] = await Promise.allSettled([
     fetch(netUrl, { headers: { Accept: 'application/json' }, signal }),
     fetch(`${upstreamBase}/pipelines`, { headers: { Accept: 'application/json' }, signal }),
   ]);
+
+  if (netResult.status !== 'fulfilled') {
+    throw netResult.reason;
+  }
+  const netRes = netResult.value;
+  const pipeRes = pipeResult.status === 'fulfilled' ? pipeResult.value : null;
 
   if (!netRes.ok) {
     throw new Error(`upstream net/models HTTP ${netRes.status}`);
@@ -324,27 +330,35 @@ async function fetchMergedNetModels(
     merged.push(row);
   }
 
-  if (pipeRes.ok) {
+  let catalogSlotsRemaining = limitIsAll
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, (limit ?? 0) - merged.length);
+
+  if (pipeRes?.ok) {
     try {
       const pipePayload = await pipeRes.json();
       const catalog = parsePipelinesCatalog(pipePayload);
-      for (const entry of catalog) {
+      outer: for (const entry of catalog) {
         const models =
           entry.models.length > 0 ? entry.models : ['—'];
         for (const model of models) {
+          if (!limitIsAll && catalogSlotsRemaining <= 0) break outer;
           const k = netModelRowKey(entry.id, model);
           if (seen.has(k)) {
             continue;
           }
           seen.add(k);
           merged.push(catalogOnlyRow(entry.id, model));
+          if (!limitIsAll) catalogSlotsRemaining -= 1;
         }
       }
     } catch (err) {
       console.warn('[developer-api] pipelines merge skipped:', err);
     }
-  } else {
+  } else if (pipeRes) {
     console.warn(`[developer-api] NAAP /pipelines HTTP ${pipeRes.status} — net/models only`);
+  } else {
+    console.warn('[developer-api] pipelines merge skipped: request failed');
   }
 
   merged.sort(

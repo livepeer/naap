@@ -27,7 +27,10 @@ export function pipelineKeysFromDemandRow(row: NetworkDemandRow): DemandRowPipel
   const normalizedModel = rawModel ? normalizeModelId(rawModel) : null;
 
   if (rawPipeline === LIVE_VIDEO_PIPELINE_ID || LIVE_VIDEO_MODEL_IDS.has(normalizedModel ?? '')) {
-    return { pipelineKey: LIVE_VIDEO_PIPELINE_ID, modelKey: rawModel };
+    return {
+      pipelineKey: LIVE_VIDEO_PIPELINE_ID,
+      modelKey: normalizedModel ?? rawModel,
+    };
   }
   if (rawPipeline) {
     if (PIPELINE_DISPLAY[rawPipeline] === null) return null;

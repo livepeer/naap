@@ -48,3 +48,33 @@ export function jsonWithOverviewCache<T>(body: T, maxAgeSec: number): NextRespon
     headers: { 'Cache-Control': overviewCacheControl(maxAgeSec) },
   });
 }
+
+// ---- Job feed (`/api/v1/dashboard/job-feed`) — short TTL aligned to client poll interval ----
+
+/**
+ * Maps client `pollMs` query to cache `max-age` / `s-maxage` seconds (1–90, default 30).
+ * Values below 1000 ms are treated like the default interval.
+ */
+export function jobFeedCacheMaxAgeSec(pollMs: number | null | undefined): number {
+  const ms =
+    pollMs != null && Number.isFinite(pollMs) && pollMs >= 1000 ? pollMs : 30_000;
+  return Math.min(90, Math.max(1, Math.round(ms / 1000)));
+}
+
+/** Normal successful job-feed response; browser + CDN share the same short window. */
+export function jobFeedSuccessCacheControl(pollSec: number): string {
+  const swr = Math.min(pollSec * 2, pollSec + 3600);
+  return `public, max-age=${pollSec}, s-maxage=${pollSec}, stale-while-revalidate=${swr}`;
+}
+
+/**
+ * Transient upstream errors: allow a very short shared-cache window to absorb bursts,
+ * while `max-age=0` avoids pinning a failure in the browser. Use `refresh=1` on the
+ * request to force {@link JOB_FEED_BYPASS_CACHE_CONTROL} instead.
+ */
+export function jobFeedErrorCacheControl(pollSec: number): string {
+  const edgeSec = Math.min(5, Math.max(2, Math.floor(pollSec / 2)));
+  return `public, max-age=0, s-maxage=${edgeSec}, stale-while-revalidate=0`;
+}
+
+export const JOB_FEED_BYPASS_CACHE_CONTROL = 'no-store';

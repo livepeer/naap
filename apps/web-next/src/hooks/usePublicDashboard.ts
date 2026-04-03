@@ -61,9 +61,10 @@ export interface UsePublicDashboardResult {
 
 const API = '/api/v1/dashboard';
 
-function jobFeedDashboardUrl(pollMs: number): string {
+function jobFeedDashboardUrl(pollMs: number, bustCache = false): string {
   const ms = pollMs >= 1000 ? pollMs : 30_000;
-  return `${API}/job-feed?pollMs=${encodeURIComponent(String(ms))}`;
+  const base = `${API}/job-feed?pollMs=${encodeURIComponent(String(ms))}`;
+  return bustCache ? `${base}&refresh=1` : base;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -113,12 +114,12 @@ export function usePublicDashboard(
   }, []);
 
   // Group 1: KPI, pipelines, catalog, orchestrators, job feed
-  const fetchLb = useCallback(async () => {
+  const fetchLb = useCallback(async (options?: { bustJobFeedCache?: boolean }) => {
     if (!mountedRef.current) return;
     setLbLoading(true);
 
     const period = timeframeToPeriod(timeframe);
-    const jobFeedUrl = jobFeedDashboardUrl(jobFeedPollInterval);
+    const jobFeedUrl = jobFeedDashboardUrl(jobFeedPollInterval, options?.bustJobFeedCache ?? false);
     const settled = await Promise.allSettled([
       fetchJson<DashboardKPI>(`${API}/kpi?timeframe=${timeframe}`),
       fetchJson<DashboardPipelineUsage[]>(`${API}/pipelines?timeframe=${timeframe}&limit=200`),
@@ -220,7 +221,7 @@ export function usePublicDashboard(
   }, [syncError]);
 
   const refetch = useCallback(() => {
-    fetchLb();
+    fetchLb({ bustJobFeedCache: true });
     fetchRt();
     fetchFees();
   }, [fetchLb, fetchRt, fetchFees]);

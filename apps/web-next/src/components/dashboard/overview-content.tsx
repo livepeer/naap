@@ -8,7 +8,7 @@
  * this component is purely presentational + supplementary REST enrichment.
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { ElementType, ReactNode } from 'react';
 import type {
   DashboardKPI,
@@ -24,6 +24,7 @@ import type {
 } from '@naap/plugin-sdk';
 import type { DashboardError } from '@/hooks/useDashboardQuery';
 import type { JobFeedConnectionMeta } from '@/hooks/useJobFeedStream';
+import { useClipboardFlash } from '@/hooks/useClipboardFlash';
 import {
   Activity,
   CheckCircle2,
@@ -866,36 +867,7 @@ function PipelinesCard({
 }) {
   const [sortCol, setSortCol] = useState<PipelineTableSortCol>('model');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const copyClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const flashCopied = useCallback((id: string) => {
-    if (copyClearRef.current) clearTimeout(copyClearRef.current);
-    setCopiedId(id);
-    copyClearRef.current = setTimeout(() => {
-      setCopiedId(null);
-      copyClearRef.current = null;
-    }, 2000);
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (copyClearRef.current) clearTimeout(copyClearRef.current);
-    },
-    [],
-  );
-
-  const copyToClipboard = useCallback(
-    async (id: string, text: string) => {
-      try {
-        await navigator.clipboard.writeText(text);
-        flashCopied(id);
-      } catch {
-        /* clipboard may be denied */
-      }
-    },
-    [flashCopied],
-  );
+  const { copiedId, copyToClipboard } = useClipboardFlash();
 
   const togglePipelineTableSort = (col: PipelineTableSortCol) => {
     if (sortCol === col) {
@@ -930,14 +902,17 @@ function PipelinesCard({
   }, [mergedGpuPipelines]);
 
   const sortedCatalog = useMemo(
-    () => [...catalog].sort((a, b) => {
-      const aGpu = pipelineGpuTotals.get(a.id) ?? 0;
-      const bGpu = pipelineGpuTotals.get(b.id) ?? 0;
-      if (bGpu !== aGpu) return bGpu - aGpu;
-      const aUsage = data.find((d) => d.name === a.id);
-      const bUsage = data.find((d) => d.name === b.id);
-      return (bUsage?.mins ?? 0) - (aUsage?.mins ?? 0);
-    }),
+    () =>
+      [...catalog]
+        .filter((entry) => PIPELINE_DISPLAY[entry.id] !== null)
+        .sort((a, b) => {
+          const aGpu = pipelineGpuTotals.get(a.id) ?? 0;
+          const bGpu = pipelineGpuTotals.get(b.id) ?? 0;
+          if (bGpu !== aGpu) return bGpu - aGpu;
+          const aUsage = data.find((d) => d.name === a.id);
+          const bUsage = data.find((d) => d.name === b.id);
+          return (bUsage?.mins ?? 0) - (aUsage?.mins ?? 0);
+        }),
     [catalog, data, pipelineGpuTotals],
   );
 
@@ -953,6 +928,9 @@ function PipelinesCard({
     return sortDir === 'asc' ? <ChevronUp className="w-3 h-3 shrink-0" /> : <ChevronDown className="w-3 h-3 shrink-0" />;
   };
 
+  const pipelineThAriaSort = (col: PipelineTableSortCol): 'ascending' | 'descending' | 'none' =>
+    sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
+
   const PipelineTH = ({
     col,
     label,
@@ -962,7 +940,7 @@ function PipelinesCard({
     label: string;
     className: string;
   }) => (
-    <th scope="col" className={className}>
+    <th scope="col" className={className} aria-sort={pipelineThAriaSort(col)}>
       <button
         type="button"
         onClick={() => togglePipelineTableSort(col)}
@@ -1156,36 +1134,7 @@ function JobFeedCard({
 }) {
   const [sortCol, setSortCol] = useState<JobFeedSortCol>('durationSeconds');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const copyClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const flashCopied = useCallback((id: string) => {
-    if (copyClearRef.current) clearTimeout(copyClearRef.current);
-    setCopiedId(id);
-    copyClearRef.current = setTimeout(() => {
-      setCopiedId(null);
-      copyClearRef.current = null;
-    }, 2000);
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (copyClearRef.current) clearTimeout(copyClearRef.current);
-    },
-    [],
-  );
-
-  const copyToClipboard = useCallback(
-    async (id: string, text: string) => {
-      try {
-        await navigator.clipboard.writeText(text);
-        flashCopied(id);
-      } catch {
-        /* clipboard may be denied */
-      }
-    },
-    [flashCopied],
-  );
+  const { copiedId, copyToClipboard } = useClipboardFlash();
 
   const toggleSort = (col: JobFeedSortCol) => {
     if (sortCol === col) { setSortDir((d) => (d === 'asc' ? 'desc' : 'asc')); }
@@ -1223,8 +1172,15 @@ function JobFeedCard({
     return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />;
   };
 
+  const jobFeedThAriaSort = (col: JobFeedSortCol): 'ascending' | 'descending' | 'none' =>
+    sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
+
   const TH = ({ col, label, right }: { col: JobFeedSortCol; label: string; right?: boolean }) => (
-    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'}`}>
+    <th
+      scope="col"
+      className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'}`}
+      aria-sort={jobFeedThAriaSort(col)}
+    >
       <button type="button" onClick={() => toggleSort(col)} className={`inline-flex items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'flex-row-reverse' : ''}`}>
         {label}
         <SortIcon col={col} />
@@ -1405,36 +1361,7 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
   };
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [filter, setFilter] = useState('');
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const copyClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const flashCopied = useCallback((id: string) => {
-    if (copyClearRef.current) clearTimeout(copyClearRef.current);
-    setCopiedId(id);
-    copyClearRef.current = setTimeout(() => {
-      setCopiedId(null);
-      copyClearRef.current = null;
-    }, 2000);
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (copyClearRef.current) clearTimeout(copyClearRef.current);
-    },
-    [],
-  );
-
-  const copyToClipboard = useCallback(
-    async (id: string, text: string) => {
-      try {
-        await navigator.clipboard.writeText(text);
-        flashCopied(id);
-      } catch {
-        /* clipboard may be denied */
-      }
-    },
-    [flashCopied],
-  );
+  const { copiedId, copyToClipboard } = useClipboardFlash();
 
   const toggleSort = (col: OrchestratorSortCol) => {
     if (sortCol === col) { setSortDir(d => (d === 'asc' ? 'desc' : 'asc')); }
