@@ -18,20 +18,22 @@ export async function GET(request: NextRequest) {
 
     const addresses = await prisma.walletAddress.findMany({
       where: { userId: user.id },
-      include: { stakingStates: true },
       orderBy: [{ isPrimary: 'desc' }, { connectedAt: 'asc' }],
+    });
+
+    const addrStrings = addresses.map(a => a.address);
+    const stakingStates = await prisma.walletStakingState.findMany({
+      where: { address: { in: addrStrings } },
     });
 
     let totalStaked = 0n;
     let totalPendingRewards = 0n;
     let totalPendingFees = 0n;
 
-    for (const addr of addresses) {
-      for (const state of addr.stakingStates) {
-        totalStaked += BigInt(state.stakedAmount || '0');
-        totalPendingRewards += BigInt(state.pendingRewards || '0');
-        totalPendingFees += BigInt(state.pendingFees || '0');
-      }
+    for (const state of stakingStates) {
+      totalStaked += BigInt(state.stakedAmount || '0');
+      totalPendingRewards += BigInt(state.pendingRewards || '0');
+      totalPendingFees += BigInt(state.pendingFees || '0');
     }
 
     return success({

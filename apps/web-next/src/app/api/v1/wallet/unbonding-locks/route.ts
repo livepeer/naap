@@ -16,19 +16,24 @@ export async function GET(request: NextRequest) {
     const user = await validateSession(token);
     if (!user) return errors.unauthorized('Invalid or expired session');
 
+    const addresses = await prisma.walletAddress.findMany({
+      where: { userId: user.id },
+      select: { address: true, label: true, chainId: true },
+    });
+
+    const addrStrings = addresses.map(a => a.address);
     const locks = await prisma.walletUnbondingLock.findMany({
-      where: {
-        walletAddress: { userId: user.id },
-      },
-      include: {
-        walletAddress: {
-          select: { address: true, label: true, chainId: true },
-        },
-      },
+      where: { address: { in: addrStrings } },
       orderBy: { createdAt: 'desc' },
     });
 
-    return success({ locks });
+    const addrMap = new Map(addresses.map(a => [a.address, a]));
+    const enrichedLocks = locks.map(lock => ({
+      ...lock,
+      walletAddress: addrMap.get(lock.address) || { address: lock.address, label: null, chainId: 42161 },
+    }));
+
+    return success({ locks: enrichedLocks });
   } catch (err) {
     console.error('Error fetching unbonding locks:', err);
     return errors.internal('Failed to fetch unbonding locks');

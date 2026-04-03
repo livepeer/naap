@@ -16,11 +16,17 @@ export async function GET(request: NextRequest) {
 
     const addresses = await prisma.walletAddress.findMany({
       where: { userId: user.id },
-      include: { stakingStates: { select: { delegatedTo: true } } },
+      select: { address: true },
+    });
+
+    const addrStrings = addresses.map(a => a.address);
+    const stakingStates = await prisma.walletStakingState.findMany({
+      where: { address: { in: addrStrings } },
+      select: { delegatedTo: true },
     });
 
     const orchestratorAddrs = [...new Set(
-      addresses.flatMap(a => a.stakingStates.map(s => s.delegatedTo).filter(Boolean) as string[])
+      stakingStates.map(s => s.delegatedTo).filter(Boolean) as string[]
     )];
 
     const totalProposals = await prisma.walletGovernanceProposal.count();

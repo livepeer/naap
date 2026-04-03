@@ -18,15 +18,20 @@ export async function GET(request: NextRequest) {
 
     const addresses = await prisma.walletAddress.findMany({
       where: { userId: user.id },
-      include: { stakingStates: true },
       orderBy: [{ isPrimary: 'desc' }, { connectedAt: 'asc' }],
     });
+
+    const addrStrings = addresses.map(a => a.address);
+    const stakingStates = await prisma.walletStakingState.findMany({
+      where: { address: { in: addrStrings } },
+    });
+    const stateMap = new Map(stakingStates.map(s => [s.address, s]));
 
     const positions = [];
     const orchestratorAddrs: string[] = [];
 
     for (const addr of addresses) {
-      const state = addr.stakingStates[0];
+      const state = stateMap.get(addr.address);
       positions.push({
         walletAddressId: addr.id,
         address: addr.address,

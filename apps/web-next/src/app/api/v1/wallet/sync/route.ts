@@ -18,27 +18,28 @@ export async function POST(request: NextRequest) {
     const user = await validateSession(token);
     if (!user) return errors.unauthorized('Invalid or expired session');
 
-    // Snapshot current positions
     const addresses = await prisma.walletAddress.findMany({
       where: { userId: user.id },
-      include: { stakingStates: true },
+    });
+
+    const addrStrings = addresses.map(a => a.address);
+    const stakingStates = await prisma.walletStakingState.findMany({
+      where: { address: { in: addrStrings } },
     });
 
     let snapshotCount = 0;
-    for (const addr of addresses) {
-      for (const state of addr.stakingStates) {
-        await prisma.walletStakingSnapshot.create({
-          data: {
-            walletAddressId: addr.id,
-            orchestratorAddr: state.delegatedTo || '',
-            bondedAmount: state.stakedAmount || '0',
-            pendingStake: state.pendingRewards || '0',
-            pendingFees: state.pendingFees || '0',
-            round: 0, // Will be updated when we have protocol params
-          },
-        });
-        snapshotCount++;
-      }
+    for (const state of stakingStates) {
+      await prisma.walletStakingSnapshot.create({
+        data: {
+          address: state.address,
+          orchestrator: state.delegatedTo || '',
+          bondedAmount: state.stakedAmount || '0',
+          pendingStake: state.pendingRewards || '0',
+          pendingFees: state.pendingFees || '0',
+          round: 0,
+        },
+      });
+      snapshotCount++;
     }
 
     return success({ synced: true, snapshotCount });

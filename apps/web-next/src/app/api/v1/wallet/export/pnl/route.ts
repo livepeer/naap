@@ -23,14 +23,24 @@ export async function GET(request: NextRequest) {
 
     const addresses = await prisma.walletAddress.findMany({
       where: { userId: user.id },
-      include: {
-        stakingStates: true,
-        transactions: {
-          where: { status: 'confirmed', timestamp: { gte: start, lte: now } },
-          select: { type: true, value: true, gasUsed: true, gasPrice: true },
-        },
-      },
     });
+
+    const addrStrings = addresses.map(a => a.address);
+    const [stakingStates, transactions] = await Promise.all([
+      prisma.walletStakingState.findMany({
+        where: { address: { in: addrStrings } },
+      }),
+      prisma.walletTransactionLog.findMany({
+        where: { address: { in: addrStrings }, status: 'confirmed', timestamp: { gte: start, lte: now } },
+        select: { address: true, type: true, value: true, gasUsed: true, gasPrice: true },
+      }),
+    ]);
+
+    const txByAddr = new Map<string, typeof transactions>();
+    for (const tx of transactions) {
+      if (!txByAddr.has(tx.address)) txByAddr.set(tx.address, []);
+      txByAddr.get(tx.address)!.push(tx);
+    }
 
     const rows = [];
     let totalBonded = 0n;
@@ -38,36 +48,34 @@ export async function GET(request: NextRequest) {
     let totalFees = 0n;
     let totalGas = 0n;
 
-    for (const addr of addresses) {
-      for (const state of addr.stakingStates) {
-        const bonded = BigInt(state.stakedAmount || '0');
-        const rewards = BigInt(state.pendingRewards || '0');
-        const fees = BigInt(state.pendingFees || '0');
+    for (const state of stakingStates) {
+      const bonded = BigInt(state.stakedAmount || '0');
+      const rewards = BigInt(state.pendingRewards || '0');
+      const fees = BigInt(state.pendingFees || '0');
 
-        let addrGas = 0n;
-        for (const tx of addr.transactions) {
-          addrGas += BigInt(tx.gasUsed || '0') * BigInt(tx.gasPrice || '0');
-        }
-
-        const netReturn = rewards + fees;
-        rows.push({
-          address: addr.address,
-          orchestrator: state.delegatedTo || 'Unknown',
-          bondedAmount: bonded.toString(),
-          totalRewardsEarned: rewards.toString(),
-          totalFeesEarned: fees.toString(),
-          totalGasCostEth: (Number(addrGas) / 1e18).toFixed(8),
-          netReturnLpt: netReturn.toString(),
-          netReturnPct: bonded > 0n ? parseFloat(((Number(netReturn) / Number(bonded)) * 100).toFixed(4)) : 0,
-          periodStart: start.toISOString(),
-          periodEnd: now.toISOString(),
-        });
-
-        totalBonded += bonded;
-        totalRewards += rewards;
-        totalFees += fees;
-        totalGas += addrGas;
+      let addrGas = 0n;
+      for (const tx of txByAddr.get(state.address) || []) {
+        addrGas += BigInt(tx.gasUsed || '0') * BigInt(tx.gasPrice || '0');
       }
+
+      const netReturn = rewards + fees;
+      rows.push({
+        address: state.address,
+        orchestrator: state.delegatedTo || 'Unknown',
+        bondedAmount: bonded.toString(),
+        totalRewardsEarned: rewards.toString(),
+        totalFeesEarned: fees.toString(),
+        totalGasCostEth: (Number(addrGas) / 1e18).toFixed(8),
+        netReturnLpt: netReturn.toString(),
+        netReturnPct: bonded > 0n ? parseFloat(((Number(netReturn) / Number(bonded)) * 100).toFixed(4)) : 0,
+        periodStart: start.toISOString(),
+        periodEnd: now.toISOString(),
+      });
+
+      totalBonded += bonded;
+      totalRewards += rewards;
+      totalFees += fees;
+      totalGas += addrGas;
     }
 
     const pnl = {
