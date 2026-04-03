@@ -43,10 +43,16 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
   }
 
   const formatStake = (stake: string) => {
-    const val = parseFloat(stake) / 1e18;
-    if (val >= 1e6) return `${(val / 1e6).toFixed(2)}M`;
-    if (val >= 1e3) return `${(val / 1e3).toFixed(1)}K`;
-    return val.toFixed(2);
+    try {
+      const wei = BigInt(stake.split('.')[0]);
+      const WEI = 10n ** 18n;
+      const lpt = Number(wei / (WEI / 100n)) / 100;
+      if (lpt >= 1e6) return `${(lpt / 1e6).toFixed(2)}M`;
+      if (lpt >= 1e3) return `${(lpt / 1e3).toFixed(1)}K`;
+      return lpt.toFixed(2);
+    } catch {
+      return '0.00';
+    }
   };
 
   return (

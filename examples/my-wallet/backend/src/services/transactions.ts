@@ -38,7 +38,7 @@ export async function logTransaction(input: LogTransactionInput): Promise<Wallet
     data: {
       ...rest,
       status: 'pending',
-      metadata: safeMetadata as any,
+      metadata: safeMetadata as Record<string, unknown> | null,
     },
   });
 }

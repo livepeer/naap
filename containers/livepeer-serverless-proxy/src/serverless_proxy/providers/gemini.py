@@ -86,7 +86,12 @@ class GeminiProvider(InferenceProvider):
         if "aspect_ratio" in request_body:
             gen_config["imageConfig"] = {"aspectRatio": request_body["aspect_ratio"]}
         if "max_output_tokens" in request_body:
-            gen_config["maxOutputTokens"] = int(request_body["max_output_tokens"])
+            try:
+                max_tokens = int(request_body["max_output_tokens"])
+                if 1 <= max_tokens <= 65536:
+                    gen_config["maxOutputTokens"] = max_tokens
+            except (ValueError, TypeError):
+                pass
 
         payload = {
             "contents": [{"parts": parts}],

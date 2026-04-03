@@ -74,7 +74,7 @@ async function main() {
     },
     {
       key: 'enableExamplePublishing',
-      enabled: true,
+      enabled: false,
       description: 'Allow users to publish bundled example plugins to the marketplace (admin toggle)',
     },
   ];

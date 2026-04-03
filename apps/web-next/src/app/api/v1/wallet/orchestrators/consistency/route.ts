@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(request.nextUrl.searchParams.get('limit') || '100', 10);
 
     const history = await prisma.walletOrchestratorRoundHistory.findMany({
-      where: { orchestratorAddr: address },
+      where: { address },
       orderBy: { round: 'desc' },
       take: limit,
       select: { round: true, calledReward: true },

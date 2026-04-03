@@ -10,9 +10,9 @@ const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 
 export async function GET(request: NextRequest) {
   const secret = request.headers.get('authorization')?.replace('Bearer ', '');
-  if (process.env.CRON_SECRET && secret !== process.env.CRON_SECRET) {
-    return errors.unauthorized('Invalid cron secret');
-  }
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) return errors.internal('Cron secret not configured');
+  if (secret !== cronSecret) return errors.unauthorized('Invalid cron secret');
 
   try {
     const headers: Record<string, string> = { Accept: 'application/json' };

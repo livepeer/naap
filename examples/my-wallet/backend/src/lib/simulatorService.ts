@@ -48,7 +48,8 @@ export async function simulateRebalance(input: SimulationInput): Promise<Simulat
   if (!toO) throw new Error(`Orchestrator ${input.toOrchestrator} not found`);
 
   const amountWei = BigInt(input.amountWei);
-  const amountLpt = Number(amountWei) / 1e18;
+  const WEI = 10n ** 18n;
+  const amountLpt = Number(amountWei / (WEI / 10000n)) / 10000;
 
   const fromDelegatorPct = (100 - fromO.rewardCut) / 100;
   const toDelegatorPct = (100 - toO.rewardCut) / 100;

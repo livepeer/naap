@@ -74,6 +74,7 @@ function dateStamp(): string {
 }
 
 function csvEscape(s: string): string {
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
-  return s;
+  const sanitized = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  if (sanitized.includes(',') || sanitized.includes('"') || sanitized.includes('\n')) return `"${sanitized.replace(/"/g, '""')}"`;
+  return sanitized;
 }

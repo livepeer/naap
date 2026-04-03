@@ -44,9 +44,9 @@ export async function GET(request: NextRequest) {
     return success({
       totalGasUsed: totalGasUsed.toString(),
       totalGasCostWei: totalGasCostWei.toString(),
-      totalGasCostEth: parseFloat((Number(totalGasCostWei) / 1e18).toFixed(8)),
+      totalGasCostEth: Number((totalGasCostWei * 100000000n) / (10n ** 18n)) / 1e8,
       transactionCount: txCount,
-      avgGasPerTx: txCount > 0 ? Math.round(Number(totalGasUsed) / txCount) : 0,
+      avgGasPerTx: txCount > 0 ? Number(totalGasUsed / BigInt(txCount)) : 0,
       byType,
     });
   } catch (err) {

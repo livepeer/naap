@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
     // Get consistency data
     const history = await prisma.walletOrchestratorRoundHistory.findMany({
-      where: { orchestratorAddr: address },
+      where: { address },
       orderBy: { round: 'desc' },
       take: 200,
     });

@@ -19,12 +19,21 @@ export const PriceDisplay: React.FC<PriceDisplayProps> = ({
   showUsd = true,
   className = '',
 }) => {
-  const numAmount = parseFloat(amount) || 0;
-  const formatted = numAmount > 1e15
-    ? `${(numAmount / 1e18).toFixed(4)}`
-    : numAmount.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  let lptValue: number;
+  let formatted: string;
+  try {
+    const wei = BigInt(amount.split('.')[0]);
+    const WEI = 10n ** 18n;
+    const whole = wei / WEI;
+    const frac = ((wei % WEI) * 10000n) / WEI;
+    lptValue = Number(whole) + Number(frac) / 10000;
+    formatted = lptValue.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  } catch {
+    lptValue = parseFloat(amount) || 0;
+    formatted = lptValue.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  }
 
-  const usdValue = priceUsd > 0 ? (numAmount / 1e18) * priceUsd : 0;
+  const usdValue = priceUsd > 0 ? lptValue * priceUsd : 0;
 
   return (
     <span className={`inline-flex flex-col ${className}`}>

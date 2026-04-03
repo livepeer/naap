@@ -46,8 +46,9 @@ export async function getGasSummary(userId: string, addressId?: string): Promise
   }
 
   const txCount = transactions.length;
-  const totalGasCostEth = Number(totalGasCostWei) / 1e18;
-  const avgGasPerTx = txCount > 0 ? Number(totalGasUsed) / txCount : 0;
+  const WEI = 10n ** 18n;
+  const totalGasCostEth = Number((totalGasCostWei * 100000000n) / WEI) / 1e8;
+  const avgGasPerTx = txCount > 0 ? Number(totalGasUsed / BigInt(txCount)) : 0;
 
   const byTypeResult: Record<string, { count: number; totalGasWei: string }> = {};
   for (const [type, data] of Object.entries(byType)) {
