@@ -31,6 +31,7 @@ logs/
 
 # Plugin backends (Vercel only builds frontends + Next.js)
 plugins/*/backend/
+examples/*/backend/
 
 # Test files
 **/*.test.ts
@@ -44,6 +45,3 @@ plugins/*/backend/
 /docs/
 /*.md
 !README.md
-
-# Example plugins (not deployed)
-examples/

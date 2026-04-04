@@ -51,8 +51,11 @@ else
   # Step 1: Build plugin UMD bundles
   # Production and preview: build all plugins. Source-hash caching in build-plugins.sh
   # skips unchanged plugins, so --parallel is efficient for both.
+  # Non-fatal: individual plugin build failures (e.g. example plugins with missing
+  # deps) must not abort the entire pipeline. Successfully built bundles are still
+  # available in dist/plugins/ for the copy step.
   echo "[1/6] Building plugin bundles..."
-  ./bin/build-plugins.sh --parallel
+  ./bin/build-plugins.sh --parallel || echo "WARN: Some plugins failed to build (continuing with successful ones)"
 fi
 
 # Step 2: Copy built bundles to public/ for static serving
@@ -60,6 +63,21 @@ echo "[2/6] Copying bundles to public/cdn/plugins/..."
 mkdir -p apps/web-next/public/cdn/plugins
 if [ -d "dist/plugins" ]; then
   cp -r dist/plugins/* apps/web-next/public/cdn/plugins/
+fi
+
+# Step 2.5: Generate examples manifest for API routes
+# The registry/examples API routes need plugin metadata at runtime.
+# On Vercel, the examples/ directory is NOT in the serverless function bundle,
+# so we pre-generate a TypeScript manifest that the routes can import directly.
+echo "[2.5/6] Generating examples manifest..."
+node bin/generate-examples-manifest.cjs
+# Verify the manifest has content (catch empty-file bugs early)
+if [ -f "apps/web-next/src/generated/examples-manifest.ts" ]; then
+  ENTRY_COUNT=$(grep -c '"name":' apps/web-next/src/generated/examples-manifest.ts || echo "0")
+  echo "  [verify] examples-manifest.ts has $ENTRY_COUNT name entries"
+  if [ "$ENTRY_COUNT" = "0" ]; then
+    echo "  [WARN] Manifest is empty — examples may not appear in Plugin Publisher"
+  fi
 fi
 
 # Step 3: Push schema to database
@@ -93,7 +111,10 @@ else
 fi
 
 # Step 5: Build Next.js app
+# Clear webpack/turbopack cache to ensure regenerated files (like the examples
+# manifest) are picked up fresh instead of using stale cached compilations.
 echo "[5/6] Building Next.js app..."
+rm -rf apps/web-next/.next/cache
 cd apps/web-next || { echo "ERROR: Failed to cd to apps/web-next"; exit 1; }
 npm run build
 cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }

@@ -3,89 +3,17 @@
  */
 
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Wallet, AlertCircle, ExternalLink, ChevronRight } from 'lucide-react';
+import { Wallet, AlertCircle, ExternalLink } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
-import { formatAddress } from '../lib/utils';
 
 export const ConnectPage: React.FC = () => {
-  const navigate = useNavigate();
-  const { 
-    isConnected, 
-    isConnecting, 
-    address, 
-    chainId, 
-    networkName,
-    error, 
+  const {
+    isConnecting,
+    error,
     connect,
     isMetaMaskInstalled,
-    isSupportedNetwork,
   } = useWallet();
 
-  // If connected, show quick actions
-  if (isConnected && address) {
-    return (
-      <div className="space-y-6">
-        {/* Connected Status */}
-        <div className="glass-card p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full wallet-gradient flex items-center justify-center">
-                <Wallet className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <p className="text-sm text-text-secondary">Connected Wallet</p>
-                <p className="text-lg font-semibold text-text-primary font-mono">
-                  {formatAddress(address, 6)}
-                </p>
-              </div>
-            </div>
-            <div className="text-right">
-              <p className="text-sm text-text-secondary">Network</p>
-              <p className={`text-sm font-medium ${isSupportedNetwork ? 'text-accent-emerald' : 'text-accent-amber'}`}>
-                {networkName || `Chain ${chainId}`}
-              </p>
-            </div>
-          </div>
-
-          {!isSupportedNetwork && (
-            <div className="mt-4 p-3 bg-accent-amber/10 border border-accent-amber/30 rounded-lg flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-accent-amber flex-shrink-0" />
-              <p className="text-sm text-accent-amber">
-                Please switch to a supported network (Ethereum or Arbitrum)
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <QuickActionCard
-            title="Dashboard"
-            description="View balances and activity"
-            onClick={() => navigate('/dashboard')}
-          />
-          <QuickActionCard
-            title="Staking"
-            description="Stake LPT to orchestrators"
-            onClick={() => navigate('/staking')}
-          />
-          <QuickActionCard
-            title="Transactions"
-            description="View transaction history"
-            onClick={() => navigate('/transactions')}
-          />
-          <QuickActionCard
-            title="Settings"
-            description="Configure wallet preferences"
-            onClick={() => navigate('/settings')}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Not connected - show connect UI
   return (
     <div className="flex flex-col items-center justify-center min-h-[400px] space-y-8">
       <div className="text-center space-y-4">
@@ -144,27 +72,3 @@ export const ConnectPage: React.FC = () => {
     </div>
   );
 };
-
-// Quick Action Card Component
-interface QuickActionCardProps {
-  title: string;
-  description: string;
-  onClick: () => void;
-}
-
-const QuickActionCard: React.FC<QuickActionCardProps> = ({ title, description, onClick }) => (
-  <button
-    onClick={onClick}
-    className="glass-card p-5 text-left hover:border-accent-purple/50 transition-colors group"
-  >
-    <div className="flex items-center justify-between">
-      <div>
-        <h3 className="font-semibold text-text-primary group-hover:text-accent-purple transition-colors">
-          {title}
-        </h3>
-        <p className="text-sm text-text-secondary mt-1">{description}</p>
-      </div>
-      <ChevronRight className="w-5 h-5 text-text-secondary group-hover:text-accent-purple transition-colors" />
-    </div>
-  </button>
-);

@@ -24,11 +24,13 @@ export interface DelegatorInfo {
 
 export interface StakingState {
   lptBalance: bigint;
-  stakedAmount: bigint;
-  pendingRewards: bigint;
+  stakedAmount: bigint;      // Total staked including accumulated rewards (= pendingStake)
+  pendingRewards: bigint;    // Accumulated rewards only (= pendingStake - principal)
   pendingFees: bigint;
   delegatedTo: string | null;
   currentRound: bigint;
+  lastClaimRound: bigint;    // Round when earnings were last claimed
+  principal: bigint;         // Original bonded amount (at last claim)
   isLoading: boolean;
   error: string | null;
 }
@@ -48,6 +50,8 @@ const initialState: StakingState = {
   pendingFees: 0n,
   delegatedTo: null,
   currentRound: 0n,
+  lastClaimRound: 0n,
+  principal: 0n,
   isLoading: false,
   error: null,
 };
@@ -102,41 +106,95 @@ export function useStaking(): UseStakingReturn {
         currentRound = await roundsManager.currentRound();
       }
 
-      // Get delegator info
+      // Get delegator info: bondedAmount, fees, delegateAddress, delegatedAmount, startRound, lastClaimRound, nextUnbondingLockId
       const delegatorInfo = await bondingManager.getDelegator(address);
-      const [bondedAmount, fees, delegateAddress] = delegatorInfo;
+      const [bondedAmount, fees, delegateAddress, , , lastClaimRound] = delegatorInfo;
 
       // Get pending stake and fees
-      let pendingRewards = 0n;
+      let pendingStake = bondedAmount; // fallback to principal
       let pendingFees = 0n;
       if (currentRound > 0n) {
         try {
-          pendingRewards = await bondingManager.pendingStake(address, currentRound);
+          pendingStake = await bondingManager.pendingStake(address, currentRound);
           pendingFees = await bondingManager.pendingFees(address, currentRound);
         } catch {
           // Some networks may not support these calls
         }
       }
 
+      // Normalize: stakedAmount = total (pendingStake), pendingRewards = accumulated only
+      const accumulatedRewards = pendingStake > bondedAmount ? pendingStake - bondedAmount : 0n;
+
       setState({
         lptBalance,
-        stakedAmount: bondedAmount,
-        pendingRewards,
+        stakedAmount: pendingStake,           // Total staked including rewards
+        pendingRewards: accumulatedRewards,    // Just accumulated rewards
         pendingFees: pendingFees > 0n ? pendingFees : fees,
         delegatedTo: delegateAddress !== '0x0000000000000000000000000000000000000000' ? delegateAddress : null,
         currentRound,
+        lastClaimRound: lastClaimRound || 0n,
+        principal: bondedAmount,               // Original bonded amount
         isLoading: false,
         error: null,
       });
     } catch (err: any) {
-      console.error('Failed to fetch staking state:', err);
-      setState(prev => ({
-        ...prev,
-        isLoading: false,
-        error: err?.message || 'Failed to fetch staking state',
-      }));
+      console.error('Failed to fetch staking state via MetaMask, trying backend API:', err);
+      // Fallback: try the backend API which uses its own RPC
+      try {
+        const { getApiUrl } = await import('../App');
+        const apiUrl = getApiUrl();
+        const [portfolioRes, protocolRes] = await Promise.all([
+          fetch(`${apiUrl}/portfolio?address=${address}`),
+          fetch(`${apiUrl}/protocol/params`),
+        ]);
+        const portfolio = (await portfolioRes.json()).data;
+        const protocol = (await protocolRes.json()).data;
+
+        const pos = portfolio?.positions?.[0];
+        setState({
+          lptBalance: 0n, // Can't get LPT balance without direct RPC
+          stakedAmount: BigInt(portfolio?.totalStaked || '0'),
+          pendingRewards: BigInt(portfolio?.totalPendingRewards || '0'),
+          pendingFees: BigInt(portfolio?.totalPendingFees || '0'),
+          delegatedTo: pos?.orchestrator || null,
+          currentRound: BigInt(protocol?.currentRound || 0),
+          lastClaimRound: BigInt(pos?.lastClaimRound || '0'),
+          principal: BigInt(portfolio?.totalStaked || '0') - BigInt(portfolio?.totalPendingRewards || '0'),
+          isLoading: false,
+          error: null,
+        });
+      } catch (fallbackErr) {
+        setState(prev => ({
+          ...prev,
+          isLoading: false,
+          error: 'Failed to fetch staking state. Please ensure MetaMask is on Arbitrum One.',
+        }));
+      }
     }
   }, [address, isConnected, getContracts]);
+
+  // Log confirmed transaction to backend for gas accounting
+  const logTransaction = useCallback(async (
+    txHash: string, type: string, receipt: any, value?: string,
+  ) => {
+    try {
+      const { getApiUrl } = await import('../App');
+      await fetch(`${getApiUrl()}/transactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address,
+          txHash,
+          type,
+          chainId: chainId || 42161,
+          value,
+          gasUsed: receipt.gasUsed?.toString(),
+          gasPrice: receipt.gasPrice?.toString(),
+          status: 'confirmed',
+        }),
+      });
+    } catch { /* non-critical */ }
+  }, [address, chainId]);
 
   // Stake LPT to an orchestrator
   const stake = useCallback(async (amount: string, orchestrator: string): Promise<string> => {
@@ -159,11 +217,11 @@ export function useStaking(): UseStakingReturn {
     const tx = await bondingManager.bond(amountWei, orchestrator);
     const receipt = await tx.wait();
 
-    // Refresh state
+    await logTransaction(receipt.hash, 'stake', receipt, amountWei.toString());
     await refreshStakingState();
 
     return receipt.hash;
-  }, [signer, address, getContracts, refreshStakingState]);
+  }, [signer, address, getContracts, refreshStakingState, logTransaction]);
 
   // Unstake LPT
   const unstake = useCallback(async (amount: string): Promise<string> => {
@@ -178,10 +236,11 @@ export function useStaking(): UseStakingReturn {
     const tx = await bondingManager.unbond(amountWei);
     const receipt = await tx.wait();
 
+    await logTransaction(receipt.hash, 'unstake', receipt, amountWei.toString());
     await refreshStakingState();
 
     return receipt.hash;
-  }, [signer, getContracts, refreshStakingState]);
+  }, [signer, getContracts, refreshStakingState, logTransaction]);
 
   // Claim rewards
   const claimRewards = useCallback(async (): Promise<string> => {
@@ -195,10 +254,11 @@ export function useStaking(): UseStakingReturn {
     const tx = await bondingManager.claimEarnings(state.currentRound);
     const receipt = await tx.wait();
 
+    await logTransaction(receipt.hash, 'claim', receipt);
     await refreshStakingState();
 
     return receipt.hash;
-  }, [signer, getContracts, state.currentRound, refreshStakingState]);
+  }, [signer, getContracts, state.currentRound, refreshStakingState, logTransaction]);
 
   // Withdraw fees
   const withdrawFees = useCallback(async (): Promise<string> => {
@@ -212,10 +272,11 @@ export function useStaking(): UseStakingReturn {
     const tx = await bondingManager.withdrawFees(address, state.pendingFees);
     const receipt = await tx.wait();
 
+    await logTransaction(receipt.hash, 'claim', receipt, state.pendingFees.toString());
     await refreshStakingState();
 
     return receipt.hash;
-  }, [signer, address, getContracts, state.pendingFees, refreshStakingState]);
+  }, [signer, address, getContracts, state.pendingFees, refreshStakingState, logTransaction]);
 
   // Auto-refresh on wallet connection
   useEffect(() => {
