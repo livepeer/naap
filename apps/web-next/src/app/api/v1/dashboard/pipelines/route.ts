@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolvePipelines } from '@/lib/dashboard/resolvers';
+import { TTL, dashboardRouteCacheControl } from '@/lib/facade/cache';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const result = await resolvePipelines({ timeframe, limit: isNaN(limit) ? 5 : limit });
     const res = NextResponse.json(result);
-    res.headers.set('Cache-Control', 'public, s-maxage=180, stale-while-revalidate=300');
+    res.headers.set('Cache-Control', dashboardRouteCacheControl(TTL.PIPELINES));
     return res;
   } catch (err) {
     console.error('[dashboard/pipelines] error:', err);

@@ -13,6 +13,8 @@
  *
  * NAAP API `window=` query caps (keep in sync with /api/v1/naap-api/warm):
  *   network/demand + sla/compliance: 24h max — pipelines catalog: no window
+ *
+ * In-process TTLs below align with {@link TTL} in facade/cache.ts (1h) for dashboard aggregation.
  */
 
 import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
@@ -157,9 +159,9 @@ function normalizePipelineCatalog(rawRows: unknown[]): PipelineCatalogEntry[] {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEMAND_TTL = 180;   // seconds — align with raw-data doc / BFF expectations
-const SLA_TTL = 300;
-const PIPELINES_TTL = 900;
+const DEMAND_TTL = 3600; // seconds — 1h; matches dashboard facade origin cache
+const SLA_TTL = 3600;
+const PIPELINES_TTL = 3600;
 
 // ---------------------------------------------------------------------------
 // In-process TTL cache
@@ -230,7 +232,7 @@ async function fetchNaapPage(path: string, searchParams: URLSearchParams): Promi
     url.searchParams.set(k, v);
   }
   return fetch(url.toString(), {
-    next: { revalidate: 60 },
+    next: { revalidate: DEMAND_TTL },
     signal: AbortSignal.timeout(120_000),
   });
 }
@@ -420,7 +422,10 @@ export function getRawSLARows(lookbackHours?: number): Promise<SLAComplianceRow[
 export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
   return cachedFetch('pipelines', PIPELINES_TTL * 1000, async () => {
     const t0 = Date.now();
-    const res = await fetch(naapApiUpstreamUrl('pipelines'), { next: { revalidate: 60 }, signal: AbortSignal.timeout(120_000) });
+    const res = await fetch(naapApiUpstreamUrl('pipelines'), {
+      next: { revalidate: PIPELINES_TTL },
+      signal: AbortSignal.timeout(120_000),
+    });
     if (!res.ok) {
       throw new Error(
         `[dashboard/raw-data] /pipelines returned HTTP ${res.status}`,

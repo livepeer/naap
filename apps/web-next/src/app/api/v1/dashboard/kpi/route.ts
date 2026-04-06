@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDashboardKPI } from '@/lib/facade';
+import { TTL, dashboardRouteCacheControl } from '@/lib/facade/cache';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -11,7 +12,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const result = await getDashboardKPI({ timeframe });
     const res = NextResponse.json(result);
-    res.headers.set('Cache-Control', 'public, s-maxage=180, stale-while-revalidate=300');
+    res.headers.set('Cache-Control', dashboardRouteCacheControl(TTL.KPI));
     return res;
   } catch (err) {
     console.error('[dashboard/kpi] error:', err);

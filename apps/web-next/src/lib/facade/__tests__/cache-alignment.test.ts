@@ -11,7 +11,7 @@
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { TTL } from '../cache';
+import { TTL, dashboardRouteCacheControl } from '../cache';
 
 describe('Dashboard Route Cache Alignment', () => {
   /**
@@ -39,18 +39,28 @@ describe('Dashboard Route Cache Alignment', () => {
   }
 
   /**
-   * Read route file and extract Cache-Control header value.
-   * Returns null if file not found or no Cache-Control set.
+   * Resolve the effective Cache-Control value for a route file.
+   * Supports a string literal or `dashboardRouteCacheControl(TTL.KEY)` (must match expectedTtlKey).
    */
-  function getRouteCacheControl(routePath: string): string | null {
+  function getRouteCacheControl(
+    routePath: string,
+    expectedTtlKey: keyof typeof TTL,
+  ): string | null {
     try {
       const fullPath = join(__dirname, '../../../app/api/v1/dashboard', routePath);
       const content = readFileSync(fullPath, 'utf-8');
-      
-      // Match: res.headers.set('Cache-Control', '...')
-      const match = content.match(/headers\.set\(['"]Cache-Control['"],\s*['"]([^'"]+)['"]\)/);
-      return match ? match[1] : null;
-    } catch (err) {
+
+      const literal = content.match(/headers\.set\(['"]Cache-Control['"],\s*['"]([^'"]+)['"]\)/);
+      if (literal) return literal[1];
+
+      const helper = content.match(
+        /headers\.set\(['"]Cache-Control['"],\s*dashboardRouteCacheControl\(TTL\.(\w+)\)\s*\)/,
+      );
+      if (!helper) return null;
+      const keyInFile = helper[1] as keyof typeof TTL;
+      if (keyInFile !== expectedTtlKey) return null;
+      return dashboardRouteCacheControl(TTL[keyInFile]);
+    } catch {
       return null;
     }
   }
@@ -58,7 +68,7 @@ describe('Dashboard Route Cache Alignment', () => {
   describe('HTTP s-maxage ≤ Origin TTL', () => {
     Object.entries(ROUTE_TTL_MAP).forEach(([routePath, ttlKey]) => {
       it(`${routePath} should have s-maxage ≤ ${ttlKey} TTL`, () => {
-        const cacheControl = getRouteCacheControl(routePath);
+        const cacheControl = getRouteCacheControl(routePath, ttlKey);
         expect(cacheControl).toBeTruthy();
         
         const sMaxAge = extractSMaxAge(cacheControl!);
@@ -75,7 +85,7 @@ describe('Dashboard Route Cache Alignment', () => {
   describe('Cache Strategy Consistency', () => {
     it('should use aggressive caching (s-maxage = TTL) for all routes', () => {
       Object.entries(ROUTE_TTL_MAP).forEach(([routePath, ttlKey]) => {
-        const cacheControl = getRouteCacheControl(routePath);
+        const cacheControl = getRouteCacheControl(routePath, ttlKey);
         if (!cacheControl) return; // Skip if route not found
         
         const sMaxAge = extractSMaxAge(cacheControl);
@@ -87,8 +97,8 @@ describe('Dashboard Route Cache Alignment', () => {
     });
 
     it('should include stale-while-revalidate for graceful degradation', () => {
-      Object.entries(ROUTE_TTL_MAP).forEach(([routePath]) => {
-        const cacheControl = getRouteCacheControl(routePath);
+      Object.entries(ROUTE_TTL_MAP).forEach(([routePath, ttlKey]) => {
+        const cacheControl = getRouteCacheControl(routePath, ttlKey);
         if (!cacheControl) return;
         
         expect(cacheControl).toMatch(/stale-while-revalidate=\d+/);
@@ -96,8 +106,8 @@ describe('Dashboard Route Cache Alignment', () => {
     });
 
     it('should use public cache directive for all routes', () => {
-      Object.entries(ROUTE_TTL_MAP).forEach(([routePath]) => {
-        const cacheControl = getRouteCacheControl(routePath);
+      Object.entries(ROUTE_TTL_MAP).forEach(([routePath, ttlKey]) => {
+        const cacheControl = getRouteCacheControl(routePath, ttlKey);
         if (!cacheControl) return;
         
         expect(cacheControl).toContain('public');

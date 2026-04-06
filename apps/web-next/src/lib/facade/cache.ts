@@ -46,24 +46,38 @@ export function cachedFetch<T>(key: string, ttlMs: number, fetcher: () => Promis
   return promise;
 }
 
+/** Dashboard BFF origin cache — 1 hour; HTTP `s-maxage` on `/api/v1/dashboard/*` matches in seconds. */
+const DASHBOARD_ORIGIN_TTL_MS = 60 * 60 * 1000;
+
 /** TTL constants in milliseconds for {@link cachedFetch} — keep in sync with data-fetching-reference.md */
 export const TTL = {
-  KPI: 180 * 1000,
-  PIPELINES: 180 * 1000,
-  PIPELINE_CATALOG: 900 * 1000,
-  ORCHESTRATORS: 300 * 1000,
-  GPU_CAPACITY: 60 * 1000,
-  PRICING: 300 * 1000,
+  KPI: DASHBOARD_ORIGIN_TTL_MS,
+  PIPELINES: DASHBOARD_ORIGIN_TTL_MS,
+  PIPELINE_CATALOG: DASHBOARD_ORIGIN_TTL_MS,
+  ORCHESTRATORS: DASHBOARD_ORIGIN_TTL_MS,
+  GPU_CAPACITY: DASHBOARD_ORIGIN_TTL_MS,
+  PRICING: DASHBOARD_ORIGIN_TTL_MS,
+  /** Short origin TTL — job list is the most time-sensitive dashboard surface */
   JOB_FEED: 30 * 1000,
-  NETWORK_MODELS: 60 * 1000,
+  NETWORK_MODELS: DASHBOARD_ORIGIN_TTL_MS,
   /** Shared raw /v1/net/models cache — used by network-models resolver */
-  NET_MODELS: 300 * 1000,
+  NET_MODELS: DASHBOARD_ORIGIN_TTL_MS,
   /** api.daydream.live /v1/capacity per-model idle container count */
-  DAYDREAM_CAPACITY: 60 * 1000,
+  DAYDREAM_CAPACITY: DASHBOARD_ORIGIN_TTL_MS,
   /** The Graph subgraph protocol/round data — matches dashboard protocol route s-maxage */
-  PROTOCOL: 60 * 1000,
-  /** The Graph subgraph fees/volume data — 15 minutes; origin amortises expensive subgraph calls */
-  FEES: 15 * 60 * 1000,
+  PROTOCOL: DASHBOARD_ORIGIN_TTL_MS,
+  /** The Graph subgraph fees/volume data */
+  FEES: DASHBOARD_ORIGIN_TTL_MS,
   /** NAAP /v1/net/capacity — warm-orch capacity snapshot; semantically distinct from PRICING */
-  NET_CAPACITY: 300 * 1000,
+  NET_CAPACITY: DASHBOARD_ORIGIN_TTL_MS,
 } as const;
+
+/**
+ * `Cache-Control` for public dashboard BFF JSON routes — `s-maxage` matches {@link TTL} in seconds;
+ * `stale-while-revalidate` = 2× for graceful edge refresh.
+ */
+export function dashboardRouteCacheControl(ttlMs: number): string {
+  const maxAgeSec = Math.floor(ttlMs / 1000);
+  const swr = maxAgeSec * 2;
+  return `public, s-maxage=${maxAgeSec}, stale-while-revalidate=${swr}`;
+}

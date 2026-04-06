@@ -10,8 +10,8 @@ import {
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
-/** Upper bound aligned with {@link jobFeedCacheMaxAgeSec} (90s). */
-export const revalidate = 90;
+/** Matches facade `TTL.JOB_FEED` (30s) — shorter than other dashboard BFF routes. */
+export const revalidate = 30;
 
 function parsePollMs(searchParams: URLSearchParams): number | undefined {
   const raw = searchParams.get('pollMs');
