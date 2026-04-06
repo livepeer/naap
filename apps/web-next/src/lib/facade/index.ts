@@ -49,7 +49,11 @@ const USE_STUBS = process.env.FACADE_USE_STUBS === 'true';
 // Dashboard — NAAP API backed (Phase 1)
 // ---------------------------------------------------------------------------
 
-export async function getDashboardKPI(opts: { timeframe?: string }): Promise<DashboardKPI> {
+export async function getDashboardKPI(opts: { 
+  timeframe?: string;
+  pipeline?: string;
+  model_id?: string;
+}): Promise<DashboardKPI> {
   if (USE_STUBS) return { ...stubs.kpi, timeframeHours: parseInt(opts.timeframe ?? '24', 10) || 24 };
   return resolveKPI(opts);
 }

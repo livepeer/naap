@@ -38,7 +38,14 @@ async function apiFetch<T>(path: string): Promise<T> {
  */
 export function registerDashboardProvider(eventBus: IEventBus): () => void {
   return createDashboardProvider(eventBus, {
-    kpi: ({ timeframe }) => apiFetch(`/api/v1/dashboard/kpi?timeframe=${timeframe ?? 12}`),
+    kpi: ({ timeframe, pipeline, model_id }) => {
+      const params = new URLSearchParams();
+      if (timeframe != null) params.set('timeframe', String(timeframe));
+      if (pipeline != null) params.set('pipeline', pipeline);
+      if (model_id != null) params.set('model_id', model_id);
+      const qs = params.toString();
+      return apiFetch(`/api/v1/dashboard/kpi${qs ? `?${qs}` : ''}`);
+    },
     protocol: () => apiFetch('/api/v1/dashboard/protocol'),
     fees: ({ days }) => apiFetch(`/api/v1/dashboard/fees${days != null ? `?days=${days}` : ''}`),
     pipelines: ({ limit, timeframe }) => {

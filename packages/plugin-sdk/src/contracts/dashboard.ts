@@ -442,7 +442,7 @@ export interface JobFeedEntry {
  */
 export interface DashboardResolvers {
   // Optimized/summary resolvers
-  kpi?: (args: { window?: string; timeframe?: string }) => DashboardKPI | Promise<DashboardKPI>;
+  kpi?: (args: { window?: string; timeframe?: string; pipeline?: string; model_id?: string }) => DashboardKPI | Promise<DashboardKPI>;
   protocol?: () => DashboardProtocol | Promise<DashboardProtocol>;
   fees?: (args: { days?: number }) => DashboardFeesInfo | Promise<DashboardFeesInfo>;
   pipelines?: (args: { limit?: number; timeframe?: string }) => DashboardPipelineUsage[] | Promise<DashboardPipelineUsage[]>;
