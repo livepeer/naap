@@ -226,13 +226,13 @@ function parseTotalPages(pagination: { total_pages?: unknown } | undefined): num
 /** Limit parallel page fetches so a cold cache does not open hundreds of sockets at once. */
 const NAAP_PAGE_FETCH_CONCURRENCY = 8;
 
-async function fetchNaapPage(path: string, searchParams: URLSearchParams): Promise<Response> {
+async function fetchNaapPage(path: string, searchParams: URLSearchParams, ttl = DEMAND_TTL): Promise<Response> {
   const url = new URL(naapApiUpstreamUrl(path));
   for (const [k, v] of searchParams.entries()) {
     url.searchParams.set(k, v);
   }
   return fetch(url.toString(), {
-    next: { revalidate: DEMAND_TTL },
+    next: { revalidate: ttl },
     signal: AbortSignal.timeout(120_000),
   });
 }
@@ -262,6 +262,7 @@ async function fetchAllPages<T>(
   path: string,
   dataKey: string,
   params: URLSearchParams,
+  ttl = DEMAND_TTL,
 ): Promise<{ rows: T[]; totalPages: number }> {
   const pageSize = 200;
   params.set('page', '1');
@@ -271,7 +272,7 @@ async function fetchAllPages<T>(
 
   let firstRes: Response;
   try {
-    firstRes = await fetchNaapPage(path, new URLSearchParams(params));
+    firstRes = await fetchNaapPage(path, new URLSearchParams(params), ttl);
   } catch (err) {
     throw new Error(
       `[dashboard/raw-data] ${path} page 1 fetch failed: ${
@@ -308,7 +309,7 @@ async function fetchAllPages<T>(
       const pageParams = new URLSearchParams(params);
       pageParams.set('page', String(page));
       try {
-        const res = await fetchNaapPage(path, pageParams);
+        const res = await fetchNaapPage(path, pageParams, ttl);
         if (!res.ok) {
           throw new Error(
             `[dashboard/raw-data] ${path} page ${page} returned HTTP ${res.status}`,
@@ -393,6 +394,7 @@ export function getRawDemandRows(lookbackHours?: number): Promise<NetworkDemandR
       'network/demand',
       'demand',
       new URLSearchParams({ window: DASHBOARD_WINDOW }),
+      DEMAND_TTL,
     ).then((r) => r.rows)
   ).then(rows =>
     h >= DASHBOARD_MAX_HOURS ? rows : filterRowsByWindowStart(rows, h)
@@ -412,6 +414,7 @@ export function getRawSLARows(lookbackHours?: number): Promise<SLAComplianceRow[
       'sla/compliance',
       'compliance',
       new URLSearchParams({ window: DASHBOARD_WINDOW }),
+      SLA_TTL,
     ).then((r) => r.rows)
   ).then(rows =>
     h >= DASHBOARD_MAX_HOURS ? rows : filterRowsByWindowStart(rows, h)

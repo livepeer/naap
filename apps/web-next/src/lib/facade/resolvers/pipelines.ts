@@ -1,12 +1,11 @@
 /**
  * Pipelines resolver — NAAP Dashboard API backed.
  *
- * Now uses GET /v1/dashboard/kpi which returns pre-aggregated KPI
- * metrics. Falls back to /dashboard/pipelines for backwards compatibility.
+ * Uses the dashboard pipelines endpoint and maps the response into
+ * DashboardPipelineUsage rows for the facade.
  *
  * Source:
- *   GET /v1/dashboard/kpi?window=Nh (replaces /network/demand for better performance)
- *   GET /v1/dashboard/pipelines?limit=N&window=Nh (fallback)
+ *   GET /v1/dashboard/pipelines?limit=N&window=Nh
  */
 
 import type { DashboardPipelineUsage } from '@naap/plugin-sdk';

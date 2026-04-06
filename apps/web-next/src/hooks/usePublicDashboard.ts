@@ -82,6 +82,10 @@ function timeframeToPeriod(tf: string): string {
   return `${h}h`;
 }
 
+function settledValue<T>(result: PromiseSettledResult<T>): T | null {
+  return result.status === 'fulfilled' ? result.value : null;
+}
+
 export function usePublicDashboard(
   options?: UsePublicDashboardOptions,
 ): UsePublicDashboardResult {
@@ -105,6 +109,7 @@ export function usePublicDashboard(
   const [feesLoading, setFeesLoading] = useState(!skip);
   const [jobFeedLoading, setJobFeedLoading] = useState(!skip);
   const [lbHasFetched, setLbHasFetched] = useState(false);
+  const [jobFeedHasFetched, setJobFeedHasFetched] = useState(false);
   const [rtHasFetched, setRtHasFetched] = useState(false);
   const [feesHasFetched, setFeesHasFetched] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +125,7 @@ export function usePublicDashboard(
     if (!mountedRef.current) return;
     setLbLoading(true);
 
+    const excludedPaths = ['/kpi', '/pipelines', '/pipeline-catalog', '/orchestrators'];
     const period = timeframeToPeriod(timeframe);
     const settled = await Promise.allSettled([
       fetchJson<DashboardKPI>(`${API}/kpi?timeframe=${timeframe}`),
@@ -130,13 +136,10 @@ export function usePublicDashboard(
 
     if (!mountedRef.current) return;
 
-    const val = (r: PromiseSettledResult<unknown>) =>
-      r.status === 'fulfilled' ? r.value : null;
-
-    const kpi = val(settled[0]) as DashboardKPI | null;
-    const pipelines = val(settled[1]) as DashboardPipelineUsage[] | null;
-    const catalog = val(settled[2]) as DashboardPipelineCatalogEntry[] | null;
-    const orchestrators = val(settled[3]) as DashboardOrchestrator[] | null;
+    const kpi = settledValue(settled[0]);
+    const pipelines = settledValue(settled[1]);
+    const catalog = settledValue(settled[2]);
+    const orchestrators = settledValue(settled[3]);
 
     const failures = settled
       .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
@@ -150,7 +153,10 @@ export function usePublicDashboard(
       orchestrators: orchestrators ?? [],
     }));
 
-    errorsRef.current = [...errorsRef.current.filter((e) => !e.includes('/kpi') && !e.includes('/pipelines') && !e.includes('/pipeline-catalog') && !e.includes('/orchestrators')), ...failures];
+    errorsRef.current = [
+      ...errorsRef.current.filter((entry) => !excludedPaths.some((path) => entry.includes(path))),
+      ...failures,
+    ];
     syncError();
     setLbHasFetched(true);
     setLbLoading(false);
@@ -169,6 +175,7 @@ export function usePublicDashboard(
         jobs: result.streams ?? [],
         jobFeedConnected: !result.queryFailed,
       }));
+      setJobFeedHasFetched(true);
       errorsRef.current = errorsRef.current.filter((e) => !e.includes('/job-feed'));
     } catch (err) {
       if (!mountedRef.current) return;
@@ -183,6 +190,7 @@ export function usePublicDashboard(
     if (!mountedRef.current) return;
     setRtLoading(true);
 
+    const excludedPaths = ['/protocol', '/gpu-capacity', '/pricing'];
     const settled = await Promise.allSettled([
       fetchJson<DashboardProtocol>(`${API}/protocol`),
       fetchJson<DashboardGPUCapacity>(`${API}/gpu-capacity?timeframe=${timeframe}`),
@@ -191,12 +199,9 @@ export function usePublicDashboard(
 
     if (!mountedRef.current) return;
 
-    const val = (r: PromiseSettledResult<unknown>) =>
-      r.status === 'fulfilled' ? r.value : null;
-
-    const protocol = val(settled[0]) as DashboardProtocol | null;
-    const gpuCap = val(settled[1]) as DashboardGPUCapacity | null;
-    const pricing = val(settled[2]) as DashboardPipelinePricing[] | null;
+    const protocol = settledValue(settled[0]);
+    const gpuCap = settledValue(settled[1]);
+    const pricing = settledValue(settled[2]);
 
     const failures = settled
       .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
@@ -209,7 +214,10 @@ export function usePublicDashboard(
       pricing: pricing ?? [],
     }));
 
-    errorsRef.current = [...errorsRef.current.filter((e) => !e.includes('/protocol') && !e.includes('/gpu-capacity') && !e.includes('/pricing')), ...failures];
+    errorsRef.current = [
+      ...errorsRef.current.filter((entry) => !excludedPaths.some((path) => entry.includes(path))),
+      ...failures,
+    ];
     syncError();
     setRtHasFetched(true);
     setRtLoading(false);
@@ -247,6 +255,7 @@ export function usePublicDashboard(
   useEffect(() => {
     mountedRef.current = true;
     if (!skip) {
+      setJobFeedHasFetched(false);
       fetchLb();
       fetchJobFeed();
       fetchRt();
@@ -257,14 +266,14 @@ export function usePublicDashboard(
 
   // Job feed polling — starts after the initial job feed fetch
   useEffect(() => {
-    if (skip || !lbHasFetched || !jobFeedPollInterval || jobFeedPollInterval <= 0) return;
+    if (skip || !jobFeedHasFetched || !jobFeedPollInterval || jobFeedPollInterval <= 0) return;
 
     const id = setInterval(() => {
       void fetchJobFeed();
     }, jobFeedPollInterval);
 
     return () => clearInterval(id);
-  }, [skip, lbHasFetched, jobFeedPollInterval, fetchJobFeed]);
+  }, [skip, jobFeedHasFetched, jobFeedPollInterval, fetchJobFeed]);
 
   return {
     data,
