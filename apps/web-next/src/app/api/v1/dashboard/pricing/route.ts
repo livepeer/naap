@@ -8,7 +8,7 @@ export async function GET(): Promise<NextResponse> {
   try {
     const result = await getDashboardPricing();
     const res = NextResponse.json(result);
-    res.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
+    res.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
     return res;
   } catch (err) {
     console.error('[dashboard/pricing] error:', err);

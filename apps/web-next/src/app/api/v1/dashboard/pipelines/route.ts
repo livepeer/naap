@@ -13,7 +13,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const result = await resolvePipelines({ timeframe, limit: isNaN(limit) ? 5 : limit });
     const res = NextResponse.json(result);
-    res.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    res.headers.set('Cache-Control', 'public, s-maxage=180, stale-while-revalidate=300');
     return res;
   } catch (err) {
     console.error('[dashboard/pipelines] error:', err);
