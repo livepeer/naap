@@ -2,16 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { bffStaleWhileRevalidate } from '@/lib/api/bff-swr';
 import { getDashboardKPI } from '@/lib/facade';
 import { TTL, dashboardRouteCacheControl } from '@/lib/facade/cache';
+import { normalizeTimeframeHours } from '@/lib/facade/resolvers/kpi';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;
-  const timeframe = params.get('timeframe') ?? '24';
+  const hours = normalizeTimeframeHours(params.get('timeframe') ?? undefined);
+  const timeframe = String(hours);
   const pipeline = params.get('pipeline') ?? undefined;
   const model_id = params.get('model_id') ?? undefined;
-  const cacheKey = `kpi:${timeframe}:${pipeline ?? 'all'}:${model_id ?? 'all'}`;
+  const cacheKey = `kpi:${hours}:${pipeline ?? 'all'}:${model_id ?? 'all'}`;
 
   try {
     const { data: result, cache } = await bffStaleWhileRevalidate(

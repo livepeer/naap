@@ -11,6 +11,9 @@
  * Add new entries here as more pipelines come online on the network.
  */
 
+/** Canonical live video pipeline id used across dashboard views. */
+export const LIVE_VIDEO_PIPELINE_ID = 'live-video-to-video';
+
 export const PIPELINE_DISPLAY: Record<string, string | null> = {
   // ─────────────────────────────────────────────────────────────────────────
   // Official AI Capabilities (from go-livepeer/core/capabilities.go)
@@ -23,7 +26,7 @@ export const PIPELINE_DISPLAY: Record<string, string | null> = {
   'segment-anything-2':       'Segment Anything 2',     // Capability_SegmentAnything2 (32)
   'llm':                      'LLM',                    // Capability_LLM (33)
   'image-to-text':            'Image-to-Text',          // Capability_ImageToText (34)
-  'live-video-to-video':      'live-video-to-video',    // Capability_LiveVideoToVideo (35); slug as label
+  [LIVE_VIDEO_PIPELINE_ID]:   'live-video-to-video',    // Capability_LiveVideoToVideo (35); slug as label
   'text-to-speech':           'Text-to-Speech',         // Capability_TextToSpeech (36)
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -51,9 +54,6 @@ export const PIPELINE_DISPLAY: Record<string, string | null> = {
   'noop':                     null,
 };
 
-/** Canonical live video pipeline id used across dashboard views. */
-export const LIVE_VIDEO_PIPELINE_ID = 'live-video-to-video';
-
 export const PIPELINE_COLOR: Record<string, string> = {
   // Official AI Capabilities
   'text-to-image':            '#f59e0b',  // amber
@@ -64,7 +64,7 @@ export const PIPELINE_COLOR: Record<string, string> = {
   'segment-anything-2':       '#f97316',  // orange
   'llm':                      '#a855f7',  // purple
   'image-to-text':            '#ec4899',  // pink
-  'live-video-to-video':      '#10b981',  // emerald
+  [LIVE_VIDEO_PIPELINE_ID]:   '#10b981',  // emerald
   'text-to-speech':           '#14b8a6',  // teal
 
   // Implementation-specific variants

@@ -35,11 +35,12 @@ export async function GET(request: NextRequest) {
 
   try {
     const result = await warmDashboardCaches();
+    const results = [
+      { target: 'pipelines', ok: true, count: result.pipelines.count },
+    ];
     return NextResponse.json({
-      warmed: 1,
-      results: [
-        { target: 'pipelines', ok: true, count: result.pipelines.count },
-      ],
+      warmed: results.length,
+      results,
       timestamp: new Date().toISOString(),
     });
   } catch (err) {

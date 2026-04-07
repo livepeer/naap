@@ -33,6 +33,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
+    // No bffStaleWhileRevalidate: the subgraph resolver fetches with
+    // cache: 'no-store' for freshness; HTTP Cache-Control (browser 60s +
+    // CDN s-maxage) is sufficient without a Redis SWR envelope.
     const result = await getDashboardFees({ days });
     const res = NextResponse.json(result);
     res.headers.set('Cache-Control', dashboardRouteCacheControl(TTL.FEES));

@@ -320,6 +320,7 @@ export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
 /** TTL seconds per NAAP API endpoint — used by instrumentation re-warm interval. */
 export const NAAP_API_CACHE_TTLS = {
   pipelines: PIPELINES_TTL,
+  network: 3600,
 } as const;
 
 // ---------------------------------------------------------------------------
