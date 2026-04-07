@@ -27,15 +27,17 @@ function evict(now: number): void {
   }
 }
 
+const DEBUG_CACHE = process.env.DEBUG_FACADE_CACHE === '1' || process.env.DEBUG_FACADE_CACHE === 'true';
+
 export function cachedFetch<T>(key: string, ttlMs: number, fetcher: () => Promise<T>): Promise<T> {
   const now = Date.now();
   const existing = memCache.get(key) as CacheEntry<T> | undefined;
   if (existing && existing.expiresAt > now) {
-    console.log(`[facade/cache] HIT  ${key} (expires in ${Math.round((existing.expiresAt - now) / 1000)}s)`);
+    if (DEBUG_CACHE) console.debug(`[facade/cache] HIT  ${key} (expires in ${Math.round((existing.expiresAt - now) / 1000)}s)`);
     return existing.promise;
   }
 
-  console.log(`[facade/cache] MISS ${key} — fetching`);
+  if (DEBUG_CACHE) console.debug(`[facade/cache] MISS ${key} — fetching`);
   const promise = fetcher().catch((err) => {
     memCache.delete(key);
     throw err;
@@ -73,11 +75,16 @@ export const TTL = {
 } as const;
 
 /**
- * `Cache-Control` for public dashboard BFF JSON routes — `s-maxage` matches {@link TTL} in seconds;
- * `stale-while-revalidate` = 2× for graceful edge refresh.
+ * `Cache-Control` for public dashboard BFF JSON routes.
+ *
+ * - `max-age=60`: browser serves from local HTTP cache for 60s (covers
+ *   navigation-back without any network round-trip).
+ * - `s-maxage`: Vercel Edge / CDN cache duration (matches {@link TTL} in seconds).
+ * - `stale-while-revalidate`: after max-age/s-maxage expires, serve stale
+ *   instantly while refreshing in the background (2× s-maxage).
  */
 export function dashboardRouteCacheControl(ttlMs: number): string {
-  const maxAgeSec = Math.floor(ttlMs / 1000);
-  const swr = maxAgeSec * 2;
-  return `public, s-maxage=${maxAgeSec}, stale-while-revalidate=${swr}`;
+  const sMaxAgeSec = Math.floor(ttlMs / 1000);
+  const swr = sMaxAgeSec * 2;
+  return `public, max-age=60, s-maxage=${sMaxAgeSec}, stale-while-revalidate=${swr}`;
 }

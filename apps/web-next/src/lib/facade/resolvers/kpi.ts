@@ -1,42 +1,59 @@
 /**
  * KPI resolver — NAAP Dashboard API backed.
  *
- * Single call to GET /v1/dashboard/kpi which returns pre-aggregated KPI
- * metrics including period-over-period deltas and hourly time-series buckets.
- * Replaces /network/demand calls for better performance.
+ * Fetches pre-aggregated KPI from GET /v1/dashboard/kpi, then overrides
+ * orchestratorsOnline.value with the distinct-address count from
+ * GET /v1/net/orchestrators (shared cached fetch) so the KPI tile and
+ * the orchestrator table agree on the same source of truth.
  *
- * Supports optional pipeline and model_id filters to get scoped metrics.
+ * Both fetches run in parallel; if net/orchestrators fails the upstream
+ * KPI value is preserved as-is.
  *
  * Source:
- *   GET /v1/dashboard/kpi?window=Nh
- *   GET /v1/dashboard/kpi?window=Nh&pipeline={pipeline}&model_id={model}
+ *   GET /v1/dashboard/kpi?window=Nh[&pipeline=...&model_id=...]
+ *   GET /v1/net/orchestrators  (shared, cached)
  */
 
 import type { DashboardKPI } from '@naap/plugin-sdk';
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
+import { getNetOrchestratorDataSafe } from './net-orchestrators.js';
+
+/** Clamp a raw timeframe string to a canonical hours value in [1, 168]. */
+export function normalizeTimeframeHours(timeframe?: string): number {
+  const parsed = parseInt(timeframe ?? '24', 10);
+  return Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
+}
 
 export async function resolveKPI(opts: { 
   timeframe?: string;
   pipeline?: string;
   model_id?: string;
 }): Promise<DashboardKPI> {
-  const parsed = parseInt(opts.timeframe ?? '24', 10);
-  const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
-  const revalidateSec = Math.floor(TTL.KPI / 1000);
-  
-  // Build query params
+  const hours = normalizeTimeframeHours(opts.timeframe);
+
   const params: Record<string, string> = { window: `${hours}h` };
   if (opts.pipeline) params.pipeline = opts.pipeline;
   if (opts.model_id) params.model_id = opts.model_id;
-  
-  // Build cache key including filters
+
   const cacheKey = `facade:kpi:${hours}:${opts.pipeline || 'all'}:${opts.model_id || 'all'}`;
-  
-  return cachedFetch(cacheKey, TTL.KPI, () =>
-    naapGet<DashboardKPI>('dashboard/kpi', params, {
-      next: { revalidate: revalidateSec },
-      errorLabel: 'kpi',
-    })
-  );
+
+  return cachedFetch(cacheKey, TTL.KPI, async () => {
+    const [kpi, netData] = await Promise.all([
+      naapGet<DashboardKPI>('dashboard/kpi', params, {
+        cache: 'no-store',
+        errorLabel: 'kpi',
+      }),
+      getNetOrchestratorDataSafe(),
+    ]);
+
+    if (netData.activeCount > 0) {
+      kpi.orchestratorsOnline = {
+        ...kpi.orchestratorsOnline,
+        value: netData.activeCount,
+      };
+    }
+
+    return kpi;
+  });
 }

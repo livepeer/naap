@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/internal/bff-warm",
+      "schedule": "*/10 * * * *"
+    }
+  ]
+}

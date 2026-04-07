@@ -217,6 +217,7 @@ export function createPluginConfig(options: PluginBuildOptions) {
           output: {
             globals: standardGlobals,
             format: 'umd',
+            exports: 'named',
             banner: `/** NAAP Plugin: ${displayName} | Global: ${globalName} */`,
           },
         },

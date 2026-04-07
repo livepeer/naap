@@ -251,18 +251,42 @@ export function usePublicDashboard(
     fetchFees();
   }, [fetchLb, fetchJobFeed, fetchRt, fetchFees]);
 
-  // Initial fetch — all four groups fire concurrently
+  // Track whether the component has mounted so the timeframe-change effect can
+  // skip its first run (the mount effect handles the initial fetch).
+  const hasMountedRef = useRef(false);
+  const prevTimeframeRef = useRef(timeframe);
+
+  // Initial mount — fire all four groups concurrently.
   useEffect(() => {
     mountedRef.current = true;
+    hasMountedRef.current = false;
     if (!skip) {
+      hasMountedRef.current = true;
+      prevTimeframeRef.current = timeframe;
       setJobFeedHasFetched(false);
       fetchLb();
       fetchJobFeed();
       fetchRt();
       fetchFees();
     }
-    return () => { mountedRef.current = false; };
-  }, [fetchLb, fetchJobFeed, fetchRt, fetchFees, skip]);
+    return () => {
+      mountedRef.current = false;
+      hasMountedRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skip]);
+
+  // Timeframe change — only refetch the time-dependent groups (lb + rt).
+  // Fees and job-feed are not timeframe-scoped, so skip them here.
+  useEffect(() => {
+    if (!hasMountedRef.current) return;
+    if (prevTimeframeRef.current === timeframe) return;
+    prevTimeframeRef.current = timeframe;
+    if (!skip) {
+      fetchLb();
+      fetchRt();
+    }
+  }, [timeframe, skip, fetchLb, fetchRt]);
 
   // Job feed polling — starts after the initial job feed fetch
   useEffect(() => {

@@ -22,8 +22,7 @@
       "maxDuration": 120
     },
     "app/api/v1/storage/**": {
-      "maxDuration": 60,
-      "memory": 1024
+      "maxDuration": 60
     },
     "app/api/v1/gw/admin/metrics/aggregate/**": {
       "maxDuration": 120
@@ -119,6 +118,7 @@
     { "path": "/api/v1/gw/admin/health/check", "schedule": "*/5 * * * *" },
     { "path": "/api/v1/gw/admin/metrics/aggregate", "schedule": "5 * * * *" },
     { "path": "/api/v1/naap-api/warm", "schedule": "*/50 * * * *" },
+    { "path": "/api/internal/bff-warm", "schedule": "*/10 * * * *" },
     { "path": "/api/v1/wallet/jobs/prices", "schedule": "*/5 * * * *" },
     { "path": "/api/v1/wallet/jobs/unbonding", "schedule": "*/5 * * * *" },
     { "path": "/api/v1/wallet/jobs/snapshot", "schedule": "0 * * * *" },

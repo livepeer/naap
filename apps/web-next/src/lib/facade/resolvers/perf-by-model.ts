@@ -18,15 +18,16 @@ export async function resolvePerfByModel(opts: {
   start: string;
   end: string;
 }): Promise<Record<string, number>> {
-  const start = opts.start.trim();
-  const end = opts.end.trim();
-  // Round to minute precision so nearby requests share the same cache entry.
-  const cacheKey = `facade:perf-by-model:${start.slice(0, 16)}:${end.slice(0, 16)}`;
+  // Round to hour precision so nearby requests within the same hour share the
+  // same cache entry — and pass the rounded window to the upstream call so the
+  // cached response exactly matches the queried range.
+  const roundedStart = opts.start.trim().slice(0, 13);
+  const roundedEnd = opts.end.trim().slice(0, 13);
+  const cacheKey = `facade:perf-by-model:${roundedStart}:${roundedEnd}`;
 
-  const revalidateSec = Math.floor(TTL.PIPELINES / 1000);
   return cachedFetch(cacheKey, TTL.PIPELINES, async () => {
-    const rawRows = await naapGet<PerfByModelRow[] | null | undefined>('perf/by-model', { start, end }, {
-      next: { revalidate: revalidateSec },
+    const rawRows = await naapGet<PerfByModelRow[] | null | undefined>('perf/by-model', { start: roundedStart, end: roundedEnd }, {
+      cache: 'no-store',
       errorLabel: 'perf-by-model',
     });
     const rows = Array.isArray(rawRows) ? rawRows : [];

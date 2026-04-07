@@ -68,6 +68,10 @@ const NO_PROVIDER_RETRY_DELAYS = [1000, 2000, 3000, 5000];
 /**
  * Runs a dashboard GraphQL query through the shell event bus.
  * See {@link UseDashboardQueryResult} for `loading` vs `refreshing` semantics.
+ *
+ * Navigation-back caching is handled by the browser HTTP cache: BFF routes
+ * set `max-age=60` so the browser serves a cached response instantly when
+ * the plugin's `apiFetch()` re-fires after remount.
  */
 export function useDashboardQuery<T = Record<string, unknown>>(
   query: string,
@@ -77,6 +81,9 @@ export function useDashboardQuery<T = Record<string, unknown>>(
   const { pollInterval, timeout = 8000, skip = false } = options ?? {};
   const shell = useShell();
 
+  // Serialize variables for dependency comparison
+  const variablesKey = variables ? JSON.stringify(variables) : '';
+
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(!skip);
   const [error, setError] = useState<DashboardError | null>(null);
@@ -85,9 +92,6 @@ export function useDashboardQuery<T = Record<string, unknown>>(
   const mountedRef = useRef(true);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Serialize variables for dependency comparison
-  const variablesKey = variables ? JSON.stringify(variables) : '';
 
   const fetchData = useCallback(async () => {
     if (!mountedRef.current) return;
@@ -118,7 +122,6 @@ export function useDashboardQuery<T = Record<string, unknown>>(
         // Keep stale data on refresh (poll) — same as transient errors in catch
       } else {
         setData((response.data as T) ?? null);
-        // Partial errors: data is present but some fields had errors
         if (response.errors && response.errors.length > 0) {
           console.warn('[useDashboardQuery] Partial errors:', JSON.stringify(response.errors, null, 2));
         }

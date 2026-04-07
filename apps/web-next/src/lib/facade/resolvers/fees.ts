@@ -10,7 +10,6 @@
  */
 
 import type { DashboardFeesInfo, DashboardFeeWeeklyData } from '@naap/plugin-sdk';
-import { cachedFetch, TTL } from '../cache.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,128 +59,126 @@ function clampDays(days?: number): number {
 
 export async function resolveFees(opts: { days?: number }): Promise<DashboardFeesInfo> {
   const first = clampDays(opts.days);
-  return cachedFetch(`facade:fees:${first}`, TTL.FEES, async () => {
-    const subgraphUrl = getSubgraphUrl();
+  const subgraphUrl = getSubgraphUrl();
 
-    const query = /* GraphQL */ `
-      query FeesOverview($first: Int!) {
-        days(first: $first, orderBy: date, orderDirection: desc) {
-          date
-          volumeETH
-          volumeUSD
-        }
-        protocol(id: "0") {
-          totalVolumeETH
-          totalVolumeUSD
-        }
+  const query = /* GraphQL */ `
+    query FeesOverview($first: Int!) {
+      days(first: $first, orderBy: date, orderDirection: desc) {
+        date
+        volumeETH
+        volumeUSD
       }
-    `;
-
-    const res = await fetch(subgraphUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables: { first } }),
-      signal: AbortSignal.timeout(60_000),
-      next: { revalidate: Math.floor(TTL.FEES / 1000) },
-    } as RequestInit & { next: { revalidate: number } });
-
-    if (!res.ok) throw new Error(`[facade/fees] subgraph HTTP ${res.status}`);
-
-    type SubgraphFeesResponse = {
-      data?: {
-        days?: Array<{ date: number; volumeETH: string; volumeUSD: string }>;
-        protocol?: { totalVolumeETH: string; totalVolumeUSD: string } | null;
-      };
-      errors?: Array<{ message: string }>;
-    };
-
-    const body = (await res.json()) as SubgraphFeesResponse;
-    if (body.errors?.length) throw new Error(body.errors.map((e) => e.message).join('; '));
-    if (!body.data) throw new Error('[facade/fees] subgraph returned no data');
-
-    const data = body.data;
-
-    const dayData = (data.days ?? [])
-      .map((row) => ({
-        dateS: Number(row.date),
-        volumeEth: toNumber(row.volumeETH),
-        volumeUsd: toNumber(row.volumeUSD),
-      }))
-      .filter((row) => Number.isFinite(row.dateS))
-      .sort((a, b) => a.dateS - b.dateS);
-
-    const weeklyMap = new Map<number, DashboardFeeWeeklyData>();
-    for (const day of dayData) {
-      const weekStart = getWeekStartTimestamp(day.dateS);
-      const existing = weeklyMap.get(weekStart);
-      if (existing) {
-        existing.weeklyVolumeEth += day.volumeEth;
-        existing.weeklyVolumeUsd += day.volumeUsd;
-      } else {
-        weeklyMap.set(weekStart, {
-          date: weekStart,
-          weeklyVolumeEth: day.volumeEth,
-          weeklyVolumeUsd: day.volumeUsd,
-        });
+      protocol(id: "0") {
+        totalVolumeETH
+        totalVolumeUSD
       }
     }
+  `;
 
-    const weeklyData = [...weeklyMap.values()]
-      .sort((a, b) => a.date - b.date)
-      .map((w) => ({ ...w, weeklyVolumeEth: round2(w.weeklyVolumeEth), weeklyVolumeUsd: round2(w.weeklyVolumeUsd) }));
-
-    const now = new Date();
-    const startOfTodayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000;
-    const weekStartOfToday = getWeekStartTimestamp(startOfTodayUtc);
-
-    const latestDay = dayData.at(-1);
-    const previousDay = dayData.at(-2);
-    const dayBeforePrevious = dayData.at(-3);
-    const currentWeek = weeklyData.at(-1);
-    const previousWeek = weeklyData.at(-2);
-    const twoWeeksBack = weeklyData.at(-3);
-
-    const isLatestDayIncomplete = latestDay != null && latestDay.dateS >= startOfTodayUtc;
-    const isLatestWeekIncomplete = currentWeek != null && currentWeek.date >= weekStartOfToday;
-
-    const dayForDisplay = isLatestDayIncomplete ? previousDay : latestDay;
-    const dayForDeltaBase = isLatestDayIncomplete ? dayBeforePrevious : previousDay;
-    const weekForDisplay = isLatestWeekIncomplete ? previousWeek : currentWeek;
-    const weekForDeltaBase = isLatestWeekIncomplete ? twoWeeksBack : previousWeek;
-
-    const fallbackTotalEth = round2(dayData.reduce((sum, d) => sum + d.volumeEth, 0));
-    const fallbackTotalUsd = round2(dayData.reduce((sum, d) => sum + d.volumeUsd, 0));
-
-    const volumeChangeUsd = dayForDeltaBase != null && dayForDisplay != null
-      ? round2(percentChange(dayForDisplay.volumeUsd, dayForDeltaBase.volumeUsd))
-      : null;
-    const volumeChangeEth = dayForDeltaBase != null && dayForDisplay != null
-      ? round2(percentChange(dayForDisplay.volumeEth, dayForDeltaBase.volumeEth))
-      : null;
-    const weeklyVolumeChangeUsd = weekForDeltaBase != null && weekForDisplay != null
-      ? round2(percentChange(weekForDisplay.weeklyVolumeUsd, weekForDeltaBase.weeklyVolumeUsd))
-      : null;
-    const weeklyVolumeChangeEth = weekForDeltaBase != null && weekForDisplay != null
-      ? round2(percentChange(weekForDisplay.weeklyVolumeEth, weekForDeltaBase.weeklyVolumeEth))
-      : null;
-
-    return {
-      totalEth: data.protocol?.totalVolumeETH != null
-        ? round2(toNumber(data.protocol.totalVolumeETH))
-        : fallbackTotalEth,
-      totalUsd: data.protocol?.totalVolumeUSD != null
-        ? round2(toNumber(data.protocol.totalVolumeUSD))
-        : fallbackTotalUsd,
-      oneDayVolumeUsd: round2(dayForDisplay?.volumeUsd ?? 0),
-      oneDayVolumeEth: round2(dayForDisplay?.volumeEth ?? 0),
-      oneWeekVolumeUsd: round2(weekForDisplay?.weeklyVolumeUsd ?? 0),
-      oneWeekVolumeEth: round2(weekForDisplay?.weeklyVolumeEth ?? 0),
-      volumeChangeUsd,
-      volumeChangeEth,
-      weeklyVolumeChangeUsd,
-      weeklyVolumeChangeEth,
-      dayData,
-      weeklyData,
-    };
+  const res = await fetch(subgraphUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables: { first } }),
+    signal: AbortSignal.timeout(60_000),
+    cache: 'no-store',
   });
+
+  if (!res.ok) throw new Error(`[facade/fees] subgraph HTTP ${res.status}`);
+
+  type SubgraphFeesResponse = {
+    data?: {
+      days?: Array<{ date: number; volumeETH: string; volumeUSD: string }>;
+      protocol?: { totalVolumeETH: string; totalVolumeUSD: string } | null;
+    };
+    errors?: Array<{ message: string }>;
+  };
+
+  const body = (await res.json()) as SubgraphFeesResponse;
+  if (body.errors?.length) throw new Error(body.errors.map((e) => e.message).join('; '));
+  if (!body.data) throw new Error('[facade/fees] subgraph returned no data');
+
+  const data = body.data;
+
+  const dayData = (data.days ?? [])
+    .map((row) => ({
+      dateS: Number(row.date),
+      volumeEth: toNumber(row.volumeETH),
+      volumeUsd: toNumber(row.volumeUSD),
+    }))
+    .filter((row) => Number.isFinite(row.dateS))
+    .sort((a, b) => a.dateS - b.dateS);
+
+  const weeklyMap = new Map<number, DashboardFeeWeeklyData>();
+  for (const day of dayData) {
+    const weekStart = getWeekStartTimestamp(day.dateS);
+    const existing = weeklyMap.get(weekStart);
+    if (existing) {
+      existing.weeklyVolumeEth += day.volumeEth;
+      existing.weeklyVolumeUsd += day.volumeUsd;
+    } else {
+      weeklyMap.set(weekStart, {
+        date: weekStart,
+        weeklyVolumeEth: day.volumeEth,
+        weeklyVolumeUsd: day.volumeUsd,
+      });
+    }
+  }
+
+  const weeklyData = [...weeklyMap.values()]
+    .sort((a, b) => a.date - b.date)
+    .map((w) => ({ ...w, weeklyVolumeEth: round2(w.weeklyVolumeEth), weeklyVolumeUsd: round2(w.weeklyVolumeUsd) }));
+
+  const now = new Date();
+  const startOfTodayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000;
+  const weekStartOfToday = getWeekStartTimestamp(startOfTodayUtc);
+
+  const latestDay = dayData.at(-1);
+  const previousDay = dayData.at(-2);
+  const dayBeforePrevious = dayData.at(-3);
+  const currentWeek = weeklyData.at(-1);
+  const previousWeek = weeklyData.at(-2);
+  const twoWeeksBack = weeklyData.at(-3);
+
+  const isLatestDayIncomplete = latestDay != null && latestDay.dateS >= startOfTodayUtc;
+  const isLatestWeekIncomplete = currentWeek != null && currentWeek.date >= weekStartOfToday;
+
+  const dayForDisplay = isLatestDayIncomplete ? previousDay : latestDay;
+  const dayForDeltaBase = isLatestDayIncomplete ? dayBeforePrevious : previousDay;
+  const weekForDisplay = isLatestWeekIncomplete ? previousWeek : currentWeek;
+  const weekForDeltaBase = isLatestWeekIncomplete ? twoWeeksBack : previousWeek;
+
+  const fallbackTotalEth = round2(dayData.reduce((sum, d) => sum + d.volumeEth, 0));
+  const fallbackTotalUsd = round2(dayData.reduce((sum, d) => sum + d.volumeUsd, 0));
+
+  const volumeChangeUsd = dayForDeltaBase != null && dayForDisplay != null
+    ? round2(percentChange(dayForDisplay.volumeUsd, dayForDeltaBase.volumeUsd))
+    : null;
+  const volumeChangeEth = dayForDeltaBase != null && dayForDisplay != null
+    ? round2(percentChange(dayForDisplay.volumeEth, dayForDeltaBase.volumeEth))
+    : null;
+  const weeklyVolumeChangeUsd = weekForDeltaBase != null && weekForDisplay != null
+    ? round2(percentChange(weekForDisplay.weeklyVolumeUsd, weekForDeltaBase.weeklyVolumeUsd))
+    : null;
+  const weeklyVolumeChangeEth = weekForDeltaBase != null && weekForDisplay != null
+    ? round2(percentChange(weekForDisplay.weeklyVolumeEth, weekForDeltaBase.weeklyVolumeEth))
+    : null;
+
+  return {
+    totalEth: data.protocol?.totalVolumeETH != null
+      ? round2(toNumber(data.protocol.totalVolumeETH))
+      : fallbackTotalEth,
+    totalUsd: data.protocol?.totalVolumeUSD != null
+      ? round2(toNumber(data.protocol.totalVolumeUSD))
+      : fallbackTotalUsd,
+    oneDayVolumeUsd: round2(dayForDisplay?.volumeUsd ?? 0),
+    oneDayVolumeEth: round2(dayForDisplay?.volumeEth ?? 0),
+    oneWeekVolumeUsd: round2(weekForDisplay?.weeklyVolumeUsd ?? 0),
+    oneWeekVolumeEth: round2(weekForDisplay?.weeklyVolumeEth ?? 0),
+    volumeChangeUsd,
+    volumeChangeEth,
+    weeklyVolumeChangeUsd,
+    weeklyVolumeChangeEth,
+    dayData,
+    weeklyData,
+  };
 }

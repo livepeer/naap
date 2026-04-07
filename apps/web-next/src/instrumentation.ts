@@ -49,41 +49,22 @@ export async function register() {
       console.warn(`[naap] Warning: ${warning}`);
     }
 
-    // Pre-warm NAAP API caches so the first dashboard request is instant.
-    // `register()` completes before Next.js serves any request, so awaiting
-    // here guarantees no user ever hits a cold in-process cache.
-    const { warmDashboardCaches, NAAP_API_CACHE_TTLS } = await import(
-      '@/lib/dashboard/raw-data'
-    );
     const { warmNetworkData } = await import('@/lib/facade/network-data');
+    const { TTL } = await import('@/lib/facade/cache');
 
     try {
-      const [warmResult, networkResult] = await Promise.all([
-        warmDashboardCaches(),
-        warmNetworkData(),
-      ]);
-      console.log('[naap] NAAP API cache warmed on startup:', warmResult);
+      const networkResult = await warmNetworkData();
       console.log('[naap] Network data cache warmed on startup:', networkResult);
     } catch (err) {
       console.warn('[naap] Startup cache warm failed (non-fatal):', err);
     }
 
-    // Re-warm in the background at ~90% of the longest NAAP raw-cache TTL.
-    // NAAP_API_CACHE_TTLS values are in seconds (see raw-data.ts).
+    const NET_MODELS_TTL_SEC = Math.floor(TTL.NET_MODELS / 1000);
     const MIN_REWARM_INTERVAL_MS = 60_000;
-    const demandSec =
-      typeof NAAP_API_CACHE_TTLS.demand === 'number' && Number.isFinite(NAAP_API_CACHE_TTLS.demand) && NAAP_API_CACHE_TTLS.demand > 0
-        ? NAAP_API_CACHE_TTLS.demand
-        : 180;
-    const slaSec =
-      typeof NAAP_API_CACHE_TTLS.sla === 'number' && Number.isFinite(NAAP_API_CACHE_TTLS.sla) && NAAP_API_CACHE_TTLS.sla > 0
-        ? NAAP_API_CACHE_TTLS.sla
-        : 300;
-    const maxTtlSec = Math.max(demandSec, slaSec);
-    const rewarmMs = Math.max(MIN_REWARM_INTERVAL_MS, Math.floor(maxTtlSec * 0.9 * 1000));
+    const rewarmMs = Math.max(MIN_REWARM_INTERVAL_MS, Math.floor(NET_MODELS_TTL_SEC * 0.9 * 1000));
     setInterval(() => {
-      Promise.all([warmDashboardCaches(), warmNetworkData()])
-        .then(([r, n]) => console.log('[naap] Background cache re-warm:', r, n))
+      warmNetworkData()
+        .then((n) => console.log('[naap] Background cache re-warm:', n))
         .catch((err) => console.warn('[naap] Background re-warm failed:', err));
     }, rewarmMs);
   }

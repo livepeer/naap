@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPerfByModel } from '@/lib/facade';
+import { bffStaleWhileRevalidate } from '@/lib/api/bff-swr';
 import { jsonWithOverviewCache, OverviewHttpCacheSec } from '@/lib/api/overview-http-cache';
+import { getPerfByModel } from '@/lib/facade';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -43,13 +44,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const fpsByPipelineModel = await getPerfByModel({ start, end });
-    return jsonWithOverviewCache({ fpsByPipelineModel }, OverviewHttpCacheSec.perfByModel);
+    // Normalize to hour precision to match the resolver's own hour-bucket cache key,
+    // maximising Redis SWR hit rate when the client sends slightly different ISO strings.
+    const startHour = new Date(startMs).toISOString().slice(0, 13);
+    const endHour = new Date(endMs).toISOString().slice(0, 13);
+    const cacheKey = `perf-by-model:${startHour}:${endHour}`;
+    const { data: fpsByPipelineModel, cache } = await bffStaleWhileRevalidate(
+      cacheKey,
+      () => getPerfByModel({ start, end }),
+      'perf-by-model'
+    );
+    const res = jsonWithOverviewCache({ fpsByPipelineModel }, OverviewHttpCacheSec.perfByModel);
+    res.headers.set('X-Cache', cache);
+    return res;
   } catch (err) {
     console.error('[network/perf-by-model] error:', err);
     return NextResponse.json(
       { error: { code: 'SERVICE_UNAVAILABLE', message: 'Perf-by-model data is unavailable' } },
-      { status: 503 },
+      { status: 503, headers: { 'Cache-Control': 'public, max-age=0, s-maxage=5, stale-while-revalidate=0' } },
     );
   }
 }

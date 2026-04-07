@@ -48,15 +48,55 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
-import {
-  Bar,
-  BarChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import dynamic from 'next/dynamic';
 import { PIPELINE_DISPLAY, PIPELINE_COLOR, DEFAULT_PIPELINE_COLOR } from '@/lib/dashboard/pipeline-config';
+
+// Recharts is only used inside FeesCard. Defer the bundle parse until the
+// fees data arrives so the initial JS execution budget is not spent on charting.
+type FeesBarChartProps = {
+  chartData: { x: number; y: number }[];
+  onMove: (hovered: { x: number; y: number } | null) => void;
+  onLeave: () => void;
+  accent: string;
+  cursor: string;
+  formatUsdCompact: (v: number) => string;
+};
+const FeesBarChart = dynamic(
+  () =>
+    import('recharts').then((mod) => {
+      const { BarChart, Bar, ResponsiveContainer, Tooltip, XAxis, YAxis } = mod;
+      return function FeesBarChartInner({
+        chartData,
+        onMove,
+        onLeave,
+        accent,
+        cursor,
+        formatUsdCompact: fmt,
+      }: FeesBarChartProps) {
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={chartData}
+              onMouseMove={(e) => {
+                const point = e?.activePayload?.[0]?.payload;
+                if (point) { onMove({ x: Number(point.x), y: Number(point.y) }); } else { onMove(null); }
+              }}
+              onMouseLeave={onLeave}
+            >
+              <XAxis dataKey="x" tickLine={false} axisLine={false} minTickGap={18} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={(x) => new Date(Number(x) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} />
+              <YAxis width={40} tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={(v) => fmt(Number(v))} />
+              <Tooltip cursor={{ fill: cursor }} content={() => null} />
+              <Bar dataKey="y" radius={[4, 4, 0, 0]} fill={accent} />
+            </BarChart>
+          </ResponsiveContainer>
+        );
+      };
+    }),
+  {
+    ssr: false,
+    loading: () => <div className="h-28 animate-pulse rounded bg-muted/30" />,
+  },
+);
 import { LivepeerMarkIcon } from '@/components/brand/livepeer-mark-icon';
 import { AuthCTABanner } from './auth-cta-banner';
 
@@ -519,21 +559,14 @@ function FeesCard({ data, className }: { data: DashboardFeesInfo; className?: st
         </div>
       </div>
       <div className="h-28">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={chartData}
-            onMouseMove={(e) => {
-              const point = e?.activePayload?.[0]?.payload;
-              if (point) { setHovered({ x: Number(point.x), y: Number(point.y) }); } else { setHovered(null); }
-            }}
-            onMouseLeave={() => setHovered(null)}
-          >
-            <XAxis dataKey="x" tickLine={false} axisLine={false} minTickGap={18} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={(x) => new Date(Number(x) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} />
-            <YAxis width={40} tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={(v) => formatUsdCompact(Number(v))} />
-            <Tooltip cursor={{ fill: OVERVIEW_CHART_CURSOR }} content={() => null} />
-            <Bar dataKey="y" radius={[4, 4, 0, 0]} fill={OVERVIEW_CHART_ACCENT} />
-          </BarChart>
-        </ResponsiveContainer>
+        <FeesBarChart
+          chartData={chartData}
+          onMove={setHovered}
+          onLeave={() => setHovered(null)}
+          accent={OVERVIEW_CHART_ACCENT}
+          cursor={OVERVIEW_CHART_CURSOR}
+          formatUsdCompact={formatUsdCompact}
+        />
       </div>
       {rawOpen && (
         <div className="mt-3 pt-3 border-t border-border">
@@ -705,9 +738,8 @@ function gpuCountMapFromMerged(merged: GpuPipelineRow[]): Map<string, number> {
 /** Model rows: union catalog + usage so seeded/empty catalog entries still show demand. */
 function pipelineTableModelIds(
   entry: DashboardPipelineCatalogEntry,
-  data: DashboardPipelineUsage[],
+  pipelineUsage: DashboardPipelineUsage | undefined,
 ): string[] {
-  const pipelineUsage = data.find((d) => d.name === entry.id);
   const fromUsage = pipelineUsage?.modelMins?.map((m) => m.model).filter(Boolean) ?? [];
   const set = new Set<string>([...entry.models, ...fromUsage]);
   return [...set].sort((a, b) => a.localeCompare(b));
@@ -720,17 +752,17 @@ function sortPipelineTableModels(
   pipelineId: string,
   sortCol: PipelineTableSortCol,
   sortDir: 'asc' | 'desc',
-  data: DashboardPipelineUsage[],
-  pricing: DashboardPipelinePricing[],
+  pipelineUsage: DashboardPipelineUsage | undefined,
+  pricingByKey: Map<string, DashboardPipelinePricing>,
   netCapacity: Record<string, number>,
   liveVideoCapacity: Record<string, number>,
   gpuByPipelineModel: Map<string, number>,
   modelFpsByPipelineModel: Record<string, number>,
 ): string[] {
-  const pipelineUsage = data.find((d) => d.name === pipelineId);
+  const modelMinsMap = new Map(pipelineUsage?.modelMins?.map((m) => [m.model, m]) ?? []);
   const rowKeys = (model: string) => {
-    const p = pricing.find((x) => x.pipeline === pipelineId && x.model === model);
-    const modelUsage = pipelineUsage?.modelMins?.find((m) => m.model === model);
+    const p = pricingByKey.get(`${pipelineId}:${model}`);
+    const modelUsage = modelMinsMap.get(model);
     const modelFpsFromPerf = modelFpsByPipelineModel[`${pipelineId}:${model}`];
     const modelFps = Number.isFinite(modelFpsFromPerf)
       ? modelFpsFromPerf
@@ -846,6 +878,59 @@ function PipelineTableCopyButton({
   );
 }
 
+function PipelineSortIcon({
+  col,
+  sortCol,
+  sortDir,
+}: {
+  col: PipelineTableSortCol;
+  sortCol: PipelineTableSortCol;
+  sortDir: 'asc' | 'desc';
+}) {
+  if (sortCol !== col) return <ChevronsUpDown className="w-3 h-3 opacity-30 shrink-0" />;
+  return sortDir === 'asc' ? <ChevronUp className="w-3 h-3 shrink-0" /> : <ChevronDown className="w-3 h-3 shrink-0" />;
+}
+
+function PipelineTH({
+  col,
+  label,
+  className,
+  sortCol,
+  sortDir,
+  onSort,
+}: {
+  col: PipelineTableSortCol;
+  label: string;
+  className: string;
+  sortCol: PipelineTableSortCol;
+  sortDir: 'asc' | 'desc';
+  onSort: (col: PipelineTableSortCol) => void;
+}) {
+  const ariaSort: 'ascending' | 'descending' | 'none' =
+    sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
+  return (
+    <th scope="col" className={className} aria-sort={ariaSort}>
+      <button
+        type="button"
+        onClick={() => onSort(col)}
+        className={`inline-flex w-full items-center gap-1 select-none hover:text-foreground transition-colors ${className.includes('text-right') ? 'justify-end' : 'justify-start'}`}
+      >
+        {className.includes('text-right') ? (
+          <>
+            <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
+            {label}
+          </>
+        ) : (
+          <>
+            {label}
+            <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
+          </>
+        )}
+      </button>
+    </th>
+  );
+}
+
 function PipelinesCard({
   data,
   catalog,
@@ -901,19 +986,27 @@ function PipelinesCard({
     return m;
   }, [mergedGpuPipelines]);
 
+  const pipelineUsageByName = useMemo(
+    () => new Map(data.map((d) => [d.name, d])),
+    [data],
+  );
+
+  const pricingByKey = useMemo(
+    () => new Map(pricing.map((p) => [`${p.pipeline}:${p.model ?? ''}`, p])),
+    [pricing],
+  );
+
   const sortedCatalog = useMemo(
     () =>
       [...catalog]
-        .filter((entry) => PIPELINE_DISPLAY[entry.id] !== null)
+        .filter((entry) => PIPELINE_DISPLAY[entry.id] != null)
         .sort((a, b) => {
           const aGpu = pipelineGpuTotals.get(a.id) ?? 0;
           const bGpu = pipelineGpuTotals.get(b.id) ?? 0;
           if (bGpu !== aGpu) return bGpu - aGpu;
-          const aUsage = data.find((d) => d.name === a.id);
-          const bUsage = data.find((d) => d.name === b.id);
-          return (bUsage?.mins ?? 0) - (aUsage?.mins ?? 0);
+          return (pipelineUsageByName.get(b.id)?.mins ?? 0) - (pipelineUsageByName.get(a.id)?.mins ?? 0);
         }),
-    [catalog, data, pipelineGpuTotals],
+    [catalog, pipelineUsageByName, pipelineGpuTotals],
   );
 
   const tf = formatTimeframeLabel(timeframeHours).toUpperCase();
@@ -922,44 +1015,6 @@ function PipelinesCard({
   const thModel = 'pb-1.5 pt-1 pl-4 pr-2 font-medium text-left align-bottom';
   const tdModel = 'py-1 pl-4 pr-2 align-top break-words min-w-0';
   const tdNum = 'py-1 px-2 text-right tabular-nums align-top whitespace-nowrap';
-
-  const PipelineSortIcon = ({ col }: { col: PipelineTableSortCol }) => {
-    if (sortCol !== col) return <ChevronsUpDown className="w-3 h-3 opacity-30 shrink-0" />;
-    return sortDir === 'asc' ? <ChevronUp className="w-3 h-3 shrink-0" /> : <ChevronDown className="w-3 h-3 shrink-0" />;
-  };
-
-  const pipelineThAriaSort = (col: PipelineTableSortCol): 'ascending' | 'descending' | 'none' =>
-    sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
-
-  const PipelineTH = ({
-    col,
-    label,
-    className,
-  }: {
-    col: PipelineTableSortCol;
-    label: string;
-    className: string;
-  }) => (
-    <th scope="col" className={className} aria-sort={pipelineThAriaSort(col)}>
-      <button
-        type="button"
-        onClick={() => togglePipelineTableSort(col)}
-        className={`inline-flex w-full items-center gap-1 select-none hover:text-foreground transition-colors ${className.includes('text-right') ? 'justify-end' : 'justify-start'}`}
-      >
-        {className.includes('text-right') ? (
-          <>
-            <PipelineSortIcon col={col} />
-            {label}
-          </>
-        ) : (
-          <>
-            {label}
-            <PipelineSortIcon col={col} />
-          </>
-        )}
-      </button>
-    </th>
-  );
 
   return (
     <div className="p-4 rounded-lg bg-card border border-border flex flex-col min-h-[240px] max-h-[min(72vh,680px)] overflow-hidden">
@@ -998,32 +1053,32 @@ function PipelinesCard({
             </colgroup>
             <thead className="sticky top-0 z-10 bg-card border-b border-border shadow-[0_1px_0_0_hsl(var(--border))]">
               <tr className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                <PipelineTH col="model" label="Model" className={thModel} />
-                <PipelineTH col="gpus" label="GPUs" className={thNum} />
-                <PipelineTH col="capacity" label="Capacity" className={thNum} />
-                <PipelineTH col="price" label="Price" className={thNum} />
-                <PipelineTH col="fps" label="FPS" className={thNum} />
-                <PipelineTH col="mins" label="Mins" className={`${thNum} pr-4`} />
+                <PipelineTH col="model" label="Model" className={thModel} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
+                <PipelineTH col="gpus" label="GPUs" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
+                <PipelineTH col="capacity" label="Capacity" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
+                <PipelineTH col="price" label="Price" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
+                <PipelineTH col="fps" label="FPS" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
+                <PipelineTH col="mins" label="Mins" className={`${thNum} pr-4`} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
               </tr>
             </thead>
             <tbody>
               {sortedCatalog.map((entry) => {
                 const color = PIPELINE_COLOR[entry.id] ?? DEFAULT_PIPELINE_COLOR;
-                const modelRowsBase = pipelineTableModelIds(entry, data);
+                const pipelineUsage = pipelineUsageByName.get(entry.id);
+                const modelRowsBase = pipelineTableModelIds(entry, pipelineUsage);
                 const modelRows = sortPipelineTableModels(
                   modelRowsBase,
                   entry.id,
                   sortCol,
                   sortDir,
-                  data,
-                  pricing,
+                  pipelineUsage,
+                  pricingByKey,
                   netCapacity,
                   liveVideoCapacity,
                   gpuByPipelineModel,
                   modelFpsByPipelineModel,
                 );
                 const pipeTotal = pipelineGpuTotals.get(entry.id) ?? 0;
-                const pipelineUsage = data.find((d) => d.name === entry.id);
                 const pipeMins = pipelineUsage?.mins != null && Number.isFinite(pipelineUsage.mins)
                   ? Math.round(pipelineUsage.mins as number)
                   : null;
@@ -1063,8 +1118,7 @@ function PipelinesCard({
                       </tr>
                     ) : (
                       modelRows.map((model) => {
-                        const p = pricing.find((x) => x.pipeline === entry.id && x.model === model);
-                        const pipelineUsage = data.find((d) => d.name === entry.id);
+                        const p = pricingByKey.get(`${entry.id}:${model}`);
                         const modelUsage = pipelineUsage?.modelMins?.find((m) => m.model === model);
                         const modelFpsFromPerf = modelFpsByPipelineModel[`${entry.id}:${model}`];
                         const modelFps = Number.isFinite(modelFpsFromPerf)
@@ -1379,7 +1433,7 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
       const q = filter.toLowerCase();
       rows = rows.filter((r) => {
         if (r.address.toLowerCase().includes(q)) return true;
-        if (r.uri?.toLowerCase().includes(q)) return true;
+        if (r.uris.some(u => u.toLowerCase().includes(q))) return true;
         return r.pipelines.some((p) => {
           const offer = r.pipelineModels?.find((o) => o.pipelineId === p);
           const label = formatPipelineLabel(p, catalog, offer?.modelIds);
@@ -1388,8 +1442,8 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
       });
     }
     rows.sort((a, b) => {
-      const av = sortCol === 'uri' ? (a.uri ?? '') : (a[sortCol] ?? 0);
-      const bv = sortCol === 'uri' ? (b.uri ?? '') : (b[sortCol] ?? 0);
+      const av = sortCol === 'uri' ? (a.uris[0] ?? '') : (a[sortCol] ?? 0);
+      const bv = sortCol === 'uri' ? (b.uris[0] ?? '') : (b[sortCol] ?? 0);
       if (typeof av === 'string' && typeof bv === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
       return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
     });
@@ -1442,18 +1496,21 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
           <tbody>
             {sorted.map(row => (
               <tr key={row.address} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors group">
-                <td className="py-1.5 min-w-0" title={row.uri ?? row.address}>
+                <td className="py-1.5 min-w-0" title={row.uris.length ? row.uris.join('\n') : row.address}>
                   <div className="flex items-center gap-1 min-w-0">
-                    <span className="font-mono text-foreground truncate">{formatURI(row.uri)}</span>
-                    {(row.uri?.trim() || row.address) ? (
+                    <span className="font-mono text-foreground truncate">{formatURI(row.uris[0])}</span>
+                    {row.uris.length > 1 && (
+                      <span className="shrink-0 px-1 py-px text-[10px] rounded bg-muted text-muted-foreground font-medium" title={row.uris.slice(1).join('\n')}>+{row.uris.length - 1}</span>
+                    )}
+                    {(row.uris[0] || row.address) ? (
                       <PipelineTableCopyButton
                         inline
                         copied={copiedId === `orch:${row.address}`}
                         onCopy={() =>
-                          copyToClipboard(`orch:${row.address}`, row.uri?.trim() || row.address)
+                          copyToClipboard(`orch:${row.address}`, row.uris[0] || row.address)
                         }
                         title="Copy orchestrator URI"
-                        ariaLabel={`Copy URI ${row.uri ?? row.address}`}
+                        ariaLabel={`Copy URI ${row.uris[0] ?? row.address}`}
                       />
                     ) : null}
                   </div>
@@ -1601,8 +1658,8 @@ export function OverviewContent(props: OverviewContentProps) {
   const liveVideoCapacityModelsRef = useRef<string>('');
 
   useEffect(() => {
-    if (!prefsReady || rtLoading || lbLoading) return;
-    if (!pipelineCatalog?.length) return;
+    if (!prefsReady) return;
+    if (!pipelineCatalog?.length || !pricing.length) return;
 
     const catalogKeyPart = [...pipelineCatalog]
       .map((e) => ({ id: e.id, models: [...e.models].sort() }))
@@ -1629,7 +1686,7 @@ export function OverviewContent(props: OverviewContentProps) {
       })
       ?.catch(() => {});
     return () => { cancelled = true; };
-  }, [prefsReady, rtLoading, lbLoading, pipelineCatalog, pricing]);
+  }, [prefsReady, pipelineCatalog, pricing]);
 
   useEffect(() => {
     if (!prefsReady || !pipelineCatalog?.length) return;
@@ -1723,7 +1780,7 @@ export function OverviewContent(props: OverviewContentProps) {
             <RefreshWrap refreshing={rtRefreshing || feesRefreshing} className="h-full min-h-0 flex flex-col">
               <ProtocolFeesCard protocol={protocol} fees={fees} />
             </RefreshWrap>
-          ) : (uiRtLoading || uiFeesLoading) ? <WidgetSkeleton /> : (
+          ) : (
             <div className="flex flex-col gap-3">
               {protocol ? <ProtocolCard data={protocol} /> : uiRtLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Protocol" />}
               {fees ? <FeesCard data={fees} /> : uiFeesLoading ? <WidgetSkeleton /> : <WidgetUnavailable label="Fees" />}
@@ -1736,7 +1793,7 @@ export function OverviewContent(props: OverviewContentProps) {
       <section>
         <div className="min-h-0 [&>*]:min-h-0">
           {pipelineCatalog != null && pipelineCatalog.length > 0 ? (
-            <RefreshWrap refreshing={lbRefreshing || rtRefreshing} className="h-full min-h-0 flex flex-col">
+            <RefreshWrap refreshing={lbRefreshing} className="h-full min-h-0 flex flex-col">
               <PipelinesCard
                 data={pipelines}
                 catalog={pipelineCatalog}

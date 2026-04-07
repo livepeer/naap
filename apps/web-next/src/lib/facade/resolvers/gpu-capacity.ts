@@ -23,15 +23,24 @@ function naapGpuCapacityWindowHours(uiHours: number): number {
   return uiHours;
 }
 
-export async function resolveGPUCapacity(opts: { timeframe?: string }): Promise<DashboardGPUCapacity> {
-  const parsed = parseInt(opts.timeframe ?? '24', 10);
+/**
+ * Canonical hours string for BFF SWR keys. Matches {@link resolveGPUCapacity}
+ * (trim / whitespace, parseInt, clamp 1–168, default 24).
+ */
+export function normalizeGpuCapacityTimeframeKey(timeframe: string | undefined): string {
+  const raw = String(timeframe ?? '').trim().replace(/\s+/g, '');
+  const parsed = parseInt(raw.length ? raw : '24', 10);
   const uiHours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
+  return String(uiHours);
+}
+
+export async function resolveGPUCapacity(opts: { timeframe?: string }): Promise<DashboardGPUCapacity> {
+  const uiHours = Number.parseInt(normalizeGpuCapacityTimeframeKey(opts.timeframe), 10);
   const naapHours = naapGpuCapacityWindowHours(uiHours);
   const window = `${naapHours}h`;
-  const revalidateSec = Math.floor(TTL.GPU_CAPACITY / 1000);
   return cachedFetch(`facade:gpu-capacity:naap${naapHours}h`, TTL.GPU_CAPACITY, () =>
     naapGet<DashboardGPUCapacity>('dashboard/gpu-capacity', { window }, {
-      next: { revalidate: revalidateSec },
+      cache: 'no-store',
       errorLabel: 'gpu-capacity',
     })
   );

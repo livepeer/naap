@@ -1,8 +1,8 @@
 // NAAP API Cache Warmer
 // GET /api/v1/naap-api/warm
 //
-// Populates the in-process mem cache for NAAP API-backed dashboard data
-// using the same getters as the dashboard resolvers.
+// Populates the in-process mem cache for NAAP API-backed data
+// (currently: network models used by the pipeline-catalog resolver).
 // Called by:
 //   - Vercel cron (every ~50 min, before the 1hr TTL expires)
 //   - Manual invocation for debugging
@@ -13,7 +13,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 import { NextRequest, NextResponse } from 'next/server';
-import { warmDashboardCaches } from '@/lib/dashboard/raw-data';
+import { warmNetworkData } from '@/lib/facade/network-data';
 
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -34,14 +34,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await warmDashboardCaches();
+    const result = await warmNetworkData();
+    const results = [
+      { target: 'network-models', ok: true, count: result.models },
+    ];
     return NextResponse.json({
-      warmed: 3,
-      results: [
-        { target: 'network/demand', ok: true, rows: result.demand.rows },
-        { target: 'sla/compliance', ok: true, rows: result.sla.rows },
-        { target: 'pipelines', ok: true, count: result.pipelines.count },
-      ],
+      warmed: results.length,
+      results,
       timestamp: new Date().toISOString(),
     });
   } catch (err) {

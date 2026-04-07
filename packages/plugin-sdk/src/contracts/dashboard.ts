@@ -186,7 +186,7 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
 
   type OrchestratorRow {
     address: String!
-    uri: String
+    uris: [String!]!
     knownSessions: Int!
     successSessions: Int!
     successRatio: Float!
@@ -359,7 +359,8 @@ export interface DashboardPipelineModelOffer {
 /** Single orchestrator row aggregated over a time window */
 export interface DashboardOrchestrator {
   address: string;
-  uri?: string;
+  /** All known service URIs for this address (from /v1/net/orchestrators). */
+  uris: string[];
   knownSessions: number;
   successSessions: number;
   successRatio: number;
