@@ -58,7 +58,6 @@ function daysAgoUnix(n: number, baseTs = STUB_BASE_TS) {
 
 // ---------------------------------------------------------------------------
 // Pipelines — real pipeline counts from /v1/net/orchestrators RawCapabilities (2026-03-31)
-// Sessions for live-video-to-video from /v1/pipelines; others have 0 demand currently
 // ---------------------------------------------------------------------------
 
 export const pipelines: DashboardPipelineUsage[] = [

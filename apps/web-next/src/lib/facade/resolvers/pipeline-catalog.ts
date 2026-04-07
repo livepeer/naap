@@ -9,13 +9,10 @@
  * 2. **Model enrichment:** `GET /v1/net/models` adds models to existing entries
  *    (warmed on startup via `instrumentation.ts → warmNetworkData()`).
  *
- * 3. **REST catalog:** `GET /v1/pipelines` (see `getRawPipelineCatalog`).
- *    Retried on failure/empty; only merges models/regions into valid IDs.
- *
- * 4. **Perf augment:** `perf/by-model` (24h range) supplies additional model ids
+ * 3. **Perf augment:** `perf/by-model` (24h range) supplies additional model ids
  *    for entries already in the valid set.
  *
- * 5. **Display seed (stubs only):** If {@link FACADE_USE_STUBS} is set and the
+ * 4. **Display seed (stubs only):** If {@link FACADE_USE_STUBS} is set and the
  *    union still collapses to a single pipeline, merge empty shells for every id
  *    in {@link PIPELINE_DISPLAY}. Disabled in production to avoid injecting
  *    placeholder rows when upstream data is temporarily incomplete.
@@ -23,18 +20,13 @@
 
 import type { DashboardPipelineCatalogEntry } from '@naap/plugin-sdk';
 import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
-import {
-  getRawPipelineCatalog,
-  type PipelineCatalogEntry,
-} from '@/lib/dashboard/raw-data';
+import type { NetworkModel } from '../types.js';
 import { getRawNetModels } from '../network-data.js';
 import { cachedFetch, TTL } from '../cache.js';
 import { resolvePerfByModel } from './perf-by-model.js';
 
 import { PIPELINE_DISPLAY } from '@/lib/dashboard/pipeline-config';
 import { LIVE_VIDEO_PIPELINE_ID } from '@/lib/dashboard/pipeline-config';
-
-const PIPELINES_RETRY_BACKOFF_MS = [0, 500, 1500] as const;
 
 async function fetchWarmCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
   try {
@@ -109,42 +101,6 @@ function buildStableCatalog(
     models: [...entry.models],
     regions: [...entry.regions],
   }));
-}
-
-function pipelinesEndpointToDashboard(rows: PipelineCatalogEntry[]): DashboardPipelineCatalogEntry[] {
-  return rows
-    .filter((entry) => PIPELINE_DISPLAY[entry.id] != null)
-    .map((entry) => ({
-      id: entry.id,
-      name: PIPELINE_DISPLAY[entry.id] ?? entry.id,
-      models: entry.models ?? [],
-      regions: entry.regions ?? [],
-    }));
-}
-
-async function fetchPipelinesCatalogReliable(): Promise<PipelineCatalogEntry[]> {
-  let lastErr: unknown;
-  for (let i = 0; i < PIPELINES_RETRY_BACKOFF_MS.length; i++) {
-    const delay = PIPELINES_RETRY_BACKOFF_MS[i];
-    if (delay > 0) {
-      await new Promise((r) => setTimeout(r, delay));
-    }
-    try {
-      const rows = await getRawPipelineCatalog();
-      if (rows.length > 0) {
-        return rows;
-      }
-      lastErr = new Error('[facade/pipeline-catalog] /v1/pipelines returned empty catalog');
-    } catch (err) {
-      lastErr = err;
-      console.warn(`[facade/pipeline-catalog] /v1/pipelines attempt ${i + 1} failed:`, err);
-    }
-  }
-  console.warn(
-    '[facade/pipeline-catalog] /v1/pipelines exhausted retries — continuing without REST catalog',
-    lastErr,
-  );
-  return [];
 }
 
 /** Pipeline + model ids from perf-by-model (`${pipeline}:${model}` => avgFps). */
@@ -229,19 +185,18 @@ export async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalog
   return cachedFetch('facade:pipeline-catalog', TTL.PIPELINE_CATALOG, async () => {
     const end = new Date();
     const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
-    const [netModels, warmCatalog, rawPipelines, fpsByPipelineModel] = await Promise.all([
-      getRawNetModels(),
+    const [netModels, warmCatalog, fpsByPipelineModel] = await Promise.all([
+      getRawNetModels().catch((err) => {
+        console.warn('[facade/pipeline-catalog] net/models augment skipped:', err);
+        return [] as NetworkModel[];
+      }),
       fetchWarmCatalog(),
-      fetchPipelinesCatalogReliable(),
       resolvePerfByModel({ start: start.toISOString(), end: end.toISOString() }).catch((err) => {
         console.warn('[facade/pipeline-catalog] perf-by-model augment skipped:', err);
         return {};
       }),
     ]);
 
-    // dashboard/pipeline-catalog is the source of truth for which pipeline IDs are valid.
-    // If it returned entries, use its ID set as the allowlist. Fallback to PIPELINE_DISPLAY
-    // keys (non-null) if the warm catalog is unavailable (cold start / upstream down).
     const validIds: ReadonlySet<string> = warmCatalog.length > 0
       ? new Set(warmCatalog.map((e) => e.id))
       : new Set(Object.keys(PIPELINE_DISPLAY).filter((id) => PIPELINE_DISPLAY[id] != null));
@@ -252,17 +207,13 @@ export async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalog
       console.log(`[facade/pipeline-catalog] warm catalog empty — falling back to PIPELINE_DISPLAY allowlist (${validIds.size} IDs)`);
     }
 
-    // Filter net/models rows to only valid pipeline IDs before building the stable catalog.
     const filteredNetModels = netModels.filter((r) => validIds.has(r.Pipeline?.trim() ?? ''));
     const base = buildStableCatalog(filteredNetModels, warmCatalog);
 
-    // Fallback sources: only merge models/regions into entries already in the valid set.
-    const fromPipelinesEndpoint = pipelinesEndpointToDashboard(rawPipelines)
-      .filter((e) => validIds.has(e.id));
     const fromPerfByModel = catalogFromPerfByModel(fpsByPipelineModel)
       .filter((e) => validIds.has(e.id));
 
-    let merged = unionCatalogEntries(base, fromPipelinesEndpoint, fromPerfByModel);
+    let merged = unionCatalogEntries(base, fromPerfByModel);
 
     if (process.env.FACADE_USE_STUBS === 'true') {
       const catalogLooksIncomplete =

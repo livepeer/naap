@@ -228,7 +228,7 @@ function normalizeNetModelRow(raw: unknown): NetModelRow | null {
   };
 }
 
-function parsePipelinesCatalog(payload: unknown): Array<{ id: string; models: string[] }> {
+function parsePipelineCatalog(payload: unknown): Array<{ id: string; models: string[] }> {
   const rawRows = Array.isArray(payload)
     ? payload
     : payload && typeof payload === 'object' && Array.isArray((payload as { pipelines?: unknown }).pipelines)
@@ -248,13 +248,7 @@ function parsePipelinesCatalog(payload: unknown): Array<{ id: string; models: st
     }
     const obj = raw as Record<string, unknown>;
     const id = String(
-      obj.id ??
-        obj.pipeline_id ??
-        obj.pipelineId ??
-        obj.Pipeline ??
-        obj.pipeline ??
-        obj.name ??
-        '',
+      obj.id ?? obj.pipeline_id ?? obj.pipelineId ?? obj.Pipeline ?? obj.pipeline ?? '',
     ).trim();
     if (!id) {
       continue;
@@ -284,8 +278,9 @@ function catalogOnlyRow(pipeline: string, model: string): NetModelRow {
 }
 
 /**
- * `/v1/net/models` can be activity-biased; union with `/v1/pipelines` so Developer
- * Models tab lists every registered pipeline + model (zeros for capacity when cold).
+ * `/v1/net/models` can be activity-biased; union with `/v1/dashboard/pipeline-catalog`
+ * so Developer Models tab lists every registered pipeline + model (zeros for capacity
+ * when cold).
  */
 async function fetchMergedNetModels(
   upstreamBase: string,
@@ -297,16 +292,26 @@ async function fetchMergedNetModels(
     ? `${upstreamBase}/net/models`
     : `${upstreamBase}/net/models?limit=${limit}`;
 
-  const [netResult, pipeResult] = await Promise.allSettled([
+  const [netResult, catalogResult] = await Promise.allSettled([
     fetch(netUrl, { headers: { Accept: 'application/json' }, signal }),
-    fetch(`${upstreamBase}/pipelines`, { headers: { Accept: 'application/json' }, signal }),
+    fetch(`${upstreamBase}/dashboard/pipeline-catalog`, { headers: { Accept: 'application/json' }, signal }),
   ]);
 
   if (netResult.status !== 'fulfilled') {
     throw netResult.reason;
   }
   const netRes = netResult.value;
-  const pipeRes = pipeResult.status === 'fulfilled' ? pipeResult.value : null;
+
+  let catalogRes: Response | null = null;
+  if (catalogResult.status === 'fulfilled') {
+    catalogRes = catalogResult.value;
+  } else {
+    console.warn(
+      `[developer-api] dashboard/pipeline-catalog fetch failed (${upstreamBase}/dashboard/pipeline-catalog):`,
+      catalogResult.reason,
+      `(net/models HTTP ${netRes.status}; netResult.status=${netResult.status})`,
+    );
+  }
 
   if (!netRes.ok) {
     throw new Error(`upstream net/models HTTP ${netRes.status}`);
@@ -334,10 +339,10 @@ async function fetchMergedNetModels(
     ? Number.POSITIVE_INFINITY
     : Math.max(0, (limit ?? 0) - merged.length);
 
-  if (pipeRes?.ok) {
+  if (catalogRes?.ok) {
     try {
-      const pipePayload = await pipeRes.json();
-      const catalog = parsePipelinesCatalog(pipePayload);
+      const catalogPayload = await catalogRes.json();
+      const catalog = parsePipelineCatalog(catalogPayload);
       outer: for (const entry of catalog) {
         const models =
           entry.models.length > 0 ? entry.models : ['—'];
@@ -353,12 +358,10 @@ async function fetchMergedNetModels(
         }
       }
     } catch (err) {
-      console.warn('[developer-api] pipelines merge skipped:', err);
+      console.warn('[developer-api] pipeline-catalog merge skipped:', err);
     }
-  } else if (pipeRes) {
-    console.warn(`[developer-api] NAAP /pipelines HTTP ${pipeRes.status} — net/models only`);
-  } else {
-    console.warn('[developer-api] pipelines merge skipped: request failed');
+  } else if (catalogRes) {
+    console.warn(`[developer-api] dashboard/pipeline-catalog HTTP ${catalogRes.status} — net/models only`);
   }
 
   merged.sort(
