@@ -254,6 +254,7 @@ export function usePublicDashboard(
   // Track whether the component has mounted so the timeframe-change effect can
   // skip its first run (the mount effect handles the initial fetch).
   const hasMountedRef = useRef(false);
+  const prevTimeframeRef = useRef(timeframe);
 
   // Initial mount — fire all four groups concurrently.
   useEffect(() => {
@@ -261,6 +262,7 @@ export function usePublicDashboard(
     hasMountedRef.current = false;
     if (!skip) {
       hasMountedRef.current = true;
+      prevTimeframeRef.current = timeframe;
       setJobFeedHasFetched(false);
       fetchLb();
       fetchJobFeed();
@@ -278,11 +280,13 @@ export function usePublicDashboard(
   // Fees and job-feed are not timeframe-scoped, so skip them here.
   useEffect(() => {
     if (!hasMountedRef.current) return;
+    if (prevTimeframeRef.current === timeframe) return;
+    prevTimeframeRef.current = timeframe;
     if (!skip) {
       fetchLb();
       fetchRt();
     }
-  }, [skip, fetchLb, fetchRt]);
+  }, [timeframe, skip, fetchLb, fetchRt]);
 
   // Job feed polling — starts after the initial job feed fetch
   useEffect(() => {

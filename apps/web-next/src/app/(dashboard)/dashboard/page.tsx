@@ -37,7 +37,7 @@ const NAAP_API_QUERY = /* GraphQL */ `
       id name models regions
     }
     orchestrators(period: $timeframe) {
-      address uri knownSessions successSessions successRatio effectiveSuccessRate noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount
+      address uris knownSessions successSessions successRatio effectiveSuccessRate noSwapRatio slaScore pipelines pipelineModels { pipelineId modelIds } gpuCount
     }
   }
 `;

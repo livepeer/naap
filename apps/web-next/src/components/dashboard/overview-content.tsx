@@ -1433,7 +1433,7 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
       const q = filter.toLowerCase();
       rows = rows.filter((r) => {
         if (r.address.toLowerCase().includes(q)) return true;
-        if (r.uri?.toLowerCase().includes(q)) return true;
+        if (r.uris.some(u => u.toLowerCase().includes(q))) return true;
         return r.pipelines.some((p) => {
           const offer = r.pipelineModels?.find((o) => o.pipelineId === p);
           const label = formatPipelineLabel(p, catalog, offer?.modelIds);
@@ -1442,8 +1442,8 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
       });
     }
     rows.sort((a, b) => {
-      const av = sortCol === 'uri' ? (a.uri ?? '') : (a[sortCol] ?? 0);
-      const bv = sortCol === 'uri' ? (b.uri ?? '') : (b[sortCol] ?? 0);
+      const av = sortCol === 'uri' ? (a.uris[0] ?? '') : (a[sortCol] ?? 0);
+      const bv = sortCol === 'uri' ? (b.uris[0] ?? '') : (b[sortCol] ?? 0);
       if (typeof av === 'string' && typeof bv === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
       return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
     });
@@ -1496,18 +1496,21 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
           <tbody>
             {sorted.map(row => (
               <tr key={row.address} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors group">
-                <td className="py-1.5 min-w-0" title={row.uri ?? row.address}>
+                <td className="py-1.5 min-w-0" title={row.uris.length ? row.uris.join('\n') : row.address}>
                   <div className="flex items-center gap-1 min-w-0">
-                    <span className="font-mono text-foreground truncate">{formatURI(row.uri)}</span>
-                    {(row.uri?.trim() || row.address) ? (
+                    <span className="font-mono text-foreground truncate">{formatURI(row.uris[0])}</span>
+                    {row.uris.length > 1 && (
+                      <span className="shrink-0 px-1 py-px text-[10px] rounded bg-muted text-muted-foreground font-medium" title={row.uris.slice(1).join('\n')}>+{row.uris.length - 1}</span>
+                    )}
+                    {(row.uris[0] || row.address) ? (
                       <PipelineTableCopyButton
                         inline
                         copied={copiedId === `orch:${row.address}`}
                         onCopy={() =>
-                          copyToClipboard(`orch:${row.address}`, row.uri?.trim() || row.address)
+                          copyToClipboard(`orch:${row.address}`, row.uris[0] || row.address)
                         }
                         title="Copy orchestrator URI"
-                        ariaLabel={`Copy URI ${row.uri ?? row.address}`}
+                        ariaLabel={`Copy URI ${row.uris[0] ?? row.address}`}
                       />
                     ) : null}
                   </div>
