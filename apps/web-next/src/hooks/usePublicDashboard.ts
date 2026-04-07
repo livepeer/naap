@@ -86,32 +86,54 @@ function settledValue<T>(result: PromiseSettledResult<T>): T | null {
   return result.status === 'fulfilled' ? result.value : null;
 }
 
+// ---------------------------------------------------------------------------
+// Module-level data cache — survives component unmount/remount so navigating
+// away and back shows last-known data instantly instead of a full re-fetch.
+// ---------------------------------------------------------------------------
+const EMPTY_DATA: PublicDashboardData = {
+  kpi: null,
+  pipelines: [],
+  pipelineCatalog: [],
+  orchestrators: [],
+  protocol: null,
+  gpuCapacity: null,
+  pricing: [],
+  fees: null,
+  jobs: [],
+  jobFeedConnected: false,
+};
+
+let cachedPublicData: PublicDashboardData | null = null;
+let cachedPublicDataTs = 0;
+const PUBLIC_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+
+function getPublicCachedData(): PublicDashboardData {
+  if (cachedPublicData && Date.now() - cachedPublicDataTs < PUBLIC_CACHE_MAX_AGE_MS) {
+    return cachedPublicData;
+  }
+  return EMPTY_DATA;
+}
+
+function hasPublicCachedData(): boolean {
+  return cachedPublicData != null && Date.now() - cachedPublicDataTs < PUBLIC_CACHE_MAX_AGE_MS;
+}
+
 export function usePublicDashboard(
   options?: UsePublicDashboardOptions,
 ): UsePublicDashboardResult {
   const { timeframe = '12', jobFeedPollInterval = 15_000, skip = false } = options ?? {};
 
-  const [data, setData] = useState<PublicDashboardData>({
-    kpi: null,
-    pipelines: [],
-    pipelineCatalog: [],
-    orchestrators: [],
-    protocol: null,
-    gpuCapacity: null,
-    pricing: [],
-    fees: null,
-    jobs: [],
-    jobFeedConnected: false,
-  });
+  const hadCache = hasPublicCachedData();
+  const [data, setData] = useState<PublicDashboardData>(getPublicCachedData);
 
-  const [lbLoading, setLbLoading] = useState(!skip);
-  const [rtLoading, setRtLoading] = useState(!skip);
-  const [feesLoading, setFeesLoading] = useState(!skip);
-  const [jobFeedLoading, setJobFeedLoading] = useState(!skip);
-  const [lbHasFetched, setLbHasFetched] = useState(false);
-  const [jobFeedHasFetched, setJobFeedHasFetched] = useState(false);
-  const [rtHasFetched, setRtHasFetched] = useState(false);
-  const [feesHasFetched, setFeesHasFetched] = useState(false);
+  const [lbLoading, setLbLoading] = useState(!skip && !hadCache);
+  const [rtLoading, setRtLoading] = useState(!skip && !hadCache);
+  const [feesLoading, setFeesLoading] = useState(!skip && !hadCache);
+  const [jobFeedLoading, setJobFeedLoading] = useState(!skip && !hadCache);
+  const [lbHasFetched, setLbHasFetched] = useState(hadCache);
+  const [jobFeedHasFetched, setJobFeedHasFetched] = useState(hadCache);
+  const [rtHasFetched, setRtHasFetched] = useState(hadCache);
+  const [feesHasFetched, setFeesHasFetched] = useState(hadCache);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const errorsRef = useRef<string[]>([]);
@@ -145,13 +167,18 @@ export function usePublicDashboard(
       .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
       .map((r) => (r.reason as Error)?.message ?? 'Unknown error');
 
-    setData((prev) => ({
-      ...prev,
-      kpi,
-      pipelines: pipelines ?? [],
-      pipelineCatalog: catalog ?? [],
-      orchestrators: orchestrators ?? [],
-    }));
+    setData((prev) => {
+      const next = {
+        ...prev,
+        kpi,
+        pipelines: pipelines ?? [],
+        pipelineCatalog: catalog ?? [],
+        orchestrators: orchestrators ?? [],
+      };
+      cachedPublicData = next;
+      cachedPublicDataTs = Date.now();
+      return next;
+    });
 
     errorsRef.current = [
       ...errorsRef.current.filter((entry) => !excludedPaths.some((path) => entry.includes(path))),
@@ -170,11 +197,12 @@ export function usePublicDashboard(
     try {
       const result = await fetchJson<{ streams: JobFeedEntry[]; queryFailed?: boolean }>(url);
       if (!mountedRef.current) return;
-      setData((prev) => ({
-        ...prev,
-        jobs: result.streams ?? [],
-        jobFeedConnected: !result.queryFailed,
-      }));
+      setData((prev) => {
+        const next = { ...prev, jobs: result.streams ?? [], jobFeedConnected: !result.queryFailed };
+        cachedPublicData = next;
+        cachedPublicDataTs = Date.now();
+        return next;
+      });
       setJobFeedHasFetched(true);
       errorsRef.current = errorsRef.current.filter((e) => !e.includes('/job-feed'));
     } catch (err) {
@@ -207,12 +235,12 @@ export function usePublicDashboard(
       .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
       .map((r) => (r.reason as Error)?.message ?? 'Unknown error');
 
-    setData((prev) => ({
-      ...prev,
-      protocol,
-      gpuCapacity: gpuCap,
-      pricing: pricing ?? [],
-    }));
+    setData((prev) => {
+      const next = { ...prev, protocol, gpuCapacity: gpuCap, pricing: pricing ?? [] };
+      cachedPublicData = next;
+      cachedPublicDataTs = Date.now();
+      return next;
+    });
 
     errorsRef.current = [
       ...errorsRef.current.filter((entry) => !excludedPaths.some((path) => entry.includes(path))),
@@ -231,7 +259,12 @@ export function usePublicDashboard(
     try {
       const fees = await fetchJson<DashboardFeesInfo>(`${API}/fees?days=180`);
       if (!mountedRef.current) return;
-      setData((prev) => ({ ...prev, fees }));
+      setData((prev) => {
+        const next = { ...prev, fees };
+        cachedPublicData = next;
+        cachedPublicDataTs = Date.now();
+        return next;
+      });
       errorsRef.current = errorsRef.current.filter((e) => !e.includes('/fees'));
     } catch (err) {
       if (!mountedRef.current) return;
