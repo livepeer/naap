@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPerfByModel } from '@/lib/facade';
+import { bffStaleWhileRevalidate } from '@/lib/api/bff-swr';
 import { jsonWithOverviewCache, OverviewHttpCacheSec } from '@/lib/api/overview-http-cache';
+import { getPerfByModel } from '@/lib/facade';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -43,8 +44,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const fpsByPipelineModel = await getPerfByModel({ start, end });
-    return jsonWithOverviewCache({ fpsByPipelineModel }, OverviewHttpCacheSec.perfByModel);
+    const cacheKey = `perf-by-model:${start}:${end}`;
+    const { data: fpsByPipelineModel, cache } = await bffStaleWhileRevalidate(
+      cacheKey,
+      () => getPerfByModel({ start, end }),
+      'perf-by-model'
+    );
+    const res = jsonWithOverviewCache({ fpsByPipelineModel }, OverviewHttpCacheSec.perfByModel);
+    res.headers.set('X-Cache', cache);
+    return res;
   } catch (err) {
     console.error('[network/perf-by-model] error:', err);
     return NextResponse.json(

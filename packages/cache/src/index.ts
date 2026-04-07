@@ -29,6 +29,14 @@ export {
   type CacheOptions,
 } from './cache.js';
 
+export {
+  staleWhileRevalidate,
+  type SwrEnvelope,
+  type StaleWhileRevalidateOptions,
+  type SwrResult,
+  type SwrCacheStatus,
+} from './staleWhileRevalidate.js';
+
 // Rate limiter
 export {
   createRateLimiter,

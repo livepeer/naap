@@ -54,7 +54,7 @@
     "keywords": [],
     "license": "MIT",
     "repository": "https://github.com/livepeer/naap/tree/main/examples/intelligent-dashboard",
-    "hasBuild": false
+    "hasBuild": true
   },
   {
     "name": "myDashboard",
