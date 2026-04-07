@@ -22,8 +22,7 @@
       "maxDuration": 120
     },
     "app/api/v1/storage/**": {
-      "maxDuration": 60,
-      "memory": 1024
+      "maxDuration": 60
     },
     "app/api/v1/gw/admin/metrics/aggregate/**": {
       "maxDuration": 120

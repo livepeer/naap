@@ -5,7 +5,7 @@
  * Limits what plugins can access to prevent security issues.
  */
 
-import DOMPurify from 'isomorphic-dompurify';
+import DOMPurify from 'dompurify';
 import type { ShellContext } from '@naap/plugin-sdk';
 
 /**

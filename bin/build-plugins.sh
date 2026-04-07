@@ -207,11 +207,10 @@ build_plugin() {
 
   cd "$plugin_dir" || { log_error "Failed to cd to $plugin_dir"; return 1; }
 
-  # Install dependencies if needed
-  if [ ! -d "node_modules" ]; then
-    log_info "  Installing dependencies for $plugin_name..."
-    npm install --silent 2>/dev/null || npm install
-  fi
+  # Do not run per-plugin npm install on CI/Vercel.
+  # Plugin frontends depend on internal @naap/* workspace packages that are
+  # not published to npm; installing from subdirectories can fail with 404s.
+  # Root-level npm install already bootstraps all workspace dependencies.
 
   # Build with production mode
   # PostCSS (tailwindcss/autoprefixer) is configured inline in
