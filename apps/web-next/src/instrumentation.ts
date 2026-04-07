@@ -71,15 +71,11 @@ export async function register() {
     // Re-warm in the background at ~90% of the longest NAAP raw-cache TTL.
     // NAAP_API_CACHE_TTLS values are in seconds (see raw-data.ts).
     const MIN_REWARM_INTERVAL_MS = 60_000;
-    const demandSec =
-      typeof NAAP_API_CACHE_TTLS.demand === 'number' && Number.isFinite(NAAP_API_CACHE_TTLS.demand) && NAAP_API_CACHE_TTLS.demand > 0
-        ? NAAP_API_CACHE_TTLS.demand
-        : 180;
-    const slaSec =
-      typeof NAAP_API_CACHE_TTLS.sla === 'number' && Number.isFinite(NAAP_API_CACHE_TTLS.sla) && NAAP_API_CACHE_TTLS.sla > 0
-        ? NAAP_API_CACHE_TTLS.sla
-        : 300;
-    const maxTtlSec = Math.max(demandSec, slaSec);
+    const pipelinesSec =
+      typeof NAAP_API_CACHE_TTLS.pipelines === 'number' && Number.isFinite(NAAP_API_CACHE_TTLS.pipelines) && NAAP_API_CACHE_TTLS.pipelines > 0
+        ? NAAP_API_CACHE_TTLS.pipelines
+        : 900;
+    const maxTtlSec = pipelinesSec;
     const rewarmMs = Math.max(MIN_REWARM_INTERVAL_MS, Math.floor(maxTtlSec * 0.9 * 1000));
     setInterval(() => {
       Promise.all([warmDashboardCaches(), warmNetworkData()])

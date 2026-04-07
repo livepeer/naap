@@ -8,11 +8,10 @@
  * endpoint per TTL window (including `next dev`). Concurrent callers within a
  * TTL window share the same cached Promise.
  *
- * TTLs align with the dashboard BFF / NAAP API proxy expectations:
- *   demand=180s, sla=300s, pipelines=900s.
+ * TTLs align with the dashboard BFF / NAAP API proxy expectations.
  *
- * NAAP API `window=` query caps (keep in sync with /api/v1/naap-api/warm):
- *   network/demand + sla/compliance: 24h max — pipelines catalog: no window
+ * NAAP API query caps (keep in sync with /api/v1/naap-api/warm):
+ *   pipelines catalog: no window
  *
  * In-process TTLs below align with {@link TTL} in facade/cache.ts (1h) for dashboard aggregation.
  */
@@ -22,61 +21,6 @@ import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
 // ---------------------------------------------------------------------------
 // Raw API response types (internal — not exported to clients)
 // ---------------------------------------------------------------------------
-
-export interface NetworkDemandRow {
-  // Keys/Dimensions
-  window_start: string;
-  gateway: string;
-  region: string | null;
-  pipeline_id: string;
-  model_id: string | null;
-  // Demand/Capacity
-  sessions_count: number;
-  avg_output_fps: number;
-  total_minutes: number;
-  known_sessions_count: number;
-  served_sessions: number;
-  unserved_sessions: number;
-  total_demand_sessions: number;
-  // Reliability
-  startup_unexcused_sessions: number;
-  confirmed_swapped_sessions: number;
-  inferred_swap_sessions: number;
-  total_swapped_sessions: number;
-  sessions_ending_in_error: number;
-  error_status_samples: number;
-  health_signal_coverage_ratio: number;
-  startup_success_rate: number;
-  effective_success_rate: number;
-  // Economics
-  ticket_face_value_eth: number;
-}
-
-export interface SLAComplianceRow {
-  // Keys/Dimensions
-  window_start: string;
-  orchestrator_address: string;
-  pipeline_id: string;
-  model_id: string | null;
-  gpu_id: string | null;
-  region: string | null;
-  // Reliability
-  known_sessions_count: number;
-  startup_success_sessions: number;
-  startup_excused_sessions: number;
-  startup_unexcused_sessions: number;
-  confirmed_swapped_sessions: number;
-  inferred_swap_sessions: number;
-  total_swapped_sessions: number;
-  sessions_ending_in_error: number;
-  error_status_samples: number;
-  health_signal_coverage_ratio: number;
-  startup_success_rate: number | null;
-  // SLA Scores
-  effective_success_rate: number | null;
-  no_swap_rate: number | null;
-  sla_score: number | null;
-}
 
 export interface PipelineCatalogEntry {
   id: string;
@@ -159,8 +103,6 @@ function normalizePipelineCatalog(rawRows: unknown[]): PipelineCatalogEntry[] {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEMAND_TTL = 3600; // seconds — 1h; matches dashboard facade origin cache
-const SLA_TTL = 3600;
 const PIPELINES_TTL = 3600;
 
 // ---------------------------------------------------------------------------
@@ -226,7 +168,7 @@ function parseTotalPages(pagination: { total_pages?: unknown } | undefined): num
 /** Limit parallel page fetches so a cold cache does not open hundreds of sockets at once. */
 const NAAP_PAGE_FETCH_CONCURRENCY = 8;
 
-async function fetchNaapPage(path: string, searchParams: URLSearchParams, ttl = DEMAND_TTL): Promise<Response> {
+async function fetchNaapPage(path: string, searchParams: URLSearchParams, ttl = PIPELINES_TTL): Promise<Response> {
   const url = new URL(naapApiUpstreamUrl(path));
   for (const [k, v] of searchParams.entries()) {
     url.searchParams.set(k, v);
@@ -262,7 +204,7 @@ async function fetchAllPages<T>(
   path: string,
   dataKey: string,
   params: URLSearchParams,
-  ttl = DEMAND_TTL,
+  ttl = PIPELINES_TTL,
 ): Promise<{ rows: T[]; totalPages: number }> {
   const pageSize = 200;
   params.set('page', '1');
@@ -342,85 +284,6 @@ async function fetchAllPages<T>(
 // Public fetchers
 // ---------------------------------------------------------------------------
 
-/** Max lookback hours for all NAAP API time-series (demand, SLA, GPU). */
-export const DASHBOARD_MAX_HOURS = 24;
-
-/** Upstream `window=` string for paginated NAAP API series (must match {@link DASHBOARD_MAX_HOURS}). */
-export const DASHBOARD_WINDOW = `${DASHBOARD_MAX_HOURS}h`;
-
-/**
- * Clamp lookback hours to [1, {@link DASHBOARD_MAX_HOURS}].
- * `undefined` → max hours (dashboard default fetch).
- */
-export function clampLookbackHours(hours?: number): number {
-  if (!Number.isFinite(hours) || hours == null || hours <= 0) {
-    return DASHBOARD_MAX_HOURS;
-  }
-  return Math.min(Math.max(Math.floor(hours), 1), DASHBOARD_MAX_HOURS);
-}
-
-function filterRowsByWindowStart<T extends { window_start: string }>(
-  rows: T[],
-  lookbackHours: number
-): T[] {
-  if (rows.length === 0) return rows;
-
-  let maxTs = 0;
-  for (const r of rows) {
-    const ts = Date.parse(r.window_start);
-    if (!Number.isNaN(ts) && ts > maxTs) maxTs = ts;
-  }
-  if (maxTs === 0) return rows;
-
-  const HOUR_MS = 60 * 60 * 1000;
-  const cutoffMs = maxTs - (lookbackHours - 1) * HOUR_MS;
-  return rows.filter(r => {
-    const ts = Date.parse(r.window_start);
-    return !Number.isNaN(ts) && ts >= cutoffMs;
-  });
-}
-
-/**
- * Fetch demand rows for a NAAP API lookback window.
- *
- * Always fetches the max 24h window from upstream (single cache key) and
- * filters in memory for sub-windows. This means switching from 12h → 6h
- * is an instant cache hit rather than a separate upstream round-trip.
- */
-export function getRawDemandRows(lookbackHours?: number): Promise<NetworkDemandRow[]> {
-  const h = clampLookbackHours(lookbackHours);
-  return cachedFetch(`demand:${DASHBOARD_MAX_HOURS}h`, DEMAND_TTL * 1000, () =>
-    fetchAllPages<NetworkDemandRow>(
-      'network/demand',
-      'demand',
-      new URLSearchParams({ window: DASHBOARD_WINDOW }),
-      DEMAND_TTL,
-    ).then((r) => r.rows)
-  ).then(rows =>
-    h >= DASHBOARD_MAX_HOURS ? rows : filterRowsByWindowStart(rows, h)
-  );
-}
-
-/**
- * Fetch SLA rows for a NAAP API lookback window.
- *
- * Same max-window strategy as {@link getRawDemandRows}: always fetch 24h,
- * filter in memory for shorter timeframes.
- */
-export function getRawSLARows(lookbackHours?: number): Promise<SLAComplianceRow[]> {
-  const h = clampLookbackHours(lookbackHours);
-  return cachedFetch(`sla:${DASHBOARD_MAX_HOURS}h`, SLA_TTL * 1000, () =>
-    fetchAllPages<SLAComplianceRow>(
-      'sla/compliance',
-      'compliance',
-      new URLSearchParams({ window: DASHBOARD_WINDOW }),
-      SLA_TTL,
-    ).then((r) => r.rows)
-  ).then(rows =>
-    h >= DASHBOARD_MAX_HOURS ? rows : filterRowsByWindowStart(rows, h)
-  );
-}
-
 /** Fetch the pipeline catalog (no pagination). */
 export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
   return cachedFetch('pipelines', PIPELINES_TTL * 1000, async () => {
@@ -456,8 +319,6 @@ export function getRawPipelineCatalog(): Promise<PipelineCatalogEntry[]> {
 
 /** TTL seconds per NAAP API endpoint — used by instrumentation re-warm interval. */
 export const NAAP_API_CACHE_TTLS = {
-  demand: DEMAND_TTL,
-  sla: SLA_TTL,
   pipelines: PIPELINES_TTL,
 } as const;
 
@@ -475,11 +336,8 @@ export const NAAP_API_CACHE_TTLS = {
  *   - `GET /api/v1/naap-api/warm` (Vercel cron)
  */
 export async function warmDashboardCaches(): Promise<{
-  demand: { rows: number };
-  sla: { rows: number };
   pipelines: { count: number };
 }> {
-  const [demandRows, slaRows] = await Promise.all([getRawDemandRows(), getRawSLARows()]);
   let pipelinesCount = 0;
   try {
     const pipelines = await getRawPipelineCatalog();
@@ -488,8 +346,6 @@ export async function warmDashboardCaches(): Promise<{
     console.warn('[dashboard/raw-data] warm: pipelines fetch skipped:', err);
   }
   return {
-    demand: { rows: demandRows.length },
-    sla: { rows: slaRows.length },
     pipelines: { count: pipelinesCount },
   };
 }

@@ -30,14 +30,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://127.0.0.1:3000');
 
   const end = new Date();
-  const start = new Date(end.getTime() - 12 * 3600 * 1000);
+  const start = new Date(end.getTime() - 24 * 3600 * 1000);
   const perfQs = `start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
 
+  // Cover the most-requested first-load routes so the first real user after a
+  // cron tick gets SWR HITs/STALEs rather than cold misses.
   const targets = [
-    `${base}/api/v1/network/perf-by-model?${perfQs}`,
+    `${base}/api/v1/dashboard/kpi?timeframe=12`,
+    `${base}/api/v1/dashboard/kpi?timeframe=24`,
+    `${base}/api/v1/dashboard/pipelines?timeframe=12&limit=200`,
+    `${base}/api/v1/dashboard/pipelines?timeframe=24&limit=200`,
+    `${base}/api/v1/dashboard/orchestrators?period=24h`,
     `${base}/api/v1/dashboard/pipeline-catalog`,
     `${base}/api/v1/dashboard/pricing`,
-    `${base}/api/v1/dashboard/gpu-capacity?timeframe=12`,
+    `${base}/api/v1/dashboard/gpu-capacity?timeframe=24`,
+    `${base}/api/v1/network/perf-by-model?${perfQs}`,
+    `${base}/api/v1/network/capacity`,
   ];
 
   const results: { url: string; ok: boolean; status: number }[] = [];

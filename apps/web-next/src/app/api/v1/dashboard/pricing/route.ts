@@ -21,7 +21,7 @@ export async function GET(): Promise<NextResponse> {
     console.error('[dashboard/pricing] error:', err);
     return NextResponse.json(
       { error: { code: 'SERVICE_UNAVAILABLE', message: 'Pipeline unit cost data is unavailable' } },
-      { status: 503 }
+      { status: 503, headers: { 'Cache-Control': 'public, max-age=0, s-maxage=5, stale-while-revalidate=0' } }
     );
   }
 }

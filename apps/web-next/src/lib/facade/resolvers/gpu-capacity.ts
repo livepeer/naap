@@ -28,10 +28,9 @@ export async function resolveGPUCapacity(opts: { timeframe?: string }): Promise<
   const uiHours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
   const naapHours = naapGpuCapacityWindowHours(uiHours);
   const window = `${naapHours}h`;
-  const revalidateSec = Math.floor(TTL.GPU_CAPACITY / 1000);
   return cachedFetch(`facade:gpu-capacity:naap${naapHours}h`, TTL.GPU_CAPACITY, () =>
     naapGet<DashboardGPUCapacity>('dashboard/gpu-capacity', { window }, {
-      next: { revalidate: revalidateSec },
+      cache: 'no-store',
       errorLabel: 'gpu-capacity',
     })
   );

@@ -51,6 +51,9 @@ export const PIPELINE_DISPLAY: Record<string, string | null> = {
   'noop':                     null,
 };
 
+/** Canonical live video pipeline id used across dashboard views. */
+export const LIVE_VIDEO_PIPELINE_ID = 'live-video-to-video';
+
 export const PIPELINE_COLOR: Record<string, string> = {
   // Official AI Capabilities
   'text-to-image':            '#f59e0b',  // amber

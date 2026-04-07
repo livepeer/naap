@@ -27,15 +27,17 @@ function evict(now: number): void {
   }
 }
 
+const DEBUG_CACHE = process.env.DEBUG_FACADE_CACHE === '1' || process.env.DEBUG_FACADE_CACHE === 'true';
+
 export function cachedFetch<T>(key: string, ttlMs: number, fetcher: () => Promise<T>): Promise<T> {
   const now = Date.now();
   const existing = memCache.get(key) as CacheEntry<T> | undefined;
   if (existing && existing.expiresAt > now) {
-    console.log(`[facade/cache] HIT  ${key} (expires in ${Math.round((existing.expiresAt - now) / 1000)}s)`);
+    if (DEBUG_CACHE) console.debug(`[facade/cache] HIT  ${key} (expires in ${Math.round((existing.expiresAt - now) / 1000)}s)`);
     return existing.promise;
   }
 
-  console.log(`[facade/cache] MISS ${key} — fetching`);
+  if (DEBUG_CACHE) console.debug(`[facade/cache] MISS ${key} — fetching`);
   const promise = fetcher().catch((err) => {
     memCache.delete(key);
     throw err;

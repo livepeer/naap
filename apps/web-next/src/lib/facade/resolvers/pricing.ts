@@ -52,12 +52,11 @@ function computeOutputPerDollar(avgWei: number, unit: string, ethUsd: number): s
 }
 
 export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
-  const revalidateSec = Math.floor(TTL.PRICING / 1000);
   return cachedFetch('facade:pricing', TTL.PRICING, async () => {
     const ethUsd = parseEthUsdReference();
     const [rows, netCapacity] = await Promise.all([
       naapGet<ApiPipelinePricing[]>('dashboard/pricing', undefined, {
-        next: { revalidate: revalidateSec },
+        cache: 'no-store',
         errorLabel: 'pricing',
       }),
       resolveNetCapacity().catch((err) => {

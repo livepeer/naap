@@ -4,7 +4,7 @@
  * `NAAP_API_SERVER_URL` must be set in the environment. It is the full base
  * URL through the API version prefix (for example `/v1`), with no trailing slash.
  *
- * Resource paths are joined after it, e.g. `pipelines`, `network/demand`.
+ * Resource paths are joined after it, e.g. `pipelines`, `sla/compliance`.
  */
 
 function stripTrailingSlashes(s: string): string {
@@ -30,7 +30,7 @@ export function naapApiBaseLabel(): string {
 }
 
 /**
- * @param resourcePath e.g. `pipelines` or `network/demand` (leading slashes OK)
+ * @param resourcePath e.g. `pipelines` or `sla/compliance` (leading slashes OK)
  */
 export function naapApiUpstreamUrl(resourcePath: string): string {
   const rel = resourcePath.replace(/^\/+/, '');

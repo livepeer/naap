@@ -25,7 +25,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     console.error('[dashboard/gpu-capacity] error:', err);
     return NextResponse.json(
       { error: { code: 'SERVICE_UNAVAILABLE', message: 'GPU capacity data is unavailable' } },
-      { status: 503 }
+      { status: 503, headers: { 'Cache-Control': 'public, max-age=0, s-maxage=5, stale-while-revalidate=0' } }
     );
   }
 }

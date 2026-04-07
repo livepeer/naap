@@ -64,11 +64,10 @@ function pct(v: number | null): number | null {
 
 export async function resolveOrchestrators(opts?: { period?: string }): Promise<DashboardOrchestrator[]> {
   const window = orchestratorWindowFromPeriod(opts?.period);
-  const revalidateSec = Math.floor(TTL.ORCHESTRATORS / 1000);
   return cachedFetch(`facade:orchestrators:${window}`, TTL.ORCHESTRATORS, async () => {
     const [rows, uriMap] = await Promise.all([
       naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window }, {
-        next: { revalidate: revalidateSec },
+        cache: 'no-store',
         errorLabel: 'orchestrators',
       }),
       fetchURIMap(),

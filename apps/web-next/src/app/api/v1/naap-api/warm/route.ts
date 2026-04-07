@@ -36,10 +36,8 @@ export async function GET(request: NextRequest) {
   try {
     const result = await warmDashboardCaches();
     return NextResponse.json({
-      warmed: 3,
+      warmed: 1,
       results: [
-        { target: 'network/demand', ok: true, rows: result.demand.rows },
-        { target: 'sla/compliance', ok: true, rows: result.sla.rows },
         { target: 'pipelines', ok: true, count: result.pipelines.count },
       ],
       timestamp: new Date().toISOString(),

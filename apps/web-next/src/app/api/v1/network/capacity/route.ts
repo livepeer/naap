@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { bffStaleWhileRevalidate } from '@/lib/api/bff-swr';
 import { getNetCapacity } from '@/lib/facade';
 import { jsonWithOverviewCache, OverviewHttpCacheSec } from '@/lib/api/overview-http-cache';
 
@@ -9,13 +10,19 @@ export const revalidate = 1800;
 
 export async function GET(): Promise<NextResponse> {
   try {
-    const capacityByPipelineModel = await getNetCapacity();
-    return jsonWithOverviewCache({ capacityByPipelineModel }, OverviewHttpCacheSec.netCapacity);
+    const { data: capacityByPipelineModel, cache } = await bffStaleWhileRevalidate(
+      'net-capacity',
+      () => getNetCapacity(),
+      'net-capacity'
+    );
+    const res = jsonWithOverviewCache({ capacityByPipelineModel }, OverviewHttpCacheSec.netCapacity);
+    res.headers.set('X-Cache', cache);
+    return res;
   } catch (err) {
     console.error('[network/capacity] error:', err);
     return NextResponse.json(
       { error: { code: 'SERVICE_UNAVAILABLE', message: 'Network capacity data is unavailable' } },
-      { status: 503 },
+      { status: 503, headers: { 'Cache-Control': 'public, max-age=0, s-maxage=5, stale-while-revalidate=0' } },
     );
   }
 }

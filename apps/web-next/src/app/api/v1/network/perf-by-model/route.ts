@@ -44,7 +44,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const cacheKey = `perf-by-model:${start}:${end}`;
+    // Normalize to hour precision to match the resolver's own hour-bucket cache key,
+    // maximising Redis SWR hit rate when the client sends slightly different ISO strings.
+    const startHour = new Date(startMs).toISOString().slice(0, 13);
+    const endHour = new Date(endMs).toISOString().slice(0, 13);
+    const cacheKey = `perf-by-model:${startHour}:${endHour}`;
     const { data: fpsByPipelineModel, cache } = await bffStaleWhileRevalidate(
       cacheKey,
       () => getPerfByModel({ start, end }),
@@ -57,7 +61,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     console.error('[network/perf-by-model] error:', err);
     return NextResponse.json(
       { error: { code: 'SERVICE_UNAVAILABLE', message: 'Perf-by-model data is unavailable' } },
-      { status: 503 },
+      { status: 503, headers: { 'Cache-Control': 'public, max-age=0, s-maxage=5, stale-while-revalidate=0' } },
     );
   }
 }
