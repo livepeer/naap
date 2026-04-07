@@ -36,6 +36,12 @@ echo "Vercel OAuth env → target: $TARGET"
 echo "Default app host: https://naap-platform.vercel.app (override if needed)."
 read -r -p "NEXT_PUBLIC_APP_URL [https://naap-platform.vercel.app]: " APP_URL
 APP_URL=${APP_URL:-https://naap-platform.vercel.app}
+# Strip trailing slash; require scheme + host (no path/query/fragment)
+APP_URL="${APP_URL%/}"
+if [[ ! "$APP_URL" =~ ^https?://[^/]+$ ]]; then
+  echo "NEXT_PUBLIC_APP_URL must be an origin only (e.g. https://naap-platform.vercel.app), no path."
+  exit 1
+fi
 GOOGLE_CB="${APP_URL}/api/v1/auth/callback/google"
 GITHUB_CB="${APP_URL}/api/v1/auth/callback/github"
 
@@ -60,4 +66,8 @@ add_sensitive GOOGLE_CLIENT_SECRET "$GOOGLE_CLIENT_SECRET"
 add_plain GITHUB_CLIENT_ID "$GITHUB_CLIENT_ID"
 add_sensitive GITHUB_CLIENT_SECRET "$GITHUB_CLIENT_SECRET"
 
-echo "Done. Redeploy from the Vercel dashboard or: npx vercel --prod"
+if [[ "$TARGET" == "production" ]]; then
+  echo "Done. Redeploy: Vercel dashboard or npx vercel --prod"
+else
+  echo "Done. Redeploy: push a branch / open a preview, or npx vercel (preview for $TARGET)"
+fi

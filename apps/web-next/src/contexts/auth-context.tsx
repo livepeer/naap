@@ -103,9 +103,8 @@ function clearAllAuthStorage() {
 
   // Clear localStorage tokens
   localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
-  localStorage.removeItem(STORAGE_KEYS.CSRF_TOKEN);
 
-  // Clear session storage (may contain cached user data)
+  // Clear session storage (CSRF + cached user data)
   try {
     sessionStorage.clear();
   } catch {
@@ -138,29 +137,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUser = useCallback(async (): Promise<{ user: User | null; authErrorStatus: number | null }> => {
     const token = getToken();
-    const headers: Record<string, string> = {
+    const baseHeaders: Record<string, string> = {
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       Pragma: 'no-cache',
     };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
 
     try {
-      // Always send credentials: OAuth sets an httpOnly cookie only; JS cannot read it via getToken().
-      // /auth/me resolves the session from the cookie when Authorization is absent.
+      // Cookie-first: server getAuthToken() prefers httpOnly naap_auth_token over Authorization.
+      // First request omits Bearer so OAuth/httpOnly sessions win; retry with Bearer only on 401
+      // if localStorage has a token (edge case: cookie missing, LS valid).
       const meUrl = `${getAuthApiBase()}/v1/auth/me`;
-      const doFetch = () =>
+      const doFetch = (withBearer: boolean) =>
         fetch(meUrl, {
-          headers,
+          headers:
+            withBearer && token
+              ? { ...baseHeaders, Authorization: `Bearer ${token}` }
+              : baseHeaders,
           credentials: 'include',
           cache: 'no-store',
         });
 
-      let response = await doFetch();
+      let usedBearer = false;
+      let response = await doFetch(false);
+      if (response.status === 401 && token) {
+        usedBearer = true;
+        response = await doFetch(true);
+      }
       if (!response.ok && response.status >= 500) {
         await new Promise((r) => setTimeout(r, 400));
-        response = await doFetch();
+        response = await doFetch(usedBearer);
       }
 
       if (!response.ok) {
@@ -178,11 +183,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.warn('[auth] API returned 200 but no user data - clearing stale auth');
         clearAllAuthStorage();
         return { user: null, authErrorStatus: 200 };
-      }
-
-      const sessionToken = (data.data?.token || data.token) as string | undefined;
-      if (sessionToken) {
-        setTokenStorage(sessionToken);
       }
 
       const csrfFromMe = data.data?.csrfToken || data.csrfToken;
@@ -347,12 +347,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshSession = useCallback(async () => {
     const token = getToken();
-    if (!token) return;
     try {
       const response = await fetch(`${getAuthApiBase()}/v1/auth/refresh`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        credentials: 'include', // Include cookies
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
       });
       if (!response.ok) throw new Error('Session refresh failed');
       const data = await response.json();

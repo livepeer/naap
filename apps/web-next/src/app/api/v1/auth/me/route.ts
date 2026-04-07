@@ -29,8 +29,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       user: result.user,
       expiresAt: result.expiresAt.toISOString(),
       csrfToken,
-      // Echo session token so the client can sync localStorage after OAuth (httpOnly-only cookie).
-      token,
     });
   } catch (err) {
     console.error('Auth me error:', err);

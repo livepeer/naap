@@ -1,0 +1,4 @@
+# Example plugin directory names excluded from default CDN UMD builds and from
+# apps/web-next examples manifest. One name per line. Used by bin/build-plugins.sh
+# and bin/generate-examples-manifest.cjs — keep in sync.
+intelligent-dashboard

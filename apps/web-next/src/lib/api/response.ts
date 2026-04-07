@@ -184,20 +184,23 @@ function parseCookieTokenValue(raw: string): string {
 }
 
 /**
- * Get auth token from request
+ * Get auth token from request.
+ * Prefer the httpOnly session cookie over the Authorization header so a stale
+ * client-side bearer (e.g. localStorage after account switch) cannot override
+ * a fresh OAuth/session cookie.
  */
 export function getAuthToken(request: Request): string | null {
-  const authHeader = request.headers.get('authorization');
-  if (authHeader?.startsWith('Bearer ')) {
-    return authHeader.slice(7).trim();
-  }
-
   const cookies = request.headers.get('cookie');
   if (cookies) {
     const tokenMatch = cookies.match(/(?:^|;\s*)naap_auth_token=([^;]+)/);
     if (tokenMatch) {
       return parseCookieTokenValue(tokenMatch[1]);
     }
+  }
+
+  const authHeader = request.headers.get('authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.slice(7).trim();
   }
 
   return null;

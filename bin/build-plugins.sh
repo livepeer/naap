@@ -132,22 +132,45 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Example dirs under examples/ with a vite config but excluded from default CDN builds
-# (reference/WIP; not shipped on main). Build one-off with: ./bin/build-plugins.sh --plugin <name>
-EXCLUDE_EXAMPLE_PLUGINS=(intelligent-dashboard)
+# Example plugin names excluded from default CDN builds (shared with generate-examples-manifest).
+# Source of truth: examples/.cdn-build-exclude (one name per line, # comments allowed).
+EXCLUDE_FILE="$ROOT_DIR/examples/.cdn-build-exclude"
+EXCLUDE_EXAMPLE_PLUGINS=()
+if [[ -f "$EXCLUDE_FILE" ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    line="${line%%#*}"
+    line="$(echo "$line" | xargs)"
+    [[ -n "$line" ]] && EXCLUDE_EXAMPLE_PLUGINS+=("$line")
+  done < "$EXCLUDE_FILE"
+fi
+if [[ ${#EXCLUDE_EXAMPLE_PLUGINS[@]} -eq 0 ]]; then
+  EXCLUDE_EXAMPLE_PLUGINS=('intelligent-dashboard')
+fi
 
 # Auto-discover plugins: find all plugin directories that have a frontend vite config.
 # Scans both plugins/ (production plugins) and examples/ (example plugins that can
 # be published via Plugin Publisher). Deduplicates in case a symlink in plugins/
-# points to an examples/ directory.
+# points to an examples/ directory. Uses realpath so symlinked example plugins
+# are treated as examples/ for exclude matching.
 if [ -n "$SPECIFIC_PLUGIN" ]; then
   PLUGINS=("$SPECIFIC_PLUGIN")
 else
   PLUGINS=()
+  examples_real=""
+  if [[ -d "$ROOT_DIR/examples" ]]; then
+    examples_real="$(cd "$ROOT_DIR/examples" && pwd -P)"
+  fi
   for config in "$PLUGINS_DIR"/*/frontend/vite.config.ts "$ROOT_DIR"/examples/*/frontend/vite.config.ts; do
     [ -f "$config" ] || continue
-    plugin_name="$(basename "$(dirname "$(dirname "$config")")")"
-    if [[ "$config" == "$ROOT_DIR"/examples/* ]]; then
+    plugin_root="$(dirname "$(dirname "$config")")"
+    plugin_name="$(basename "$plugin_root")"
+    plugin_root_real="$(cd "$plugin_root" 2>/dev/null && pwd -P)" || plugin_root_real="$plugin_root"
+    is_example_plugin=false
+    if [[ -n "$examples_real" ]] && [[ "$plugin_root_real" == "$examples_real" || "$plugin_root_real" == "$examples_real"/* ]]; then
+      is_example_plugin=true
+    fi
+    if $is_example_plugin; then
       skip=false
       for ex in "${EXCLUDE_EXAMPLE_PLUGINS[@]}"; do
         if [[ "$plugin_name" == "$ex" ]]; then skip=true; break; fi
