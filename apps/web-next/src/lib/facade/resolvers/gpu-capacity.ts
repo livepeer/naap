@@ -23,6 +23,17 @@ function naapGpuCapacityWindowHours(uiHours: number): number {
   return uiHours;
 }
 
+/**
+ * Canonical hours string for BFF SWR keys. Matches {@link resolveGPUCapacity}
+ * (trim / whitespace, parseInt, clamp 1–168, default 24).
+ */
+export function normalizeGpuCapacityTimeframeKey(timeframe: string | undefined): string {
+  const raw = String(timeframe ?? '').trim().replace(/\s+/g, '');
+  const parsed = parseInt(raw.length ? raw : '24', 10);
+  const uiHours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
+  return String(uiHours);
+}
+
 export async function resolveGPUCapacity(opts: { timeframe?: string }): Promise<DashboardGPUCapacity> {
   const parsed = parseInt(opts.timeframe ?? '24', 10);
   const uiHours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
