@@ -54,31 +54,6 @@ export const EXAMPLES_MANIFEST: ExampleManifestEntry[] = [
     "hasBuild": true
   },
   {
-    "name": "intelligentDashboard",
-    "dirName": "intelligent-dashboard",
-    "displayName": "Intelligent Dashboard",
-    "description": "AI-powered analytics dashboard — ask questions in natural language and get interactive visualizations powered by Gemini and the Livepeer Leaderboard",
-    "category": "example",
-    "author": "NAAP Examples",
-    "authorEmail": "examples@naap.dev",
-    "version": "1.0.0",
-    "icon": "BrainCircuit",
-    "routes": [
-      "/plugins/intelligent-dashboard",
-      "/plugins/intelligent-dashboard/*"
-    ],
-    "originalRoutes": [
-      "/intelligent-dashboard",
-      "/intelligent-dashboard/*"
-    ],
-    "order": 99,
-    "globalName": "NaapPluginIntelligentDashboard",
-    "keywords": [],
-    "license": "MIT",
-    "repository": "https://github.com/livepeer/naap/tree/main/examples/intelligent-dashboard",
-    "hasBuild": true
-  },
-  {
     "name": "myDashboard",
     "dirName": "my-dashboard",
     "displayName": "My Dashboard",

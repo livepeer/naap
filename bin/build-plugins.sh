@@ -121,6 +121,8 @@ while [[ $# -gt 0 ]]; do
       echo "  --force, -f       Force rebuild even if source unchanged"
       echo "  --plugin NAME     Build only specific plugin"
       echo "  --help, -h        Show this help"
+      echo ""
+      echo "Example plugins listed in EXCLUDE_EXAMPLE_PLUGINS are skipped unless you pass --plugin NAME."
       exit 0
       ;;
     *)
@@ -129,6 +131,10 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Example dirs under examples/ with a vite config but excluded from default CDN builds
+# (reference/WIP; not shipped on main). Build one-off with: ./bin/build-plugins.sh --plugin <name>
+EXCLUDE_EXAMPLE_PLUGINS=(intelligent-dashboard)
 
 # Auto-discover plugins: find all plugin directories that have a frontend vite config.
 # Scans both plugins/ (production plugins) and examples/ (example plugins that can
@@ -141,6 +147,15 @@ else
   for config in "$PLUGINS_DIR"/*/frontend/vite.config.ts "$ROOT_DIR"/examples/*/frontend/vite.config.ts; do
     [ -f "$config" ] || continue
     plugin_name="$(basename "$(dirname "$(dirname "$config")")")"
+    if [[ "$config" == "$ROOT_DIR"/examples/* ]]; then
+      skip=false
+      for ex in "${EXCLUDE_EXAMPLE_PLUGINS[@]}"; do
+        if [[ "$plugin_name" == "$ex" ]]; then skip=true; break; fi
+      done
+      if $skip; then
+        continue
+      fi
+    fi
     PLUGINS+=("$plugin_name")
   done
   # Sort and deduplicate (symlinks in plugins/ may point to examples/)

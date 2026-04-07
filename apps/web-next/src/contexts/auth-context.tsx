@@ -119,24 +119,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUser = useCallback(async (): Promise<{ user: User | null; authErrorStatus: number | null }> => {
     const token = getToken();
-    if (!token) {
-      return { user: null, authErrorStatus: null };
+    const headers: Record<string, string> = {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Pragma: 'no-cache',
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
     }
 
     try {
+      // Always send credentials: OAuth sets an httpOnly cookie only; JS cannot read it via getToken().
+      // /auth/me resolves the session from the cookie when Authorization is absent.
       const response = await fetch(`${API_BASE}/v1/auth/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-        },
-        credentials: 'include', // Include cookies in request
-        cache: 'no-store', // Prevent Next.js from caching
+        headers,
+        credentials: 'include',
+        cache: 'no-store',
       });
 
       if (!response.ok) {
         if (response.status === 401) {
-          // Clear ALL auth storage on unauthorized (token invalid/expired)
           clearAllAuthStorage();
           return { user: null, authErrorStatus: 401 };
         }
@@ -145,28 +146,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const data = await response.json();
 
-      // Handle both wrapped ({ data: { user } }) and unwrapped ({ user }) responses
       const userData = data.data?.user || data.user;
       if (!userData) {
         console.warn('[auth] API returned 200 but no user data - clearing stale auth');
         clearAllAuthStorage();
         return { user: null, authErrorStatus: 200 };
       }
-      
-      // Ensure token is synced to localStorage if it's missing
-      if (!localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN) && token) {
-        localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
+
+      const sessionToken = (data.data?.token || data.token) as string | undefined;
+      if (sessionToken) {
+        setTokenStorage(sessionToken);
       }
 
-      // Ensure CSRF token is available for plugin mutations (non-blocking)
-      if (!sessionStorage.getItem(STORAGE_KEYS.CSRF_TOKEN)) {
+      const csrfFromMe = data.data?.csrfToken || data.csrfToken;
+      if (csrfFromMe && typeof window !== 'undefined') {
+        sessionStorage.setItem(STORAGE_KEYS.CSRF_TOKEN, csrfFromMe);
+      } else if (!sessionStorage.getItem(STORAGE_KEYS.CSRF_TOKEN)) {
         fetchAndStoreCsrfToken();
       }
 
       return { user: userData, authErrorStatus: null };
     } catch (error) {
       console.error('Error fetching user:', error);
-      // Do not treat transient failures as invalid sessions.
       return { user: null, authErrorStatus: null };
     }
   }, [getToken]);

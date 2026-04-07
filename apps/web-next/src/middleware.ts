@@ -15,7 +15,6 @@ const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/developer': 'developerApi',
   '/publish': 'pluginPublisher',
   '/daydream': 'daydreamVideo',
-  '/intelligent-dashboard': 'intelligentDashboard',
   '/lightning-client': 'lightningClient',
 };
 

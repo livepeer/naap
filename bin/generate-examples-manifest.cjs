@@ -21,6 +21,9 @@ const ROOT = process.env.MONOREPO_ROOT
   : path.resolve(__dirname, '..');
 
 const EXAMPLES_DIR = path.join(ROOT, 'examples');
+
+/** Example plugin dirs not listed in the manifest (not on main product / CDN). */
+const EXCLUDE_FROM_EXAMPLES_MANIFEST = new Set(['intelligent-dashboard']);
 const CDN_DIR = path.join(ROOT, 'apps', 'web-next', 'public', 'cdn', 'plugins');
 const DIST_DIR = path.join(ROOT, 'dist', 'plugins');
 const OUT_JSON = path.join(ROOT, 'apps', 'web-next', 'examples-manifest.json');
@@ -43,6 +46,7 @@ function generate() {
 
     entries = dirs
       .filter((d) => {
+        if (EXCLUDE_FROM_EXAMPLES_MANIFEST.has(d)) return false;
         const pj = path.join(EXAMPLES_DIR, d, 'plugin.json');
         return fs.existsSync(pj);
       })
