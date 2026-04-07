@@ -35,8 +35,7 @@ export function normalizeGpuCapacityTimeframeKey(timeframe: string | undefined):
 }
 
 export async function resolveGPUCapacity(opts: { timeframe?: string }): Promise<DashboardGPUCapacity> {
-  const parsed = parseInt(opts.timeframe ?? '24', 10);
-  const uiHours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
+  const uiHours = Number.parseInt(normalizeGpuCapacityTimeframeKey(opts.timeframe), 10);
   const naapHours = naapGpuCapacityWindowHours(uiHours);
   const window = `${naapHours}h`;
   return cachedFetch(`facade:gpu-capacity:naap${naapHours}h`, TTL.GPU_CAPACITY, () =>

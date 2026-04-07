@@ -20,6 +20,7 @@
 
 import type { DashboardPipelineCatalogEntry } from '@naap/plugin-sdk';
 import { naapApiUpstreamUrl } from '@/lib/dashboard/naap-api-upstream';
+import type { NetworkModel } from '../types.js';
 import { getRawNetModels } from '../network-data.js';
 import { cachedFetch, TTL } from '../cache.js';
 import { resolvePerfByModel } from './perf-by-model.js';
@@ -185,7 +186,10 @@ export async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalog
     const end = new Date();
     const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
     const [netModels, warmCatalog, fpsByPipelineModel] = await Promise.all([
-      getRawNetModels(),
+      getRawNetModels().catch((err) => {
+        console.warn('[facade/pipeline-catalog] net/models augment skipped:', err);
+        return [] as NetworkModel[];
+      }),
       fetchWarmCatalog(),
       resolvePerfByModel({ start: start.toISOString(), end: end.toISOString() }).catch((err) => {
         console.warn('[facade/pipeline-catalog] perf-by-model augment skipped:', err);

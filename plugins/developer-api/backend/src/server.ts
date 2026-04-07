@@ -248,13 +248,7 @@ function parsePipelineCatalog(payload: unknown): Array<{ id: string; models: str
     }
     const obj = raw as Record<string, unknown>;
     const id = String(
-      obj.id ??
-        obj.pipeline_id ??
-        obj.pipelineId ??
-        obj.Pipeline ??
-        obj.pipeline ??
-        obj.name ??
-        '',
+      obj.id ?? obj.pipeline_id ?? obj.pipelineId ?? obj.Pipeline ?? obj.pipeline ?? '',
     ).trim();
     if (!id) {
       continue;
@@ -307,7 +301,17 @@ async function fetchMergedNetModels(
     throw netResult.reason;
   }
   const netRes = netResult.value;
-  const catalogRes = catalogResult.status === 'fulfilled' ? catalogResult.value : null;
+
+  let catalogRes: Response | null = null;
+  if (catalogResult.status === 'fulfilled') {
+    catalogRes = catalogResult.value;
+  } else {
+    console.warn(
+      `[developer-api] dashboard/pipeline-catalog fetch failed (${upstreamBase}/dashboard/pipeline-catalog):`,
+      catalogResult.reason,
+      `(net/models HTTP ${netRes.status}; netResult.status=${netResult.status})`,
+    );
+  }
 
   if (!netRes.ok) {
     throw new Error(`upstream net/models HTTP ${netRes.status}`);
@@ -358,8 +362,6 @@ async function fetchMergedNetModels(
     }
   } else if (catalogRes) {
     console.warn(`[developer-api] dashboard/pipeline-catalog HTTP ${catalogRes.status} — net/models only`);
-  } else {
-    console.warn('[developer-api] pipeline-catalog merge skipped: request failed');
   }
 
   merged.sort(
