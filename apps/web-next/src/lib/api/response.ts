@@ -168,21 +168,35 @@ export function getClientIP(request: Request): string | undefined {
   return request.headers.get('x-real-ip') || undefined;
 }
 
+function parseCookieTokenValue(raw: string): string {
+  let v = raw.trim();
+  if (
+    (v.startsWith('"') && v.endsWith('"')) ||
+    (v.startsWith("'") && v.endsWith("'"))
+  ) {
+    v = v.slice(1, -1);
+  }
+  try {
+    return decodeURIComponent(v);
+  } catch {
+    return v;
+  }
+}
+
 /**
  * Get auth token from request
  */
 export function getAuthToken(request: Request): string | null {
   const authHeader = request.headers.get('authorization');
   if (authHeader?.startsWith('Bearer ')) {
-    return authHeader.slice(7);
+    return authHeader.slice(7).trim();
   }
 
-  // Also check cookies
   const cookies = request.headers.get('cookie');
   if (cookies) {
-    const tokenMatch = cookies.match(/naap_auth_token=([^;]+)/);
+    const tokenMatch = cookies.match(/(?:^|;\s*)naap_auth_token=([^;]+)/);
     if (tokenMatch) {
-      return tokenMatch[1];
+      return parseCookieTokenValue(tokenMatch[1]);
     }
   }
 

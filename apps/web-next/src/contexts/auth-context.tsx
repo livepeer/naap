@@ -41,19 +41,40 @@ const STORAGE_KEYS = {
   CSRF_TOKEN: 'naap_csrf_token',
 } as const;
 
-// Helper to sync token to both localStorage and cookie for middleware access
+// Persist session token for client-side Authorization header only.
+// Do not mirror into document.cookie: the server already sets httpOnly naap_auth_token.
+// A second same-name cookie breaks Cookie header parsing and /api/v1/auth/me validation.
 function setTokenStorage(token: string | null) {
   if (typeof window === 'undefined') return;
-
   if (token) {
     localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
-    // Set cookie for middleware (httpOnly should be handled by server)
-    document.cookie = `${STORAGE_KEYS.AUTH_TOKEN}=${token}; path=/; max-age=${60 * 60 * 24 * 7}; samesite=strict`;
   } else {
     localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
-    // Clear cookie
-    document.cookie = `${STORAGE_KEYS.AUTH_TOKEN}=; path=/; max-age=0`;
   }
+}
+
+/**
+ * Login, OAuth callback, logout, and /me must hit this Next.js app origin so httpOnly cookies are sent.
+ * NEXT_PUBLIC_API_URL may target a separate API host for data/plugin calls — never use that for auth.
+ */
+function getAuthApiBase(): string {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (typeof window === 'undefined') {
+    return envUrl || '/api';
+  }
+  if (!envUrl || envUrl.startsWith('/')) {
+    return envUrl || '/api';
+  }
+  try {
+    const resolved = new URL(envUrl, window.location.origin);
+    if (resolved.origin === window.location.origin) {
+      const path = resolved.pathname.replace(/\/$/, '') || '/api';
+      return path.startsWith('/') ? path : '/api';
+    }
+  } catch {
+    /* ignore invalid URL */
+  }
+  return '/api';
 }
 
 // Fetch a CSRF token from the server and store it in sessionStorage.
@@ -92,8 +113,6 @@ function clearAllAuthStorage() {
   }
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
 
@@ -130,11 +149,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       // Always send credentials: OAuth sets an httpOnly cookie only; JS cannot read it via getToken().
       // /auth/me resolves the session from the cookie when Authorization is absent.
-      const response = await fetch(`${API_BASE}/v1/auth/me`, {
-        headers,
-        credentials: 'include',
-        cache: 'no-store',
-      });
+      const meUrl = `${getAuthApiBase()}/v1/auth/me`;
+      const doFetch = () =>
+        fetch(meUrl, {
+          headers,
+          credentials: 'include',
+          cache: 'no-store',
+        });
+
+      let response = await doFetch();
+      if (!response.ok && response.status >= 500) {
+        await new Promise((r) => setTimeout(r, 400));
+        response = await doFetch();
+      }
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -193,7 +220,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     setState(prev => ({ ...prev, isLoading: true }));
     try {
-      const response = await fetch(`${API_BASE}/v1/auth/login`, {
+      const response = await fetch(`${getAuthApiBase()}/v1/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include', // Include cookies
@@ -239,7 +266,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithOAuth = useCallback(async (provider: 'google' | 'github') => {
     try {
-      const response = await fetch(`${API_BASE}/v1/auth/oauth/${provider}`, {
+      const response = await fetch(`${getAuthApiBase()}/v1/auth/oauth/${provider}`, {
         credentials: 'include',
       });
       if (!response.ok) {
@@ -262,7 +289,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithWallet = useCallback(async (address: string, signature: string) => {
     setState(prev => ({ ...prev, isLoading: true }));
     try {
-      const response = await fetch(`${API_BASE}/v1/auth/wallet`, {
+      const response = await fetch(`${getAuthApiBase()}/v1/auth/wallet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include', // Include cookies
@@ -303,16 +330,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     const token = getToken();
-    if (token) {
-      try {
-        await fetch(`${API_BASE}/v1/auth/logout`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          credentials: 'include',
-        });
-      } catch (error) {
-        console.error('Logout error:', error);
-      }
+    try {
+      await fetch(`${getAuthApiBase()}/v1/auth/logout`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
+      });
+    } catch (error) {
+      console.error('Logout error:', error);
     }
     clearAllAuthStorage();
     // Navigate BEFORE updating React state to prevent RequireAuth from
@@ -324,7 +349,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = getToken();
     if (!token) return;
     try {
-      const response = await fetch(`${API_BASE}/v1/auth/refresh`, {
+      const response = await fetch(`${getAuthApiBase()}/v1/auth/refresh`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         credentials: 'include', // Include cookies
