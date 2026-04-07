@@ -54,30 +54,6 @@ export interface UseDashboardQueryResult<T> {
 }
 
 // ============================================================================
-// Module-level data cache
-// ============================================================================
-
-// Survives component unmount/remount so navigating away and back shows the
-// last-known data instantly instead of re-fetching from scratch.
-// Keyed by `query + variablesKey` so different queries don't collide.
-const dataCache = new Map<string, { data: unknown; ts: number }>();
-const DATA_CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 min staleness cap
-
-function getCachedData<T>(key: string): T | null {
-  const entry = dataCache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.ts > DATA_CACHE_MAX_AGE_MS) {
-    dataCache.delete(key);
-    return null;
-  }
-  return entry.data as T;
-}
-
-function setCachedData<T>(key: string, data: T): void {
-  dataCache.set(key, { data, ts: Date.now() });
-}
-
-// ============================================================================
 // Hook
 // ============================================================================
 
@@ -93,9 +69,9 @@ const NO_PROVIDER_RETRY_DELAYS = [1000, 2000, 3000, 5000];
  * Runs a dashboard GraphQL query through the shell event bus.
  * See {@link UseDashboardQueryResult} for `loading` vs `refreshing` semantics.
  *
- * Data is kept in a module-level cache so that navigating away from the
- * dashboard and back renders the last-known state instantly while a
- * background refresh runs.
+ * Navigation-back caching is handled by the browser HTTP cache: BFF routes
+ * set `max-age=60` so the browser serves a cached response instantly when
+ * the plugin's `apiFetch()` re-fires after remount.
  */
 export function useDashboardQuery<T = Record<string, unknown>>(
   query: string,
@@ -105,20 +81,17 @@ export function useDashboardQuery<T = Record<string, unknown>>(
   const { pollInterval, timeout = 8000, skip = false } = options ?? {};
   const shell = useShell();
 
-  // Serialize variables for dependency comparison + cache key
+  // Serialize variables for dependency comparison
   const variablesKey = variables ? JSON.stringify(variables) : '';
-  const cacheKey = `${query}::${variablesKey}`;
 
-  const [data, setData] = useState<T | null>(() => getCachedData<T>(cacheKey));
-  const [loading, setLoading] = useState(!skip && data === null);
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState(!skip);
   const [error, setError] = useState<DashboardError | null>(null);
 
   // Stable refs to avoid re-triggering effects on every render
   const mountedRef = useRef(true);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cacheKeyRef = useRef(cacheKey);
-  cacheKeyRef.current = cacheKey;
 
   const fetchData = useCallback(async () => {
     if (!mountedRef.current) return;
@@ -148,9 +121,7 @@ export function useDashboardQuery<T = Record<string, unknown>>(
         });
         // Keep stale data on refresh (poll) — same as transient errors in catch
       } else {
-        const resolved = (response.data as T) ?? null;
-        setData(resolved);
-        if (resolved != null) setCachedData(cacheKeyRef.current, resolved);
+        setData((response.data as T) ?? null);
         if (response.errors && response.errors.length > 0) {
           console.warn('[useDashboardQuery] Partial errors:', JSON.stringify(response.errors, null, 2));
         }
