@@ -135,7 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return cookieMatch ? cookieMatch[2] : null;
   }, []);
 
-  const fetchUser = useCallback(async (): Promise<{ user: User | null; authErrorStatus: number | null }> => {
+  const fetchUser = useCallback(async (signal?: AbortSignal): Promise<{ user: User | null; authErrorStatus: number | null }> => {
     const token = getToken();
     const baseHeaders: Record<string, string> = {
       'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -155,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               : baseHeaders,
           credentials: 'include',
           cache: 'no-store',
+          signal,
         });
 
       let usedBearer = false;
@@ -194,16 +195,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       return { user: userData, authErrorStatus: null };
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return { user: null, authErrorStatus: null };
+      }
       console.error('Error fetching user:', error);
       return { user: null, authErrorStatus: null };
     }
   }, [getToken]);
 
   useEffect(() => {
-    let mounted = true;
+    const ac = new AbortController();
     const initAuth = async () => {
-      const { user, authErrorStatus } = await fetchUser();
-      if (mounted) {
+      const { user, authErrorStatus } = await fetchUser(ac.signal);
+      if (!ac.signal.aborted) {
         setState({
           user,
           isAuthenticated: !!user,
@@ -214,7 +218,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
     initAuth();
-    return () => { mounted = false; };
+    return () => { ac.abort(); };
   }, [fetchUser]);
 
   const login = useCallback(async (email: string, password: string) => {

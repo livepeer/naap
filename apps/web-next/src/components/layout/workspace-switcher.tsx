@@ -66,24 +66,25 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
 
   // ── Data loading ──────────────────────────────────────
 
-  const loadTeams = useCallback(async () => {
+  const loadTeams = useCallback(async (signal?: AbortSignal) => {
     try {
       setLoading(true);
-      const res = await fetch('/api/v1/teams', { credentials: 'include' });
+      const res = await fetch('/api/v1/teams', { credentials: 'include', signal });
       const data = await res.json();
       if (data.success) {
         setTeams(data.data.teams || []);
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       console.error('Failed to load teams:', err);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const loadCurrentTeam = useCallback(async (teamId: string) => {
+  const loadCurrentTeam = useCallback(async (teamId: string, signal?: AbortSignal) => {
     try {
-      const res = await fetch(`/api/v1/teams/${teamId}`, { credentials: 'include' });
+      const res = await fetch(`/api/v1/teams/${teamId}`, { credentials: 'include', signal });
       const data = await res.json();
       if (data.success) {
         setCurrentTeam(data.data.team);
@@ -92,18 +93,20 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
         setCurrentTeam(null);
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       console.error('Failed to load current team:', err);
     }
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      loadTeams();
-      const savedTeamId = localStorage.getItem('naap_current_team');
-      if (savedTeamId) {
-        loadCurrentTeam(savedTeamId);
-      }
+    if (!isAuthenticated) return;
+    const ac = new AbortController();
+    loadTeams(ac.signal);
+    const savedTeamId = localStorage.getItem('naap_current_team');
+    if (savedTeamId) {
+      loadCurrentTeam(savedTeamId, ac.signal);
     }
+    return () => { ac.abort(); };
   }, [isAuthenticated, loadTeams, loadCurrentTeam]);
 
   useEffect(() => {

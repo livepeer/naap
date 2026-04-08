@@ -1,0 +1,155 @@
+# =============================================================================
+# Nightly E2E — Full pre-release suite (GA + appendix preview plugins)
+# =============================================================================
+# Runs every night at 02:00 UTC against the live Vercel production deployment.
+# Can also be triggered manually via workflow_dispatch.
+# =============================================================================
+
+name: E2E Nightly
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Which suite to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - pre-release
+          - appendix-preview
+
+concurrency:
+  group: e2e-nightly
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  PLAYWRIGHT_BASE_URL: https://naap-platform.vercel.app
+
+jobs:
+  # ===========================================================================
+  # GA Pre-Release Suite (@pre-release, excludes @appendix-preview)
+  # ===========================================================================
+  e2e-ga:
+    name: E2E GA Pre-Release
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event.inputs.suite == 'all' ||
+      github.event.inputs.suite == 'pre-release'
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/web-next
+
+      - name: Run GA pre-release suite
+        run: npx playwright test --grep @pre-release --grep-invert @appendix-preview --project=chromium
+        working-directory: apps/web-next
+        env:
+          E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          CI: true
+
+      - name: Generate score report
+        if: always()
+        run: node scripts/pre-release-score.mjs test-results/results.json || true
+        working-directory: apps/web-next
+
+      - name: Upload GA results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-ga-results
+          path: |
+            apps/web-next/test-results/
+            apps/web-next/playwright-report/
+          retention-days: 30
+
+  # ===========================================================================
+  # Appendix Preview Plugins (@appendix-preview — Wallet & Gateway)
+  # ===========================================================================
+  e2e-preview:
+    name: E2E Preview Plugins
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event.inputs.suite == 'all' ||
+      github.event.inputs.suite == 'appendix-preview'
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/web-next
+
+      - name: Run appendix preview suite
+        run: npx playwright test --grep @appendix-preview --project=chromium
+        working-directory: apps/web-next
+        env:
+          E2E_PREVIEW_USER_EMAIL: ${{ secrets.E2E_PREVIEW_USER_EMAIL }}
+          E2E_PREVIEW_USER_PASSWORD: ${{ secrets.E2E_PREVIEW_USER_PASSWORD }}
+          CI: true
+
+      - name: Generate appendix score report
+        if: always()
+        run: node scripts/pre-release-score.mjs test-results/results.json --appendix || true
+        working-directory: apps/web-next
+
+      - name: Upload preview results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-preview-results
+          path: |
+            apps/web-next/test-results/
+            apps/web-next/playwright-report/
+          retention-days: 30
+
+  # ===========================================================================
+  # Summary — Post combined results to step summary
+  # ===========================================================================
+  summary:
+    name: E2E Summary
+    runs-on: ubuntu-latest
+    needs: [e2e-ga, e2e-preview]
+    if: always()
+    steps:
+      - name: Post nightly summary
+        run: |
+          echo "## E2E Nightly Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Suite | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| GA Pre-Release | ${{ needs.e2e-ga.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Preview Plugins | ${{ needs.e2e-preview.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target:** ${{ env.PLAYWRIGHT_BASE_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
