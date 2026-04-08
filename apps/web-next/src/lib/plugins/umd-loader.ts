@@ -443,11 +443,17 @@ export async function loadUMDPlugin(options: UMDLoadOptions): Promise<LoadedUMDP
     try {
       onProgress?.(0.1);
 
-      // Load styles first (non-blocking)
+      // Load styles before the script so the first React paint has Tailwind/layout CSS.
+      // Previously styles were fire-and-forget; the bundle mounted while the link was
+      // still loading, so grids/flex collapsed and cards overlapped until a full refresh
+      // (when CSS was cached). See capacity-planner and any Tailwind-based UMD plugin.
       if (stylesUrl) {
-        loadStylesheet(stylesUrl).catch(err => {
-          console.warn(`Failed to load plugin styles: ${err.message}`);
-        });
+        try {
+          await loadStylesheet(stylesUrl);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[UMD Loader] Plugin styles failed to load (continuing): ${msg}`);
+        }
       }
 
       onProgress?.(0.3);
