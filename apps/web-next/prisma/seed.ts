@@ -77,6 +77,11 @@ async function main() {
       enabled: false,
       description: 'Allow users to publish bundled example plugins to the marketplace (admin toggle)',
     },
+    {
+      key: 'enableTeams',
+      enabled: true,
+      description: 'Enable teams collaboration feature (team creation, team switching, team pages)',
+    },
   ];
 
   for (const flag of featureFlags) {

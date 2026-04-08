@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useShell, useEvents } from '@/contexts/shell-context';
 import { usePlugins, type PluginManifest } from '@/contexts/plugin-context';
 import { preloadPluginResources } from '@/lib/plugins/cdn';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import {
   Activity,
@@ -115,6 +116,8 @@ export function Sidebar() {
   const eventBus = useEvents();
 
   const isAdmin = hasRole('system:admin');
+  const { flags } = useFeatureFlags();
+  const teamsEnabled = flags.enableTeams !== false;
 
   // Sidebar width for resizing
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -447,11 +450,13 @@ export function Sidebar() {
                 isActive={isActive('/feedback')}
                 isOpen={isSidebarOpen}
               />
-              <NavLink
-                item={{ name: 'Teams', href: '/teams', icon: Users }}
-                isActive={isActive('/teams')}
-                isOpen={isSidebarOpen}
-              />
+              {teamsEnabled && (
+                <NavLink
+                  item={{ name: 'Teams', href: '/teams', icon: Users }}
+                  isActive={isActive('/teams')}
+                  isOpen={isSidebarOpen}
+                />
+              )}
               <NavLink
                 item={{ name: 'Docs', href: '/docs', icon: BookOpen }}
                 isActive={isActive('/docs')}
