@@ -137,7 +137,12 @@ export async function fetchRequests(params: FetchRequestsParams = {}): Promise<F
   const headers = getAuthHeaders();
   const response = await fetch(url, { headers });
 
-  const data = await response.json();
+  let data: Record<string, unknown>;
+  try {
+    data = (await response.json()) as Record<string, unknown>;
+  } catch {
+    throw new ApiError('Invalid JSON response from capacity API', response.status, 'INVALID_JSON');
+  }
 
   if (!response.ok || data.success === false) {
     throw new ApiError(

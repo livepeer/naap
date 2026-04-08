@@ -135,16 +135,14 @@ export const ForumPage: React.FC = () => {
               return next;
             });
           } else {
-            void (async () => {
-              const votedIds = new Set(votedPostsRef.current);
-              await Promise.all(
-                newPosts.map(async (post) => {
-                  const voted = await checkVoted(post.id);
-                  if (voted) votedIds.add(post.id);
-                })
-              );
-              setVotedPosts(votedIds);
-            })();
+            const votedIds = new Set(votedPostsRef.current);
+            await Promise.all(
+              newPosts.map(async (post) => {
+                const voted = await checkVoted(post.id);
+                if (voted) votedIds.add(post.id);
+              })
+            );
+            setVotedPosts(votedIds);
           }
         }
         setPosts((prev) => [...prev, ...newPosts]);

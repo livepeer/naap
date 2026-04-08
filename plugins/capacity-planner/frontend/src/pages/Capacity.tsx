@@ -362,8 +362,6 @@ export const CapacityPage: React.FC = () => {
 
   const handleNewRequest = useCallback(
     async (request: CapacityRequest) => {
-      setRequests((prev) => [request, ...prev]);
-
       try {
         await apiCreateRequest({
           requesterName: request.requesterName,
@@ -385,7 +383,6 @@ export const CapacityPage: React.FC = () => {
         await loadRequests(currentUser.id);
       } catch (err) {
         console.error('[Capacity] Failed to create request:', err);
-        setRequests((prev) => prev.filter((r) => r.id !== request.id));
       }
     },
     [currentUser.id, loadRequests, refreshSummary]
