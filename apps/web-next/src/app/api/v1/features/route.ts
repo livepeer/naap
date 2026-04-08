@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
+import { ensureKnownFlags } from '@/lib/feature-flags';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -22,6 +23,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!sessionUser) {
       return errors.unauthorized('Invalid or expired session');
     }
+
+    await ensureKnownFlags();
 
     const allFlags = await prisma.featureFlag.findMany({
       select: { key: true, enabled: true },
