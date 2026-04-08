@@ -76,7 +76,7 @@ test.describe('Admin Team Feature Toggle @pre-release @teams', () => {
 
     // Step 2: Navigate to dashboard and check sidebar
     await page.goto('/dashboard');
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForLoadState('networkidle');
 
     // The "More" section may need expanding; look for the Teams link in the sidebar
     const sidebar = page.locator('aside');
@@ -111,7 +111,7 @@ test.describe('Admin Team Feature Toggle @pre-release @teams', () => {
 
     // Step 2: Navigate to dashboard and expand "More" section to find Teams link
     await page.goto('/dashboard');
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForLoadState('networkidle');
 
     // Expand "More" section if collapsed
     const moreButton = page.locator('aside').getByRole('button', { name: /More/i });
@@ -127,10 +127,16 @@ test.describe('Admin Team Feature Toggle @pre-release @teams', () => {
     await page.goto('/teams');
     await expect(page.getByRole('heading', { name: 'Teams' })).toBeVisible({ timeout: 15_000 });
 
-    // Should show either teams or "No teams yet" — not the disabled message
+    // Valid states when teams are enabled:
+    // 1. "No teams yet" heading (user has no teams)
+    // 2. Team cards in list (.space-y-3 h3)
+    // 3. "Create" button visible
     const noTeams = page.getByRole('heading', { name: 'No teams yet' });
     const teamCards = page.locator('.space-y-3 h3');
     const createButton = page.getByRole('button', { name: /Create/i });
-    await expect(noTeams.or(teamCards.first()).or(createButton)).toBeVisible({ timeout: 15_000 });
+    await expect(
+      noTeams.or(teamCards.first()).or(createButton),
+      'Expected teams page to show either "No teams yet", team cards, or a Create button'
+    ).toBeVisible({ timeout: 15_000 });
   });
 });

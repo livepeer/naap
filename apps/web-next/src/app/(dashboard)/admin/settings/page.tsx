@@ -14,6 +14,7 @@ import { Settings, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { Button, Toggle } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
+import { invalidateFeatureFlags } from '@/hooks/use-feature-flags';
 
 interface FeatureFlag {
   id: string;
@@ -85,22 +86,25 @@ export default function AdminSettingsPage() {
     setFeedback(null);
 
     try {
-      for (const flag of changed) {
-        const res = await fetch('/api/v1/admin/feature-flags', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ key: flag.key, enabled: flag.enabled }),
-        });
-        const data = await res.json();
-        if (!data.success) {
-          throw new Error(data.error?.message || `Failed to update ${flag.key}`);
-        }
+      const results = await Promise.all(
+        changed.map(flag =>
+          fetch('/api/v1/admin/feature-flags', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ key: flag.key, enabled: flag.enabled }),
+          }).then(res => res.json())
+        )
+      );
+      const failed = results.find(r => !r.success);
+      if (failed) {
+        throw new Error(failed.error?.message || 'Failed to update flags');
       }
 
       const newOriginal: Record<string, boolean> = {};
       for (const f of flags) newOriginal[f.key] = f.enabled;
       setOriginal(newOriginal);
+      invalidateFeatureFlags();
       setFeedback({ type: 'success', message: `Updated ${changed.length} feature flag${changed.length > 1 ? 's' : ''}` });
     } catch (err) {
       setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Failed to save' });

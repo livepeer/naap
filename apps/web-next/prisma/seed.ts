@@ -14,7 +14,7 @@
  * - System roles (4)
  * - Plugin admin roles (5)
  * - Test users with roles (7+)
- * - Feature flags (4)
+ * - Feature flags (6)
  * - Workflow plugins (auto-discovered from plugins/{name}/plugin.json)
  * - Marketplace packages (6+)
  * - Plugin deployments

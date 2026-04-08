@@ -102,7 +102,13 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated || !teamsEnabled) return;
+    if (!isAuthenticated) return;
+    if (!teamsEnabled) {
+      setCurrentTeam(null);
+      setTeams([]);
+      localStorage.removeItem('naap_current_team');
+      return;
+    }
     const ac = new AbortController();
     loadTeams(ac.signal);
     const savedTeamId = localStorage.getItem('naap_current_team');

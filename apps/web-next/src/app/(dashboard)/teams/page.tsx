@@ -61,8 +61,12 @@ export default function TeamListPage() {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    loadTeams();
-  }, []);
+    if (!flagsLoading && teamsEnabled) {
+      loadTeams();
+    } else if (!flagsLoading) {
+      setLoading(false);
+    }
+  }, [flagsLoading, teamsEnabled]);
 
   async function loadTeams() {
     try {

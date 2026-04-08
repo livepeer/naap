@@ -13,7 +13,7 @@
  * To add a new flag check, just read flags.<key> — no hook changes needed.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 type FlagMap = Record<string, boolean>;
 
@@ -25,6 +25,7 @@ interface FeatureFlagsState {
 
 let cachedFlags: FlagMap | null = null;
 let fetchPromise: Promise<FlagMap> | null = null;
+let globalRequestId = 0;
 
 async function fetchFlags(): Promise<FlagMap> {
   try {
@@ -59,24 +60,29 @@ export function invalidateFeatureFlags(): void {
 export function useFeatureFlags(): FeatureFlagsState {
   const [flags, setFlags] = useState<FlagMap>(cachedFlags || {});
   const [loading, setLoading] = useState(!cachedFlags);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    const thisRequest = ++globalRequestId;
+    requestIdRef.current = thisRequest;
     loadFlags().then(result => {
-      if (!cancelled) {
+      if (requestIdRef.current === thisRequest) {
         setFlags(result);
         setLoading(false);
       }
     });
-    return () => { cancelled = true; };
   }, []);
 
   const refresh = useCallback(() => {
+    const thisRequest = ++globalRequestId;
+    requestIdRef.current = thisRequest;
     invalidateFeatureFlags();
     setLoading(true);
     loadFlags().then(result => {
-      setFlags(result);
-      setLoading(false);
+      if (requestIdRef.current === thisRequest) {
+        setFlags(result);
+        setLoading(false);
+      }
     });
   }, []);
 

@@ -1,7 +1,7 @@
 /**
  * Admin Feature Flags API
  * GET  /api/v1/admin/feature-flags - List all feature flags (admin only)
- * PUT  /api/v1/admin/feature-flags - Update a feature flag by key (admin only)
+ * PUT  /api/v1/admin/feature-flags - Create or update a feature flag by key (admin only)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -55,7 +55,13 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       return errors.forbidden('Admin permission required');
     }
 
-    const body = await request.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return errors.badRequest('Malformed JSON body');
+    }
+
     const { key, enabled } = body;
 
     if (!key || typeof key !== 'string') {
@@ -65,13 +71,15 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       return errors.badRequest('enabled must be a boolean');
     }
 
+    const description = typeof body.description === 'string' ? body.description : null;
+
     const flag = await prisma.featureFlag.upsert({
       where: { key },
-      update: { enabled },
+      update: { enabled, description },
       create: {
         key,
         enabled,
-        description: body.description || null,
+        description,
       },
     });
 
