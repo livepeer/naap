@@ -168,7 +168,7 @@ jobs:
           fi
 
       - name: Send email notification
-        uses: dawidd6/action-send-mail@v5
+        uses: dawidd6/action-send-mail@v16
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT }}
