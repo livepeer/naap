@@ -7,10 +7,8 @@
  * users who don't have a preference record yet.
  *
  * NOTE: This GET endpoint performs a lazy write (auto-install) for core
- * plugins that haven't been provisioned for the user yet. This is a
- * deliberate design choice — it ensures core plugins are available on first
- * load without requiring a separate onboarding step. The operation is fully
- * idempotent (uses skipDuplicates) so repeated GETs produce the same result.
+ * plugins and for hidden preview plugins when the user is on previewTesterUserIds.
+ * Idempotent (skipDuplicates); Cache-Control: no-store.
  * Cache-Control: no-store is set to prevent HTTP caches from serving stale data.
  */
 
@@ -57,7 +55,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Also fetch visibleToUsers for admin-controlled visibility filtering.
     const publishedPackages = await prisma.pluginPackage.findMany({
       where: { publishStatus: 'published', deprecated: false },
-      select: { name: true, isCore: true, visibleToUsers: true },
+      select: { name: true, isCore: true, visibleToUsers: true, previewTesterUserIds: true },
     });
     const publishedNames = new Set(
       publishedPackages.map((p) => normalizePluginName(p.name))
@@ -66,6 +64,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       publishedPackages
         .filter((p) => !p.visibleToUsers)
         .map((p) => normalizePluginName(p.name))
+    );
+    const publishedPackageByNormalizedName = new Map(
+      publishedPackages.map((p) => [normalizePluginName(p.name), p])
     );
 
     // Get core plugin names from the database (admin-configurable via PluginPackage.isCore)
@@ -85,10 +86,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Apply publish-gate + visibility-gate. Deferred into a function so it
     // can be called after admin status is fully resolved (token OR DB lookup).
-    const applyVisibilityFilter = (adminFlag: boolean) =>
+    // Non-admins see hidden plugins only if their user id is on previewTesterUserIds
+    // for that package. Admins impersonating another user (userId query) use the
+    // target user's id for preview visibility; everyone else uses the session user.
+    const applyVisibilityFilter = (adminFlag: boolean, previewViewerUserId: string | null) =>
       publishedGlobalPlugins.filter((p) => {
-        if (!adminFlag && hiddenNames.has(normalizePluginName(p.name))) return false;
-        return true;
+        if (adminFlag) return true;
+        const norm = normalizePluginName(p.name);
+        if (!hiddenNames.has(norm)) return true;
+        const pkg = publishedPackageByNormalizedName.get(norm);
+        if (
+          previewViewerUserId &&
+          pkg?.previewTesterUserIds?.includes(previewViewerUserId)
+        ) {
+          return true;
+        }
+        return false;
       });
 
     // Headless plugins (no routes) are background data providers that must always
@@ -100,7 +113,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
 
     if (!userIdOrAddress) {
-      const visibleGlobalPlugins = applyVisibilityFilter(isAdmin);
+      const visibleGlobalPlugins = applyVisibilityFilter(isAdmin, null);
       return success({ plugins: visibleGlobalPlugins });
     }
 
@@ -111,7 +124,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     if (!user) {
-      const visibleGlobalPlugins = applyVisibilityFilter(isAdmin);
+      const visibleGlobalPlugins = applyVisibilityFilter(isAdmin, null);
       return success({ plugins: visibleGlobalPlugins });
     }
 
@@ -126,8 +139,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       isAdmin = userRoles.some((ur) => ur.role.name === 'system:admin');
     }
 
-    // Apply visibility filter with fully resolved admin status
-    const visibleGlobalPlugins = applyVisibilityFilter(isAdmin);
+    // Preview visibility: admins see packages as the target user would; others use session id only
+    const previewVisibilityUserId = isAdmin ? user.id : authenticatedUserId;
+    const visibleGlobalPlugins = applyVisibilityFilter(isAdmin, previewVisibilityUserId);
 
     // If team context, get team-specific plugin preferences
     if (teamId) {
@@ -260,9 +274,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         corePluginsToAutoInstall.push(plugin.name);
       }
     }
-    if (corePluginsToAutoInstall.length > 0) {
+    // Auto-install hidden preview plugins for allowlisted testers (same shape as core prefs)
+    const previewPluginsToAutoInstall: string[] = [];
+    for (const plugin of visibleGlobalPlugins) {
+      if (preferencesMap.has(plugin.name)) continue;
+      const norm = normalizePluginName(plugin.name);
+      const pkg = publishedPackageByNormalizedName.get(norm);
+      if (
+        pkg &&
+        !pkg.visibleToUsers &&
+        pkg.previewTesterUserIds?.includes(user.id)
+      ) {
+        previewPluginsToAutoInstall.push(plugin.name);
+      }
+    }
+    const prefsToCreate = [...new Set([...corePluginsToAutoInstall, ...previewPluginsToAutoInstall])];
+    if (prefsToCreate.length > 0) {
       await prisma.userPluginPreference.createMany({
-        data: corePluginsToAutoInstall.map((pluginName) => ({
+        data: prefsToCreate.map((pluginName) => ({
           userId: user.id,
           pluginName,
           enabled: true,
@@ -272,7 +301,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         skipDuplicates: true,
       });
       // Update the local map with the newly created preferences
-      for (const pluginName of corePluginsToAutoInstall) {
+      for (const pluginName of prefsToCreate) {
         preferencesMap.set(pluginName, {
           id: '',
           userId: user.id,

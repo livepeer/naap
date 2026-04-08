@@ -18,30 +18,52 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const sort = searchParams.get('sort') || 'downloads';
     const { page, pageSize, skip } = parsePagination(searchParams);
 
-    // Determine admin status for visibility filtering
+    // Determine admin status + session user for visibility filtering
     let isAdmin = false;
+    let sessionUserId: string | null = null;
     const token = getAuthToken(request);
     if (token) {
       const sessionUser = await validateSession(token);
       if (sessionUser) {
         isAdmin = sessionUser.roles?.includes('system:admin') ?? false;
+        sessionUserId = sessionUser.id;
       }
     }
 
-    const where: any = { deprecated: false, publishStatus: 'published' };
+    const andParts: Record<string, unknown>[] = [
+      { deprecated: false },
+      { publishStatus: 'published' },
+    ];
+
     if (!isAdmin) {
-      where.visibleToUsers = true;
+      if (sessionUserId) {
+        andParts.push({
+          OR: [
+            { visibleToUsers: true },
+            { previewTesterUserIds: { has: sessionUserId } },
+          ],
+        });
+      } else {
+        andParts.push({ visibleToUsers: true });
+      }
     }
-    if (category && category !== 'all') where.category = category;
-    
+
+    if (category && category !== 'all') {
+      andParts.push({ category });
+    }
+
     if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { displayName: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
-        { keywords: { has: search } },
-      ];
+      andParts.push({
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { displayName: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+          { keywords: { has: search } },
+        ],
+      });
     }
+
+    const where = { AND: andParts };
 
     const orderBy: any = {};
     if (sort === 'downloads') orderBy.downloads = 'desc';

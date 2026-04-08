@@ -459,6 +459,8 @@ model PluginPackage {
   isCore        Boolean              @default(false)
   publishStatus  String               @default("draft")
   visibleToUsers Boolean              @default(true)
+  /// When visibleToUsers is false, only admins and these user IDs see the plugin (sidebar + marketplace).
+  previewTesterUserIds String[]        @default([])
   publisherId    String?
   publisher      Publisher?           @relation("PackagePublisher", fields: [publisherId], references: [id])
   createdAt      DateTime             @default(now())

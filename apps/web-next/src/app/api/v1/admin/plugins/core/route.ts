@@ -49,6 +49,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         icon: true,
         isCore: true,
         visibleToUsers: true,
+        previewTesterUserIds: true,
       },
       orderBy: [{ isCore: 'desc' }, { displayName: 'asc' }],
     });
@@ -78,9 +79,10 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     }
 
     const body = await request.json();
-    const { corePluginNames, hiddenPluginNames } = body as {
+    const { corePluginNames, hiddenPluginNames, previewTesterUserIdsByPlugin } = body as {
       corePluginNames: string[];
       hiddenPluginNames?: string[];
+      previewTesterUserIdsByPlugin?: Record<string, string[]>;
     };
 
     if (!Array.isArray(corePluginNames)) {
@@ -146,6 +148,30 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
 
     await prisma.$transaction(txOps);
 
+    if (
+      previewTesterUserIdsByPlugin &&
+      typeof previewTesterUserIdsByPlugin === 'object' &&
+      !Array.isArray(previewTesterUserIdsByPlugin)
+    ) {
+      const allPkgs = await prisma.pluginPackage.findMany({
+        where: { deprecated: false },
+        select: { id: true, name: true },
+      });
+      const idByNormalized = new Map(
+        allPkgs.map((p) => [normalizePluginName(p.name), p.id])
+      );
+      for (const [rawName, ids] of Object.entries(previewTesterUserIdsByPlugin)) {
+        if (!Array.isArray(ids)) continue;
+        const resolvedId = idByNormalized.get(normalizePluginName(rawName));
+        if (!resolvedId) continue;
+        const cleaned = [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
+        await prisma.pluginPackage.update({
+          where: { id: resolvedId },
+          data: { previewTesterUserIds: cleaned },
+        });
+      }
+    }
+
     // Auto-install newly-core plugins for all existing users who don't have them
     if (newlyCore.length > 0) {
       const allUsers = await prisma.user.findMany({ select: { id: true } });
@@ -187,6 +213,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         icon: true,
         isCore: true,
         visibleToUsers: true,
+        previewTesterUserIds: true,
       },
       orderBy: [{ isCore: 'desc' }, { displayName: 'asc' }],
     });
