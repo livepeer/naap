@@ -210,7 +210,7 @@ export default function RegisterForm() {
       <div className="grid grid-cols-2 gap-2.5">
         <button
           type="button"
-          aria-label="Continue with Google"
+          aria-label={oauthLoadingProvider === 'google' ? 'Continue with Google' : undefined}
           aria-busy={oauthLoadingProvider === 'google'}
           disabled={isLoading || oauthLoadingProvider !== null}
           onClick={() => void handleOAuthRegister('google')}
@@ -232,7 +232,7 @@ export default function RegisterForm() {
         </button>
         <button
           type="button"
-          aria-label="Continue with GitHub"
+          aria-label={oauthLoadingProvider === 'github' ? 'Continue with GitHub' : undefined}
           aria-busy={oauthLoadingProvider === 'github'}
           disabled={isLoading || oauthLoadingProvider !== null}
           onClick={() => void handleOAuthRegister('github')}

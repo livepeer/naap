@@ -1,17 +1,27 @@
 import { test as setup, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { loginWithEmailPassword } from './helpers/auth-e2e';
 
 const authFile = 'playwright/.auth/user.json';
 const adminAuthFile = 'playwright/.auth/admin.json';
 
 /**
  * Authentication setup for E2E tests
- * This creates storage states that can be reused across tests
+ * When E2E_USER_EMAIL + E2E_USER_PASSWORD are set, performs a real login so
+ * storageState includes a session (required for production plugin/team tests).
+ * Otherwise saves anonymous state from the public landing page.
  */
 setup('authenticate', async ({ page }) => {
-  await page.goto('/');
-  await expect(page).toHaveTitle(/Livepeer|Dashboard/);
+  const email = process.env.E2E_USER_EMAIL?.trim();
+  const password = process.env.E2E_USER_PASSWORD;
+
+  if (email && password) {
+    await loginWithEmailPassword(page, email, password);
+  } else {
+    await page.goto('/');
+    await expect(page).toHaveTitle(/Livepeer|Dashboard/);
+  }
   await page.context().storageState({ path: authFile });
 });
 

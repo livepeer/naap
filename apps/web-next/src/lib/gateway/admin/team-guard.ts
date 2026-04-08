@@ -17,10 +17,15 @@
  * Returns 404 (not 403) for other scopes' resources to prevent enumeration.
  */
 
+import type { Prisma, ServiceConnector } from '@naap/database';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken, errors } from '@/lib/api/response';
 import { personalScopeId, scopeFilter as buildScopeFilter } from '@/lib/gateway/scope';
+
+export type ServiceConnectorWithEndpoints = Prisma.ServiceConnectorGetPayload<{
+  include: { endpoints: true };
+}>;
 
 export interface AdminContext {
   userId: string;
@@ -102,7 +107,10 @@ function visibleFilter(connectorId: string, scopeId: string) {
  * Load a connector by ID, verifying it belongs to the caller's scope
  * OR is a published public connector (visible to all authenticated users).
  */
-export async function loadConnector(connectorId: string, scopeId: string) {
+export async function loadConnector(
+  connectorId: string,
+  scopeId: string
+): Promise<ServiceConnector | null> {
   return prisma.serviceConnector.findFirst({
     where: visibleFilter(connectorId, scopeId),
   });
@@ -112,7 +120,10 @@ export async function loadConnector(connectorId: string, scopeId: string) {
  * Load a connector by ID, strictly within the caller's own scope.
  * Use for write operations (update/delete) where public fallback is NOT allowed.
  */
-export async function loadOwnedConnector(connectorId: string, scopeId: string) {
+export async function loadOwnedConnector(
+  connectorId: string,
+  scopeId: string
+): Promise<ServiceConnector | null> {
   return prisma.serviceConnector.findFirst({
     where: scopeFilter(connectorId, scopeId),
   });
@@ -122,7 +133,10 @@ export async function loadOwnedConnector(connectorId: string, scopeId: string) {
  * Load a connector by ID with its endpoints.
  * Same visibility rules as loadConnector.
  */
-export async function loadConnectorWithEndpoints(connectorId: string, scopeId: string) {
+export async function loadConnectorWithEndpoints(
+  connectorId: string,
+  scopeId: string
+): Promise<ServiceConnectorWithEndpoints | null> {
   return prisma.serviceConnector.findFirst({
     where: visibleFilter(connectorId, scopeId),
     include: { endpoints: true },

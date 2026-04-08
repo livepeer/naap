@@ -23,7 +23,7 @@ import {
   EyeOff,
   Network,
 } from 'lucide-react';
-import { Button, Input, Badge, Tabs, type Tab } from '@naap/ui';
+import { Button, Input, Badge, Tabs, Textarea, type Tab } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
 import { Search } from 'lucide-react';
@@ -43,6 +43,7 @@ interface PluginEntry {
   icon: string | null;
   isCore: boolean;
   visibleToUsers: boolean;
+  previewTesterUserIds: string[];
 }
 
 interface TemplateEntry {
@@ -120,7 +121,15 @@ function PluginsTab() {
       const res = await fetch('/api/v1/admin/plugins/core', { credentials: 'include' });
       const data = await res.json();
       if (data.success) {
-        setPlugins(data.data.plugins || []);
+        const raw = data.data.plugins || [];
+        setPlugins(
+          raw.map((p: PluginEntry & { previewTesterUserIds?: string[] }) => ({
+            ...p,
+            previewTesterUserIds: Array.isArray(p.previewTesterUserIds)
+              ? p.previewTesterUserIds
+              : [],
+          }))
+        );
       } else {
         setError(data.error?.message || 'Failed to load plugins');
       }
@@ -147,8 +156,28 @@ function PluginsTab() {
 
   const toggleVisibility = (pluginName: string) => {
     setPlugins((prev) =>
+      prev.map((p) => {
+        if (p.name !== pluginName) return p;
+        const nextVisible = !p.visibleToUsers;
+        return {
+          ...p,
+          visibleToUsers: nextVisible,
+          previewTesterUserIds: nextVisible ? [] : p.previewTesterUserIds,
+        };
+      })
+    );
+    setPendingChanges(true);
+    setSuccessMsg(null);
+  };
+
+  const setPreviewTesterIds = (pluginName: string, value: string) => {
+    const ids = value
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setPlugins((prev) =>
       prev.map((p) =>
-        p.name === pluginName ? { ...p, visibleToUsers: !p.visibleToUsers } : p
+        p.name === pluginName ? { ...p, previewTesterUserIds: ids } : p
       )
     );
     setPendingChanges(true);
@@ -164,11 +193,19 @@ function PluginsTab() {
       const corePluginNames = plugins.filter((p) => p.isCore).map((p) => p.name);
       const hiddenPluginNames = plugins.filter((p) => !p.visibleToUsers).map((p) => p.name);
 
+      const previewTesterUserIdsByPlugin = Object.fromEntries(
+        plugins.map((p) => [p.name, p.previewTesterUserIds || []])
+      );
+
       const res = await fetch('/api/v1/admin/plugins/core', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ corePluginNames, hiddenPluginNames }),
+        body: JSON.stringify({
+          corePluginNames,
+          hiddenPluginNames,
+          previewTesterUserIdsByPlugin,
+        }),
       });
 
       const data = await res.json();
@@ -243,6 +280,10 @@ function PluginsTab() {
             <ul className="list-disc list-inside space-y-0.5">
               <li><strong>Core</strong> plugins are auto-installed for all users and cannot be uninstalled</li>
               <li><strong>Hidden</strong> plugins are not shown in the sidebar or marketplace for non-admin users</li>
+              <li>
+                <strong>Preview testers</strong> (user IDs below, when hidden): selected users still see the plugin and get
+                it pre-installed like core
+              </li>
               <li>Admin users always see all published plugins regardless of visibility</li>
             </ul>
           </div>
@@ -276,6 +317,7 @@ function PluginsTab() {
                     plugin={plugin}
                     onToggleCore={toggleCore}
                     onToggleVisibility={toggleVisibility}
+                    onPreviewIdsChange={setPreviewTesterIds}
                   />
                 ))}
               </div>
@@ -295,6 +337,7 @@ function PluginsTab() {
                     plugin={plugin}
                     onToggleCore={toggleCore}
                     onToggleVisibility={toggleVisibility}
+                    onPreviewIdsChange={setPreviewTesterIds}
                   />
                 ))}
               </div>
@@ -319,10 +362,12 @@ function PluginRow({
   plugin,
   onToggleCore,
   onToggleVisibility,
+  onPreviewIdsChange,
 }: {
   plugin: PluginEntry;
   onToggleCore: (name: string) => void;
   onToggleVisibility: (name: string) => void;
+  onPreviewIdsChange: (name: string, raw: string) => void;
 }) {
   const getCategoryBadgeVariant = (category: string): 'secondary' | 'blue' | 'emerald' | 'amber' | 'rose' => {
     const map: Record<string, 'secondary' | 'blue' | 'emerald' | 'amber' | 'rose'> = {
@@ -339,12 +384,13 @@ function PluginRow({
 
   return (
     <div
-      className={`flex items-center gap-3 p-4 rounded-lg border transition-all ${
+      className={`flex flex-col rounded-lg border transition-all ${
         plugin.isCore
           ? 'bg-primary/5 border-primary/20'
           : 'bg-card border-border hover:border-border/80'
       } ${!plugin.visibleToUsers ? 'opacity-60' : ''}`}
     >
+      <div className="flex items-center gap-3 p-4">
       <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center text-muted-foreground flex-shrink-0">
         {getPluginIcon(plugin.icon)}
       </div>
@@ -357,6 +403,9 @@ function PluginRow({
           </Badge>
           {plugin.isCore && <Badge variant="amber">CORE</Badge>}
           {!plugin.visibleToUsers && <Badge variant="secondary">HIDDEN</Badge>}
+          {!plugin.visibleToUsers && plugin.previewTesterUserIds.length > 0 && (
+            <Badge variant="blue">PREVIEW</Badge>
+          )}
         </div>
         <p className="text-xs text-muted-foreground truncate mt-0.5">
           {plugin.description || plugin.name}
@@ -387,6 +436,21 @@ function PluginRow({
           {plugin.isCore ? 'Remove Core' : 'Make Core'}
         </Button>
       </div>
+      </div>
+      {!plugin.visibleToUsers && (
+        <div className="px-4 pb-4 pt-0 border-t border-border/60 mt-2">
+          <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">
+            Preview tester user IDs (comma or newline separated)
+          </label>
+          <Textarea
+            value={plugin.previewTesterUserIds.join('\n')}
+            onChange={(e) => onPreviewIdsChange(plugin.name, e.target.value)}
+            placeholder="e.g. clxxxxxxxx user uuid"
+            rows={3}
+            className="text-xs font-mono"
+          />
+        </div>
+      )}
     </div>
   );
 }

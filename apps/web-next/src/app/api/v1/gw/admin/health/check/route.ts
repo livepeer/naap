@@ -69,7 +69,8 @@ async function runHealthCheck(request: NextRequest) {
             connector.secretRefs,
             connector.allowedHosts,
             scopeId,
-            ''
+            '',
+            connector.slug,
           );
 
           let status = 'up';

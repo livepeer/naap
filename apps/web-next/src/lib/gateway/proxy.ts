@@ -110,7 +110,6 @@ export async function proxyToUpstream(
         headers: upstream.headers,
         body: upstream.body,
         signal: controller.signal,
-        // @ts-expect-error -- Next.js fetch option
         cache: 'no-store',
       });
 

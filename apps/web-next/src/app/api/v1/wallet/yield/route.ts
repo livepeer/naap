@@ -34,12 +34,29 @@ export async function GET(request: NextRequest) {
     const periodDays = parsePeriod(period);
     const since = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000);
 
+    const userWallets = await prisma.walletAddress.findMany({
+      where: { userId: user.id },
+      select: { address: true },
+    });
+    const addresses = userWallets.map((w) => w.address.toLowerCase());
+
+    if (addresses.length === 0) {
+      return success({
+        rewardYield: 0,
+        feeYield: 0,
+        combinedApy: 0,
+        periodDays,
+        dataPoints: 0,
+        chart: [],
+      });
+    }
+
     const snapshots = await prisma.walletStakingSnapshot.findMany({
       where: {
-        walletAddress: { userId: user.id },
-        snapshotAt: { gte: since },
+        address: { in: addresses },
+        createdAt: { gte: since },
       },
-      orderBy: { snapshotAt: 'asc' },
+      orderBy: { createdAt: 'asc' },
     });
 
     if (snapshots.length < 2) {
@@ -53,7 +70,7 @@ export async function GET(request: NextRequest) {
     const last = snapshots[snapshots.length - 1];
     const startBonded = first.bondedAmount;
 
-    if (startBonded.equals(0)) {
+    if (BigInt(startBonded) === 0n) {
       return success({
         rewardYield: 0, feeYield: 0, combinedApy: 0,
         periodDays, dataPoints: snapshots.length, chart: [],
@@ -79,7 +96,7 @@ export async function GET(request: NextRequest) {
       const r = Number((sg * PRECISION) / startBondedBig) / Number(PRECISION) * 100;
       const f = Number((fg * PRECISION) / startBondedBig) / Number(PRECISION) * 100;
       return {
-        date: s.snapshotAt.toISOString(),
+        date: s.createdAt.toISOString(),
         round: s.round,
         cumulativeRewardYield: parseFloat(r.toFixed(4)),
         cumulativeFeeYield: parseFloat(f.toFixed(4)),

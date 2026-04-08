@@ -43,7 +43,8 @@ export interface ValidationLocation {
   params?: ZodSchema;
 }
 
-export interface ValidationError {
+/** Structured 400 payload from Zod formatting (not the ValidationError class in errorHandler). */
+export interface StructuredValidationError {
   code: 'VALIDATION_ERROR';
   message: string;
   details: {
@@ -216,7 +217,7 @@ export function validateAll(
 /**
  * Format Zod error into structured validation error
  */
-function formatZodError(error: ZodError, prefix = ''): ValidationError {
+function formatZodError(error: ZodError, prefix = ''): StructuredValidationError {
   const errors = error.errors.map((err) => ({
     path: prefix ? `${prefix}.${err.path.join('.')}` : err.path.join('.'),
     message: err.message,

@@ -474,6 +474,21 @@ async function main() {
       version: '1.0.0',
       frontendUrl: getPluginUrl('dashboardDataProvider'),
     },
+    {
+      name: 'myWallet',
+      displayName: 'My Wallet',
+      description:
+        'MetaMask wallet integration for staking and Web3 transactions (example plugin for preview allowlist testing).',
+      category: 'finance',
+      author: 'NAAP Team',
+      authorEmail: 'team@naap.io',
+      repository: 'https://github.com/naap/plugins/tree/main/my-wallet',
+      license: 'MIT',
+      keywords: ['wallet', 'metamask', 'web3', 'staking', 'ethereum', 'livepeer'],
+      icon: 'Wallet',
+      version: '1.0.0',
+      frontendUrl: getPluginUrl('myWallet'),
+    },
   ];
 
   const deploymentIds: { packageId: string; deploymentId: string }[] = [];

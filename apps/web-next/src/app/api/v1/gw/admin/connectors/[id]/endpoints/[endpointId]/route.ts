@@ -8,6 +8,7 @@
 export const runtime = 'nodejs';
 
 import { NextRequest } from 'next/server';
+import { Prisma } from '@naap/database';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse, loadConnector, loadOwnedConnector } from '@/lib/gateway/admin/team-guard';
@@ -82,7 +83,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
   const endpoint = await prisma.connectorEndpoint.update({
     where: { id: endpointId },
-    data: parsed.data,
+    data: parsed.data as Prisma.ConnectorEndpointUpdateInput,
   });
 
   invalidateConnectorCache(ctx.teamId, connector.slug);

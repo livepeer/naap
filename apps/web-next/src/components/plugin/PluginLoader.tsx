@@ -200,7 +200,7 @@ export function PluginLoader({
 
       // Trusted plugins need auth token access (no strict sandboxing).
       // Determined from plugin metadata rather than a hardcoded list.
-      const pluginMeta = plugin as Record<string, unknown>;
+      const pluginMeta = plugin as unknown as Record<string, unknown>;
       const isCorePlugin = pluginMeta.trusted === true || !pluginMeta.thirdParty;
 
       // Apply sandboxing if enabled

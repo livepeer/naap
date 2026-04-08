@@ -178,7 +178,6 @@ export function createPluginMount(options: CreatePluginMountOptions): {
       // Don't null out root/container here -- if StrictMode remounts into the
       // same container before the microtask fires, we need to detect and reuse it.
       const rootToUnmount = root;
-      const containerToClean = currentContainer;
       if (rootToUnmount) {
         queueMicrotask(() => {
           // Only unmount if no new mount happened since this cleanup was scheduled

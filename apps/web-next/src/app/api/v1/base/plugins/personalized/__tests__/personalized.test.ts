@@ -21,12 +21,14 @@ interface MockPublishedPackage {
   name: string;
   isCore: boolean;
   visibleToUsers: boolean;
+  previewTesterUserIds?: string[];
 }
 
 function applyFilters(
   globalPlugins: MockPlugin[],
   publishedPackages: MockPublishedPackage[],
-  isAdmin: boolean
+  isAdmin: boolean,
+  previewViewerUserId: string | null = null
 ): MockPlugin[] {
   const publishedNames = new Set(
     publishedPackages.map((p) => normalizePluginName(p.name))
@@ -36,12 +38,23 @@ function applyFilters(
       .filter((p) => !p.visibleToUsers)
       .map((p) => normalizePluginName(p.name))
   );
+  const pkgByNorm = new Map(
+    publishedPackages.map((p) => [normalizePluginName(p.name), p])
+  );
 
   return globalPlugins.filter((p) => {
     const normalized = normalizePluginName(p.name);
     if (!publishedNames.has(normalized)) return false;
-    if (!isAdmin && hiddenNames.has(normalized)) return false;
-    return true;
+    if (isAdmin) return true;
+    if (!hiddenNames.has(normalized)) return true;
+    const pkg = pkgByNorm.get(normalized);
+    if (
+      previewViewerUserId &&
+      pkg?.previewTesterUserIds?.includes(previewViewerUserId)
+    ) {
+      return true;
+    }
+    return false;
   });
 }
 
@@ -74,8 +87,13 @@ const makeHeadlessPlugin = (name: string): MockPlugin => ({
 
 const makePackage = (
   name: string,
-  { isCore = false, visibleToUsers = true } = {}
-): MockPublishedPackage => ({ name, isCore, visibleToUsers });
+  opts: Partial<Omit<MockPublishedPackage, 'name'>> = {}
+): MockPublishedPackage => ({
+  name,
+  isCore: opts.isCore ?? false,
+  visibleToUsers: opts.visibleToUsers ?? true,
+  previewTesterUserIds: opts.previewTesterUserIds ?? [],
+});
 
 describe('Personalized API: publish-gate', () => {
   it('excludes plugin with no published PluginPackage', () => {
@@ -165,6 +183,52 @@ describe('Personalized API: visibility-gate', () => {
     const headless = extractHeadlessPlugins(globalPlugins, publishedPackages);
     expect(headless).toHaveLength(1);
     expect(headless[0].name).toBe('bg-provider');
+  });
+});
+
+
+describe('Personalized API: preview tester allowlist', () => {
+  it('shows hidden plugin to allowlisted user', () => {
+    const globalPlugins = [makePlugin('my-wallet'), makePlugin('public-plugin')];
+    const publishedPackages = [
+      makePackage('my-wallet', {
+        visibleToUsers: false,
+        previewTesterUserIds: ['user-preview-1'],
+      }),
+      makePackage('public-plugin'),
+    ];
+
+    const result = applyFilters(
+      globalPlugins,
+      publishedPackages,
+      false,
+      'user-preview-1'
+    );
+
+    expect(result.map((p) => p.name).sort()).toEqual(['my-wallet', 'public-plugin']);
+  });
+
+  it('hides hidden plugin from non-allowlisted user', () => {
+    const globalPlugins = [makePlugin('my-wallet')];
+    const publishedPackages = [
+      makePackage('my-wallet', {
+        visibleToUsers: false,
+        previewTesterUserIds: ['user-preview-1'],
+      }),
+    ];
+
+    const result = applyFilters(globalPlugins, publishedPackages, false, 'other-user');
+    expect(result).toHaveLength(0);
+  });
+
+  it('hides hidden plugin with empty allowlist for non-admin', () => {
+    const globalPlugins = [makePlugin('secret')];
+    const publishedPackages = [
+      makePackage('secret', { visibleToUsers: false, previewTesterUserIds: [] }),
+    ];
+
+    const result = applyFilters(globalPlugins, publishedPackages, false, 'any-user');
+    expect(result).toHaveLength(0);
   });
 });
 

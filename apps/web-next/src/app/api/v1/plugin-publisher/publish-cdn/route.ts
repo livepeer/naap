@@ -91,7 +91,7 @@ async function uploadToCDN(
         'Content-Type': asset.contentType,
         'x-vercel-blob-cache-control-max-age': asset.type === 'manifest' ? '300' : '31536000',
       },
-      body: asset.content,
+      body: new Uint8Array(asset.content),
     });
 
     if (!response.ok) {

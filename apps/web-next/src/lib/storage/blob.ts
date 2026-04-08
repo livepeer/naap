@@ -121,7 +121,11 @@ export class LocalStorageAdapter implements StorageAdapter {
     } else if (file instanceof ArrayBuffer) {
       blob = new Blob([file], { type: options.contentType });
     } else {
-      blob = new Blob([file], { type: options.contentType });
+      const buf = file as Buffer;
+      blob = new Blob(
+        [new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) as BlobPart],
+        { type: options.contentType }
+      );
     }
 
     formData.append('file', blob, path);

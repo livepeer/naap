@@ -19,6 +19,13 @@ const REQUIRED_ARTIFACTS = [
       'packages/cache/dist/index.d.ts',
     ],
   },
+  {
+    name: '@naap/plugin-sdk',
+    files: [
+      'packages/plugin-sdk/dist/plugin-sdk/src/index.js',
+      'packages/plugin-sdk/dist/plugin-sdk/src/index.d.ts',
+    ],
+  },
 ];
 
 function exists(relPath) {
@@ -47,6 +54,7 @@ function runBuild(logPath) {
     'build',
     '--workspace=@naap/plugin-build',
     '--workspace=@naap/cache',
+    '--workspace=@naap/plugin-sdk',
   ];
 
   const res = spawnSync('npm', args, {

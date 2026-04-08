@@ -7,6 +7,7 @@
 export const runtime = 'nodejs';
 
 import { NextRequest } from 'next/server';
+import { Prisma } from '@naap/database';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse, loadOwnedConnector } from '@/lib/gateway/admin/team-guard';
@@ -86,7 +87,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
             connectorId: id,
             category: r.category,
             modelName,
-          },
+          } as unknown as Prisma.ConnectorCapabilityRankingConnectorIdCategoryModelNameCompoundUniqueInput,
         },
         create: {
           connectorId: id,

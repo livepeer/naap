@@ -1,11 +1,15 @@
 # ---------------------------------------------------------------------------
 # Detect Prisma schema changes and flag PRs that include database migrations.
 # Adds a label, posts a warning comment, and requests a core team review.
+#
+# Uses pull_request_target + pulls.listFiles API only (no checkout of PR
+# HEAD) so GITHUB_TOKEN can write labels on fork PRs without running
+# untrusted code from the PR branch.
 # ---------------------------------------------------------------------------
 name: Migration Check
 
 on:
-  pull_request:
+  pull_request_target:
 
 permissions:
   contents: read
@@ -16,27 +20,28 @@ jobs:
     name: Check for Prisma schema changes
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Detect Prisma file changes
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            prisma:
-              - '**/*.prisma'
-
       - name: Flag migration PR
-        if: steps.filter.outputs.prisma == 'true'
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const prNumber = context.payload.pull_request.number;
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 100,
+            });
+
+            const hasPrisma = files.some((f) => f.filename?.endsWith('.prisma'));
+            if (!hasPrisma) {
+              core.info('No Prisma schema changes in this PR');
+              return;
+            }
+
             const marker = '<!-- migration-check-bot -->';
 
-            // Add migration label
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -44,14 +49,13 @@ jobs:
               labels: ['has-migration'],
             });
 
-            // Check for existing bot comment to avoid duplicates
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
             });
 
-            if (!comments.some(c => c.body.includes(marker))) {
+            if (!comments.some((c) => c.body.includes(marker))) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,

@@ -95,11 +95,15 @@ export function createPluginRegistry(): PluginRegistryService {
       const bundlePath = getBundlePath(manifest.name, manifest.version);
 
       // Upload bundle to storage
-      const bundleResult = await storage.upload(
-        bundleFile instanceof Blob ? bundleFile : new Blob([bundleFile]),
-        bundlePath,
-        { contentType: 'application/javascript' }
-      );
+      const bundleBlob =
+        bundleFile instanceof Blob
+          ? bundleFile
+          : new Blob([
+              new Uint8Array(bundleFile.buffer, bundleFile.byteOffset, bundleFile.byteLength) as BlobPart,
+            ]);
+      const bundleResult = await storage.upload(bundleBlob, bundlePath, {
+        contentType: 'application/javascript',
+      });
 
       const version: PluginVersion = {
         version: manifest.version,
@@ -214,11 +218,15 @@ export function createPluginRegistry(): PluginRegistryService {
       const bundlePath = getBundlePath(manifest.name, manifest.version);
 
       // Upload new bundle
-      const bundleResult = await storage.upload(
-        bundleFile instanceof Blob ? bundleFile : new Blob([bundleFile]),
-        bundlePath,
-        { contentType: 'application/javascript' }
-      );
+      const bundleBlob =
+        bundleFile instanceof Blob
+          ? bundleFile
+          : new Blob([
+              new Uint8Array(bundleFile.buffer, bundleFile.byteOffset, bundleFile.byteLength) as BlobPart,
+            ]);
+      const bundleResult = await storage.upload(bundleBlob, bundlePath, {
+        contentType: 'application/javascript',
+      });
 
       const newVersion: PluginVersion = {
         version: manifest.version,

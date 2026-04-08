@@ -31,21 +31,30 @@
       "@naap/types": ["../../packages/types/src/index.ts"],
       "@naap/theme": ["../../packages/theme/src/index.ts"],
       "@naap/utils": ["../../packages/utils/src/index.ts"],
-      "@naap/config": ["../../packages/config/src/index.ts"],
-      "@naap/plugin-sdk": ["../../packages/plugin-sdk/src/index.ts"]
+      "@naap/config": ["../../packages/config/src/index.ts"]
     }
   },
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts"
+    ".next/types/**/*.ts",
+    "../../packages/ui/src/**/*.ts",
+    "../../packages/ui/src/**/*.tsx",
+    "../../packages/types/src/**/*.ts",
+    "../../packages/theme/src/**/*.ts",
+    "../../packages/utils/src/**/*.ts",
+    "../../packages/config/src/**/*.ts"
   ],
   "exclude": [
     "node_modules",
     ".next",
     "vitest.config.ts",
     "src/__tests__/**",
+    "tests/**",
+    "src/lib/**/__tests__/**",
+    "../../packages/**/src/__tests__/**",
+    "../../packages/**/src/**/*.test.ts",
     "prisma/**"
   ]
 }

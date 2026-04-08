@@ -33,9 +33,17 @@ export async function GET(request: NextRequest) {
       }
 
       if (alert.type === 'unbonding_ready') {
-        const readyLocks = await prisma.walletUnbondingLock.count({
-          where: { walletAddress: { userId: alert.userId }, status: 'withdrawable' },
+        const userWallets = await prisma.walletAddress.findMany({
+          where: { userId: alert.userId },
+          select: { address: true },
         });
+        const addresses = userWallets.map((w) => w.address);
+        const readyLocks =
+          addresses.length === 0
+            ? 0
+            : await prisma.walletUnbondingLock.count({
+                where: { address: { in: addresses }, status: 'withdrawable' },
+              });
         if (readyLocks > 0) {
           const recent = await prisma.walletAlertHistory.findFirst({
             where: { alertId: alert.id, createdAt: { gte: new Date(Date.now() - 86400000) } },

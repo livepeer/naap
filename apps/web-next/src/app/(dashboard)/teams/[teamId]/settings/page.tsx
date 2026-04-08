@@ -10,10 +10,8 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   Settings,
   ArrowLeft,
-  Trash2,
   AlertTriangle,
   Loader2,
-  Crown
 } from 'lucide-react';
 import { Button, Input, Textarea, Label, Select, Modal } from '@naap/ui';
 

@@ -7,6 +7,7 @@
 export const runtime = 'nodejs';
 
 import { NextRequest } from 'next/server';
+import { Prisma } from '@naap/database';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse, loadConnector, loadOwnedConnector } from '@/lib/gateway/admin/team-guard';
@@ -78,7 +79,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       data: {
         connectorId: id,
         ...parsed.data,
-      },
+      } as Prisma.ConnectorEndpointUncheckedCreateInput,
     });
 
     invalidateConnectorCache(ctx.teamId, connector.slug);

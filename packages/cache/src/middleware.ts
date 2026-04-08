@@ -12,7 +12,6 @@ import {
   standardLimiter,
   relaxedLimiter,
   pluginLimiter,
-  RateLimitResult,
 } from './rateLimiter.js';
 
 /**

@@ -105,6 +105,10 @@ export const errors = {
   rateLimited: (retryAfter: number) =>
     error('RATE_LIMITED', 'Too many requests', 429, { retryAfter }),
 
+  /** HTTP 429 with a clear message (Retry-After hint in meta via details). */
+  tooManyRequests: (message: string = 'Too many requests') =>
+    error('RATE_LIMITED', message, 429, { retryAfter: 60 }),
+
   accountLocked: (lockedUntil: Date) =>
     error('ACCOUNT_LOCKED', 'Account is temporarily locked', 423, {
       lockedUntil: lockedUntil.toISOString()

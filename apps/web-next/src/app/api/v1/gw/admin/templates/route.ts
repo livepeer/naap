@@ -6,7 +6,8 @@
 
 export const runtime = 'nodejs';
 
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@naap/database';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
@@ -65,6 +66,12 @@ async function createConnectorFromTemplate(
   const slug = overrides?.slug || conn.slug;
   const upstreamBaseUrl = overrides?.upstreamBaseUrl || conn.upstreamBaseUrl;
 
+  if (!upstreamBaseUrl?.trim()) {
+    return errors.badRequest(
+      'Missing upstreamBaseUrl: set it on the template or pass overrides.upstreamBaseUrl'
+    );
+  }
+
   if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
     return errors.badRequest('Slug must be lowercase alphanumeric with hyphens');
   }
@@ -101,12 +108,12 @@ async function createConnectorFromTemplate(
         createdBy: ctx.userId,
         slug,
         displayName: conn.displayName,
-        description: conn.description || template.description,
+        description: conn.description ?? template.description ?? '',
         category: template.category,
         upstreamBaseUrl,
         allowedHosts,
         authType: conn.authType,
-        authConfig: conn.authConfig || {},
+        authConfig: (conn.authConfig ?? {}) as Prisma.InputJsonValue,
         secretRefs: conn.secretRefs,
         streamingEnabled: conn.streamingEnabled ?? false,
         responseWrapper: conn.responseWrapper ?? true,
@@ -194,6 +201,10 @@ export async function POST(request: NextRequest) {
       : undefined;
 
     const result = await createConnectorFromTemplate(template, ctx, overrides);
+
+    if (result instanceof NextResponse) {
+      return result;
+    }
 
     if ('error' in result) {
       results.push({

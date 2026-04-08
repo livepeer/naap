@@ -23,6 +23,8 @@ export interface ConnectorTemplateEndpoint {
   bodyBlacklist?: string[];
   bodyPattern?: string;
   bodySchema?: unknown;
+  /** Optional static body for GET-as-POST patterns (persisted on ConnectorEndpoint). */
+  upstreamStaticBody?: string | null;
 }
 
 export interface ConnectorTemplateConnector {

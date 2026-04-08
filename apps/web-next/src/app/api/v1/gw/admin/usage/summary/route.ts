@@ -10,7 +10,7 @@ export const runtime = 'nodejs';
 
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
-import { success, errors } from '@/lib/api/response';
+import { success } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard';
 
 export async function GET(request: NextRequest) {

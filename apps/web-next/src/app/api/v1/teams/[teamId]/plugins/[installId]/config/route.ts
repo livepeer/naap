@@ -9,7 +9,7 @@ import { getAuthToken, errors } from '@/lib/api/response';
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ teamId: string; installId: string }> }
-) {
+): Promise<NextResponse> {
   try {
     const { teamId, installId } = await params;
 
@@ -73,7 +73,7 @@ export async function PUT(
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ teamId: string; installId: string }> }
-) {
+): Promise<NextResponse> {
   try {
     const { teamId, installId } = await params;
 

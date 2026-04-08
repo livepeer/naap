@@ -41,7 +41,7 @@ export async function bffStaleWhileRevalidate<T>(
     softTtlSec,
     hardTtlSec,
     lockTtlSec,
-    scheduleBackground: (work) => {
+    scheduleBackground: (work: () => Promise<void>) => {
       after(work);
     },
     label,

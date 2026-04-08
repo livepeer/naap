@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { History, Tag, Calendar, GitBranch, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
-import { Badge, Button } from '@naap/ui';
+import { Badge } from '@naap/ui';
 
 interface Release {
   id: string;

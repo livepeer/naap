@@ -3,8 +3,9 @@
 # ---------------------------------------------------------------------------
 name: PR Size
 
+# pull_request_target: required to add labels on PRs opened from forks.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize]
 
 permissions:

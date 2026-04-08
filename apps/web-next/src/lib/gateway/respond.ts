@@ -18,7 +18,7 @@ export async function buildResponse(
   proxyResult: ProxyResult,
   requestId: string | null,
   traceId: string | null
-): Response | Promise<Response> {
+): Promise<Response> {
   const { response, upstreamLatencyMs, cached } = proxyResult;
   const { connector, endpoint } = config;
 

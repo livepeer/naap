@@ -34,6 +34,7 @@ export async function GET(
       return errors.notFound(`Plugin ${pluginName} not found`);
     }
 
+    const manifest = plugin.manifest as unknown as Record<string, unknown>;
     return success({
       name: plugin.manifest.name,
       displayName: plugin.manifest.displayName,
@@ -41,13 +42,13 @@ export async function GET(
       version: plugin.currentVersion,
       versions: plugin.versions,
       author: plugin.manifest.author,
-      homepage: plugin.manifest.homepage,
-      repository: plugin.manifest.repository,
-      license: plugin.manifest.license,
+      homepage: manifest.homepage,
+      repository: manifest.repository,
+      license: manifest.license,
       icon: plugin.manifest.icon,
       routes: plugin.manifest.routes,
-      permissions: plugin.manifest.permissions,
-      dependencies: plugin.manifest.dependencies,
+      permissions: manifest.permissions,
+      dependencies: manifest.dependencies,
       bundleUrl: plugin.bundleUrl,
       enabled: plugin.enabled,
       order: plugin.manifest.order,

@@ -3,52 +3,52 @@
   "version": "0.1.0",
   "description": "SDK for developing NAAP plugins",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/plugin-sdk/src/index.js",
+  "types": "./dist/plugin-sdk/src/index.d.ts",
   "bin": {
-    "naap-plugin": "./dist/cli/index.js"
+    "naap-plugin": "./dist/plugin-sdk/cli/index.js"
   },
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./dist/plugin-sdk/src/index.js",
+      "types": "./dist/plugin-sdk/src/index.d.ts"
     },
     "./hooks": {
-      "import": "./dist/hooks/index.js",
-      "types": "./dist/hooks/index.d.ts"
+      "import": "./dist/plugin-sdk/src/hooks/index.js",
+      "types": "./dist/plugin-sdk/src/hooks/index.d.ts"
     },
     "./components": {
-      "import": "./dist/components/index.js",
-      "types": "./dist/components/index.d.ts"
+      "import": "./dist/plugin-sdk/src/components/index.js",
+      "types": "./dist/plugin-sdk/src/components/index.d.ts"
     },
     "./integrations": {
-      "import": "./dist/integrations/index.js",
-      "types": "./dist/integrations/index.d.ts"
+      "import": "./dist/plugin-sdk/src/integrations/index.js",
+      "types": "./dist/plugin-sdk/src/integrations/index.d.ts"
     },
     "./types": {
-      "import": "./dist/types/index.js",
-      "types": "./dist/types/index.d.ts"
+      "import": "./dist/plugin-sdk/src/types/index.js",
+      "types": "./dist/plugin-sdk/src/types/index.d.ts"
     },
     "./testing": {
-      "import": "./dist/testing/index.js",
-      "types": "./dist/testing/index.d.ts"
+      "import": "./dist/plugin-sdk/src/testing/index.js",
+      "types": "./dist/plugin-sdk/src/testing/index.d.ts"
     },
     "./umd": {
-      "import": "./dist/umd/index.js",
-      "require": "./dist/umd/naap-plugin-sdk.js",
-      "types": "./dist/umd/naap-plugin-sdk.d.ts"
+      "import": "./dist/plugin-sdk/src/umd/index.js",
+      "require": "./dist/plugin-sdk/src/umd/naap-plugin-sdk.js",
+      "types": "./dist/plugin-sdk/src/umd/naap-plugin-sdk.d.ts"
     },
     "./ai": {
-      "import": "./dist/ai/index.js",
-      "types": "./dist/ai/index.d.ts"
+      "import": "./dist/plugin-sdk/src/ai/index.js",
+      "types": "./dist/plugin-sdk/src/ai/index.d.ts"
     },
     "./config": {
-      "import": "./dist/config/index.js",
-      "types": "./dist/config/index.d.ts"
+      "import": "./dist/plugin-sdk/src/config/index.js",
+      "types": "./dist/plugin-sdk/src/config/index.d.ts"
     },
     "./contracts": {
-      "import": "./dist/contracts/index.js",
-      "types": "./dist/contracts/index.d.ts"
+      "import": "./dist/plugin-sdk/src/contracts/index.js",
+      "types": "./dist/plugin-sdk/src/contracts/index.d.ts"
     }
   },
   "scripts": {

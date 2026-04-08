@@ -4,8 +4,10 @@
 # ---------------------------------------------------------------------------
 name: PR Labeler
 
+# pull_request_target: GITHUB_TOKEN can label/comment on PRs from forks (read-only token on pull_request).
+# This job does not checkout untrusted PR code; labeler resolves paths via the GitHub API.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
 
 permissions:

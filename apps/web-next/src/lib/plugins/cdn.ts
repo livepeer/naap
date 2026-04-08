@@ -220,7 +220,7 @@ export function preloadPluginResources(info: PluginBundleInfo): void {
  * Generates integrity hash for Subresource Integrity (SRI)
  * Note: This should be called with the actual content, not just the URL
  */
-export async function generateIntegrityHash(content: ArrayBuffer): Promise<string> {
+export async function generateIntegrityHash(content: BufferSource): Promise<string> {
   const hashBuffer = await crypto.subtle.digest('SHA-384', content);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hashBase64 = btoa(String.fromCharCode(...hashArray));

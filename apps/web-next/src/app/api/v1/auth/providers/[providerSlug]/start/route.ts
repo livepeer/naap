@@ -101,12 +101,9 @@ export async function POST(
 
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
     if (!checkRateLimit(`billing-auth:${clientIp}`)) {
-      return errors.tooManyRequests
-        ? errors.tooManyRequests('Too many authentication requests. Please try again later.')
-        : new NextResponse(
-            JSON.stringify({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many authentication requests. Please try again later.' } }),
-            { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '60' } }
-          );
+      return errors.tooManyRequests(
+        'Too many authentication requests. Please try again later.'
+      );
     }
 
     const providerAuthUrl = resolveProviderAuthUrl(providerSlug);

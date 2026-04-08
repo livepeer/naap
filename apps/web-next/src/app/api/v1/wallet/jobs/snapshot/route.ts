@@ -14,26 +14,36 @@ export async function GET(request: NextRequest) {
   if (secret !== cronSecret) return errors.unauthorized('Invalid cron secret');
 
   try {
-    const addresses = await prisma.walletAddress.findMany({
-      where: { stakingStates: { some: {} } },
-      include: { stakingStates: true },
+    const states = await prisma.walletStakingState.findMany({
+      where: {
+        OR: [{ stakedAmount: { not: '0' } }, { delegatedTo: { not: null } }],
+      },
     });
 
     let count = 0;
-    for (const addr of addresses) {
-      for (const state of addr.stakingStates) {
-        await prisma.walletStakingSnapshot.create({
-          data: {
-            walletAddressId: addr.id,
-            orchestratorAddr: state.delegatedTo || '',
-            bondedAmount: state.stakedAmount || '0',
-            pendingStake: state.pendingRewards || '0',
-            pendingFees: state.pendingFees || '0',
-            round: 0,
-          },
-        });
-        count++;
-      }
+    for (const state of states) {
+      const addr = state.address.toLowerCase();
+      const round = Number.parseInt(state.startRound ?? '0', 10) || 0;
+      await prisma.walletStakingSnapshot.upsert({
+        where: {
+          address_round: { address: addr, round },
+        },
+        create: {
+          address: addr,
+          orchestrator: state.delegatedTo ?? '',
+          round,
+          bondedAmount: state.stakedAmount,
+          pendingStake: state.pendingRewards,
+          pendingFees: state.pendingFees,
+        },
+        update: {
+          orchestrator: state.delegatedTo ?? '',
+          bondedAmount: state.stakedAmount,
+          pendingStake: state.pendingRewards,
+          pendingFees: state.pendingFees,
+        },
+      });
+      count++;
     }
 
     return success({ snapshots: count });
