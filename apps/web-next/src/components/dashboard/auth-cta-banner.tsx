@@ -24,11 +24,11 @@ export function AuthCTABanner() {
   };
 
   return (
-    <div className="relative flex items-center justify-between gap-4 px-4 py-3 rounded-lg bg-muted/50 border border-border/60">
-      <p className="text-[13px] text-muted-foreground">
+    <div className="relative flex flex-col gap-3 px-4 py-3 rounded-lg bg-muted/50 border border-border/60 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <p className="min-w-0 text-[13px] text-muted-foreground">
         You&apos;re viewing the live Livepeer network. Sign in to manage orchestrators, deploy pipelines, and access your wallet.
       </p>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex flex-wrap items-center gap-2 shrink-0 sm:justify-end">
         <Link
           href="/login"
           className="px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors"

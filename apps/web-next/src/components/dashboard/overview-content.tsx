@@ -447,7 +447,7 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
   };
 
   return (
-    <div className="p-3 rounded-lg bg-card border border-border shrink-0 grid grid-cols-2 gap-3 content-start">
+    <div className="grid shrink-0 grid-cols-2 gap-2 content-start rounded-lg border border-border bg-card p-2 sm:gap-3 sm:p-3">
       {tile(CheckCircle2, `Success Rate (${tfLabel})`, `${data.successRate.value}%`)}
       {tile(Server, `Orchestrators (${tfLabel})`, data.orchestratorsOnline.value)}
       {tile(Clock, `Usage (${tfLabel})`, formatNumber(data.dailyUsageMins.value), 'mins', data.hourlyUsage, 'Total transcoding minutes. Sparkline: one bar per UTC hour.')}
@@ -475,9 +475,9 @@ function ProtocolCard({ data, className }: { data: DashboardProtocol; className?
             <span className="text-xl font-semibold text-foreground font-mono">Round {data.currentRound.toLocaleString()}</span>
           </div>
           <div className="mt-2">
-            <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+            <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground mb-1 sm:flex-row sm:items-center sm:justify-between sm:text-xs">
               <span>Block Progress</span>
-              <span>{progressPct}% ({data.blockProgress.toLocaleString()} / {data.totalBlocks.toLocaleString()})</span>
+              <span className="font-mono tabular-nums break-all sm:break-normal sm:text-right">{progressPct}% ({data.blockProgress.toLocaleString()} / {data.totalBlocks.toLocaleString()})</span>
             </div>
             <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div
@@ -527,23 +527,23 @@ function FeesCard({ data, className }: { data: DashboardFeesInfo; className?: st
 
   return (
     <div className={className ?? 'p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col'}>
-      <div className="flex items-start justify-between mb-3 shrink-0">
-        <div className="space-y-1">
+      <div className="flex flex-col gap-3 mb-3 shrink-0 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2">
             <div className="p-1 rounded-md bg-muted text-muted-foreground">
               <Coins className="w-3.5 h-3.5" />
             </div>
             <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Fees Paid</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-lg font-semibold text-foreground font-mono">{formatUsd(displayValue)}</span>
             {!hovered && pctChange != null ? <DeltaBadge value={pctChange} unit="%" /> : null}
           </div>
-          <div className="text-[10px] text-muted-foreground">
+          <div className="text-[10px] text-muted-foreground break-words">
             {displayDate ?? (grouping === 'day' ? 'Latest day' : 'Latest full week')} • Total {formatUsdCompact(data.totalUsd)} ({data.totalEth.toFixed(2)} ETH)
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 self-end shrink-0 sm:self-start">
           <button
             onClick={() => setRawOpen((v) => !v)}
             className={`p-1 rounded transition-colors ${rawOpen ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'}`}
@@ -601,7 +601,7 @@ function FeesCard({ data, className }: { data: DashboardFeesInfo; className?: st
 
 function ProtocolFeesCard({ protocol, fees }: { protocol: DashboardProtocol; fees: DashboardFeesInfo }) {
   return (
-    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-4 rounded-lg border border-border bg-card p-3 sm:p-4">
       <ProtocolCard data={protocol} className="flex flex-col shrink-0" />
       <div className="border-t border-border/50" />
       <FeesCard data={fees} className="flex flex-col flex-1 min-h-0" />
@@ -1017,7 +1017,7 @@ function PipelinesCard({
   const tdNum = 'py-1 px-2 text-right tabular-nums align-top whitespace-nowrap';
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border flex flex-col min-h-[240px] max-h-[min(72vh,680px)] overflow-hidden">
+    <div className="p-3 rounded-lg bg-card border border-border flex flex-col min-h-[240px] max-h-[min(72vh,680px)] min-w-0 overflow-hidden sm:p-4">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-3 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0" title="GPU column from network capacity API">
@@ -1041,8 +1041,8 @@ function PipelinesCard({
       {sortedCatalog.length === 0 ? (
         <p className="text-xs text-muted-foreground py-4 text-center">No pipeline data available</p>
       ) : (
-        <div className="flex-1 min-h-0 overflow-auto rounded-md border border-border/60">
-          <table className="w-full table-fixed text-[11px] border-collapse">
+        <div className="flex-1 min-h-0 min-w-0 overflow-auto rounded-md border border-border/60 overscroll-x-contain">
+          <table className="w-full min-w-[640px] table-fixed text-[11px] border-collapse">
             <colgroup>
               <col className="min-w-0 w-[30%]" />
               <col className="w-[9%]" />
@@ -1254,13 +1254,13 @@ function JobFeedCard({
   };
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border h-full min-h-0 flex flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 mb-3 shrink-0">
+    <div className="flex h-full min-h-0 flex-col rounded-lg border border-border bg-card p-3 sm:p-4">
+      <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-2 mb-3 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <div className="p-1 rounded-md bg-muted text-emerald-400 shrink-0"><Zap className="w-3.5 h-3.5" /></div>
           <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Live Job Feed</span>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
           <JobFeedPollIntervalSelector value={pollInterval} onChange={onPollIntervalChange} />
           {connected && (
             <div className="flex items-center gap-1.5">
@@ -1270,7 +1270,7 @@ function JobFeedCard({
           )}
         </div>
       </div>
-      <div className="min-h-0 flex-1 max-h-[11.4375rem] overflow-x-auto overflow-y-scroll [scrollbar-gutter:stable]">
+      <div className="min-h-0 min-w-0 flex-1 max-h-[11.4375rem] overflow-x-auto overflow-y-scroll overscroll-x-contain [scrollbar-gutter:stable]">
         {feedLoading && jobs.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-center px-2">
             <Loader2 className="w-5 h-5 text-muted-foreground animate-spin mb-2" aria-hidden />
@@ -1292,7 +1292,7 @@ function JobFeedCard({
             </span>
           </div>
         ) : (
-          <table className="w-full text-xs">
+          <table className="w-full min-w-[340px] text-xs">
             <thead className="sticky top-0 bg-card z-10 text-[10px] text-muted-foreground uppercase tracking-wider">
               <tr className="border-b border-border">
                 <TH col="model" label="Model" />
@@ -1326,7 +1326,7 @@ function JobFeedCard({
                 return (
                   <tr key={job.id} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors cursor-default group/feed" title={rowTooltip}>
                     <td className="py-1.5">
-                      <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 min-w-0 max-w-[280px]">
+                      <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 min-w-0 max-w-full sm:max-w-[280px]">
                         <span
                           className="w-2 h-2 rounded-full shrink-0 ring-1 ring-border/40"
                           style={{ backgroundColor: pipelineDotColor }}
@@ -1336,7 +1336,7 @@ function JobFeedCard({
                         {hasModel ? (
                           <>
                             <span
-                              className="font-mono text-[10px] leading-snug truncate min-w-0 max-w-[220px]"
+                              className="font-mono text-[10px] leading-snug truncate min-w-0 max-w-full sm:max-w-[220px]"
                               style={{ color: pipelineDotColor }}
                             >
                               {modelLabel}
@@ -1353,7 +1353,7 @@ function JobFeedCard({
                         ) : (
                           <>
                             <span
-                              className="font-mono text-[10px] leading-snug truncate min-w-0 max-w-[220px]"
+                              className="font-mono text-[10px] leading-snug truncate min-w-0 max-w-full sm:max-w-[220px]"
                               style={{ color: pipelineDotColor }}
                               title={rawPipeline || undefined}
                             >
@@ -1465,11 +1465,13 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
   const totalGPUsInList = useMemo(() => sorted.reduce((sum, r) => sum + (r.gpuCount ?? 0), 0), [sorted]);
 
   return (
-    <div className="p-4 rounded-lg bg-card border border-border">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="p-1 rounded-md bg-muted text-muted-foreground"><Server className="w-3.5 h-3.5" /></div>
-          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Orchestrators ({sorted.length}{filter ? ` of ${data.length}` : ''}) · {totalGPUsInList} GPUs</span>
+    <div className="p-3 rounded-lg bg-card border border-border min-w-0 sm:p-4">
+      <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0"><Server className="w-3.5 h-3.5" /></div>
+          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider leading-snug sm:text-[11px]">
+            Orchestrators ({sorted.length}{filter ? ` of ${data.length}` : ''}) · {totalGPUsInList} GPUs
+          </span>
         </div>
         <input
           id="orchestrator-filter"
@@ -1477,11 +1479,11 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
           onChange={e => setFilter(e.target.value)}
           placeholder="Filter URI / pipeline…"
           aria-label="Filter orchestrators by URI, address, or pipeline"
-          className="px-2 py-0.5 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground w-48"
+          className="w-full min-w-0 px-2 py-1.5 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground sm:max-w-xs sm:py-0.5"
         />
       </div>
-      <div className="max-h-[min(70vh,640px)] overflow-y-auto">
-        <table className="w-full text-xs">
+      <div className="max-h-[min(70vh,640px)] min-w-0 overflow-x-auto overflow-y-auto overscroll-x-contain">
+        <table className="w-full min-w-[720px] text-xs">
           <thead className="sticky top-0 bg-card text-muted-foreground border-b border-border">
             <tr>
               <TH col="uri" label="URI" />
@@ -1563,7 +1565,7 @@ const JOB_FEED_POLL_OPTIONS = [
 
 function JobFeedPollIntervalSelector({ value, onChange }: { value: number; onChange: (ms: number) => void }) {
   return (
-    <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-md bg-muted/30 border border-border">
+    <div className="flex flex-wrap items-center gap-0.5 px-1 py-0.5 rounded-md bg-muted/30 border border-border">
       <Timer className="w-3 h-3 text-muted-foreground ml-1" />
       {JOB_FEED_POLL_OPTIONS.map((opt) => (
         <button key={opt.value} onClick={() => onChange(opt.value)} className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors duration-100 ${value === opt.value ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>{opt.label}</button>
@@ -1606,7 +1608,7 @@ function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: 
         <ChevronsUpDown className="w-3 h-3 text-muted-foreground" />
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 w-40 rounded-md bg-card border border-border shadow-lg z-50" role="listbox">
+        <div className="absolute left-0 sm:left-auto sm:right-0 mt-1 w-40 max-w-[calc(100vw-2rem)] rounded-md bg-card border border-border shadow-lg z-50" role="listbox">
           {TIMEFRAME_OPTIONS.map((opt) => (
             <button key={opt.value} onClick={() => { onChange(opt.value); setOpen(false); }} className={`w-full px-3 py-2 text-left text-xs transition-colors first:rounded-t-md last:rounded-b-md ${value === opt.value ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'}`} role="option" aria-selected={value === opt.value}>
               <div className="font-medium">{opt.label}</div>
@@ -1621,12 +1623,12 @@ function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: 
 
 function DashboardHeader({ timeframe, onTimeframeChange }: { timeframe: string; onTimeframeChange: (tf: string) => void }) {
   return (
-    <div className="flex items-end justify-between">
-      <div className="space-y-0.5">
-        <h1 className="text-lg font-semibold text-foreground">Network Platform</h1>
+    <div className="flex flex-col gap-3 min-w-0 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0 space-y-0.5">
+        <h1 className="text-base font-semibold text-foreground sm:text-lg">Network Platform</h1>
         <p className="text-[13px] text-muted-foreground">Overview</p>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
         <TimeframeSelector value={timeframe} onChange={onTimeframeChange} />
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/50 border border-border">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -1731,7 +1733,7 @@ export function OverviewContent(props: OverviewContentProps) {
   const uiFeesLoading = feesLoading || !prefsReady;
 
   return (
-    <div className="space-y-6 max-w-[1440px] mx-auto">
+    <div className="mx-auto min-w-0 w-full max-w-[1440px] space-y-4 sm:space-y-6">
       <DashboardHeader timeframe={timeframe} onTimeframeChange={onTimeframeChange} />
 
       {isPublic && <AuthCTABanner />}
@@ -1749,10 +1751,7 @@ export function OverviewContent(props: OverviewContentProps) {
 
       {/* Row 1: [KPI + Live Job Feed | Protocol + Fees] */}
       <section>
-        <div
-          className="grid gap-3 items-stretch [&>*]:min-h-0"
-          style={{ gridTemplateColumns: '3fr 2fr', minHeight: 'min(560px, 82vh)' }}
-        >
+        <div className="grid grid-cols-1 gap-3 items-stretch min-h-0 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:min-h-[min(560px,82vh)] [&>*]:min-h-0">
           <div className="flex flex-col gap-3 min-h-0 h-full">
             {kpi ? (
               <RefreshWrap refreshing={lbRefreshing} className="shrink-0">

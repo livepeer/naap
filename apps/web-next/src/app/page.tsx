@@ -62,7 +62,7 @@ export default function PublicOverviewPage() {
           </div>
         )}
         <div className="rounded-lg bg-card border border-border/60">
-          <div className="px-5 py-4">
+          <div className="px-3 py-3 sm:px-5 sm:py-4">
             <OverviewContent
               isPublic
               kpi={data.kpi}
