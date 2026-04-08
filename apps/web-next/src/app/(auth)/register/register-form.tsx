@@ -12,7 +12,7 @@ export default function RegisterForm() {
   const router = useRouter();
   const { loginWithOAuth } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
-  const [oauthLoading, setOauthLoading] = useState(false);
+  const [oauthLoadingProvider, setOauthLoadingProvider] = useState<'google' | 'github' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [vhsPlayed, setVhsPlayed] = useState(false);
   const [formData, setFormData] = useState({
@@ -70,13 +70,13 @@ export default function RegisterForm() {
   const handleOAuthRegister = useCallback(
     async (provider: 'google' | 'github') => {
       setError(null);
-      setOauthLoading(true);
+      setOauthLoadingProvider(provider);
       try {
         await loginWithOAuth(provider);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'OAuth sign up failed');
       } finally {
-        setOauthLoading(false);
+        setOauthLoadingProvider(null);
       }
     },
     [loginWithOAuth],
@@ -210,11 +210,11 @@ export default function RegisterForm() {
       <div className="grid grid-cols-2 gap-2.5">
         <button
           type="button"
-          disabled={isLoading || oauthLoading}
+          disabled={isLoading || oauthLoadingProvider !== null}
           onClick={() => void handleOAuthRegister('google')}
           className="flex items-center justify-center gap-2 px-3 py-2 text-sm border border-muted-foreground/25 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
         >
-          {oauthLoading ? (
+          {oauthLoadingProvider === 'google' ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <>
@@ -230,11 +230,11 @@ export default function RegisterForm() {
         </button>
         <button
           type="button"
-          disabled={isLoading || oauthLoading}
+          disabled={isLoading || oauthLoadingProvider !== null}
           onClick={() => void handleOAuthRegister('github')}
           className="flex items-center justify-center gap-2 px-3 py-2 text-sm border border-muted-foreground/25 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
         >
-          {oauthLoading ? (
+          {oauthLoadingProvider === 'github' ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <>
