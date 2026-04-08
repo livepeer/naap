@@ -141,6 +141,32 @@ jobs:
           echo "- **Suite:** @pre-release (GA modules)" >> $GITHUB_STEP_SUMMARY
           echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
 
+      - name: Send email on failure
+        if: failure()
+        uses: dawidd6/action-send-mail@v5
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "❌ Post-Deploy E2E FAILED — NaaP Platform"
+          to: ${{ secrets.E2E_NOTIFY_EMAIL }}
+          from: "NaaP E2E <${{ secrets.SMTP_USERNAME }}>"
+          body: |
+            Post-Deploy E2E Smoke FAILED
+            ==============================
+
+            Commit:  ${{ github.sha }}
+            Target:  https://naap-platform.vercel.app
+            Run:     ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            The post-deploy E2E smoke test failed after a production deployment.
+            Please investigate immediately.
+
+            View results and download artifacts:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        continue-on-error: true
+
   # ===========================================================================
   # Rollback — Manual trigger only
   # ===========================================================================
