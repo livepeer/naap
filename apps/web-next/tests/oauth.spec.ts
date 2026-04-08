@@ -3,8 +3,8 @@ import { test, expect } from '@playwright/test';
 /**
  * OAuth provider redirects are flaky in CI (Google/GitHub bot detection).
  * Run explicitly: `RUN_OAUTH_E2E=1 npx playwright test oauth.spec.ts`
- * Default `npx playwright test` skips these unless RUN_OAUTH_E2E is exactly `1`.
- * In CI, tests matching @oauth are also excluded via playwright.config.ts grepInvert.
+ * Default `npx playwright test` skips these unless RUN_OAUTH_E2E is exactly `1`
+ * (see beforeEach below; playwright.config does not grep-exclude @oauth).
  */
 test.describe('OAuth entrypoints @oauth', () => {
   test.use({ storageState: { cookies: [], origins: [] } });
@@ -12,7 +12,7 @@ test.describe('OAuth entrypoints @oauth', () => {
   test.beforeEach(() => {
     test.skip(
       process.env.RUN_OAUTH_E2E !== '1',
-      'Set RUN_OAUTH_E2E=1 to run OAuth redirect checks (see tests/E2E-OAUTH-MANUAL.md)',
+      'Set RUN_OAUTH_E2E=1 to run OAuth redirect checks (documented in apps/web-next/.env.local.example)',
     );
   });
 
