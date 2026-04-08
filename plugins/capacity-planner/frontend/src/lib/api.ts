@@ -111,19 +111,46 @@ export interface FetchRequestsParams {
   pipeline?: string;
   vramMin?: string;
   sort?: string;
+  limit?: number;
+  offset?: number;
 }
 
-// Fetch all requests with optional filtering
-export async function fetchRequests(params: FetchRequestsParams = {}): Promise<CapacityRequest[]> {
+export interface FetchRequestsResult {
+  requests: CapacityRequest[];
+  total: number;
+}
+
+// Paginated list with optional filtering (meta.total is authoritative).
+export async function fetchRequests(params: FetchRequestsParams = {}): Promise<FetchRequestsResult> {
   const searchParams = new URLSearchParams();
   if (params.search) searchParams.set('search', params.search);
   if (params.gpuModel) searchParams.set('gpuModel', params.gpuModel);
   if (params.pipeline) searchParams.set('pipeline', params.pipeline);
   if (params.vramMin) searchParams.set('vramMin', params.vramMin);
   if (params.sort) searchParams.set('sort', params.sort);
+  if (params.limit != null) searchParams.set('limit', String(params.limit));
+  if (params.offset != null) searchParams.set('offset', String(params.offset));
 
   const query = searchParams.toString();
-  return apiRequest<CapacityRequest[]>(`/requests${query ? `?${query}` : ''}`);
+  const url = `${getCapacityApiBaseUrl()}/requests${query ? `?${query}` : ''}`;
+
+  const headers = getAuthHeaders();
+  const response = await fetch(url, { headers });
+
+  const data = await response.json();
+
+  if (!response.ok || data.success === false) {
+    throw new ApiError(
+      typeof data.error === 'string' ? data.error : 'API request failed',
+      response.status,
+      data.code
+    );
+  }
+
+  const list = Array.isArray(data.data) ? data.data : [];
+  const total =
+    typeof data.meta?.total === 'number' ? data.meta.total : list.length;
+  return { requests: list, total };
 }
 
 // Fetch a single request by ID

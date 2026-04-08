@@ -19,6 +19,9 @@ export interface SummaryData {
   mostPopularPipeline: { name: string; count: number } | null;
   topRequestor: { name: string; count: number } | null;
   avgHourlyRate: number;
+  /** Distinct values across active requests (for filter dropdowns when the list is paginated). */
+  distinctGpuModels?: string[];
+  distinctPipelines?: string[];
 }
 
 export interface NewRequestFormData {

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Zap,
@@ -12,9 +12,8 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { Card } from '@naap/ui';
-import type { CapacityRequest, FilterState, SortField, RequestComment } from '../types';
-import { VRAM_OPTIONS } from '../types';
-import { computeSummary, filterRequests, sortRequests, getUniqueValues } from '../utils';
+import type { CapacityRequest, FilterState, SortField, RequestComment, SummaryData } from '../types';
+import { VRAM_OPTIONS, GPU_MODELS, PIPELINE_OPTIONS } from '../types';
 import { SummaryPanel } from '../components/SummaryPanel';
 import { RequestCard } from '../components/RequestCard';
 import { NewRequestModal } from '../components/NewRequestModal';
@@ -26,16 +25,31 @@ import {
   withdrawCommit as apiWithdrawCommit,
   addComment as apiAddComment,
   fetchCurrentUser,
+  fetchSummary,
   type FetchRequestsParams,
   type CurrentUser,
 } from '../lib/api';
 
+const PAGE_SIZE = 20;
+
+const EMPTY_SUMMARY: SummaryData = {
+  totalRequests: 0,
+  totalGPUsNeeded: 0,
+  mostDesiredGPU: null,
+  mostPopularPipeline: null,
+  topRequestor: null,
+  avgHourlyRate: 0,
+};
+
 export const CapacityPage: React.FC = () => {
   const [requests, setRequests] = useState<CapacityRequest[]>([]);
+  const [total, setTotal] = useState(0);
   const [committedIds, setCommittedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser>({ id: '', name: '' });
+  const [summary, setSummary] = useState<SummaryData | null>(null);
 
   const [selectedRequest, setSelectedRequest] = useState<CapacityRequest | null>(null);
   const [showNewRequestModal, setShowNewRequestModal] = useState(false);
@@ -49,41 +63,126 @@ export const CapacityPage: React.FC = () => {
   });
   const [sortField, setSortField] = useState<SortField>('newest');
 
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedSearch(filters.search), 300);
+    return () => window.clearTimeout(id);
+  }, [filters.search]);
+
   const requestSeq = useRef(0);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const requestsLenRef = useRef(0);
+  const totalRef = useRef(0);
+  requestsLenRef.current = requests.length;
+  totalRef.current = total;
 
-  const loadRequests = useCallback(async (userId: string) => {
-    const seq = ++requestSeq.current;
-    setLoading(true);
-    setError(null);
-    try {
-      const params: FetchRequestsParams = {};
-      if (filters.gpuModel) params.gpuModel = filters.gpuModel;
-      if (filters.pipeline) params.pipeline = filters.pipeline;
-      if (filters.vramMin) params.vramMin = filters.vramMin;
-      if (filters.search) params.search = filters.search;
-      if (sortField) params.sort = sortField;
+  const refreshSummary = useCallback(() => {
+    fetchSummary()
+      .then(setSummary)
+      .catch(() => {});
+  }, []);
 
-      const data = await fetchRequests(params);
-      if (seq !== requestSeq.current) return;
-      setRequests(data);
+  useEffect(() => {
+    refreshSummary();
+  }, [refreshSummary]);
 
-      const userCommits = new Set<string>();
-      data.forEach(req => {
-        if (req.softCommits?.some(sc => sc.userId === userId)) {
-          userCommits.add(req.id);
-        }
-      });
-      setCommittedIds(userCommits);
-    } catch (err) {
-      if (seq !== requestSeq.current) return;
-      console.error('[Capacity] Failed to load requests:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load requests');
-    } finally {
-      if (seq === requestSeq.current) {
-        setLoading(false);
+  const mergeCommittedFromRequests = useCallback((list: CapacityRequest[], userId: string) => {
+    const userCommits = new Set<string>();
+    list.forEach((req) => {
+      if (req.softCommits?.some((sc) => sc.userId === userId)) {
+        userCommits.add(req.id);
       }
-    }
-  }, [filters, sortField]);
+    });
+    return userCommits;
+  }, []);
+
+  const loadRequests = useCallback(
+    async (userId: string) => {
+      const seq = ++requestSeq.current;
+      setLoading(true);
+      setLoadingMore(false);
+      setError(null);
+      try {
+        const params: FetchRequestsParams = {
+          limit: PAGE_SIZE,
+          offset: 0,
+        };
+        if (filters.gpuModel) params.gpuModel = filters.gpuModel;
+        if (filters.pipeline) params.pipeline = filters.pipeline;
+        if (filters.vramMin) params.vramMin = filters.vramMin;
+        if (debouncedSearch) params.search = debouncedSearch;
+        if (sortField) params.sort = sortField;
+
+        const { requests: data, total: serverTotal } = await fetchRequests(params);
+        if (seq !== requestSeq.current) return;
+        setRequests(data);
+        setTotal(serverTotal);
+        setCommittedIds(mergeCommittedFromRequests(data, userId));
+      } catch (err) {
+        if (seq !== requestSeq.current) return;
+        console.error('[Capacity] Failed to load requests:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load requests');
+      } finally {
+        if (seq === requestSeq.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [filters.gpuModel, filters.pipeline, filters.vramMin, debouncedSearch, sortField, mergeCommittedFromRequests]
+  );
+
+  const loadMore = useCallback(
+    async (userId: string) => {
+      if (loadingMore || loading) return;
+      const offset = requestsLenRef.current;
+      if (offset >= totalRef.current) return;
+      const seq = requestSeq.current;
+      setLoadingMore(true);
+      try {
+        const params: FetchRequestsParams = {
+          limit: PAGE_SIZE,
+          offset,
+        };
+        if (filters.gpuModel) params.gpuModel = filters.gpuModel;
+        if (filters.pipeline) params.pipeline = filters.pipeline;
+        if (filters.vramMin) params.vramMin = filters.vramMin;
+        if (debouncedSearch) params.search = debouncedSearch;
+        if (sortField) params.sort = sortField;
+
+        const { requests: nextBatch, total: serverTotal } = await fetchRequests(params);
+        if (seq !== requestSeq.current) return;
+        setTotal(serverTotal);
+        if (nextBatch.length === 0) {
+          return;
+        }
+        setRequests((prev) => [...prev, ...nextBatch]);
+        setCommittedIds((prev) => {
+          const next = new Set(prev);
+          nextBatch.forEach((req) => {
+            if (req.softCommits?.some((sc) => sc.userId === userId)) {
+              next.add(req.id);
+            }
+          });
+          return next;
+        });
+      } catch (err) {
+        console.error('[Capacity] Failed to load more:', err);
+      } finally {
+        if (seq === requestSeq.current) {
+          setLoadingMore(false);
+        }
+      }
+    },
+    [
+      loadingMore,
+      loading,
+      filters.gpuModel,
+      filters.pipeline,
+      filters.vramMin,
+      debouncedSearch,
+      sortField,
+    ]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -106,17 +205,32 @@ export const CapacityPage: React.FC = () => {
     loadRequests(currentUser.id);
   }, [currentUser.id, loadRequests]);
 
-  const filteredAndSorted = useMemo(() => {
-    const filtered = filterRequests(requests, filters);
-    return sortRequests(filtered, sortField);
-  }, [requests, filters, sortField]);
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+    if (!sentinel || !currentUser.id) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadMore(currentUser.id);
+        }
+      },
+      { root: null, rootMargin: '240px', threshold: 0 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [currentUser.id, loadMore]);
 
-  const summary = useMemo(() => computeSummary(requests), [requests]);
-
-  const availableGPUs = useMemo(() => getUniqueValues(requests, 'gpuModel'), [requests]);
-  const availablePipelines = useMemo(() => getUniqueValues(requests, 'pipeline'), [requests]);
+  const availableGPUs =
+    summary?.distinctGpuModels && summary.distinctGpuModels.length > 0
+      ? summary.distinctGpuModels
+      : GPU_MODELS;
+  const availablePipelines =
+    summary?.distinctPipelines && summary.distinctPipelines.length > 0
+      ? summary.distinctPipelines
+      : PIPELINE_OPTIONS;
 
   const hasActiveFilters = filters.gpuModel || filters.vramMin || filters.pipeline;
+  const hasAnyListFilter = hasActiveFilters || Boolean(filters.search.trim());
 
   const getUserCommit = useCallback(
     (request: CapacityRequest) => {
@@ -251,7 +365,7 @@ export const CapacityPage: React.FC = () => {
       setRequests((prev) => [request, ...prev]);
 
       try {
-        const created = await apiCreateRequest({
+        await apiCreateRequest({
           requesterName: request.requesterName,
           requesterAccount: request.requesterAccount,
           gpuModel: request.gpuModel,
@@ -267,15 +381,14 @@ export const CapacityPage: React.FC = () => {
           reason: request.reason,
           riskLevel: request.riskLevel,
         });
-        setRequests((prev) =>
-          prev.map((r) => (r.id === request.id ? created : r))
-        );
+        refreshSummary();
+        await loadRequests(currentUser.id);
       } catch (err) {
         console.error('[Capacity] Failed to create request:', err);
         setRequests((prev) => prev.filter((r) => r.id !== request.id));
       }
     },
-    []
+    [currentUser.id, loadRequests, refreshSummary]
   );
 
   const updateFilter = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {
@@ -345,7 +458,7 @@ export const CapacityPage: React.FC = () => {
         </div>
 
         <div className="w-full lg:w-[380px] flex-shrink-0">
-          <SummaryPanel summary={summary} />
+          <SummaryPanel summary={summary ?? EMPTY_SUMMARY} />
         </div>
       </div>
 
@@ -493,17 +606,17 @@ export const CapacityPage: React.FC = () => {
       {/* Results count */}
       <div className="flex items-center justify-between">
         <p className="text-xs text-text-secondary">
-          Showing {filteredAndSorted.length} of {requests.length} request{requests.length !== 1 ? 's' : ''}
-          {hasActiveFilters && (
+          Showing {requests.length} of {total} request{total !== 1 ? 's' : ''}
+          {hasAnyListFilter && (
             <span className="text-accent-blue ml-1">(filtered)</span>
           )}
         </p>
       </div>
 
       {/* Request cards grid */}
-      {filteredAndSorted.length > 0 ? (
+      {requests.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {filteredAndSorted.map((req) => (
+          {requests.map((req) => (
             <RequestCard
               key={req.id}
               request={req}
@@ -515,18 +628,31 @@ export const CapacityPage: React.FC = () => {
             />
           ))}
         </div>
-      ) : (
+      ) : null}
+
+      {requests.length > 0 && total > requests.length ? (
+        <div className="flex flex-col items-center gap-2 py-4">
+          <div ref={loadMoreRef} className="h-1 w-full" aria-hidden />
+          {loadingMore ? (
+            <Loader2 size={20} className="animate-spin text-text-secondary" />
+          ) : (
+            <p className="text-xs text-text-secondary">Scroll for more</p>
+          )}
+        </div>
+      ) : null}
+
+      {requests.length === 0 && !loading ? (
         <Card className="text-center py-16">
           <Zap size={48} className="mx-auto mb-4 text-text-secondary opacity-30" />
           <h3 className="text-lg font-bold text-text-primary mb-2">
-            {hasActiveFilters ? 'No matching requests' : 'No active requests'}
+            {hasAnyListFilter ? 'No matching requests' : 'No active requests'}
           </h3>
           <p className="text-text-secondary mb-4">
-            {hasActiveFilters
+            {hasAnyListFilter
               ? 'Try adjusting your filters or search terms'
               : 'Create a new capacity request to get started'}
           </p>
-          {hasActiveFilters && (
+          {hasAnyListFilter && (
             <button
               onClick={clearFilters}
               className="px-4 py-2 text-sm font-medium text-accent-blue hover:bg-accent-blue/10 rounded-xl transition-colors"
@@ -535,7 +661,7 @@ export const CapacityPage: React.FC = () => {
             </button>
           )}
         </Card>
-      )}
+      ) : null}
 
       {/* Modals */}
       <NewRequestModal

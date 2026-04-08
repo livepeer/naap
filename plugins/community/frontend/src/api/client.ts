@@ -117,6 +117,8 @@ export interface Post {
   createdAt: string;
   updatedAt: string;
   author: User;
+  /** Present on list responses when the API supports it (batch vote lookup). */
+  viewerHasVoted?: boolean;
   tags: Tag[];
   comments?: Comment[];
 }
@@ -153,6 +155,15 @@ function normalizeAuthor(raw: any): User {
     avatarUrl: raw.avatarUrl ?? user.avatarUrl ?? null,
     reputation: raw.reputation ?? 0,
     level: raw.level ?? 1,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizePost(raw: any): Post {
+  return {
+    ...raw,
+    author: normalizeAuthor(raw.author),
+    viewerHasVoted: typeof raw.viewerHasVoted === 'boolean' ? raw.viewerHasVoted : undefined,
   };
 }
 
@@ -219,7 +230,11 @@ export async function fetchPosts(params?: {
   // Unwrap envelope: API may return { success, data: { posts }, meta } or { posts }
   const payload = json.data ?? json;
   const meta = json.meta ?? payload;
-  return { posts: Array.isArray(payload?.posts) ? payload.posts : [], total: meta?.total ?? 0 };
+  const rawPosts = Array.isArray(payload?.posts) ? payload.posts : [];
+  return {
+    posts: rawPosts.map(normalizePost),
+    total: meta?.total ?? 0,
+  };
 }
 
 export async function fetchPost(id: string): Promise<Post> {

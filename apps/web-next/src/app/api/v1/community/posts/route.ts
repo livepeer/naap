@@ -10,6 +10,25 @@ import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken, parsePagination } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
 
+/** Plugin client sends limit/offset; other callers use page/pageSize. */
+function parseCommunityPostsPagination(searchParams: URLSearchParams): {
+  page: number;
+  pageSize: number;
+  skip: number;
+} {
+  const limitRaw = searchParams.get('limit');
+  const offsetRaw = searchParams.get('offset');
+  if (limitRaw !== null || offsetRaw !== null) {
+    const pageSize = Math.min(100, Math.max(1, parseInt(limitRaw || '20', 10) || 20));
+    const skip = Math.max(0, parseInt(offsetRaw || '0', 10) || 0);
+    const page = Math.floor(skip / pageSize) + 1;
+    return { page, pageSize, skip };
+  }
+  return parsePagination(searchParams);
+}
+
+const LIST_CONTENT_PREVIEW_LEN = 400;
+
 const REPUTATION_POINTS = {
   POST_CREATED: 5,
 };
@@ -27,7 +46,7 @@ async function getOrCreateCommunityProfile(userId: string) {
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const searchParams = request.nextUrl.searchParams;
-    const { page, pageSize, skip } = parsePagination(searchParams);
+    const { page, pageSize, skip } = parseCommunityPostsPagination(searchParams);
     const category = searchParams.get('category');
     const postType = searchParams.get('postType');
     const solved = searchParams.get('solved');
@@ -80,28 +99,59 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       prisma.communityPost.count({ where }),
     ]);
 
-    const formattedPosts = posts.map((post) => ({
-      id: post.id,
-      title: post.title,
-      content: post.content,
-      postType: post.postType,
-      category: post.category,
-      status: post.status,
-      upvotes: post.upvotes,
-      viewCount: post.viewCount,
-      commentCount: post.commentCount,
-      isSolved: post.isSolved,
-      isPinned: post.isPinned,
-      createdAt: post.createdAt.toISOString(),
-      updatedAt: post.updatedAt.toISOString(),
-      author: post.author,
-      tags: post.postTags.map((pt) => ({
-        id: pt.tag.id,
-        name: pt.tag.name,
-        slug: pt.tag.slug,
-        color: pt.tag.color,
-      })),
-    }));
+    let votedTargetIds = new Set<string>();
+    const token = getAuthToken(request);
+    if (token && posts.length > 0) {
+      const authUser = await validateSession(token);
+      if (authUser) {
+        const profile = await prisma.communityProfile.findUnique({
+          where: { userId: authUser.id },
+        });
+        if (profile) {
+          const postIds = posts.map((p) => p.id);
+          const votes = await prisma.communityVote.findMany({
+            where: {
+              profileId: profile.id,
+              targetType: 'POST',
+              targetId: { in: postIds },
+            },
+            select: { targetId: true },
+          });
+          votedTargetIds = new Set(votes.map((v) => v.targetId));
+        }
+      }
+    }
+
+    const formattedPosts = posts.map((post) => {
+      const full = post.content;
+      const content =
+        full.length > LIST_CONTENT_PREVIEW_LEN
+          ? `${full.slice(0, LIST_CONTENT_PREVIEW_LEN)}…`
+          : full;
+      return {
+        id: post.id,
+        title: post.title,
+        content,
+        postType: post.postType,
+        category: post.category,
+        status: post.status,
+        upvotes: post.upvotes,
+        viewCount: post.viewCount,
+        commentCount: post.commentCount,
+        isSolved: post.isSolved,
+        isPinned: post.isPinned,
+        createdAt: post.createdAt.toISOString(),
+        updatedAt: post.updatedAt.toISOString(),
+        author: post.author,
+        viewerHasVoted: votedTargetIds.has(post.id),
+        tags: post.postTags.map((pt) => ({
+          id: pt.tag.id,
+          name: pt.tag.name,
+          slug: pt.tag.slug,
+          color: pt.tag.color,
+        })),
+      };
+    });
 
     return success(
       { posts: formattedPosts },

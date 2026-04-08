@@ -16,14 +16,20 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
     const totalGPUs = requests.reduce((sum, r) => sum + r.count, 0);
     const gpuCounts: Record<string, number> = {};
     const pipelineCounts: Record<string, number> = {};
+    const requestorCounts: Record<string, number> = {};
 
     for (const r of requests) {
       gpuCounts[r.gpuModel] = (gpuCounts[r.gpuModel] || 0) + r.count;
       pipelineCounts[r.pipeline] = (pipelineCounts[r.pipeline] || 0) + 1;
+      requestorCounts[r.requesterName] = (requestorCounts[r.requesterName] || 0) + 1;
     }
 
     const topGPU = Object.entries(gpuCounts).sort((a, b) => b[1] - a[1])[0];
     const topPipeline = Object.entries(pipelineCounts).sort((a, b) => b[1] - a[1])[0];
+    const topRequestor = Object.entries(requestorCounts).sort((a, b) => b[1] - a[1])[0];
+
+    const distinctGpuModels = [...new Set(requests.map((r) => r.gpuModel))].sort();
+    const distinctPipelines = [...new Set(requests.map((r) => r.pipeline))].sort();
 
     return success({
       totalRequests: requests.length,
@@ -36,6 +42,9 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
       mostPopularPipeline: topPipeline
         ? { name: topPipeline[0], count: topPipeline[1] }
         : null,
+      topRequestor: topRequestor ? { name: topRequestor[0], count: topRequestor[1] } : null,
+      distinctGpuModels,
+      distinctPipelines,
     });
   } catch (err) {
     console.error('Error fetching capacity summary:', err);

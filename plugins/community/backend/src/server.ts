@@ -297,28 +297,52 @@ router.get('/community/posts', async (req, res) => {
       db.communityPost.count({ where }),
     ]);
 
-    const formattedPosts = posts.map((post) => ({
-      id: post.id,
-      title: post.title,
-      content: post.content,
-      postType: post.postType,
-      category: post.category,
-      status: post.status,
-      upvotes: post.upvotes,
-      viewCount: post.viewCount,
-      commentCount: post.commentCount,
-      isSolved: post.isSolved,
-      isPinned: post.isPinned,
-      createdAt: post.createdAt.toISOString(),
-      updatedAt: post.updatedAt.toISOString(),
-      author: formatProfile(post.author),
-      tags: post.postTags.map((pt) => ({
-        id: pt.tag.id,
-        name: pt.tag.name,
-        slug: pt.tag.slug,
-        color: pt.tag.color,
-      })),
-    }));
+    const LIST_PREVIEW = 400;
+    let votedTargetIds = new Set<string>();
+    const listUserId = getUserId(req);
+    if (listUserId && posts.length > 0) {
+      const profile = await db.communityProfile.findUnique({ where: { userId: listUserId } });
+      if (profile) {
+        const votes = await db.communityVote.findMany({
+          where: {
+            profileId: profile.id,
+            targetType: 'POST',
+            targetId: { in: posts.map((p) => p.id) },
+          },
+          select: { targetId: true },
+        });
+        votedTargetIds = new Set(votes.map((v) => v.targetId));
+      }
+    }
+
+    const formattedPosts = posts.map((post) => {
+      const full = post.content;
+      const content =
+        full.length > LIST_PREVIEW ? `${full.slice(0, LIST_PREVIEW)}…` : full;
+      return {
+        id: post.id,
+        title: post.title,
+        content,
+        postType: post.postType,
+        category: post.category,
+        status: post.status,
+        upvotes: post.upvotes,
+        viewCount: post.viewCount,
+        commentCount: post.commentCount,
+        isSolved: post.isSolved,
+        isPinned: post.isPinned,
+        createdAt: post.createdAt.toISOString(),
+        updatedAt: post.updatedAt.toISOString(),
+        author: formatProfile(post.author),
+        viewerHasVoted: votedTargetIds.has(post.id),
+        tags: post.postTags.map((pt) => ({
+          id: pt.tag.id,
+          name: pt.tag.name,
+          slug: pt.tag.slug,
+          color: pt.tag.color,
+        })),
+      };
+    });
 
     res.json({
       posts: formattedPosts,

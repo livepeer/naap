@@ -9,9 +9,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { Prisma } from '@naap/database';
-import { success, errors, getAuthToken } from '@/lib/api/response';
+import { success, errors, getAuthToken, parsePagination } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
 import { validateCSRF } from '@/lib/api/csrf';
+
+/** Plugin client uses limit/offset; other callers may use page/pageSize. */
+function parseCapacityRequestsPagination(searchParams: URLSearchParams): {
+  page: number;
+  pageSize: number;
+  skip: number;
+} {
+  const limitRaw = searchParams.get('limit');
+  const offsetRaw = searchParams.get('offset');
+  if (limitRaw !== null || offsetRaw !== null) {
+    const pageSize = Math.min(100, Math.max(1, parseInt(limitRaw || '20', 10) || 20));
+    const skip = Math.max(0, parseInt(offsetRaw || '0', 10) || 0);
+    const page = Math.floor(skip / pageSize) + 1;
+    return { page, pageSize, skip };
+  }
+  return parsePagination(searchParams);
+}
 
 /**
  * Serialise a Prisma CapacityRequest (with relations) into the shape
@@ -98,11 +115,12 @@ function serialiseRequest(r: {
 
 /**
  * GET /api/v1/capacity-planner/requests
- * Returns all capacity requests from the database with optional filtering.
+ * Paginated list of active capacity requests with optional filtering and sorting.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url);
+    const { page, pageSize, skip } = parseCapacityRequestsPagination(searchParams);
     const pipeline = searchParams.get('pipeline');
     const gpuModel = searchParams.get('gpuModel');
     const search = searchParams.get('search');
@@ -110,7 +128,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const sort = searchParams.get('sort');
 
     // Build Prisma where clause with proper types
-    const where: Prisma.CapacityRequestWhereInput = {};
+    const where: Prisma.CapacityRequestWhereInput = {
+      status: 'ACTIVE',
+    };
 
     if (pipeline) {
       where.pipeline = pipeline;
@@ -130,9 +150,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (search) {
       where.OR = [
         { requesterName: { contains: search, mode: 'insensitive' } },
+        { requesterAccount: { contains: search, mode: 'insensitive' } },
         { gpuModel: { contains: search, mode: 'insensitive' } },
         { pipeline: { contains: search, mode: 'insensitive' } },
         { reason: { contains: search, mode: 'insensitive' } },
+        { osVersion: { contains: search, mode: 'insensitive' } },
+        { cudaVersion: { contains: search, mode: 'insensitive' } },
       ];
     }
 
@@ -148,16 +171,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       orderBy = { softCommits: { _count: 'desc' } };
     }
 
-    const requests = await prisma.capacityRequest.findMany({
-      where,
-      orderBy,
-      include: {
-        softCommits: { orderBy: { createdAt: 'desc' } },
-        comments: { orderBy: { createdAt: 'desc' } },
-      },
-    });
+    const [requests, total] = await Promise.all([
+      prisma.capacityRequest.findMany({
+        where,
+        orderBy,
+        skip,
+        take: pageSize,
+        include: {
+          softCommits: { orderBy: { createdAt: 'desc' } },
+          comments: { orderBy: { createdAt: 'desc' } },
+        },
+      }),
+      prisma.capacityRequest.count({ where }),
+    ]);
 
-    return success(requests.map(serialiseRequest));
+    return success(requests.map(serialiseRequest), {
+      page,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize),
+    });
   } catch (err) {
     console.error('Error fetching capacity requests:', err);
     return errors.internal('Failed to fetch capacity requests');

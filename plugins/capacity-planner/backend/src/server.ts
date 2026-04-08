@@ -143,7 +143,18 @@ app.get('/healthz', (_req, res) => {
 
 app.get('/api/v1/capacity-planner/requests', async (req, res) => {
   try {
-    const { gpuModel, pipeline, vramMin, search, sort } = req.query;
+    const { gpuModel, pipeline, vramMin, search, sort, limit, offset, page, pageSize } = req.query;
+
+    const rawLimit = limit ?? pageSize;
+    const rawOffset = offset;
+    const pageSizeNum = Math.min(100, Math.max(1, parseInt(String(rawLimit || '20'), 10) || 20));
+    let skip = 0;
+    if (rawOffset !== undefined) {
+      skip = Math.max(0, parseInt(String(rawOffset), 10) || 0);
+    } else if (page !== undefined) {
+      const p = Math.max(1, parseInt(String(page), 10) || 1);
+      skip = (p - 1) * pageSizeNum;
+    }
 
     if (prisma) {
       const where: any = { status: 'ACTIVE' };
@@ -154,22 +165,33 @@ app.get('/api/v1/capacity-planner/requests', async (req, res) => {
         const q = search as string;
         where.OR = [
           { requesterName: { contains: q, mode: 'insensitive' } },
+          { requesterAccount: { contains: q, mode: 'insensitive' } },
           { gpuModel: { contains: q, mode: 'insensitive' } },
           { pipeline: { contains: q, mode: 'insensitive' } },
           { reason: { contains: q, mode: 'insensitive' } },
+          { osVersion: { contains: q, mode: 'insensitive' } },
+          { cudaVersion: { contains: q, mode: 'insensitive' } },
         ];
       }
 
       let orderBy: any = { createdAt: 'desc' };
+      if (sort === 'newest') orderBy = { createdAt: 'desc' };
       if (sort === 'gpuCount') orderBy = { count: 'desc' };
       if (sort === 'hourlyRate') orderBy = { hourlyRate: 'desc' };
       if (sort === 'riskLevel') orderBy = { riskLevel: 'desc' };
+      if (sort === 'deadline') orderBy = { validUntil: 'asc' };
+      if (sort === 'mostCommits') orderBy = { softCommits: { _count: 'desc' } };
 
-      const requests = await prisma.capacityRequest.findMany({
-        where,
-        include: { softCommits: true, comments: true },
-        orderBy,
-      });
+      const [requests, total] = await Promise.all([
+        prisma.capacityRequest.findMany({
+          where,
+          include: { softCommits: true, comments: true },
+          orderBy,
+          skip,
+          take: pageSizeNum,
+        }),
+        prisma.capacityRequest.count({ where }),
+      ]);
 
       const formatted = requests.map((r: any) => ({
         ...r,
@@ -193,7 +215,18 @@ app.get('/api/v1/capacity-planner/requests', async (req, res) => {
         })),
       }));
 
-      return res.json({ success: true, data: formatted, total: formatted.length });
+      const totalPages = Math.ceil(total / pageSizeNum) || 1;
+      return res.json({
+        success: true,
+        data: formatted,
+        meta: {
+          page: Math.floor(skip / pageSizeNum) + 1,
+          pageSize: pageSizeNum,
+          total,
+          totalPages,
+          timestamp: new Date().toISOString(),
+        },
+      });
     }
 
     // In-memory fallback
@@ -204,9 +237,12 @@ app.get('/api/v1/capacity-planner/requests', async (req, res) => {
       result = result.filter(
         (r) =>
           r.requesterName.toLowerCase().includes(q) ||
+          (r.requesterAccount && r.requesterAccount.toLowerCase().includes(q)) ||
           r.gpuModel.toLowerCase().includes(q) ||
           r.pipeline.toLowerCase().includes(q) ||
-          r.reason.toLowerCase().includes(q)
+          r.reason.toLowerCase().includes(q) ||
+          (r.osVersion && r.osVersion.toLowerCase().includes(q)) ||
+          (r.cudaVersion && r.cudaVersion.toLowerCase().includes(q))
       );
     }
     if (gpuModel) result = result.filter((r) => r.gpuModel === gpuModel);
@@ -226,11 +262,30 @@ app.get('/api/v1/capacity-planner/requests', async (req, res) => {
       case 'riskLevel':
         result.sort((a, b) => b.riskLevel - a.riskLevel);
         break;
+      case 'deadline':
+        result.sort((a, b) => new Date(a.validUntil).getTime() - new Date(b.validUntil).getTime());
+        break;
+      case 'mostCommits':
+        result.sort((a, b) => (b.softCommits?.length ?? 0) - (a.softCommits?.length ?? 0));
+        break;
       default:
         result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }
 
-    res.json({ success: true, data: result, total: result.length });
+    const total = result.length;
+    const pageSlice = result.slice(skip, skip + pageSizeNum);
+    const totalPages = Math.ceil(total / pageSizeNum) || 1;
+    res.json({
+      success: true,
+      data: pageSlice,
+      meta: {
+        page: Math.floor(skip / pageSizeNum) + 1,
+        pageSize: pageSizeNum,
+        total,
+        totalPages,
+        timestamp: new Date().toISOString(),
+      },
+    });
   } catch (error) {
     console.error('Error fetching requests:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
@@ -514,6 +569,15 @@ app.get('/api/v1/capacity-planner/summary', async (_req, res) => {
     const topGPU = Object.entries(gpuCounts).sort((a, b) => b[1] - a[1])[0];
     const topPipeline = Object.entries(pipelineCounts).sort((a, b) => b[1] - a[1])[0];
 
+    const requestorCounts: Record<string, number> = {};
+    requests.forEach((r) => {
+      requestorCounts[r.requesterName] = (requestorCounts[r.requesterName] || 0) + 1;
+    });
+    const topRequestor = Object.entries(requestorCounts).sort((a, b) => b[1] - a[1])[0];
+
+    const distinctGpuModels = [...new Set(requests.map((r) => r.gpuModel))].sort();
+    const distinctPipelines = [...new Set(requests.map((r) => r.pipeline))].sort();
+
     res.json({
       success: true,
       data: {
@@ -522,6 +586,9 @@ app.get('/api/v1/capacity-planner/summary', async (_req, res) => {
         avgHourlyRate: requests.length > 0 ? requests.reduce((s, r) => s + r.hourlyRate, 0) / requests.length : 0,
         mostDesiredGPU: topGPU ? { model: topGPU[0], count: topGPU[1] } : null,
         mostPopularPipeline: topPipeline ? { name: topPipeline[0], count: topPipeline[1] } : null,
+        topRequestor: topRequestor ? { name: topRequestor[0], count: topRequestor[1] } : null,
+        distinctGpuModels,
+        distinctPipelines,
       },
     });
   } catch (error) {

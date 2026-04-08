@@ -83,16 +83,21 @@ export const ForumPage: React.FC = () => {
       setPosts(postsList);
       setTotal(data?.total ?? 0);
 
-      // Check which posts the user has voted on
-      if (isUserLoggedIn() && postsList.length > 0) {
-        const votedIds = new Set<string>();
-        await Promise.all(
-          postsList.map(async (post) => {
-            const voted = await checkVoted(post.id);
-            if (voted) votedIds.add(post.id);
-          })
-        );
-        setVotedPosts(votedIds);
+      if (!isUserLoggedIn() || postsList.length === 0) {
+        setVotedPosts(new Set());
+      } else if (postsList.every((p) => typeof p.viewerHasVoted === 'boolean')) {
+        setVotedPosts(new Set(postsList.filter((p) => p.viewerHasVoted).map((p) => p.id)));
+      } else {
+        void (async () => {
+          const votedIds = new Set<string>();
+          await Promise.all(
+            postsList.map(async (post) => {
+              const voted = await checkVoted(post.id);
+              if (voted) votedIds.add(post.id);
+            })
+          );
+          setVotedPosts(votedIds);
+        })();
       }
     } catch (err) {
       console.error('Failed to load posts:', err);
@@ -121,14 +126,26 @@ export const ForumPage: React.FC = () => {
       const newPosts = Array.isArray(data?.posts) ? data.posts : [];
       if (newPosts.length > 0) {
         if (isUserLoggedIn()) {
-          const votedIds = new Set(votedPostsRef.current);
-          await Promise.all(
-            newPosts.map(async (post) => {
-              const voted = await checkVoted(post.id);
-              if (voted) votedIds.add(post.id);
-            })
-          );
-          setVotedPosts(votedIds);
+          if (newPosts.every((p) => typeof p.viewerHasVoted === 'boolean')) {
+            setVotedPosts((prev) => {
+              const next = new Set(prev);
+              for (const p of newPosts) {
+                if (p.viewerHasVoted) next.add(p.id);
+              }
+              return next;
+            });
+          } else {
+            void (async () => {
+              const votedIds = new Set(votedPostsRef.current);
+              await Promise.all(
+                newPosts.map(async (post) => {
+                  const voted = await checkVoted(post.id);
+                  if (voted) votedIds.add(post.id);
+                })
+              );
+              setVotedPosts(votedIds);
+            })();
+          }
         }
         setPosts((prev) => [...prev, ...newPosts]);
       }
