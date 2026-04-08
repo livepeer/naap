@@ -14,6 +14,10 @@ import { useJobFeedStream } from '@/hooks/useJobFeedStream';
 import { OverviewContent } from '@/components/dashboard/overview-content';
 import type { DashboardData } from '@naap/plugin-sdk';
 import { AlertCircle } from 'lucide-react';
+import {
+  DEFAULT_OVERVIEW_TIMEFRAME,
+  OVERVIEW_TIMEFRAME_VALUES,
+} from '@/lib/dashboard/overview-timeframe';
 
 // ============================================================================
 // GraphQL Queries
@@ -91,10 +95,8 @@ const REALTIME_QUERY_TIMEOUT_MS = 15_000;
 const POLL_INTERVAL_KEY = 'naap_dashboard_poll_interval';
 const DEFAULT_POLL_INTERVAL = 15_000;
 const TIMEFRAME_KEY = 'naap_dashboard_timeframe';
-const DEFAULT_TIMEFRAME = '12';
 
 const JOB_FEED_POLL_OPTIONS = [5_000, 15_000, 30_000, 90_000];
-const TIMEFRAME_OPTIONS = ['1', '6', '12', '18', '24'];
 
 function getStoredJobFeedPollInterval(): number {
   if (typeof window === 'undefined') return DEFAULT_POLL_INTERVAL;
@@ -105,10 +107,10 @@ function getStoredJobFeedPollInterval(): number {
 }
 
 function getStoredTimeframe(): string {
-  if (typeof window === 'undefined') return DEFAULT_TIMEFRAME;
+  if (typeof window === 'undefined') return DEFAULT_OVERVIEW_TIMEFRAME;
   const stored = localStorage.getItem(TIMEFRAME_KEY);
-  if (!stored) return DEFAULT_TIMEFRAME;
-  return TIMEFRAME_OPTIONS.includes(stored) ? stored : DEFAULT_TIMEFRAME;
+  if (!stored) return DEFAULT_OVERVIEW_TIMEFRAME;
+  return OVERVIEW_TIMEFRAME_VALUES.includes(stored) ? stored : DEFAULT_OVERVIEW_TIMEFRAME;
 }
 
 // ============================================================================
@@ -127,7 +129,7 @@ function NoProviderMessage() {
 
 export default function DashboardPage() {
   const [jobFeedPollInterval, setJobFeedPollInterval] = useState(DEFAULT_POLL_INTERVAL);
-  const [timeframe, setTimeframe] = useState(DEFAULT_TIMEFRAME);
+  const [timeframe, setTimeframe] = useState(DEFAULT_OVERVIEW_TIMEFRAME);
   const [prefsReady, setPrefsReady] = useState(false);
 
   useEffect(() => {

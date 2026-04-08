@@ -2,27 +2,55 @@
  * KPI resolver — NAAP Dashboard API backed.
  *
  * Fetches pre-aggregated KPI from GET /v1/dashboard/kpi, then overrides
- * orchestratorsOnline.value with the distinct-address count from
- * GET /v1/net/orchestrators (shared cached fetch) so the KPI tile and
- * the orchestrator table agree on the same source of truth.
+ * orchestratorsOnline.value using GET /v1/net/orchestrators (shared cached fetch):
+ * distinct listed addresses (non-blank service URI) whose latest `LastSeen` falls
+ * within the KPI window. When the registry omits `LastSeen`, falls back to the full
+ * listed count (same rule as the orchestrator table). The overview table is unchanged
+ * and still lists every listed address.
  *
  * Both fetches run in parallel; if net/orchestrators fails the upstream
  * KPI value is preserved as-is.
  *
  * Source:
  *   GET /v1/dashboard/kpi?window=Nh[&pipeline=...&model_id=...]
- *   GET /v1/net/orchestrators  (shared, cached)
+ *   GET /v1/net/orchestrators?active_only=false&limit=1000  (shared, cached)
  */
 
 import type { DashboardKPI } from '@naap/plugin-sdk';
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
-import { getNetOrchestratorDataSafe } from './net-orchestrators.js';
+import {
+  getNetOrchestratorDataSafe,
+  hasNonBlankServiceUri,
+  type NetOrchestratorData,
+} from './net-orchestrators.js';
 
 /** Clamp a raw timeframe string to a canonical hours value in [1, 168]. */
 export function normalizeTimeframeHours(timeframe?: string): number {
   const parsed = parseInt(timeframe ?? '24', 10);
   return Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
+}
+
+/** KPI-only: listed orchestrators with registry evidence they were seen within the window. */
+function orchestratorKpiCountForTimeframe(
+  netData: NetOrchestratorData,
+  hours: number,
+): number {
+  if (!netData.hasLastSeenData) {
+    return netData.listedCount;
+  }
+  const cutoffMs = Date.now() - hours * 60 * 60 * 1000;
+  let n = 0;
+  for (const [addrLower, uris] of netData.urisByAddress) {
+    if (!hasNonBlankServiceUri(uris)) {
+      continue;
+    }
+    const lastMs = netData.lastSeenMsByAddress.get(addrLower);
+    if (lastMs !== undefined && lastMs >= cutoffMs) {
+      n++;
+    }
+  }
+  return n;
 }
 
 export async function resolveKPI(opts: { 
@@ -47,10 +75,14 @@ export async function resolveKPI(opts: {
       getNetOrchestratorDataSafe(),
     ]);
 
-    if (netData.activeCount > 0) {
+    const hasNetRegistrySnapshot =
+      netData.listedCount > 0 ||
+      netData.activeCount > 0 ||
+      netData.urisByAddress.size > 0;
+    if (hasNetRegistrySnapshot) {
       kpi.orchestratorsOnline = {
         ...kpi.orchestratorsOnline,
-        value: netData.activeCount,
+        value: orchestratorKpiCountForTimeframe(netData, hours),
       };
     }
 

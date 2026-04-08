@@ -1,22 +1,30 @@
 /**
- * Orchestrators resolver — NAAP Dashboard API backed.
+ * Orchestrators resolver — net registry as source of truth, dashboard merge.
  *
- * Fetches per-orchestrator SLA metrics from GET /v1/dashboard/orchestrators
- * and enriches each row with all known service URIs from the shared
- * net/orchestrators cache (see net-orchestrators.ts).
+ * The Overview table **lists every distinct address** from GET /v1/net/orchestrators
+ * (active_only=false, limit=1000 — see net-orchestrators.ts), in registry order.
+ * For each address, when GET /v1/dashboard/orchestrators includes the same address
+ * for the requested window, we fill SLA/session/GPU/pipeline fields from that row;
+ * otherwise we use empty metrics.
  *
- * The API returns effectiveSuccessRate, noSwapRatio, and slaScore in 0–1 range;
- * they are multiplied by 100 to produce the percentage values the UI expects.
+ * Rows with no non-empty service URI are dropped so the table only lists reachable
+ * orchestrators.
+ *
+ * The dashboard API returns effectiveSuccessRate, noSwapRatio, and slaScore in 0–1
+ * range; they are multiplied by 100 for the UI.
  *
  * Source:
+ *   GET /v1/net/orchestrators?active_only=false&limit=1000
  *   GET /v1/dashboard/orchestrators?window=Wh
- *   GET /v1/net/orchestrators  (shared, cached)
  */
 
 import type { DashboardOrchestrator } from '@naap/plugin-sdk';
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
-import { getNetOrchestratorDataSafe } from './net-orchestrators.js';
+import {
+  getNetOrchestratorDataSafe,
+  hasNonBlankServiceUri,
+} from './net-orchestrators.js';
 
 interface ApiOrchestrator {
   address: string;
@@ -44,28 +52,75 @@ function pct(v: number | null): number | null {
   return v !== null ? Math.round(v * 1000) / 10 : null;
 }
 
+function mapDashboardIntoNetRow(
+  addressLower: string,
+  dash: ApiOrchestrator,
+  netData: Awaited<ReturnType<typeof getNetOrchestratorDataSafe>>,
+): DashboardOrchestrator {
+  const display = netData.displayAddressByLower.get(addressLower) ?? dash.address;
+  return {
+    address: display,
+    uris: netData.urisByAddress.get(addressLower) ?? [],
+    knownSessions: dash.knownSessions,
+    successSessions: dash.successSessions,
+    successRatio: pct(dash.successRatio) ?? 0,
+    effectiveSuccessRate: pct(dash.effectiveSuccessRate),
+    noSwapRatio: pct(dash.noSwapRatio),
+    slaScore: dash.slaScore !== null ? Math.round(dash.slaScore * 100) : null,
+    pipelines: dash.pipelines,
+    pipelineModels: dash.pipelineModels,
+    gpuCount: dash.gpuCount,
+  };
+}
+
+function netOnlyPlaceholder(
+  addressLower: string,
+  netData: Awaited<ReturnType<typeof getNetOrchestratorDataSafe>>,
+): DashboardOrchestrator {
+  return {
+    address: netData.displayAddressByLower.get(addressLower) ?? addressLower,
+    uris: netData.urisByAddress.get(addressLower) ?? [],
+    knownSessions: 0,
+    successSessions: 0,
+    successRatio: 0,
+    effectiveSuccessRate: null,
+    noSwapRatio: null,
+    slaScore: null,
+    pipelines: [],
+    pipelineModels: [],
+    gpuCount: 0,
+  };
+}
+
 export async function resolveOrchestrators(opts?: { period?: string }): Promise<DashboardOrchestrator[]> {
   const window = orchestratorWindowFromPeriod(opts?.period);
   return cachedFetch(`facade:orchestrators:${window}`, TTL.ORCHESTRATORS, async () => {
-    const [rows, netData] = await Promise.all([
+    const [dashRows, netData] = await Promise.all([
       naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window }, {
         cache: 'no-store',
         errorLabel: 'orchestrators',
       }),
       getNetOrchestratorDataSafe(),
     ]);
-    return rows.map((r): DashboardOrchestrator => ({
-      address: r.address,
-      uris: netData.urisByAddress.get(r.address.toLowerCase()) ?? [],
-      knownSessions: r.knownSessions,
-      successSessions: r.successSessions,
-      successRatio: pct(r.successRatio) ?? 0,
-      effectiveSuccessRate: pct(r.effectiveSuccessRate),
-      noSwapRatio: pct(r.noSwapRatio),
-      slaScore: r.slaScore !== null ? Math.round(r.slaScore * 100) : null,
-      pipelines: r.pipelines,
-      pipelineModels: r.pipelineModels,
-      gpuCount: r.gpuCount,
-    }));
+
+    const dashboardByLower = new Map<string, ApiOrchestrator>();
+    for (const r of dashRows) {
+      const k = r.address.toLowerCase();
+      if (!dashboardByLower.has(k)) {
+        dashboardByLower.set(k, r);
+      }
+    }
+
+    const merged: DashboardOrchestrator[] = [];
+    for (const addressLower of netData.urisByAddress.keys()) {
+      const dash = dashboardByLower.get(addressLower);
+      if (dash) {
+        merged.push(mapDashboardIntoNetRow(addressLower, dash, netData));
+      } else {
+        merged.push(netOnlyPlaceholder(addressLower, netData));
+      }
+    }
+
+    return merged.filter((row) => hasNonBlankServiceUri(row.uris));
   });
 }

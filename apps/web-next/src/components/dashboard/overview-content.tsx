@@ -50,6 +50,10 @@ import {
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { PIPELINE_DISPLAY, PIPELINE_COLOR, DEFAULT_PIPELINE_COLOR } from '@/lib/dashboard/pipeline-config';
+import {
+  formatOverviewTimeframeLabel,
+  OVERVIEW_TIMEFRAME_OPTIONS,
+} from '@/lib/dashboard/overview-timeframe';
 
 // Recharts is only used inside FeesCard. Defer the bundle parse until the
 // fees data arrives so the initial JS execution budget is not spent on charting.
@@ -200,12 +204,6 @@ function formatUsd(n: number): string {
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(n);
-}
-
-function formatTimeframeLabel(hours: number): string {
-  if (hours >= 24 && hours % 24 === 0) return `${hours / 24}d`;
-  if (hours === 1) return '1h';
-  return `${hours}h`;
 }
 
 function getTimeframeRangeIso(timeframe: string): { start: string; end: string } {
@@ -408,7 +406,7 @@ function HourlySparkline({ data, color = 'var(--color-muted-foreground)' }: { da
 }
 
 function KPIGroupCard({ data }: { data: DashboardKPI }) {
-  const tfLabel = formatTimeframeLabel(data.timeframeHours);
+  const tfLabel = formatOverviewTimeframeLabel(data.timeframeHours);
 
   const tile = (
     icon: ElementType,
@@ -1009,7 +1007,7 @@ function PipelinesCard({
     [catalog, pipelineUsageByName, pipelineGpuTotals],
   );
 
-  const tf = formatTimeframeLabel(timeframeHours).toUpperCase();
+  const tf = formatOverviewTimeframeLabel(timeframeHours).toUpperCase();
 
   const thNum = 'pb-1.5 pt-1 px-2 font-medium text-right align-bottom tabular-nums';
   const thModel = 'pb-1.5 pt-1 pl-4 pr-2 font-medium text-left align-bottom';
@@ -1406,11 +1404,33 @@ function formatPipelineLabel(
   return name;
 }
 
+function stripOrchestratorServiceUri(uri: string): string {
+  return uri.replace(/^https?:\/\//, '');
+}
+
+/** Tooltip for model tags: URI when unambiguous; otherwise explain aggregation and list URIs. */
+function orchestratorModelTagTooltip(
+  pipelineName: string,
+  modelLabel: string,
+  uris: string[],
+): string {
+  const lines = [`Model: ${modelLabel}`, `Pipeline: ${pipelineName}`];
+  if (uris.length === 1) {
+    lines.push(`Service URI: ${stripOrchestratorServiceUri(uris[0])}`);
+  } else if (uris.length > 1) {
+    lines.push(
+      'Models are aggregated per orchestrator address (not per URI). Service URIs:',
+      ...uris.map((u) => `· ${stripOrchestratorServiceUri(u)}`),
+    );
+  }
+  return lines.join('\n');
+}
+
 function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[]; catalog?: DashboardPipelineCatalogEntry[] | null }) {
   const [sortCol, setSortCol] = useState<OrchestratorSortCol>('knownSessions');
   const formatURI = (uri?: string) => {
     if (!uri) return '—';
-    const stripped = uri.replace(/^https?:\/\//, '');
+    const stripped = stripOrchestratorServiceUri(uri);
     return stripped.length > 30 ? `${stripped.slice(0, 27)}…` : stripped;
   };
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -1498,23 +1518,40 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
           <tbody>
             {sorted.map(row => (
               <tr key={row.address} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors group">
-                <td className="py-1.5 min-w-0" title={row.uris.length ? row.uris.join('\n') : row.address}>
-                  <div className="flex items-center gap-1 min-w-0">
-                    <span className="font-mono text-foreground truncate">{formatURI(row.uris[0])}</span>
-                    {row.uris.length > 1 && (
-                      <span className="shrink-0 px-1 py-px text-[10px] rounded bg-muted text-muted-foreground font-medium" title={row.uris.slice(1).join('\n')}>+{row.uris.length - 1}</span>
+                <td className="py-1.5 min-w-0 align-top" title={row.uris.length ? row.uris.join('\n') : row.address}>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    {row.uris.length > 0 ? (
+                      row.uris.map((uri, i) => (
+                        <div
+                          key={`${row.address}:uri:${i}`}
+                          className="flex min-w-0 items-center gap-1"
+                        >
+                          <span className="min-w-0 truncate font-mono text-foreground" title={stripOrchestratorServiceUri(uri)}>
+                            {formatURI(uri)}
+                          </span>
+                          <PipelineTableCopyButton
+                            inline
+                            copied={copiedId === `orch:${row.address}:uri:${i}`}
+                            onCopy={() => copyToClipboard(`orch:${row.address}:uri:${i}`, uri)}
+                            title="Copy this service URI"
+                            ariaLabel={`Copy service URI ${uri}`}
+                          />
+                        </div>
+                      ))
+                    ) : (
+                      <div className="flex min-w-0 items-center gap-1">
+                        <span className="font-mono text-muted-foreground">—</span>
+                        {row.address ? (
+                          <PipelineTableCopyButton
+                            inline
+                            copied={copiedId === `orch:${row.address}`}
+                            onCopy={() => copyToClipboard(`orch:${row.address}`, row.address)}
+                            title="Copy orchestrator address"
+                            ariaLabel={`Copy address ${row.address}`}
+                          />
+                        ) : null}
+                      </div>
                     )}
-                    {(row.uris[0] || row.address) ? (
-                      <PipelineTableCopyButton
-                        inline
-                        copied={copiedId === `orch:${row.address}`}
-                        onCopy={() =>
-                          copyToClipboard(`orch:${row.address}`, row.uris[0] || row.address)
-                        }
-                        title="Copy orchestrator URI"
-                        ariaLabel={`Copy URI ${row.uris[0] ?? row.address}`}
-                      />
-                    ) : null}
                   </div>
                 </td>
                 <td className="py-1.5 text-right font-mono">{row.knownSessions.toLocaleString()}</td>
@@ -1532,10 +1569,22 @@ function OrchestratorTableCard({ data, catalog }: { data: DashboardOrchestrator[
                       const pipelineName = entry?.name ?? p;
                       return modelIds.length > 0 ? (
                         modelIds.map((modelId) => (
-                          <span key={`${p}:${modelId}`} className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId)}`} title={pipelineName}>{modelId}</span>
+                          <span
+                            key={`${p}:${modelId}`}
+                            className={`inline-flex max-w-full cursor-default items-center rounded px-2 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId)}`}
+                            title={orchestratorModelTagTooltip(pipelineName, modelId, row.uris)}
+                          >
+                            <span className="truncate">{modelId}</span>
+                          </span>
                         ))
                       ) : (
-                        <span key={p} className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground" title={pipelineName}>—</span>
+                        <span
+                          key={p}
+                          className="inline-flex max-w-full cursor-default items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground"
+                          title={orchestratorModelTagTooltip(pipelineName, '—', row.uris)}
+                        >
+                          —
+                        </span>
                       );
                     })}
                   </div>
@@ -1574,20 +1623,17 @@ function JobFeedPollIntervalSelector({ value, onChange }: { value: number; onCha
   );
 }
 
-const TIMEFRAME_OPTIONS = [
-  { label: '1h', value: '1', description: 'Last hour' },
-  { label: '6h', value: '6', description: 'Last 6 hours' },
-  { label: '12h', value: '12', description: 'Last 12 hours' },
-  { label: '18h', value: '18', description: 'Last 18 hours' },
-  { label: '24h', value: '24', description: 'Last 24 hours (max)' },
-] as const;
-
-const DEFAULT_TIMEFRAME = '12';
-
 function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: string) => void }) {
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const selected = TIMEFRAME_OPTIONS.find((o) => o.value === value) ?? TIMEFRAME_OPTIONS.find((o) => o.value === DEFAULT_TIMEFRAME)!;
+  const parsedHours = Number.parseInt(value, 10);
+  const selected =
+    OVERVIEW_TIMEFRAME_OPTIONS.find((o) => o.value === value)
+    ?? {
+      label: formatOverviewTimeframeLabel(Number.isFinite(parsedHours) && parsedHours > 0 ? parsedHours : 12),
+      value,
+      description: `Last ${Number.isFinite(parsedHours) && parsedHours > 0 ? parsedHours : 12} hours`,
+    };
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -1609,7 +1655,7 @@ function TimeframeSelector({ value, onChange }: { value: string; onChange: (tf: 
       </button>
       {open && (
         <div className="absolute left-0 sm:left-auto sm:right-0 mt-1 w-40 max-w-[calc(100vw-2rem)] rounded-md bg-card border border-border shadow-lg z-50" role="listbox">
-          {TIMEFRAME_OPTIONS.map((opt) => (
+          {OVERVIEW_TIMEFRAME_OPTIONS.map((opt) => (
             <button key={opt.value} onClick={() => { onChange(opt.value); setOpen(false); }} className={`w-full px-3 py-2 text-left text-xs transition-colors first:rounded-t-md last:rounded-b-md ${value === opt.value ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'}`} role="option" aria-selected={value === opt.value}>
               <div className="font-medium">{opt.label}</div>
               <div className="text-[10px] opacity-70">{opt.description}</div>

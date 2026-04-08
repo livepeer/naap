@@ -4,15 +4,18 @@ import { useEffect, useState } from 'react';
 import { PublicTopBar } from '@/components/layout/public-top-bar';
 import { OverviewContent } from '@/components/dashboard/overview-content';
 import { usePublicDashboard } from '@/hooks/usePublicDashboard';
+import {
+  DEFAULT_OVERVIEW_TIMEFRAME,
+  OVERVIEW_TIMEFRAME_VALUES,
+} from '@/lib/dashboard/overview-timeframe';
 
 const POLL_INTERVAL_KEY = 'naap_dashboard_poll_interval';
 const TIMEFRAME_KEY = 'naap_dashboard_timeframe';
 const DEFAULT_POLL_INTERVAL = 15_000;
-const DEFAULT_TIMEFRAME = '12';
 
 export default function PublicOverviewPage() {
   const [jobFeedPollInterval, setJobFeedPollInterval] = useState(DEFAULT_POLL_INTERVAL);
-  const [timeframe, setTimeframe] = useState(DEFAULT_TIMEFRAME);
+  const [timeframe, setTimeframe] = useState<string>(DEFAULT_OVERVIEW_TIMEFRAME);
   const [prefsReady, setPrefsReady] = useState(false);
 
   useEffect(() => {
@@ -22,7 +25,7 @@ export default function PublicOverviewPage() {
       if ([5_000, 15_000, 30_000, 90_000].includes(parsed)) setJobFeedPollInterval(parsed);
     }
     const storedTf = localStorage.getItem(TIMEFRAME_KEY);
-    if (storedTf && ['1', '6', '12', '18', '24'].includes(storedTf)) setTimeframe(storedTf);
+    if (storedTf && OVERVIEW_TIMEFRAME_VALUES.includes(storedTf)) setTimeframe(storedTf);
     setPrefsReady(true);
   }, []);
 

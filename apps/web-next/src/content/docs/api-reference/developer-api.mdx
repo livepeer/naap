@@ -1,14 +1,98 @@
 ---
 title: "Developer API"
-description: "REST API reference for managing API keys, AI models, projects, usage, and billing providers."
+description: "REST reference for developer keys, models, projects, usage, billing providers, and Network Overview dashboard data (BFF)."
 order: 9
 ---
 
 ## Overview
 
-The Developer API provides endpoints for developers to manage API keys, browse available AI models, organize projects, and track usage. Keys are linked to billing providers through an OAuth flow.
+The Developer API provides endpoints for developers to manage API keys, browse available AI models, organize projects, and track usage. Keys are linked to billing providers through a brokered provider login flow.
 
-All endpoints require an authenticated session (JWT).
+**Authentication**
+
+- **`/api/v1/developer/*`** — requires an authenticated session (JWT), except where individual routes state otherwise.
+- **`GET /api/v1/billing-providers`** — public (catalog only).
+- **`GET /api/v1/dashboard/*`** — public read-only JSON used by the Network Overview (landing page `/` and `/dashboard`); see below.
+
+For how overview data is aggregated (facade, upstream metrics API, subgraph), see [Dashboard data architecture](/docs/concepts/dashboard-data-architecture).
+
+---
+
+## Network overview data (dashboard BFF)
+
+These routes back the **Network Overview** UI (`OverviewContent`): the public home page loads them directly; the authenticated dashboard usually receives the same fields via the dashboard provider plugin (GraphQL over the event bus), while the HTTP surface stays the source of truth for caching and public access.
+
+Responses are JSON. Shapes align with the dashboard types in `@naap/plugin-sdk` (for example `DashboardKPI`, `DashboardPipelineUsage`, `DashboardOrchestrator`, `JobFeedEntry`). Failed upstream calls often return **503** with `{ "error": { "code", "message" } }` (job feed returns an empty `streams` array and flags instead).
+
+| Route | Role in overview |
+|---|---|
+| `GET /api/v1/dashboard/kpi` | KPI tiles, hourly usage charts |
+| `GET /api/v1/dashboard/pipelines` | Pipeline usage table |
+| `GET /api/v1/dashboard/pipeline-catalog` | Pipeline / model catalog rows |
+| `GET /api/v1/dashboard/orchestrators` | Orchestrator table |
+| `GET /api/v1/dashboard/protocol` | Protocol stats strip |
+| `GET /api/v1/dashboard/gpu-capacity` | GPU capacity section |
+| `GET /api/v1/dashboard/pricing` | Per-pipeline pricing and capacity hints |
+| `GET /api/v1/dashboard/fees` | Fees / volume chart |
+| `GET /api/v1/dashboard/job-feed` | Live job list |
+
+### `GET /api/v1/dashboard/kpi`
+
+| Query | Description |
+|---|---|
+| `timeframe` | Window length in **hours** (string/number). Clamped to **1–168**. Default **24** if omitted. |
+| `pipeline` | Optional — filter KPI to a pipeline id. |
+| `model_id` | Optional — filter KPI to a model id. |
+
+### `GET /api/v1/dashboard/pipelines`
+
+| Query | Description |
+|---|---|
+| `timeframe` | Same hour-based window as KPI (passed through to the metrics API). |
+| `limit` | Max pipelines (default **5**; the overview uses **200**). |
+
+### `GET /api/v1/dashboard/pipeline-catalog`
+
+No query parameters.
+
+### `GET /api/v1/dashboard/orchestrators`
+
+| Query | Description |
+|---|---|
+| `period` | Period string such as **`12h`**, **`24h`** — must match the overview timeframe (UI maps selected hours to `${hours}h`). Default **`24h`**. |
+
+### `GET /api/v1/dashboard/protocol`
+
+No query parameters.
+
+### `GET /api/v1/dashboard/gpu-capacity`
+
+| Query | Description |
+|---|---|
+| `timeframe` | Same hour-based selection as KPI (resolver normalizes the key). |
+
+### `GET /api/v1/dashboard/pricing`
+
+No query parameters.
+
+### `GET /api/v1/dashboard/fees`
+
+| Query | Description |
+|---|---|
+| `days` | History length for fee/volume series. Optional; **default 180**. If set, must be an integer **7–365**. |
+
+### `GET /api/v1/dashboard/job-feed`
+
+| Query | Description |
+|---|---|
+| `pollMs` | Client poll interval in milliseconds; used to key **Cache-Control** `max-age` so CDN/browser caching matches refresh cadence (overview uses values such as **5000**, **15000**, **30000**, **90000**). |
+| `refresh=1` or `nocache=1` | Bypass cache for a one-off refetch. |
+
+**Response (success):** `{ "streams": JobFeedEntry[], "clickhouseConfigured": boolean, "queryFailed": boolean }` — when the upstream query fails, `streams` is empty and `queryFailed` is **true**.
+
+### Overview timeframe values
+
+The overview timeframe control uses hour strings **`1`**, **`6`**, **`12`**, **`18`**, **`24`**, **`48`**, **`72`**, **`168`** (7d). Pass the same value as `timeframe` on KPI, pipelines, and GPU capacity, and derive `period` for orchestrators as **`${hours}h`**.
 
 ---
 
