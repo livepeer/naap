@@ -75,6 +75,7 @@ export default function RegisterForm() {
         await loginWithOAuth(provider);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'OAuth sign up failed');
+      } finally {
         setOauthLoading(false);
       }
     },
