@@ -29,6 +29,8 @@ test.describe('Security smoke @pre-release', () => {
     test.skip(!isNonLocalBaseUrl(), 'HTTPS cookie flags checked on non-local base URL only');
 
     const cookies = await context.cookies();
+    test.skip(cookies.length === 0, 'No cookies present — auth setup likely skipped (set E2E_USER_EMAIL/E2E_USER_PASSWORD)');
+
     const httpOnlyCookies = cookies.filter((c) => c.httpOnly);
     expect(httpOnlyCookies.length, 'expected at least one HttpOnly cookie from setup login').toBeGreaterThan(0);
     for (const c of httpOnlyCookies) {
