@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useShell, useEvents } from '@/contexts/shell-context';
 import { usePlugins, type PluginManifest } from '@/contexts/plugin-context';
+import { preloadPluginResources } from '@/lib/plugins/cdn';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import {
   Activity,
@@ -43,6 +44,7 @@ interface NavItem {
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string; size?: number }>;
+  onHoverPrefetch?: () => void;
 }
 
 /** Normalize plugin name for deduplication (my-wallet == myWallet == mywallet) */
@@ -257,6 +259,16 @@ export function Sidebar() {
       return true;
     });
 
+    const preloaded = new Set<string>();
+    const makeHoverPrefetch = (plugin: PluginManifest) => {
+      if (!plugin.bundleUrl) return undefined;
+      return () => {
+        if (preloaded.has(plugin.name)) return;
+        preloaded.add(plugin.name);
+        preloadPluginResources({ bundleUrl: plugin.bundleUrl!, stylesUrl: plugin.stylesUrl });
+      };
+    };
+
     const main = uniquePlugins
       .filter(p => getPluginNavSection(p) === 'main')
       .sort((a, b) => a.order - b.order)
@@ -264,6 +276,7 @@ export function Sidebar() {
         name: plugin.displayName,
         href: plugin.routes?.[0]?.replace('/*', '') || `/plugins/${plugin.name}`,
         icon: resolveIcon(plugin.icon),
+        onHoverPrefetch: makeHoverPrefetch(plugin),
       }));
 
     const network = uniquePlugins
@@ -273,6 +286,7 @@ export function Sidebar() {
         name: plugin.displayName,
         href: plugin.routes?.[0]?.replace('/*', '') || `/plugins/${plugin.name}`,
         icon: resolveIcon(plugin.icon),
+        onHoverPrefetch: makeHoverPrefetch(plugin),
       }));
 
     return { mainPlugins: main, networkPlugins: network };
@@ -543,6 +557,7 @@ function NavLink({
           : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
       }`}
       title={!isOpen ? item.name : undefined}
+      onMouseEnter={item.onHoverPrefetch}
     >
       <span className="shrink-0"><Icon size={16} /></span>
       {isOpen && <span className="text-[13px] font-medium truncate">{item.name}</span>}
