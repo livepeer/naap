@@ -3,14 +3,16 @@
  * the KPI resolver (time-scoped count when `LastSeen` is present) and the
  * orchestrator-table resolver (multi-URI enrichment).
  *
- * Source: GET /v1/net/orchestrators?active_only=false&limit=1000
+ * Source: GET /v1/net/orchestrators?active_only=false&limit=…&offset=… (paged until exhausted)
  */
 
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
 
-/** Must match Overview / KPI registry query (`limit` on net/orchestrators). */
-export const NET_ORCHESTRATORS_FETCH_LIMIT = '1000';
+/** Per-page `limit` for net/orchestrators (registry supports `offset` pagination). */
+export const NET_ORCHESTRATORS_PAGE_SIZE = '1000';
+
+const MAX_NET_ORCHESTRATOR_PAGES = 500;
 
 interface NaapNetOrchestrator {
   Address: string;
@@ -65,16 +67,35 @@ const EMPTY: NetOrchestratorData = {
   lastSeenMsByAddress: new Map(),
 };
 
-export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
-  const cacheKey = `facade:net-orchestrators:limit=${NET_ORCHESTRATORS_FETCH_LIMIT}`;
-  return cachedFetch(cacheKey, TTL.NET_MODELS, async () => {
+async function fetchAllNetOrchestratorRows(): Promise<NaapNetOrchestrator[]> {
+  const pageSize = Number.parseInt(NET_ORCHESTRATORS_PAGE_SIZE, 10);
+  const revalidateSec = Math.floor(TTL.NET_MODELS / 1000);
+  const fetchOptions = {
+    next: { revalidate: revalidateSec },
+    errorLabel: 'net-orchestrators',
+  } as const;
+  const all: NaapNetOrchestrator[] = [];
+
+  for (let page = 0; page < MAX_NET_ORCHESTRATOR_PAGES; page++) {
+    const offset = String(page * pageSize);
     const rows = await naapGet<NaapNetOrchestrator[]>('net/orchestrators', {
       active_only: 'false',
-      limit: NET_ORCHESTRATORS_FETCH_LIMIT,
-    }, {
-      next: { revalidate: Math.floor(TTL.NET_MODELS / 1000) },
-      errorLabel: 'net-orchestrators',
-    });
+      limit: NET_ORCHESTRATORS_PAGE_SIZE,
+      offset,
+    }, fetchOptions);
+    all.push(...rows);
+    if (rows.length < pageSize) {
+      break;
+    }
+  }
+
+  return all;
+}
+
+export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
+  const cacheKey = `facade:net-orchestrators:paged&pageSize=${NET_ORCHESTRATORS_PAGE_SIZE}`;
+  return cachedFetch(cacheKey, TTL.NET_MODELS, async () => {
+    const rows = await fetchAllNetOrchestratorRows();
 
     const urisByAddress = new Map<string, string[]>();
     const displayAddressByLower = new Map<string, string>();
@@ -92,8 +113,10 @@ export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
         uris = [];
         urisByAddress.set(addr, uris);
       }
-      if (!uris.includes(r.URI)) {
-        uris.push(r.URI);
+      const uri =
+        typeof r.URI === 'string' ? r.URI.trim() : '';
+      if (uri.length > 0 && !uris.includes(uri)) {
+        uris.push(uri);
       }
       if (r.IsActive) {
         activeAddresses.add(addr);

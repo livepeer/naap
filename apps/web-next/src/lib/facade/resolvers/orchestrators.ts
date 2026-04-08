@@ -2,7 +2,7 @@
  * Orchestrators resolver — net registry as source of truth, dashboard merge.
  *
  * The Overview table **lists every distinct address** from GET /v1/net/orchestrators
- * (active_only=false, limit=1000 — see net-orchestrators.ts), in registry order.
+ * (active_only=false, paged limit/offset — see net-orchestrators.ts), in registry order.
  * For each address, when GET /v1/dashboard/orchestrators includes the same address
  * for the requested window, we fill SLA/session/GPU/pipeline fields from that row;
  * otherwise we use empty metrics.
@@ -14,7 +14,7 @@
  * range; they are multiplied by 100 for the UI.
  *
  * Source:
- *   GET /v1/net/orchestrators?active_only=false&limit=1000
+ *   GET /v1/net/orchestrators?active_only=false&limit=…&offset=…
  *   GET /v1/dashboard/orchestrators?window=Wh
  */
 
