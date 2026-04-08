@@ -27,7 +27,7 @@ interface MockPublishedPackage {
 function applyFilters(
   globalPlugins: MockPlugin[],
   publishedPackages: MockPublishedPackage[],
-  isAdmin: boolean,
+  bypassHiddenGate: boolean,
   previewViewerUserId: string | null = null
 ): MockPlugin[] {
   const publishedNames = new Set(
@@ -45,8 +45,8 @@ function applyFilters(
   return globalPlugins.filter((p) => {
     const normalized = normalizePluginName(p.name);
     if (!publishedNames.has(normalized)) return false;
-    if (isAdmin) return true;
     if (!hiddenNames.has(normalized)) return true;
+    if (bypassHiddenGate) return true;
     const pkg = pkgByNorm.get(normalized);
     if (
       previewViewerUserId &&
@@ -100,7 +100,7 @@ describe('Personalized API: publish-gate', () => {
     const globalPlugins = [makePlugin('leaky-plugin'), makePlugin('valid-plugin')];
     const publishedPackages = [makePackage('valid-plugin')];
 
-    const result = applyFilters(globalPlugins, publishedPackages, false);
+    const result = applyFilters(globalPlugins, publishedPackages, false, null);
 
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe('valid-plugin');
@@ -110,7 +110,7 @@ describe('Personalized API: publish-gate', () => {
     const globalPlugins = [makePlugin('my-plugin')];
     const publishedPackages = [makePackage('my-plugin')];
 
-    const result = applyFilters(globalPlugins, publishedPackages, false);
+    const result = applyFilters(globalPlugins, publishedPackages, false, null);
 
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe('my-plugin');
@@ -120,7 +120,7 @@ describe('Personalized API: publish-gate', () => {
     const globalPlugins = [makePlugin('my-plugin')];
     const publishedPackages = [makePackage('my_plugin')];
 
-    const result = applyFilters(globalPlugins, publishedPackages, false);
+    const result = applyFilters(globalPlugins, publishedPackages, false, null);
 
     expect(result).toHaveLength(1);
   });
@@ -129,7 +129,7 @@ describe('Personalized API: publish-gate', () => {
     const globalPlugins = [makePlugin('draft-plugin')];
     const publishedPackages: MockPublishedPackage[] = [];
 
-    const result = applyFilters(globalPlugins, publishedPackages, true);
+    const result = applyFilters(globalPlugins, publishedPackages, true, null);
 
     expect(result).toHaveLength(0);
   });
@@ -143,7 +143,7 @@ describe('Personalized API: visibility-gate', () => {
       makePackage('public-plugin', { visibleToUsers: true }),
     ];
 
-    const result = applyFilters(globalPlugins, publishedPackages, false);
+    const result = applyFilters(globalPlugins, publishedPackages, false, null);
 
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe('public-plugin');
@@ -156,7 +156,7 @@ describe('Personalized API: visibility-gate', () => {
       makePackage('public-plugin', { visibleToUsers: true }),
     ];
 
-    const result = applyFilters(globalPlugins, publishedPackages, true);
+    const result = applyFilters(globalPlugins, publishedPackages, true, null);
 
     expect(result).toHaveLength(2);
   });
@@ -167,10 +167,10 @@ describe('Personalized API: visibility-gate', () => {
       makePackage('secret-ui', { visibleToUsers: false }),
     ];
 
-    const resultNonAdmin = applyFilters(globalPlugins, publishedPackages, false);
+    const resultNonAdmin = applyFilters(globalPlugins, publishedPackages, false, null);
     expect(resultNonAdmin).toHaveLength(0);
 
-    const resultAdmin = applyFilters(globalPlugins, publishedPackages, true);
+    const resultAdmin = applyFilters(globalPlugins, publishedPackages, true, null);
     expect(resultAdmin).toHaveLength(1);
   });
 
@@ -186,6 +186,86 @@ describe('Personalized API: visibility-gate', () => {
   });
 });
 
+
+/** Mirrors route logic for core + preview-tester lazy preference creation. */
+function prefsToCreateForVisiblePlugins(
+  visibleNames: string[],
+  existingPref: Set<string>,
+  publishedPackages: MockPublishedPackage[],
+  userId: string,
+  coreNorms: Set<string>
+): string[] {
+  const pkgByNorm = new Map(
+    publishedPackages.map((p) => [normalizePluginName(p.name), p])
+  );
+  const core: string[] = [];
+  for (const name of visibleNames) {
+    if (existingPref.has(name)) continue;
+    if (coreNorms.has(normalizePluginName(name))) core.push(name);
+  }
+  const preview: string[] = [];
+  for (const name of visibleNames) {
+    if (existingPref.has(name)) continue;
+    const pkg = pkgByNorm.get(normalizePluginName(name));
+    if (pkg && !pkg.visibleToUsers && pkg.previewTesterUserIds?.includes(userId)) {
+      preview.push(name);
+    }
+  }
+  return [...new Set([...core, ...preview])];
+}
+
+describe('Personalized API: preference auto-install selection', () => {
+  it('includes hidden preview plugin for allowlisted user without preference', () => {
+    const published = [
+      makePackage('my-wallet', {
+        visibleToUsers: false,
+        previewTesterUserIds: ['user-a'],
+      }),
+    ];
+    const names = prefsToCreateForVisiblePlugins(
+      ['my-wallet'],
+      new Set(),
+      published,
+      'user-a',
+      new Set()
+    );
+    expect(names).toEqual(['my-wallet']);
+  });
+
+  it('excludes preview plugin when user is not on allowlist', () => {
+    const published = [
+      makePackage('my-wallet', {
+        visibleToUsers: false,
+        previewTesterUserIds: ['user-a'],
+      }),
+    ];
+    const names = prefsToCreateForVisiblePlugins(
+      ['my-wallet'],
+      new Set(),
+      published,
+      'other',
+      new Set()
+    );
+    expect(names).toEqual([]);
+  });
+
+  it('skips when preference already exists', () => {
+    const published = [
+      makePackage('my-wallet', {
+        visibleToUsers: false,
+        previewTesterUserIds: ['user-a'],
+      }),
+    ];
+    const names = prefsToCreateForVisiblePlugins(
+      ['my-wallet'],
+      new Set(['my-wallet']),
+      published,
+      'user-a',
+      new Set()
+    );
+    expect(names).toEqual([]);
+  });
+});
 
 describe('Personalized API: preview tester allowlist', () => {
   it('shows hidden plugin to allowlisted user', () => {
@@ -219,6 +299,43 @@ describe('Personalized API: preview tester allowlist', () => {
 
     const result = applyFilters(globalPlugins, publishedPackages, false, 'other-user');
     expect(result).toHaveLength(0);
+  });
+
+  it('shows hidden plugin to target user when admin impersonates (no bypass)', () => {
+    const globalPlugins = [makePlugin('preview-ui')];
+    const publishedPackages = [
+      makePackage('preview-ui', {
+        visibleToUsers: false,
+        previewTesterUserIds: ['target-user'],
+      }),
+    ];
+
+    const result = applyFilters(globalPlugins, publishedPackages, false, 'target-user');
+    expect(result).toHaveLength(1);
+  });
+
+  it('hides hidden plugin when admin impersonates user not on allowlist', () => {
+    const globalPlugins = [makePlugin('preview-ui')];
+    const publishedPackages = [
+      makePackage('preview-ui', {
+        visibleToUsers: false,
+        previewTesterUserIds: ['target-user'],
+      }),
+    ];
+
+    const result = applyFilters(globalPlugins, publishedPackages, false, 'other-user');
+    expect(result).toHaveLength(0);
+  });
+
+  it('admin viewing self bypasses hidden gate', () => {
+    const globalPlugins = [makePlugin('secret'), makePlugin('public')];
+    const publishedPackages = [
+      makePackage('secret', { visibleToUsers: false }),
+      makePackage('public'),
+    ];
+
+    const result = applyFilters(globalPlugins, publishedPackages, true, null);
+    expect(result.map((p) => p.name).sort()).toEqual(['public', 'secret']);
   });
 
   it('hides hidden plugin with empty allowlist for non-admin', () => {
@@ -283,7 +400,7 @@ describe('Personalized API: combined gates', () => {
       makePackage('published-hidden', { visibleToUsers: false }),
     ];
 
-    const result = applyFilters(globalPlugins, publishedPackages, false);
+    const result = applyFilters(globalPlugins, publishedPackages, false, null);
 
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe('published-visible');
@@ -300,7 +417,7 @@ describe('Personalized API: combined gates', () => {
       makePackage('published-hidden', { visibleToUsers: false }),
     ];
 
-    const result = applyFilters(globalPlugins, publishedPackages, true);
+    const result = applyFilters(globalPlugins, publishedPackages, true, null);
 
     expect(result).toHaveLength(2);
     expect(result.map((p) => p.name)).toEqual(['published-visible', 'published-hidden']);

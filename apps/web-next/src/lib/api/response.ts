@@ -72,7 +72,8 @@ export function error(
   code: ErrorCode | string,
   message: string,
   statusCode: number = 400,
-  details?: unknown
+  details?: unknown,
+  headers?: HeadersInit
 ): NextResponse<SharedAPIResponse<null>> {
   const response: SharedAPIResponse<null> = {
     success: false,
@@ -80,7 +81,7 @@ export function error(
     meta: { timestamp: new Date().toISOString() },
   };
 
-  return NextResponse.json(response, { status: statusCode });
+  return NextResponse.json(response, { status: statusCode, headers });
 }
 
 /**
@@ -103,11 +104,11 @@ export const errors = {
     error('CONFLICT', message, 409),
 
   rateLimited: (retryAfter: number) =>
-    error('RATE_LIMITED', 'Too many requests', 429, { retryAfter }),
+    error('RATE_LIMITED', 'Too many requests', 429, { retryAfter }, { 'Retry-After': String(retryAfter) }),
 
-  /** HTTP 429 with a clear message (Retry-After hint in meta via details). */
-  tooManyRequests: (message: string = 'Too many requests') =>
-    error('RATE_LIMITED', message, 429, { retryAfter: 60 }),
+  /** HTTP 429 with JSON body, details.retryAfter, and Retry-After header. */
+  tooManyRequests: (message: string = 'Too many requests', retryAfter: number = 60) =>
+    error('RATE_LIMITED', message, 429, { retryAfter }, { 'Retry-After': String(retryAfter) }),
 
   accountLocked: (lockedUntil: Date) =>
     error('ACCOUNT_LOCKED', 'Account is temporarily locked', 423, {

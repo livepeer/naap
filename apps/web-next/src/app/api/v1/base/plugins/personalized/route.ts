@@ -86,14 +86,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Apply publish-gate + visibility-gate. Deferred into a function so it
     // can be called after admin status is fully resolved (token OR DB lookup).
-    // Non-admins see hidden plugins only if their user id is on previewTesterUserIds
-    // for that package. Admins impersonating another user (userId query) use the
-    // target user's id for preview visibility; everyone else uses the session user.
-    const applyVisibilityFilter = (adminFlag: boolean, previewViewerUserId: string | null) =>
+    // - bypassHiddenGate: admin viewing their own session user sees all published plugins.
+    // - Otherwise hidden plugins show only if previewViewerUserId is on previewTesterUserIds
+    //   (used for normal users and for admins using ?userId= to preview another account).
+    const applyVisibilityFilter = (
+      bypassHiddenGate: boolean,
+      previewViewerUserId: string | null
+    ) =>
       publishedGlobalPlugins.filter((p) => {
-        if (adminFlag) return true;
         const norm = normalizePluginName(p.name);
         if (!hiddenNames.has(norm)) return true;
+        if (bypassHiddenGate) return true;
         const pkg = publishedPackageByNormalizedName.get(norm);
         if (
           previewViewerUserId &&
@@ -113,7 +116,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
 
     if (!userIdOrAddress) {
-      const visibleGlobalPlugins = applyVisibilityFilter(isAdmin, null);
+      const visibleGlobalPlugins = applyVisibilityFilter(false, null);
       return success({ plugins: visibleGlobalPlugins });
     }
 
@@ -139,9 +142,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       isAdmin = userRoles.some((ur) => ur.role.name === 'system:admin');
     }
 
-    // Preview visibility: admins see packages as the target user would; others use session id only
-    const previewVisibilityUserId = isAdmin ? user.id : authenticatedUserId;
-    const visibleGlobalPlugins = applyVisibilityFilter(isAdmin, previewVisibilityUserId);
+    const bypassHiddenGate =
+      isAdmin &&
+      authenticatedUserId !== null &&
+      authenticatedUserId === user.id;
+    const previewVisibilityUserId = bypassHiddenGate ? null : user.id;
+    const visibleGlobalPlugins = applyVisibilityFilter(
+      bypassHiddenGate,
+      previewVisibilityUserId
+    );
 
     // If team context, get team-specific plugin preferences
     if (teamId) {

@@ -34,9 +34,15 @@ jobs:
               per_page: 100,
             });
 
-            const hasPrisma = files.some((f) => f.filename?.endsWith('.prisma'));
-            if (!hasPrisma) {
-              core.info('No Prisma schema changes in this PR');
+            const hasMigration = files.some((f) => {
+              const name = f.filename ?? '';
+              return (
+                name.endsWith('.prisma') ||
+                /\/prisma\/migrations\/.+\.sql$/.test(name)
+              );
+            });
+            if (!hasMigration) {
+              core.info('No Prisma schema or SQL migration changes in this PR');
               return;
             }
 

@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
           where: { userId: alert.userId },
           select: { address: true },
         });
-        const addresses = userWallets.map((w) => w.address);
+        const addresses = userWallets.map((w) => w.address.toLowerCase());
         const readyLocks =
           addresses.length === 0
             ? 0

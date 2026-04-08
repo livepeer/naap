@@ -67,13 +67,14 @@ async function createConnectorFromTemplate(
   const upstreamBaseUrl = overrides?.upstreamBaseUrl || conn.upstreamBaseUrl;
 
   if (!upstreamBaseUrl?.trim()) {
-    return errors.badRequest(
-      'Missing upstreamBaseUrl: set it on the template or pass overrides.upstreamBaseUrl'
-    );
+    return {
+      error:
+        'Missing upstreamBaseUrl: set it on the template or pass overrides.upstreamBaseUrl',
+    };
   }
 
   if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
-    return errors.badRequest('Slug must be lowercase alphanumeric with hyphens');
+    return { error: 'Slug must be lowercase alphanumeric with hyphens' };
   }
 
   const existing = ctx.isPersonal

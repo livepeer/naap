@@ -439,10 +439,14 @@ function PluginRow({
       </div>
       {!plugin.visibleToUsers && (
         <div className="px-4 pb-4 pt-0 border-t border-border/60 mt-2">
-          <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">
+          <label
+            htmlFor={`preview-tester-ids-${plugin.id}`}
+            className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5"
+          >
             Preview tester user IDs (comma or newline separated)
           </label>
           <Textarea
+            id={`preview-tester-ids-${plugin.id}`}
             value={plugin.previewTesterUserIds.join('\n')}
             onChange={(e) => onPreviewIdsChange(plugin.name, e.target.value)}
             placeholder="e.g. clxxxxxxxx user uuid"

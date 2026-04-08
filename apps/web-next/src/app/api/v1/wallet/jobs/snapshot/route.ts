@@ -1,6 +1,9 @@
 /**
  * Vercel Cron trigger for staking snapshot
  * Protected by CRON_SECRET
+ *
+ * Appends one snapshot row per staking state per run (round = unix seconds)
+ * so /api/v1/wallet/yield can chart over time. pendingStake = principal + rewards.
  */
 
 import { NextRequest } from 'next/server';
@@ -20,30 +23,34 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    const round = Math.floor(Date.now() / 1000);
     let count = 0;
     for (const state of states) {
       const addr = state.address.toLowerCase();
-      const round = Number.parseInt(state.startRound ?? '0', 10) || 0;
-      await prisma.walletStakingSnapshot.upsert({
-        where: {
-          address_round: { address: addr, round },
-        },
-        create: {
-          address: addr,
-          orchestrator: state.delegatedTo ?? '',
-          round,
-          bondedAmount: state.stakedAmount,
-          pendingStake: state.pendingRewards,
-          pendingFees: state.pendingFees,
-        },
-        update: {
-          orchestrator: state.delegatedTo ?? '',
-          bondedAmount: state.stakedAmount,
-          pendingStake: state.pendingRewards,
-          pendingFees: state.pendingFees,
-        },
-      });
-      count++;
+      const pendingStake = (
+        BigInt(state.stakedAmount || '0') + BigInt(state.pendingRewards || '0')
+      ).toString();
+
+      try {
+        await prisma.walletStakingSnapshot.create({
+          data: {
+            address: addr,
+            orchestrator: state.delegatedTo ?? '',
+            round,
+            bondedAmount: state.stakedAmount,
+            pendingStake,
+            pendingFees: state.pendingFees,
+          },
+        });
+        count++;
+      } catch (e) {
+        const code =
+          typeof e === 'object' && e !== null && 'code' in e
+            ? String((e as { code: unknown }).code)
+            : '';
+        if (code === 'P2002') continue;
+        throw e;
+      }
     }
 
     return success({ snapshots: count });

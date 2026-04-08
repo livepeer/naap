@@ -111,66 +111,56 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     // Determine newly added core plugins
     const newlyCore = resolvedCoreNames.filter((name) => !previousCoreNames.has(name));
 
-    // Update core status and visibility in a single transaction
-    const txOps = [
-      prisma.pluginPackage.updateMany({
+    await prisma.$transaction(async (tx) => {
+      await tx.pluginPackage.updateMany({
         where: { isCore: true },
         data: { isCore: false },
-      }),
-      ...(resolvedCoreNames.length > 0
-        ? [
-            prisma.pluginPackage.updateMany({
-              where: { name: { in: resolvedCoreNames } },
-              data: { isCore: true },
-            }),
-          ]
-        : []),
-    ];
-
-    // Update visibility if hiddenPluginNames is provided
-    if (Array.isArray(hiddenPluginNames)) {
-      const resolvedHiddenNames = resolveNames(hiddenPluginNames);
-      txOps.push(
-        prisma.pluginPackage.updateMany({
-          where: { deprecated: false },
-          data: { visibleToUsers: true },
-        }),
-      );
-      if (resolvedHiddenNames.length > 0) {
-        txOps.push(
-          prisma.pluginPackage.updateMany({
-            where: { name: { in: resolvedHiddenNames } },
-            data: { visibleToUsers: false },
-          }),
-        );
-      }
-    }
-
-    await prisma.$transaction(txOps);
-
-    if (
-      previewTesterUserIdsByPlugin &&
-      typeof previewTesterUserIdsByPlugin === 'object' &&
-      !Array.isArray(previewTesterUserIdsByPlugin)
-    ) {
-      const allPkgs = await prisma.pluginPackage.findMany({
-        where: { deprecated: false },
-        select: { id: true, name: true },
       });
-      const idByNormalized = new Map(
-        allPkgs.map((p) => [normalizePluginName(p.name), p.id])
-      );
-      for (const [rawName, ids] of Object.entries(previewTesterUserIdsByPlugin)) {
-        if (!Array.isArray(ids)) continue;
-        const resolvedId = idByNormalized.get(normalizePluginName(rawName));
-        if (!resolvedId) continue;
-        const cleaned = [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
-        await prisma.pluginPackage.update({
-          where: { id: resolvedId },
-          data: { previewTesterUserIds: cleaned },
+      if (resolvedCoreNames.length > 0) {
+        await tx.pluginPackage.updateMany({
+          where: { name: { in: resolvedCoreNames } },
+          data: { isCore: true },
         });
       }
-    }
+
+      if (Array.isArray(hiddenPluginNames)) {
+        const resolvedHiddenNames = resolveNames(hiddenPluginNames);
+        await tx.pluginPackage.updateMany({
+          where: { deprecated: false },
+          data: { visibleToUsers: true },
+        });
+        if (resolvedHiddenNames.length > 0) {
+          await tx.pluginPackage.updateMany({
+            where: { name: { in: resolvedHiddenNames } },
+            data: { visibleToUsers: false },
+          });
+        }
+      }
+
+      if (
+        previewTesterUserIdsByPlugin &&
+        typeof previewTesterUserIdsByPlugin === 'object' &&
+        !Array.isArray(previewTesterUserIdsByPlugin)
+      ) {
+        const allPkgsForPreview = await tx.pluginPackage.findMany({
+          where: { deprecated: false },
+          select: { id: true, name: true },
+        });
+        const idByNormalized = new Map(
+          allPkgsForPreview.map((p) => [normalizePluginName(p.name), p.id])
+        );
+        for (const [rawName, ids] of Object.entries(previewTesterUserIdsByPlugin)) {
+          if (!Array.isArray(ids)) continue;
+          const resolvedId = idByNormalized.get(normalizePluginName(rawName));
+          if (!resolvedId) continue;
+          const cleaned = [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
+          await tx.pluginPackage.update({
+            where: { id: resolvedId },
+            data: { previewTesterUserIds: cleaned },
+          });
+        }
+      }
+    });
 
     // Auto-install newly-core plugins for all existing users who don't have them
     if (newlyCore.length > 0) {
