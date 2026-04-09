@@ -1,4 +1,42 @@
+import {
+  getCsrfToken,
+  generateCorrelationId,
+  HEADER_CSRF_TOKEN,
+  HEADER_CORRELATION,
+} from '@naap/plugin-sdk';
+
 const BASE_URL = '/api/v1/orchestrator-leaderboard';
+
+/** Must match shell `STORAGE_KEYS.AUTH_TOKEN` (see apps/web-next auth-context). */
+const AUTH_TOKEN_KEY = 'naap_auth_token';
+
+function getAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  const shellContext = (window as unknown as { __SHELL_CONTEXT__?: { authToken?: string } })
+    .__SHELL_CONTEXT__;
+  if (shellContext?.authToken) return shellContext.authToken;
+  if (typeof localStorage !== 'undefined') {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  }
+  return null;
+}
+
+function buildHeaders(jsonBody: boolean): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (jsonBody) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const token = getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const csrf = getCsrfToken();
+  if (csrf) {
+    headers[HEADER_CSRF_TOKEN] = csrf;
+  }
+  headers[HEADER_CORRELATION] = generateCorrelationId();
+  return headers;
+}
 
 export interface OrchestratorRow {
   orchUri: string;
@@ -51,8 +89,9 @@ export interface RankResponse {
 export async function fetchRank(request: LeaderboardRequest): Promise<RankResponse> {
   const res = await fetch(`${BASE_URL}/rank`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: buildHeaders(true),
     body: JSON.stringify(request),
+    credentials: 'include',
     signal: AbortSignal.timeout(15_000),
   });
 
@@ -74,6 +113,8 @@ export async function fetchRank(request: LeaderboardRequest): Promise<RankRespon
 
 export async function fetchCapabilities(): Promise<string[]> {
   const res = await fetch(`${BASE_URL}/filters`, {
+    headers: buildHeaders(false),
+    credentials: 'include',
     signal: AbortSignal.timeout(10_000),
   });
 

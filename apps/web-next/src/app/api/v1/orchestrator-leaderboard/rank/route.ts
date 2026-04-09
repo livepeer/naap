@@ -68,7 +68,7 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
 
   let result;
   try {
-    result = await fetchLeaderboard(validBody.capability, authToken);
+    result = await fetchLeaderboard(validBody.capability, authToken, request.url);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'ClickHouse query failed';
     const isTimeout = message.includes('timeout') || message.includes('abort');

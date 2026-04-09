@@ -1,5 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { buildLeaderboardSQL, validateCapability, validateTopN } from '../query';
+import { describe, it, expect, afterEach } from 'vitest';
+import {
+  buildLeaderboardSQL,
+  validateCapability,
+  validateTopN,
+  resolveClickhouseGatewayQueryUrl,
+} from '../query';
 
 describe('validateCapability', () => {
   it('accepts valid capability names', () => {
@@ -59,6 +64,48 @@ describe('validateTopN', () => {
 
   it('rejects values over 1000', () => {
     expect(() => validateTopN(1001)).toThrow();
+  });
+});
+
+describe('resolveClickhouseGatewayQueryUrl', () => {
+  const prevPublic = process.env.NEXT_PUBLIC_APP_URL;
+  const prevVercel = process.env.VERCEL_URL;
+
+  afterEach(() => {
+    if (prevPublic === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+    else process.env.NEXT_PUBLIC_APP_URL = prevPublic;
+    if (prevVercel === undefined) delete process.env.VERCEL_URL;
+    else process.env.VERCEL_URL = prevVercel;
+  });
+
+  it('uses request origin when provided', () => {
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.VERCEL_URL;
+    expect(
+      resolveClickhouseGatewayQueryUrl('http://localhost:3030/api/v1/orchestrator-leaderboard/rank'),
+    ).toBe('http://localhost:3030/api/v1/gw/clickhouse-query/query');
+  });
+
+  it('prefers request origin over NEXT_PUBLIC_APP_URL', () => {
+    process.env.NEXT_PUBLIC_APP_URL = 'http://localhost:3000';
+    expect(
+      resolveClickhouseGatewayQueryUrl('http://localhost:3030/api/v1/orchestrator-leaderboard/rank'),
+    ).toBe('http://localhost:3030/api/v1/gw/clickhouse-query/query');
+  });
+
+  it('falls back to NEXT_PUBLIC_APP_URL without request', () => {
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    expect(resolveClickhouseGatewayQueryUrl()).toBe(
+      'https://app.example.com/api/v1/gw/clickhouse-query/query',
+    );
+  });
+
+  it('falls back to VERCEL_URL when no request and no public URL', () => {
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    process.env.VERCEL_URL = 'my-app.vercel.app';
+    expect(resolveClickhouseGatewayQueryUrl()).toBe(
+      'https://my-app.vercel.app/api/v1/gw/clickhouse-query/query',
+    );
   });
 });
 
