@@ -108,6 +108,10 @@ if [ "${VERCEL_ENV}" = "production" ] || [ "${VERCEL_ENV}" = "preview" ]; then
   else
     echo "[3.5/6] Skipping gateway connector seed (CLICKHOUSE_QUERY_USERNAME/PASSWORD not set)"
   fi
+
+  # Seed demo discovery plans so the leaderboard UI has data to display.
+  echo "[3.6/6] Seeding discovery plans..."
+  npx tsx bin/seed-discovery-plans.ts || echo "WARN: discovery plan seed had issues (non-fatal)"
 fi
 
 # Step 4: Sync plugin registry in database (BEFORE build so generated files
