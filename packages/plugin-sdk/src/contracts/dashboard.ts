@@ -187,6 +187,8 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
   type OrchestratorRow {
     address: String!
     uris: [String!]!
+    """Latest registry LastSeen for this address (ISO 8601 UTC), when available."""
+    lastSeen: String
     knownSessions: Int!
     successSessions: Int!
     successRatio: Float!
@@ -361,6 +363,11 @@ export interface DashboardOrchestrator {
   address: string;
   /** All known service URIs for this address (from /v1/net/orchestrators). */
   uris: string[];
+  /**
+   * Latest registry `LastSeen` for this address (max across URI rows), ISO 8601 UTC.
+   * Present when the net orchestrators API returned at least one parseable timestamp for the address.
+   */
+  lastSeen?: string | null;
   knownSessions: number;
   successSessions: number;
   successRatio: number;

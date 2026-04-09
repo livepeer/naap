@@ -6,6 +6,7 @@
  * Source: GET /v1/net/orchestrators?active_only=false&limit=…&offset=… (paged until exhausted)
  */
 
+import type { DashboardPipelineModelOffer } from '@naap/plugin-sdk';
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
 
@@ -18,14 +19,52 @@ interface NaapNetOrchestrator {
   Address: string;
   URI: string;
   IsActive: boolean;
-  LastSeen?: string;
-  lastSeen?: string;
-  last_seen?: string;
+  LastSeen?: string | number;
+  lastSeen?: string | number;
+  last_seen?: string | number;
+  RawCapabilities?: string;
+}
+
+interface RawCapabilitiesJson {
+  hardware?: Array<{ pipeline?: string; model_id?: string }>;
+}
+
+function parseRawCapabilities(raw: string | undefined): DashboardPipelineModelOffer[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as RawCapabilitiesJson;
+    const byPipeline = new Map<string, Set<string>>();
+    for (const h of parsed.hardware ?? []) {
+      const pipeline = h.pipeline?.trim();
+      const model = h.model_id?.trim();
+      if (!pipeline || !model) continue;
+      let models = byPipeline.get(pipeline);
+      if (!models) {
+        models = new Set();
+        byPipeline.set(pipeline, models);
+      }
+      models.add(model);
+    }
+    return [...byPipeline.entries()].map(([pipelineId, modelSet]) => ({
+      pipelineId,
+      modelIds: [...modelSet].sort((a, b) => a.localeCompare(b)),
+    }));
+  } catch {
+    return [];
+  }
 }
 
 function parseOrchestratorLastSeenMs(row: NaapNetOrchestrator): number | undefined {
   const raw = row.LastSeen ?? row.lastSeen ?? row.last_seen;
-  if (raw == null || typeof raw !== 'string') {
+  if (raw == null) {
+    return undefined;
+  }
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    if (raw <= 0) return undefined;
+    // Unix ms (e.g. 1.7e12) vs seconds (e.g. 1.7e9)
+    return raw >= 1e12 ? raw : raw * 1000;
+  }
+  if (typeof raw !== 'string') {
     return undefined;
   }
   const t = Date.parse(raw.trim());
@@ -51,6 +90,8 @@ export interface NetOrchestratorData {
   hasLastSeenData: boolean;
   /** Per-address max `LastSeen` (ms) across URI rows; only addresses with a seen timestamp appear. */
   lastSeenMsByAddress: Map<string, number>;
+  /** Per-address pipeline/model offers parsed from RawCapabilities.hardware. */
+  pipelineModelsByAddress: Map<string, DashboardPipelineModelOffer[]>;
 }
 
 /** True if this URI list would produce a row in the overview orchestrator table. */
@@ -65,6 +106,7 @@ const EMPTY: NetOrchestratorData = {
   displayAddressByLower: new Map(),
   hasLastSeenData: false,
   lastSeenMsByAddress: new Map(),
+  pipelineModelsByAddress: new Map(),
 };
 
 async function fetchAllNetOrchestratorRows(): Promise<NaapNetOrchestrator[]> {
@@ -101,12 +143,17 @@ export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
     const displayAddressByLower = new Map<string, string>();
     const activeAddresses = new Set<string>();
     const lastSeenMsByAddress = new Map<string, number>();
+    const pipelineModelsByAddress = new Map<string, DashboardPipelineModelOffer[]>();
     let hasLastSeenData = false;
 
     for (const r of rows) {
       const addr = r.Address.toLowerCase();
       if (!displayAddressByLower.has(addr)) {
         displayAddressByLower.set(addr, r.Address.trim());
+        const offers = parseRawCapabilities(r.RawCapabilities);
+        if (offers.length > 0) {
+          pipelineModelsByAddress.set(addr, offers);
+        }
       }
       let uris = urisByAddress.get(addr);
       if (!uris) {
@@ -145,6 +192,7 @@ export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
       displayAddressByLower,
       hasLastSeenData,
       lastSeenMsByAddress,
+      pipelineModelsByAddress,
     };
   });
 }

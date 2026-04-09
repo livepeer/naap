@@ -1,21 +1,13 @@
 /**
- * Pipeline catalog resolver — `dashboard/pipeline-catalog` is the source of truth.
+ * Pipeline catalog resolver — all pipelines from upstream sources are eligible.
  *
- * 1. **Source of truth:** `GET /v1/dashboard/pipeline-catalog`. Only pipeline IDs
- *    returned by this endpoint (or explicitly listed in PIPELINE_DISPLAY) are
- *    allowed into the final catalog. Fallback sources may only enrich (add
- *    models/regions) to entries already present — they cannot introduce new IDs.
+ * 1. **Model/region enrichment:** `GET /v1/dashboard/pipeline-catalog` supplies
+ *    regions and canonical names. It enriches but never gates.
  *
- * 2. **Model enrichment:** `GET /v1/net/models` adds models to existing entries
- *    (warmed on startup via `instrumentation.ts → warmNetworkData()`).
+ * 2. **Model discovery:** `GET /v1/net/models` contributes all pipeline/model
+ *    pairs (warmed on startup via `instrumentation.ts → warmNetworkData()`).
  *
- * 3. **Perf augment:** `perf/by-model` (24h range) supplies additional model ids
- *    for entries already in the valid set.
- *
- * 4. **Display seed (stubs only):** If {@link FACADE_USE_STUBS} is set and the
- *    union still collapses to a single pipeline, merge empty shells for every id
- *    in {@link PIPELINE_DISPLAY}. Disabled in production to avoid injecting
- *    placeholder rows when upstream data is temporarily incomplete.
+ * 3. **Perf augment:** `perf/by-model` (24h range) supplies additional model ids.
  */
 
 import type { DashboardPipelineCatalogEntry } from '@naap/plugin-sdk';
@@ -24,9 +16,6 @@ import type { NetworkModel } from '../types.js';
 import { getRawNetModels } from '../network-data.js';
 import { cachedFetch, TTL } from '../cache.js';
 import { resolvePerfByModel } from './perf-by-model.js';
-
-import { PIPELINE_DISPLAY } from '@/lib/dashboard/pipeline-config';
-import { LIVE_VIDEO_PIPELINE_ID } from '@/lib/dashboard/pipeline-config';
 
 async function fetchWarmCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
   try {
@@ -58,8 +47,6 @@ function buildStableCatalog(
   for (const row of netModels) {
     const pipelineId = row.Pipeline?.trim();
     if (!pipelineId) continue;
-    const displayName = PIPELINE_DISPLAY[pipelineId];
-    if (displayName == null) continue;
 
     const model = row.Model?.trim();
     if (!model) continue;
@@ -70,7 +57,7 @@ function buildStableCatalog(
       entry = {
         models: new Set(warm?.models ?? []),
         regions: new Set(warm?.regions ?? []),
-        name: warm?.name ?? displayName ?? pipelineId,
+        name: warm?.name ?? pipelineId,
       };
       merged.set(pipelineId, entry);
     }
@@ -115,13 +102,10 @@ function catalogFromPerfByModel(
     const pipelineKey = key.slice(0, idx).trim();
     const modelKey = key.slice(idx + 1).trim();
     if (!pipelineKey || !modelKey) continue;
-    if (PIPELINE_DISPLAY[pipelineKey] == null) continue;
-
-    const displayName = PIPELINE_DISPLAY[pipelineKey] ?? pipelineKey;
 
     let slot = byPipeline.get(pipelineKey);
     if (!slot) {
-      slot = { name: displayName, models: new Set() };
+      slot = { name: pipelineKey, models: new Set() };
       byPipeline.set(pipelineKey, slot);
     }
     slot.models.add(modelKey);
@@ -133,18 +117,6 @@ function catalogFromPerfByModel(
     models: [...o.models],
     regions: [],
   }));
-}
-
-/** Empty shells for known pipeline ids — last resort when upstream merges to one row. */
-function catalogSeedFromDisplay(): DashboardPipelineCatalogEntry[] {
-  return Object.entries(PIPELINE_DISPLAY)
-    .filter((row): row is [string, string] => row[1] !== null)
-    .map(([id, name]) => ({
-      id,
-      name,
-      models: [],
-      regions: [],
-    }));
 }
 
 /** Union pipeline ids, merging model and region sets (order-stable). */
@@ -197,33 +169,11 @@ export async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalog
       }),
     ]);
 
-    const validIds: ReadonlySet<string> = warmCatalog.length > 0
-      ? new Set(warmCatalog.map((e) => e.id))
-      : new Set(Object.keys(PIPELINE_DISPLAY).filter((id) => PIPELINE_DISPLAY[id] != null));
+    console.log(`[facade/pipeline-catalog] net/models: ${netModels.length} rows${warmCatalog.length > 0 ? `, warm catalog: ${warmCatalog.length} entries` : ', warm catalog empty'}`);
 
-    if (warmCatalog.length > 0) {
-      console.log(`[facade/pipeline-catalog] valid set: ${validIds.size} IDs from dashboard/pipeline-catalog`);
-    } else {
-      console.log(`[facade/pipeline-catalog] warm catalog empty — falling back to PIPELINE_DISPLAY allowlist (${validIds.size} IDs)`);
-    }
+    const base = buildStableCatalog(netModels, warmCatalog);
+    const fromPerfByModel = catalogFromPerfByModel(fpsByPipelineModel);
 
-    const filteredNetModels = netModels.filter((r) => validIds.has(r.Pipeline?.trim() ?? ''));
-    const base = buildStableCatalog(filteredNetModels, warmCatalog);
-
-    const fromPerfByModel = catalogFromPerfByModel(fpsByPipelineModel)
-      .filter((e) => validIds.has(e.id));
-
-    let merged = unionCatalogEntries(base, fromPerfByModel);
-
-    if (process.env.FACADE_USE_STUBS === 'true') {
-      const catalogLooksIncomplete =
-        merged.length <= 1
-        || (merged.length > 0 && merged.every((e) => e.id === LIVE_VIDEO_PIPELINE_ID));
-      if (catalogLooksIncomplete) {
-        merged = unionCatalogEntries(merged, catalogSeedFromDisplay());
-      }
-    }
-
-    return merged;
+    return unionCatalogEntries(base, fromPerfByModel);
   });
 }

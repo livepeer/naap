@@ -7,7 +7,7 @@
  *
  * FACADE_USE_STUBS=true — forces all functions to return hardcoded stub data.
  * Unset (or "false") — all resolvers call the live NAAP API; stub data is never
- * injected, including catalog seeding from PIPELINE_DISPLAY.
+ * injected, including catalog seeding stubs.
  *
  * Adding a new data domain:
  *   1. Add the function signature here

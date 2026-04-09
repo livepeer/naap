@@ -52,23 +52,49 @@ function pct(v: number | null): number | null {
   return v !== null ? Math.round(v * 1000) / 10 : null;
 }
 
+function mergePipelineModels(
+  sla: { pipelineId: string; modelIds: string[] }[],
+  raw: { pipelineId: string; modelIds: string[] }[],
+): { pipelineId: string; modelIds: string[] }[] {
+  const byPipeline = new Map<string, Set<string>>();
+  for (const offer of [...sla, ...raw]) {
+    let models = byPipeline.get(offer.pipelineId);
+    if (!models) {
+      models = new Set();
+      byPipeline.set(offer.pipelineId, models);
+    }
+    for (const m of offer.modelIds) {
+      models.add(m);
+    }
+  }
+  return [...byPipeline.entries()].map(([pipelineId, modelSet]) => ({
+    pipelineId,
+    modelIds: [...modelSet].sort((a, b) => a.localeCompare(b)),
+  }));
+}
+
 function mapDashboardIntoNetRow(
   addressLower: string,
   dash: ApiOrchestrator,
   netData: Awaited<ReturnType<typeof getNetOrchestratorDataSafe>>,
 ): DashboardOrchestrator {
   const display = netData.displayAddressByLower.get(addressLower) ?? dash.address;
+  const rawOffers = netData.pipelineModelsByAddress.get(addressLower) ?? [];
+  const pipelineModels = mergePipelineModels(dash.pipelineModels, rawOffers);
+  const pipelineSet = new Set([...dash.pipelines, ...pipelineModels.map((o) => o.pipelineId)]);
+  const lastSeenMs = netData.lastSeenMsByAddress.get(addressLower);
   return {
     address: display,
     uris: netData.urisByAddress.get(addressLower) ?? [],
+    lastSeen: lastSeenMs !== undefined ? new Date(lastSeenMs).toISOString() : null,
     knownSessions: dash.knownSessions,
     successSessions: dash.successSessions,
     successRatio: pct(dash.successRatio) ?? 0,
     effectiveSuccessRate: pct(dash.effectiveSuccessRate),
     noSwapRatio: pct(dash.noSwapRatio),
     slaScore: dash.slaScore !== null ? Math.round(dash.slaScore * 100) : null,
-    pipelines: dash.pipelines,
-    pipelineModels: dash.pipelineModels,
+    pipelines: [...pipelineSet],
+    pipelineModels,
     gpuCount: dash.gpuCount,
   };
 }
@@ -77,17 +103,20 @@ function netOnlyPlaceholder(
   addressLower: string,
   netData: Awaited<ReturnType<typeof getNetOrchestratorDataSafe>>,
 ): DashboardOrchestrator {
+  const pipelineModels = netData.pipelineModelsByAddress.get(addressLower) ?? [];
+  const lastSeenMs = netData.lastSeenMsByAddress.get(addressLower);
   return {
     address: netData.displayAddressByLower.get(addressLower) ?? addressLower,
     uris: netData.urisByAddress.get(addressLower) ?? [],
+    lastSeen: lastSeenMs !== undefined ? new Date(lastSeenMs).toISOString() : null,
     knownSessions: 0,
     successSessions: 0,
     successRatio: 0,
     effectiveSuccessRate: null,
     noSwapRatio: null,
     slaScore: null,
-    pipelines: [],
-    pipelineModels: [],
+    pipelines: pipelineModels.map((o) => o.pipelineId),
+    pipelineModels,
     gpuCount: 0,
   };
 }
