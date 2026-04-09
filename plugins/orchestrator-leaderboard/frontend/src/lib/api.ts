@@ -204,10 +204,10 @@ export async function fetchPlanResults(planId: string): Promise<PlanResults> {
     throw new Error(json?.error?.message || `Request failed (${res.status})`);
   }
 
-  const json: APIResponse<PlanResults> = await res.json();
+  const json: APIResponse<{ data: PlanResults }> = await res.json();
   if (!json.success) throw new Error(json.error?.message || 'Request failed');
 
-  return json.data;
+  return json.data.data;
 }
 
 export async function updatePlan(
