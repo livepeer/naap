@@ -39,7 +39,12 @@ export async function GET(
   const authToken = getAuthToken(request) || '';
 
   try {
-    const results = await evaluateAndCache(plan, authToken, request.url);
+    const results = await evaluateAndCache(
+      plan,
+      authToken,
+      request.url,
+      request.headers.get('cookie'),
+    );
 
     const response = success({ data: results });
     response.headers.set('Cache-Control', 'private, max-age=10');

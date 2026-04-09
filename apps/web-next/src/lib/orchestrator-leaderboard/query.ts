@@ -117,11 +117,15 @@ export function buildLeaderboardSQL(capability: string, topN: number): string {
  * Fetch leaderboard rows, using the in-memory cache when available.
  * Always queries for MAX_QUERY_ROWS to maximize cache reuse across
  * different topN requests.
+ *
+ * @param cookieHeader - forward `cookie` from the incoming request so
+ *   server→server calls pass Vercel deployment-protection JWT.
  */
 export async function fetchLeaderboard(
   capability: string,
   authToken: string,
-  requestUrl?: string
+  requestUrl?: string,
+  cookieHeader?: string | null,
 ): Promise<{ rows: ClickHouseLeaderboardRow[]; fromCache: boolean; cachedAt: number }> {
   validateCapability(capability);
 
@@ -131,7 +135,7 @@ export async function fetchLeaderboard(
   }
 
   const sql = buildLeaderboardSQL(capability, MAX_QUERY_ROWS);
-  const rows = await fetchFromClickHouse(sql, authToken, requestUrl);
+  const rows = await fetchFromClickHouse(sql, authToken, requestUrl, cookieHeader);
   const now = Date.now();
   setCached(capability, rows);
   return { rows, fromCache: false, cachedAt: now };
@@ -140,16 +144,28 @@ export async function fetchLeaderboard(
 async function fetchFromClickHouse(
   sql: string,
   authToken: string,
-  requestUrl?: string
+  requestUrl?: string,
+  cookieHeader?: string | null,
 ): Promise<ClickHouseLeaderboardRow[]> {
   const url = resolveClickhouseGatewayQueryUrl(requestUrl);
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'text/plain',
+    'Authorization': `Bearer ${authToken}`,
+  };
+
+  if (cookieHeader) {
+    headers['cookie'] = cookieHeader;
+  }
+
+  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  if (bypassSecret) {
+    headers['x-vercel-protection-bypass'] = bypassSecret;
+  }
+
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'text/plain',
-      'Authorization': `Bearer ${authToken}`,
-    },
+    headers,
     body: sql,
     signal: AbortSignal.timeout(15_000),
   });
