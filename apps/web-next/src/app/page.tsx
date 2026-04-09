@@ -71,7 +71,6 @@ export default function PublicOverviewPage() {
               kpi={data.kpi}
               pipelines={data.pipelines}
               pipelineCatalog={data.pipelineCatalog}
-              orchestrators={data.orchestrators}
               protocol={data.protocol}
               gpuCapacity={data.gpuCapacity}
               pricing={data.pricing}

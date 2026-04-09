@@ -72,6 +72,10 @@ export const TTL = {
   FEES: DASHBOARD_ORIGIN_TTL_MS,
   /** NAAP /v1/net/capacity — warm-orch capacity snapshot; semantically distinct from PRICING */
   NET_CAPACITY: DASHBOARD_ORIGIN_TTL_MS,
+  /** NAAP /v1/jobs/* — job performance and demand, refreshed every 5 minutes */
+  JOBS: 5 * 60 * 1000,
+  /** NAAP /v1/ai-batch/* and /v1/byoc/* summary endpoints — refreshed every 5 minutes */
+  BATCH_SUMMARY: 5 * 60 * 1000,
 } as const;
 
 /**

@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import { useDashboardQuery } from '@/hooks/useDashboardQuery';
 import { useJobFeedStream } from '@/hooks/useJobFeedStream';
 import { OverviewContent } from '@/components/dashboard/overview-content';
-import type { DashboardData, DashboardOrchestrator } from '@naap/plugin-sdk';
+import type { DashboardData } from '@naap/plugin-sdk';
 import { AlertCircle } from 'lucide-react';
 import {
   DEFAULT_OVERVIEW_TIMEFRAME,
@@ -128,43 +128,12 @@ export default function DashboardPage() {
   const [jobFeedPollInterval, setJobFeedPollInterval] = useState(DEFAULT_POLL_INTERVAL);
   const [timeframe, setTimeframe] = useState(DEFAULT_OVERVIEW_TIMEFRAME);
   const [prefsReady, setPrefsReady] = useState(false);
-  const [orchestrators, setOrchestrators] = useState<DashboardOrchestrator[]>([]);
-  const [orchestratorsLoading, setOrchestratorsLoading] = useState(true);
 
   useEffect(() => {
     setJobFeedPollInterval(getStoredJobFeedPollInterval());
     setTimeframe(getStoredTimeframe());
     setPrefsReady(true);
   }, []);
-
-  useEffect(() => {
-    if (!prefsReady) return;
-    let cancelled = false;
-    setOrchestratorsLoading(true);
-    const qs = new URLSearchParams({ period: timeframe });
-    void fetch(`/api/v1/dashboard/orchestrators?${qs.toString()}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const body: unknown = await res.json();
-        if (!Array.isArray(body)) throw new Error('Invalid orchestrators response');
-        return body as DashboardOrchestrator[];
-      })
-      .then((rows) => {
-        if (!cancelled) {
-          setOrchestrators(rows);
-          setOrchestratorsLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setOrchestrators([]);
-          setOrchestratorsLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [prefsReady, timeframe]);
 
   const handleJobFeedPollIntervalChange = (ms: number) => {
     setJobFeedPollInterval(ms);
@@ -230,8 +199,6 @@ export default function DashboardPage() {
       kpi={lbData?.kpi ?? null}
       pipelines={lbData?.pipelines ?? []}
       pipelineCatalog={lbData?.pipelineCatalog ?? []}
-      orchestrators={orchestrators}
-      orchestratorsLoading={orchestratorsLoading}
       protocol={rtData?.protocol ?? null}
       gpuCapacity={rtData?.gpuCapacity ?? null}
       pricing={rtData?.pricing ?? []}

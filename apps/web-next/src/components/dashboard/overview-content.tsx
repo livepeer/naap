@@ -19,7 +19,6 @@ import type {
   DashboardPipelineCatalogEntry,
   DashboardGPUCapacity,
   DashboardPipelinePricing,
-  DashboardOrchestrator,
   JobFeedEntry,
 } from '@naap/plugin-sdk';
 import type { DashboardError } from '@/hooks/useDashboardQuery';
@@ -113,12 +112,6 @@ export interface OverviewContentProps {
   kpi: DashboardKPI | null;
   pipelines: DashboardPipelineUsage[];
   pipelineCatalog: DashboardPipelineCatalogEntry[];
-  orchestrators: DashboardOrchestrator[];
-  /**
-   * When set, controls the orchestrator table skeleton independently of `lbLoading`
-   * (e.g. authenticated dashboard loads orchestrators from the BFF while GraphQL stays on an older schema).
-   */
-  orchestratorsLoading?: boolean;
   protocol: DashboardProtocol | null;
   gpuCapacity: DashboardGPUCapacity | null;
   pricing: DashboardPipelinePricing[];
@@ -1426,266 +1419,6 @@ function JobFeedCard({
 }
 
 // ============================================================================
-// Orchestrator Table Card
-// ============================================================================
-
-type OrchestratorSortCol = 'uri' | 'knownSessions' | 'successRatio' | 'effectiveSuccessRate' | 'slaScore' | 'gpuCount';
-
-function formatPipelineLabel(
-  pipelineId: string,
-  catalog: DashboardPipelineCatalogEntry[] | null | undefined,
-  modelIds?: string[] | null,
-): string {
-  const entry = catalog?.find((p) => p.id === pipelineId);
-  const name = entry?.name ?? pipelineId;
-  if (modelIds?.length) return `${name} (${modelIds.join(', ')})`;
-  return name;
-}
-
-function stripOrchestratorServiceUri(uri: string): string {
-  return uri.replace(/^https?:\/\//, '');
-}
-
-function formatOrchestratorLastSeenForTooltip(iso: string | null | undefined): string {
-  if (!iso?.trim()) return 'Last seen: —';
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return `Last seen: ${iso}`;
-  return `Last seen: ${new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`;
-}
-
-function orchestratorModelPriceForTooltip(
-  pricing: DashboardPipelinePricing | undefined,
-  modelLabel: string,
-): string {
-  if (modelLabel === '—') return 'Price: —';
-  const wei = avgWeiBigIntForPricingRow(pricing);
-  if (wei != null) return `Price: ${wei.toLocaleString('en-US')} wei/${pricing?.unit ?? 'unit'}`;
-  return 'Price: —';
-}
-
-/** Tooltip for model tags: last seen, network price, URI when unambiguous; else URI list. */
-function orchestratorModelTagTooltip(
-  pipelineName: string,
-  modelLabel: string,
-  uris: string[],
-  opts: {
-    lastSeen?: string | null;
-    pricing?: DashboardPipelinePricing | undefined;
-  },
-): string {
-  const lines = [
-    `Model: ${modelLabel}`,
-    `Pipeline: ${pipelineName}`,
-    formatOrchestratorLastSeenForTooltip(opts.lastSeen),
-    orchestratorModelPriceForTooltip(opts.pricing, modelLabel),
-  ];
-  if (uris.length === 1) {
-    lines.push(`Service URI: ${stripOrchestratorServiceUri(uris[0])}`);
-  } else if (uris.length > 1) {
-    lines.push(
-      'Models are aggregated per orchestrator address (not per URI). Service URIs:',
-      ...uris.map((u) => `· ${stripOrchestratorServiceUri(u)}`),
-    );
-  }
-  return lines.join('\n');
-}
-
-function OrchestratorTableCard({
-  data,
-  catalog,
-  pricing,
-}: {
-  data: DashboardOrchestrator[];
-  catalog?: DashboardPipelineCatalogEntry[] | null;
-  pricing: DashboardPipelinePricing[];
-}) {
-  const [sortCol, setSortCol] = useState<OrchestratorSortCol>('knownSessions');
-  const formatURI = (uri?: string) => {
-    if (!uri) return '—';
-    return stripOrchestratorServiceUri(uri);
-  };
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [filter, setFilter] = useState('');
-  const { copiedId, copyToClipboard } = useClipboardFlash();
-
-  const toggleSort = (col: OrchestratorSortCol) => {
-    if (sortCol === col) { setSortDir(d => (d === 'asc' ? 'desc' : 'asc')); }
-    else { setSortCol(col); setSortDir('desc'); }
-  };
-
-  const SortIcon = ({ col }: { col: OrchestratorSortCol }) => {
-    if (sortCol !== col) return <ChevronsUpDown className="w-3 h-3 opacity-30" />;
-    return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />;
-  };
-
-  const sorted = useMemo(() => {
-    let rows = [...data];
-    if (filter) {
-      const q = filter.toLowerCase();
-      rows = rows.filter((r) => {
-        if (r.address.toLowerCase().includes(q)) return true;
-        if (r.uris.some(u => u.toLowerCase().includes(q))) return true;
-        return r.pipelines.some((p) => {
-          const offer = r.pipelineModels?.find((o) => o.pipelineId === p);
-          const label = formatPipelineLabel(p, catalog, offer?.modelIds);
-          return label.toLowerCase().includes(q) || p.toLowerCase().includes(q);
-        });
-      });
-    }
-    rows.sort((a, b) => {
-      const av = sortCol === 'uri' ? (a.uris[0] ?? '') : (a[sortCol] ?? 0);
-      const bv = sortCol === 'uri' ? (b.uris[0] ?? '') : (b[sortCol] ?? 0);
-      if (typeof av === 'string' && typeof bv === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
-      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
-    });
-    return rows;
-  }, [data, sortCol, sortDir, filter, catalog]);
-
-  const ariaSortValue = (col: OrchestratorSortCol): 'ascending' | 'descending' | 'none' =>
-    sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
-
-  const TH = ({ col, label, right, className = '' }: { col: OrchestratorSortCol; label: string; right?: boolean; className?: string }) => (
-    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'} ${className}`.trim()} aria-sort={ariaSortValue(col)}>
-      <button type="button" onClick={() => toggleSort(col)} className={`inline-flex items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'flex-row-reverse' : ''}`} aria-label={`Sort by ${label}`}>
-        {label}
-        <SortIcon col={col} />
-      </button>
-    </th>
-  );
-
-  const totalGPUsInList = useMemo(() => sorted.reduce((sum, r) => sum + (r.gpuCount ?? 0), 0), [sorted]);
-
-  const pricingByKey = useMemo(
-    () => new Map(pricing.map((p) => [`${p.pipeline}:${p.model ?? ''}`, p])),
-    [pricing],
-  );
-
-  return (
-    <div className="p-3 rounded-lg bg-card border border-border min-w-0 sm:p-4">
-      <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0"><Server className="w-3.5 h-3.5" /></div>
-          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider leading-snug sm:text-[11px]">
-            Orchestrators ({sorted.length}{filter ? ` of ${data.length}` : ''}) · {totalGPUsInList} GPUs
-          </span>
-        </div>
-        <input
-          id="orchestrator-filter"
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-          placeholder="Filter URI / pipeline…"
-          aria-label="Filter orchestrators by URI, address, or pipeline"
-          className="w-full min-w-0 px-2 py-1.5 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground sm:max-w-xs sm:py-0.5"
-        />
-      </div>
-      <div className="max-h-[min(70vh,640px)] min-w-0 overflow-x-auto overflow-y-auto overscroll-x-contain">
-        <table className="w-full min-w-[720px] text-xs">
-          <thead className="sticky top-0 bg-card text-muted-foreground border-b border-border">
-            <tr>
-              <TH col="uri" label="URI" />
-              <TH col="knownSessions" label="Sessions" right />
-              <TH col="successRatio" label="Startup %" right />
-              <TH col="effectiveSuccessRate" label="Effective %" right />
-              <TH col="slaScore" label="SLA" right />
-              <TH col="gpuCount" label="GPUs" right className="pr-5" />
-              <th className="pb-2 pl-2 font-medium text-left">Models</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map(row => (
-              <tr key={row.address} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors group">
-                <td className="py-1.5 min-w-0 align-top" title={row.uris.length ? row.uris.join('\n') : row.address}>
-                  <div className="flex min-w-0 w-full flex-col gap-1">
-                    {row.uris.length > 0 ? (
-                      row.uris.map((uri, i) => (
-                        <div
-                          key={`${row.address}:uri:${i}`}
-                          className="flex w-full min-w-0 items-center justify-start gap-1"
-                        >
-                          <span
-                            className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground"
-                            title={stripOrchestratorServiceUri(uri)}
-                          >
-                            {formatURI(uri)}
-                          </span>
-                          <PipelineTableCopyButton
-                            inline
-                            copied={copiedId === `orch:${row.address}:uri:${i}`}
-                            onCopy={() => copyToClipboard(`orch:${row.address}:uri:${i}`, uri)}
-                            title="Copy this service URI"
-                            ariaLabel={`Copy service URI ${uri}`}
-                          />
-                        </div>
-                      ))
-                    ) : (
-                      <div className="flex min-w-0 items-center gap-1">
-                        <span className="font-mono text-muted-foreground">—</span>
-                        {row.address ? (
-                          <PipelineTableCopyButton
-                            inline
-                            copied={copiedId === `orch:${row.address}`}
-                            onCopy={() => copyToClipboard(`orch:${row.address}`, row.address)}
-                            title="Copy orchestrator address"
-                            ariaLabel={`Copy address ${row.address}`}
-                          />
-                        ) : null}
-                      </div>
-                    )}
-                  </div>
-                </td>
-                <td className="py-1.5 text-right font-mono">{row.knownSessions.toLocaleString()}</td>
-                <td className="py-1.5 text-right font-mono">{row.successRatio}%</td>
-                <td className="py-1.5 text-right font-mono">{row.effectiveSuccessRate != null ? `${row.effectiveSuccessRate}%` : '—'}</td>
-                <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
-                <td className="py-1.5 pr-5 text-right font-mono">{row.gpuCount}</td>
-                <td className="py-1.5 pl-2 max-w-[180px]">
-                  <div className="flex flex-wrap gap-1">
-                    {row.pipelines.length === 0 && '—'}
-                    {row.pipelines.map((p) => {
-                      const offer = row.pipelineModels?.find((o) => o.pipelineId === p);
-                      const modelIds = offer?.modelIds ?? [];
-                      const entry = catalog?.find((c) => c.id === p);
-                      const pipelineName = entry?.name ?? p;
-                      return modelIds.length > 0 ? (
-                        modelIds.map((modelId) => (
-                          <span
-                            key={`${p}:${modelId}`}
-                            className={`inline-flex max-w-full cursor-default items-center rounded px-2 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId, p)}`}
-                            title={orchestratorModelTagTooltip(pipelineName, modelId, row.uris, {
-                              lastSeen: row.lastSeen,
-                              pricing: pricingByKey.get(`${p}:${modelId}`),
-                            })}
-                          >
-                            <span className="truncate">{modelId}</span>
-                          </span>
-                        ))
-                      ) : (
-                        <span
-                          key={p}
-                          className="inline-flex max-w-full cursor-default items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground"
-                          title={orchestratorModelTagTooltip(pipelineName, '—', row.uris, {
-                            lastSeen: row.lastSeen,
-                            pricing: undefined,
-                          })}
-                        >
-                          —
-                        </span>
-                      );
-                    })}
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {sorted.length === 0 && (
-              <tr><td colSpan={7} className="py-4 text-center text-muted-foreground">{filter ? 'No orchestrators match the filter' : 'No orchestrator data'}</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 // ============================================================================
 // Selectors
 // ============================================================================
@@ -1776,7 +1509,7 @@ function DashboardHeader({ timeframe, onTimeframeChange }: { timeframe: string; 
 
 export function OverviewContent(props: OverviewContentProps) {
   const {
-    isPublic, kpi, pipelines, pipelineCatalog, orchestrators, orchestratorsLoading, protocol,
+    isPublic, kpi, pipelines, pipelineCatalog, protocol,
     gpuCapacity, pricing, fees, jobs, jobFeedConnected, jobFeedPollInterval,
     onJobFeedPollIntervalChange, jobFeedMeta, jobFeedError, jobFeedLoading, timeframe,
     onTimeframeChange, lbLoading, rtLoading, feesLoading, lbRefreshing,
@@ -1862,7 +1595,6 @@ export function OverviewContent(props: OverviewContentProps) {
   const uiLbLoading = lbLoading || !prefsReady;
   const uiRtLoading = rtLoading || !prefsReady;
   const uiFeesLoading = feesLoading || !prefsReady;
-  const uiOrchestratorsLoading = (orchestratorsLoading ?? lbLoading) || !prefsReady;
 
   return (
     <div className="mx-auto min-w-0 w-full max-w-[1440px] space-y-4 sm:space-y-6">
@@ -1944,18 +1676,6 @@ export function OverviewContent(props: OverviewContentProps) {
         </div>
       </section>
 
-      {/* Row 3: Orchestrators (full width) */}
-      <section>
-        {orchestrators.length > 0 ? (
-          <RefreshWrap refreshing={lbRefreshing} className="block min-h-0">
-            <OrchestratorTableCard data={orchestrators} catalog={pipelineCatalog} pricing={pricing} />
-          </RefreshWrap>
-        ) : uiOrchestratorsLoading ? (
-          <WidgetSkeleton className="h-[320px]" />
-        ) : (
-          <WidgetUnavailable label="Orchestrators" />
-        )}
-      </section>
     </div>
   );
 }

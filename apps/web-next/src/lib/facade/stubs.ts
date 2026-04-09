@@ -21,6 +21,16 @@ import type {
 } from '@naap/plugin-sdk';
 
 import type { NetworkModel, JobFeedItem } from './types.js';
+import type { JobModelPerformance } from './resolvers/jobs-by-model.js';
+import type { JobsDemandResponse } from './resolvers/jobs-demand.js';
+import type { JobsSLAResponse } from './resolvers/jobs-sla.js';
+import type { AIBatchJobSummary } from './resolvers/ai-batch-summary.js';
+import type { AIBatchJobRecord } from './resolvers/ai-batch-jobs.js';
+import type { AIBatchLLMSummary } from './resolvers/ai-batch-llm-summary.js';
+import type { BYOCJobSummary } from './resolvers/byoc-summary.js';
+import type { BYOCJobRecord } from './resolvers/byoc-jobs.js';
+import type { BYOCWorkerSummary } from './resolvers/byoc-workers.js';
+import type { BYOCAuthSummary } from './resolvers/byoc-auth.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -518,4 +528,80 @@ export const networkModels: NetworkModel[] = [
   { Pipeline: 'llm',                 Model: 'llama3.2-vision',                             WarmOrchCount: 1,  TotalCapacity: 1,  PriceMinWeiPerPixel: 43_050_253,  PriceMaxWeiPerPixel: 43_050_253,   PriceAvgWeiPerPixel: 43_050_253 },
   { Pipeline: 'text-to-image',       Model: 'SG161222/RealVisXL_V4.0_Lightning',           WarmOrchCount: 1,  TotalCapacity: 1,  PriceMinWeiPerPixel: 4_768_371,   PriceMaxWeiPerPixel: 4_768_371,    PriceAvgWeiPerPixel: 4_768_371 },
   { Pipeline: 'upscale',             Model: 'stabilityai/stable-diffusion-x4-upscaler',   WarmOrchCount: 1,  TotalCapacity: 1,  PriceMinWeiPerPixel: 9_123_537,   PriceMaxWeiPerPixel: 9_123_537,    PriceAvgWeiPerPixel: 9_123_537 },
+];
+
+// ---------------------------------------------------------------------------
+// Jobs — stub data matching JobModelPerformance schema
+// ---------------------------------------------------------------------------
+
+export const jobsByModel: JobModelPerformance[] = [
+  { pipeline: 'llm',          model_id: 'meta-llama/Meta-Llama-3.1-8B-Instruct', job_type: 'ai-batch', job_count: 12_430, warm_orch_count: 4, avg_duration_ms: 2_340, p50_duration_ms: 1_980, p99_duration_ms: 8_100 },
+  { pipeline: 'llm',          model_id: 'glm-4.7-flash',                          job_type: 'ai-batch', job_count:  3_210, warm_orch_count: 1, avg_duration_ms: 1_820, p50_duration_ms: 1_600, p99_duration_ms: 5_400 },
+  { pipeline: 'text-to-image',model_id: 'SG161222/RealVisXL_V4.0_Lightning',      job_type: 'ai-batch', job_count:  5_880, warm_orch_count: 2, avg_duration_ms: 4_200, p50_duration_ms: 3_900, p99_duration_ms: 9_800 },
+  { pipeline: 'upscale',      model_id: 'stabilityai/stable-diffusion-x4-upscaler', job_type: 'byoc',   job_count:  1_050, warm_orch_count: 1, avg_duration_ms: 6_100, p50_duration_ms: 5_700, p99_duration_ms: 14_200 },
+  { pipeline: 'audio-to-text',model_id: 'openai/whisper-large-v3',                job_type: 'byoc',     job_count:  2_760, warm_orch_count: 3, avg_duration_ms: 3_500, p50_duration_ms: 3_100, p99_duration_ms: 7_600 },
+];
+
+export const jobsDemand: JobsDemandResponse = {
+  demand: [
+    { window_start: new Date(Date.now() - 3_600_000).toISOString(), gateway: 'gateway.livepeer.cloud', pipeline_id: 'llm',           job_type: 'ai-batch', job_count: 4_120, success_count: 4_050, success_rate: 0.983, avg_duration_ms: 2_340, total_minutes: 160.7 },
+    { window_start: new Date(Date.now() - 3_600_000).toISOString(), gateway: 'gateway.livepeer.cloud', pipeline_id: 'text-to-image', job_type: 'ai-batch', job_count: 2_210, success_count: 2_180, success_rate: 0.986, avg_duration_ms: 4_200, total_minutes: 154.7 },
+    { window_start: new Date(Date.now() - 3_600_000).toISOString(), gateway: 'byoc.livepeer.cloud',    pipeline_id: 'upscale',       job_type: 'byoc',     job_count:   420, success_count:   415, success_rate: 0.988, avg_duration_ms: 6_100, total_minutes:  42.7 },
+  ],
+  pagination: { page: 1, page_size: 50, total_count: 3, total_pages: 1 },
+};
+
+export const jobsSLA: JobsSLAResponse = {
+  compliance: [
+    { window_start: new Date(Date.now() - 3_600_000).toISOString(), orchestrator_address: '0xabc123', pipeline_id: 'llm',           job_type: 'ai-batch', job_count: 2_100, success_count: 2_070, success_rate: 0.986, avg_duration_ms: 2_200, sla_score: 0.94 },
+    { window_start: new Date(Date.now() - 3_600_000).toISOString(), orchestrator_address: '0xdef456', pipeline_id: 'text-to-image', job_type: 'ai-batch', job_count: 1_880, success_count: 1_840, success_rate: 0.979, avg_duration_ms: 4_100, sla_score: 0.91 },
+  ],
+  pagination: { page: 1, page_size: 50, total_count: 2, total_pages: 1 },
+};
+
+// ---------------------------------------------------------------------------
+// AI Batch — stub data
+// ---------------------------------------------------------------------------
+
+export const aiBatchSummary: AIBatchJobSummary[] = [
+  { pipeline: 'llm',           total_jobs: 15_640, success_rate: 0.982, avg_duration_ms: 2_340, avg_latency_score: 0.91 },
+  { pipeline: 'text-to-image', total_jobs:  5_880, success_rate: 0.986, avg_duration_ms: 4_200, avg_latency_score: 0.88 },
+  { pipeline: 'audio-to-text', total_jobs:  1_230, success_rate: 0.994, avg_duration_ms: 3_100, avg_latency_score: 0.95 },
+];
+
+export const aiBatchJobs: AIBatchJobRecord[] = [
+  { request_id: 'req-a1b2c3d4', org: 'cloudspe', gateway: 'gateway.livepeer.cloud', pipeline: 'llm',           model_id: 'meta-llama/Meta-Llama-3.1-8B-Instruct', completed_at: new Date(Date.now() -   60_000).toISOString(), success: true,  tries: 1, duration_ms: 1_820, latency_score: 0.93, price_per_unit: 0.00012 },
+  { request_id: 'req-e5f6a7b8', org: 'cloudspe', gateway: 'gateway.livepeer.cloud', pipeline: 'text-to-image', model_id: 'SG161222/RealVisXL_V4.0_Lightning',      completed_at: new Date(Date.now() -  120_000).toISOString(), success: true,  tries: 1, duration_ms: 3_960, latency_score: 0.89, price_per_unit: 0.00031 },
+  { request_id: 'req-i9j0k1l2', org: 'cloudspe', gateway: 'gateway.livepeer.cloud', pipeline: 'llm',           model_id: 'glm-4.7-flash',                          completed_at: new Date(Date.now() -  240_000).toISOString(), success: false, tries: 2, duration_ms: 8_400, latency_score: 0.61, error_type: 'timeout', error: 'upstream timeout' },
+  { request_id: 'req-m3n4o5p6', org: 'cloudspe', gateway: 'gateway.livepeer.cloud', pipeline: 'audio-to-text', model_id: 'openai/whisper-large-v3',                completed_at: new Date(Date.now() -  360_000).toISOString(), success: true,  tries: 1, duration_ms: 2_700, latency_score: 0.96, price_per_unit: 0.00008 },
+];
+
+export const aiBatchLLMSummary: AIBatchLLMSummary[] = [
+  { model: 'meta-llama/Meta-Llama-3.1-8B-Instruct', total_requests: 12_430, success_rate: 0.981, avg_tokens_per_sec: 42.3, avg_ttft_ms: 380, avg_total_tokens: 1_240 },
+  { model: 'glm-4.7-flash',                          total_requests:  3_210, success_rate: 0.974, avg_tokens_per_sec: 68.1, avg_ttft_ms: 210, avg_total_tokens:   820 },
+];
+
+// ---------------------------------------------------------------------------
+// BYOC — stub data
+// ---------------------------------------------------------------------------
+
+export const byocSummary: BYOCJobSummary[] = [
+  { capability: 'upscale',       total_jobs: 1_050, success_rate: 0.988, avg_duration_ms: 6_100 },
+  { capability: 'audio-to-text', total_jobs: 2_760, success_rate: 0.993, avg_duration_ms: 3_500 },
+];
+
+export const byocJobs: BYOCJobRecord[] = [
+  { request_id: 'byoc-q7r8s9t0', org: 'cloudspe', capability: 'upscale',       completed_at: new Date(Date.now() -   90_000).toISOString(), success: true,  duration_ms: 5_800, http_status: 200, orch_address: '0xabc123', orch_url: 'https://orch1.example.com:8935' },
+  { request_id: 'byoc-u1v2w3x4', org: 'cloudspe', capability: 'audio-to-text', completed_at: new Date(Date.now() -  180_000).toISOString(), success: true,  duration_ms: 3_200, http_status: 200, orch_address: '0xdef456', orch_url: 'https://orch2.example.com:8935' },
+  { request_id: 'byoc-y5z6a7b8', org: 'cloudspe', capability: 'upscale',       completed_at: new Date(Date.now() -  300_000).toISOString(), success: false, duration_ms: 9_000, http_status: 503, orch_address: '0xghi789', error: 'worker unavailable' },
+];
+
+export const byocWorkers: BYOCWorkerSummary[] = [
+  { capability: 'upscale',       worker_count: 3, models: ['stabilityai/stable-diffusion-x4-upscaler'], avg_price_per_unit: 9.12e-12 },
+  { capability: 'audio-to-text', worker_count: 5, models: ['openai/whisper-large-v3', 'openai/whisper-medium'], avg_price_per_unit: 4.80e-12 },
+];
+
+export const byocAuth: BYOCAuthSummary[] = [
+  { capability: 'upscale',       total_events: 320, success_rate: 0.994, failure_count: 2 },
+  { capability: 'audio-to-text', total_events: 580, success_rate: 0.998, failure_count: 1 },
 ];

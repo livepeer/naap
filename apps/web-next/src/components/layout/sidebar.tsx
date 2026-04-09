@@ -24,6 +24,7 @@ import {
   GripVertical,
   Search,
   Command,
+  Server,
   // Plugin icons - referenced by name in plugin.json manifests
   Wallet,
   Radio,
@@ -37,6 +38,7 @@ import {
   Globe,
   Package,
   Puzzle,
+  Layers,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -381,6 +383,16 @@ export function Sidebar() {
               <NavLink
                 item={{ name: 'Overview', href: '/dashboard', icon: Activity }}
                 isActive={isActive('/dashboard')}
+                isOpen={isSidebarOpen}
+              />
+              <NavLink
+                item={{ name: 'Jobs', href: '/jobs', icon: Layers }}
+                isActive={isActive('/jobs')}
+                isOpen={isSidebarOpen}
+              />
+              <NavLink
+                item={{ name: 'Orchestrators', href: '/orchestrators', icon: Server }}
+                isActive={isActive('/orchestrators')}
                 isOpen={isSidebarOpen}
               />
               {isLoading ? (
