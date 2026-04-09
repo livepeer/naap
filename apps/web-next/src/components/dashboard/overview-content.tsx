@@ -1455,14 +1455,19 @@ function livepeerOrchestratingExplorerHref(address: string): string | null {
   return `${LIVEPEER_ORCHESTRATOR_EXPLORER_BASE}/${a.toLowerCase()}/orchestrating`;
 }
 
+/** Row after merge: stable key for React lists (blank addresses never share a bucket). */
+type OrchestratorTableRow = DashboardOrchestrator & { stableRowKey: string };
+
 /** One row per orchestrator address; union service URIs if the same address appears more than once. */
-function mergeOrchestratorRowsByAddress(rows: DashboardOrchestrator[]): DashboardOrchestrator[] {
-  const map = new Map<string, DashboardOrchestrator>();
+function mergeOrchestratorRowsByAddress(rows: DashboardOrchestrator[]): OrchestratorTableRow[] {
+  const map = new Map<string, OrchestratorTableRow>();
+  let blankSeq = 0;
   for (const row of rows) {
-    const key = row.address.trim().toLowerCase();
+    const trimmed = row.address.trim();
+    const key = trimmed === '' ? `__blank__${blankSeq++}` : trimmed.toLowerCase();
     const existing = map.get(key);
     if (!existing) {
-      map.set(key, { ...row, uris: [...row.uris] });
+      map.set(key, { ...row, uris: [...row.uris], stableRowKey: key });
       continue;
     }
     const seen = new Set(existing.uris);
@@ -1629,7 +1634,7 @@ function OrchestratorTableCard({
             {sorted.map((row) => {
               const explorerHref = livepeerOrchestratingExplorerHref(row.address);
               return (
-              <tr key={row.address} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors group">
+              <tr key={row.stableRowKey} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors group">
                 <td
                   className="py-1.5 min-w-0 align-top"
                   title={row.uris.length ? row.uris.map(stripOrchestratorServiceUri).join('\n') : undefined}
@@ -1640,7 +1645,7 @@ function OrchestratorTableCard({
                         const label = formatURI(uri);
                         return (
                           <div
-                            key={`${row.address}:uri:${i}`}
+                            key={`${row.stableRowKey}:uri:${i}`}
                             className="flex w-full min-w-0 items-center justify-start gap-1"
                           >
                             {explorerHref ? (
@@ -1664,8 +1669,8 @@ function OrchestratorTableCard({
                             )}
                             <PipelineTableCopyButton
                               inline
-                              copied={copiedId === `orch:${row.address}:uri:${i}`}
-                              onCopy={() => copyToClipboard(`orch:${row.address}:uri:${i}`, uri)}
+                              copied={copiedId === `orch:${row.stableRowKey}:uri:${i}`}
+                              onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:uri:${i}`, uri)}
                               title="Copy this service URI"
                               ariaLabel={`Copy service URI ${uri}`}
                             />
@@ -1690,8 +1695,8 @@ function OrchestratorTableCard({
                         {row.address ? (
                           <PipelineTableCopyButton
                             inline
-                            copied={copiedId === `orch:${row.address}`}
-                            onCopy={() => copyToClipboard(`orch:${row.address}`, row.address)}
+                            copied={copiedId === `orch:${row.stableRowKey}:addr`}
+                            onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:addr`, row.address)}
                             title="Copy orchestrator address"
                             ariaLabel={`Copy address ${row.address}`}
                           />
