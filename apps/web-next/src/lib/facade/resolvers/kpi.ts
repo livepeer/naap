@@ -53,7 +53,7 @@ function orchestratorKpiCountForTimeframe(
   return n;
 }
 
-export async function resolveKPI(opts: { 
+export async function resolveKPI(opts: {
   timeframe?: string;
   pipeline?: string;
   model_id?: string;

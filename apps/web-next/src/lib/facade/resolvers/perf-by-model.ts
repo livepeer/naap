@@ -1,7 +1,7 @@
 /**
  * Perf-by-model resolver — NAAP API backed.
  *
- * Fetches GET /v1/perf/by-model?start=...&end=... and returns
+ * Fetches GET /v1/perf/stream/by-model?start=...&end=... and returns
  * `${pipeline}:${model}` -> AvgFPS.
  */
 
@@ -26,10 +26,16 @@ export async function resolvePerfByModel(opts: {
   const cacheKey = `facade:perf-by-model:${roundedStart}:${roundedEnd}`;
 
   return cachedFetch(cacheKey, TTL.PIPELINES, async () => {
-    const rawRows = await naapGet<PerfByModelRow[] | null | undefined>('perf/by-model', { start: roundedStart, end: roundedEnd }, {
-      cache: 'no-store',
-      errorLabel: 'perf-by-model',
-    });
+    let rawRows: PerfByModelRow[] | null | undefined;
+    try {
+      rawRows = await naapGet<PerfByModelRow[] | null | undefined>('perf/stream/by-model', { start: roundedStart, end: roundedEnd }, {
+        cache: 'no-store',
+        errorLabel: 'perf-by-model',
+      });
+    } catch (err) {
+      console.warn('[facade/perf-by-model] upstream unavailable, returning empty:', err);
+      return {};
+    }
     const rows = Array.isArray(rawRows) ? rawRows : [];
     if (rawRows != null && !Array.isArray(rawRows)) {
       console.warn('[facade/perf-by-model] unexpected non-array response, treating as empty');
