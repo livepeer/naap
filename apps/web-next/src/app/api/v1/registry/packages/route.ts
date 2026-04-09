@@ -21,12 +21,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Determine admin status + session user for visibility filtering
     let isAdmin = false;
     let sessionUserId: string | null = null;
+    let sessionUserEmail: string | null = null;
     const token = getAuthToken(request);
     if (token) {
       const sessionUser = await validateSession(token);
       if (sessionUser) {
         isAdmin = sessionUser.roles?.includes('system:admin') ?? false;
         sessionUserId = sessionUser.id;
+        sessionUserEmail = sessionUser.email ?? null;
       }
     }
 
@@ -36,11 +38,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ];
 
     if (!isAdmin) {
-      if (sessionUserId) {
+      const testerMatches: Record<string, unknown>[] = [];
+      if (sessionUserId) testerMatches.push({ previewTesterUserIds: { has: sessionUserId } });
+      if (sessionUserEmail) testerMatches.push({ previewTesterUserIds: { has: sessionUserEmail } });
+
+      if (testerMatches.length > 0) {
         andParts.push({
           OR: [
             { visibleToUsers: true },
-            { previewTesterUserIds: { has: sessionUserId } },
+            ...testerMatches,
           ],
         });
       } else {

@@ -281,7 +281,7 @@ function PluginsTab() {
               <li><strong>Core</strong> plugins are auto-installed for all users and cannot be uninstalled</li>
               <li><strong>Hidden</strong> plugins are not shown in the sidebar or marketplace for non-admin users</li>
               <li>
-                <strong>Preview testers</strong> (user IDs below, when hidden): selected users still see the plugin and get
+                <strong>Preview testers</strong> (user IDs or emails below, when hidden): selected users still see the plugin and get
                 it pre-installed like core
               </li>
               <li>Admin users always see all published plugins regardless of visibility</li>
@@ -440,12 +440,12 @@ function PluginRow({
       {!plugin.visibleToUsers && (
         <div className="px-4 pb-4 pt-0 border-t border-border/60 mt-2">
           <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">
-            Preview tester user IDs (comma or newline separated)
+            Preview tester user IDs or emails (comma or newline separated)
           </label>
           <Textarea
             value={plugin.previewTesterUserIds.join('\n')}
             onChange={(e) => onPreviewIdsChange(plugin.name, e.target.value)}
-            placeholder="e.g. clxxxxxxxx user uuid"
+            placeholder="e.g. user@example.com or clxxxxxxxx uuid"
             rows={3}
             className="text-xs font-mono"
           />
