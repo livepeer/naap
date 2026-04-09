@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
+import { appUrl as _envAppUrl } from '@/lib/env';
 
 const DAYDREAM_AUTH_URL =
   process.env.DAYDREAM_AUTH_URL || 'https://app.daydream.live/sign-in/local';
@@ -82,8 +83,7 @@ function resolveAppUrl(request: NextRequest): string {
     return `${protocol}://${forwardedHost}`;
   }
 
-  const { appUrl } = await import('@/lib/env');
-  return appUrl;
+  return _envAppUrl;
 }
 
 function resolveProviderAuthUrl(providerSlug: string): string | null {
