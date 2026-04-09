@@ -82,7 +82,8 @@ function resolveAppUrl(request: NextRequest): string {
     return `${protocol}://${forwardedHost}`;
   }
 
-  return 'http://localhost:3000';
+  const { appUrl } = await import('@/lib/env');
+  return appUrl;
 }
 
 function resolveProviderAuthUrl(providerSlug: string): string | null {

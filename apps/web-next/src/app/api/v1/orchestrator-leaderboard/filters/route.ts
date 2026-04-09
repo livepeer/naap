@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';
 import { success } from '@/lib/api/response';
 import { getAuthToken } from '@/lib/api/response';
+import { resolveClickhouseGatewayQueryUrl } from '@/lib/orchestrator-leaderboard/query';
 
 const FILTERS_SQL = `SELECT DISTINCT capability_name
 FROM semantic.network_capabilities
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
   }
 
   const authToken = getAuthToken(request) || '';
-  const url = new URL('/api/v1/gw/clickhouse-query/query', process.env.NEXT_PUBLIC_APP_URL || request.url).toString();
+  const url = resolveClickhouseGatewayQueryUrl(request.url);
 
   let capabilities: string[];
   let fromFallback = false;

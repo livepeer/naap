@@ -13,6 +13,23 @@ const MAX_QUERY_ROWS = 1000;
 
 const CAPABILITY_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
+const CLICKHOUSE_GW_PATH = '/api/v1/gw/clickhouse-query/query';
+
+/**
+ * Base URL for server-side calls to the gateway ClickHouse proxy.
+ * Prefer the incoming request origin so dev servers on non-3000 ports and
+ * preview deployments hit the same app instance (NEXT_PUBLIC_APP_URL alone
+ * often stays localhost:3000 from .env while the dev server runs elsewhere).
+ */
+export function resolveClickhouseGatewayQueryUrl(requestUrl?: string): string {
+  const origin =
+    (requestUrl ? new URL(requestUrl).origin : undefined) ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined) ||
+    'http://localhost:3000';
+  return new URL(CLICKHOUSE_GW_PATH, origin).toString();
+}
+
 const LEADERBOARD_SQL_TEMPLATE = `SELECT
     cap.orch_uri AS orch_uri,
     cap.gpu_name AS gpu_name,
@@ -103,7 +120,8 @@ export function buildLeaderboardSQL(capability: string, topN: number): string {
  */
 export async function fetchLeaderboard(
   capability: string,
-  authToken: string
+  authToken: string,
+  requestUrl?: string
 ): Promise<{ rows: ClickHouseLeaderboardRow[]; fromCache: boolean; cachedAt: number }> {
   validateCapability(capability);
 
@@ -113,7 +131,7 @@ export async function fetchLeaderboard(
   }
 
   const sql = buildLeaderboardSQL(capability, MAX_QUERY_ROWS);
-  const rows = await fetchFromClickHouse(sql, authToken);
+  const rows = await fetchFromClickHouse(sql, authToken, requestUrl);
   const now = Date.now();
   setCached(capability, rows);
   return { rows, fromCache: false, cachedAt: now };
@@ -121,10 +139,10 @@ export async function fetchLeaderboard(
 
 async function fetchFromClickHouse(
   sql: string,
-  authToken: string
+  authToken: string,
+  requestUrl?: string
 ): Promise<ClickHouseLeaderboardRow[]> {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const url = `${baseUrl}/api/v1/gw/clickhouse-query/query`;
+  const url = resolveClickhouseGatewayQueryUrl(requestUrl);
 
   const res = await fetch(url, {
     method: 'POST',
@@ -138,6 +156,12 @@ async function fetchFromClickHouse(
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
+    if (process.env.NODE_ENV === 'development') {
+      console.error(
+        '[orchestrator-leaderboard] ClickHouse gateway request failed',
+        JSON.stringify({ url, status: res.status, bodyPreview: text.slice(0, 400) }),
+      );
+    }
     throw new Error(`ClickHouse query failed (${res.status}): ${text.slice(0, 200)}`);
   }
 
