@@ -10,14 +10,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;
   const timeframe = params.get('timeframe') ?? undefined;
   const limitStr = params.get('limit');
-  const limit = limitStr != null ? parseInt(limitStr, 10) : 5;
-  const safeLimit = isNaN(limit) ? 5 : limit;
-  const cacheKey = `pipelines:${timeframe ?? '24'}:${safeLimit}`;
+  let limit: number | undefined;
+  if (limitStr != null && limitStr !== '') {
+    const n = parseInt(limitStr, 10);
+    if (Number.isFinite(n) && n >= 1) {
+      limit = n;
+    }
+  }
+  const cacheKey = `pipelines:${timeframe ?? '24'}:${limit ?? 'all'}`;
 
   try {
     const { data: result, cache } = await bffStaleWhileRevalidate(
       cacheKey,
-      () => getDashboardPipelines({ timeframe, limit: safeLimit }),
+      () => getDashboardPipelines({ timeframe, limit }),
       'pipelines'
     );
     const res = NextResponse.json(result);

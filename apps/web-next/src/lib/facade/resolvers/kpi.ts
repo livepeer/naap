@@ -1,8 +1,15 @@
 /**
  * KPI resolver — NAAP Dashboard API backed.
  *
- * Fetches pre-aggregated KPI from GET /v1/dashboard/kpi, then overrides
- * orchestratorsOnline.value using GET /v1/net/orchestrators (shared cached fetch):
+ * Upstream `GET /v1/dashboard/kpi` returns **one pre-aggregated snapshot** for the
+ * given scope (`window`, optional `pipeline`, optional `model_id`). It does **not**
+ * support paging, cursors, or a `limit` parameter — the totals in that JSON already
+ * span the full matching population for that scope. This resolver therefore must
+ * **never** send `limit`/`offset` (or similar) to KPI; doing so would not trim the
+ * result set and could confuse operators or future API versions.
+ *
+ * Fetches pre-aggregated KPI from that endpoint, then overrides
+ * `orchestratorsOnline.value` using `GET /v1/net/orchestrators` (shared cached fetch):
  * distinct listed addresses (non-blank service URI) whose latest `LastSeen` falls
  * within the KPI window. When the registry omits `LastSeen`, falls back to the full
  * listed count (same rule as the orchestrator table). The overview table is unchanged

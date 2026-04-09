@@ -30,7 +30,7 @@ import type {
 import type { NetworkModel, JobFeedItem } from './types.js';
 import * as stubs from './stubs.js';
 import { resolveKPI } from './resolvers/kpi.js';
-import { resolvePipelines } from './resolvers/pipelines.js';
+import { MAX_PIPELINE_USAGE_LIMIT, resolvePipelines } from './resolvers/pipelines.js';
 import { resolvePipelineCatalog } from './resolvers/pipeline-catalog.js';
 import { resolveOrchestrators } from './resolvers/orchestrators.js';
 import { resolveGPUCapacity } from './resolvers/gpu-capacity.js';
@@ -63,17 +63,17 @@ export async function getDashboardPipelines(opts: {
   timeframe?: string;
 }): Promise<DashboardPipelineUsage[]> {
   if (USE_STUBS) {
-    const lim = opts.limit ?? 5;
     const parsed = parseInt(opts.timeframe ?? '24', 10);
     const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
     const factor = hours / 24;
-    return stubs.pipelines
-      .map((p) => ({
-        ...p,
-        mins: Math.round(p.mins * factor),
-        sessions: Math.max(0, Math.round(p.sessions * factor)),
-      }))
-      .slice(0, lim);
+    const scaled = stubs.pipelines.map((p) => ({
+      ...p,
+      mins: Math.round(p.mins * factor),
+      sessions: Math.max(0, Math.round(p.sessions * factor)),
+    }));
+    if (opts.limit === undefined) return scaled;
+    const lim = Math.max(1, Math.min(Math.floor(opts.limit), MAX_PIPELINE_USAGE_LIMIT));
+    return scaled.slice(0, lim);
   }
   return resolvePipelines({ limit: opts.limit, timeframe: opts.timeframe });
 }

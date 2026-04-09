@@ -38,8 +38,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const targets = [
     `${base}/api/v1/dashboard/kpi?timeframe=12`,
     `${base}/api/v1/dashboard/kpi?timeframe=24`,
-    `${base}/api/v1/dashboard/pipelines?timeframe=12&limit=200`,
-    `${base}/api/v1/dashboard/pipelines?timeframe=24&limit=200`,
+    `${base}/api/v1/dashboard/pipelines?timeframe=12`,
+    `${base}/api/v1/dashboard/pipelines?timeframe=24`,
     `${base}/api/v1/dashboard/orchestrators?period=24h`,
     `${base}/api/v1/dashboard/pipeline-catalog`,
     `${base}/api/v1/dashboard/pricing`,

@@ -5,7 +5,10 @@
  * DashboardPipelineUsage rows for the facade.
  *
  * Source:
- *   GET /v1/dashboard/pipelines?limit=N&window=Nh
+ *   GET /v1/dashboard/pipelines?window=Nh[&limit=N]
+ *
+ * When `limit` is omitted, the upstream request omits `limit` as well (no facade default).
+ * Optional `limit` is clamped to {@link MAX_PIPELINE_USAGE_LIMIT} when present.
  */
 
 import type {
@@ -64,7 +67,22 @@ async function fetchModelMinsForPipeline(opts: {
     .sort((a, b) => b.mins - a.mins);
 }
 
-/** Maximum live-video models to fan out KPI calls for. Limits server-side parallelism. */
+/** Hard cap when callers pass `limit` to `GET dashboard/pipelines` (abuse prevention). */
+export const MAX_PIPELINE_USAGE_LIMIT = 2000;
+
+function clampPipelineLimit(raw: number | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < 1) return undefined;
+  return Math.min(n, MAX_PIPELINE_USAGE_LIMIT);
+}
+
+/**
+ * Max distinct `model_id` values for which we call `resolveKPI` (full aggregate per call).
+ * This is **not** a limit on the KPI API response — `/v1/dashboard/kpi` has no paging;
+ * each request already returns complete totals for that pipeline+model scope. This cap
+ * only bounds how many such full requests we run in parallel per pipelines refresh.
+ */
 const MAX_LIVE_VIDEO_KPI_MODELS = 30;
 
 async function resolveLiveVideoModelMins(opts: {
@@ -97,21 +115,19 @@ async function resolveLiveVideoModelMins(opts: {
 }
 
 export async function resolvePipelines(opts: { limit?: number; timeframe?: string }): Promise<DashboardPipelineUsage[]> {
-  const raw = Number(opts.limit ?? 5);
-  const safeLimit = Math.max(
-    1,
-    Math.min(Math.floor(Number.isFinite(raw) ? raw : 5), 200),
-  );
+  const safeLimit = clampPipelineLimit(opts.limit);
   const parsed = parseInt(opts.timeframe ?? '24', 10);
   const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
   const window = `${hours}h`;
   const timeframe = String(hours);
 
-  return cachedFetch(`facade:pipelines:${safeLimit}:${hours}`, TTL.PIPELINES, async () => {
-    const rows = await naapGet<DashboardPipelineRow[]>('dashboard/pipelines', {
-      limit: String(safeLimit),
-      window,
-    }, {
+  const limitCacheKey = safeLimit === undefined ? 'all' : String(safeLimit);
+  return cachedFetch(`facade:pipelines:${limitCacheKey}:${hours}`, TTL.PIPELINES, async () => {
+    const query: Record<string, string> = { window };
+    if (safeLimit !== undefined) {
+      query.limit = String(safeLimit);
+    }
+    const rows = await naapGet<DashboardPipelineRow[]>('dashboard/pipelines', query, {
       cache: 'no-store',
       errorLabel: 'pipelines',
     });

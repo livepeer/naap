@@ -34,7 +34,7 @@ const NAAP_API_QUERY = /* GraphQL */ `
       hourlyUsage { hour value }
       hourlySessions { hour value }
     }
-    pipelines(limit: 200, timeframe: $timeframe) {
+    pipelines(timeframe: $timeframe) {
       name mins sessions avgFps color modelMins { model mins sessions avgFps }
     }
     pipelineCatalog {

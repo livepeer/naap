@@ -1,3 +1,9 @@
+/**
+ * Dashboard KPI BFF — proxies to NAAP `GET /v1/dashboard/kpi`.
+ *
+ * Upstream KPI is a single aggregate for the scope; it does not support `limit` or
+ * paging. Allowed query params: `timeframe`, `pipeline`, `model_id` (see facade).
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { bffStaleWhileRevalidate } from '@/lib/api/bff-swr';
 import { getDashboardKPI } from '@/lib/facade';
