@@ -67,6 +67,7 @@
     "vite": "^6.0.0"
   },
   "overrides": {
+    "axios": "^1.15.0",
     "minimatch": "10.2.2",
     "eslint-plugin-import": {
       "minimatch": "10.2.2"
