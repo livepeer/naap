@@ -2,13 +2,16 @@
  * Orchestrator Leaderboard — SLA Scoring & Post-Query Filtering
  *
  * Applies post-query filters and optional SLA-weighted re-ranking
- * to the ClickHouse result set.
+ * to the ClickHouse result set. Also provides evaluatePlan() for
+ * Discovery Plan evaluation (filters + SLA + min gate + sort + topN).
  */
 
 import type {
   ClickHouseLeaderboardRow,
+  DiscoveryPlan,
   LeaderboardFilters,
   OrchestratorRow,
+  PlanSortBy,
   SLAWeights,
 } from './types';
 
@@ -138,4 +141,45 @@ export function rerank(
 
   scored.sort((a, b) => b.slaScore - a.slaScore);
   return scored;
+}
+
+// ---------------------------------------------------------------------------
+// Discovery Plan evaluation
+// ---------------------------------------------------------------------------
+
+const SORT_COMPARATORS: Record<PlanSortBy, (a: OrchestratorRow, b: OrchestratorRow) => number> = {
+  slaScore: (a, b) => (b.slaScore ?? 0) - (a.slaScore ?? 0),
+  latency: (a, b) => (a.bestLatMs ?? Infinity) - (b.bestLatMs ?? Infinity),
+  price: (a, b) => a.pricePerUnit - b.pricePerUnit,
+  swapRate: (a, b) => (a.swapRatio ?? Infinity) - (b.swapRatio ?? Infinity),
+  avail: (a, b) => b.avail - a.avail,
+};
+
+/**
+ * Evaluate a DiscoveryPlan against a ClickHouse superset for one capability.
+ * Pipeline: filter -> SLA score -> min-gate -> sort -> topN.
+ */
+export function evaluatePlan(
+  rows: ClickHouseLeaderboardRow[],
+  plan: Pick<DiscoveryPlan, 'filters' | 'slaWeights' | 'slaMinScore' | 'sortBy' | 'topN'>,
+): OrchestratorRow[] {
+  const filtered = applyFilters(rows, plan.filters ?? undefined);
+
+  let scored: OrchestratorRow[];
+  if (plan.slaWeights || plan.slaMinScore != null || plan.sortBy === 'slaScore') {
+    scored = rerank(filtered, plan.slaWeights ?? undefined);
+  } else {
+    scored = filtered.map(mapRow);
+  }
+
+  let result = scored;
+  if (plan.slaMinScore != null) {
+    result = result.filter((r) => (r.slaScore ?? 0) >= plan.slaMinScore!);
+  }
+
+  if (plan.sortBy && plan.sortBy !== 'slaScore') {
+    result = [...result].sort(SORT_COMPARATORS[plan.sortBy]);
+  }
+
+  return result.slice(0, plan.topN ?? 10);
 }
