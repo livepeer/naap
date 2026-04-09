@@ -64,17 +64,17 @@ export const LeaderboardPage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto space-y-5">
-      {/* ─── Header ─── */}
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-xl">
+          <div className="p-2.5 bg-accent-emerald/10 text-accent-emerald rounded-xl">
             <Trophy size={22} />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-100 tracking-tight">
+            <h1 className="text-2xl font-bold text-text-primary tracking-tight">
               Orchestrator Leaderboard
             </h1>
-            <p className="text-sm text-gray-400 mt-0.5">
+            <p className="text-sm text-text-muted mt-0.5">
               Real-time rankings by latency, stability &amp; price
             </p>
           </div>
@@ -85,8 +85,8 @@ export const LeaderboardPage: React.FC = () => {
             onClick={() => setAutoRefresh(!autoRefresh)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
               autoRefresh
-                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                : 'bg-gray-800 text-gray-400 border border-gray-700 hover:border-gray-600'
+                ? 'bg-accent-emerald/15 text-accent-emerald border border-accent-emerald/30'
+                : 'bg-bg-secondary text-text-secondary border border-[var(--border-color)] hover:border-white/20'
             }`}
           >
             <Radio size={12} className={autoRefresh ? 'animate-pulse' : ''} />
@@ -95,7 +95,7 @@ export const LeaderboardPage: React.FC = () => {
           <button
             onClick={refresh}
             disabled={!capability || loading}
-            className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-4 py-1.5 bg-accent-emerald hover:bg-accent-emerald/90 disabled:bg-bg-tertiary disabled:text-text-disabled text-white text-sm font-medium rounded-lg transition-colors"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             Refresh
@@ -103,14 +103,14 @@ export const LeaderboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ─── Capability Selector (pills) ─── */}
-      <div className="panel p-4">
+      {/* Capability Selector (pills) */}
+      <div className="glass-card p-4">
         <div className="flex items-center gap-2 mb-3">
-          <Zap size={14} className="text-gray-400" />
-          <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          <Zap size={14} className="text-text-muted" />
+          <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">
             Capability
           </span>
-          {capsLoading && <Loader2 size={12} className="animate-spin text-gray-500" />}
+          {capsLoading && <Loader2 size={12} className="animate-spin text-text-disabled" />}
         </div>
         <div className="flex flex-wrap gap-2">
           {capabilities.map((c) => (
@@ -123,51 +123,51 @@ export const LeaderboardPage: React.FC = () => {
             </button>
           ))}
           {!capsLoading && capabilities.length === 0 && (
-            <span className="text-xs text-gray-500">No capabilities available</span>
+            <span className="text-xs text-text-disabled">No capabilities available</span>
           )}
         </div>
       </div>
 
-      {/* ─── Summary Stats ─── */}
+      {/* Summary Stats */}
       {data.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard
             icon={<Activity size={16} />}
             label="Orchestrators"
             value={String(stats.count)}
-            color="text-blue-400"
+            color="text-accent-blue"
           />
           <StatCard
             icon={<Timer size={16} />}
             label="Best Latency"
             value={stats.bestLat != null ? `${stats.bestLat}ms` : '—'}
-            color={stats.bestLat != null && stats.bestLat < 200 ? 'text-emerald-400' : 'text-yellow-400'}
+            color={stats.bestLat != null && stats.bestLat < 200 ? 'text-accent-emerald' : 'text-accent-amber'}
           />
           <StatCard
             icon={<Gauge size={16} />}
             label="Avg Swap Ratio"
             value={stats.avgSwap != null ? stats.avgSwap.toFixed(3) : '—'}
-            color={stats.avgSwap != null && stats.avgSwap < 0.1 ? 'text-emerald-400' : 'text-yellow-400'}
+            color={stats.avgSwap != null && stats.avgSwap < 0.1 ? 'text-accent-emerald' : 'text-accent-amber'}
           />
           <StatCard
             icon={<TrendingUp size={16} />}
             label="Avg Price/Unit"
             value={stats.avgPrice != null ? stats.avgPrice.toFixed(4) : '—'}
-            color="text-gray-200"
+            color="text-text-primary"
           />
         </div>
       )}
 
-      {/* ─── Controls Row: TopN + Filter Toggle + SLA Toggle ─── */}
+      {/* Controls Row: TopN + Filter Toggle + SLA Toggle */}
       {capability && (
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 bg-gray-800/60 border border-gray-700/60 rounded-lg p-1">
+          <div className="flex items-center gap-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg p-1">
             {TOP_N_OPTIONS.map((n) => (
               <button
                 key={n}
                 onClick={() => setTopN(n)}
                 className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
-                  topN === n ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'
+                  topN === n ? 'bg-accent-emerald text-white' : 'text-text-secondary hover:text-text-primary'
                 }`}
               >
                 Top {n}
@@ -179,13 +179,13 @@ export const LeaderboardPage: React.FC = () => {
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
               showFilters || hasActiveFilters
-                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-600'
+                ? 'bg-accent-amber/10 text-accent-amber border-accent-amber/30'
+                : 'bg-bg-secondary text-text-secondary border-[var(--border-color)] hover:border-white/20'
             }`}
           >
             <SlidersHorizontal size={13} />
             Filters
-            {hasActiveFilters && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+            {hasActiveFilters && <span className="w-1.5 h-1.5 rounded-full bg-accent-amber" />}
             {showFilters ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </button>
 
@@ -193,8 +193,8 @@ export const LeaderboardPage: React.FC = () => {
             onClick={() => setShowSla(!showSla)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
               showSla
-                ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
-                : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-600'
+                ? 'bg-accent-blue/10 text-accent-blue border-accent-blue/30'
+                : 'bg-bg-secondary text-text-secondary border-[var(--border-color)] hover:border-white/20'
             }`}
           >
             <Gauge size={13} />
@@ -202,13 +202,12 @@ export const LeaderboardPage: React.FC = () => {
             {showSla ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </button>
 
-          {/* Status */}
-          <div className="ml-auto flex items-center gap-3 text-[11px] text-gray-500">
+          <div className="ml-auto flex items-center gap-3 text-[11px] text-text-muted">
             {lastUpdated && (
               <>
                 <span>Updated {lastUpdated.toLocaleTimeString()}</span>
                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                  cacheStatus === 'HIT' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-yellow-500/10 text-yellow-400'
+                  cacheStatus === 'HIT' ? 'bg-accent-emerald/10 text-accent-emerald' : 'bg-accent-amber/10 text-accent-amber'
                 }`}>
                   {cacheStatus}
                 </span>
@@ -218,9 +217,9 @@ export const LeaderboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* ─── Advanced Filters Panel ─── */}
+      {/* Advanced Filters Panel */}
       {showFilters && capability && (
-        <div className="panel p-4">
+        <div className="glass-card p-4">
           <div className="flex gap-4 flex-wrap items-end">
             <FilterInput label="Min GPU RAM (GB)" value={filters.gpuRamGbMin ?? ''}
               onChange={(v) => setFilters({ ...filters, gpuRamGbMin: v !== '' ? Number(v) : undefined })}
@@ -240,7 +239,7 @@ export const LeaderboardPage: React.FC = () => {
             {hasActiveFilters && (
               <button
                 onClick={() => setFilters({})}
-                className="text-xs text-amber-400 hover:text-amber-300 font-medium px-2 py-2"
+                className="text-xs text-accent-amber hover:text-accent-amber/80 font-medium px-2 py-2"
               >
                 Clear all
               </button>
@@ -249,41 +248,41 @@ export const LeaderboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* ─── SLA Weight Panel ─── */}
+      {/* SLA Weight Panel */}
       {showSla && capability && (
-        <div className="panel p-4 border-purple-500/20">
+        <div className="glass-card p-4" style={{ borderColor: 'rgba(30, 153, 96, 0.2)' }}>
           <div className="flex items-center gap-2 mb-4">
-            <Gauge size={14} className="text-purple-400" />
-            <span className="text-xs font-semibold text-purple-400 uppercase tracking-wider">
+            <Gauge size={14} className="text-accent-emerald" />
+            <span className="text-xs font-semibold text-accent-emerald uppercase tracking-wider">
               Custom SLA Weights
             </span>
-            <span className="text-[10px] text-gray-500 ml-2">
+            <span className="text-[10px] text-text-muted ml-2">
               Weights auto-normalize to 100%
             </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <WeightSlider label="Latency" value={slaWeights.latency || 0}
-              onChange={(v) => handleWeightChange('latency', v)} color="blue" />
+              onChange={(v) => handleWeightChange('latency', v)} color="emerald" />
             <WeightSlider label="Swap Rate" value={slaWeights.swapRate || 0}
               onChange={(v) => handleWeightChange('swapRate', v)} color="amber" />
             <WeightSlider label="Price" value={slaWeights.price || 0}
-              onChange={(v) => handleWeightChange('price', v)} color="emerald" />
+              onChange={(v) => handleWeightChange('price', v)} color="blue" />
           </div>
         </div>
       )}
 
-      {/* ─── Error ─── */}
+      {/* Error */}
       {error && (
-        <div className="flex items-center gap-3 panel p-4 border-red-500/30 bg-red-500/5">
-          <AlertCircle size={18} className="text-red-400 shrink-0" />
-          <p className="text-sm text-red-400">{error}</p>
-          <button onClick={refresh} className="ml-auto text-xs text-red-400 hover:text-red-300 font-medium">
+        <div className="flex items-center gap-3 glass-card p-4" style={{ borderColor: 'rgba(220, 38, 38, 0.3)', background: 'rgba(220, 38, 38, 0.05)' }}>
+          <AlertCircle size={18} className="text-accent-rose shrink-0" />
+          <p className="text-sm text-accent-rose">{error}</p>
+          <button onClick={refresh} className="ml-auto text-xs text-accent-rose hover:text-accent-rose/80 font-medium">
             Retry
           </button>
         </div>
       )}
 
-      {/* ─── Empty: No capability selected ─── */}
+      {/* Empty: No capability selected */}
       {!capability && !loading && (
         <EmptyState
           icon={<Search size={36} />}
@@ -292,26 +291,26 @@ export const LeaderboardPage: React.FC = () => {
         />
       )}
 
-      {/* ─── Loading skeleton ─── */}
+      {/* Loading skeleton */}
       {loading && data.length === 0 && capability && (
-        <div className="panel overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-700/60">
-            <div className="h-4 bg-gray-700/60 rounded w-48 animate-pulse" />
+        <div className="glass-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-[var(--border-color)]">
+            <div className="h-4 bg-bg-tertiary rounded w-48 animate-pulse" />
           </div>
           {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="flex items-center gap-6 px-4 py-3.5 border-b border-gray-700/30 animate-pulse">
-              <div className="h-3 bg-gray-700/50 rounded w-6" />
-              <div className="h-3 bg-gray-700/50 rounded w-56" />
-              <div className="h-3 bg-gray-700/50 rounded w-20" />
-              <div className="h-3 bg-gray-700/50 rounded w-12 ml-auto" />
-              <div className="h-3 bg-gray-700/50 rounded w-16" />
-              <div className="h-3 bg-gray-700/50 rounded w-12" />
+            <div key={i} className="flex items-center gap-6 px-4 py-3.5 border-b border-white/5 animate-pulse">
+              <div className="h-3 bg-bg-tertiary/50 rounded w-6" />
+              <div className="h-3 bg-bg-tertiary/50 rounded w-56" />
+              <div className="h-3 bg-bg-tertiary/50 rounded w-20" />
+              <div className="h-3 bg-bg-tertiary/50 rounded w-12 ml-auto" />
+              <div className="h-3 bg-bg-tertiary/50 rounded w-16" />
+              <div className="h-3 bg-bg-tertiary/50 rounded w-12" />
             </div>
           ))}
         </div>
       )}
 
-      {/* ─── Empty results ─── */}
+      {/* Empty results */}
       {capability && !loading && data.length === 0 && !error && (
         <EmptyState
           icon={<Activity size={36} />}
@@ -320,63 +319,63 @@ export const LeaderboardPage: React.FC = () => {
         />
       )}
 
-      {/* ─── Results Table ─── */}
+      {/* Results Table */}
       {data.length > 0 && (
-        <div className="panel overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-700/60 flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-400">
-              {data.length} orchestrator{data.length !== 1 ? 's' : ''} for <span className="text-blue-400">{capability}</span>
+        <div className="glass-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-[var(--border-color)] flex items-center justify-between">
+            <span className="text-xs font-medium text-text-secondary">
+              {data.length} orchestrator{data.length !== 1 ? 's' : ''} for <span className="text-accent-emerald">{capability}</span>
             </span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-gray-700/60 text-[11px] uppercase tracking-wider">
-                  <th className="px-4 py-2.5 text-left text-gray-500 font-semibold w-10">#</th>
-                  <th className="px-4 py-2.5 text-left text-gray-500 font-semibold">Orchestrator</th>
-                  <th className="px-4 py-2.5 text-left text-gray-500 font-semibold">GPU</th>
-                  <th className="px-4 py-2.5 text-right text-gray-500 font-semibold">VRAM</th>
-                  <th className="px-4 py-2.5 text-right text-gray-500 font-semibold">Capacity</th>
-                  <th className="px-4 py-2.5 text-right text-gray-500 font-semibold">Price</th>
-                  <th className="px-4 py-2.5 text-right text-gray-500 font-semibold">Best Lat</th>
-                  <th className="px-4 py-2.5 text-right text-gray-500 font-semibold">Avg Lat</th>
-                  <th className="px-4 py-2.5 text-right text-gray-500 font-semibold">Swap</th>
-                  <th className="px-4 py-2.5 text-right text-gray-500 font-semibold">Avg Avail</th>
-                  {showSla && <th className="px-4 py-2.5 text-right text-gray-500 font-semibold">SLA</th>}
+                <tr className="border-b border-[var(--border-color)] text-[11px] uppercase tracking-wider">
+                  <th className="px-4 py-2.5 text-left text-text-muted font-semibold w-10">#</th>
+                  <th className="px-4 py-2.5 text-left text-text-muted font-semibold">Orchestrator</th>
+                  <th className="px-4 py-2.5 text-left text-text-muted font-semibold">GPU</th>
+                  <th className="px-4 py-2.5 text-right text-text-muted font-semibold">VRAM</th>
+                  <th className="px-4 py-2.5 text-right text-text-muted font-semibold">Capacity</th>
+                  <th className="px-4 py-2.5 text-right text-text-muted font-semibold">Price</th>
+                  <th className="px-4 py-2.5 text-right text-text-muted font-semibold">Best Lat</th>
+                  <th className="px-4 py-2.5 text-right text-text-muted font-semibold">Avg Lat</th>
+                  <th className="px-4 py-2.5 text-right text-text-muted font-semibold">Swap</th>
+                  <th className="px-4 py-2.5 text-right text-text-muted font-semibold">Avg Avail</th>
+                  {showSla && <th className="px-4 py-2.5 text-right text-text-muted font-semibold">SLA</th>}
                 </tr>
               </thead>
               <tbody>
                 {data.map((row, i) => (
                   <tr
                     key={`${row.orchUri || 'row'}-${i}`}
-                    className="border-b border-gray-700/30 hover:bg-gray-800/60 transition-colors group"
+                    className="border-b border-white/5 hover:bg-bg-secondary transition-colors group"
                   >
-                    <td className="px-4 py-3 text-gray-500 font-mono text-xs">
+                    <td className="px-4 py-3 text-text-muted font-mono text-xs">
                       {i < 3 ? (
                         <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${
-                          i === 0 ? 'bg-yellow-500/20 text-yellow-400' :
-                          i === 1 ? 'bg-gray-400/20 text-gray-300' :
-                          'bg-amber-700/20 text-amber-500'
+                          i === 0 ? 'bg-accent-amber/20 text-accent-amber' :
+                          i === 1 ? 'bg-bg-tertiary text-text-secondary' :
+                          'bg-accent-amber/10 text-accent-amber/70'
                         }`}>{i + 1}</span>
                       ) : (
-                        <span className="text-gray-600">{i + 1}</span>
+                        <span className="text-text-disabled">{i + 1}</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-gray-200 max-w-[260px] truncate group-hover:text-blue-400 transition-colors" title={row.orchUri}>
+                    <td className="px-4 py-3 font-mono text-[11px] text-text-primary max-w-[260px] truncate group-hover:text-accent-emerald transition-colors" title={row.orchUri}>
                       {row.orchUri}
                     </td>
-                    <td className="px-4 py-3 text-gray-300 whitespace-nowrap">
+                    <td className="px-4 py-3 text-text-secondary whitespace-nowrap">
                       <span className="inline-flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/60" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-accent-emerald/60" />
                         {row.gpuName}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-300 whitespace-nowrap">{row.gpuGb} GB</td>
+                    <td className="px-4 py-3 text-right text-text-secondary whitespace-nowrap">{row.gpuGb} GB</td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
-                      <span className="text-gray-200">{row.avail}</span>
-                      <span className="text-gray-600">/{row.totalCap}</span>
+                      <span className="text-text-primary">{row.avail}</span>
+                      <span className="text-text-disabled">/{row.totalCap}</span>
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-300 whitespace-nowrap font-mono text-[11px]">{row.pricePerUnit}</td>
+                    <td className="px-4 py-3 text-right text-text-secondary whitespace-nowrap font-mono text-[11px]">{row.pricePerUnit}</td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       <MetricBadge value={row.bestLatMs} suffix="ms" thresholds={[200, 500]} />
                     </td>
@@ -386,16 +385,16 @@ export const LeaderboardPage: React.FC = () => {
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       <MetricBadge value={row.swapRatio} thresholds={[0.1, 0.3]} />
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-300 whitespace-nowrap">
+                    <td className="px-4 py-3 text-right text-text-secondary whitespace-nowrap">
                       {row.avgAvail != null ? row.avgAvail : '—'}
                     </td>
                     {showSla && (
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         {row.slaScore != null ? (
                           <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${
-                            row.slaScore >= 0.7 ? 'bg-emerald-500/15 text-emerald-400' :
-                            row.slaScore >= 0.4 ? 'bg-yellow-500/15 text-yellow-400' :
-                            'bg-red-500/15 text-red-400'
+                            row.slaScore >= 0.7 ? 'bg-accent-emerald/15 text-accent-emerald' :
+                            row.slaScore >= 0.4 ? 'bg-accent-amber/15 text-accent-amber' :
+                            'bg-accent-rose/15 text-accent-rose'
                           }`}>
                             {row.slaScore.toFixed(3)}
                           </span>
@@ -413,7 +412,7 @@ export const LeaderboardPage: React.FC = () => {
   );
 };
 
-/* ─── Sub-components ─── */
+/* Sub-components */
 
 function computeStats(data: OrchestratorRow[]) {
   if (data.length === 0) return { count: 0, bestLat: null as number | null, avgSwap: null as number | null, avgPrice: null as number | null };
@@ -430,7 +429,7 @@ function computeStats(data: OrchestratorRow[]) {
 
 const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: string; color: string }> = ({ icon, label, value, color }) => (
   <div className="stat-card">
-    <div className="flex items-center gap-2 text-gray-500 mb-2">
+    <div className="flex items-center gap-2 text-text-muted mb-2">
       {icon}
       <span className="text-[11px] font-medium uppercase tracking-wider">{label}</span>
     </div>
@@ -439,18 +438,18 @@ const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: string; 
 );
 
 const MetricBadge: React.FC<{ value: number | null; suffix?: string; thresholds: [number, number] }> = ({ value, suffix = '', thresholds }) => {
-  if (value == null) return <span className="text-gray-600">—</span>;
-  const color = value < thresholds[0] ? 'text-emerald-400' : value < thresholds[1] ? 'text-yellow-400' : 'text-red-400';
+  if (value == null) return <span className="text-text-disabled">—</span>;
+  const color = value < thresholds[0] ? 'text-accent-emerald' : value < thresholds[1] ? 'text-accent-amber' : 'text-accent-rose';
   return <span className={`font-medium ${color}`}>{value}{suffix}</span>;
 };
 
 const EmptyState: React.FC<{ icon: React.ReactNode; title: string; description: string }> = ({ icon, title, description }) => (
   <div className="text-center py-20">
-    <div className="w-20 h-20 mx-auto mb-5 bg-gray-800/80 border border-gray-700/60 rounded-2xl flex items-center justify-center text-gray-500">
+    <div className="w-20 h-20 mx-auto mb-5 bg-bg-tertiary/50 border border-[var(--border-color)] rounded-2xl flex items-center justify-center text-text-muted">
       {icon}
     </div>
-    <h2 className="text-lg font-semibold text-gray-200 mb-2">{title}</h2>
-    <p className="text-sm text-gray-400 max-w-md mx-auto">{description}</p>
+    <h2 className="text-lg font-semibold text-text-primary mb-2">{title}</h2>
+    <p className="text-sm text-text-secondary max-w-md mx-auto">{description}</p>
   </div>
 );
 
@@ -461,22 +460,22 @@ const FilterInput: React.FC<{
   const id = useId();
   return (
     <div className="min-w-[130px]">
-      <label htmlFor={id} className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{label}</label>
+      <label htmlFor={id} className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">{label}</label>
       <input
         id={id}
         {...inputProps}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/40 placeholder-gray-600 transition-all"
+        className="w-full px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm focus:ring-2 focus:ring-accent-emerald/40 focus:border-accent-emerald/40 placeholder:text-text-disabled transition-all"
       />
     </div>
   );
 };
 
 const WEIGHT_COLORS = {
-  blue: { bar: 'bg-blue-500/30', text: 'text-blue-400' },
-  amber: { bar: 'bg-amber-500/30', text: 'text-amber-400' },
-  emerald: { bar: 'bg-emerald-500/30', text: 'text-emerald-400' },
+  emerald: { bar: 'bg-accent-emerald/30', text: 'text-accent-emerald' },
+  amber: { bar: 'bg-accent-amber/30', text: 'text-accent-amber' },
+  blue: { bar: 'bg-accent-blue/30', text: 'text-accent-blue' },
 };
 
 const WeightSlider: React.FC<{
@@ -487,7 +486,7 @@ const WeightSlider: React.FC<{
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <label htmlFor={id} className="text-xs font-medium text-gray-300">{label}</label>
+        <label htmlFor={id} className="text-xs font-medium text-text-secondary">{label}</label>
         <span className={`text-sm font-bold ${c.text}`}>{Math.round(value * 100)}%</span>
       </div>
       <input

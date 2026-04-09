@@ -150,6 +150,10 @@ export function getCachedPlanResults(planId: string): PlanResults | null {
   };
 }
 
+export function invalidatePlanCache(planId: string): void {
+  planCache.delete(planId);
+}
+
 export function clearPlanCache(): void {
   planCache.clear();
 }

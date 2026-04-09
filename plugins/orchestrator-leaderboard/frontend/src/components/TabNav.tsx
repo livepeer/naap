@@ -14,7 +14,7 @@ export const TabNav: React.FC = () => {
   const activeTab = pathname.startsWith('/plans') ? '/plans' : '/';
 
   return (
-    <div className="flex items-center gap-1 border-b border-gray-700/60 px-6 pt-3">
+    <div className="flex items-center gap-1 border-b border-[var(--border-color)] px-6 pt-3">
       {TABS.map(({ path, label, icon: Icon }) => {
         const active = path === activeTab;
         return (
@@ -23,8 +23,8 @@ export const TabNav: React.FC = () => {
             onClick={() => navigate(path)}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg transition-all -mb-px border-b-2 ${
               active
-                ? 'text-blue-400 border-blue-400 bg-blue-500/5'
-                : 'text-gray-400 border-transparent hover:text-gray-200 hover:bg-gray-800/40'
+                ? 'text-accent-blue border-accent-blue bg-accent-blue/5'
+                : 'text-text-muted border-transparent hover:text-text-primary hover:bg-bg-secondary'
             }`}
           >
             <Icon size={15} />

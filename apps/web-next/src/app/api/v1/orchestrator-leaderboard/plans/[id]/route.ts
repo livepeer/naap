@@ -11,6 +11,7 @@ import { authorize } from '@/lib/gateway/authorize';
 import { success, errors } from '@/lib/api/response';
 import { getPlan, updatePlan, deletePlan } from '@/lib/orchestrator-leaderboard/plans';
 import { UpdatePlanSchema } from '@/lib/orchestrator-leaderboard/types';
+import { invalidatePlanCache } from '@/lib/orchestrator-leaderboard/refresh';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -55,6 +56,7 @@ export async function PUT(
   const plan = await updatePlan(id, parsed.data, scopeFromAuth(auth));
   if (!plan) return errors.notFound('Plan not found');
 
+  invalidatePlanCache(id);
   return success({ plan });
 }
 
