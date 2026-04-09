@@ -128,6 +128,10 @@
     background-color: var(--bg-tertiary);
   }
   .plan-card {
-    @apply bg-gray-800/40 border border-gray-700/60 rounded-xl p-5 cursor-pointer transition-all hover:border-blue-500/30 hover:bg-gray-800/60;
+    @apply glass-card p-5 cursor-pointer transition-all;
+  }
+  .plan-card:hover {
+    border-color: rgba(30, 153, 96, 0.3);
+    background-color: var(--bg-tertiary);
   }
 }
