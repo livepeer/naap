@@ -19,9 +19,68 @@ import {
   Cpu,
   Users,
   X,
+ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
 } from 'lucide-react';
 import { Card, Badge, Modal } from '@naap/ui';
 import type { NetworkModel } from '@naap/plugin-sdk';
+
+const PIPELINE_COLOR: Record<string, string> = {
+  'text-to-image':           '#f59e0b',
+  'image-to-image':          '#8b5cf6',
+  'image-to-video':          '#3b82f6',
+  'upscale':                 '#84cc16',
+  'audio-to-text':           '#06b6d4',
+  'segment-anything-2':      '#f97316',
+  'llm':                     '#a855f7',
+  'image-to-text':           '#ec4899',
+  'live-video-to-video':     '#10b981',
+  'text-to-speech':          '#14b8a6',
+  'openai-chat-completions': '#8b5cf6',
+  'openai-image-generation': '#f59e0b',
+  'openai-text-embeddings':  '#3b82f6',
+};
+const DEFAULT_PIPELINE_COLOR = '#6366f1';
+
+const MODEL_BADGE_COLORS = [
+  'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  'bg-violet-100  text-violet-800  dark:bg-violet-900/40  dark:text-violet-200',
+  'bg-amber-100   text-amber-800   dark:bg-amber-900/40   dark:text-amber-200',
+  'bg-sky-100     text-sky-800     dark:bg-sky-900/40     dark:text-sky-200',
+  'bg-rose-100    text-rose-800    dark:bg-rose-900/40    dark:text-rose-200',
+  'bg-lime-100    text-lime-800    dark:bg-lime-900/40    dark:text-lime-200',
+  'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-200',
+  'bg-cyan-100    text-cyan-800    dark:bg-cyan-900/40    dark:text-cyan-200',
+] as const;
+
+const MODEL_HEX_TO_BADGE_CLASSES: Record<string, string> = {
+  '#10b981': 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  '#8b5cf6': 'bg-violet-100  text-violet-800  dark:bg-violet-900/40  dark:text-violet-200',
+  '#3b82f6': 'bg-sky-100     text-sky-800     dark:bg-sky-900/40     dark:text-sky-200',
+  '#f59e0b': 'bg-amber-100   text-amber-800   dark:bg-amber-900/40   dark:text-amber-200',
+  '#84cc16': 'bg-lime-100    text-lime-800    dark:bg-lime-900/40    dark:text-lime-200',
+  '#a855f7': 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-200',
+  '#06b6d4': 'bg-cyan-100    text-cyan-800    dark:bg-cyan-900/40    dark:text-cyan-200',
+  '#ec4899': 'bg-pink-100    text-pink-800    dark:bg-pink-900/40    dark:text-pink-200',
+  '#f97316': 'bg-orange-100  text-orange-800  dark:bg-orange-900/40  dark:text-orange-200',
+  '#14b8a6': 'bg-teal-100    text-teal-800    dark:bg-teal-900/40    dark:text-teal-200',
+  '#6366f1': 'bg-indigo-100  text-indigo-800  dark:bg-indigo-900/40  dark:text-indigo-200',
+};
+
+function hashModelId(id: string): number {
+  let n = 0;
+  for (let i = 0; i < id.length; i++) n += id.charCodeAt(i);
+  return Math.abs(n) % MODEL_BADGE_COLORS.length;
+}
+
+function modelBadgeColor(modelId: string, fallbackPipelineId?: string): string {
+  const hex = PIPELINE_COLOR[modelId];
+  if (hex) return MODEL_HEX_TO_BADGE_CLASSES[hex] ?? MODEL_BADGE_COLORS[hashModelId(modelId)];
+  const fallbackHex = fallbackPipelineId ? PIPELINE_COLOR[fallbackPipelineId] : undefined;
+  if (fallbackHex) return MODEL_HEX_TO_BADGE_CLASSES[fallbackHex] ?? MODEL_BADGE_COLORS[hashModelId(modelId)];
+  return MODEL_BADGE_COLORS[hashModelId(modelId)];
+}
 
 type TabId = 'models' | 'api-keys' | 'usage' | 'docs';
 
@@ -167,6 +226,9 @@ export const DeveloperView: React.FC = () => {
   const [networkModelsError, setNetworkModelsError] = useState<string | null>(null);
   const [networkModelSearch, setNetworkModelSearch] = useState('');
   const [pipelineFilter, setPipelineFilter] = useState<string>('all');
+  type ModelSortKey = 'Model' | 'Pipeline' | 'WarmOrchCount' | 'TotalCapacity' | 'PriceAvgWeiPerPixel' | 'PriceMinWeiPerPixel';
+  const [modelSortKey, setModelSortKey] = useState<ModelSortKey>('WarmOrchCount');
+  const [modelSortDir, setModelSortDir] = useState<'asc' | 'desc'>('desc');
   const [copiedCell, setCopiedCell] = useState<string | null>(null);
 
   const copyCell = useCallback(async (key: string, text: string) => {
@@ -372,8 +434,16 @@ export const DeveloperView: React.FC = () => {
           m.Pipeline.toLowerCase().includes(q)
       );
     }
+result = [...result].sort((a, b) => {
+      const av = a[modelSortKey];
+      const bv = b[modelSortKey];
+      const cmp = typeof av === 'string' && typeof bv === 'string'
+        ? av.localeCompare(bv)
+        : (av as number) - (bv as number);
+      return modelSortDir === 'asc' ? cmp : -cmp;
+    });
     return result;
-  }, [networkModels, pipelineFilter, networkModelSearch]);
+  }, [networkModels, pipelineFilter, networkModelSearch, modelSortKey, modelSortDir]);
 
   const loadBillingProviders = useCallback(async () => {
     setBillingProvidersError(false);
@@ -708,21 +778,29 @@ export const DeveloperView: React.FC = () => {
                     >
                       All Pipelines
                     </button>
-                    {pipelineOptions.map((pipeline) => (
+                    {pipelineOptions.map((pipeline) => {
+                      const color = PIPELINE_COLOR[pipeline] ?? DEFAULT_PIPELINE_COLOR;
+                      const active = pipelineFilter === pipeline;
+                      return (
                       <button
                         type="button"
                         key={pipeline}
                         onClick={() => setPipelineFilter(pipeline === pipelineFilter ? 'all' : pipeline)}
-                        aria-pressed={pipelineFilter === pipeline}
-                        className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-                          pipelineFilter === pipeline
-                            ? 'bg-accent-blue/20 text-accent-blue border border-accent-blue/30'
-                            : 'bg-bg-tertiary text-text-secondary border border-white/10 hover:border-white/20'
-                        }`}
-                      >
+                        aria-pressed={active}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all bg-bg-tertiary border"
+                          style={{
+                            borderColor: active ? color : 'rgba(255,255,255,0.1)',
+                            color: active ? color : undefined,
+                          }}
+                        >
+                          <span
+                            className="w-1.5 h-1.5 rounded-full shrink-0"
+                            style={{ backgroundColor: color }}
+                          />
                         {pipeline}
                       </button>
-                    ))}
+                    );
+                    })}
                   </div>
                 </div>
 
@@ -766,25 +844,51 @@ export const DeveloperView: React.FC = () => {
                       <table className="w-full">
                         <thead>
                           <tr className="text-left text-xs uppercase tracking-wider text-text-secondary border-b border-white/10">
-                            <th className="pb-3 font-medium">Model</th>
-                            <th className="pb-3 font-medium">Pipeline</th>
-                            <th className="pb-3 font-medium text-right">Warm Orchestrators</th>
-                            <th className="pb-3 font-medium text-right">Total Capacity</th>
-                            <th className="pb-3 font-medium text-right">Avg Price (wei/px)</th>
-                            <th className="pb-3 font-medium text-right">Price Range (wei/px)</th>
+                            {(
+                              [
+                                { key: 'Model', label: 'Model', align: 'left' },
+                                { key: 'WarmOrchCount', label: 'Warm Orchestrators', align: 'right' },
+                                { key: 'TotalCapacity', label: 'Total Capacity', align: 'right' },
+                                { key: 'PriceAvgWeiPerPixel', label: 'Avg Price (wei/px)', align: 'right' },
+                                { key: 'PriceMinWeiPerPixel', label: 'Price Range (wei/px)', align: 'right' },
+                              ] as { key: ModelSortKey; label: string; align: 'left' | 'right' }[]
+                            ).map(({ key, label, align }) => {
+                              const active = modelSortKey === key;
+                              const Icon = active ? (modelSortDir === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown;
+                              return (
+                                <th key={key} className={`pb-3 font-medium${align === 'right' ? ' text-right' : ''}`}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (modelSortKey === key) {
+                                        setModelSortDir((d) => d === 'asc' ? 'desc' : 'asc');
+                                      } else {
+                                        setModelSortKey(key);
+                                        setModelSortDir('desc');
+                                      }
+                                    }}
+                                    className={`inline-flex items-center gap-1 hover:text-text-primary transition-colors${align === 'right' ? ' flex-row-reverse' : ''}${active ? ' text-text-primary' : ''}`}
+                                  >
+                                    {label}
+                                    <Icon size={12} className={active ? 'text-accent-blue' : 'opacity-40'} />
+                                  </button>
+                                </th>
+                              );
+                            })}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/5">
-                          {filteredNetworkModels.map((model) => (
-                            <tr key={`${model.Pipeline}-${model.Model}`} className="hover:bg-white/5 transition-colors">
+                          {filteredNetworkModels.map((model, idx) => (
+                            <tr key={`${idx}-${model.Pipeline}-${model.Model}`} className="hover:bg-white/5 transition-colors">
                               <td className="py-3 pr-4">
-                                <div className="flex items-center gap-2 group">
-                                  <Cpu size={12} className={model.WarmOrchCount > 0 ? 'text-accent-emerald flex-shrink-0' : 'text-text-secondary flex-shrink-0'} />
-                                  <span className="text-sm font-medium text-text-primary font-mono">{model.Model}</span>
+                                <div className="flex items-center gap-1 group/model">
+                                  <span className={`inline-flex max-w-full cursor-default items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono ${modelBadgeColor(model.Model, model.Pipeline)}`}>
+                                  <span className="truncate">{model.Model}</span>
+</span>
                                   <button
                                     type="button"
                                     onClick={() => copyCell(`model-${model.Pipeline}-${model.Model}`, model.Model)}
-                                    className="rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2 focus-visible:ring-offset-bg-secondary"
+                                    className="rounded p-0.5 opacity-0 transition-opacity group-hover/model:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2 focus-visible:ring-offset-bg-secondary"
                                     title="Copy model name"
                                     aria-label={`Copy model name ${model.Model}`}
                                   >
