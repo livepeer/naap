@@ -883,8 +883,8 @@ result = [...result].sort((a, b) => {
                               <td className="py-3 pr-4">
                                 <div className="flex items-center gap-1 group/model">
                                   <span className={`inline-flex max-w-full cursor-default items-center rounded px-2 py-0.5 text-[10px] font-medium font-mono ${modelBadgeColor(model.Model, model.Pipeline)}`}>
-                                  <span className="truncate">{model.Model}</span>
-</span>
+                                    <span className="truncate">{model.Model}</span>
+                                  </span>
                                   <button
                                     type="button"
                                     onClick={() => copyCell(`model-${model.Pipeline}-${model.Model}`, model.Model)}
@@ -893,20 +893,6 @@ result = [...result].sort((a, b) => {
                                     aria-label={`Copy model name ${model.Model}`}
                                   >
                                     {copiedCell === `model-${model.Pipeline}-${model.Model}` ? <Check size={12} className="text-accent-emerald" aria-hidden /> : <Copy size={12} aria-hidden />}
-                                  </button>
-                                </div>
-                              </td>
-                              <td className="py-3 pr-4">
-                                <div className="flex items-center gap-1.5 group">
-                                  <Badge variant="secondary">{model.Pipeline}</Badge>
-                                  <button
-                                    type="button"
-                                    onClick={() => copyCell(`pipeline-${model.Pipeline}-${model.Model}`, model.Pipeline)}
-                                    className="rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2 focus-visible:ring-offset-bg-secondary"
-                                    title="Copy pipeline name"
-                                    aria-label={`Copy pipeline name ${model.Pipeline}`}
-                                  >
-                                    {copiedCell === `pipeline-${model.Pipeline}-${model.Model}` ? <Check size={12} className="text-accent-emerald" aria-hidden /> : <Copy size={12} aria-hidden />}
                                   </button>
                                 </div>
                               </td>
