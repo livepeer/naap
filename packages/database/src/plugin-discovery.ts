@@ -119,6 +119,8 @@ export interface DiscoveredPlugin {
   repository?: string;
   /** Whether this plugin is core (cannot be uninstalled) */
   isCore?: boolean;
+  /** When true, plugin defaults to hidden (visibleToUsers: false) on first registration */
+  experimental?: boolean;
 }
 
 /**
@@ -169,6 +171,7 @@ export function discoverFromDir(rootDir: string, subDir: string): DiscoveredPlug
         license: manifest.license,
         repository: manifest.repository,
         isCore: manifest.isCore === true ? true : undefined,
+        experimental: manifest.experimental === true ? true : undefined,
       };
     })
     .sort((a, b) => a.order - b.order);
@@ -277,7 +280,8 @@ export function toPluginPackageData(
     icon: plugin.icon,
     isCore: plugin.isCore ?? false,
     publishStatus: 'published',
-  };
+    visibleToUsers: true,
+  } as Record<string, unknown>;
 }
 
 /**

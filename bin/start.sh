@@ -485,6 +485,7 @@ PLUGIN_SCHEMAS=(
   "plugin_dashboard"
   "plugin_daydream"
   "plugin_service_gateway"
+  "plugin_orchestrator_leaderboard"
 )
 
 get_all_plugins() {

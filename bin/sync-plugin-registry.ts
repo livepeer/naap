@@ -235,6 +235,11 @@ async function main(): Promise<void> {
         select: { id: true },
       });
 
+      const createData = { ...pkgData };
+      if (p.experimental && !existingPkg) {
+        createData.visibleToUsers = false;
+      }
+
       const pkg = await prisma.pluginPackage.upsert({
         where: { name: p.name },
         update: {
@@ -250,7 +255,7 @@ async function main(): Promise<void> {
           isCore: pkgData.isCore,
           publishStatus: 'published',
         },
-        create: pkgData,
+        create: createData,
       });
 
       if (existingPkg) {
