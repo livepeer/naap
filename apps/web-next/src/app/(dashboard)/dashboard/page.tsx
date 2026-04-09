@@ -92,6 +92,7 @@ const REALTIME_QUERY_TIMEOUT_MS = 15_000;
 const POLL_INTERVAL_KEY = 'naap_dashboard_poll_interval';
 const DEFAULT_POLL_INTERVAL = 15_000;
 const TIMEFRAME_KEY = 'naap_dashboard_timeframe';
+type OverviewTimeframe = (typeof OVERVIEW_TIMEFRAME_VALUES)[number];
 
 const JOB_FEED_POLL_OPTIONS = [5_000, 15_000, 30_000, 90_000];
 
@@ -103,11 +104,13 @@ function getStoredJobFeedPollInterval(): number {
   return JOB_FEED_POLL_OPTIONS.includes(parsed) ? parsed : DEFAULT_POLL_INTERVAL;
 }
 
-function getStoredTimeframe(): string {
+function getStoredTimeframe(): OverviewTimeframe {
   if (typeof window === 'undefined') return DEFAULT_OVERVIEW_TIMEFRAME;
   const stored = localStorage.getItem(TIMEFRAME_KEY);
   if (!stored) return DEFAULT_OVERVIEW_TIMEFRAME;
-  return OVERVIEW_TIMEFRAME_VALUES.includes(stored) ? stored : DEFAULT_OVERVIEW_TIMEFRAME;
+  return OVERVIEW_TIMEFRAME_VALUES.includes(stored as OverviewTimeframe)
+    ? (stored as OverviewTimeframe)
+    : DEFAULT_OVERVIEW_TIMEFRAME;
 }
 
 // ============================================================================
@@ -126,9 +129,10 @@ function NoProviderMessage() {
 
 export default function DashboardPage() {
   const [jobFeedPollInterval, setJobFeedPollInterval] = useState(DEFAULT_POLL_INTERVAL);
-  const [timeframe, setTimeframe] = useState(DEFAULT_OVERVIEW_TIMEFRAME);
+  const [timeframe, setTimeframe] = useState<OverviewTimeframe>(DEFAULT_OVERVIEW_TIMEFRAME);
   const [prefsReady, setPrefsReady] = useState(false);
   const [orchestrators, setOrchestrators] = useState<DashboardOrchestrator[]>([]);
+  const [fetchedOrchestratorsTimeframe, setFetchedOrchestratorsTimeframe] = useState<string | null>(null);
   const [orchestratorsLoading, setOrchestratorsLoading] = useState(true);
 
   useEffect(() => {
@@ -152,11 +156,13 @@ export default function DashboardPage() {
       .then((rows) => {
         if (!cancelled) {
           setOrchestrators(rows);
+          setFetchedOrchestratorsTimeframe(timeframe);
           setOrchestratorsLoading(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
+          setFetchedOrchestratorsTimeframe(null);
           setOrchestratorsLoading(false);
         }
       });
@@ -171,8 +177,10 @@ export default function DashboardPage() {
   };
 
   const handleTimeframeChange = (tf: string) => {
-    setTimeframe(tf);
-    localStorage.setItem(TIMEFRAME_KEY, tf);
+    if (!OVERVIEW_TIMEFRAME_VALUES.includes(tf as OverviewTimeframe)) return;
+    const next = tf as OverviewTimeframe;
+    setTimeframe(next);
+    localStorage.setItem(TIMEFRAME_KEY, next);
   };
 
   const {
@@ -223,13 +231,16 @@ export default function DashboardPage() {
     return <NoProviderMessage />;
   }
 
+  const visibleOrchestrators =
+    fetchedOrchestratorsTimeframe === timeframe ? orchestrators : [];
+
   return (
     <OverviewContent
       isPublic={false}
       kpi={lbData?.kpi ?? null}
       pipelines={lbData?.pipelines ?? []}
       pipelineCatalog={lbData?.pipelineCatalog ?? []}
-      orchestrators={orchestrators}
+      orchestrators={visibleOrchestrators}
       orchestratorsLoading={orchestratorsLoading}
       protocol={rtData?.protocol ?? null}
       gpuCapacity={rtData?.gpuCapacity ?? null}

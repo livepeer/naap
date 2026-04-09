@@ -1597,26 +1597,43 @@ function OrchestratorTableCard({
                 <td className="py-1.5 min-w-0 align-top" title={row.uris.length ? row.uris.join('\n') : row.address}>
                   <div className="flex min-w-0 w-full flex-col gap-1">
                     {row.uris.length > 0 ? (
-                      row.uris.map((uri, i) => (
-                        <div
-                          key={`${row.address}:uri:${i}`}
-                          className="flex w-full min-w-0 items-center justify-start gap-1"
-                        >
-                          <span
-                            className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground"
-                            title={stripOrchestratorServiceUri(uri)}
+                      <>
+                        {row.uris.map((uri, i) => (
+                          <div
+                            key={`${row.address}:uri:${i}`}
+                            className="flex w-full min-w-0 items-center justify-start gap-1"
                           >
-                            {formatURI(uri)}
+                            <span
+                              className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground"
+                              title={stripOrchestratorServiceUri(uri)}
+                            >
+                              {formatURI(uri)}
+                            </span>
+                            <PipelineTableCopyButton
+                              inline
+                              copied={copiedId === `orch:${row.address}:uri:${i}`}
+                              onCopy={() => copyToClipboard(`orch:${row.address}:uri:${i}`, uri)}
+                              title="Copy this service URI"
+                              ariaLabel={`Copy service URI ${uri}`}
+                            />
+                          </div>
+                        ))}
+                        <div className="flex w-full min-w-0 items-center justify-start gap-1">
+                          <span
+                            className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-muted-foreground"
+                            title={row.address}
+                          >
+                            {row.address}
                           </span>
                           <PipelineTableCopyButton
                             inline
-                            copied={copiedId === `orch:${row.address}:uri:${i}`}
-                            onCopy={() => copyToClipboard(`orch:${row.address}:uri:${i}`, uri)}
-                            title="Copy this service URI"
-                            ariaLabel={`Copy service URI ${uri}`}
+                            copied={copiedId === `orch:${row.address}`}
+                            onCopy={() => copyToClipboard(`orch:${row.address}`, row.address)}
+                            title="Copy orchestrator address"
+                            ariaLabel={`Copy address ${row.address}`}
                           />
                         </div>
-                      ))
+                      </>
                     ) : (
                       <div className="flex min-w-0 items-center gap-1">
                         <span className="font-mono text-muted-foreground">—</span>
@@ -1947,7 +1964,7 @@ export function OverviewContent(props: OverviewContentProps) {
       {/* Row 3: Orchestrators (full width) */}
       <section>
         {orchestrators.length > 0 ? (
-          <RefreshWrap refreshing={orchestratorsLoading ?? false} className="block min-h-0">
+          <RefreshWrap refreshing={orchestratorsLoading ?? lbRefreshing} className="block min-h-0">
             <OrchestratorTableCard data={orchestrators} catalog={pipelineCatalog} pricing={pricing} />
           </RefreshWrap>
         ) : uiOrchestratorsLoading ? (

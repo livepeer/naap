@@ -3,17 +3,14 @@
  * the KPI resolver (time-scoped count when `LastSeen` is present) and the
  * orchestrator-table resolver (multi-URI enrichment).
  *
- * Source: GET /v1/net/orchestrators?active_only=false&limit=…&offset=… (paged until exhausted)
+ * Source: GET /v1/net/orchestrators?active_only=false&limit=1000&offset=0
  */
 
-import type { DashboardPipelineModelOffer } from '@naap/plugin-sdk';
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
 
-/** Per-page `limit` for net/orchestrators (registry supports `offset` pagination). */
+/** Single-request `limit` for net/orchestrators. */
 export const NET_ORCHESTRATORS_PAGE_SIZE = '1000';
-
-const MAX_NET_ORCHESTRATOR_PAGES = 500;
 
 interface NaapNetOrchestrator {
   Address: string;
@@ -27,6 +24,11 @@ interface NaapNetOrchestrator {
 
 interface RawCapabilitiesJson {
   hardware?: Array<{ pipeline?: string; model_id?: string }>;
+}
+
+interface DashboardPipelineModelOffer {
+  pipelineId: string;
+  modelIds: string[];
 }
 
 function parseRawCapabilities(raw: string | undefined): DashboardPipelineModelOffer[] {
@@ -103,7 +105,15 @@ function parseOrchestratorLastSeenMs(row: NaapNetOrchestrator): number | undefin
   if (typeof raw !== 'string') {
     return undefined;
   }
-  const t = Date.parse(raw.trim());
+  const trimmed = raw.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const epoch = Number(trimmed);
+    if (Number.isFinite(epoch) && epoch > 0) {
+      // Unix ms (e.g. 1.7e12) vs seconds (e.g. 1.7e9)
+      return epoch >= 1e12 ? epoch : epoch * 1000;
+    }
+  }
+  const t = Date.parse(trimmed);
   return Number.isFinite(t) ? t : undefined;
 }
 
@@ -146,32 +156,20 @@ const EMPTY: NetOrchestratorData = {
 };
 
 async function fetchAllNetOrchestratorRows(): Promise<NaapNetOrchestrator[]> {
-  const pageSize = Number.parseInt(NET_ORCHESTRATORS_PAGE_SIZE, 10);
   const revalidateSec = Math.floor(TTL.NET_MODELS / 1000);
   const fetchOptions = {
     next: { revalidate: revalidateSec },
     errorLabel: 'net-orchestrators',
   } as const;
-  const all: NaapNetOrchestrator[] = [];
-
-  for (let page = 0; page < MAX_NET_ORCHESTRATOR_PAGES; page++) {
-    const offset = String(page * pageSize);
-    const rows = await naapGet<NaapNetOrchestrator[]>('net/orchestrators', {
-      active_only: 'false',
-      limit: NET_ORCHESTRATORS_PAGE_SIZE,
-      offset,
-    }, fetchOptions);
-    all.push(...rows);
-    if (rows.length < pageSize) {
-      break;
-    }
-  }
-
-  return all;
+  return naapGet<NaapNetOrchestrator[]>('net/orchestrators', {
+    active_only: 'false',
+    limit: NET_ORCHESTRATORS_PAGE_SIZE,
+    offset: '0',
+  }, fetchOptions);
 }
 
 export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
-  const cacheKey = `facade:net-orchestrators:paged&pageSize=${NET_ORCHESTRATORS_PAGE_SIZE}`;
+  const cacheKey = `facade:net-orchestrators:single-request&limit=${NET_ORCHESTRATORS_PAGE_SIZE}`;
   return cachedFetch(cacheKey, TTL.NET_MODELS, async () => {
     const rows = await fetchAllNetOrchestratorRows();
 
