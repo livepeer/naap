@@ -3,6 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { loginWithEmailPassword } from './helpers/auth-e2e';
 
+/** Login uses waitForURL(..., 60s); default Playwright test timeout (30s) aborts first. */
+setup.setTimeout(90_000);
+
 const authFile = 'playwright/.auth/user.json';
 const adminAuthFile = 'playwright/.auth/admin.json';
 

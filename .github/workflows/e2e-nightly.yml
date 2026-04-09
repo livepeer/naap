@@ -59,6 +59,8 @@ jobs:
         run: npx playwright install --with-deps chromium
         working-directory: apps/web-next
 
+      # Teams tests in teams.spec auto-skip when GET /api/v1/features has enableTeams: false.
+      # Set env E2E_SKIP_TEAMS=1 on this step to force skipping them regardless of flags.
       - name: Run GA pre-release suite
         run: npx playwright test --grep @pre-release --grep-invert @appendix-preview --project=chromium
         working-directory: apps/web-next
