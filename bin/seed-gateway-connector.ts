@@ -83,17 +83,17 @@ async function main() {
   const prisma = new PrismaClient();
 
   try {
-    // Find an existing admin user, or use the system owner ID
+    // Find any existing user for ownership, or fall back to system owner ID
     let ownerUserId = SYSTEM_OWNER_ID;
     const existingUser = await prisma.user.findFirst({
-      where: { role: 'admin' },
+      orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
     if (existingUser) {
       ownerUserId = existingUser.id;
-      console.log(`[seed-gw] Using existing admin user: ${ownerUserId}`);
+      console.log(`[seed-gw] Using existing user: ${ownerUserId}`);
     } else {
-      console.log(`[seed-gw] No admin user found — using system owner ID`);
+      console.log(`[seed-gw] No users found — using system owner ID`);
     }
 
     // Upsert ServiceConnector
