@@ -128,3 +128,126 @@ export async function fetchCapabilities(): Promise<string[]> {
 
   return json.data.capabilities;
 }
+
+// ---------------------------------------------------------------------------
+// Discovery Plans
+// ---------------------------------------------------------------------------
+
+export type PlanSortBy = 'slaScore' | 'latency' | 'price' | 'swapRate' | 'avail';
+
+export interface DiscoveryPlan {
+  id: string;
+  billingPlanId: string;
+  name: string;
+  teamId: string | null;
+  ownerUserId: string | null;
+  capabilities: string[];
+  topN: number;
+  slaWeights: SLAWeights | null;
+  slaMinScore: number | null;
+  sortBy: PlanSortBy | null;
+  filters: LeaderboardFilters | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlanResults {
+  planId: string;
+  refreshedAt: string;
+  capabilities: Record<string, OrchestratorRow[]>;
+  meta: {
+    totalOrchestrators: number;
+    refreshIntervalMs: number;
+    cacheAgeMs: number;
+  };
+}
+
+export interface PlanUpdatePayload {
+  name?: string;
+  capabilities?: string[];
+  topN?: number;
+  slaWeights?: SLAWeights | null;
+  slaMinScore?: number | null;
+  sortBy?: PlanSortBy | null;
+  filters?: LeaderboardFilters | null;
+  enabled?: boolean;
+}
+
+export async function fetchPlans(): Promise<DiscoveryPlan[]> {
+  const res = await fetch(`${BASE_URL}/plans`, {
+    headers: buildHeaders(false),
+    credentials: 'include',
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<{ plans: DiscoveryPlan[] }> = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+
+  return json.data.plans;
+}
+
+export async function fetchPlanResults(planId: string): Promise<PlanResults> {
+  const res = await fetch(`${BASE_URL}/plans/${planId}/results`, {
+    headers: buildHeaders(false),
+    credentials: 'include',
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<PlanResults> = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+
+  return json.data;
+}
+
+export async function updatePlan(
+  planId: string,
+  updates: PlanUpdatePayload,
+): Promise<DiscoveryPlan> {
+  const res = await fetch(`${BASE_URL}/plans/${planId}`, {
+    method: 'PUT',
+    headers: buildHeaders(true),
+    body: JSON.stringify(updates),
+    credentials: 'include',
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<{ plan: DiscoveryPlan }> = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+
+  return json.data.plan;
+}
+
+export async function seedDemoPlans(): Promise<{ created: number }> {
+  const res = await fetch(`${BASE_URL}/plans/seed`, {
+    method: 'POST',
+    headers: buildHeaders(true),
+    credentials: 'include',
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<{ created: number }> = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+
+  return json.data;
+}
