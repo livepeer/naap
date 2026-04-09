@@ -2,8 +2,10 @@
  * Orchestrator Leaderboard — Shared Types
  *
  * Types for the leaderboard API request/response, ClickHouse row mapping,
- * SLA weight configuration, and the in-memory cache.
+ * SLA weight configuration, discovery plans, and the in-memory cache.
  */
+
+import { z } from 'zod';
 
 // ---------------------------------------------------------------------------
 // API Request
@@ -80,4 +82,84 @@ export interface CacheEntry<T> {
   data: T;
   cachedAt: number;
   expiresAt: number;
+}
+
+// ---------------------------------------------------------------------------
+// Discovery Plans — Zod schemas
+// ---------------------------------------------------------------------------
+
+const CAPABILITY_RE = /^[a-zA-Z0-9_-]+$/;
+
+export const FiltersSchema = z.object({
+  gpuRamGbMin: z.number().min(0).optional(),
+  gpuRamGbMax: z.number().min(0).optional(),
+  priceMax: z.number().min(0).optional(),
+  maxAvgLatencyMs: z.number().min(0).optional(),
+  maxSwapRatio: z.number().min(0).max(1).optional(),
+}).strict().optional();
+
+export const SLAWeightsSchema = z.object({
+  latency: z.number().min(0).max(1).optional(),
+  swapRate: z.number().min(0).max(1).optional(),
+  price: z.number().min(0).max(1).optional(),
+}).strict().optional();
+
+export const PLAN_SORT_OPTIONS = [
+  'slaScore', 'latency', 'price', 'swapRate', 'avail',
+] as const;
+
+export type PlanSortBy = (typeof PLAN_SORT_OPTIONS)[number];
+
+export const CreatePlanSchema = z.object({
+  billingPlanId: z.string().min(1).max(255),
+  name: z.string().min(1).max(255),
+  capabilities: z.array(z.string().regex(CAPABILITY_RE).max(128)).min(1).max(50),
+  topN: z.number().int().min(1).max(1000).default(10),
+  slaWeights: SLAWeightsSchema,
+  slaMinScore: z.number().min(0).max(1).optional(),
+  sortBy: z.enum(PLAN_SORT_OPTIONS).optional(),
+  filters: FiltersSchema,
+});
+
+export type CreatePlanInput = z.infer<typeof CreatePlanSchema>;
+
+export const UpdatePlanSchema = CreatePlanSchema.partial().omit({ billingPlanId: true });
+
+export type UpdatePlanInput = z.infer<typeof UpdatePlanSchema>;
+
+// ---------------------------------------------------------------------------
+// Discovery Plan — runtime types
+// ---------------------------------------------------------------------------
+
+export interface DiscoveryPlan {
+  id: string;
+  billingPlanId: string;
+  name: string;
+  teamId: string | null;
+  ownerUserId: string | null;
+  capabilities: string[];
+  topN: number;
+  slaWeights: SLAWeights | null;
+  slaMinScore: number | null;
+  sortBy: PlanSortBy | null;
+  filters: LeaderboardFilters | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlanCapabilityResult {
+  capability: string;
+  orchestrators: OrchestratorRow[];
+}
+
+export interface PlanResults {
+  planId: string;
+  refreshedAt: string;
+  capabilities: Record<string, OrchestratorRow[]>;
+  meta: {
+    totalOrchestrators: number;
+    refreshIntervalMs: number;
+    cacheAgeMs: number;
+  };
 }
