@@ -1446,6 +1446,38 @@ function stripOrchestratorServiceUri(uri: string): string {
   return uri.replace(/^https?:\/\//, '');
 }
 
+/** Livepeer Explorer orchestrating view for an on-chain orchestrator address. */
+const LIVEPEER_ORCHESTRATOR_EXPLORER_BASE = 'https://explorer.livepeer.org/accounts';
+
+function livepeerOrchestratingExplorerHref(address: string): string | null {
+  const a = address.trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(a)) return null;
+  return `${LIVEPEER_ORCHESTRATOR_EXPLORER_BASE}/${a.toLowerCase()}/orchestrating`;
+}
+
+/** One row per orchestrator address; union service URIs if the same address appears more than once. */
+function mergeOrchestratorRowsByAddress(rows: DashboardOrchestrator[]): DashboardOrchestrator[] {
+  const map = new Map<string, DashboardOrchestrator>();
+  for (const row of rows) {
+    const key = row.address.trim().toLowerCase();
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, { ...row, uris: [...row.uris] });
+      continue;
+    }
+    const seen = new Set(existing.uris);
+    const mergedUris = [...existing.uris];
+    for (const u of row.uris) {
+      if (u.trim() && !seen.has(u)) {
+        seen.add(u);
+        mergedUris.push(u);
+      }
+    }
+    map.set(key, { ...existing, uris: mergedUris });
+  }
+  return [...map.values()];
+}
+
 function formatOrchestratorLastSeenForTooltip(iso: string | null | undefined): string {
   if (!iso?.trim()) return 'Last seen: —';
   const t = Date.parse(iso);
@@ -1518,8 +1550,10 @@ function OrchestratorTableCard({
     return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />;
   };
 
+  const mergedByAddress = useMemo(() => mergeOrchestratorRowsByAddress([...data]), [data]);
+
   const sorted = useMemo(() => {
-    let rows = [...data];
+    let rows = [...mergedByAddress];
     if (filter) {
       const q = filter.toLowerCase();
       rows = rows.filter((r) => {
@@ -1539,7 +1573,7 @@ function OrchestratorTableCard({
       return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
     });
     return rows;
-  }, [data, sortCol, sortDir, filter, catalog]);
+  }, [mergedByAddress, sortCol, sortDir, filter, catalog]);
 
   const ariaSortValue = (col: OrchestratorSortCol): 'ascending' | 'descending' | 'none' =>
     sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
@@ -1566,7 +1600,7 @@ function OrchestratorTableCard({
         <div className="flex min-w-0 items-center gap-2">
           <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0"><Server className="w-3.5 h-3.5" /></div>
           <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider leading-snug sm:text-[11px]">
-            Orchestrators ({sorted.length}{filter ? ` of ${data.length}` : ''}) · {totalGPUsInList} GPUs
+            Orchestrators ({sorted.length}{filter ? ` of ${mergedByAddress.length}` : ''}) · {totalGPUsInList} GPUs
           </span>
         </div>
         <input
@@ -1592,23 +1626,42 @@ function OrchestratorTableCard({
             </tr>
           </thead>
           <tbody>
-            {sorted.map(row => (
+            {sorted.map((row) => {
+              const explorerHref = livepeerOrchestratingExplorerHref(row.address);
+              return (
               <tr key={row.address} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors group">
-                <td className="py-1.5 min-w-0 align-top" title={row.uris.length ? row.uris.join('\n') : row.address}>
+                <td
+                  className="py-1.5 min-w-0 align-top"
+                  title={row.uris.length ? row.uris.map(stripOrchestratorServiceUri).join('\n') : undefined}
+                >
                   <div className="flex min-w-0 w-full flex-col gap-1">
                     {row.uris.length > 0 ? (
-                      <>
-                        {row.uris.map((uri, i) => (
+                      row.uris.map((uri, i) => {
+                        const label = formatURI(uri);
+                        return (
                           <div
                             key={`${row.address}:uri:${i}`}
                             className="flex w-full min-w-0 items-center justify-start gap-1"
                           >
-                            <span
-                              className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground"
-                              title={stripOrchestratorServiceUri(uri)}
-                            >
-                              {formatURI(uri)}
-                            </span>
+                            {explorerHref ? (
+                              <a
+                                href={explorerHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground underline-offset-2 hover:text-primary hover:underline"
+                                title={`${stripOrchestratorServiceUri(uri)} — Livepeer Explorer (orchestrating)`}
+                                aria-label={`${label}: view orchestrator on Livepeer Explorer (opens in new tab)`}
+                              >
+                                {label}
+                              </a>
+                            ) : (
+                              <span
+                                className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground"
+                                title={stripOrchestratorServiceUri(uri)}
+                              >
+                                {label}
+                              </span>
+                            )}
                             <PipelineTableCopyButton
                               inline
                               copied={copiedId === `orch:${row.address}:uri:${i}`}
@@ -1617,26 +1670,23 @@ function OrchestratorTableCard({
                               ariaLabel={`Copy service URI ${uri}`}
                             />
                           </div>
-                        ))}
-                        <div className="flex w-full min-w-0 items-center justify-start gap-1">
-                          <span
-                            className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-muted-foreground"
-                            title={row.address}
-                          >
-                            {row.address}
-                          </span>
-                          <PipelineTableCopyButton
-                            inline
-                            copied={copiedId === `orch:${row.address}`}
-                            onCopy={() => copyToClipboard(`orch:${row.address}`, row.address)}
-                            title="Copy orchestrator address"
-                            ariaLabel={`Copy address ${row.address}`}
-                          />
-                        </div>
-                      </>
+                        );
+                      })
                     ) : (
-                      <div className="flex min-w-0 items-center gap-1">
-                        <span className="font-mono text-muted-foreground">—</span>
+                      <div className="flex min-w-0 flex-wrap items-center gap-1">
+                        {explorerHref ? (
+                          <a
+                            href={explorerHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                            aria-label="View orchestrator on Livepeer Explorer (opens in new tab)"
+                          >
+                            Livepeer Explorer
+                          </a>
+                        ) : (
+                          <span className="font-mono text-muted-foreground">—</span>
+                        )}
                         {row.address ? (
                           <PipelineTableCopyButton
                             inline
@@ -1692,7 +1742,8 @@ function OrchestratorTableCard({
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {sorted.length === 0 && (
               <tr><td colSpan={7} className="py-4 text-center text-muted-foreground">{filter ? 'No orchestrators match the filter' : 'No orchestrator data'}</td></tr>
             )}
