@@ -29,24 +29,24 @@ export const EndpointGuide: React.FC<EndpointGuideProps> = ({ planId, compact = 
   };
 
   return (
-    <div className={compact ? '' : 'panel p-4'} onClick={(e) => e.stopPropagation()}>
+    <div className={compact ? '' : 'glass-card p-4'} onClick={(e) => e.stopPropagation()}>
       {/* Endpoint URL */}
       <div className="flex items-center gap-2 mb-2">
-        <Link size={12} className="text-gray-500 shrink-0" />
-        <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+        <Link size={12} className="text-text-muted shrink-0" />
+        <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
           API Endpoint
         </span>
       </div>
-      <div className="flex items-center gap-2 bg-gray-900/60 border border-gray-700/40 rounded-lg px-3 py-2">
-        <code className="text-[11px] text-emerald-400 font-mono truncate flex-1">
+      <div className="flex items-center gap-2 bg-bg-primary border border-[var(--border-color)] rounded-lg px-3 py-2">
+        <code className="text-[11px] text-accent-emerald font-mono truncate flex-1">
           GET {compact ? `/plans/${planId.slice(0, 8)}../results` : endpoint}
         </code>
         <button
           onClick={() => copyToClipboard(endpoint)}
-          className="shrink-0 p-1 rounded hover:bg-gray-700/50 transition-colors"
+          className="shrink-0 p-1 rounded hover:bg-bg-tertiary transition-colors"
           title="Copy endpoint URL"
         >
-          {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} className="text-gray-400" />}
+          {copied ? <Check size={13} className="text-accent-emerald" /> : <Copy size={13} className="text-text-muted" />}
         </button>
       </div>
 
@@ -54,7 +54,7 @@ export const EndpointGuide: React.FC<EndpointGuideProps> = ({ planId, compact = 
       {compact && (
         <button
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1 text-[10px] text-gray-500 hover:text-gray-300 mt-2 transition-colors"
+          className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text-primary mt-2 transition-colors"
         >
           <Terminal size={10} />
           Webhook Setup
@@ -65,24 +65,24 @@ export const EndpointGuide: React.FC<EndpointGuideProps> = ({ planId, compact = 
       {/* Expanded guide */}
       {expanded && (
         <div className={compact ? 'mt-2' : 'mt-4'}>
-          <div className="space-y-2 text-[11px] text-gray-400">
+          <div className="space-y-2 text-[11px] text-text-secondary">
             <div className="flex gap-2">
-              <span className="shrink-0 w-4 h-4 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold flex items-center justify-center">1</span>
+              <span className="shrink-0 w-4 h-4 rounded-full bg-accent-blue/20 text-accent-blue text-[10px] font-bold flex items-center justify-center">1</span>
               <span>Copy the endpoint URL above</span>
             </div>
             <div className="flex gap-2">
-              <span className="shrink-0 w-4 h-4 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold flex items-center justify-center">2</span>
+              <span className="shrink-0 w-4 h-4 rounded-full bg-accent-blue/20 text-accent-blue text-[10px] font-bold flex items-center justify-center">2</span>
               <span>
                 Set your signer&apos;s{' '}
-                <code className="px-1 py-0.5 bg-gray-800 rounded text-gray-300 text-[10px]">ORCHESTRATOR_DISCOVERY_URL</code>
+                <code className="px-1 py-0.5 bg-bg-secondary rounded text-text-primary text-[10px]">ORCHESTRATOR_DISCOVERY_URL</code>
                 {' '}to this endpoint
               </span>
             </div>
             <div className="flex gap-2">
-              <span className="shrink-0 w-4 h-4 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold flex items-center justify-center">3</span>
+              <span className="shrink-0 w-4 h-4 rounded-full bg-accent-blue/20 text-accent-blue text-[10px] font-bold flex items-center justify-center">3</span>
               <span>
                 Add{' '}
-                <code className="px-1 py-0.5 bg-gray-800 rounded text-gray-300 text-[10px]">Authorization: Bearer &lt;api-key&gt;</code>
+                <code className="px-1 py-0.5 bg-bg-secondary rounded text-text-primary text-[10px]">Authorization: Bearer &lt;api-key&gt;</code>
                 {' '}header
               </span>
             </div>
@@ -91,16 +91,16 @@ export const EndpointGuide: React.FC<EndpointGuideProps> = ({ planId, compact = 
           {/* Curl example */}
           <div className="mt-3">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] text-gray-500 font-medium">Example</span>
+              <span className="text-[10px] text-text-muted font-medium">Example</span>
               <button
                 onClick={() => copyToClipboard(curlExample)}
-                className="text-[10px] text-gray-500 hover:text-gray-300 flex items-center gap-1 transition-colors"
+                className="text-[10px] text-text-muted hover:text-text-primary flex items-center gap-1 transition-colors"
               >
                 <Copy size={10} />
                 Copy
               </button>
             </div>
-            <pre className="bg-gray-900/60 border border-gray-700/40 rounded-lg p-3 text-[10px] text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap break-all">
+            <pre className="bg-bg-primary border border-[var(--border-color)] rounded-lg p-3 text-[10px] text-text-secondary font-mono overflow-x-auto whitespace-pre-wrap break-all">
               {curlExample}
             </pre>
           </div>
