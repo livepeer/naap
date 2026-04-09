@@ -43,13 +43,14 @@ async function evaluate(
   plan: DiscoveryPlan,
   authToken: string,
   requestUrl?: string,
+  cookieHeader?: string | null,
 ): Promise<PlanResults> {
   const capabilities: Record<string, OrchestratorRow[]> = {};
   let totalOrchestrators = 0;
 
   for (const capability of plan.capabilities) {
     try {
-      const { rows } = await fetchLeaderboard(capability, authToken, requestUrl);
+      const { rows } = await fetchLeaderboard(capability, authToken, requestUrl, cookieHeader);
       const evaluated = evaluatePlan(rows, plan);
       capabilities[capability] = evaluated;
       totalOrchestrators += evaluated.length;
@@ -79,6 +80,7 @@ export async function evaluateAndCache(
   plan: DiscoveryPlan,
   authToken: string,
   requestUrl?: string,
+  cookieHeader?: string | null,
 ): Promise<PlanResults> {
   const entry = planCache.get(plan.id);
 
@@ -90,22 +92,23 @@ export async function evaluateAndCache(
   }
 
   if (entry && isValid(entry)) {
-    void refreshSingle(plan, authToken, requestUrl);
+    void refreshSingle(plan, authToken, requestUrl, cookieHeader);
     return {
       ...entry.results,
       meta: { ...entry.results.meta, cacheAgeMs: Date.now() - entry.cachedAt },
     };
   }
 
-  return refreshSingle(plan, authToken, requestUrl);
+  return refreshSingle(plan, authToken, requestUrl, cookieHeader);
 }
 
 async function refreshSingle(
   plan: DiscoveryPlan,
   authToken: string,
   requestUrl?: string,
+  cookieHeader?: string | null,
 ): Promise<PlanResults> {
-  const results = await evaluate(plan, authToken, requestUrl);
+  const results = await evaluate(plan, authToken, requestUrl, cookieHeader);
   const now = Date.now();
   planCache.set(plan.id, {
     results,
@@ -121,6 +124,7 @@ async function refreshSingle(
 export async function refreshAllPlans(
   authToken: string,
   requestUrl?: string,
+  cookieHeader?: string | null,
 ): Promise<{ refreshed: number; failed: number }> {
   const plans = await listEnabledPlans();
   let refreshed = 0;
@@ -128,7 +132,7 @@ export async function refreshAllPlans(
 
   for (const plan of plans) {
     try {
-      await refreshSingle(plan, authToken, requestUrl);
+      await refreshSingle(plan, authToken, requestUrl, cookieHeader);
       refreshed++;
     } catch (err) {
       failed++;

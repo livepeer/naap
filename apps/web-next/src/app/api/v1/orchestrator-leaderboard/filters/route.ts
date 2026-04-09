@@ -40,15 +40,27 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
   const authToken = getAuthToken(request) || '';
   const url = resolveClickhouseGatewayQueryUrl(request.url);
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'text/plain',
+    'Authorization': `Bearer ${authToken}`,
+  };
+
+  const incomingCookie = request.headers.get('cookie');
+  if (incomingCookie) {
+    headers['cookie'] = incomingCookie;
+  }
+
+  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  if (bypassSecret) {
+    headers['x-vercel-protection-bypass'] = bypassSecret;
+  }
+
   let capabilities: string[];
   let fromFallback = false;
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain',
-        'Authorization': `Bearer ${authToken}`,
-      },
+      headers,
       body: FILTERS_SQL,
       signal: AbortSignal.timeout(10_000),
     });
