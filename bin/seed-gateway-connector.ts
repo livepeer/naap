@@ -70,8 +70,8 @@ async function main() {
   const conn = template.connector;
   const slug = conn.slug as string;
 
-  const chUser = process.env.CLICKHOUSE_QUERY_USERNAME;
-  const chPass = process.env.CLICKHOUSE_QUERY_PASSWORD;
+  const chUser = (process.env.CLICKHOUSE_QUERY_USERNAME || '').trim();
+  const chPass = (process.env.CLICKHOUSE_QUERY_PASSWORD || '').trim();
 
   if (!chUser || !chPass) {
     console.log('[seed-gw] CLICKHOUSE_QUERY_USERNAME / CLICKHOUSE_QUERY_PASSWORD not set — skipping connector seed');
