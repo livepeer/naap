@@ -114,6 +114,7 @@ jobs:
         run: npx playwright install --with-deps chromium
         working-directory: apps/web-next
 
+      # Teams E2E skips when enableTeams is false (see apps/web-next/tests/teams.spec.ts).
       - name: Run E2E pre-release smoke
         run: npx playwright test --grep @pre-release --grep-invert @appendix-preview --project=chromium
         working-directory: apps/web-next
