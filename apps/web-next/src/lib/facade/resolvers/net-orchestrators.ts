@@ -54,6 +54,42 @@ function parseRawCapabilities(raw: string | undefined): DashboardPipelineModelOf
   }
 }
 
+function mergePipelineModelOffers(
+  existing: DashboardPipelineModelOffer[] | undefined,
+  incoming: DashboardPipelineModelOffer[],
+): DashboardPipelineModelOffer[] {
+  const byPipeline = new Map<string, Set<string>>();
+
+  for (const offer of existing ?? []) {
+    let models = byPipeline.get(offer.pipelineId);
+    if (!models) {
+      models = new Set();
+      byPipeline.set(offer.pipelineId, models);
+    }
+    for (const modelId of offer.modelIds) {
+      models.add(modelId);
+    }
+  }
+
+  for (const offer of incoming) {
+    let models = byPipeline.get(offer.pipelineId);
+    if (!models) {
+      models = new Set();
+      byPipeline.set(offer.pipelineId, models);
+    }
+    for (const modelId of offer.modelIds) {
+      models.add(modelId);
+    }
+  }
+
+  return [...byPipeline.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([pipelineId, modelSet]) => ({
+      pipelineId,
+      modelIds: [...modelSet].sort((a, b) => a.localeCompare(b)),
+    }));
+}
+
 function parseOrchestratorLastSeenMs(row: NaapNetOrchestrator): number | undefined {
   const raw = row.LastSeen ?? row.lastSeen ?? row.last_seen;
   if (raw == null) {
@@ -147,13 +183,16 @@ export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
     let hasLastSeenData = false;
 
     for (const r of rows) {
-      const addr = r.Address.toLowerCase();
+      const addr = r.Address.trim().toLowerCase();
       if (!displayAddressByLower.has(addr)) {
         displayAddressByLower.set(addr, r.Address.trim());
-        const offers = parseRawCapabilities(r.RawCapabilities);
-        if (offers.length > 0) {
-          pipelineModelsByAddress.set(addr, offers);
-        }
+      }
+      const offers = parseRawCapabilities(r.RawCapabilities);
+      if (offers.length > 0) {
+        pipelineModelsByAddress.set(
+          addr,
+          mergePipelineModelOffers(pipelineModelsByAddress.get(addr), offers),
+        );
       }
       let uris = urisByAddress.get(addr);
       if (!uris) {

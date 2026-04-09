@@ -157,7 +157,6 @@ export default function DashboardPage() {
       })
       .catch(() => {
         if (!cancelled) {
-          setOrchestrators([]);
           setOrchestratorsLoading(false);
         }
       });

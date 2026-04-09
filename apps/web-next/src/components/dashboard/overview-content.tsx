@@ -1947,7 +1947,7 @@ export function OverviewContent(props: OverviewContentProps) {
       {/* Row 3: Orchestrators (full width) */}
       <section>
         {orchestrators.length > 0 ? (
-          <RefreshWrap refreshing={lbRefreshing} className="block min-h-0">
+          <RefreshWrap refreshing={orchestratorsLoading ?? false} className="block min-h-0">
             <OrchestratorTableCard data={orchestrators} catalog={pipelineCatalog} pricing={pricing} />
           </RefreshWrap>
         ) : uiOrchestratorsLoading ? (
