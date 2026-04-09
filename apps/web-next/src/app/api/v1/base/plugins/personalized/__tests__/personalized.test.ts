@@ -28,7 +28,8 @@ function applyFilters(
   globalPlugins: MockPlugin[],
   publishedPackages: MockPublishedPackage[],
   isAdmin: boolean,
-  previewViewerUserId: string | null = null
+  previewViewerUserId: string | null = null,
+  previewViewerEmail: string | null = null
 ): MockPlugin[] {
   const publishedNames = new Set(
     publishedPackages.map((p) => normalizePluginName(p.name))
@@ -48,11 +49,10 @@ function applyFilters(
     if (isAdmin) return true;
     if (!hiddenNames.has(normalized)) return true;
     const pkg = pkgByNorm.get(normalized);
-    if (
-      previewViewerUserId &&
-      pkg?.previewTesterUserIds?.includes(previewViewerUserId)
-    ) {
-      return true;
+    const testers = pkg?.previewTesterUserIds;
+    if (testers && testers.length > 0) {
+      if (previewViewerUserId && testers.includes(previewViewerUserId)) return true;
+      if (previewViewerEmail && testers.includes(previewViewerEmail)) return true;
     }
     return false;
   });
@@ -228,6 +228,47 @@ describe('Personalized API: preview tester allowlist', () => {
     ];
 
     const result = applyFilters(globalPlugins, publishedPackages, false, 'any-user');
+    expect(result).toHaveLength(0);
+  });
+
+  it('shows hidden plugin when user email matches allowlist entry', () => {
+    const globalPlugins = [makePlugin('beta-feature')];
+    const publishedPackages = [
+      makePackage('beta-feature', {
+        visibleToUsers: false,
+        previewTesterUserIds: ['tester@example.com'],
+      }),
+    ];
+
+    const result = applyFilters(
+      globalPlugins,
+      publishedPackages,
+      false,
+      'uuid-that-doesnt-match',
+      'tester@example.com'
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('beta-feature');
+  });
+
+  it('hides hidden plugin when email does not match allowlist', () => {
+    const globalPlugins = [makePlugin('beta-feature')];
+    const publishedPackages = [
+      makePackage('beta-feature', {
+        visibleToUsers: false,
+        previewTesterUserIds: ['other@example.com'],
+      }),
+    ];
+
+    const result = applyFilters(
+      globalPlugins,
+      publishedPackages,
+      false,
+      'some-user-id',
+      'wrong@example.com'
+    );
+
     expect(result).toHaveLength(0);
   });
 });

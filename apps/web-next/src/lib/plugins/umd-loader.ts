@@ -289,9 +289,8 @@ function loadScript(url: string, timeout: number): Promise<void> {
 /**
  * Loads a stylesheet
  */
-function loadStylesheet(url: string): Promise<void> {
+function loadStylesheet(url: string, timeout: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    // Check if stylesheet is already loaded
     const existingLink = document.querySelector(`link[href="${url}"]`);
     if (existingLink) {
       resolve();
@@ -304,8 +303,20 @@ function loadStylesheet(url: string): Promise<void> {
     link.href = url;
     link.crossOrigin = 'anonymous';
 
-    link.onload = () => resolve();
-    link.onerror = () => reject(new Error(`Failed to load stylesheet: ${url}`));
+    const timeoutId = setTimeout(() => {
+      link.remove();
+      reject(new Error(`Stylesheet load timeout: ${url}`));
+    }, timeout);
+
+    link.onload = () => {
+      clearTimeout(timeoutId);
+      resolve();
+    };
+    link.onerror = () => {
+      clearTimeout(timeoutId);
+      link.remove();
+      reject(new Error(`Failed to load stylesheet: ${url}`));
+    };
 
     document.head.appendChild(link);
   });
@@ -443,11 +454,17 @@ export async function loadUMDPlugin(options: UMDLoadOptions): Promise<LoadedUMDP
     try {
       onProgress?.(0.1);
 
-      // Load styles first (non-blocking)
+      // Load styles before the script so the first React paint has Tailwind/layout CSS.
+      // Previously styles were fire-and-forget; the bundle mounted while the link was
+      // still loading, so grids/flex collapsed and cards overlapped until a full refresh
+      // (when CSS was cached). See capacity-planner and any Tailwind-based UMD plugin.
       if (stylesUrl) {
-        loadStylesheet(stylesUrl).catch(err => {
-          console.warn(`Failed to load plugin styles: ${err.message}`);
-        });
+        try {
+          await loadStylesheet(stylesUrl, timeout);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[UMD Loader] Plugin styles failed to load (continuing): ${msg}`);
+        }
       }
 
       onProgress?.(0.3);

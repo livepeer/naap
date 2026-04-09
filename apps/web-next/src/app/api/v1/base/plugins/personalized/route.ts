@@ -89,17 +89,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Non-admins see hidden plugins only if their user id is on previewTesterUserIds
     // for that package. Admins impersonating another user (userId query) use the
     // target user's id for preview visibility; everyone else uses the session user.
-    const applyVisibilityFilter = (adminFlag: boolean, previewViewerUserId: string | null) =>
+    const applyVisibilityFilter = (adminFlag: boolean, previewViewerUserId: string | null, previewViewerEmail: string | null) =>
       publishedGlobalPlugins.filter((p) => {
         if (adminFlag) return true;
         const norm = normalizePluginName(p.name);
         if (!hiddenNames.has(norm)) return true;
         const pkg = publishedPackageByNormalizedName.get(norm);
-        if (
-          previewViewerUserId &&
-          pkg?.previewTesterUserIds?.includes(previewViewerUserId)
-        ) {
-          return true;
+        const testers = pkg?.previewTesterUserIds;
+        if (testers && testers.length > 0) {
+          if (previewViewerUserId && testers.includes(previewViewerUserId)) return true;
+          if (previewViewerEmail && testers.includes(previewViewerEmail)) return true;
         }
         return false;
       });
@@ -113,7 +112,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
 
     if (!userIdOrAddress) {
-      const visibleGlobalPlugins = applyVisibilityFilter(isAdmin, null);
+      const visibleGlobalPlugins = applyVisibilityFilter(isAdmin, null, null);
       return success({ plugins: visibleGlobalPlugins });
     }
 
@@ -124,7 +123,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     if (!user) {
-      const visibleGlobalPlugins = applyVisibilityFilter(isAdmin, null);
+      const visibleGlobalPlugins = applyVisibilityFilter(isAdmin, null, null);
       return success({ plugins: visibleGlobalPlugins });
     }
 
@@ -141,7 +140,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Preview visibility: admins see packages as the target user would; others use session id only
     const previewVisibilityUserId = isAdmin ? user.id : authenticatedUserId;
-    const visibleGlobalPlugins = applyVisibilityFilter(isAdmin, previewVisibilityUserId);
+    const previewVisibilityEmail = user.email ?? null;
+    const visibleGlobalPlugins = applyVisibilityFilter(isAdmin, previewVisibilityUserId, previewVisibilityEmail);
 
     // If team context, get team-specific plugin preferences
     if (teamId) {
@@ -283,7 +283,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       if (
         pkg &&
         !pkg.visibleToUsers &&
-        pkg.previewTesterUserIds?.includes(user.id)
+        (pkg.previewTesterUserIds?.includes(user.id) ||
+          (user.email && pkg.previewTesterUserIds?.includes(user.email)))
       ) {
         previewPluginsToAutoInstall.push(plugin.name);
       }

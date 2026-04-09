@@ -14,7 +14,7 @@
  * - System roles (4)
  * - Plugin admin roles (5)
  * - Test users with roles (7+)
- * - Feature flags (4)
+ * - Feature flags (6)
  * - Workflow plugins (auto-discovered from plugins/{name}/plugin.json)
  * - Marketplace packages (6+)
  * - Plugin deployments
@@ -76,6 +76,11 @@ async function main() {
       key: 'enableExamplePublishing',
       enabled: false,
       description: 'Allow users to publish bundled example plugins to the marketplace (admin toggle)',
+    },
+    {
+      key: 'enableTeams',
+      enabled: true,
+      description: 'Enable teams collaboration feature (team creation, team switching, team pages)',
     },
   ];
 

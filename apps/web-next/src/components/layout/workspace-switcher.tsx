@@ -28,6 +28,7 @@ import {
 import { useAuth } from '@/contexts/auth-context';
 import { usePlugins } from '@/contexts/plugin-context';
 import { useEvents, useShell } from '@/contexts/shell-context';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 
 interface Team {
   id: string;
@@ -56,6 +57,8 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
   const { refreshPlugins } = usePlugins();
   const eventBus = useEvents();
   const { theme } = useShell();
+  const { flags } = useFeatureFlags();
+  const teamsEnabled = flags.enableTeams !== false;
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -100,6 +103,12 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
 
   useEffect(() => {
     if (!isAuthenticated) return;
+    if (!teamsEnabled) {
+      setCurrentTeam(null);
+      setTeams([]);
+      localStorage.removeItem('naap_current_team');
+      return;
+    }
     const ac = new AbortController();
     loadTeams(ac.signal);
     const savedTeamId = localStorage.getItem('naap_current_team');
@@ -107,12 +116,13 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
       loadCurrentTeam(savedTeamId, ac.signal);
     }
     return () => { ac.abort(); };
-  }, [isAuthenticated, loadTeams, loadCurrentTeam]);
+  }, [isAuthenticated, teamsEnabled, loadTeams, loadCurrentTeam]);
 
   useEffect(() => {
+    if (!teamsEnabled) return;
     const unsubscribe = eventBus.on('team:created', () => { loadTeams(); });
     return unsubscribe;
-  }, [eventBus, loadTeams]);
+  }, [teamsEnabled, eventBus, loadTeams]);
 
   // ── Click-outside dismiss ─────────────────────────────
 
@@ -237,8 +247,8 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
                 {!currentTeam && <Check size={14} className="text-primary shrink-0" />}
               </button>
 
-              {/* Teams */}
-              {teams.map(team => (
+              {/* Teams (only when feature is enabled) */}
+              {teamsEnabled && teams.map(team => (
                 <button
                   key={team.id}
                   onClick={() => handleSelectTeam(team)}
@@ -262,19 +272,21 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
                 </button>
               ))}
 
-              {loading && (
+              {teamsEnabled && loading && (
                 <div className="py-3 text-center">
                   <Loader2 size={14} className="animate-spin text-muted-foreground mx-auto" />
                 </div>
               )}
 
-              <button
-                onClick={() => { setMenuOpen(false); router.push('/teams'); }}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors"
-              >
-                <Plus size={14} className="shrink-0" />
-                <span className="text-[13px]">Create team</span>
-              </button>
+              {teamsEnabled && (
+                <button
+                  onClick={() => { setMenuOpen(false); router.push('/teams'); }}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors"
+                >
+                  <Plus size={14} className="shrink-0" />
+                  <span className="text-[13px]">Create team</span>
+                </button>
+              )}
             </div>
 
             {/* Account actions */}

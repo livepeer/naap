@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { useEvents } from '@/contexts/shell-context';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { Button, Input, Textarea, Label, Modal } from '@naap/ui';
 
 interface Team {
@@ -49,6 +50,8 @@ export default function TeamListPage() {
   const router = useRouter();
   const { } = useAuth();
   const eventBus = useEvents();
+  const { flags, loading: flagsLoading } = useFeatureFlags();
+  const teamsEnabled = flags.enableTeams !== false;
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,8 +61,12 @@ export default function TeamListPage() {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    loadTeams();
-  }, []);
+    if (!flagsLoading && teamsEnabled) {
+      loadTeams();
+    } else if (!flagsLoading) {
+      setLoading(false);
+    }
+  }, [flagsLoading, teamsEnabled]);
 
   async function loadTeams() {
     try {
@@ -117,10 +124,24 @@ export default function TeamListPage() {
     }
   }
 
-  if (loading) {
+  if (flagsLoading || loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!teamsEnabled) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="text-center py-16 bg-muted/50 rounded-lg">
+          <Users className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+          <h2 className="text-lg font-semibold mb-2">Teams feature is disabled</h2>
+          <p className="text-[13px] text-muted-foreground">
+            Teams have been disabled by your administrator. Contact your admin to enable this feature.
+          </p>
+        </div>
       </div>
     );
   }
