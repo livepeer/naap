@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
+  XCircle,
   ThumbsUp,
   MessageSquare,
   Send,
@@ -27,9 +28,11 @@ interface RequestDetailModalProps {
   onCommit: (request: CapacityRequest, gpuCount: number) => void;
   onWithdraw: (request: CapacityRequest) => void;
   onAddComment: (requestId: string, comment: RequestComment) => void;
+  onCloseRequest?: (requestId: string) => void;
   hasCommitted: boolean;
   userCommitCount?: number;
   currentUserName: string;
+  currentUserId?: string;
 }
 
 export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
@@ -39,9 +42,11 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
   onCommit,
   onWithdraw,
   onAddComment,
+  onCloseRequest,
   hasCommitted,
   userCommitCount,
   currentUserName,
+  currentUserId,
 }) => {
   const [commentText, setCommentText] = useState('');
   const [showCommitDialog, setShowCommitDialog] = useState(false);
@@ -119,19 +124,39 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                 {request.requesterAccount}
               </p>
               <div className="flex items-center gap-2 mt-2">
-                <Badge variant={request.status === 'active' ? 'emerald' : 'secondary'}>
+                <Badge variant={
+                  request.status === 'active' ? 'emerald' :
+                  request.status === 'closed' ? 'secondary' :
+                  request.status === 'expired' ? 'secondary' :
+                  request.status === 'fulfilled' ? 'blue' :
+                  'secondary'
+                }>
                   {request.status}
                 </Badge>
                 <Badge variant="blue">{request.gpuModel} x {request.count}</Badge>
                 <RiskIndicator level={request.riskLevel} size="md" />
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="p-2 rounded-lg hover:bg-white/5 text-text-secondary hover:text-text-primary transition-colors flex-shrink-0"
-            >
-              <X size={20} />
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {onCloseRequest && request.status === 'active' && currentUserId && request.creatorId === currentUserId && (
+                <button
+                  onClick={() => {
+                    if (window.confirm('Close this request? It will be moved to the archive.')) {
+                      onCloseRequest(request.id);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-accent-rose hover:bg-accent-rose/10 rounded-lg transition-colors border border-accent-rose/20"
+                >
+                  <XCircle size={14} /> Close Request
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="p-2 rounded-lg hover:bg-white/5 text-text-secondary hover:text-text-primary transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
           </div>
 
           {/* Scrollable content */}

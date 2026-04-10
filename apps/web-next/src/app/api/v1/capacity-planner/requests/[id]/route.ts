@@ -69,6 +69,15 @@ export async function PATCH(request: NextRequest, { params }: RouteParams): Prom
       return errors.notFound('Capacity request');
     }
 
+    // Closing requires ownership or admin role
+    if (body.status === 'CLOSED') {
+      const isOwner = existing.creatorId && existing.creatorId === user.id;
+      const isAdmin = user.roles.includes('system:admin');
+      if (!isOwner && !isAdmin) {
+        return errors.forbidden('Only the request creator or an admin can close a request');
+      }
+    }
+
     const updated = await prisma.capacityRequest.update({
       where: { id },
       data: {

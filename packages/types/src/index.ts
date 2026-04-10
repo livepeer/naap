@@ -102,6 +102,8 @@ export interface Capability {
 
 export interface CapacityRequest {
   id: string;
+  /** User ID of the creator (set on creation from authenticated session) */
+  creatorId?: string;
   /** Who initiated - user description input (displayed as title) */
   requesterName: string;
   /** Account/wallet name (displayed below title) */
@@ -137,7 +139,7 @@ export interface CapacityRequest {
   /** ISO timestamp of creation */
   createdAt: string;
   /** Request status */
-  status: 'active' | 'expired' | 'fulfilled';
+  status: 'active' | 'expired' | 'fulfilled' | 'cancelled' | 'closed';
 
   // Legacy compat fields (optional)
   gatewayName?: string;
