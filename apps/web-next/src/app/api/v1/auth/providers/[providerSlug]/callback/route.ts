@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { encryptToken } from '@naap/database';
+import { resolveBillingOAuthAppUrl } from '@/lib/billing-oauth-origin';
 
 const DAYDREAM_API_BASE = process.env.DAYDREAM_API_BASE || 'https://api.daydream.live';
 
@@ -18,10 +19,7 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-async function exchangeTokenForApiKey(providerSlug: string, token: string): Promise<string> {
-  if (providerSlug !== 'daydream') {
-    throw new Error(`Unsupported billing provider for OAuth callback: ${providerSlug}`);
-  }
+async function exchangeDaydreamTokenForApiKey(token: string): Promise<string> {
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10_000);
@@ -58,6 +56,28 @@ async function exchangeTokenForApiKey(providerSlug: string, token: string): Prom
   return apiKey;
 }
 
+async function completePymthouseOAuth(
+  request: NextRequest,
+  providerSlug: string,
+  code: string,
+  session: { loginSessionId: string; pkceCodeVerifier: string | null }
+): Promise<string> {
+  if (!session.pkceCodeVerifier) {
+    throw new Error('Missing PKCE verifier for PymtHouse OAuth session');
+  }
+  const appUrl = resolveBillingOAuthAppUrl(request);
+  const redirectUri = `${appUrl}/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/callback`;
+  const { exchangePymthouseAuthorizationCode, exchangePymthouseAccessTokenForApiKey } = await import(
+    '@/lib/pymthouse-oidc'
+  );
+  const { access_token } = await exchangePymthouseAuthorizationCode({
+    code,
+    redirectUri,
+    codeVerifier: session.pkceCodeVerifier,
+  });
+  return exchangePymthouseAccessTokenForApiKey(access_token);
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ providerSlug: string }> }
@@ -65,6 +85,7 @@ export async function GET(
   const { providerSlug } = await params;
   const searchParams = request.nextUrl.searchParams;
   const token = searchParams.get('token');
+  const code = searchParams.get('code');
   const state = searchParams.get('state');
 
   const htmlResponse = (title: string, message: string, isError = false) => {
@@ -88,10 +109,21 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
     );
   };
 
-  if (!token || !state) {
+  const needsDaydream = providerSlug === 'daydream';
+  const needsPymthouse = providerSlug === 'pymthouse';
+  if (!state || (needsDaydream && !token) || (needsPymthouse && !code)) {
     return htmlResponse(
       'Authentication Failed',
-      'Missing token or state parameter from billing provider.',
+      needsPymthouse
+        ? 'Missing code or state from PymtHouse (OIDC callback).'
+        : 'Missing token or state parameter from billing provider.',
+      true
+    );
+  }
+  if (!needsDaydream && !needsPymthouse) {
+    return htmlResponse(
+      'Authentication Failed',
+      `Unsupported billing provider: ${providerSlug}`,
       true
     );
   }
@@ -130,7 +162,9 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
   }
 
   try {
-    const apiKey = await exchangeTokenForApiKey(providerSlug, token);
+    const apiKey = needsPymthouse
+      ? await completePymthouseOAuth(request, providerSlug, code!, session)
+      : await exchangeDaydreamTokenForApiKey(token!);
 
     await prisma.billingProviderOAuthSession.update({
       where: { loginSessionId: session.loginSessionId },
