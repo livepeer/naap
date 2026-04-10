@@ -77,6 +77,8 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
     }
   };
 
+  const isActionable = request.status === 'active';
+
   const totalCommittedGpus = request.softCommits.reduce(
     (sum, sc) => sum + (sc.gpuCount ?? 1),
     0
@@ -196,9 +198,12 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                 <div className="relative">
                   <button
                     ref={commitBtnRef}
-                    onClick={() => setShowCommitDialog(true)}
+                    onClick={() => isActionable && setShowCommitDialog(true)}
+                    disabled={!isActionable}
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-                      hasCommitted
+                      !isActionable
+                        ? 'opacity-40 cursor-not-allowed bg-bg-tertiary text-text-secondary border border-[var(--border-color)]'
+                        : hasCommitted
                         ? 'bg-accent-emerald/20 text-accent-emerald border border-accent-emerald/30'
                         : 'bg-accent-emerald text-white shadow-lg shadow-accent-emerald/20 hover:bg-accent-emerald/90'
                     }`}
@@ -315,14 +320,15 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Ask a question or leave a comment..."
+                    disabled={!isActionable}
+                    placeholder={isActionable ? "Ask a question or leave a comment..." : "This request is no longer active"}
                     rows={2}
-                    className="w-full bg-bg-tertiary border border-[var(--border-color)] rounded-xl px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors resize-none placeholder:text-text-secondary/50"
+                    className="w-full bg-bg-tertiary border border-[var(--border-color)] rounded-xl px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors resize-none placeholder:text-text-secondary/50 disabled:opacity-40 disabled:cursor-not-allowed"
                   />
                 </div>
                 <button
                   onClick={handleSubmitComment}
-                  disabled={!commentText.trim()}
+                  disabled={!isActionable || !commentText.trim()}
                   className="self-end px-4 py-2.5 bg-accent-blue text-white rounded-xl font-medium text-sm hover:bg-accent-blue/90 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                 >
                   <Send size={16} />

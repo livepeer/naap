@@ -43,10 +43,15 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       return errors.forbidden('Admin permission required');
     }
 
-    const body = await request.json();
-    const action = body.action as ModerateAction;
+    let body: { action?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return errors.badRequest('Invalid JSON in request body');
+    }
+    const action = body.action;
 
-    if (!action || !VALID_ACTIONS.includes(action)) {
+    if (typeof action !== 'string' || !VALID_ACTIONS.includes(action as ModerateAction)) {
       return errors.badRequest(`action must be one of: ${VALID_ACTIONS.join(', ')}`);
     }
 

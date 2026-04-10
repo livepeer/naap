@@ -114,20 +114,16 @@ test.describe('Community Moderation Admin UI', () => {
       timeout: 45_000,
     });
 
-    // If there are any posts, check that the admin menu (MoreVertical) is visible
+    // Verify posts exist — skip explicitly if none available
     const postCards = page.locator('[class*="cursor-pointer"]').filter({ has: page.locator('h3') });
     const postCount = await postCards.count();
-    if (postCount > 0) {
-      // Hover over the first post to reveal actions area
-      await postCards.first().hover();
-      // The three-dot menu button should be in the post card
-      const moreButton = postCards.first().locator('button[title="Moderate"]');
-      if (await moreButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await moreButton.click();
-        // Should show Delete, Close, Archive, Ban User options
-        await expect(page.getByText('Delete', { exact: false })).toBeVisible({ timeout: 3000 });
-      }
-    }
+    test.skip(postCount === 0, 'No posts available to validate admin moderation controls');
+
+    await postCards.first().hover();
+    const moreButton = postCards.first().locator('button[title="Moderate"]');
+    await expect(moreButton).toBeVisible({ timeout: 3000 });
+    await moreButton.click();
+    await expect(page.getByText('Delete', { exact: false })).toBeVisible({ timeout: 3000 });
   });
 
   test('admin sees moderation controls on post detail page', async ({ page }) => {
@@ -142,21 +138,17 @@ test.describe('Community Moderation Admin UI', () => {
       timeout: 45_000,
     });
 
-    // Click on the first post to go to detail
+    // Verify posts exist — skip explicitly if none available
     const postCards = page.locator('[class*="cursor-pointer"]').filter({ has: page.locator('h3') });
     const postCount = await postCards.count();
-    if (postCount > 0) {
-      await postCards.first().click();
-      // Wait for detail page to load
-      await expect(page.getByText('Back to Forum')).toBeVisible({ timeout: 15_000 });
+    test.skip(postCount === 0, 'No posts available to validate admin post detail controls');
 
-      // Admin badge should be visible
-      const adminBadge = page.getByText('Admin', { exact: true });
-      if (await adminBadge.isVisible({ timeout: 3000 }).catch(() => false)) {
-        // Admin action buttons should be present
-        await expect(page.getByRole('button', { name: /Delete/i })).toBeVisible();
-      }
-    }
+    await postCards.first().click();
+    await expect(page.getByText('Back to Forum')).toBeVisible({ timeout: 15_000 });
+
+    const adminBadge = page.getByText('Admin', { exact: true });
+    await expect(adminBadge).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole('button', { name: /Delete/i })).toBeVisible();
   });
 });
 

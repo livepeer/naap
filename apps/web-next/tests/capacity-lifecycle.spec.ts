@@ -262,36 +262,87 @@ test.describe('Capacity Planner Lifecycle Authenticated API', () => {
   });
 
   test('non-creator cannot close another user\'s request', async ({ request }) => {
+    // This test needs two separate user identities
     const email = process.env.E2E_USER_EMAIL?.trim();
     const password = process.env.E2E_USER_PASSWORD;
-    if (!email || !password) {
-      test.skip(true, 'Set E2E_USER_EMAIL / E2E_USER_PASSWORD');
+    const adminEmail = process.env.ADMIN_EMAIL?.trim();
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!email || !password || !adminEmail || !adminPassword) {
+      test.skip(true, 'Set E2E_USER_EMAIL/E2E_USER_PASSWORD and ADMIN_EMAIL/ADMIN_PASSWORD');
       return;
     }
 
-    // Login
-    const loginRes = await request.post(`${base()}/api/v1/auth/login`, {
+    // Login as admin (user A — will create the request)
+    const loginARes = await request.post(`${base()}/api/v1/auth/login`, {
+      data: { email: adminEmail, password: adminPassword },
+    });
+    if (!loginARes.ok()) {
+      test.skip(true, 'Admin login failed');
+      return;
+    }
+    const tokenA = (await loginARes.json()).data?.token;
+    if (!tokenA) {
+      test.skip(true, 'No admin token');
+      return;
+    }
+
+    // Create a request as admin
+    const futureDate = new Date();
+    futureDate.setMonth(futureDate.getMonth() + 1);
+    const validUntilDate = new Date();
+    validUntilDate.setDate(validUntilDate.getDate() + 14);
+    const createRes = await request.post(`${base()}/api/v1/capacity-planner/requests`, {
+      headers: { 'Authorization': `Bearer ${tokenA}`, 'Content-Type': 'application/json' },
+      data: {
+        requesterName: 'E2E Ownership Test',
+        requesterAccount: '0xOWNERSHIP',
+        gpuModel: 'RTX 4090',
+        vram: 24,
+        count: 1,
+        pipeline: 'text-to-image',
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: futureDate.toISOString().split('T')[0],
+        validUntil: validUntilDate.toISOString().split('T')[0],
+        hourlyRate: 1.0,
+        reason: 'E2E ownership test',
+        riskLevel: 1,
+      },
+    });
+    if (!createRes.ok()) {
+      test.skip(true, `Create request failed: ${createRes.status()}`);
+      return;
+    }
+    const createdId = (await createRes.json()).data?.id;
+    expect(createdId).toBeTruthy();
+
+    // Login as regular user (user B)
+    const loginBRes = await request.post(`${base()}/api/v1/auth/login`, {
       data: { email, password },
     });
-    if (!loginRes.ok()) {
-      test.skip(true, 'Login failed');
+    if (!loginBRes.ok()) {
+      test.skip(true, 'Regular user login failed');
       return;
     }
-    const token = (await loginRes.json()).data?.token;
-    if (!token) {
-      test.skip(true, 'No token');
+    const tokenB = (await loginBRes.json()).data?.token;
+    if (!tokenB) {
+      test.skip(true, 'No regular user token');
       return;
     }
 
-    // Try to close a non-existent request (should get 404, not 500)
+    // User B tries to close user A's request — should be 403
     const closeRes = await request.patch(
-      `${base()}/api/v1/capacity-planner/requests/00000000-0000-0000-0000-000000000000`,
+      `${base()}/api/v1/capacity-planner/requests/${createdId}`,
       {
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Authorization': `Bearer ${tokenB}`, 'Content-Type': 'application/json' },
         data: { status: 'CLOSED' },
       }
     );
-    expect(closeRes.status()).toBe(404);
+    expect(closeRes.status()).toBe(403);
+
+    // Cleanup: delete the test request as admin
+    await request.delete(`${base()}/api/v1/capacity-planner/requests/${createdId}`, {
+      headers: { 'Authorization': `Bearer ${tokenA}`, 'Content-Type': 'application/json' },
+    });
   });
 });
 
@@ -339,13 +390,17 @@ test.describe('Capacity Planner Lifecycle UI @pre-release', () => {
     const archivedBtn = page.getByRole('button', { name: /Archived/i });
     await archivedBtn.click();
 
-    // Wait for reload — either the count changes or we get "No archived requests"
-    await page.waitForTimeout(2000);
-    const countTextAfter = await page.locator('text=/Showing \\d+ of \\d+/').textContent({ timeout: 5_000 }).catch(() => '');
-    const noArchived = await page.getByText(/No archived requests/i).isVisible().catch(() => false);
-
-    // Either the count text changed or the empty state is shown
-    expect(countTextAfter !== countTextBefore || noArchived).toBeTruthy();
+    // Poll until the listing changes or the empty state appears
+    await expect
+      .poll(async () => {
+        const countTextAfter = await page
+          .locator('text=/Showing \\d+ of \\d+/')
+          .textContent({ timeout: 5_000 })
+          .catch(() => '');
+        const noArchived = await page.getByText(/No archived requests/i).isVisible().catch(() => false);
+        return countTextAfter !== countTextBefore || noArchived;
+      }, { timeout: 15_000 })
+      .toBeTruthy();
   });
 
   test('New Request button still works', async ({ page }) => {

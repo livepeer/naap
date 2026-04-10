@@ -132,13 +132,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Build Prisma where clause with proper types
     const where: Prisma.CapacityRequestWhereInput = {};
+    const andClauses: Prisma.CapacityRequestWhereInput[] = [];
 
     if (statusFilter === 'archived') {
       // Show non-active statuses OR active requests that have expired
-      where.OR = [
-        { status: { in: ['EXPIRED', 'CANCELLED', 'CLOSED', 'FULFILLED'] } },
-        { status: 'ACTIVE', validUntil: { lt: new Date() } },
-      ];
+      andClauses.push({
+        OR: [
+          { status: { in: ['EXPIRED', 'CANCELLED', 'CLOSED', 'FULFILLED'] } },
+          { status: 'ACTIVE', validUntil: { lt: new Date() } },
+        ],
+      });
     } else if (statusFilter === 'all') {
       // No status filter
     } else {
@@ -163,15 +166,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     if (search) {
-      where.OR = [
-        { requesterName: { contains: search, mode: 'insensitive' } },
-        { requesterAccount: { contains: search, mode: 'insensitive' } },
-        { gpuModel: { contains: search, mode: 'insensitive' } },
-        { pipeline: { contains: search, mode: 'insensitive' } },
-        { reason: { contains: search, mode: 'insensitive' } },
-        { osVersion: { contains: search, mode: 'insensitive' } },
-        { cudaVersion: { contains: search, mode: 'insensitive' } },
-      ];
+      andClauses.push({
+        OR: [
+          { requesterName: { contains: search, mode: 'insensitive' } },
+          { requesterAccount: { contains: search, mode: 'insensitive' } },
+          { gpuModel: { contains: search, mode: 'insensitive' } },
+          { pipeline: { contains: search, mode: 'insensitive' } },
+          { reason: { contains: search, mode: 'insensitive' } },
+          { osVersion: { contains: search, mode: 'insensitive' } },
+          { cudaVersion: { contains: search, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (andClauses.length > 0) {
+      where.AND = andClauses;
     }
 
     // Build orderBy with proper Prisma type

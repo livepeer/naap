@@ -44,11 +44,20 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       return errors.badRequest('Cannot ban yourself');
     }
 
-    const body = await request.json();
+    let body: { banned?: unknown; reason?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return errors.badRequest('Invalid JSON in request body');
+    }
     const { banned, reason } = body;
 
     if (typeof banned !== 'boolean') {
       return errors.badRequest('banned must be a boolean');
+    }
+
+    if (reason != null && typeof reason !== 'string') {
+      return errors.badRequest('reason must be a string');
     }
 
     const profile = await prisma.communityProfile.findUnique({
@@ -64,7 +73,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       data: {
         isBanned: banned,
         bannedAt: banned ? new Date() : null,
-        bannedReason: banned ? (reason || null) : null,
+        bannedReason: banned ? ((reason as string)?.trim() || null) : null,
       },
     });
 
