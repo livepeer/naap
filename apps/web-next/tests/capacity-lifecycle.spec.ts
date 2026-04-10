@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { assertCapacityPlannerApiHealthy } from './helpers/plugin-preflight';
+import { assertCapacityPlannerApiHealthy, expectDenied } from './helpers/plugin-preflight';
 import { e2eBaseUrl } from './helpers/e2e-base';
 
 /**
@@ -98,7 +98,7 @@ test.describe('Capacity Planner Lifecycle API @pre-release', () => {
         `${base()}/api/v1/capacity-planner/requests/00000000-0000-0000-0000-000000000000`,
         { data: { status: 'CLOSED' } }
       );
-      expect(res.status()).toBe(401);
+      expectDenied(res);
     });
   });
 
@@ -118,7 +118,7 @@ test.describe('Capacity Planner Lifecycle API @pre-release', () => {
           reason: 'Test request',
         },
       });
-      expect(res.status()).toBe(401);
+      expectDenied(res);
     });
   });
 
@@ -128,6 +128,40 @@ test.describe('Capacity Planner Lifecycle API @pre-release', () => {
       expect(res.ok()).toBeTruthy();
       const json = await res.json();
       expect(json.success).toBe(true);
+    });
+
+    test('summary counts match active non-expired listing', async ({ request }) => {
+      const [summaryRes, listRes] = await Promise.all([
+        request.get(`${base()}/api/v1/capacity-planner/summary`),
+        request.get(`${base()}/api/v1/capacity-planner/requests?status=active&limit=200`),
+      ]);
+      expect(summaryRes.ok()).toBeTruthy();
+      expect(listRes.ok()).toBeTruthy();
+
+      const summary = (await summaryRes.json()).data;
+      const list = (await listRes.json()).data as Array<{ status: string }>;
+
+      expect(summary.totalRequests).toBe(list.length);
+    });
+
+    test('summary is unaffected by archived requests', async ({ request }) => {
+      const [summaryRes, archivedRes] = await Promise.all([
+        request.get(`${base()}/api/v1/capacity-planner/summary`),
+        request.get(`${base()}/api/v1/capacity-planner/requests?status=archived&limit=5`),
+      ]);
+      expect(summaryRes.ok()).toBeTruthy();
+      expect(archivedRes.ok()).toBeTruthy();
+
+      const summary = (await summaryRes.json()).data;
+      const archivedList = (await archivedRes.json()).data as Array<{ status: string }>;
+
+      if (archivedList.length > 0) {
+        const [allRes] = await Promise.all([
+          request.get(`${base()}/api/v1/capacity-planner/requests?status=all&limit=200`),
+        ]);
+        const allList = (await allRes.json()).data as Array<{ status: string }>;
+        expect(summary.totalRequests).toBeLessThanOrEqual(allList.length);
+      }
     });
   });
 });
@@ -435,20 +469,19 @@ test.describe('Capacity Planner Lifecycle UI @pre-release', () => {
       timeout: 45_000,
     });
 
-    // Click on the first request card if any exist
     const cards = page.locator('[class*="glass-card"]');
     const cardCount = await cards.count();
-    if (cardCount > 0) {
-      await cards.first().click();
+    test.skip(cardCount === 0, 'No request cards available to test modal');
 
-      // Modal should open with status badge
-      await expect(page.locator('text=/active|closed|expired|fulfilled|cancelled/i')).toBeVisible({
-        timeout: 10_000,
-      });
+    await cards.first().click();
 
-      // Specifications section should be visible
-      await expect(page.getByText('Specifications')).toBeVisible({ timeout: 5_000 });
-    }
+    // Wait for the modal overlay to appear, then assert the badge inside it
+    const modal = page.locator('.fixed.inset-0');
+    await expect(
+      modal.locator('[class*="badge"], [class*="Badge"]').first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.getByText('Specifications')).toBeVisible({ timeout: 5_000 });
   });
 
   test('filters and sort bar include Archived button', async ({ page }) => {
@@ -468,5 +501,29 @@ test.describe('Capacity Planner Lifecycle UI @pre-release', () => {
     await expect(page.getByRole('button', { name: /Archived/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /New Request/i })).toBeVisible();
     await expect(page.getByPlaceholder(/Search by name/i)).toBeVisible();
+  });
+
+  test('card grid has non-zero gap on initial load', async ({ page }) => {
+    await page.goto('/dashboard');
+    if (page.url().includes('/login')) {
+      test.skip(true, 'Set E2E_USER_EMAIL / E2E_USER_PASSWORD');
+      return;
+    }
+
+    await page.goto('/capacity');
+    await expect(page.getByRole('heading', { name: 'Capacity Requests' })).toBeVisible({
+      timeout: 45_000,
+    });
+
+    const cards = page.locator('[class*="glass-card"]');
+    const cardCount = await cards.count();
+    test.skip(cardCount < 2, 'Need at least 2 cards to verify grid gap');
+
+    const grid = cards.first().locator('..');
+    const gap = await grid.evaluate(
+      (el) => window.getComputedStyle(el).gap || window.getComputedStyle(el).columnGap,
+    );
+    const gapPx = parseFloat(gap);
+    expect(gapPx).toBeGreaterThan(0);
   });
 });

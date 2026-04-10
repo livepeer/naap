@@ -10,7 +10,7 @@ import { success, errors } from '@/lib/api/response';
 export async function GET(_request: NextRequest): Promise<NextResponse> {
   try {
     const requests = await prisma.capacityRequest.findMany({
-      where: { status: 'ACTIVE' },
+      where: { status: 'ACTIVE', validUntil: { gte: new Date() } },
     });
 
     const totalGPUs = requests.reduce((sum, r) => sum + r.count, 0);

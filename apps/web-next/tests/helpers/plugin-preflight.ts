@@ -1,4 +1,24 @@
-import { expect, type APIRequestContext } from '@playwright/test';
+import { expect, type APIRequestContext, type APIResponse } from '@playwright/test';
+
+/**
+ * Assert a response was denied (401 or 403).
+ *
+ * Playwright's `request` fixture inherits session cookies from storageState,
+ * so "unauthenticated" requests in the chromium project may actually carry a
+ * valid session cookie.  The API then returns 403 (authenticated but not
+ * authorised) instead of 401 (no auth).  Use this helper instead of a bare
+ * `toBe(401)` so tests pass in both authenticated and anonymous contexts.
+ */
+export function expectDenied(
+  res: APIResponse,
+  context = 'Expected request to be denied (401 or 403)',
+): void {
+  const s = res.status();
+  expect(
+    s === 401 || s === 403,
+    `${context}, got ${s}`,
+  ).toBeTruthy();
+}
 
 /**
  * Pre-flight checks that Capacity Planner data APIs (via Next.js + Prisma) respond before plugin UI E2E.
