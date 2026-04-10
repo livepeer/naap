@@ -90,8 +90,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams): Promis
       return errors.notFound('Post');
     }
 
-    // Check ownership
-    if (post.author.userId !== authUser.id) {
+    const isAdmin = authUser.roles.includes('community:admin') || authUser.roles.includes('system:admin');
+    if (post.author.userId !== authUser.id && !isAdmin) {
       return errors.forbidden('Not authorized to edit this post');
     }
 
@@ -147,8 +147,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams): Pro
       return errors.notFound('Post');
     }
 
-    // Check ownership
-    if (post.author.userId !== authUser.id) {
+    const isAdmin = authUser.roles.includes('community:admin') || authUser.roles.includes('system:admin');
+    if (post.author.userId !== authUser.id && !isAdmin) {
       return errors.forbidden('Not authorized to delete this post');
     }
 

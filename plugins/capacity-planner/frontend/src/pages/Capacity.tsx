@@ -10,6 +10,7 @@ import {
   Loader2,
   AlertCircle,
   RefreshCw,
+  Archive,
 } from 'lucide-react';
 import { Card } from '@naap/ui';
 import type { CapacityRequest, FilterState, SortField, RequestComment, SummaryData } from '../types';
@@ -24,6 +25,7 @@ import {
   commitCapacity as apiCommitCapacity,
   withdrawCommit as apiWithdrawCommit,
   addComment as apiAddComment,
+  closeRequest as apiCloseRequest,
   fetchCurrentUser,
   fetchSummary,
   type FetchRequestsParams,
@@ -62,6 +64,7 @@ export const CapacityPage: React.FC = () => {
     pipeline: '',
   });
   const [sortField, setSortField] = useState<SortField>('newest');
+  const [showArchived, setShowArchived] = useState(false);
 
   const [debouncedSearch, setDebouncedSearch] = useState('');
   useEffect(() => {
@@ -106,6 +109,7 @@ export const CapacityPage: React.FC = () => {
         const params: FetchRequestsParams = {
           limit: PAGE_SIZE,
           offset: 0,
+          status: showArchived ? 'archived' : 'active',
         };
         if (filters.gpuModel) params.gpuModel = filters.gpuModel;
         if (filters.pipeline) params.pipeline = filters.pipeline;
@@ -128,7 +132,7 @@ export const CapacityPage: React.FC = () => {
         }
       }
     },
-    [filters.gpuModel, filters.pipeline, filters.vramMin, debouncedSearch, sortField, mergeCommittedFromRequests]
+    [filters.gpuModel, filters.pipeline, filters.vramMin, debouncedSearch, sortField, showArchived, mergeCommittedFromRequests]
   );
 
   const loadMore = useCallback(
@@ -142,6 +146,7 @@ export const CapacityPage: React.FC = () => {
         const params: FetchRequestsParams = {
           limit: PAGE_SIZE,
           offset,
+          status: showArchived ? 'archived' : 'active',
         };
         if (filters.gpuModel) params.gpuModel = filters.gpuModel;
         if (filters.pipeline) params.pipeline = filters.pipeline;
@@ -181,6 +186,7 @@ export const CapacityPage: React.FC = () => {
       filters.vramMin,
       debouncedSearch,
       sortField,
+      showArchived,
     ]
   );
 
@@ -230,7 +236,22 @@ export const CapacityPage: React.FC = () => {
       : PIPELINE_OPTIONS;
 
   const hasActiveFilters = filters.gpuModel || filters.vramMin || filters.pipeline;
-  const hasAnyListFilter = hasActiveFilters || Boolean(filters.search.trim());
+  const hasAnyListFilter = hasActiveFilters || Boolean(filters.search.trim()) || showArchived;
+
+  const handleCloseRequest = useCallback(
+    async (requestId: string) => {
+      try {
+        await apiCloseRequest(requestId);
+        setSelectedRequest(null);
+        refreshSummary();
+        await loadRequests(currentUser.id);
+      } catch (err) {
+        console.error('[Capacity] Failed to close request:', err);
+        alert('Failed to close request: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      }
+    },
+    [currentUser.id, loadRequests, refreshSummary]
+  );
 
   const getUserCommit = useCallback(
     (request: CapacityRequest) => {
@@ -394,6 +415,7 @@ export const CapacityPage: React.FC = () => {
 
   const clearFilters = () => {
     setFilters({ search: '', gpuModel: '', vramMin: '', pipeline: '' });
+    setShowArchived(false);
   };
 
   const sortOptions: { value: SortField; label: string }[] = [
@@ -515,6 +537,18 @@ export const CapacityPage: React.FC = () => {
           </div>
 
           <button
+            onClick={() => setShowArchived(!showArchived)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all border ${
+              showArchived
+                ? 'bg-accent-amber/10 text-accent-amber border-accent-amber/30'
+                : 'bg-bg-secondary text-text-secondary border-[var(--border-color)] hover:text-text-primary'
+            }`}
+          >
+            <Archive size={15} />
+            Archived
+          </button>
+
+          <button
             onClick={() => setShowNewRequestModal(true)}
             className="flex items-center gap-2 px-5 py-2.5 bg-accent-emerald text-white rounded-xl font-bold text-sm shadow-lg shadow-accent-emerald/20 hover:bg-accent-emerald/90 transition-all whitespace-nowrap"
           >
@@ -612,7 +646,7 @@ export const CapacityPage: React.FC = () => {
 
       {/* Request cards grid */}
       {requests.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5" style={{ gap: '1.25rem' }}>
           {requests.map((req) => (
             <RequestCard
               key={req.id}
@@ -642,10 +676,12 @@ export const CapacityPage: React.FC = () => {
         <Card className="text-center py-16">
           <Zap size={48} className="mx-auto mb-4 text-text-secondary opacity-30" />
           <h3 className="text-lg font-bold text-text-primary mb-2">
-            {hasAnyListFilter ? 'No matching requests' : 'No active requests'}
+            {showArchived ? 'No archived requests' : hasAnyListFilter ? 'No matching requests' : 'No active requests'}
           </h3>
           <p className="text-text-secondary mb-4">
-            {hasAnyListFilter
+            {showArchived
+              ? 'No closed, expired, or cancelled requests found'
+              : hasAnyListFilter
               ? 'Try adjusting your filters or search terms'
               : 'Create a new capacity request to get started'}
           </p>
@@ -675,9 +711,11 @@ export const CapacityPage: React.FC = () => {
           onCommit={handleCommit}
           onWithdraw={handleWithdraw}
           onAddComment={handleAddComment}
+          onCloseRequest={handleCloseRequest}
           hasCommitted={committedIds.has(selectedRequest.id)}
           userCommitCount={getUserCommit(selectedRequest)?.gpuCount}
           currentUserName={currentUser.name}
+          currentUserId={currentUser.id}
         />
       )}
     </div>

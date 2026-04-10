@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ThumbsUp, Clock, CheckCircle, MessageSquare, Send, Loader2, Eye } from 'lucide-react';
+import { ArrowLeft, ThumbsUp, Clock, CheckCircle, MessageSquare, Send, Loader2, Eye, Shield, Trash2, Ban, Archive, XCircle } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { Card, Badge } from '@naap/ui';
 import {
@@ -11,6 +11,9 @@ import {
   createComment,
   voteComment,
   acceptAnswer,
+  moderatePost,
+  banUser,
+  deletePost,
   isUserLoggedIn,
   getCurrentUser,
   type Post,
@@ -211,6 +214,47 @@ export const PostDetailPage: React.FC = () => {
 
   const currentUser = getCurrentUser();
   const isAuthor = post && currentUser && currentUser.userId === post.author.userId;
+  const isAdmin = currentUser?.isAdmin ?? false;
+
+  const handleModerate = async (action: 'delete' | 'close' | 'archive') => {
+    if (!post) return;
+    const labels = { delete: 'delete', close: 'close', archive: 'archive' };
+    if (!window.confirm(`Are you sure you want to ${labels[action]} this post?`)) return;
+    try {
+      await moderatePost(post.id, action);
+      if (action === 'delete') {
+        navigate('/');
+      } else {
+        const updated = await fetchPost(post.id);
+        setPost(updated);
+      }
+    } catch (err) {
+      alert('Failed to moderate post: ' + (err as Error).message);
+    }
+  };
+
+  const handleDeletePost = async () => {
+    if (!post) return;
+    if (!window.confirm('Are you sure you want to delete this post? This cannot be undone.')) return;
+    try {
+      await deletePost(post.id);
+      navigate('/');
+    } catch (err) {
+      alert('Failed to delete post: ' + (err as Error).message);
+    }
+  };
+
+  const handleBanUser = async () => {
+    if (!post) return;
+    const reason = window.prompt('Reason for banning this user (optional):');
+    if (reason === null) return; // cancelled
+    try {
+      await banUser(post.author.userId, true, reason || undefined);
+      alert('User has been banned from the community.');
+    } catch (err) {
+      alert('Failed to ban user: ' + (err as Error).message);
+    }
+  };
 
   if (loading) {
     return (
@@ -337,6 +381,50 @@ export const PostDetailPage: React.FC = () => {
                 </span>
               ))}
             </div>
+
+            {/* Author / Admin actions */}
+            {(isAuthor || isAdmin) && (
+              <div className="flex items-center gap-2 mt-4 pt-4 border-t border-white/10">
+                {isAdmin && (
+                  <div className="flex items-center gap-1 mr-2">
+                    <Shield size={14} className="text-accent-amber" />
+                    <span className="text-xs font-medium text-accent-amber">Admin</span>
+                  </div>
+                )}
+                {(isAuthor || isAdmin) && (
+                  <button
+                    onClick={handleDeletePost}
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-accent-rose hover:bg-accent-rose/10 rounded-md transition-colors"
+                  >
+                    <Trash2 size={12} /> Delete
+                  </button>
+                )}
+                {isAdmin && post.status === 'OPEN' && (
+                  <button
+                    onClick={() => handleModerate('close')}
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-accent-amber hover:bg-accent-amber/10 rounded-md transition-colors"
+                  >
+                    <XCircle size={12} /> Close
+                  </button>
+                )}
+                {isAdmin && post.status === 'OPEN' && (
+                  <button
+                    onClick={() => handleModerate('archive')}
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-text-secondary hover:bg-white/5 rounded-md transition-colors"
+                  >
+                    <Archive size={12} /> Archive
+                  </button>
+                )}
+                {isAdmin && !isAuthor && (
+                  <button
+                    onClick={handleBanUser}
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-accent-rose hover:bg-accent-rose/10 rounded-md transition-colors"
+                  >
+                    <Ban size={12} /> Ban User
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </Card>

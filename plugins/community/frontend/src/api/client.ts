@@ -18,19 +18,19 @@ const API_BASE = getPluginBackendUrl('community', {
 });
 
 // Module-level user state, set by React components via setCurrentUser()
-let _currentUser: { userId: string; displayName: string } | null = null;
+let _currentUser: { userId: string; displayName: string; isAdmin?: boolean } | null = null;
 
 /**
  * Set the current user from a React component (call from useEffect with useAuth/useUser hooks).
  */
-export function setCurrentUser(user: { userId: string; displayName: string } | null) {
+export function setCurrentUser(user: { userId: string; displayName: string; isAdmin?: boolean } | null) {
   _currentUser = user;
 }
 
 /**
  * Get the current user. Returns null if not set.
  */
-export function getCurrentUser(): { userId: string; displayName: string } | null {
+export function getCurrentUser(): { userId: string; displayName: string; isAdmin?: boolean } | null {
   return _currentUser;
 }
 
@@ -473,4 +473,41 @@ export async function searchPosts(query: string, params?: {
   const json = await res.json();
   const payload = json.data ?? json;
   return { posts: Array.isArray(payload?.posts) ? payload.posts : [], total: payload?.total ?? 0, query };
+}
+
+// --- Admin Moderation ---
+
+export async function moderatePost(
+  postId: string,
+  action: 'delete' | 'close' | 'archive'
+): Promise<{ deleted?: boolean; post?: { id: string; status: string } }> {
+  const res = await fetch(`${API_BASE}/posts/${postId}/moderate`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ action }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to moderate post');
+  }
+  const json = await res.json();
+  return json.data ?? json;
+}
+
+export async function banUser(
+  userId: string,
+  banned: boolean,
+  reason?: string
+): Promise<{ userId: string; isBanned: boolean }> {
+  const res = await fetch(`${API_BASE}/users/${userId}/ban`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ banned, reason }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to update ban status');
+  }
+  const json = await res.json();
+  return json.data ?? json;
 }

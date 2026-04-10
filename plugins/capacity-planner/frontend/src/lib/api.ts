@@ -113,6 +113,8 @@ export interface FetchRequestsParams {
   sort?: string;
   limit?: number;
   offset?: number;
+  /** Filter by status: 'active' (default), 'archived', or 'all' */
+  status?: 'active' | 'archived' | 'all';
 }
 
 export interface FetchRequestsResult {
@@ -130,6 +132,7 @@ export async function fetchRequests(params: FetchRequestsParams = {}): Promise<F
   if (params.sort) searchParams.set('sort', params.sort);
   if (params.limit != null) searchParams.set('limit', String(params.limit));
   if (params.offset != null) searchParams.set('offset', String(params.offset));
+  if (params.status) searchParams.set('status', params.status);
 
   const query = searchParams.toString();
   const url = `${getCapacityApiBaseUrl()}/requests${query ? `?${query}` : ''}`;
@@ -227,6 +230,14 @@ export async function addComment(
   return apiRequest<RequestComment>(`/requests/${requestId}/comments`, {
     method: 'POST',
     body: JSON.stringify({ author, text }),
+  });
+}
+
+// Close a capacity request (creator or admin only)
+export async function closeRequest(requestId: string): Promise<CapacityRequest> {
+  return apiRequest<CapacityRequest>(`/requests/${requestId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'CLOSED' }),
   });
 }
 
