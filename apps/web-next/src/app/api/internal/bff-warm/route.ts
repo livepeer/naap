@@ -25,9 +25,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, { status: 401 });
   }
 
+  const { appUrl: _appUrl } = await import('@/lib/env');
   const base =
     process.env.BFF_WARM_ORIGIN ??
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://127.0.0.1:3000');
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : _appUrl);
 
   const end = new Date();
   const start = new Date(end.getTime() - 24 * 3600 * 1000);

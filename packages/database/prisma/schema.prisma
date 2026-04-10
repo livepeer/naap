@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api", "plugin_service_gateway"]
+  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api", "plugin_service_gateway", "plugin_orchestrator_leaderboard"]
 }
 
 // ============================================
@@ -2226,4 +2226,32 @@ model ConnectorCapabilityRanking {
   @@unique([connectorId, category, modelName])
   @@index([category, qualityRank])
   @@schema("plugin_service_gateway")
+}
+
+// ============================================
+// ORCHESTRATOR LEADERBOARD — DISCOVERY PLANS
+// ============================================
+
+/// A persistent, parameterized discovery query whose results are auto-refreshed
+/// and served from cache. External consumers (signers, SDKs) create plans via
+/// the REST API and poll /plans/:id/results for ranked orchestrator lists.
+model DiscoveryPlan {
+  id              String   @id @default(cuid())
+  billingPlanId   String   @unique
+  name            String
+  teamId          String?
+  ownerUserId     String?
+  capabilities    String[]
+  topN            Int      @default(10)
+  slaWeights      Json?
+  slaMinScore     Float?
+  sortBy          String?
+  filters         Json?
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([teamId, enabled])
+  @@index([ownerUserId, enabled])
+  @@schema("plugin_orchestrator_leaderboard")
 }
