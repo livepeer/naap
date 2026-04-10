@@ -475,10 +475,11 @@ test.describe('Capacity Planner Lifecycle UI @pre-release', () => {
 
     await cards.first().click();
 
-    // Wait for the modal overlay to appear, then assert the badge inside it
+    // The Badge component renders <span class="px-2 py-0.5 rounded-full …">
+    // so match by the Tailwind classes it actually uses, scoped to the modal.
     const modal = page.locator('.fixed.inset-0');
     await expect(
-      modal.locator('[class*="badge"], [class*="Badge"]').first(),
+      modal.locator('span.rounded-full.text-xs').first(),
     ).toBeVisible({ timeout: 10_000 });
 
     await expect(page.getByText('Specifications')).toBeVisible({ timeout: 5_000 });
@@ -520,10 +521,10 @@ test.describe('Capacity Planner Lifecycle UI @pre-release', () => {
     test.skip(cardCount < 2, 'Need at least 2 cards to verify grid gap');
 
     const grid = cards.first().locator('..');
-    const gap = await grid.evaluate(
-      (el) => window.getComputedStyle(el).gap || window.getComputedStyle(el).columnGap,
-    );
-    const gapPx = parseFloat(gap);
+    const gapPx = await grid.evaluate((el) => {
+      const cs = window.getComputedStyle(el);
+      return parseFloat(cs.columnGap) || parseFloat(cs.rowGap) || parseFloat(cs.gap) || 0;
+    });
     expect(gapPx).toBeGreaterThan(0);
   });
 });
