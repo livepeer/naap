@@ -461,6 +461,9 @@ export async function loadUMDPlugin(options: UMDLoadOptions): Promise<LoadedUMDP
       if (stylesUrl) {
         try {
           await loadStylesheet(stylesUrl, timeout);
+          // Yield a frame so the browser finishes CSSOM construction and applies
+          // the newly loaded styles before the plugin script mounts React.
+          await new Promise<void>(r => requestAnimationFrame(() => r()));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           console.warn(`[UMD Loader] Plugin styles failed to load (continuing): ${msg}`);

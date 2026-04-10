@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { assertCommunityApiHealthy } from './helpers/plugin-preflight';
+import { assertCommunityApiHealthy, expectDenied } from './helpers/plugin-preflight';
 import { e2eBaseUrl } from './helpers/e2e-base';
 
 /**
@@ -33,7 +33,7 @@ test.describe('Community Moderation API @pre-release', () => {
       const res = await request.post(`${base()}/api/v1/community/posts/nonexistent/moderate`, {
         data: { action: 'close' },
       });
-      expect(res.status()).toBe(401);
+      expectDenied(res);
     });
 
     test('rejects invalid action values', async ({ request }) => {
@@ -61,7 +61,7 @@ test.describe('Community Moderation API @pre-release', () => {
       const res = await request.post(`${base()}/api/v1/community/users/some-user-id/ban`, {
         data: { banned: true, reason: 'test' },
       });
-      expect(res.status()).toBe(401);
+      expectDenied(res);
     });
 
     test('rejects requests without banned boolean', async ({ request }) => {
@@ -87,7 +87,7 @@ test.describe('Community Moderation API @pre-release', () => {
       const res = await request.delete(
         `${base()}/api/v1/community/posts/00000000-0000-0000-0000-000000000000`
       );
-      expect(res.status()).toBe(401);
+      expectDenied(res);
     });
   });
 });
