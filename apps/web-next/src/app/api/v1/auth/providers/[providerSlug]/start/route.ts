@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
-import { appUrl as _envAppUrl } from '@/lib/env';
+import { resolveBillingOAuthAppUrl } from '@/lib/billing-oauth-origin';
 
 const DAYDREAM_AUTH_URL =
   process.env.DAYDREAM_AUTH_URL || 'https://app.daydream.live/sign-in/local';
@@ -32,64 +32,42 @@ function checkRateLimit(key: string): boolean {
   return true;
 }
 
-function firstHeaderValue(value: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-  const first = value.split(',')[0]?.trim();
-  return first || null;
-}
-
-function resolveAppUrl(request: NextRequest): string {
-  const isProduction =
-    process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
-
-  // Dedicated override for OAuth callback origin (e.g. local dev through a plugin shell)
-  if (isProduction) {
-    if (!process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN) {
-      throw new Error('BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN must be set in production');
-    }
-    return process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN;
-  }
-
-  if (process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN) {
-    return process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN;
-  }
-
-  const host = firstHeaderValue(request.headers.get('host'));
-  const forwardedHost = firstHeaderValue(request.headers.get('x-forwarded-host'));
-  const forwardedProto = firstHeaderValue(request.headers.get('x-forwarded-proto'));
-
-  const isLocalHost = (value: string): boolean =>
-    value.includes('localhost') ||
-    value.startsWith('127.') ||
-    value.startsWith('0.0.0.0') ||
-    value.startsWith('[::1]');
-
-  if (host) {
-    const useForwardedHost = isLocalHost(host) && !!forwardedHost;
-    const resolvedHost = useForwardedHost ? (forwardedHost as string) : host;
-
-    const protocol = isLocalHost(resolvedHost)
-      ? (forwardedProto || 'http')
-      : 'https';
-
-    return `${protocol}://${resolvedHost}`;
-  }
-
-  // Last-resort/dev fallback: only trust forwarded headers for localhost/127.*
-  if (forwardedHost && isLocalHost(forwardedHost)) {
-    const protocol = forwardedProto || 'http';
-    return `${protocol}://${forwardedHost}`;
-  }
-
-  return _envAppUrl;
-}
-
 function resolveProviderAuthUrl(providerSlug: string): string | null {
   if (providerSlug === 'daydream') {
     return DAYDREAM_AUTH_URL;
   }
+  return null;
+}
+
+async function buildBillingAuthUrl(
+  providerSlug: string,
+  callbackUrl: string
+): Promise<{ authUrl: string; pkceCodeVerifier: string | null } | null> {
+  if (providerSlug === 'daydream') {
+    const base = resolveProviderAuthUrl(providerSlug);
+    if (!base) return null;
+    const state = crypto.randomBytes(16).toString('hex');
+    const authUrl = `${base}?redirect_url=${encodeURIComponent(callbackUrl)}&state=${encodeURIComponent(state)}`;
+    return { authUrl, pkceCodeVerifier: null };
+  }
+
+  if (providerSlug === 'pymthouse') {
+    const { generatePkcePair, buildPymthouseAuthorizeUrl, getPymthouseIssuerBase, getPymthouseOidcClientSecret } =
+      await import('@/lib/pymthouse-oidc');
+    if (!getPymthouseIssuerBase() || !getPymthouseOidcClientSecret()) {
+      return null;
+    }
+    const state = crypto.randomBytes(16).toString('hex');
+    const { codeVerifier, codeChallenge } = generatePkcePair();
+    const authUrl = buildPymthouseAuthorizeUrl({
+      redirectUri: callbackUrl,
+      state,
+      codeChallenge,
+    });
+    if (!authUrl) return null;
+    return { authUrl, pkceCodeVerifier: codeVerifier };
+  }
+
   return null;
 }
 
@@ -107,11 +85,6 @@ export async function POST(
       );
     }
 
-    const providerAuthUrl = resolveProviderAuthUrl(providerSlug);
-    if (!providerAuthUrl) {
-      return errors.badRequest(`Unsupported billing provider for OAuth: ${providerSlug}`);
-    }
-
     const body = await request.json().catch(() => ({}));
     const gatewayNonce = (body.gateway_nonce as string) || crypto.randomBytes(32).toString('hex');
     const gatewayInstanceId = (body.gateway_instance_id as string) || null;
@@ -123,13 +96,25 @@ export async function POST(
     const loginSessionId = crypto.randomBytes(32).toString('hex');
 
     // Build the callback URL that provider will redirect the browser to
-    const appUrl = resolveAppUrl(request);
+    const appUrl = resolveBillingOAuthAppUrl(request);
     const callbackUrl = `${appUrl}/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/callback`;
 
-    const state = crypto.randomBytes(16).toString('hex');
+    const built = await buildBillingAuthUrl(providerSlug, callbackUrl);
+    if (!built) {
+      if (providerSlug === 'pymthouse') {
+        return errors.badRequest(
+          'PymtHouse OAuth is not configured. Set PYMTHOUSE_ISSUER_URL and NAAP_WEB_CLIENT_SECRET (and run pymthouse oidc:seed).'
+        );
+      }
+      return errors.badRequest(`Unsupported billing provider for OAuth: ${providerSlug}`);
+    }
 
-    // Build auth URL with redirect back to NAAP callback
-    const authUrl = `${providerAuthUrl}?redirect_url=${encodeURIComponent(callbackUrl)}&state=${encodeURIComponent(state)}`;
+    const { authUrl, pkceCodeVerifier } = built;
+    const state = new URL(built.authUrl).searchParams.get('state');
+    if (!state) {
+      return errors.internal('Failed to build OAuth state');
+    }
+
     await prisma.billingProviderOAuthSession.create({
       data: {
         loginSessionId,
@@ -138,6 +123,7 @@ export async function POST(
         gatewayInstanceId,
         naapUserId,
         state,
+        pkceCodeVerifier,
         status: 'pending',
         accessToken: null,
         providerUserId: null,
