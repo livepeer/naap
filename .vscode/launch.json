@@ -1,0 +1,66 @@
+{
+  "version": "0.2.0",
+  // Debug NAAP Core: base-svc + plugin-server + Next shell (see bin/start.sh defaults).
+  // Postgres / infra must be up; DATABASE_URL matches local Docker naap DB.
+  "configurations": [
+    {
+      "name": "NAAP: base-svc",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "watch", "src/server.ts"],
+      "cwd": "${workspaceFolder}/services/base-svc",
+      "env": {
+        "PORT": "4000",
+        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/naap"
+      },
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "NAAP: plugin-server",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "watch", "src/server.ts"],
+      "cwd": "${workspaceFolder}/services/plugin-server",
+      "env": {
+        "PLUGIN_SERVER_PORT": "3100"
+      },
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "NAAP: web-next (shell)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev", "-p", "3000"],
+      "cwd": "${workspaceFolder}/apps/web-next",
+      "env": {
+        "PORT": "3000",
+        "WATCHPACK_POLLING": "1000"
+      },
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug NAAP Core",
+      "configurations": [
+        "NAAP: base-svc",
+        "NAAP: plugin-server",
+        "NAAP: web-next (shell)"
+      ],
+      "stopAll": true,
+      "presentation": {
+        "group": "NAAP",
+        "order": 1
+      }
+    }
+  ]
+}
