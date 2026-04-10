@@ -3,17 +3,22 @@
  * the KPI resolver (time-scoped count when `LastSeen` is present) and the
  * orchestrator-table resolver (multi-URI enrichment).
  *
- * Source: GET /v1/net/orchestrators?active_only=false&limit=…&offset=… (paged until exhausted)
+ * Source: GET /v1/net/orchestrators?active_only=false&limit=…[&cursor=…] (cursor-paged until exhausted)
  */
 
 import type { DashboardPipelineModelOffer } from '@naap/plugin-sdk';
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
 
-/** Per-page `limit` for net/orchestrators (registry supports `offset` pagination). */
+/** Per-page `limit` for net/orchestrators (registry uses cursor pagination). */
 export const NET_ORCHESTRATORS_PAGE_SIZE = '1000';
 
 const MAX_NET_ORCHESTRATOR_PAGES = 500;
+
+interface OrchestratorListResponse {
+  data: NaapNetOrchestrator[];
+  pagination: { next_cursor?: string; has_more: boolean; page_size: number };
+}
 
 interface NaapNetOrchestrator {
   Address: string;
@@ -110,7 +115,6 @@ const EMPTY: NetOrchestratorData = {
 };
 
 async function fetchAllNetOrchestratorRows(): Promise<NaapNetOrchestrator[]> {
-  const pageSize = Number.parseInt(NET_ORCHESTRATORS_PAGE_SIZE, 10);
   const revalidateSec = Math.floor(TTL.NET_MODELS / 1000);
   const fetchOptions = {
     next: { revalidate: revalidateSec },
@@ -118,17 +122,21 @@ async function fetchAllNetOrchestratorRows(): Promise<NaapNetOrchestrator[]> {
   } as const;
   const all: NaapNetOrchestrator[] = [];
 
+  let cursor: string | undefined;
+
   for (let page = 0; page < MAX_NET_ORCHESTRATOR_PAGES; page++) {
-    const offset = String(page * pageSize);
-    const rows = await naapGet<NaapNetOrchestrator[]>('net/orchestrators', {
+    const params: Record<string, string> = {
       active_only: 'false',
       limit: NET_ORCHESTRATORS_PAGE_SIZE,
-      offset,
-    }, fetchOptions);
-    all.push(...rows);
-    if (rows.length < pageSize) {
-      break;
-    }
+    };
+    if (cursor) params.cursor = cursor;
+
+    const resp = await naapGet<OrchestratorListResponse>('net/orchestrators', params, fetchOptions);
+    all.push(...resp.data);
+
+    if (!resp.pagination?.has_more) break;
+    cursor = resp.pagination.next_cursor;
+    if (!cursor) break;
   }
 
   return all;

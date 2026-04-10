@@ -185,7 +185,7 @@ export async function getLiveVideoCapacity(models: string[]): Promise<Record<str
 // ---------------------------------------------------------------------------
 
 export { type JobModelPerformance } from './resolvers/jobs-by-model.js';
-export { type JobsDemandRow, type JobsDemandResponse, type Pagination } from './resolvers/jobs-demand.js';
+export { type JobsDemandRow, type JobsDemandResponse, type CursorPagination } from './resolvers/jobs-demand.js';
 export { type JobsSLARow, type JobsSLAResponse } from './resolvers/jobs-sla.js';
 export { type AIBatchJobSummary } from './resolvers/ai-batch-summary.js';
 export { type AIBatchJobRecord } from './resolvers/ai-batch-jobs.js';
@@ -211,8 +211,8 @@ export async function getJobsDemand(opts: {
   model_id?: string;
   gateway?: string;
   job_type?: 'ai-batch' | 'byoc';
-  page?: number;
-  page_size?: number;
+  limit?: number;
+  cursor?: string;
 }): Promise<import('./resolvers/jobs-demand.js').JobsDemandResponse> {
   if (USE_STUBS) return stubs.jobsDemand;
   return resolveJobsDemand(opts);
@@ -224,8 +224,8 @@ export async function getJobsSLA(opts: {
   model_id?: string;
   orchestrator_address?: string;
   job_type?: 'ai-batch' | 'byoc';
-  page?: number;
-  page_size?: number;
+  limit?: number;
+  cursor?: string;
 }): Promise<import('./resolvers/jobs-sla.js').JobsSLAResponse> {
   if (USE_STUBS) return stubs.jobsSLA;
   return resolveJobsSLA(opts);
@@ -243,7 +243,7 @@ export async function getAIBatchJobs(opts: {
   start: string;
   end: string;
   limit?: number;
-  offset?: number;
+  cursor?: string;
 }): Promise<import('./resolvers/ai-batch-jobs.js').AIBatchJobRecord[]> {
   if (USE_STUBS) return stubs.aiBatchJobs;
   return resolveAIBatchJobs(opts);
@@ -269,7 +269,7 @@ export async function getBYOCJobs(opts: {
   start: string;
   end: string;
   limit?: number;
-  offset?: number;
+  cursor?: string;
 }): Promise<import('./resolvers/byoc-jobs.js').BYOCJobRecord[]> {
   if (USE_STUBS) return stubs.byocJobs;
   return resolveBYOCJobs(opts);

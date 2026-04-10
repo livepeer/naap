@@ -1,7 +1,8 @@
 /**
  * Jobs demand resolver — NAAP API backed.
  *
- * Source: GET /v1/jobs/demand
+ * Source: GET /v1/jobs/demand?window=Nh&limit=N[&cursor=...]
+ * Response: { data: [...], pagination: { next_cursor?, has_more, page_size }, meta: {} }
  */
 
 import { cachedFetch, TTL } from '../cache.js';
@@ -22,16 +23,15 @@ export interface JobsDemandRow {
   total_minutes: number;
 }
 
-export interface Pagination {
-  page: number;
+export interface CursorPagination {
+  next_cursor?: string;
+  has_more: boolean;
   page_size: number;
-  total_count: number;
-  total_pages: number;
 }
 
 export interface JobsDemandResponse {
-  demand: JobsDemandRow[];
-  pagination: Pagination;
+  data: JobsDemandRow[];
+  pagination: CursorPagination;
 }
 
 export async function resolveJobsDemand(opts: {
@@ -40,21 +40,20 @@ export async function resolveJobsDemand(opts: {
   model_id?: string;
   gateway?: string;
   job_type?: 'ai-batch' | 'byoc';
-  page?: number;
-  page_size?: number;
+  limit?: number;
+  cursor?: string;
 }): Promise<JobsDemandResponse> {
   const window = opts.window ?? '24h';
-  const page = opts.page ?? 1;
-  const page_size = opts.page_size ?? 50;
+  const limit = opts.limit ?? 50;
   const org = getNaapOrg();
-  const cacheKey = `facade:jobs-demand:${window}:${org ?? 'all'}:${opts.pipeline_id ?? 'all'}:${opts.job_type ?? 'all'}:${page}:${page_size}`;
+  const cacheKey = `facade:jobs-demand:${window}:${org ?? 'all'}:${opts.pipeline_id ?? 'all'}:${opts.job_type ?? 'all'}:${limit}:${opts.cursor ?? ''}`;
 
   return cachedFetch(cacheKey, TTL.JOBS, async () => {
     const params: Record<string, string> = {
       window,
-      page: String(page),
-      page_size: String(page_size),
+      limit: String(limit),
     };
+    if (opts.cursor) params.cursor = opts.cursor;
     if (org) params.org = org;
     if (opts.pipeline_id) params.pipeline_id = opts.pipeline_id;
     if (opts.model_id) params.model_id = opts.model_id;

@@ -19,6 +19,7 @@ export {
   type DashboardFeeWeeklyData,
   type DashboardFeesInfo,
   type DashboardPipelineModelMins,
+  type DashboardPipelineModelOffer,
   type DashboardPipelineUsage,
   type DashboardPipelineCatalogEntry,
   type DashboardGPUCapacity,

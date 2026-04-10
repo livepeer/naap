@@ -1,13 +1,14 @@
 /**
  * Jobs SLA resolver — NAAP API backed.
  *
- * Source: GET /v1/jobs/sla
+ * Source: GET /v1/jobs/sla?window=Nh&limit=N[&cursor=...]
+ * Response: { data: [...], pagination: { next_cursor?, has_more, page_size }, meta: {} }
  */
 
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
 import { getNaapOrg } from '../naap-org.js';
-import type { Pagination } from './jobs-demand.js';
+import type { CursorPagination } from './jobs-demand.js';
 
 export interface JobsSLARow {
   window_start: string;
@@ -25,8 +26,8 @@ export interface JobsSLARow {
 }
 
 export interface JobsSLAResponse {
-  compliance: JobsSLARow[];
-  pagination: Pagination;
+  data: JobsSLARow[];
+  pagination: CursorPagination;
 }
 
 export async function resolveJobsSLA(opts: {
@@ -35,21 +36,20 @@ export async function resolveJobsSLA(opts: {
   model_id?: string;
   orchestrator_address?: string;
   job_type?: 'ai-batch' | 'byoc';
-  page?: number;
-  page_size?: number;
+  limit?: number;
+  cursor?: string;
 }): Promise<JobsSLAResponse> {
   const window = opts.window ?? '24h';
-  const page = opts.page ?? 1;
-  const page_size = opts.page_size ?? 50;
+  const limit = opts.limit ?? 50;
   const org = getNaapOrg();
-  const cacheKey = `facade:jobs-sla:${window}:${org ?? 'all'}:${opts.pipeline_id ?? 'all'}:${opts.job_type ?? 'all'}:${page}:${page_size}`;
+  const cacheKey = `facade:jobs-sla:${window}:${org ?? 'all'}:${opts.pipeline_id ?? 'all'}:${opts.job_type ?? 'all'}:${limit}:${opts.cursor ?? ''}`;
 
   return cachedFetch(cacheKey, TTL.JOBS, async () => {
     const params: Record<string, string> = {
       window,
-      page: String(page),
-      page_size: String(page_size),
+      limit: String(limit),
     };
+    if (opts.cursor) params.cursor = opts.cursor;
     if (org) params.org = org;
     if (opts.pipeline_id) params.pipeline_id = opts.pipeline_id;
     if (opts.model_id) params.model_id = opts.model_id;

@@ -13,14 +13,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const model_id = p.get('model_id') ?? undefined;
   const orchestrator_address = p.get('orchestrator_address') ?? undefined;
   const job_type = (p.get('job_type') ?? undefined) as 'ai-batch' | 'byoc' | undefined;
-  const page = Number(p.get('page') ?? 1);
-  const page_size = Number(p.get('page_size') ?? 50);
-  const cacheKey = `jobs-sla:${window}:${pipeline_id ?? 'all'}:${job_type ?? 'all'}:${page}:${page_size}`;
+  const limit = Number(p.get('limit') ?? 50);
+  const cursor = p.get('cursor') ?? undefined;
+  const cacheKey = `jobs-sla:${window}:${pipeline_id ?? 'all'}:${job_type ?? 'all'}:${limit}:${cursor ?? ''}`;
 
   try {
     const { data, cache } = await bffStaleWhileRevalidate(
       cacheKey,
-      () => getJobsSLA({ window, pipeline_id, model_id, orchestrator_address, job_type, page, page_size }),
+      () => getJobsSLA({ window, pipeline_id, model_id, orchestrator_address, job_type, limit, cursor }),
       'jobs-sla',
     );
     const res = NextResponse.json(data);

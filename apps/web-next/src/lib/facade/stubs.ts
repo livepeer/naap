@@ -543,20 +543,20 @@ export const jobsByModel: JobModelPerformance[] = [
 ];
 
 export const jobsDemand: JobsDemandResponse = {
-  demand: [
+  data: [
     { window_start: new Date(Date.now() - 3_600_000).toISOString(), gateway: 'gateway.livepeer.cloud', pipeline_id: 'llm',           job_type: 'ai-batch', job_count: 4_120, success_count: 4_050, success_rate: 0.983, avg_duration_ms: 2_340, total_minutes: 160.7 },
     { window_start: new Date(Date.now() - 3_600_000).toISOString(), gateway: 'gateway.livepeer.cloud', pipeline_id: 'text-to-image', job_type: 'ai-batch', job_count: 2_210, success_count: 2_180, success_rate: 0.986, avg_duration_ms: 4_200, total_minutes: 154.7 },
     { window_start: new Date(Date.now() - 3_600_000).toISOString(), gateway: 'byoc.livepeer.cloud',    pipeline_id: 'upscale',       job_type: 'byoc',     job_count:   420, success_count:   415, success_rate: 0.988, avg_duration_ms: 6_100, total_minutes:  42.7 },
   ],
-  pagination: { page: 1, page_size: 50, total_count: 3, total_pages: 1 },
+  pagination: { has_more: false, page_size: 50 },
 };
 
 export const jobsSLA: JobsSLAResponse = {
-  compliance: [
+  data: [
     { window_start: new Date(Date.now() - 3_600_000).toISOString(), orchestrator_address: '0xabc123', pipeline_id: 'llm',           job_type: 'ai-batch', job_count: 2_100, success_count: 2_070, success_rate: 0.986, avg_duration_ms: 2_200, sla_score: 0.94 },
     { window_start: new Date(Date.now() - 3_600_000).toISOString(), orchestrator_address: '0xdef456', pipeline_id: 'text-to-image', job_type: 'ai-batch', job_count: 1_880, success_count: 1_840, success_rate: 0.979, avg_duration_ms: 4_100, sla_score: 0.91 },
   ],
-  pagination: { page: 1, page_size: 50, total_count: 2, total_pages: 1 },
+  pagination: { has_more: false, page_size: 50 },
 };
 
 // ---------------------------------------------------------------------------
