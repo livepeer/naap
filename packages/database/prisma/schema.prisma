@@ -799,14 +799,17 @@ model AuditLog {
 // Note: CommunityProfile links to User via userId, NOT a separate User table
 
 model CommunityProfile {
-  id         String   @id @default(uuid())
-  userId     String   @unique
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bio        String?
-  reputation Int      @default(0)
-  level      Int      @default(1)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id           String    @id @default(uuid())
+  userId       String    @unique
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bio          String?
+  reputation   Int       @default(0)
+  level        Int       @default(1)
+  isBanned     Boolean   @default(false)
+  bannedAt     DateTime?
+  bannedReason String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   posts          CommunityPost[]
   comments       CommunityComment[]
@@ -1536,6 +1539,7 @@ model GatewayConfig {
 
 model CapacityRequest {
   id               String                @id @default(uuid())
+  creatorId        String?
   requesterName    String
   requesterAccount String
   gpuModel         String
@@ -1563,6 +1567,7 @@ model CapacityRequest {
   @@index([validUntil])
   @@index([createdAt])
   @@index([riskLevel])
+  @@index([creatorId])
   @@schema("plugin_capacity")
 }
 
@@ -1571,6 +1576,7 @@ enum CapacityRequestStatus {
   EXPIRED
   FULFILLED
   CANCELLED
+  CLOSED
 
   @@schema("plugin_capacity")
 }

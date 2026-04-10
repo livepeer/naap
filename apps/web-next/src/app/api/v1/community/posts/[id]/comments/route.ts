@@ -84,6 +84,10 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     // Get or create community profile
     const profile = await getOrCreateCommunityProfile(authUser.id);
 
+    if (profile.isBanned) {
+      return errors.forbidden('You are banned from posting in the community');
+    }
+
     const comment = await prisma.communityComment.create({
       data: {
         postId,

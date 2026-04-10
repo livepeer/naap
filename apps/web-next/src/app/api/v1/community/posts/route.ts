@@ -190,6 +190,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Get or create community profile
     const profile = await getOrCreateCommunityProfile(authUser.id);
 
+    if (profile.isBanned) {
+      return errors.forbidden('You are banned from posting in the community');
+    }
+
     // Create post
     const post = await prisma.communityPost.create({
       data: {
