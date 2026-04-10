@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { bffStaleWhileRevalidate } from '@/lib/api/bff-swr';
 import { getDashboardGPUCapacity } from '@/lib/facade';
-import { normalizeGpuCapacityTimeframeKey } from '@/lib/facade/resolvers/gpu-capacity';
 import { TTL, dashboardRouteCacheControl } from '@/lib/facade/cache';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const params = request.nextUrl.searchParams;
-  const timeframe = params.get('timeframe') ?? undefined;
-
+export async function GET(_request: NextRequest): Promise<NextResponse> {
   try {
-    const normalizedTimeframe = normalizeGpuCapacityTimeframeKey(timeframe);
     const { data: result, cache } = await bffStaleWhileRevalidate(
-      `gpu-capacity:${normalizedTimeframe}`,
-      () => getDashboardGPUCapacity({ timeframe }),
+      'gpu-capacity',
+      () => getDashboardGPUCapacity({}),
       'gpu-capacity'
     );
     const res = NextResponse.json(result);

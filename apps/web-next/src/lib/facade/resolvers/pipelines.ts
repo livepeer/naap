@@ -5,7 +5,7 @@
  * DashboardPipelineUsage rows for the facade.
  *
  * Source:
- *   GET /v1/dashboard/pipelines?limit=N&window=Nh
+ *   GET /v1/dashboard/pipelines?limit=N
  */
 
 import type {
@@ -28,6 +28,7 @@ interface DashboardPipelineRow {
   sessions: number;
   mins: number;
   avgFps: number;
+  job_type?: string | null;
 }
 
 function timeframeRangeIso(hours: number): { start: string; end: string } {
@@ -104,13 +105,11 @@ export async function resolvePipelines(opts: { limit?: number; timeframe?: strin
   );
   const parsed = parseInt(opts.timeframe ?? '24', 10);
   const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
-  const window = `${hours}h`;
   const timeframe = String(hours);
 
   return cachedFetch(`facade:pipelines:${safeLimit}:${hours}`, TTL.PIPELINES, async () => {
     const rows = await naapGet<DashboardPipelineRow[]>('dashboard/pipelines', {
       limit: String(safeLimit),
-      window,
     }, {
       cache: 'no-store',
       errorLabel: 'pipelines',

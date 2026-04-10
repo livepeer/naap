@@ -28,7 +28,7 @@ export async function resolvePerfByModel(opts: {
   return cachedFetch(cacheKey, TTL.PIPELINES, async () => {
     let rawRows: PerfByModelRow[] | null | undefined;
     try {
-      rawRows = await naapGet<PerfByModelRow[] | null | undefined>('perf/stream/by-model', { start: roundedStart, end: roundedEnd }, {
+      rawRows = await naapGet<PerfByModelRow[] | null | undefined>('perf/by-model', { start: roundedStart, end: roundedEnd }, {
         cache: 'no-store',
         errorLabel: 'perf-by-model',
       });

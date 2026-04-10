@@ -14,7 +14,7 @@
  * range; they are multiplied by 100 for the UI.
  *
  * Source:
- *   GET /v1/net/orchestrators?active_only=false&limit=…&offset=…
+ *   GET /v1/net/orchestrators?active_only=false&limit=…[&cursor=…]
  *   GET /v1/dashboard/orchestrators?window=Wh
  */
 
@@ -28,12 +28,15 @@ import {
 
 interface ApiOrchestrator {
   address: string;
+  ensName?: string;
+  serviceUri?: string;
   knownSessions: number;
   successSessions: number;
   successRatio: number;
   effectiveSuccessRate: number | null;
   noSwapRatio: number | null;
   slaScore: number | null;
+  slaWindowStart?: string | null;
   pipelines: string[];
   pipelineModels: { pipelineId: string; modelIds: string[] }[];
   gpuCount: number;

@@ -13,7 +13,7 @@
  *
  * Source:
  *   GET /v1/dashboard/kpi?window=Nh[&pipeline=...&model_id=...]
- *   GET /v1/net/orchestrators?active_only=false&limit=…&offset=…  (shared, cached, paged)
+ *   GET /v1/net/orchestrators?active_only=false&limit=…[&cursor=…]  (shared, cached, paged)
  */
 
 import type { DashboardKPI } from '@naap/plugin-sdk';
