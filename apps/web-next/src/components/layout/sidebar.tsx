@@ -305,7 +305,6 @@ export function Sidebar() {
     '/settings',
     '/teams',
     '/marketplace',
-    '/pymthouse',
     '/feedback',
     '/releases',
     '/treasury',
@@ -385,11 +384,6 @@ export function Sidebar() {
               <NavLink
                 item={{ name: 'Overview', href: '/dashboard', icon: Activity }}
                 isActive={isActive('/dashboard')}
-                isOpen={isSidebarOpen}
-              />
-              <NavLink
-                item={{ name: 'PymtHouse', href: '/pymthouse', icon: ShoppingBag }}
-                isActive={isActive('/pymthouse')}
                 isOpen={isSidebarOpen}
               />
               {isLoading ? (

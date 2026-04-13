@@ -568,73 +568,80 @@ result = [...result].sort((a, b) => {
         return;
       }
       const startData = await startRes.json();
+      const directApiKey = startData.data?.api_key || startData.api_key;
       const authUrl = startData.data?.auth_url || startData.auth_url;
       const loginSessionId = startData.data?.login_session_id || startData.login_session_id;
-      if (!authUrl || !loginSessionId) {
-        setCreateError('Missing auth URL from billing provider.');
-        setCreateStep('form');
-        setCreating(false);
-        return;
-      }
 
-      window.open(authUrl, '_blank', 'noopener,noreferrer');
+      // Server-to-server providers (e.g. PymtHouse) return api_key directly.
+      // Browser-redirect providers (e.g. Daydream) return auth_url for popup + polling.
+      let providerApiKey: string | null = directApiKey || null;
 
-      const pollInterval = startData.data?.poll_after_ms ?? startData.poll_after_ms ?? 2000;
-      const pollTimeout = (startData.data?.expires_in ?? startData.expires_in ?? 180) * 1000;
-      const started = Date.now();
-      let providerApiKey: string | null = null;
+      if (!providerApiKey) {
+        if (!authUrl || !loginSessionId) {
+          setCreateError('Missing auth URL from billing provider.');
+          setCreateStep('form');
+          setCreating(false);
+          return;
+        }
 
-      while (Date.now() - started < pollTimeout && !abortController.signal.aborted) {
-        try {
-          await delayWithAbort(pollInterval, abortController.signal);
-        } catch {
-          break;
+        window.open(authUrl, '_blank', 'noopener,noreferrer');
+
+        const pollInterval = startData.data?.poll_after_ms ?? startData.poll_after_ms ?? 2000;
+        const pollTimeout = (startData.data?.expires_in ?? startData.expires_in ?? 180) * 1000;
+        const started = Date.now();
+
+        while (Date.now() - started < pollTimeout && !abortController.signal.aborted) {
+          try {
+            await delayWithAbort(pollInterval, abortController.signal);
+          } catch {
+            break;
+          }
+
+          if (abortController.signal.aborted) {
+            break;
+          }
+
+          try {
+            const pollRes = await fetch(
+              `/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/result?login_session_id=${encodeURIComponent(
+                loginSessionId
+              )}`,
+              { signal: abortController.signal }
+            );
+            if (!pollRes.ok) break;
+            const pollData = await pollRes.json();
+            const status = pollData.data?.status || pollData.status;
+            if (status === 'complete') {
+              providerApiKey = pollData.data?.access_token || pollData.access_token;
+              break;
+            }
+            if (status === 'redeemed') {
+              setCreateError('Authentication redeemed. Please request a new token.');
+              setCreateStep('form');
+              setCreating(false);
+              return;
+            }
+            if (status === 'expired' || status === 'denied') {
+              setCreateError(`Authentication ${status}. Please try again.`);
+              setCreateStep('form');
+              setCreating(false);
+              return;
+            }
+          } catch {
+            break;
+          }
         }
 
         if (abortController.signal.aborted) {
-          break;
+          return;
         }
 
-        try {
-          const pollRes = await fetch(
-            `/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/result?login_session_id=${encodeURIComponent(
-              loginSessionId
-            )}`,
-            { signal: abortController.signal }
-          );
-          if (!pollRes.ok) break;
-          const pollData = await pollRes.json();
-          const status = pollData.data?.status || pollData.status;
-          if (status === 'complete') {
-            providerApiKey = pollData.data?.access_token || pollData.access_token;
-            break;
-          }
-          if (status === 'redeemed') {
-            setCreateError('Authentication redeemed. Please request a new token.');
-            setCreateStep('form');
-            setCreating(false);
-            return;
-          }
-          if (status === 'expired' || status === 'denied') {
-            setCreateError(`Authentication ${status}. Please try again.`);
-            setCreateStep('form');
-            setCreating(false);
-            return;
-          }
-        } catch {
-          break;
+        if (!providerApiKey) {
+          setCreateError('Authentication timed out. Please try again.');
+          setCreateStep('form');
+          setCreating(false);
+          return;
         }
-      }
-
-      if (abortController.signal.aborted) {
-        return;
-      }
-
-      if (!providerApiKey) {
-        setCreateError('Authentication timed out. Please try again.');
-        setCreateStep('form');
-        setCreating(false);
-        return;
       }
 
       const csrfToken = await fetchCsrfToken();
