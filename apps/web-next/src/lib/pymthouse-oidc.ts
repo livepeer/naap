@@ -1,77 +1,64 @@
 /**
- * PymtHouse OIDC helpers for billing-provider OAuth (naap-web client).
+ * PymtHouse OIDC helpers for NaaP → PymtHouse server-to-server (client credentials).
+ *
+ * NaaP authenticates as a confidential machine client — no browser redirect, no
+ * authorization code, no redirect_uri.  PymtHouse issues the gateway token on
+ * behalf of the NaaP user confidentially via POST /api/v1/naap/link-user.
  */
 
-import { createHash, randomBytes } from 'crypto';
-
-export function generatePkcePair(): { codeVerifier: string; codeChallenge: string } {
-  const codeVerifier = randomBytes(32).toString('base64url');
-  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
-  return { codeVerifier, codeChallenge };
-}
+const TRAILING_SLASH = /\/+$/;
 
 export function getPymthouseIssuerBase(): string | null {
   const raw = process.env.PYMTHOUSE_ISSUER_URL?.trim();
   if (!raw) return null;
-  return raw.replace(/\/+$/, '');
+  return raw.replace(TRAILING_SLASH, '');
 }
 
+/**
+ * OAuth `client_id` for client_credentials — default **`naap-service`**.
+ * Must be a confidential OIDC client registered on PymtHouse with `gateway` in
+ * its allowed scopes.
+ */
 export function getPymthouseOidcClientId(): string {
-  return process.env.PYMTHOUSE_OIDC_CLIENT_ID?.trim() || 'naap-web';
+  return process.env.PMTHOUSE_CLIENT_ID?.trim() || 'naap-service';
 }
 
 export function getPymthouseOidcClientSecret(): string | null {
-  const s = process.env.NAAP_WEB_CLIENT_SECRET?.trim();
-  return s || null;
-}
-
-/** Space-separated scopes — must be allowed for `naap-web` on PymtHouse. */
-export function getPymthouseBillingOidcScopes(): string {
   return (
-    process.env.PYMTHOUSE_OIDC_SCOPES?.trim() ||
-    'openid gateway sign:job discover:orchestrators'
+    process.env.PMTHOUSE_CLIENT_SECRET?.trim() ||
+    process.env.NAAP_WEB_CLIENT_SECRET?.trim() ||
+    null
   );
 }
 
-export function buildPymthouseAuthorizeUrl(opts: {
-  redirectUri: string;
-  state: string;
-  codeChallenge: string;
-}): string | null {
+/** PymtHouse API base (strip /api/v1/oidc suffix if present; fall back to PMTHOUSE_BASE_URL). */
+export function getPymthouseApiBase(): string | null {
+  const siteBase = process.env.PMTHOUSE_BASE_URL?.trim().replace(TRAILING_SLASH, '');
+  if (siteBase) return siteBase;
   const issuer = getPymthouseIssuerBase();
   if (!issuer) return null;
-  const clientId = getPymthouseOidcClientId();
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: clientId,
-    redirect_uri: opts.redirectUri,
-    scope: getPymthouseBillingOidcScopes(),
-    state: opts.state,
-    code_challenge: opts.codeChallenge,
-    code_challenge_method: 'S256',
-  });
-  return `${issuer}/auth?${params.toString()}`;
+  return issuer.replace(/\/api\/v1\/oidc$/i, '');
 }
 
-export async function exchangePymthouseAuthorizationCode(opts: {
-  code: string;
-  redirectUri: string;
-  codeVerifier: string;
-}): Promise<{ access_token: string }> {
+/**
+ * Obtain a short-lived service JWT from PymtHouse via `client_credentials` grant.
+ * Used server-side only — never sent to the browser.
+ */
+export async function getPymthouseServiceToken(): Promise<string> {
   const issuer = getPymthouseIssuerBase();
   const clientId = getPymthouseOidcClientId();
   const clientSecret = getPymthouseOidcClientSecret();
   if (!issuer || !clientSecret) {
-    throw new Error('PYMTHOUSE_ISSUER_URL and NAAP_WEB_CLIENT_SECRET must be set');
+    throw new Error(
+      'PYMTHOUSE_ISSUER_URL and PMTHOUSE_CLIENT_SECRET (or NAAP_WEB_CLIENT_SECRET) must be set',
+    );
   }
 
   const body = new URLSearchParams({
-    grant_type: 'authorization_code',
-    code: opts.code,
-    redirect_uri: opts.redirectUri,
+    grant_type: 'client_credentials',
     client_id: clientId,
     client_secret: clientSecret,
-    code_verifier: opts.codeVerifier,
+    scope: 'gateway sign:job discover:orchestrators',
   });
 
   const controller = new AbortController();
@@ -90,28 +77,39 @@ export async function exchangePymthouseAuthorizationCode(opts: {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`PymtHouse token exchange failed: ${response.status} ${text}`);
+    throw new Error(
+      `PymtHouse client_credentials failed (${response.status}). ` +
+        `Ensure ${clientId} is a confidential OIDC client with gateway scope on PymtHouse. ${text}`,
+    );
   }
 
   const json = (await response.json()) as Record<string, unknown>;
-  const access_token = json.access_token;
-  if (typeof access_token !== 'string' || !access_token) {
-    throw new Error('PymtHouse token response missing access_token');
+  const accessToken = json.access_token;
+  if (typeof accessToken !== 'string' || !accessToken) {
+    throw new Error('PymtHouse client_credentials response missing access_token');
   }
-  return { access_token };
+  return accessToken;
 }
 
 /**
- * Exchange OIDC access token for a long-lived gateway API key (legacy endpoint).
- * Requires `LEGACY_NAAP_LINK_ENABLED` on PymtHouse unless a dedicated endpoint replaces it.
+ * Ask PymtHouse to link a NaaP user and issue a long-lived gateway session token.
+ * PymtHouse records `naapUserId` as `endUserId` for usage attribution.
+ *
+ * Returns the opaque `pmth_*` gateway session token to store as the API key.
  */
-export async function exchangePymthouseAccessTokenForApiKey(accessToken: string): Promise<string> {
-  const issuer = getPymthouseIssuerBase();
-  if (!issuer) {
-    throw new Error('PYMTHOUSE_ISSUER_URL must be set');
+export async function linkPymthouseUser(
+  serviceToken: string,
+  naapUserId: string,
+  opts?: { email?: string },
+): Promise<string> {
+  const base = getPymthouseApiBase();
+  if (!base) {
+    throw new Error('PYMTHOUSE_ISSUER_URL or PMTHOUSE_BASE_URL must be set');
   }
-  const base = issuer.replace(/\/api\/v1\/oidc$/i, '');
-  const url = `${base}/api/v1/naap/exchange`;
+
+  const url = `${base}/api/v1/naap/link-user`;
+  const body: Record<string, string> = { naapUserId };
+  if (opts?.email) body.email = opts.email;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15_000);
@@ -120,10 +118,10 @@ export async function exchangePymthouseAccessTokenForApiKey(accessToken: string)
     response = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
+        Authorization: `Bearer ${serviceToken}`,
       },
-      body: '{}',
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
   } finally {
@@ -133,15 +131,15 @@ export async function exchangePymthouseAccessTokenForApiKey(accessToken: string)
   if (!response.ok) {
     const text = await response.text();
     throw new Error(
-      `PymtHouse API key exchange failed (${response.status}). ` +
-        `Ensure LEGACY_NAAP_LINK_ENABLED is not false on PymtHouse and the access token includes gateway scope. ${text}`
+      `PymtHouse link-user failed (${response.status}). ` +
+        `Ensure naap-service has gateway scope and PYMTHOUSE_ISSUER_URL points to the OIDC issuer. ${text}`,
     );
   }
 
   const json = (await response.json()) as Record<string, unknown>;
-  const apiKey = json.api_key ?? json.apiKey;
+  const apiKey = json.api_key ?? json.access_token;
   if (typeof apiKey !== 'string' || !apiKey) {
-    throw new Error('PymtHouse exchange response missing api_key');
+    throw new Error('PymtHouse link-user response missing api_key');
   }
   return apiKey;
 }
