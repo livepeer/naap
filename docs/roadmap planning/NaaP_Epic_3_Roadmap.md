@@ -57,7 +57,7 @@ Building on the foundations of Epics 1 and 2, Epic 3 pursues three goals:
   - Bring-your-own-compute (BYOC) capabilities
   - AI Runner capabilities (Stable Diffusion families, community LLMs, and more)
 
-The RFC for initial scope and architecture is [linked here].
+The RFC for initial scope and architecture is [linked here](https://gist.github.com/eliteprox/456545370109cc971341860532dc2a1a).
 
 ---
 
