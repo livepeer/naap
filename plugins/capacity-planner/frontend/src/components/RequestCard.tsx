@@ -49,20 +49,28 @@ export const RequestCard: React.FC<RequestCardProps> = ({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="glass-card p-5 hover:border-accent-blue/30 transition-all cursor-pointer group flex flex-col"
+      className={`glass-card p-5 hover:border-accent-blue/30 transition-all cursor-pointer group flex flex-col ${
+        request.status !== 'active' ? 'opacity-60' : ''
+      }`}
       onClick={() => onSelect(request)}
     >
       {/* Header: Requester info */}
       <div className="flex items-start justify-between mb-3">
         <div className="min-w-0 flex-1 mr-3">
-          <h3 className="font-bold text-text-primary text-sm leading-tight truncate group-hover:text-accent-blue transition-colors">
+          <h3 className={`font-bold text-sm leading-tight truncate transition-colors ${
+            request.status !== 'active' ? 'text-text-secondary' : 'text-text-primary group-hover:text-accent-blue'
+          }`}>
             {request.requesterName}
           </h3>
           <p className="text-xs text-text-secondary font-mono mt-0.5 truncate">
             {request.requesterAccount}
           </p>
         </div>
-        <Badge variant={request.status === 'active' ? 'emerald' : 'secondary'}>
+        <Badge variant={
+          request.status === 'active' ? 'emerald' :
+          request.status === 'fulfilled' ? 'blue' :
+          'secondary'
+        }>
           {request.status}
         </Badge>
       </div>

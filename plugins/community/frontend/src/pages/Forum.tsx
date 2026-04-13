@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Plus, Search, MessageSquare, ThumbsUp, Clock, CheckCircle, TrendingUp, HelpCircle, Megaphone, Sparkles, Trophy, Tag, Loader2 } from 'lucide-react';
+import { Users, Plus, Search, MessageSquare, ThumbsUp, Clock, CheckCircle, TrendingUp, HelpCircle, Megaphone, Sparkles, Trophy, Tag, Loader2, MoreVertical, Trash2, XCircle, Archive, Ban } from 'lucide-react';
 import { Card, Badge } from '@naap/ui';
-import { fetchPosts, fetchLeaderboard, fetchTags, votePost, removeVote, checkVoted, isUserLoggedIn, getCurrentUser, type Post, type LeaderboardEntry, type Tag as TagType } from '../api/client';
+import { fetchPosts, fetchLeaderboard, fetchTags, votePost, removeVote, checkVoted, moderatePost, banUser, isUserLoggedIn, getCurrentUser, type Post, type LeaderboardEntry, type Tag as TagType } from '../api/client';
 import { CreatePostModal } from '../components/CreatePostModal';
 
 const CATEGORIES = [
@@ -232,6 +232,32 @@ export const ForumPage: React.FC = () => {
   };
 
   const currentUser = getCurrentUser();
+  const isAdmin = currentUser?.isAdmin ?? false;
+  const [adminMenuPostId, setAdminMenuPostId] = useState<string | null>(null);
+
+  const handleAdminAction = async (postId: string, action: 'delete' | 'close' | 'archive') => {
+    setAdminMenuPostId(null);
+    const labels = { delete: 'delete', close: 'close', archive: 'archive' };
+    if (!window.confirm(`Are you sure you want to ${labels[action]} this post?`)) return;
+    try {
+      await moderatePost(postId, action);
+      loadPosts();
+    } catch (err) {
+      alert('Failed to moderate post: ' + (err as Error).message);
+    }
+  };
+
+  const handleBanPostAuthor = async (post: Post) => {
+    setAdminMenuPostId(null);
+    const reason = window.prompt('Reason for banning this user (optional):');
+    if (reason === null) return;
+    try {
+      await banUser(post.author.userId, true, reason || undefined);
+      alert('User has been banned from the community.');
+    } catch (err) {
+      alert('Failed to ban user: ' + (err as Error).message);
+    }
+  };
 
   return (
     <div className="flex gap-4 h-full min-h-0">
@@ -428,6 +454,55 @@ export const ForumPage: React.FC = () => {
                           </span>
                         ))}
                       </div>
+                      {isAdmin && (
+                        <div className="relative ml-auto">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAdminMenuPostId(adminMenuPostId === post.id ? null : post.id);
+                            }}
+                            className="p-1 rounded hover:bg-white/10 text-text-secondary hover:text-text-primary transition-colors"
+                            title="Moderate"
+                          >
+                            <MoreVertical size={14} />
+                          </button>
+                          {adminMenuPostId === post.id && (
+                            <div
+                              className="absolute right-0 top-full mt-1 w-36 bg-bg-secondary border border-white/10 rounded-lg shadow-xl z-20 py-1"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                onClick={() => handleAdminAction(post.id, 'delete')}
+                                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-accent-rose hover:bg-white/5 transition-colors"
+                              >
+                                <Trash2 size={12} /> Delete
+                              </button>
+                              {post.status === 'OPEN' && (
+                                <button
+                                  onClick={() => handleAdminAction(post.id, 'close')}
+                                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-accent-amber hover:bg-white/5 transition-colors"
+                                >
+                                  <XCircle size={12} /> Close
+                                </button>
+                              )}
+                              {post.status === 'OPEN' && (
+                                <button
+                                  onClick={() => handleAdminAction(post.id, 'archive')}
+                                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-text-secondary hover:bg-white/5 transition-colors"
+                                >
+                                  <Archive size={12} /> Archive
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleBanPostAuthor(post)}
+                                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-accent-rose hover:bg-white/5 transition-colors"
+                              >
+                                <Ban size={12} /> Ban User
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

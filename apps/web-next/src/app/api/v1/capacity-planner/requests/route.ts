@@ -41,6 +41,7 @@ function parseCapacityRequestsPagination(searchParams: URLSearchParams): {
  */
 function serialiseRequest(r: {
   id: string;
+  creatorId?: string | null;
   requesterName: string;
   requesterAccount: string;
   gpuModel: string;
@@ -81,6 +82,7 @@ function serialiseRequest(r: {
 
   return {
     id: r.id,
+    creatorId: r.creatorId ?? undefined,
     requesterName: r.requesterName,
     requesterAccount: r.requesterAccount,
     gpuModel: r.gpuModel,
@@ -126,11 +128,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const search = searchParams.get('search');
     const vramMin = searchParams.get('vramMin');
     const sort = searchParams.get('sort');
+    const statusFilter = searchParams.get('status') || 'active';
 
     // Build Prisma where clause with proper types
-    const where: Prisma.CapacityRequestWhereInput = {
-      status: 'ACTIVE',
-    };
+    const where: Prisma.CapacityRequestWhereInput = {};
+    const andClauses: Prisma.CapacityRequestWhereInput[] = [];
+
+    if (statusFilter === 'archived') {
+      // Show non-active statuses OR active requests that have expired
+      andClauses.push({
+        OR: [
+          { status: { in: ['EXPIRED', 'CANCELLED', 'CLOSED', 'FULFILLED'] } },
+          { status: 'ACTIVE', validUntil: { lt: new Date() } },
+        ],
+      });
+    } else if (statusFilter === 'all') {
+      // No status filter
+    } else {
+      // Default: active and not yet expired
+      where.status = 'ACTIVE';
+      where.validUntil = { gte: new Date() };
+    }
 
     if (pipeline) {
       where.pipeline = pipeline;
@@ -148,15 +166,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     if (search) {
-      where.OR = [
-        { requesterName: { contains: search, mode: 'insensitive' } },
-        { requesterAccount: { contains: search, mode: 'insensitive' } },
-        { gpuModel: { contains: search, mode: 'insensitive' } },
-        { pipeline: { contains: search, mode: 'insensitive' } },
-        { reason: { contains: search, mode: 'insensitive' } },
-        { osVersion: { contains: search, mode: 'insensitive' } },
-        { cudaVersion: { contains: search, mode: 'insensitive' } },
-      ];
+      andClauses.push({
+        OR: [
+          { requesterName: { contains: search, mode: 'insensitive' } },
+          { requesterAccount: { contains: search, mode: 'insensitive' } },
+          { gpuModel: { contains: search, mode: 'insensitive' } },
+          { pipeline: { contains: search, mode: 'insensitive' } },
+          { reason: { contains: search, mode: 'insensitive' } },
+          { osVersion: { contains: search, mode: 'insensitive' } },
+          { cudaVersion: { contains: search, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (andClauses.length > 0) {
+      where.AND = andClauses;
     }
 
     // Build orderBy with proper Prisma type
@@ -273,6 +297,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const created = await prisma.capacityRequest.create({
       data: {
+        creatorId: user.id,
         requesterName: body.requesterName as string,
         requesterAccount: (body.requesterAccount as string) || '0x0000...0000',
         gpuModel: body.gpuModel as string,

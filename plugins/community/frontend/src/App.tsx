@@ -16,9 +16,11 @@ const UserSync: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   useEffect(() => {
     if (user) {
+      const isAdmin = user.roles?.includes('community:admin') || user.roles?.includes('system:admin') || false;
       setCurrentUser({
         userId: user.id || 'anonymous',
         displayName: user.displayName || user.address?.slice(0, 10) || 'Anonymous',
+        isAdmin,
       });
     } else {
       setCurrentUser(null);
