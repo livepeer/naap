@@ -104,7 +104,7 @@ The RFC for initial scope and architecture is [linked here].
 
 ### Episode 5 — Agent-First DevX: Product & Architecture Prototype
 
-**Owner:** Qiang (builds on Episode 3; additional contributors to be identified)
+**Owners:** Qiang, Rick, Emran (builds on Episode 3)
 
 **Goal:** Define the architecture that lets developers use any agent framework with Livepeer's AI inference capabilities — through vibe coding and natural-language-driven development.
 
