@@ -4,6 +4,7 @@ import { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { PasswordInput } from '@/components/auth/PasswordInput';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
@@ -158,14 +159,14 @@ function ResetPasswordFormInner() {
           <label htmlFor="password" className="block text-[13px] font-medium text-muted-foreground mb-1.5">
             New password
           </label>
-          <input
+          <PasswordInput
             id="password"
             name="password"
-            type="password"
             value={formData.password}
             onChange={handleChange}
-            className={inputClass}
+            inputClassName={inputClass}
             placeholder="Min. 8 characters"
+            autoComplete="new-password"
             required
             minLength={8}
           />
@@ -175,14 +176,14 @@ function ResetPasswordFormInner() {
           <label htmlFor="confirmPassword" className="block text-[13px] font-medium text-muted-foreground mb-1.5">
             Confirm new password
           </label>
-          <input
+          <PasswordInput
             id="confirmPassword"
             name="confirmPassword"
-            type="password"
             value={formData.confirmPassword}
             onChange={handleChange}
-            className={inputClass}
+            inputClassName={inputClass}
             placeholder="Confirm your password"
+            autoComplete="new-password"
             required
           />
         </div>

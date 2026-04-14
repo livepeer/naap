@@ -13,6 +13,7 @@
   "license": "MIT",
   "keywords": ["capacity", "planning", "gpu", "coordination"],
   "category": "operations",
+  "isCore": true,
   
   "shell": {
     "minVersion": "0.1.0",

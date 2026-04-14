@@ -113,6 +113,7 @@ function PluginsTab() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingChanges, setPendingChanges] = useState(false);
+  const [rawPreviewText, setRawPreviewText] = useState<Record<string, string>>({});
 
   const loadPlugins = useCallback(async () => {
     try {
@@ -122,13 +123,15 @@ function PluginsTab() {
       const data = await res.json();
       if (data.success) {
         const raw = data.data.plugins || [];
-        setPlugins(
-          raw.map((p: PluginEntry & { previewTesterUserIds?: string[] }) => ({
-            ...p,
-            previewTesterUserIds: Array.isArray(p.previewTesterUserIds)
-              ? p.previewTesterUserIds
-              : [],
-          }))
+        const mapped = raw.map((p: PluginEntry & { previewTesterUserIds?: string[] }) => ({
+          ...p,
+          previewTesterUserIds: Array.isArray(p.previewTesterUserIds)
+            ? p.previewTesterUserIds
+            : [],
+        }));
+        setPlugins(mapped);
+        setRawPreviewText(
+          Object.fromEntries(mapped.map((p: PluginEntry) => [p.name, p.previewTesterUserIds.join('\n')]))
         );
       } else {
         setError(data.error?.message || 'Failed to load plugins');
@@ -155,6 +158,8 @@ function PluginsTab() {
   };
 
   const toggleVisibility = (pluginName: string) => {
+    const current = plugins.find((p) => p.name === pluginName);
+    const becomingVisible = current && !current.visibleToUsers;
     setPlugins((prev) =>
       prev.map((p) => {
         if (p.name !== pluginName) return p;
@@ -166,20 +171,15 @@ function PluginsTab() {
         };
       })
     );
+    if (becomingVisible) {
+      setRawPreviewText((prev) => ({ ...prev, [pluginName]: '' }));
+    }
     setPendingChanges(true);
     setSuccessMsg(null);
   };
 
   const setPreviewTesterIds = (pluginName: string, value: string) => {
-    const ids = value
-      .split(/[\s,]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    setPlugins((prev) =>
-      prev.map((p) =>
-        p.name === pluginName ? { ...p, previewTesterUserIds: ids } : p
-      )
-    );
+    setRawPreviewText((prev) => ({ ...prev, [pluginName]: value }));
     setPendingChanges(true);
     setSuccessMsg(null);
   };
@@ -193,8 +193,11 @@ function PluginsTab() {
       const corePluginNames = plugins.filter((p) => p.isCore).map((p) => p.name);
       const hiddenPluginNames = plugins.filter((p) => !p.visibleToUsers).map((p) => p.name);
 
+      const parseIds = (raw: string) =>
+        raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+
       const previewTesterUserIdsByPlugin = Object.fromEntries(
-        plugins.map((p) => [p.name, p.previewTesterUserIds || []])
+        plugins.map((p) => [p.name, parseIds(rawPreviewText[p.name] ?? '')])
       );
 
       const res = await fetch('/api/v1/admin/plugins/core', {
@@ -210,7 +213,11 @@ function PluginsTab() {
 
       const data = await res.json();
       if (data.success) {
-        setPlugins(data.data.plugins || []);
+        const saved: PluginEntry[] = data.data.plugins || [];
+        setPlugins(saved);
+        setRawPreviewText(
+          Object.fromEntries(saved.map((p) => [p.name, (p.previewTesterUserIds || []).join('\n')]))
+        );
         setPendingChanges(false);
         setSuccessMsg(data.data.message || 'Plugin configuration updated.');
         setTimeout(() => setSuccessMsg(null), 5000);
@@ -315,6 +322,7 @@ function PluginsTab() {
                   <PluginRow
                     key={plugin.id}
                     plugin={plugin}
+                    rawPreviewText={rawPreviewText[plugin.name] ?? ''}
                     onToggleCore={toggleCore}
                     onToggleVisibility={toggleVisibility}
                     onPreviewIdsChange={setPreviewTesterIds}
@@ -335,6 +343,7 @@ function PluginsTab() {
                   <PluginRow
                     key={plugin.id}
                     plugin={plugin}
+                    rawPreviewText={rawPreviewText[plugin.name] ?? ''}
                     onToggleCore={toggleCore}
                     onToggleVisibility={toggleVisibility}
                     onPreviewIdsChange={setPreviewTesterIds}
@@ -360,11 +369,13 @@ function PluginsTab() {
 
 function PluginRow({
   plugin,
+  rawPreviewText,
   onToggleCore,
   onToggleVisibility,
   onPreviewIdsChange,
 }: {
   plugin: PluginEntry;
+  rawPreviewText: string;
   onToggleCore: (name: string) => void;
   onToggleVisibility: (name: string) => void;
   onPreviewIdsChange: (name: string, raw: string) => void;
@@ -403,7 +414,7 @@ function PluginRow({
           </Badge>
           {plugin.isCore && <Badge variant="amber">CORE</Badge>}
           {!plugin.visibleToUsers && <Badge variant="secondary">HIDDEN</Badge>}
-          {!plugin.visibleToUsers && plugin.previewTesterUserIds.length > 0 && (
+          {!plugin.visibleToUsers && rawPreviewText.trim().length > 0 && (
             <Badge variant="blue">PREVIEW</Badge>
           )}
         </div>
@@ -443,7 +454,7 @@ function PluginRow({
             Preview tester user IDs or emails (comma or newline separated)
           </label>
           <Textarea
-            value={plugin.previewTesterUserIds.join('\n')}
+            value={rawPreviewText}
             onChange={(e) => onPreviewIdsChange(plugin.name, e.target.value)}
             placeholder="e.g. user@example.com or clxxxxxxxx uuid"
             rows={3}
