@@ -24,41 +24,28 @@ function sanitizeRegistryPipelineSlug(raw: string): string | null {
 }
 
 /**
- * Fallback: Livepeer `net.Capability` / protobuf enum **names** (SCREAMING_SNAKE), aligned with
- * go-livepeer generated code — not user-controlled strings. Slugs are derived with
- * {@link livepeerCapabilityEnumNameToPipelineSlug}.
- *
- * Prefer resolving pipeline from `hardware` on the same `RawCapabilities` object (model_id ↔
- * constraint); this table is only used when a price row has no matching hardware entry.
+ * Fallback: Livepeer `net.Capability` protobuf enum IDs → pipeline slugs.
+ * Prefer resolving pipeline from `hardware` on the same `RawCapabilities` object;
+ * this table is only used when a price row has no matching hardware entry.
  *
  * @see https://github.com/livepeer/go-livepeer/blob/master/net/capabilities.go (Capability enum)
  */
-const LIVEPEER_CAPABILITY_ENUM_NAME_BY_ID: Partial<Record<number, string>> = {
-  27: 'TEXT_TO_IMAGE',
-  28: 'IMAGE_TO_IMAGE',
-  29: 'IMAGE_TO_VIDEO',
-  30: 'UPSCALE',
-  31: 'AUDIO_TO_TEXT',
-  32: 'SEGMENT_ANYTHING_2',
-  33: 'LLM',
-  34: 'IMAGE_TO_TEXT',
-  35: 'LIVE_VIDEO_TO_VIDEO',
-  36: 'TEXT_TO_SPEECH',
-  37: 'BYOC',
+const LIVEPEER_CAPABILITY_SLUG_BY_ID: Partial<Record<number, string>> = {
+  27: 'text-to-image',
+  28: 'image-to-image',
+  29: 'image-to-video',
+  30: 'upscale',
+  31: 'audio-to-text',
+  32: 'segment-anything-2',
+  33: 'llm',
+  34: 'image-to-text',
+  35: 'live-video-to-video',
+  36: 'text-to-speech',
+  37: 'byoc',
 };
 
-const LIVEPEER_ENUM_NAME_RE = /^[A-Z][A-Z0-9_]*$/;
-
-function livepeerCapabilityEnumNameToPipelineSlug(enumName: string): string | null {
-  if (!LIVEPEER_ENUM_NAME_RE.test(enumName)) {
-    return null;
-  }
-  return enumName.toLowerCase().replaceAll('_', '-');
-}
-
 function pipelineSlugFromCapabilityId(capId: number): string | null {
-  const name = LIVEPEER_CAPABILITY_ENUM_NAME_BY_ID[capId];
-  return name !== undefined ? livepeerCapabilityEnumNameToPipelineSlug(name) : null;
+  return LIVEPEER_CAPABILITY_SLUG_BY_ID[capId] ?? null;
 }
 
 /** model_id / price constraint → pipeline slug from the same registry JSON (dynamic, no ID table). */
@@ -102,17 +89,11 @@ interface DashboardPipelineModelOffer {
   modelIds: string[];
 }
 
-interface CapabilityFreshnessEntry {
-  lastSeenMs: number;
-  pricePerUnit?: number;
-  pixelsPerUnit?: number;
-}
-
 interface DiscoveryAggRow {
   displayAddress: string;
   uris: string[];
   active: boolean;
-  caps: Map<string, CapabilityFreshnessEntry>;
+  caps: Set<string>;
   bestLastSeenMs: number;
   canonicalUri: string;
 }
@@ -128,10 +109,9 @@ function parseRegistryRawCapabilities(raw: string | undefined): RegistryRawCapab
   }
 }
 
-function parseRawCapabilities(raw: string | undefined): DashboardPipelineModelOffer[] {
-  const parsed = parseRegistryRawCapabilities(raw);
+function pipelineModelOffersFromRegistry(reg: RegistryRawCapabilities): DashboardPipelineModelOffer[] {
   const byPipeline = new Map<string, Set<string>>();
-  for (const h of parsed.hardware ?? []) {
+  for (const h of reg.hardware ?? []) {
     const pipeline = sanitizeRegistryPipelineSlug(h.pipeline ?? '');
     const model = h.model_id?.trim();
     if (!pipeline || !model) {
@@ -211,40 +191,6 @@ function parseOrchestratorLastSeenMs(row: NaapNetOrchestrator): number | undefin
   return Number.isFinite(t) ? t : undefined;
 }
 
-/** Row-level merge: keep the entry tied to the greatest LastSeen; tie-break merges price. */
-function mergeCapFreshness(
-  existing: CapabilityFreshnessEntry | undefined,
-  ls: number,
-  price: { pricePerUnit: number; pixelsPerUnit: number } | undefined,
-): CapabilityFreshnessEntry {
-  if (existing === undefined) {
-    return {
-      lastSeenMs: ls,
-      pricePerUnit: price?.pricePerUnit,
-      pixelsPerUnit: price?.pixelsPerUnit,
-    };
-  }
-  if (ls > existing.lastSeenMs) {
-    return {
-      lastSeenMs: ls,
-      pricePerUnit: price?.pricePerUnit,
-      pixelsPerUnit: price?.pixelsPerUnit,
-    };
-  }
-  if (ls < existing.lastSeenMs) {
-    return {
-      lastSeenMs: existing.lastSeenMs,
-      pricePerUnit: existing.pricePerUnit ?? price?.pricePerUnit,
-      pixelsPerUnit: existing.pixelsPerUnit ?? price?.pixelsPerUnit,
-    };
-  }
-  return {
-    lastSeenMs: ls,
-    pricePerUnit: existing.pricePerUnit ?? price?.pricePerUnit,
-    pixelsPerUnit: existing.pixelsPerUnit ?? price?.pixelsPerUnit,
-  };
-}
-
 export interface NetOrchestratorData {
   activeCount: number;
   /** Lower-cased on-chain addresses with at least one `IsActive` registry row. */
@@ -257,24 +203,20 @@ export interface NetOrchestratorData {
   pipelineModelsByAddress: Map<string, DashboardPipelineModelOffer[]>;
 }
 
-/** Remote-signer-style discovery row; extra fields are NAAP extensions (ignored by strict clients). */
+/** Remote-signer-style discovery row. */
 export interface OrchestratorDiscoveryEntry {
   /** Canonical service URI (row with latest LastSeen for this orchestrator). */
   address: string;
-  /** On-chain orchestrator address (mixed-case from registry). */
-  orchestrator_address: string;
   score: number;
   /** `pipeline-id/model` strings for `caps=` filtering (OR semantics). */
   capabilities: string[];
-  /** All distinct service URIs seen for this orchestrator. */
-  service_uris: string[];
-  capability_details: Array<{
-    capability: string;
-    last_seen: string;
-    last_seen_ms: number;
-    price_per_unit?: number;
-    pixels_per_unit?: number;
-  }>;
+  /**
+   * Latest registry `LastSeen` for this orchestrator (max across its URI rows), ms since epoch.
+   * Response list is sorted by this field descending (newest first); `0` means unknown/missing.
+   */
+  last_seen_ms: number;
+  /** Present when {@link last_seen_ms} &gt; 0. */
+  last_seen?: string;
 }
 
 export interface NetOrchestratorBundle {
@@ -287,7 +229,11 @@ export function hasNonBlankServiceUri(uris: string[]): boolean {
   return uris.some((u) => typeof u === 'string' && u.trim().length > 0);
 }
 
-function discoveryEntryFromAgg(agg: DiscoveryAggRow): OrchestratorDiscoveryEntry | null {
+function discoveryEntryFromAgg(
+  addrLower: string,
+  agg: DiscoveryAggRow,
+  lastSeenMsByAddress: Map<string, number>,
+): OrchestratorDiscoveryEntry | null {
   if (!hasNonBlankServiceUri(agg.uris)) {
     return null;
   }
@@ -296,23 +242,18 @@ function discoveryEntryFromAgg(agg: DiscoveryAggRow): OrchestratorDiscoveryEntry
   if (!address) {
     return null;
   }
-  const capability_details = [...agg.caps.entries()]
-    .map(([capability, e]) => ({
-      capability,
-      last_seen: e.lastSeenMs > 0 ? new Date(e.lastSeenMs).toISOString() : '',
-      last_seen_ms: e.lastSeenMs,
-      ...(e.pricePerUnit !== undefined ? { price_per_unit: e.pricePerUnit } : {}),
-      ...(e.pixelsPerUnit !== undefined ? { pixels_per_unit: e.pixelsPerUnit } : {}),
-    }))
-    .sort((a, b) => a.capability.localeCompare(b.capability));
-  const capabilities = capability_details.map((d) => d.capability);
+  const fromMap = lastSeenMsByAddress.get(addrLower);
+  const rawMs = Math.max(
+    agg.bestLastSeenMs,
+    fromMap ?? -1,
+  );
+  const last_seen_ms = rawMs < 0 ? 0 : rawMs;
   return {
     address,
-    orchestrator_address: agg.displayAddress,
     score: agg.active ? 1 : 0,
-    capabilities,
-    service_uris: [...agg.uris].sort((a, b) => a.localeCompare(b)),
-    capability_details,
+    capabilities: [...agg.caps].sort((a, b) => a.localeCompare(b)),
+    last_seen_ms,
+    ...(last_seen_ms > 0 ? { last_seen: new Date(last_seen_ms).toISOString() } : {}),
   };
 }
 
@@ -343,7 +284,6 @@ async function fetchAllNetOrchestratorRows(): Promise<NaapNetOrchestrator[]> {
 }
 
 function aggregateNetOrchestratorBundleFromRows(rows: NaapNetOrchestrator[]): NetOrchestratorBundle {
-  const urisByAddress = new Map<string, string[]>();
   const displayAddressByLower = new Map<string, string>();
   const activeAddresses = new Set<string>();
   const lastSeenMsByAddress = new Map<string, number>();
@@ -354,7 +294,6 @@ function aggregateNetOrchestratorBundleFromRows(rows: NaapNetOrchestrator[]): Ne
   for (const r of rows) {
     const addr = r.Address.trim().toLowerCase();
     const lsRaw = parseOrchestratorLastSeenMs(r);
-    const ls = lsRaw ?? 0;
     if (lsRaw !== undefined) {
       hasLastSeenData = true;
     }
@@ -369,7 +308,7 @@ function aggregateNetOrchestratorBundleFromRows(rows: NaapNetOrchestrator[]): Ne
         displayAddress: r.Address.trim(),
         uris: [],
         active: false,
-        caps: new Map(),
+        caps: new Set(),
         bestLastSeenMs: -1,
         canonicalUri: '',
       };
@@ -399,7 +338,9 @@ function aggregateNetOrchestratorBundleFromRows(rows: NaapNetOrchestrator[]): Ne
       }
     }
 
-    const offers = parseRawCapabilities(r.RawCapabilities);
+    const reg = parseRegistryRawCapabilities(r.RawCapabilities);
+
+    const offers = pipelineModelOffersFromRegistry(reg);
     if (offers.length > 0) {
       pipelineModelsByAddress.set(
         addr,
@@ -407,18 +348,18 @@ function aggregateNetOrchestratorBundleFromRows(rows: NaapNetOrchestrator[]): Ne
       );
     }
 
-    let uris = urisByAddress.get(addr);
-    if (!uris) {
-      uris = [];
-      urisByAddress.set(addr, uris);
-    }
-    if (uri.length > 0 && !uris.includes(uri)) {
-      uris.push(uri);
+    const pipelineByModel = pipelineSlugByModelFromHardware(reg);
+
+    // Collect capability keys from hardware entries.
+    for (const h of reg.hardware ?? []) {
+      const p = sanitizeRegistryPipelineSlug(h.pipeline ?? '');
+      const m = h.model_id?.trim();
+      if (p && m) {
+        disc.caps.add(`${p}/${m}`);
+      }
     }
 
-    const reg = parseRegistryRawCapabilities(r.RawCapabilities);
-    const pipelineByModel = pipelineSlugByModelFromHardware(reg);
-    const priceByCapKey = new Map<string, { pricePerUnit: number; pixelsPerUnit: number }>();
+    // Collect capability keys from price entries (fallback via capability ID when no hardware match).
     for (const pr of reg.capabilities_prices ?? []) {
       const constraint = pr.constraint?.trim();
       if (!constraint) {
@@ -426,36 +367,18 @@ function aggregateNetOrchestratorBundleFromRows(rows: NaapNetOrchestrator[]): Ne
       }
       const slug =
         pipelineByModel.get(constraint) ?? pipelineSlugFromCapabilityId(pr.capability);
-      if (!slug) {
-        continue;
+      if (slug) {
+        disc.caps.add(`${slug}/${constraint}`);
       }
-      const k = `${slug}/${constraint}`;
-      priceByCapKey.set(k, { pricePerUnit: pr.pricePerUnit, pixelsPerUnit: pr.pixelsPerUnit });
-    }
-
-    const keysThisRow = new Set<string>();
-    for (const h of reg.hardware ?? []) {
-      const p = sanitizeRegistryPipelineSlug(h.pipeline ?? '');
-      const m = h.model_id?.trim();
-      if (!p || !m) {
-        continue;
-      }
-      keysThisRow.add(`${p}/${m}`);
-    }
-    for (const k of priceByCapKey.keys()) {
-      keysThisRow.add(k);
-    }
-
-    for (const key of keysThisRow) {
-      const price = priceByCapKey.get(key);
-      const cur = disc.caps.get(key);
-      disc.caps.set(key, mergeCapFreshness(cur, ls, price));
     }
   }
 
+  // Derive urisByAddress from the single-source discoveryByAddress map.
+  const urisByAddress = new Map<string, string[]>();
   let listedCount = 0;
-  for (const uris of urisByAddress.values()) {
-    if (hasNonBlankServiceUri(uris)) {
+  for (const [addr, disc] of discoveryByAddress) {
+    urisByAddress.set(addr, disc.uris);
+    if (hasNonBlankServiceUri(disc.uris)) {
       listedCount++;
     }
   }
@@ -472,7 +395,7 @@ function aggregateNetOrchestratorBundleFromRows(rows: NaapNetOrchestrator[]): Ne
   };
 
   const discoveryList: OrchestratorDiscoveryEntry[] = [];
-  for (const agg of discoveryByAddress.values()) {
+  for (const [addrLower, agg] of discoveryByAddress) {
     if (!hasNonBlankServiceUri(agg.uris)) {
       continue;
     }
@@ -482,12 +405,22 @@ function aggregateNetOrchestratorBundleFromRows(rows: NaapNetOrchestrator[]): Ne
         agg.canonicalUri = first.trim();
       }
     }
-    const entry = discoveryEntryFromAgg(agg);
+    const entry = discoveryEntryFromAgg(addrLower, agg, lastSeenMsByAddress);
     if (entry) {
       discoveryList.push(entry);
     }
   }
-  discoveryList.sort((a, b) => a.address.localeCompare(b.address));
+  discoveryList.sort((a, b) => {
+    const byScore = b.score - a.score;
+    if (byScore !== 0) {
+      return byScore;
+    }
+    const bySeen = b.last_seen_ms - a.last_seen_ms;
+    if (bySeen !== 0) {
+      return bySeen;
+    }
+    return a.address.localeCompare(b.address);
+  });
 
   return { data, discoveryList };
 }

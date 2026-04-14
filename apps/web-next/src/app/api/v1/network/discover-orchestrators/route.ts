@@ -6,6 +6,7 @@
  * the latest `LastSeen` and `capabilities_prices` per `pipeline/model` capability.
  *
  * Query: repeated `caps` — OR match (row kept if `capabilities` includes any listed value).
+ * Rows are ordered by `score` descending, then `last_seen_ms` descending, then `address`.
  *
  * @see https://github.com/livepeer/go-livepeer/blob/master/doc/remote-signer.md (Remote discovery)
  */
