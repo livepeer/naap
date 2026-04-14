@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     );
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    const [snapshots, dbOrchestrators, prices, latestSnapshot, protocol] = await Promise.all([
+    const [snapshots, dbOrchestrators, prices, latestSnapshot, protocol, liveOrchestrators] = await Promise.all([
       prisma.walletNetworkSnapshot.findMany({
         where: { snapshotAt: { gte: cutoff } },
         orderBy: { round: 'asc' },
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
       prisma.walletOrchestrator.findMany({
         where: { isActive: true },
         orderBy: { totalStake: 'desc' },
-        take: 20,
+        take: 200,
         select: {
           address: true,
           name: true,
@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
         orderBy: { round: 'desc' },
       }),
       getProtocol().catch(() => null),
+      getOrchestrators().catch(() => [] as any[]),
     ]);
 
     const current = {
@@ -64,60 +65,44 @@ export async function GET(request: NextRequest) {
       inflation: protocol?.inflation || latestSnapshot?.inflation || '0',
     };
 
+    const dbMap = new Map(
+      dbOrchestrators.map((o) => [o.address.toLowerCase(), o]),
+    );
+
     let synced = dbOrchestrators.length > 0;
-    let orchestratorData = dbOrchestrators as typeof dbOrchestrators;
+    let topOrchestrators: any[];
 
-    if (dbOrchestrators.length === 0) {
-      try {
-        const liveOrchs = await getOrchestrators();
-        orchestratorData = liveOrchs.slice(0, 20).map((o: any) => ({
-          address: o.address,
-          name: o.name || null,
-          totalStake: o.totalStake || '0',
-          rewardCut: o.rewardCut ?? 0,
-          feeShare: o.feeShare ?? 0,
-          totalVolumeETH: o.totalVolumeETH || '0',
-          thirtyDayVolumeETH: o.thirtyDayVolumeETH || '0',
-          delegatorCount: o.delegatorCount || 0,
-          rewardCallRatio: o.rewardCallRatio || 0,
+    if (liveOrchestrators.length > 0) {
+      topOrchestrators = liveOrchestrators.slice(0, 20).map((live: any) => {
+        const db = dbMap.get(live.address.toLowerCase());
+        return {
+          address: live.address,
+          name: db?.name || live.name || null,
+          totalStake: live.totalStake || '0',
+          rewardCut: live.rewardCut ?? 0,
+          feeShare: live.feeShare ?? 0,
+          totalVolumeETH: live.totalVolumeETH || '0',
+          thirtyDayVolumeETH: live.thirtyDayVolumeETH || '0',
+          delegatorCount: live.delegatorCount || db?.delegatorCount || 0,
+          rewardCallRatio: live.rewardCallRatio || db?.rewardCallRatio || 0,
           isActive: true,
-          capabilities: [],
-        })) as any;
-      } catch { /* no live data either */ }
-    }
-
-    let topOrchestrators = orchestratorData.map((o) => ({
-      address: o.address,
-      name: o.name,
-      totalStake: o.totalStake,
-      rewardCut: o.rewardCut,
-      feeShare: o.feeShare,
-      totalVolumeETH: o.totalVolumeETH,
-      thirtyDayVolumeETH: o.thirtyDayVolumeETH,
-      delegatorCount: o.delegatorCount,
-      rewardCallRatio: o.rewardCallRatio,
-      isActive: o.isActive,
-      categories: [...new Set(o.capabilities.map((c) => c.category))],
-    }));
-
-    const allDelegatorZero = topOrchestrators.every((o) => o.delegatorCount === 0);
-    const allVolumeZero = topOrchestrators.every((o) => o.totalVolumeETH === '0');
-    if (allDelegatorZero || allVolumeZero) {
-      try {
-        const liveOrchs = await getOrchestrators();
-        const liveMap = new Map(liveOrchs.map((o) => [o.address.toLowerCase(), o]));
-        topOrchestrators = topOrchestrators.map((o) => {
-          const live = liveMap.get(o.address.toLowerCase());
-          if (!live) return o;
-          return {
-            ...o,
-            delegatorCount: o.delegatorCount || live.delegatorCount,
-            totalVolumeETH: o.totalVolumeETH === '0' ? (live.totalVolumeETH || '0') : o.totalVolumeETH,
-            thirtyDayVolumeETH: o.thirtyDayVolumeETH === '0' ? (live.thirtyDayVolumeETH || '0') : o.thirtyDayVolumeETH,
-            rewardCallRatio: o.rewardCallRatio || live.rewardCallRatio || 0,
-          };
-        });
-      } catch { /* live enrichment failed */ }
+          categories: [...new Set((db?.capabilities || []).map((c: any) => c.category))],
+        };
+      });
+    } else {
+      topOrchestrators = dbOrchestrators.map((o) => ({
+        address: o.address,
+        name: o.name,
+        totalStake: o.totalStake,
+        rewardCut: o.rewardCut,
+        feeShare: o.feeShare,
+        totalVolumeETH: o.totalVolumeETH,
+        thirtyDayVolumeETH: o.thirtyDayVolumeETH,
+        delegatorCount: o.delegatorCount,
+        rewardCallRatio: o.rewardCallRatio,
+        isActive: o.isActive,
+        categories: [...new Set(o.capabilities.map((c) => c.category))],
+      }));
     }
 
     return NextResponse.json({
