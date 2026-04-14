@@ -19,8 +19,8 @@ export async function GET(request: NextRequest) {
       if (!byAddress[cap.address]) byAddress[cap.address] = [];
       byAddress[cap.address].push({
         category: cap.category,
-        modelId: cap.modelId,
-        pipelineType: cap.pipelineType,
+        pipelineId: cap.pipelineId,
+        lastChecked: cap.lastChecked,
       });
     }
 

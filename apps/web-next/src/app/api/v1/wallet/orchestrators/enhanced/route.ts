@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
       orderBy: { totalStake: 'desc' },
       include: {
         capabilities: {
-          select: { category: true, modelId: true, pipelineType: true },
+          select: { category: true, pipelineId: true, lastChecked: true },
         },
       },
     });

@@ -9,7 +9,6 @@ import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
-import { validateCSRF } from '@/lib/api/csrf';
 
 // Validation helpers
 const isValidAddress = (address: string): boolean => {
@@ -51,11 +50,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const token = getAuthToken(request);
     if (!token) {
       return errors.unauthorized('No auth token provided');
-    }
-
-    const csrfError = validateCSRF(request, token);
-    if (csrfError) {
-      return csrfError;
     }
 
     const user = await validateSession(token);
@@ -104,11 +98,6 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     const token = getAuthToken(request);
     if (!token) {
       return errors.unauthorized('No auth token provided');
-    }
-
-    const csrfError = validateCSRF(request, token);
-    if (csrfError) {
-      return csrfError;
     }
 
     const user = await validateSession(token);
