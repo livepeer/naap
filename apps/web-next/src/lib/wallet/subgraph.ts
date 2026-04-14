@@ -38,30 +38,50 @@ export async function querySubgraph<T = any>(query: string): Promise<T> {
 }
 
 export async function getOrchestrators() {
+  const protocol = await getProtocol();
+  const round = protocol.currentRound;
+
   const data = await querySubgraph<{ transcoders: any[] }>(`{
-    transcoders(first: 100, orderBy: totalStake, orderDirection: desc, where: { active: true }) {
-      id activationRound deactivationRound lastRewardRound
-      rewardCut feeShare totalStake
-      delegator { delegatedAmount }
-      delegators(first: 1) { id }
-      pools(first: 1, orderBy: id, orderDirection: desc) { rewardTokens }
+    transcoders(
+      first: 100
+      where: { activationRound_lte: ${round}, deactivationRound_gt: ${round} }
+      orderBy: thirtyDayVolumeETH
+      orderDirection: desc
+    ) {
+      id active totalStake rewardCut feeShare
+      thirtyDayVolumeETH sixtyDayVolumeETH ninetyDayVolumeETH totalVolumeETH
+      serviceURI activationRound deactivationRound
+      lastRewardRound { id }
+      delegators(first: 1000) { id }
+      pools(first: 90, orderBy: id, orderDirection: desc) { rewardTokens }
     }
   }`);
-  return (data.transcoders || []).map((t: any) => ({
-    address: t.id,
-    rewardCut: parseFloat(t.rewardCut) / 10000,
-    feeShare: parseFloat(t.feeShare) / 10000,
-    totalStake: t.totalStake || '0',
-    isActive: true,
-    lastRewardRound: t.lastRewardRound || '0',
-    delegatorCount: t.delegators?.length || 0,
-    totalVolumeETH: '0',
-    thirtyDayVolumeETH: '0',
-    ninetyDayVolumeETH: '0',
-    totalRewardTokens: '0',
-    rewardCallRatio: 0,
-    name: null,
-  }));
+
+  return (data.transcoders || []).map((t: any) => {
+    const pools = t.pools || [];
+    const poolsWithReward = pools.filter((p: any) => parseFloat(p.rewardTokens) > 0).length;
+    const callRatio = pools.length > 0 ? poolsWithReward / pools.length : 0;
+    const totalRewardTokens = pools.reduce(
+      (sum: bigint, p: any) => sum + BigInt(Math.floor(parseFloat(p.rewardTokens || '0') * 1e18)),
+      0n,
+    );
+
+    return {
+      address: t.id,
+      rewardCut: parseInt(t.rewardCut) / 10000,
+      feeShare: parseInt(t.feeShare) / 10000,
+      totalStake: t.totalStake || '0',
+      isActive: true,
+      lastRewardRound: t.lastRewardRound?.id || '0',
+      delegatorCount: (t.delegators || []).length,
+      totalVolumeETH: t.totalVolumeETH || '0',
+      thirtyDayVolumeETH: t.thirtyDayVolumeETH || '0',
+      ninetyDayVolumeETH: t.ninetyDayVolumeETH || '0',
+      totalRewardTokens: totalRewardTokens.toString(),
+      rewardCallRatio: callRatio,
+      name: null,
+    };
+  });
 }
 
 export async function getProtocol() {
