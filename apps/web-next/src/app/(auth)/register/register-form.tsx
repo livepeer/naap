@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Loader2, ArrowLeft } from 'lucide-react';
+import { PasswordInput } from '@/components/auth/PasswordInput';
 import { useAuth } from '@/contexts/auth-context';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
@@ -151,14 +152,14 @@ export default function RegisterForm() {
           <label htmlFor="password" className="block text-[13px] font-medium text-muted-foreground mb-1.5">
             Password
           </label>
-          <input
+          <PasswordInput
             id="password"
             name="password"
-            type="password"
             value={formData.password}
             onChange={handleChange}
-            className={inputClass}
+            inputClassName={inputClass}
             placeholder="Min. 8 characters"
+            autoComplete="new-password"
             required
             minLength={8}
           />
@@ -168,14 +169,14 @@ export default function RegisterForm() {
           <label htmlFor="confirmPassword" className="block text-[13px] font-medium text-muted-foreground mb-1.5">
             Confirm password
           </label>
-          <input
+          <PasswordInput
             id="confirmPassword"
             name="confirmPassword"
-            type="password"
             value={formData.confirmPassword}
             onChange={handleChange}
-            className={inputClass}
+            inputClassName={inputClass}
             placeholder="Confirm your password"
+            autoComplete="new-password"
             required
           />
         </div>
