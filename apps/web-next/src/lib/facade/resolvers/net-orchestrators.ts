@@ -12,6 +12,61 @@ import { naapGet } from '../naap-get.js';
 /** Single-request `limit` for net/orchestrators. */
 export const NET_ORCHESTRATORS_PAGE_SIZE = '1000';
 
+/**
+ * Orchestrator `hardware[].pipeline` values should already be Livepeer-style slugs.
+ * Reject unexpected shapes so registry blobs cannot inject odd capability path segments.
+ */
+const REGISTRY_PIPELINE_SLUG_RE = /^[a-z][a-z0-9-]{0,63}$/;
+
+function sanitizeRegistryPipelineSlug(raw: string): string | null {
+  const s = raw.trim();
+  return REGISTRY_PIPELINE_SLUG_RE.test(s) ? s : null;
+}
+
+/**
+ * Fallback: Livepeer `net.Capability` protobuf enum IDs → pipeline slugs.
+ * Prefer resolving pipeline from `hardware` on the same `RawCapabilities` object;
+ * this table is only used when a price row has no matching hardware entry.
+ *
+ * @see https://github.com/livepeer/go-livepeer/blob/master/net/capabilities.go (Capability enum)
+ */
+const LIVEPEER_CAPABILITY_SLUG_BY_ID: Partial<Record<number, string>> = {
+  27: 'text-to-image',
+  28: 'image-to-image',
+  29: 'image-to-video',
+  30: 'upscale',
+  31: 'audio-to-text',
+  32: 'segment-anything-2',
+  33: 'llm',
+  34: 'image-to-text',
+  35: 'live-video-to-video',
+  36: 'text-to-speech',
+  37: 'byoc',
+};
+
+function pipelineSlugFromCapabilityId(capId: number): string | null {
+  return LIVEPEER_CAPABILITY_SLUG_BY_ID[capId] ?? null;
+}
+
+/** model_id / price constraint → pipeline slugs from the same registry JSON (dynamic, no ID table). */
+function pipelineSlugByModelFromHardware(reg: RegistryRawCapabilities): Map<string, Set<string>> {
+  const m = new Map<string, Set<string>>();
+  for (const h of reg.hardware ?? []) {
+    const model = h.model_id?.trim();
+    const pipe = sanitizeRegistryPipelineSlug(h.pipeline ?? '');
+    if (!model || !pipe) {
+      continue;
+    }
+    let set = m.get(model);
+    if (!set) {
+      set = new Set();
+      m.set(model, set);
+    }
+    set.add(pipe);
+  }
+  return m;
+}
+
 interface NaapNetOrchestrator {
   Address: string;
   URI: string;
@@ -22,8 +77,14 @@ interface NaapNetOrchestrator {
   RawCapabilities?: string;
 }
 
-interface RawCapabilitiesJson {
+interface RegistryRawCapabilities {
   hardware?: Array<{ pipeline?: string; model_id?: string }>;
+  capabilities_prices?: Array<{
+    pricePerUnit: number;
+    pixelsPerUnit: number;
+    capability: number;
+    constraint: string;
+  }>;
 }
 
 interface DashboardPipelineModelOffer {
@@ -31,29 +92,45 @@ interface DashboardPipelineModelOffer {
   modelIds: string[];
 }
 
-function parseRawCapabilities(raw: string | undefined): DashboardPipelineModelOffer[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as RawCapabilitiesJson;
-    const byPipeline = new Map<string, Set<string>>();
-    for (const h of parsed.hardware ?? []) {
-      const pipeline = h.pipeline?.trim();
-      const model = h.model_id?.trim();
-      if (!pipeline || !model) continue;
-      let models = byPipeline.get(pipeline);
-      if (!models) {
-        models = new Set();
-        byPipeline.set(pipeline, models);
-      }
-      models.add(model);
-    }
-    return [...byPipeline.entries()].map(([pipelineId, modelSet]) => ({
-      pipelineId,
-      modelIds: [...modelSet].sort((a, b) => a.localeCompare(b)),
-    }));
-  } catch {
-    return [];
+interface DiscoveryAggRow {
+  displayAddress: string;
+  uris: string[];
+  active: boolean;
+  caps: Set<string>;
+  bestLastSeenMs: number;
+  canonicalUri: string;
+}
+
+function parseRegistryRawCapabilities(raw: string | undefined): RegistryRawCapabilities {
+  if (!raw) {
+    return {};
   }
+  try {
+    return JSON.parse(raw) as RegistryRawCapabilities;
+  } catch {
+    return {};
+  }
+}
+
+function pipelineModelOffersFromRegistry(reg: RegistryRawCapabilities): DashboardPipelineModelOffer[] {
+  const byPipeline = new Map<string, Set<string>>();
+  for (const h of reg.hardware ?? []) {
+    const pipeline = sanitizeRegistryPipelineSlug(h.pipeline ?? '');
+    const model = h.model_id?.trim();
+    if (!pipeline || !model) {
+      continue;
+    }
+    let models = byPipeline.get(pipeline);
+    if (!models) {
+      models = new Set();
+      byPipeline.set(pipeline, models);
+    }
+    models.add(model);
+  }
+  return [...byPipeline.entries()].map(([pipelineId, modelSet]) => ({
+    pipelineId,
+    modelIds: [...modelSet].sort((a, b) => a.localeCompare(b)),
+  }));
 }
 
 function mergePipelineModelOffers(
@@ -98,8 +175,9 @@ function parseOrchestratorLastSeenMs(row: NaapNetOrchestrator): number | undefin
     return undefined;
   }
   if (typeof raw === 'number' && Number.isFinite(raw)) {
-    if (raw <= 0) return undefined;
-    // Unix ms (e.g. 1.7e12) vs seconds (e.g. 1.7e9)
+    if (raw <= 0) {
+      return undefined;
+    }
     return raw >= 1e12 ? raw : raw * 1000;
   }
   if (typeof raw !== 'string') {
@@ -109,7 +187,6 @@ function parseOrchestratorLastSeenMs(row: NaapNetOrchestrator): number | undefin
   if (/^\d+$/.test(trimmed)) {
     const epoch = Number(trimmed);
     if (Number.isFinite(epoch) && epoch > 0) {
-      // Unix ms (e.g. 1.7e12) vs seconds (e.g. 1.7e9)
       return epoch >= 1e12 ? epoch : epoch * 1000;
     }
   }
@@ -118,26 +195,36 @@ function parseOrchestratorLastSeenMs(row: NaapNetOrchestrator): number | undefin
 }
 
 export interface NetOrchestratorData {
-  /** Distinct addresses where at least one entry has IsActive === true. */
   activeCount: number;
-  /**
-   * Distinct addresses with at least one non-blank service URI — same inclusion rule as
-   * the orchestrator table (`resolveOrchestrators` after `rowHasNonBlankServiceUri`).
-   */
+  /** Lower-cased on-chain addresses with at least one `IsActive` registry row. */
+  activeAddresses: Set<string>;
   listedCount: number;
-  /** Address (lower-cased) → deduplicated list of service URIs. */
   urisByAddress: Map<string, string[]>;
-  /** First-seen casing of each address (for display / merge rows). */
   displayAddressByLower: Map<string, string>;
-  /**
-   * True when the upstream registry returned at least one parseable `LastSeen` timestamp.
-   * Used by the KPI panel to scope orchestrator counts to the overview timeframe.
-   */
   hasLastSeenData: boolean;
-  /** Per-address max `LastSeen` (ms) across URI rows; only addresses with a seen timestamp appear. */
   lastSeenMsByAddress: Map<string, number>;
-  /** Per-address pipeline/model offers parsed from RawCapabilities.hardware. */
   pipelineModelsByAddress: Map<string, DashboardPipelineModelOffer[]>;
+}
+
+/** Remote-signer-style discovery row. */
+export interface OrchestratorDiscoveryEntry {
+  /** Canonical service URI (row with latest LastSeen for this orchestrator). */
+  address: string;
+  score: number;
+  /** `pipeline-id/model` strings for `caps=` filtering (OR semantics). */
+  capabilities: string[];
+  /**
+   * Latest registry `LastSeen` for this orchestrator (max across its URI rows), ms since epoch.
+   * Response list is sorted by this field descending (newest first); `0` means unknown/missing.
+   */
+  last_seen_ms: number;
+  /** Present when {@link last_seen_ms} &gt; 0. */
+  last_seen?: string;
+}
+
+export interface NetOrchestratorBundle {
+  data: NetOrchestratorData;
+  discoveryList: OrchestratorDiscoveryEntry[];
 }
 
 /** True if this URI list would produce a row in the overview orchestrator table. */
@@ -145,8 +232,37 @@ export function hasNonBlankServiceUri(uris: string[]): boolean {
   return uris.some((u) => typeof u === 'string' && u.trim().length > 0);
 }
 
+function discoveryEntryFromAgg(
+  addrLower: string,
+  agg: DiscoveryAggRow,
+  lastSeenMsByAddress: Map<string, number>,
+): OrchestratorDiscoveryEntry | null {
+  if (!hasNonBlankServiceUri(agg.uris)) {
+    return null;
+  }
+  const address =
+    (agg.canonicalUri.trim().length > 0 ? agg.canonicalUri : agg.uris.find((u) => u.trim().length > 0) ?? '').trim();
+  if (!address) {
+    return null;
+  }
+  const fromMap = lastSeenMsByAddress.get(addrLower);
+  const rawMs =
+    agg.canonicalUri.length > 0 && agg.bestLastSeenMs >= 0
+      ? agg.bestLastSeenMs
+      : (fromMap ?? 0);
+  const last_seen_ms = rawMs < 0 ? 0 : rawMs;
+  return {
+    address,
+    score: agg.active ? 1 : 0,
+    capabilities: [...agg.caps].sort((a, b) => a.localeCompare(b)),
+    last_seen_ms,
+    ...(last_seen_ms > 0 ? { last_seen: new Date(last_seen_ms).toISOString() } : {}),
+  };
+}
+
 const EMPTY: NetOrchestratorData = {
   activeCount: 0,
+  activeAddresses: new Set(),
   listedCount: 0,
   urisByAddress: new Map(),
   displayAddressByLower: new Map(),
@@ -154,6 +270,8 @@ const EMPTY: NetOrchestratorData = {
   lastSeenMsByAddress: new Map(),
   pipelineModelsByAddress: new Map(),
 };
+
+const EMPTY_DISCOVERY: OrchestratorDiscoveryEntry[] = [];
 
 async function fetchAllNetOrchestratorRows(): Promise<NaapNetOrchestrator[]> {
   const revalidateSec = Math.floor(TTL.NET_MODELS / 1000);
@@ -168,72 +286,174 @@ async function fetchAllNetOrchestratorRows(): Promise<NaapNetOrchestrator[]> {
   }, fetchOptions);
 }
 
-export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
-  const cacheKey = `facade:net-orchestrators:single-request&limit=${NET_ORCHESTRATORS_PAGE_SIZE}`;
-  return cachedFetch(cacheKey, TTL.NET_MODELS, async () => {
-    const rows = await fetchAllNetOrchestratorRows();
+function aggregateNetOrchestratorBundleFromRows(rows: NaapNetOrchestrator[]): NetOrchestratorBundle {
+  const displayAddressByLower = new Map<string, string>();
+  const activeAddresses = new Set<string>();
+  const lastSeenMsByAddress = new Map<string, number>();
+  const pipelineModelsByAddress = new Map<string, DashboardPipelineModelOffer[]>();
+  const discoveryByAddress = new Map<string, DiscoveryAggRow>();
+  let hasLastSeenData = false;
 
-    const urisByAddress = new Map<string, string[]>();
-    const displayAddressByLower = new Map<string, string>();
-    const activeAddresses = new Set<string>();
-    const lastSeenMsByAddress = new Map<string, number>();
-    const pipelineModelsByAddress = new Map<string, DashboardPipelineModelOffer[]>();
-    let hasLastSeenData = false;
+  for (const r of rows) {
+    const addr = r.Address.trim().toLowerCase();
+    const lsRaw = parseOrchestratorLastSeenMs(r);
+    if (lsRaw !== undefined) {
+      hasLastSeenData = true;
+    }
 
-    for (const r of rows) {
-      const addr = r.Address.trim().toLowerCase();
-      if (!displayAddressByLower.has(addr)) {
-        displayAddressByLower.set(addr, r.Address.trim());
+    if (!displayAddressByLower.has(addr)) {
+      displayAddressByLower.set(addr, r.Address.trim());
+    }
+
+    let disc = discoveryByAddress.get(addr);
+    if (!disc) {
+      disc = {
+        displayAddress: r.Address.trim(),
+        uris: [],
+        active: false,
+        caps: new Set(),
+        bestLastSeenMs: -1,
+        canonicalUri: '',
+      };
+      discoveryByAddress.set(addr, disc);
+    }
+
+    const uri = typeof r.URI === 'string' ? r.URI.trim() : '';
+    if (uri.length > 0 && !disc.uris.includes(uri)) {
+      disc.uris.push(uri);
+    }
+    if (r.IsActive) {
+      activeAddresses.add(addr);
+      disc.active = true;
+    }
+    if (lsRaw !== undefined) {
+      const prevAddrLs = lastSeenMsByAddress.get(addr);
+      if (prevAddrLs === undefined || lsRaw > prevAddrLs) {
+        lastSeenMsByAddress.set(addr, lsRaw);
       }
-      const offers = parseRawCapabilities(r.RawCapabilities);
-      if (offers.length > 0) {
-        pipelineModelsByAddress.set(
-          addr,
-          mergePipelineModelOffers(pipelineModelsByAddress.get(addr), offers),
-        );
+    }
+    if (lsRaw !== undefined && uri.length > 0) {
+      if (lsRaw > disc.bestLastSeenMs) {
+        disc.bestLastSeenMs = lsRaw;
+        disc.canonicalUri = uri;
+      } else if (lsRaw === disc.bestLastSeenMs && disc.canonicalUri.length === 0) {
+        disc.canonicalUri = uri;
       }
-      let uris = urisByAddress.get(addr);
-      if (!uris) {
-        uris = [];
-        urisByAddress.set(addr, uris);
+    }
+
+    const reg = parseRegistryRawCapabilities(r.RawCapabilities);
+
+    const offers = pipelineModelOffersFromRegistry(reg);
+    if (offers.length > 0) {
+      pipelineModelsByAddress.set(
+        addr,
+        mergePipelineModelOffers(pipelineModelsByAddress.get(addr), offers),
+      );
+    }
+
+    const pipelineByModel = pipelineSlugByModelFromHardware(reg);
+
+    // Collect capability keys from hardware entries.
+    for (const h of reg.hardware ?? []) {
+      const p = sanitizeRegistryPipelineSlug(h.pipeline ?? '');
+      const m = h.model_id?.trim();
+      if (p && m) {
+        disc.caps.add(`${p}/${m}`);
       }
-      const uri =
-        typeof r.URI === 'string' ? r.URI.trim() : '';
-      if (uri.length > 0 && !uris.includes(uri)) {
-        uris.push(uri);
+    }
+
+    // Collect capability keys from price entries (fallback via capability ID when no hardware match).
+    for (const pr of reg.capabilities_prices ?? []) {
+      const constraint = pr.constraint?.trim();
+      if (!constraint) {
+        continue;
       }
-      if (r.IsActive) {
-        activeAddresses.add(addr);
-      }
-      const ls = parseOrchestratorLastSeenMs(r);
-      if (ls !== undefined) {
-        hasLastSeenData = true;
-        const prev = lastSeenMsByAddress.get(addr);
-        if (prev === undefined || ls > prev) {
-          lastSeenMsByAddress.set(addr, ls);
+      const slugsFromHw = pipelineByModel.get(constraint);
+      if (slugsFromHw) {
+        for (const slug of slugsFromHw) {
+          disc.caps.add(`${slug}/${constraint}`);
         }
       }
-    }
-
-    let listedCount = 0;
-    for (const uris of urisByAddress.values()) {
-      if (hasNonBlankServiceUri(uris)) {
-        listedCount++;
+      const capSlug = pipelineSlugFromCapabilityId(pr.capability);
+      if (capSlug) {
+        disc.caps.add(`${capSlug}/${constraint}`);
       }
     }
+  }
 
-    return {
-      activeCount: activeAddresses.size,
-      listedCount,
-      urisByAddress,
-      displayAddressByLower,
-      hasLastSeenData,
-      lastSeenMsByAddress,
-      pipelineModelsByAddress,
-    };
+  // Derive urisByAddress from the single-source discoveryByAddress map.
+  const urisByAddress = new Map<string, string[]>();
+  let listedCount = 0;
+  for (const [addr, disc] of discoveryByAddress) {
+    urisByAddress.set(addr, disc.uris);
+    if (hasNonBlankServiceUri(disc.uris)) {
+      listedCount++;
+    }
+  }
+
+  const data: NetOrchestratorData = {
+    activeCount: activeAddresses.size,
+    activeAddresses,
+    listedCount,
+    urisByAddress,
+    displayAddressByLower,
+    hasLastSeenData,
+    lastSeenMsByAddress,
+    pipelineModelsByAddress,
+  };
+
+  const discoveryList: OrchestratorDiscoveryEntry[] = [];
+  for (const [addrLower, agg] of discoveryByAddress) {
+    if (!hasNonBlankServiceUri(agg.uris)) {
+      continue;
+    }
+    if (agg.canonicalUri.length === 0) {
+      const first = agg.uris.find((u) => u.trim().length > 0);
+      if (first) {
+        agg.canonicalUri = first.trim();
+      }
+    }
+    const entry = discoveryEntryFromAgg(addrLower, agg, lastSeenMsByAddress);
+    if (entry) {
+      discoveryList.push(entry);
+    }
+  }
+  discoveryList.sort((a, b) => {
+    const byScore = b.score - a.score;
+    if (byScore !== 0) {
+      return byScore;
+    }
+    const bySeen = b.last_seen_ms - a.last_seen_ms;
+    if (bySeen !== 0) {
+      return bySeen;
+    }
+    return a.address.localeCompare(b.address);
   });
+
+  return { data, discoveryList };
+}
+
+const NET_ORCHESTRATORS_CACHE_KEY = `facade:net-orchestrators:single-request&limit=${NET_ORCHESTRATORS_PAGE_SIZE}`;
+
+export function getNetOrchestratorBundle(): Promise<NetOrchestratorBundle> {
+  return cachedFetch(NET_ORCHESTRATORS_CACHE_KEY, TTL.NET_MODELS, async () => {
+    const rows = await fetchAllNetOrchestratorRows();
+    return aggregateNetOrchestratorBundleFromRows(rows);
+  });
+}
+
+export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
+  return getNetOrchestratorBundle().then((b) => b.data);
+}
+
+export function getOrchestratorDiscoveryList(): Promise<OrchestratorDiscoveryEntry[]> {
+  return getNetOrchestratorBundle().then((b) => b.discoveryList);
 }
 
 export function getNetOrchestratorDataSafe(): Promise<NetOrchestratorData> {
   return getNetOrchestratorData().catch(() => EMPTY);
+}
+
+export function getOrchestratorDiscoveryListSafe(): Promise<OrchestratorDiscoveryEntry[]> {
+  return getOrchestratorDiscoveryList().catch(() => EMPTY_DISCOVERY);
 }
