@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { Loader2, ArrowLeft } from 'lucide-react';
+import { PasswordInput } from '@/components/auth/PasswordInput';
 
 function formatOAuthError(errorCode: string): string {
   const errorMessages: Record<string, string> = {
@@ -101,13 +102,13 @@ export default function LoginForm() {
           <label htmlFor="password" className="block text-[13px] font-medium text-muted-foreground mb-1.5">
             Password
           </label>
-          <input
+          <PasswordInput
             id="password"
-            type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-3 py-2 text-sm bg-background border border-muted-foreground/25 rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-muted-foreground/50 focus:ring-1 focus:ring-muted-foreground/20 transition-colors"
+            inputClassName="w-full px-3 py-2 text-sm bg-background border border-muted-foreground/25 rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-muted-foreground/50 focus:ring-1 focus:ring-muted-foreground/20 transition-colors"
             placeholder="Enter your password"
+            autoComplete="current-password"
             required
           />
         </div>
