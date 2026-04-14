@@ -26,15 +26,11 @@ export async function querySubgraph<T = any>(query: string): Promise<T> {
         body: JSON.stringify({ query }),
         signal: AbortSignal.timeout(15_000),
       });
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`Subgraph ${res.status}: ${body.slice(0, 200)}`);
-      }
+      if (!res.ok) throw new Error(`Subgraph ${res.status}`);
       const json = await res.json();
       if (json.errors?.length) throw new Error(json.errors[0].message);
       return json.data as T;
     } catch (err) {
-      console.error(`[querySubgraph] URL ${url.slice(0, 60)}... failed:`, (err as Error).message);
       lastErr = err as Error;
     }
   }
@@ -44,8 +40,6 @@ export async function querySubgraph<T = any>(query: string): Promise<T> {
 export async function getOrchestrators() {
   const protocol = await getProtocol();
   const round = protocol.currentRound;
-  console.log(`[getOrchestrators] round=${round}, SUBGRAPH_API_KEY=${process.env.SUBGRAPH_API_KEY ? 'set' : 'MISSING'}`);
-
   const data = await querySubgraph<{ transcoders: any[] }>(`{
     transcoders(
       first: 100

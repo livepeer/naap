@@ -26,13 +26,8 @@ export async function GET(request: NextRequest) {
           },
         },
       }),
-      getOrchestrators().catch((err) => {
-        console.error('[orchestrators/enhanced] subgraph failed, falling back to DB:', err?.message || err);
-        return [] as any[];
-      }),
+      getOrchestrators().catch(() => [] as any[]),
     ]);
-
-    console.log(`[orchestrators/enhanced] db=${dbOrchestrators.length} live=${liveOrchestrators.length}`);
 
     const dbMap = new Map(
       dbOrchestrators.map((o) => [o.address.toLowerCase(), o]),
@@ -109,11 +104,7 @@ export async function GET(request: NextRequest) {
       }));
     }
 
-    return NextResponse.json({
-      data,
-      synced,
-      _debug: { dbCount: dbOrchestrators.length, liveCount: liveOrchestrators.length, source: liveOrchestrators.length > 0 ? 'subgraph' : 'db' },
-    });
+    return NextResponse.json({ data, synced });
   } catch (err) {
     console.error('[orchestrators/enhanced] Error:', err);
     return errors.internal('Failed to fetch enhanced orchestrators');
