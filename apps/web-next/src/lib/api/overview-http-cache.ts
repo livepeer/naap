@@ -32,6 +32,8 @@ export const OverviewHttpCacheSec = {
   perfByModel: OVERVIEW_HTTP_CACHE_SEC,
   protocol: OVERVIEW_HTTP_CACHE_SEC,
   fees: OVERVIEW_HTTP_CACHE_SEC,
+  /** Curated LV2V / remote-signer-style orchestrator discovery list */
+  discoverOrchestrators: OVERVIEW_HTTP_CACHE_SEC,
 } as const;
 
 /**
