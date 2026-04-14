@@ -1,12 +1,14 @@
 /**
  * Network overview endpoint — Dune-style dashboard data.
  * Dedicated Next.js route handler (replaces proxy to wallet backend on Vercel).
+ * Uses DB snapshots when available, falls back to live subgraph + CoinGecko.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { errors, getAuthToken } from '@/lib/api/response';
+import { getPrices, getProtocol, getOrchestrators } from '@/lib/wallet/subgraph';
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,7 +23,7 @@ export async function GET(request: NextRequest) {
     );
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    const [snapshots, dbOrchestrators, latestSnapshot] = await Promise.all([
+    const [snapshots, dbOrchestrators, prices, latestSnapshot, protocol, liveOrchestrators] = await Promise.all([
       prisma.walletNetworkSnapshot.findMany({
         where: { snapshotAt: { gte: cutoff } },
         orderBy: { round: 'asc' },
@@ -29,7 +31,7 @@ export async function GET(request: NextRequest) {
       prisma.walletOrchestrator.findMany({
         where: { isActive: true },
         orderBy: { totalStake: 'desc' },
-        take: 20,
+        take: 200,
         select: {
           address: true,
           name: true,
@@ -44,42 +46,75 @@ export async function GET(request: NextRequest) {
           capabilities: { select: { category: true } },
         },
       }),
+      getPrices().catch(() => ({ lptUsd: 0, ethUsd: 0, lptChange24h: 0 })),
       prisma.walletNetworkSnapshot.findFirst({
         orderBy: { round: 'desc' },
       }),
+      getProtocol().catch(() => null),
+      getOrchestrators().catch(() => [] as any[]),
     ]);
 
     const current = {
-      totalBonded: latestSnapshot?.totalBonded || '0',
-      totalSupply: latestSnapshot?.totalSupply || '0',
-      participationRate: latestSnapshot?.participationRate || 0,
-      activeOrchestrators: latestSnapshot?.activeOrchestrators || 0,
-      delegatorsCount: latestSnapshot?.delegatorsCount || 0,
-      totalVolumeETH: latestSnapshot?.totalVolumeETH || '0',
-      totalVolumeUSD: latestSnapshot?.totalVolumeUSD || '0',
-      inflation: latestSnapshot?.inflation || '0',
+      totalBonded: protocol?.totalActiveStake || latestSnapshot?.totalBonded || '0',
+      totalSupply: protocol?.totalSupply || latestSnapshot?.totalSupply || '0',
+      participationRate: protocol?.participationRate || latestSnapshot?.participationRate || 0,
+      activeOrchestrators: protocol?.activeTranscoderCount || latestSnapshot?.activeOrchestrators || 0,
+      delegatorsCount: protocol?.delegatorsCount || latestSnapshot?.delegatorsCount || 0,
+      totalVolumeETH: protocol?.totalVolumeETH || latestSnapshot?.totalVolumeETH || '0',
+      totalVolumeUSD: protocol?.totalVolumeUSD || latestSnapshot?.totalVolumeUSD || '0',
+      inflation: protocol?.inflation || latestSnapshot?.inflation || '0',
     };
 
-    const topOrchestrators = dbOrchestrators.map((o) => ({
-      address: o.address,
-      name: o.name,
-      totalStake: o.totalStake,
-      rewardCut: o.rewardCut,
-      feeShare: o.feeShare,
-      totalVolumeETH: o.totalVolumeETH,
-      thirtyDayVolumeETH: o.thirtyDayVolumeETH,
-      delegatorCount: o.delegatorCount,
-      rewardCallRatio: o.rewardCallRatio,
-      isActive: o.isActive,
-      categories: [...new Set(o.capabilities.map((c) => c.category))],
-    }));
+    const dbMap = new Map(
+      dbOrchestrators.map((o) => [o.address.toLowerCase(), o]),
+    );
+
+    let synced = dbOrchestrators.length > 0;
+    let topOrchestrators: any[];
+
+    if (liveOrchestrators.length > 0) {
+      topOrchestrators = liveOrchestrators.slice(0, 20).map((live: any) => {
+        const db = dbMap.get(live.address.toLowerCase());
+        return {
+          address: live.address,
+          name: db?.name || live.name || null,
+          totalStake: live.totalStake || '0',
+          rewardCut: live.rewardCut ?? 0,
+          feeShare: live.feeShare ?? 0,
+          totalVolumeETH: live.totalVolumeETH || '0',
+          thirtyDayVolumeETH: live.thirtyDayVolumeETH || '0',
+          delegatorCount: live.delegatorCount || db?.delegatorCount || 0,
+          rewardCallRatio: live.rewardCallRatio || db?.rewardCallRatio || 0,
+          isActive: true,
+          categories: [...new Set((db?.capabilities || []).map((c: any) => c.category))],
+        };
+      });
+    } else {
+      topOrchestrators = dbOrchestrators.map((o) => ({
+        address: o.address,
+        name: o.name,
+        totalStake: o.totalStake,
+        rewardCut: o.rewardCut,
+        feeShare: o.feeShare,
+        totalVolumeETH: o.totalVolumeETH,
+        thirtyDayVolumeETH: o.thirtyDayVolumeETH,
+        delegatorCount: o.delegatorCount,
+        rewardCallRatio: o.rewardCallRatio,
+        isActive: o.isActive,
+        categories: [...new Set(o.capabilities.map((c) => c.category))],
+      }));
+    }
 
     return NextResponse.json({
       data: {
         snapshots,
         topOrchestrators,
-        synced: dbOrchestrators.length > 0,
-        prices: { lptUsd: 0, ethUsd: 0, lptChange24h: 0 },
+        synced,
+        prices: {
+          lptUsd: prices.lptUsd,
+          ethUsd: prices.ethUsd,
+          lptChange24h: prices.lptChange24h,
+        },
         current,
       },
     });

@@ -1,12 +1,14 @@
 /**
  * Wallet Staking Orchestrators API Routes
  * GET /api/v1/wallet/staking/orchestrators - List orchestrators
+ *
+ * Mirrors the Express backend: always fetches live data from the subgraph.
  */
 
-import {NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
-import { success, errors, getAuthToken } from '@/lib/api/response';
+import { errors, getAuthToken } from '@/lib/api/response';
+import { getOrchestrators } from '@/lib/wallet/subgraph';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -20,24 +22,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return errors.unauthorized('Invalid or expired session');
     }
 
-    const searchParams = request.nextUrl.searchParams;
-    const chainId = searchParams.get('chainId');
-    const activeOnly = searchParams.get('activeOnly') !== 'false';
+    const orchestrators = await getOrchestrators();
 
-    const where: {
-      chainId?: number;
-      isActive?: boolean;
-    } = {};
-
-    if (chainId) where.chainId = parseInt(chainId, 10);
-    if (activeOnly) where.isActive = true;
-
-    const orchestrators = await prisma.walletOrchestrator.findMany({
-      where,
-      orderBy: { totalStake: 'desc' },
-    });
-
-    return success({ orchestrators });
+    return NextResponse.json({ data: { orchestrators } });
   } catch (err) {
     console.error('Error fetching orchestrators:', err);
     return errors.internal('Failed to fetch orchestrators');
