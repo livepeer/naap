@@ -48,18 +48,21 @@ function pipelineSlugFromCapabilityId(capId: number): string | null {
   return LIVEPEER_CAPABILITY_SLUG_BY_ID[capId] ?? null;
 }
 
-/** model_id / price constraint → pipeline slug from the same registry JSON (dynamic, no ID table). */
-function pipelineSlugByModelFromHardware(reg: RegistryRawCapabilities): Map<string, string> {
-  const m = new Map<string, string>();
+/** model_id / price constraint → pipeline slugs from the same registry JSON (dynamic, no ID table). */
+function pipelineSlugByModelFromHardware(reg: RegistryRawCapabilities): Map<string, Set<string>> {
+  const m = new Map<string, Set<string>>();
   for (const h of reg.hardware ?? []) {
     const model = h.model_id?.trim();
     const pipe = sanitizeRegistryPipelineSlug(h.pipeline ?? '');
     if (!model || !pipe) {
       continue;
     }
-    if (!m.has(model)) {
-      m.set(model, pipe);
+    let set = m.get(model);
+    if (!set) {
+      set = new Set();
+      m.set(model, set);
     }
+    set.add(pipe);
   }
   return m;
 }
@@ -243,10 +246,10 @@ function discoveryEntryFromAgg(
     return null;
   }
   const fromMap = lastSeenMsByAddress.get(addrLower);
-  const rawMs = Math.max(
-    agg.bestLastSeenMs,
-    fromMap ?? -1,
-  );
+  const rawMs =
+    agg.canonicalUri.length > 0 && agg.bestLastSeenMs >= 0
+      ? agg.bestLastSeenMs
+      : (fromMap ?? 0);
   const last_seen_ms = rawMs < 0 ? 0 : rawMs;
   return {
     address,
@@ -365,10 +368,15 @@ function aggregateNetOrchestratorBundleFromRows(rows: NaapNetOrchestrator[]): Ne
       if (!constraint) {
         continue;
       }
-      const slug =
-        pipelineByModel.get(constraint) ?? pipelineSlugFromCapabilityId(pr.capability);
-      if (slug) {
-        disc.caps.add(`${slug}/${constraint}`);
+      const slugsFromHw = pipelineByModel.get(constraint);
+      if (slugsFromHw) {
+        for (const slug of slugsFromHw) {
+          disc.caps.add(`${slug}/${constraint}`);
+        }
+      }
+      const capSlug = pipelineSlugFromCapabilityId(pr.capability);
+      if (capSlug) {
+        disc.caps.add(`${capSlug}/${constraint}`);
       }
     }
   }
