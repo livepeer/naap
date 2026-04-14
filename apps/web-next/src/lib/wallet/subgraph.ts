@@ -86,23 +86,26 @@ export async function getOrchestrators() {
 export async function getProtocol() {
   const data = await querySubgraph<{ protocol: any }>(`{
     protocol(id: "0") {
-      totalSupply totalActiveStake participationRate inflation
+      totalSupply totalActiveStake participationRate inflation inflationChange
       currentRound { id length }
-      totalVolumeETH totalVolumeUSD
+      activeTranscoderCount delegatorsCount
+      totalVolumeETH totalVolumeUSD paused
     }
   }`);
   const p = data.protocol || {};
   return {
     totalSupply: p.totalSupply || '0',
     totalActiveStake: p.totalActiveStake || '0',
-    participationRate: parseFloat(p.participationRate || '0'),
+    participationRate: parseFloat(p.participationRate || '0') * 100,
     inflation: p.inflation || '0',
+    inflationChange: p.inflationChange || '0',
     currentRound: parseInt(p.currentRound?.id || '0'),
     roundLength: parseInt(p.currentRound?.length || '0'),
-    activeTranscoderCount: 0,
-    delegatorsCount: 0,
+    activeTranscoderCount: parseInt(String(p.activeTranscoderCount || '0')),
+    delegatorsCount: parseInt(String(p.delegatorsCount || '0')),
     totalVolumeETH: p.totalVolumeETH || '0',
     totalVolumeUSD: p.totalVolumeUSD || '0',
+    paused: p.paused || false,
     lastUpdated: new Date().toISOString(),
   };
 }
