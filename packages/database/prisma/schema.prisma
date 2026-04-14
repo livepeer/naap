@@ -16,7 +16,8 @@ generator client {
   provider        = "prisma-client-js"
   output          = "../src/generated/client"
   // Include all common production targets: Vercel, Docker Alpine, AWS Lambda, etc.
-  binaryTargets   = ["native", "darwin-arm64", "linux-arm64-openssl-3.0.x", "debian-openssl-3.0.x", "rhel-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+  // Note: "native" removed to prevent OpenSSL version mismatch on Node 22+/OpenSSL 3.5+
+  binaryTargets   = ["darwin-arm64", "linux-arm64-openssl-3.0.x", "debian-openssl-3.0.x", "rhel-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
   previewFeatures = ["multiSchema", "fullTextSearch"]
 }
 
