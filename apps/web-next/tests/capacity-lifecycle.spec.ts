@@ -469,15 +469,19 @@ test.describe('Capacity Planner Lifecycle UI @pre-release', () => {
       timeout: 45_000,
     });
 
-    const cards = page.locator('[class*="glass-card"]');
+    // Target only clickable request cards, not the SummaryPanel or filter
+    // panel which also use the glass-card class but lack click handlers.
+    const cards = page.locator(
+      '[data-testid="capacity-request-card"], [class*="glass-card"][class*="cursor-pointer"]',
+    );
     const cardCount = await cards.count();
     test.skip(cardCount === 0, 'No request cards available to test modal');
 
     await cards.first().click();
 
-    // Verify the modal opened and rendered content. "Specifications" is a
-    // section heading that only appears inside the detail modal, proving
-    // the full modal content (including the status badge) loaded.
+    // "Specifications" is a section heading that only appears inside the
+    // detail modal, proving the full modal content (including the status
+    // badge) loaded.
     await expect(page.getByText('Specifications')).toBeVisible({ timeout: 15_000 });
   });
 
@@ -512,7 +516,9 @@ test.describe('Capacity Planner Lifecycle UI @pre-release', () => {
       timeout: 45_000,
     });
 
-    const cards = page.locator('[class*="glass-card"]');
+    const cards = page.locator(
+      '[data-testid="capacity-request-card"], [class*="glass-card"][class*="cursor-pointer"]',
+    );
     const cardCount = await cards.count();
     test.skip(cardCount < 2, 'Need at least 2 cards to verify spacing');
 
