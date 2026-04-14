@@ -18,9 +18,12 @@ import type {
 type PlanScope = { teamId?: string; ownerUserId?: string };
 
 function scopeWhere(scope: PlanScope) {
-  if (scope.teamId) return { teamId: scope.teamId };
-  if (scope.ownerUserId) return { ownerUserId: scope.ownerUserId };
-  return {};
+  const conditions: Record<string, string>[] = [];
+  if (scope.teamId) conditions.push({ teamId: scope.teamId });
+  if (scope.ownerUserId) conditions.push({ ownerUserId: scope.ownerUserId });
+  if (conditions.length === 0) return {};
+  if (conditions.length === 1) return conditions[0];
+  return { OR: conditions };
 }
 
 function toPlan(row: Record<string, unknown>): DiscoveryPlan {

@@ -7,8 +7,6 @@ import {
 import { usePlans } from '../hooks/usePlans';
 import { EndpointGuide } from '../components/EndpointGuide';
 
-const isLocalhost = typeof window !== 'undefined' && window.location.hostname === 'localhost';
-
 export const PlansOverviewPage: React.FC = () => {
   const { plans, loading, error, seeding, seed, refresh } = usePlans();
   const navigate = useNavigate();
@@ -50,16 +48,14 @@ export const PlansOverviewPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          {isLocalhost && (
-            <button
-              onClick={seed}
-              disabled={seeding}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-xs font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
-            >
-              {seeding ? <Loader2 size={12} className="animate-spin" /> : <Database size={12} />}
-              {seeding ? 'Seeding...' : 'Seed Demo Data'}
-            </button>
-          )}
+          <button
+            onClick={seed}
+            disabled={seeding}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-xs font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
+          >
+            {seeding ? <Loader2 size={12} className="animate-spin" /> : <Database size={12} />}
+            {seeding ? 'Seeding...' : 'Seed Demo Data'}
+          </button>
           <button
             onClick={refresh}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-secondary hover:bg-bg-tertiary text-text-secondary text-xs font-medium rounded-lg border border-[var(--border-color)] transition-colors"
@@ -132,15 +128,13 @@ export const PlansOverviewPage: React.FC = () => {
           <p className="text-sm text-text-secondary max-w-md mx-auto mb-4">
             Discovery plans let you pre-configure orchestrator selection criteria and expose them as webhook endpoints for your signer.
           </p>
-          {isLocalhost && (
-            <button
-              onClick={seed}
-              disabled={seeding}
-              className="px-4 py-2 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-sm font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
-            >
-              {seeding ? 'Seeding...' : 'Seed Demo Data to Get Started'}
-            </button>
-          )}
+          <button
+            onClick={seed}
+            disabled={seeding}
+            className="px-4 py-2 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-sm font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
+          >
+            {seeding ? 'Seeding...' : 'Seed Demo Data to Get Started'}
+          </button>
         </div>
       )}
 

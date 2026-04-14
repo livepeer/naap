@@ -2,7 +2,8 @@
  * POST /api/v1/orchestrator-leaderboard/plans/seed
  *
  * Inserts 4 diverse demo plans for the authenticated caller.
- * Only available in development (NODE_ENV !== 'production').
+ * Each user gets their own set of plans (billingPlanId is scoped per user).
+ * Idempotent — skips plans that already exist for the caller.
  */
 
 export const runtime = 'nodejs';
@@ -13,9 +14,20 @@ import { errors } from '@/lib/api/response';
 import { createPlan, listPlans } from '@/lib/orchestrator-leaderboard/plans';
 import type { CreatePlanInput } from '@/lib/orchestrator-leaderboard/types';
 
-const DEMO_PLANS: CreatePlanInput[] = [
+interface DemoPlanTemplate {
+  slug: string;
+  name: string;
+  capabilities: string[];
+  topN: number;
+  slaWeights?: { latency: number; swapRate: number; price: number };
+  slaMinScore?: number;
+  sortBy?: string;
+  filters?: { maxAvgLatencyMs?: number };
+}
+
+const DEMO_PLAN_TEMPLATES: DemoPlanTemplate[] = [
   {
-    billingPlanId: 'demo-high-perf-video',
+    slug: 'high-perf-video',
     name: 'High-Performance Video',
     capabilities: ['image-to-video'],
     topN: 10,
@@ -25,7 +37,7 @@ const DEMO_PLANS: CreatePlanInput[] = [
     filters: { maxAvgLatencyMs: 500 },
   },
   {
-    billingPlanId: 'demo-budget-image',
+    slug: 'budget-image',
     name: 'Budget Image Generation',
     capabilities: ['image-to-image', 'text-to-image'],
     topN: 20,
@@ -34,7 +46,7 @@ const DEMO_PLANS: CreatePlanInput[] = [
     sortBy: 'price',
   },
   {
-    billingPlanId: 'demo-balanced-stream',
+    slug: 'balanced-stream',
     name: 'Balanced Streaming',
     capabilities: ['streamdiffusion', 'streamdiffusion-sdxl'],
     topN: 15,
@@ -43,7 +55,7 @@ const DEMO_PLANS: CreatePlanInput[] = [
     sortBy: 'slaScore',
   },
   {
-    billingPlanId: 'demo-max-avail',
+    slug: 'max-avail',
     name: 'Maximum Availability',
     capabilities: ['noop', 'streamdiffusion', 'streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v'],
     topN: 50,
@@ -55,11 +67,11 @@ function scopeFromAuth(auth: { teamId: string; callerId: string }) {
   return { teamId: auth.teamId, ownerUserId: auth.callerId };
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse | Response> {
-  if (process.env.NODE_ENV === 'production') {
-    return errors.badRequest('Seed route is only available in development');
-  }
+function userPlanId(userId: string, slug: string): string {
+  return `demo-${userId.slice(0, 8)}-${slug}`;
+}
 
+export async function POST(request: NextRequest): Promise<NextResponse | Response> {
   const auth = await authorize(request);
   if (!auth) {
     return errors.unauthorized('Missing or invalid authentication');
@@ -70,13 +82,26 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
   const existingIds = new Set(existing.map((p) => p.billingPlanId));
 
   let created = 0;
-  for (const demo of DEMO_PLANS) {
-    if (existingIds.has(demo.billingPlanId)) continue;
+  for (const tpl of DEMO_PLAN_TEMPLATES) {
+    const billingPlanId = userPlanId(auth.callerId, tpl.slug);
+    if (existingIds.has(billingPlanId)) continue;
+
+    const input: CreatePlanInput = {
+      billingPlanId,
+      name: tpl.name,
+      capabilities: tpl.capabilities,
+      topN: tpl.topN,
+      slaWeights: tpl.slaWeights,
+      slaMinScore: tpl.slaMinScore,
+      sortBy: tpl.sortBy,
+      filters: tpl.filters,
+    };
+
     try {
-      await createPlan(demo, scope);
+      await createPlan(input, scope);
       created++;
     } catch {
-      // skip duplicates
+      // skip duplicates (race or constraint)
     }
   }
 

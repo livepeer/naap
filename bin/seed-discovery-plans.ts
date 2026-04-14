@@ -17,8 +17,8 @@ import { PrismaClient } from '../packages/database/src/generated/client/index.js
 
 const SYSTEM_OWNER_ID = '00000000-0000-0000-0000-000000000001';
 
-interface DemoPlan {
-  billingPlanId: string;
+interface DemoPlanTemplate {
+  slug: string;
   name: string;
   capabilities: string[];
   topN: number;
@@ -28,9 +28,9 @@ interface DemoPlan {
   filters?: Record<string, number>;
 }
 
-const DEMO_PLANS: DemoPlan[] = [
+const DEMO_PLAN_TEMPLATES: DemoPlanTemplate[] = [
   {
-    billingPlanId: 'demo-high-perf-video',
+    slug: 'high-perf-video',
     name: 'High-Performance Video',
     capabilities: ['image-to-video'],
     topN: 10,
@@ -40,7 +40,7 @@ const DEMO_PLANS: DemoPlan[] = [
     filters: { maxAvgLatencyMs: 500 },
   },
   {
-    billingPlanId: 'demo-budget-image',
+    slug: 'budget-image',
     name: 'Budget Image Generation',
     capabilities: ['image-to-image', 'text-to-image'],
     topN: 20,
@@ -49,7 +49,7 @@ const DEMO_PLANS: DemoPlan[] = [
     sortBy: 'price',
   },
   {
-    billingPlanId: 'demo-balanced-stream',
+    slug: 'balanced-stream',
     name: 'Balanced Streaming',
     capabilities: ['streamdiffusion', 'streamdiffusion-sdxl'],
     topN: 15,
@@ -58,13 +58,17 @@ const DEMO_PLANS: DemoPlan[] = [
     sortBy: 'slaScore',
   },
   {
-    billingPlanId: 'demo-max-avail',
+    slug: 'max-avail',
     name: 'Maximum Availability',
     capabilities: ['noop', 'streamdiffusion', 'streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v'],
     topN: 50,
     sortBy: 'avail',
   },
 ];
+
+function userPlanId(userId: string, slug: string): string {
+  return `demo-${userId.slice(0, 8)}-${slug}`;
+}
 
 async function main() {
   console.log('[seed-plans] Seeding discovery plans...');
@@ -84,7 +88,14 @@ async function main() {
       console.log(`[seed-plans] No users found — using system owner ID`);
     }
 
+    // The plans API scopes queries by teamId (using the "personal:{userId}"
+    // convention) when the caller authenticates via JWT. Without setting
+    // teamId here, the runtime scopeWhere filter would never match these
+    // rows, making them invisible to logged-in users.
+    const teamId = `personal:${ownerUserId}`;
+
     const existingPlans = await prisma.discoveryPlan.findMany({
+      where: { ownerUserId },
       select: { billingPlanId: true },
     });
     const existingIds = new Set(existingPlans.map((p) => p.billingPlanId));
@@ -92,27 +103,29 @@ async function main() {
     let created = 0;
     let skipped = 0;
 
-    for (const demo of DEMO_PLANS) {
-      if (existingIds.has(demo.billingPlanId)) {
+    for (const tpl of DEMO_PLAN_TEMPLATES) {
+      const billingPlanId = userPlanId(ownerUserId, tpl.slug);
+      if (existingIds.has(billingPlanId)) {
         skipped++;
         continue;
       }
 
       await prisma.discoveryPlan.create({
         data: {
-          billingPlanId: demo.billingPlanId,
-          name: demo.name,
-          capabilities: demo.capabilities,
-          topN: demo.topN,
-          slaWeights: demo.slaWeights ?? undefined,
-          slaMinScore: demo.slaMinScore ?? undefined,
-          sortBy: demo.sortBy ?? undefined,
-          filters: demo.filters ?? undefined,
+          billingPlanId,
+          name: tpl.name,
+          capabilities: tpl.capabilities,
+          topN: tpl.topN,
+          slaWeights: tpl.slaWeights ?? undefined,
+          slaMinScore: tpl.slaMinScore ?? undefined,
+          sortBy: tpl.sortBy ?? undefined,
+          filters: tpl.filters ?? undefined,
           ownerUserId,
+          teamId,
           enabled: true,
         },
       });
-      console.log(`[seed-plans] Created: ${demo.name} (${demo.billingPlanId})`);
+      console.log(`[seed-plans] Created: ${tpl.name} (${billingPlanId})`);
       created++;
     }
 

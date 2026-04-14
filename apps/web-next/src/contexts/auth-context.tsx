@@ -433,24 +433,18 @@ export function RequireAuth({
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      // Only perform full cleanup when we have explicit evidence of an invalid session
-      // (401 or 200 with no user data). This preserves valid sessions during transient
-      // network errors (authErrorStatus === null).
-      const hasExplicitInvalidSession = authErrorStatus === 401 || (authErrorStatus === 200 && !user);
-      
-      if (hasExplicitInvalidSession) {
-        // Use the logout endpoint for consistent cleanup of httpOnly cookie, then redirect.
-        // Clear client-side storage first, then call logout API to clear server-side cookie.
-        clearAllAuthStorage();
-        fetch('/api/v1/auth/logout', { method: 'GET', credentials: 'include' })
-          .catch(() => {}) // Ignore errors - we're redirecting anyway
-          .finally(() => {
-            window.location.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
-          });
-      } else {
-        // Transient error or no token - redirect without cleanup to preserve any valid cookie
-        window.location.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
-      }
+      // Always clear client storage and call the logout endpoint to remove the httpOnly
+      // cookie before redirecting.  Without this, a stale cookie that the server rejects
+      // (e.g. DB unreachable → 500, or expired session → 401) causes an infinite
+      // redirect loop: middleware sees cookie → allows /dashboard → RequireAuth
+      // redirects to /login → middleware sees cookie → back to /dashboard.
+      // The logout endpoint clears cookies regardless of DB availability.
+      clearAllAuthStorage();
+      fetch('/api/v1/auth/logout', { method: 'GET', credentials: 'include' })
+        .catch(() => {})
+        .finally(() => {
+          window.location.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
+        });
     }
   }, [isLoading, isAuthenticated, authErrorStatus, user, pathname]);
 
