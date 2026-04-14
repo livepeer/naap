@@ -165,3 +165,42 @@ export async function getStakingHistory(address: string) {
   }
   return events.sort((a, b) => b.timestamp - a.timestamp);
 }
+
+export async function getPolls() {
+  const data = await querySubgraph<{
+    polls: Array<{
+      id: string;
+      proposal: string;
+      endBlock: string;
+      quorum: string;
+      quota: string;
+      tally: { yes: string; no: string } | null;
+    }>;
+  }>(`{
+    polls(first: 20, orderBy: endBlock, orderDirection: desc) {
+      id proposal endBlock quorum quota
+      tally { yes no }
+    }
+  }`);
+  return data.polls || [];
+}
+
+export async function getNetworkDays(count = 30) {
+  const data = await querySubgraph<{
+    days: Array<{
+      date: number;
+      volumeETH: string;
+      volumeUSD: string;
+      participationRate: string;
+      inflation: string;
+      activeTranscoderCount: string | number;
+      delegatorsCount: string | number;
+    }>;
+  }>(`{
+    days(first: ${count}, orderBy: date, orderDirection: desc) {
+      date volumeETH volumeUSD participationRate inflation
+      activeTranscoderCount delegatorsCount
+    }
+  }`);
+  return data.days || [];
+}
