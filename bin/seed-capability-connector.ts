@@ -34,7 +34,13 @@ const DEV_FALLBACK_KEY = 'naap-local-dev-gateway-encryption-key-32ch';
 const KDF_SALT = Buffer.from('naap-gateway-kdf-v1', 'utf8');
 
 function deriveKey(): Buffer {
-  const raw = process.env.ENCRYPTION_KEY || DEV_FALLBACK_KEY;
+  const raw = process.env.ENCRYPTION_KEY;
+  if (!raw) {
+    if (process.env.NODE_ENV === 'development') {
+      return crypto.scryptSync(DEV_FALLBACK_KEY, KDF_SALT, 32);
+    }
+    throw new Error('ENCRYPTION_KEY is required before seeding connector secrets');
+  }
   return crypto.scryptSync(raw, KDF_SALT, 32);
 }
 
@@ -86,13 +92,9 @@ async function main() {
     let ownerScope = SCOPE_ID;
 
     if (!systemUser) {
-      const firstUser = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
-      if (!firstUser) {
-        console.log(`${PREFIX} No users in DB — skipping`);
-        return;
-      }
-      ownerId = firstUser.id;
-      ownerScope = `personal:${ownerId}`;
+      throw new Error(
+        `System user ${SYSTEM_USER_ID} must exist before seeding shared ClickHouse credentials`,
+      );
     }
 
     // Find or create connector

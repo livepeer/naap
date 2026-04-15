@@ -11,7 +11,7 @@ let initialized = false;
 
 export function ensureDefaultSources(): void {
   if (initialized) return;
-  initialized = true;
   registerSource(new ClickHouseSource());
   registerSource(new HuggingFaceSource());
+  initialized = true;
 }

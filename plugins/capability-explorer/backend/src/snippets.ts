@@ -126,9 +126,9 @@ const result = await response.json();
 console.log(result);`;
   }
 
-  const bodyObj = config
+  const bodyJson = config
     ? config.bodyTemplate.replace(/MODEL_ID/g, modelId)
-    : `{ model_id: "${modelId}" }`;
+    : `{"model_id": "${modelId}"}`;
 
   return `const response = await fetch("${GATEWAY_BASE_URL}/${pipelinePath}", {
   method: "POST",
@@ -136,7 +136,7 @@ console.log(result);`;
     "Authorization": "Bearer YOUR_API_KEY",
     "Content-Type": "application/json",
   },
-  body: JSON.stringify(${bodyObj}),
+  body: '${bodyJson.replace(/'/g, "\\'")}',
 });
 
 const result = await response.json();

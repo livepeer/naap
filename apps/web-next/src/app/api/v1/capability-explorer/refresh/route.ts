@@ -17,7 +17,7 @@ function authorized(request: NextRequest): boolean {
   return Boolean(process.env.CRON_SECRET) && auth === `Bearer ${process.env.CRON_SECRET}`;
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+async function handleRefresh(request: NextRequest): Promise<NextResponse> {
   if (!authorized(request)) {
     return NextResponse.json(
       { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } },
@@ -49,4 +49,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 500 },
     );
   }
+}
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  return handleRefresh(request);
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  return handleRefresh(request);
 }

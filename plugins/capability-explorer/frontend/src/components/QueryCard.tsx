@@ -19,8 +19,9 @@ export const QueryCard: React.FC<QueryCardProps> = ({ query, results, resultsLoa
   if (query.minCapacity) filterSummary.push(`Cap ≥ ${query.minCapacity}`);
 
   return (
-    <div
-      className="glass-card p-5 cursor-pointer group hover:border-accent-emerald/30 transition-all"
+    <button
+      type="button"
+      className="glass-card p-5 cursor-pointer group hover:border-accent-emerald/30 transition-all text-left w-full"
       onClick={() => onClick(query.id)}
       data-testid={`query-card-${query.slug}`}
     >
@@ -87,6 +88,6 @@ export const QueryCard: React.FC<QueryCardProps> = ({ query, results, resultsLoa
           GET /api/v1/capability-explorer/queries/{query.id}/results
         </div>
       </div>
-    </div>
+    </button>
   );
 };

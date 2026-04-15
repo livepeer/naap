@@ -47,6 +47,12 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
   }
 
   const result = await handleCreateQuery(body, scopeFromAuth(auth));
-  const status = result.success ? 201 : result.error?.code === 'CONFLICT' ? 409 : 400;
+  const status = result.success
+    ? 201
+    : result.error?.code === 'CONFLICT'
+      ? 409
+      : result.error?.code === 'VALIDATION_ERROR'
+        ? 400
+        : 500;
   return NextResponse.json(result, { status });
 }

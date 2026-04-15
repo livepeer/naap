@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { CapabilityConnection, CapabilityCategory, SortField, SortOrder } from '../lib/types';
 import { fetchCapabilities } from '../lib/api';
 
@@ -14,8 +14,10 @@ export function useCapabilities(opts: UseCapabilitiesOptions = {}) {
   const [data, setData] = useState<CapabilityConnection | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
 
   const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -26,11 +28,17 @@ export function useCapabilities(opts: UseCapabilitiesOptions = {}) {
         sortOrder: opts.sortOrder,
         limit: opts.limit ?? 50,
       });
-      setData(result);
+      if (requestId === requestIdRef.current) {
+        setData(result);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load capabilities');
+      if (requestId === requestIdRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to load capabilities');
+      }
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [opts.category, opts.search, opts.sortBy, opts.sortOrder, opts.limit]);
 

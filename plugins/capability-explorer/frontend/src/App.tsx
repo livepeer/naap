@@ -154,7 +154,11 @@ const AppRoutes: React.FC = () => (
 );
 
 export const CapabilityExplorerApp: React.FC = () => (
-  <MemoryRouter>
+  <MemoryRouter
+    initialEntries={[
+      window.location.pathname.replace(/^\/capability-explorer/, '') || '/',
+    ]}
+  >
     <AppRoutes />
   </MemoryRouter>
 );

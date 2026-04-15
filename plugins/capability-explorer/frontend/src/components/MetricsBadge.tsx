@@ -13,13 +13,13 @@ export const MetricsBadge: React.FC<MetricsBadgeProps> = ({ gpuCount, avgLatency
       <Cpu size={12} />
       {gpuCount}
     </span>
-    {avgLatencyMs !== null && (
+    {avgLatencyMs != null && Number.isFinite(avgLatencyMs) && (
       <span className="flex items-center gap-1" title="Avg latency">
         <Clock size={12} />
         {avgLatencyMs.toFixed(0)}ms
       </span>
     )}
-    {meanPriceUsd !== null && (
+    {meanPriceUsd != null && Number.isFinite(meanPriceUsd) && (
       <span className="flex items-center gap-1" title="Mean price">
         <DollarSign size={12} />
         ${meanPriceUsd.toFixed(4)}/min

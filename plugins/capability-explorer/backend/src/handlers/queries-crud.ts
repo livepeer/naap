@@ -3,6 +3,15 @@ import { CreateCapabilityQuerySchema, UpdateCapabilityQuerySchema } from '../typ
 import type { QueryScope } from '../queries.js';
 import { createQuery, getQuery, updateQuery, deleteQuery } from '../queries.js';
 
+function isPrismaUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code: string }).code === 'P2002'
+  );
+}
+
 export async function handleCreateQuery(
   body: unknown,
   scope: QueryScope,
@@ -19,10 +28,10 @@ export async function handleCreateQuery(
     const query = await createQuery(parsed.data, scope);
     return { success: true, data: query };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to create query';
-    if (msg.includes('Unique constraint')) {
+    if (isPrismaUniqueViolation(err)) {
       return { success: false, error: { code: 'CONFLICT', message: 'A query with this slug already exists' } };
     }
+    const msg = err instanceof Error ? err.message : 'Failed to create query';
     return { success: false, error: { code: 'INTERNAL_ERROR', message: msg } };
   }
 }

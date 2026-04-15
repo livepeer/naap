@@ -106,7 +106,7 @@ export class ClickHouseSource implements CapabilityDataSource {
             meanPriceUsd: avgPriceUsd,
             minPriceUsd,
             maxPriceUsd,
-            priceUnit: category === 'llm' ? 'USD/1M tokens' : 'USD/min',
+            priceUnit: 'USD/min',
             sdkSnippet: generateSnippets(row.capability_name, category, primaryModelId),
             models: [model],
             lastUpdated: new Date().toISOString(),

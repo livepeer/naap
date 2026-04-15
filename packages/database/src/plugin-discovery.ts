@@ -171,7 +171,10 @@ export function discoverFromDir(rootDir: string, subDir: string): DiscoveredPlug
         license: manifest.license,
         repository: manifest.repository,
         isCore: manifest.isCore === true ? true : undefined,
-        visibleToUsers: manifest.visibleToUsers,
+        visibleToUsers:
+          typeof manifest.visibleToUsers === 'boolean'
+            ? manifest.visibleToUsers
+            : undefined,
       };
     })
     .sort((a, b) => a.order - b.order);
@@ -279,7 +282,7 @@ export function toPluginPackageData(
     keywords: plugin.keywords || [],
     icon: plugin.icon,
     isCore: plugin.isCore ?? false,
-    visibleToUsers: plugin.visibleToUsers ?? true,
+    visibleToUsers: plugin.visibleToUsers === false ? false : true,
     publishStatus: 'published',
   };
 }

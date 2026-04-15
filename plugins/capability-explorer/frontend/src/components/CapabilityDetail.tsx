@@ -81,7 +81,7 @@ export const CapabilityDetail: React.FC<CapabilityDetailProps> = ({ capability, 
                 className="inline-flex items-center gap-1.5 text-sm text-accent-emerald hover:underline"
               >
                 <ExternalLink size={14} />
-                {capability.modelSourceUrl.includes('github.com') ? 'View on GitHub' : 'View on HuggingFace'}
+                {new URL(capability.modelSourceUrl).hostname.endsWith('github.com') ? 'View on GitHub' : 'View on HuggingFace'}
               </a>
             </section>
           )}
