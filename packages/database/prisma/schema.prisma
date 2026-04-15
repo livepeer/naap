@@ -2265,6 +2265,7 @@ model CapabilityExplorerConfig {
   id                   String    @id @default("default")
   refreshIntervalHours Int       @default(4)
   enabledSources       Json
+  refreshIntervals     Json      @default("{}")
   lastRefreshAt        DateTime?
   lastRefreshStatus    String?
   updatedAt            DateTime  @updatedAt

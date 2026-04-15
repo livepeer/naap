@@ -7,6 +7,7 @@ function toRecord(row: Record<string, unknown>): CapabilityExplorerConfigRecord 
     id: row.id as string,
     refreshIntervalHours: row.refreshIntervalHours as number,
     enabledSources: (row.enabledSources as Record<string, boolean>) ?? {},
+    refreshIntervals: (row.refreshIntervals as Record<string, number>) ?? {},
     lastRefreshAt: row.lastRefreshAt ? (row.lastRefreshAt as Date).toISOString() : null,
     lastRefreshStatus: (row.lastRefreshStatus as string) ?? null,
     updatedAt: (row.updatedAt as Date).toISOString(),
@@ -18,7 +19,10 @@ export async function handleGetConfig(): Promise<ApiResponse<CapabilityExplorerC
     const config = await prisma.capabilityExplorerConfig.upsert({
       where: { id: 'default' },
       update: {},
-      create: { id: 'default', enabledSources: { clickhouse: true, huggingface: true } },
+      create: {
+        id: 'default',
+        enabledSources: { clickhouse: true, 'onchain-registry': true, huggingface: true },
+      },
     });
     return { success: true, data: toRecord(config as unknown as Record<string, unknown>) };
   } catch (err) {
@@ -46,13 +50,20 @@ export async function handleUpdateConfig(
     if (parsed.data.enabledSources !== undefined) {
       data.enabledSources = parsed.data.enabledSources;
     }
+    if (parsed.data.refreshIntervals !== undefined) {
+      data.refreshIntervals = parsed.data.refreshIntervals;
+    }
 
     const config = await prisma.capabilityExplorerConfig.upsert({
       where: { id: 'default' },
       update: data,
       create: {
         id: 'default',
-        enabledSources: parsed.data.enabledSources ?? { clickhouse: true, huggingface: true },
+        enabledSources: parsed.data.enabledSources ?? {
+          clickhouse: true,
+          'onchain-registry': true,
+          huggingface: true,
+        },
         refreshIntervalHours: parsed.data.refreshIntervalHours ?? 4,
       },
     });

@@ -6,7 +6,8 @@ vi.mock('@naap/database', () => {
       upsert: vi.fn().mockResolvedValue({
         id: 'default',
         refreshIntervalHours: 4,
-        enabledSources: { clickhouse: true, huggingface: true },
+        enabledSources: { clickhouse: true, 'onchain-registry': true, huggingface: true },
+        refreshIntervals: {},
         lastRefreshAt: null,
         lastRefreshStatus: null,
         updatedAt: new Date(),
@@ -16,6 +17,7 @@ vi.mock('@naap/database', () => {
     },
     capabilitySnapshot: {
       create: vi.fn().mockResolvedValue({}),
+      findFirst: vi.fn().mockResolvedValue(null),
     },
     capabilityMergedView: {
       upsert: vi.fn().mockResolvedValue({}),

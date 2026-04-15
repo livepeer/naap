@@ -115,6 +115,9 @@ export interface EnrichedCapability {
   sdkSnippet: SdkSnippet;
   models: EnrichedModel[];
   lastUpdated: string;
+
+  /** Transient: orchestrator URIs used during merge for deduplication. Stripped before persistence. */
+  _orchestratorUris?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +301,7 @@ export interface CapabilityExplorerConfigRecord {
   id: string;
   refreshIntervalHours: number;
   enabledSources: Record<string, boolean>;
+  refreshIntervals: Record<string, number>;
   lastRefreshAt: string | null;
   lastRefreshStatus: string | null;
   updatedAt: string;
@@ -306,6 +310,7 @@ export interface CapabilityExplorerConfigRecord {
 export const UpdateConfigSchema = z.object({
   refreshIntervalHours: z.number().int().min(1).max(24).optional(),
   enabledSources: z.record(z.boolean()).optional(),
+  refreshIntervals: z.record(z.number().int().min(1).max(48)).optional(),
 });
 
 export type UpdateConfigInput = z.infer<typeof UpdateConfigSchema>;
