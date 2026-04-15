@@ -1,24 +1,21 @@
 /**
  * POST /api/v1/capability-explorer/refresh
  *
- * Cron-triggered refresh of the capability explorer merged view.
- * Protected by CRON_SECRET (same pattern as orchestrator-leaderboard).
+ * Refresh the capability explorer merged view.
+ * Accepts: CRON_SECRET (Vercel cron), session cookie (admin UI), or API key.
  */
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 import { NextRequest, NextResponse } from 'next/server';
+import { authorize } from '@/lib/gateway/authorize';
 import { getAuthToken } from '@/lib/api/response';
 import { refreshCapabilities, isRefreshDue } from '@capability-explorer/backend';
 
-function authorized(request: NextRequest): boolean {
-  const auth = request.headers.get('authorization');
-  return Boolean(process.env.CRON_SECRET) && auth === `Bearer ${process.env.CRON_SECRET}`;
-}
-
 async function handleRefresh(request: NextRequest): Promise<NextResponse> {
-  if (!authorized(request)) {
+  const auth = await authorize(request);
+  if (!auth) {
     return NextResponse.json(
       { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } },
       { status: 401 },
@@ -26,7 +23,7 @@ async function handleRefresh(request: NextRequest): Promise<NextResponse> {
   }
 
   const due = await isRefreshDue();
-  if (!due) {
+  if (!due && auth.callerType === 'cron') {
     return NextResponse.json({
       success: true,
       data: { skipped: true, reason: 'Refresh not due yet' },
