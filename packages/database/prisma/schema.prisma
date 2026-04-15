@@ -1568,6 +1568,8 @@ model AbConversation {
   skillUsed   String?                           // which skill handled this message
   data        Json?
   latencyMs   Int?
+  sessionId   String?
+  feedback    String?
   createdAt   DateTime @default(now())
 
   @@index([tenantId, createdAt])
@@ -2201,12 +2203,36 @@ model AbUserMemory {
   source      String    @default("learned")
   usageCount  Int       @default(0)
   lastUsed    DateTime  @default(now())
-  expiresAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  expiresAt      DateTime?
+  decayRate      Float     @default(0.1)
+  lastVerified   DateTime?
+  contradictions Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@unique([tenantId, key])
   @@index([tenantId, type])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbAgentSession {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  status              String   @default("active")
+  trigger             String
+  plan                Json
+  currentStep         Int      @default(0)
+  stepResults         Json     @default("[]")
+  pendingConfirmation Json?
+  undoStack           Json     @default("[]")
+  evaluation          Json?
+  version             Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  expiresAt           DateTime
+
+  @@index([tenantId, status])
+  @@index([tenantId])
   @@schema("plugin_agentbook_core")
 }
 
