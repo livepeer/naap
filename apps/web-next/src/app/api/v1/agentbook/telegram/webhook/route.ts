@@ -18,11 +18,15 @@ function resolveTenantId(chatId: number): string {
 const CORE_API = process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050';
 
 /** Call the agent brain and return the response data. */
-async function callAgentBrain(tenantId: string, text: string, attachments?: { type: string; url: string }[]): Promise<any> {
+async function callAgentBrain(
+  tenantId: string, text: string,
+  attachments?: { type: string; url: string }[],
+  sessionAction?: string, feedback?: string,
+): Promise<any> {
   const res = await fetch(`${CORE_API}/api/v1/agentbook-core/agent/message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-    body: JSON.stringify({ text, channel: 'telegram', attachments }),
+    body: JSON.stringify({ text, channel: 'telegram', attachments, sessionAction, feedback }),
   });
   return res.json();
 }
@@ -83,6 +87,24 @@ function getBot(): Bot {
       return;
     }
 
+    const lower = text.toLowerCase().trim();
+
+    // Detect feedback/corrections FIRST (takes precedence over session cancel)
+    let feedback: string | undefined;
+    if (/^(no[, ]+\w|wrong[, ]+|should be |that's |it's )/i.test(lower)) {
+      feedback = text;
+    }
+
+    // Detect session actions (only exact single-word/phrase matches)
+    let sessionAction: string | undefined;
+    if (!feedback) {
+      if (/^(yes|confirm|go|ok|proceed|do it|y)$/i.test(lower)) sessionAction = 'confirm';
+      else if (/^(no|cancel|stop|abort|nevermind|n)$/i.test(lower)) sessionAction = 'cancel';
+      else if (/^(undo|revert|undo that)$/i.test(lower)) sessionAction = 'undo';
+      else if (/^(skip|next)$/i.test(lower)) sessionAction = 'skip';
+      else if (/^(status|where was i)$/i.test(lower)) sessionAction = 'status';
+    }
+
     // Slash command shortcuts → rewrite as natural language for the agent
     const slashMap: Record<string, string> = {
       '/balance': 'What is my cash balance?',
@@ -94,19 +116,36 @@ function getBot(): Bot {
     const agentText = slashMap[cmd] || text;
 
     try {
-      const result = await callAgentBrain(tenantId, agentText);
+      const result = await callAgentBrain(tenantId, agentText, undefined, sessionAction, feedback);
       if (result.success && result.data) {
-        const reply = formatResponse(result.data);
+        let reply: string;
+        if (result.data.plan?.requiresConfirmation) {
+          // Show plan with confirm/cancel buttons
+          reply = escHtml(result.data.message);
+        } else if (result.data.evaluation) {
+          // Show evaluation results
+          reply = mdToHtml(result.data.message);
+        } else {
+          reply = formatResponse(result.data);
+        }
 
-        // Build inline keyboard for expense recordings
-        const keyboard = result.data.skillUsed === 'record-expense' && result.data.message?.includes('Recorded')
-          ? { inline_keyboard: [[{ text: '📁 Category', callback_data: `change_cat:agent` }, { text: '🏠 Personal', callback_data: `personal:agent` }]] }
-          : undefined;
+        // Build inline keyboard based on context
+        let keyboard: any = undefined;
+        if (result.data.plan?.requiresConfirmation) {
+          keyboard = { inline_keyboard: [[
+            { text: '\u2705 Proceed', callback_data: 'session:confirm' },
+            { text: '\u274C Cancel', callback_data: 'session:cancel' },
+          ]] };
+        } else if (result.data.skillUsed === 'record-expense' && result.data.message?.includes('Recorded')) {
+          keyboard = { inline_keyboard: [[
+            { text: '\u{1F4C1} Category', callback_data: 'change_cat:agent' },
+            { text: '\u{1F3E0} Personal', callback_data: 'personal:agent' },
+          ]] };
+        }
 
         try {
           await ctx.reply(reply, { reply_markup: keyboard, parse_mode: 'HTML' });
         } catch {
-          // Telegram rejected HTML — fall back to plain text
           await ctx.reply(result.data.message || reply, { reply_markup: keyboard });
         }
       } else {
@@ -205,6 +244,20 @@ function getBot(): Bot {
 
     try {
       const [action, expenseId] = cbData.split(':');
+
+      if (action === 'session') {
+        const sessionAction = expenseId; // 'confirm' or 'cancel'
+        const result = await callAgentBrain(tenantId, sessionAction, undefined, sessionAction);
+        await ctx.answerCallbackQuery({ text: sessionAction === 'confirm' ? 'Executing...' : 'Cancelled' });
+        if (result.success && result.data?.message) {
+          try {
+            await ctx.editMessageText(mdToHtml(result.data.message), { parse_mode: 'HTML' });
+          } catch {
+            await ctx.reply(result.data.message);
+          }
+        }
+        return;
+      }
 
       if (action === 'confirm' && expenseId) {
         await fetch(`${expenseApi}/api/v1/agentbook-expense/expenses/${expenseId}/confirm`, {
