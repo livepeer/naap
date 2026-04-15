@@ -1,0 +1,51 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "huggingface",
+  "name": "HuggingFace Hub API",
+  "description": "HuggingFace Hub API — query model cards, metadata, tags, and README content for AI models",
+  "icon": "🤗",
+  "category": "ai",
+  "connector": {
+    "slug": "huggingface",
+    "displayName": "HuggingFace Hub API",
+    "description": "HuggingFace Hub model metadata and model card API with Bearer token auth",
+    "category": "ai",
+    "upstreamBaseUrl": "https://huggingface.co/api",
+    "defaultTimeout": 15000,
+    "healthCheckPath": "/models?limit=1",
+    "authType": "bearer",
+    "authConfig": { "tokenRef": "token" },
+    "secretRefs": ["token"],
+    "streamingEnabled": false,
+    "tags": ["huggingface", "ai", "models", "model-cards", "metadata"]
+  },
+  "endpoints": [
+    {
+      "name": "get-model",
+      "description": "Get model card metadata by model ID (e.g. stabilityai/stable-diffusion-xl-base-1.0)",
+      "method": "GET",
+      "path": "/models/:modelId",
+      "upstreamPath": "/models/${modelId}",
+      "timeout": 10000,
+      "cacheTtl": 3600
+    },
+    {
+      "name": "search-models",
+      "description": "Search models by query and/or pipeline tag",
+      "method": "GET",
+      "path": "/models",
+      "upstreamPath": "/models",
+      "timeout": 10000,
+      "cacheTtl": 300
+    },
+    {
+      "name": "list-by-pipeline",
+      "description": "List models filtered by pipeline tag (e.g. text-to-image, text-generation)",
+      "method": "GET",
+      "path": "/models/pipeline/:pipelineTag",
+      "upstreamPath": "/models?pipeline_tag=${pipelineTag}&sort=downloads&direction=-1&limit=50",
+      "timeout": 10000,
+      "cacheTtl": 600
+    }
+  ]
+}
