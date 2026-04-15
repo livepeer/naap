@@ -41,7 +41,7 @@ export const CapabilityStats: React.FC<CapabilityStatsProps> = ({ stats, loading
       <StatCard
         icon={<DollarSign size={18} />}
         label="Avg Price"
-        value={stats.avgPriceUsd !== null ? `$${stats.avgPriceUsd.toFixed(4)}` : 'N/A'}
+        value={stats.avgPriceUsd !== null ? `$${stats.avgPriceUsd.toFixed(4)}/min` : 'N/A'}
       />
     </div>
   );

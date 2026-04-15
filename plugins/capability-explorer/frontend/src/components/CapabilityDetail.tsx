@@ -58,7 +58,7 @@ export const CapabilityDetail: React.FC<CapabilityDetailProps> = ({ capability, 
             <MetricCard
               icon={<DollarSign size={16} />}
               label="Mean Price"
-              value={capability.meanPriceUsd !== null ? `$${capability.meanPriceUsd.toFixed(4)}` : 'N/A'}
+              value={capability.meanPriceUsd !== null ? `$${capability.meanPriceUsd.toFixed(4)}/min` : 'N/A'}
             />
           </section>
 
@@ -81,7 +81,7 @@ export const CapabilityDetail: React.FC<CapabilityDetailProps> = ({ capability, 
                 className="inline-flex items-center gap-1.5 text-sm text-accent-emerald hover:underline"
               >
                 <ExternalLink size={14} />
-                View on HuggingFace
+                {capability.modelSourceUrl.includes('github.com') ? 'View on GitHub' : 'View on HuggingFace'}
               </a>
             </section>
           )}
@@ -122,7 +122,7 @@ export const CapabilityDetail: React.FC<CapabilityDetailProps> = ({ capability, 
                         </td>
                         <td className="py-2 text-text-secondary">{model.gpuCount}</td>
                         <td className="py-2 text-text-secondary">
-                          {model.meanPriceUsd !== null ? `$${model.meanPriceUsd.toFixed(4)}` : '—'}
+                          {model.meanPriceUsd !== null ? `$${model.meanPriceUsd.toFixed(4)}/min` : '—'}
                         </td>
                       </tr>
                     ))}

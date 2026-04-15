@@ -13,63 +13,52 @@ export function resolveClickhouseGatewayQueryUrl(requestUrl?: string): string {
 
 export function buildCapabilitySummarySQL(): string {
   return `SELECT
-    capability_name,
-    any(pipeline_type) AS pipeline_type,
-    count(*) AS gpu_count,
-    count(DISTINCT orch_uri) AS orch_count,
-    sum(avail) AS total_capacity,
-    round(avg(price_per_unit), 2) AS avg_price,
-    min(price_per_unit) AS min_price,
-    max(price_per_unit) AS max_price
+    c.capability_name,
+    any(c.pipeline_type)                                      AS pipeline_type,
+    uniq(c.orch_uri)                                          AS orchestrators,
+    uniq(concat(c.orch_uri, c.gpu_id))                        AS gpus,
+    sum(c.cap)                                                AS total_slots,
+    sum(c.in_use)                                             AS used_slots,
+    sum(c.cap) - sum(c.in_use)                                AS free_slots,
+    round((sum(c.cap) - sum(c.in_use)) / sum(c.cap) * 100, 1) AS free_pct,
+    round(avg(c.price_per_unit), 2)                           AS mean_price_per_pixel_wei,
+    round(min(c.price_per_unit), 2)                           AS min_price_per_pixel_wei,
+    round(max(c.price_per_unit), 2)                           AS max_price_per_pixel_wei,
+    round(avg(l.avg_latency), 1)                              AS avg_latency_ms
 FROM (
     SELECT
         capability_name,
+        any(pipeline_type)    AS pipeline_type,
         orch_uri,
-        gpu_name,
-        argMax(pipeline_type, timestamp_ts) AS pipeline_type,
-        argMax(capacity_available, timestamp_ts) AS avail,
-        argMax(price_per_unit, timestamp_ts) AS price_per_unit
+        gpu_id,
+        max(total_capacity)   AS cap,
+        max(capacity_in_use)  AS in_use,
+        max(price_per_unit)   AS price_per_unit
     FROM semantic.network_capabilities
-    WHERE timestamp_ts >= now() - INTERVAL 1 HOUR
-      AND warm_bool = 1
-    GROUP BY capability_name, orch_uri, gpu_name
-    HAVING avail > 0
-)
-GROUP BY capability_name
-ORDER BY capability_name
-FORMAT JSON`;
-}
-
-export function buildLatencySQL(): string {
-  return `SELECT
-    cap.capability_name AS capability_name,
-    round(avg(lat.avg_latency), 1) AS avg_latency,
-    round(min(lat.best_latency), 1) AS best_latency
-FROM (
-    SELECT DISTINCT capability_name, orch_uri
-    FROM semantic.network_capabilities
-    WHERE timestamp_ts >= now() - INTERVAL 1 HOUR
-      AND warm_bool = 1
-) AS cap
-INNER JOIN (
-    SELECT
-        orchestrator_url,
-        avg(avg_latency) AS avg_latency,
-        min(best_latency) AS best_latency
+    WHERE timestamp_ts >= now() - INTERVAL 4 HOUR
+      AND total_capacity < 1000
+      AND total_capacity > 0
+    GROUP BY capability_name, orch_uri, gpu_id
+) AS c
+LEFT JOIN (
+    SELECT orchestrator_url,
+           avg(avg_latency) AS avg_latency
     FROM semantic.gateway_latency_summary
-    WHERE timestamp_hour_ts >= now() - INTERVAL 24 HOUR
+    WHERE timestamp_hour_ts >= now() - INTERVAL 4 HOUR
     GROUP BY orchestrator_url
-) AS lat ON cap.orch_uri = lat.orchestrator_url
-GROUP BY cap.capability_name
-ORDER BY cap.capability_name
+) AS l
+    ON l.orchestrator_url = c.orch_uri
+GROUP BY c.capability_name
+ORDER BY gpus DESC
 FORMAT JSON`;
 }
 
 export function buildFiltersSQL(): string {
   return `SELECT DISTINCT capability_name
 FROM semantic.network_capabilities
-WHERE timestamp_ts >= now() - INTERVAL 1 HOUR
-  AND warm_bool = 1
+WHERE timestamp_ts >= now() - INTERVAL 4 HOUR
+  AND total_capacity > 0
+  AND total_capacity < 1000
 ORDER BY capability_name
 FORMAT JSON`;
 }

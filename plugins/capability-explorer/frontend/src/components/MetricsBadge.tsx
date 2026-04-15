@@ -22,7 +22,7 @@ export const MetricsBadge: React.FC<MetricsBadgeProps> = ({ gpuCount, avgLatency
     {meanPriceUsd !== null && (
       <span className="flex items-center gap-1" title="Mean price">
         <DollarSign size={12} />
-        {meanPriceUsd < 0.01 ? '<$0.01' : `$${meanPriceUsd.toFixed(3)}`}
+        ${meanPriceUsd.toFixed(4)}/min
       </span>
     )}
   </div>

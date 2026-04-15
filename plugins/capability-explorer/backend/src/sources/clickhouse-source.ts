@@ -1,15 +1,9 @@
 import type { CapabilityDataSource, SourceContext, SourceResult, PartialCapability } from './interface.js';
 import type { ClickHouseCapabilitySummary, CapabilityCategory, EnrichedModel } from '../types.js';
 import { PIPELINE_TO_CATEGORY } from '../types.js';
-import { buildCapabilitySummarySQL, buildLatencySQL, fetchFromClickHouse } from '../query.js';
+import { buildCapabilitySummarySQL, fetchFromClickHouse } from '../query.js';
 import { generateSnippets } from '../snippets.js';
 import { getHuggingFaceUrl } from '../hf-model-map.js';
-
-interface LatencyRow {
-  capability_name: string;
-  avg_latency: number | null;
-  best_latency: number | null;
-}
 
 function categorize(pipelineType: string): CapabilityCategory {
   return PIPELINE_TO_CATEGORY[pipelineType] || 'other';
@@ -33,8 +27,10 @@ async function fetchEthPriceUsd(): Promise<number> {
   }
 }
 
-function weiPerPixelToUsd(weiPerPixel: number, ethPriceUsd: number): number {
-  return (weiPerPixel / WEI_PER_ETH) * ethPriceUsd * 1_000_000;
+/** Convert wei-per-pixel to USD per minute of 1024×1024 video at 30 fps (1.8 B pixels). */
+function weiPerPixelToUsdPerMin(weiPerPixel: number, ethPriceUsd: number): number {
+  const PIXELS_PER_MIN = 1024 * 1024 * 30 * 60; // ~1.8 B
+  return (weiPerPixel / WEI_PER_ETH) * ethPriceUsd * PIXELS_PER_MIN;
 }
 
 function humanName(capabilityName: string): string {
@@ -52,30 +48,30 @@ export class ClickHouseSource implements CapabilityDataSource {
   async fetch(ctx: SourceContext): Promise<SourceResult> {
     const start = Date.now();
     try {
-      const [summaryRows, latencyRows, ethPriceUsd] = await Promise.all([
+      const [rows, ethPriceUsd] = await Promise.all([
         fetchFromClickHouse<ClickHouseCapabilitySummary>(buildCapabilitySummarySQL(), ctx),
-        fetchFromClickHouse<LatencyRow>(buildLatencySQL(), ctx).catch(() => [] as LatencyRow[]),
         fetchEthPriceUsd(),
       ]);
 
-      const latencyMap = new Map<string, LatencyRow>();
-      for (const row of latencyRows) {
-        latencyMap.set(row.capability_name, row);
-      }
-
-      const capabilities: PartialCapability[] = summaryRows.map((row) => {
+      const capabilities: PartialCapability[] = rows.map((row) => {
         const pipelineType = String(row.pipeline_type || '');
         const category = categorize(pipelineType);
-        const latency = latencyMap.get(row.capability_name);
         const primaryModelId = row.capability_name;
 
-        const avgPriceWei = row.avg_price != null ? Number(row.avg_price) : null;
-        const minPriceWei = row.min_price != null ? Number(row.min_price) : null;
-        const maxPriceWei = row.max_price != null ? Number(row.max_price) : null;
+        const gpuCount = Number(row.gpus) || 0;
+        const orchCount = Number(row.orchestrators) || 0;
+        const totalSlots = Number(row.total_slots) || 0;
+        const freeSlots = Number(row.free_slots) || 0;
 
-        const avgPriceUsd = avgPriceWei != null ? weiPerPixelToUsd(avgPriceWei, ethPriceUsd) : null;
-        const minPriceUsd = minPriceWei != null ? weiPerPixelToUsd(minPriceWei, ethPriceUsd) : null;
-        const maxPriceUsd = maxPriceWei != null ? weiPerPixelToUsd(maxPriceWei, ethPriceUsd) : null;
+        const avgPriceWei = row.mean_price_per_pixel_wei != null ? Number(row.mean_price_per_pixel_wei) : null;
+        const minPriceWei = row.min_price_per_pixel_wei != null ? Number(row.min_price_per_pixel_wei) : null;
+        const maxPriceWei = row.max_price_per_pixel_wei != null ? Number(row.max_price_per_pixel_wei) : null;
+
+        const avgPriceUsd = avgPriceWei != null ? weiPerPixelToUsdPerMin(avgPriceWei, ethPriceUsd) : null;
+        const minPriceUsd = minPriceWei != null ? weiPerPixelToUsdPerMin(minPriceWei, ethPriceUsd) : null;
+        const maxPriceUsd = maxPriceWei != null ? weiPerPixelToUsdPerMin(maxPriceWei, ethPriceUsd) : null;
+
+        const avgLatencyMs = row.avg_latency_ms != null ? Number(row.avg_latency_ms) : null;
 
         const model: EnrichedModel = {
           modelId: primaryModelId,
@@ -84,7 +80,7 @@ export class ClickHouseSource implements CapabilityDataSource {
           huggingFaceUrl: getHuggingFaceUrl(primaryModelId),
           description: null,
           avgFps: null,
-          gpuCount: Number(row.gpu_count) || 0,
+          gpuCount,
           meanPriceUsd: avgPriceUsd,
         };
 
@@ -101,16 +97,16 @@ export class ClickHouseSource implements CapabilityDataSource {
             thumbnail: null,
             license: null,
             tags: [category, pipelineType, row.capability_name],
-            gpuCount: Number(row.gpu_count) || 0,
-            totalCapacity: Number(row.total_capacity) || 0,
-            orchestratorCount: Number(row.orch_count) || 0,
-            avgLatencyMs: latency?.avg_latency != null ? Number(latency.avg_latency) : null,
-            bestLatencyMs: latency?.best_latency != null ? Number(latency.best_latency) : null,
+            gpuCount,
+            totalCapacity: freeSlots > 0 ? freeSlots : totalSlots,
+            orchestratorCount: orchCount,
+            avgLatencyMs,
+            bestLatencyMs: null,
             avgFps: null,
             meanPriceUsd: avgPriceUsd,
-            minPriceUsd: minPriceUsd,
-            maxPriceUsd: maxPriceUsd,
-            priceUnit: category === 'llm' ? 'USD/1M tokens' : 'USD/1M pixels',
+            minPriceUsd,
+            maxPriceUsd,
+            priceUnit: category === 'llm' ? 'USD/1M tokens' : 'USD/min',
             sdkSnippet: generateSnippets(row.capability_name, category, primaryModelId),
             models: [model],
             lastUpdated: new Date().toISOString(),

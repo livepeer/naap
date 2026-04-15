@@ -185,12 +185,16 @@ export interface ClickHouseLatencyRow {
 export interface ClickHouseCapabilitySummary {
   capability_name: string;
   pipeline_type: string;
-  gpu_count: number;
-  orch_count: number;
-  total_capacity: number;
-  avg_price: number;
-  min_price: number;
-  max_price: number;
+  orchestrators: number;
+  gpus: number;
+  total_slots: number;
+  used_slots: number;
+  free_slots: number;
+  free_pct: number;
+  mean_price_per_pixel_wei: number;
+  min_price_per_pixel_wei: number;
+  max_price_per_pixel_wei: number;
+  avg_latency_ms: number | null;
 }
 
 export interface ClickHouseJSONResponse<T = unknown> {

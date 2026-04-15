@@ -1,16 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { buildCapabilitySummarySQL, buildLatencySQL, buildFiltersSQL, resolveClickhouseGatewayQueryUrl } from '../query.js';
+import { buildCapabilitySummarySQL, buildFiltersSQL, resolveClickhouseGatewayQueryUrl } from '../query.js';
 
 describe('query', () => {
   describe('buildCapabilitySummarySQL', () => {
-    it('generates valid SELECT query', () => {
+    it('generates valid SELECT with joined latency', () => {
       const sql = buildCapabilitySummarySQL();
       expect(sql).toMatch(/^SELECT/);
       expect(sql).toContain('semantic.network_capabilities');
+      expect(sql).toContain('semantic.gateway_latency_summary');
       expect(sql).toContain('FORMAT JSON');
       expect(sql).toContain('capability_name');
-      expect(sql).toContain('gpu_count');
-      expect(sql).toContain('warm_bool = 1');
+      expect(sql).toContain('gpus');
+      expect(sql).toContain('orchestrators');
+      expect(sql).toContain('avg_latency_ms');
     });
 
     it('does not contain destructive keywords', () => {
@@ -22,21 +24,11 @@ describe('query', () => {
     });
   });
 
-  describe('buildLatencySQL', () => {
-    it('joins capabilities with latency summary', () => {
-      const sql = buildLatencySQL();
-      expect(sql).toContain('semantic.network_capabilities');
-      expect(sql).toContain('semantic.gateway_latency_summary');
-      expect(sql).toContain('avg_latency');
-      expect(sql).toContain('best_latency');
-    });
-  });
-
   describe('buildFiltersSQL', () => {
     it('returns distinct capability names', () => {
       const sql = buildFiltersSQL();
       expect(sql).toContain('DISTINCT capability_name');
-      expect(sql).toContain('warm_bool = 1');
+      expect(sql).toContain('total_capacity > 0');
     });
   });
 
