@@ -11,8 +11,30 @@ interface LatencyRow {
   best_latency: number | null;
 }
 
-function categorize(capabilityName: string): CapabilityCategory {
-  return PIPELINE_TO_CATEGORY[capabilityName] || 'other';
+function categorize(pipelineType: string): CapabilityCategory {
+  return PIPELINE_TO_CATEGORY[pipelineType] || 'other';
+}
+
+const WEI_PER_ETH = 1e18;
+
+async function fetchEthPriceUsd(): Promise<number> {
+  try {
+    const res = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd',
+      { signal: AbortSignal.timeout(5_000) },
+    );
+    if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
+    const json = await res.json() as { ethereum?: { usd?: number } };
+    const price = json.ethereum?.usd;
+    if (typeof price === 'number' && price > 0) return price;
+    throw new Error('Unexpected CoinGecko shape');
+  } catch {
+    return 1800;
+  }
+}
+
+function weiPerPixelToUsd(weiPerPixel: number, ethPriceUsd: number): number {
+  return (weiPerPixel / WEI_PER_ETH) * ethPriceUsd * 1_000_000;
 }
 
 function humanName(capabilityName: string): string {
@@ -30,9 +52,10 @@ export class ClickHouseSource implements CapabilityDataSource {
   async fetch(ctx: SourceContext): Promise<SourceResult> {
     const start = Date.now();
     try {
-      const [summaryRows, latencyRows] = await Promise.all([
+      const [summaryRows, latencyRows, ethPriceUsd] = await Promise.all([
         fetchFromClickHouse<ClickHouseCapabilitySummary>(buildCapabilitySummarySQL(), ctx),
         fetchFromClickHouse<LatencyRow>(buildLatencySQL(), ctx).catch(() => [] as LatencyRow[]),
+        fetchEthPriceUsd(),
       ]);
 
       const latencyMap = new Map<string, LatencyRow>();
@@ -41,9 +64,18 @@ export class ClickHouseSource implements CapabilityDataSource {
       }
 
       const capabilities: PartialCapability[] = summaryRows.map((row) => {
-        const category = categorize(row.capability_name);
+        const pipelineType = String(row.pipeline_type || '');
+        const category = categorize(pipelineType);
         const latency = latencyMap.get(row.capability_name);
         const primaryModelId = row.capability_name;
+
+        const avgPriceWei = row.avg_price != null ? Number(row.avg_price) : null;
+        const minPriceWei = row.min_price != null ? Number(row.min_price) : null;
+        const maxPriceWei = row.max_price != null ? Number(row.max_price) : null;
+
+        const avgPriceUsd = avgPriceWei != null ? weiPerPixelToUsd(avgPriceWei, ethPriceUsd) : null;
+        const minPriceUsd = minPriceWei != null ? weiPerPixelToUsd(minPriceWei, ethPriceUsd) : null;
+        const maxPriceUsd = maxPriceWei != null ? weiPerPixelToUsd(maxPriceWei, ethPriceUsd) : null;
 
         const model: EnrichedModel = {
           modelId: primaryModelId,
@@ -53,7 +85,7 @@ export class ClickHouseSource implements CapabilityDataSource {
           description: null,
           avgFps: null,
           gpuCount: Number(row.gpu_count) || 0,
-          meanPriceUsd: row.avg_price != null ? Number(row.avg_price) : null,
+          meanPriceUsd: avgPriceUsd,
         };
 
         return {
@@ -68,17 +100,17 @@ export class ClickHouseSource implements CapabilityDataSource {
             modelSourceUrl: getHuggingFaceUrl(primaryModelId),
             thumbnail: null,
             license: null,
-            tags: [category, row.capability_name],
+            tags: [category, pipelineType, row.capability_name],
             gpuCount: Number(row.gpu_count) || 0,
             totalCapacity: Number(row.total_capacity) || 0,
             orchestratorCount: Number(row.orch_count) || 0,
             avgLatencyMs: latency?.avg_latency != null ? Number(latency.avg_latency) : null,
             bestLatencyMs: latency?.best_latency != null ? Number(latency.best_latency) : null,
             avgFps: null,
-            meanPriceUsd: row.avg_price != null ? Number(row.avg_price) : null,
-            minPriceUsd: row.min_price != null ? Number(row.min_price) : null,
-            maxPriceUsd: row.max_price != null ? Number(row.max_price) : null,
-            priceUnit: category === 'llm' ? 'token' : 'pixel',
+            meanPriceUsd: avgPriceUsd,
+            minPriceUsd: minPriceUsd,
+            maxPriceUsd: maxPriceUsd,
+            priceUnit: category === 'llm' ? 'USD/1M tokens' : 'USD/1M pixels',
             sdkSnippet: generateSnippets(row.capability_name, category, primaryModelId),
             models: [model],
             lastUpdated: new Date().toISOString(),

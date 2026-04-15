@@ -14,7 +14,8 @@ export function resolveClickhouseGatewayQueryUrl(requestUrl?: string): string {
 export function buildCapabilitySummarySQL(): string {
   return `SELECT
     capability_name,
-    count(DISTINCT gpu_name) AS gpu_count,
+    any(pipeline_type) AS pipeline_type,
+    count(*) AS gpu_count,
     count(DISTINCT orch_uri) AS orch_count,
     sum(avail) AS total_capacity,
     round(avg(price_per_unit), 2) AS avg_price,
@@ -25,6 +26,7 @@ FROM (
         capability_name,
         orch_uri,
         gpu_name,
+        argMax(pipeline_type, timestamp_ts) AS pipeline_type,
         argMax(capacity_available, timestamp_ts) AS avail,
         argMax(price_per_unit, timestamp_ts) AS price_per_unit
     FROM semantic.network_capabilities

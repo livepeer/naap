@@ -184,6 +184,7 @@ export interface ClickHouseLatencyRow {
 
 export interface ClickHouseCapabilitySummary {
   capability_name: string;
+  pipeline_type: string;
   gpu_count: number;
   orch_count: number;
   total_capacity: number;
