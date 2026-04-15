@@ -10,9 +10,10 @@ import { CapabilityStats } from './components/CapabilityStats';
 import { DiscoveryPage } from './pages/DiscoveryPage';
 import { QueryDetailPage } from './pages/QueryDetailPage';
 import { GraphQLPage } from './pages/GraphQLPage';
+import { DataSourcesPage } from './pages/DataSourcesPage';
 import type { EnrichedCapability, ExplorerStats } from './lib/types';
 import { fetchStats } from './lib/api';
-import { Layers, Search, Terminal } from 'lucide-react';
+import { Layers, Search, Terminal, Database } from 'lucide-react';
 import './globals.css';
 
 const TabNav: React.FC = () => {
@@ -21,11 +22,13 @@ const TabNav: React.FC = () => {
   const isExplorer = location.pathname === '/' || location.pathname === '/explorer';
   const isDiscovery = location.pathname.startsWith('/queries');
   const isGraphQL = location.pathname === '/graphql';
+  const isSources = location.pathname === '/sources';
 
   const tabs = [
     { path: '/', label: 'Explorer', icon: <Layers size={16} />, active: isExplorer, testId: 'tab-explorer' },
     { path: '/queries', label: 'Discovery', icon: <Search size={16} />, active: isDiscovery, testId: 'tab-discovery' },
     { path: '/graphql', label: 'GraphQL', icon: <Terminal size={16} />, active: isGraphQL, testId: 'tab-graphql' },
+    { path: '/sources', label: 'Sources', icon: <Database size={16} />, active: isSources, testId: 'tab-sources' },
   ];
 
   return (
@@ -149,6 +152,7 @@ const AppRoutes: React.FC = () => (
       <Route path="/queries" element={<DiscoveryPage />} />
       <Route path="/queries/:id" element={<QueryDetailPage />} />
       <Route path="/graphql" element={<GraphQLPage />} />
+      <Route path="/sources" element={<DataSourcesPage />} />
     </Routes>
   </div>
 );

@@ -88,3 +88,31 @@ export interface CapabilityQueryRecord {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface DataSourceInfo {
+  id: string;
+  name: string;
+  type: 'core' | 'enrichment';
+  enabled: boolean;
+  lastSnapshotAt: string | null;
+  lastSnapshotStatus: string | null;
+}
+
+export interface ExplorerConfig {
+  id: string;
+  refreshIntervalHours: number;
+  enabledSources: Record<string, boolean>;
+  refreshIntervals: Record<string, number>;
+  lastRefreshAt: string | null;
+  lastRefreshStatus: string | null;
+  updatedAt: string;
+}
+
+export interface SnapshotRecord {
+  id: string;
+  sourceId: string;
+  status: string;
+  errorMessage: string | null;
+  durationMs: number;
+  createdAt: string;
+}

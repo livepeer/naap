@@ -1,4 +1,4 @@
-import type { CapabilityConnection, EnrichedCapability, CategoryInfo, ExplorerStats, SortField, SortOrder, CapabilityCategory, CapabilityQueryRecord } from './types';
+import type { CapabilityConnection, EnrichedCapability, CategoryInfo, ExplorerStats, SortField, SortOrder, CapabilityCategory, CapabilityQueryRecord, DataSourceInfo, ExplorerConfig, SnapshotRecord } from './types';
 
 const BASE_URL = '/api/v1/capability-explorer';
 
@@ -117,4 +117,33 @@ export async function seedQueries(): Promise<{ created: number; total: number }>
   return apiFetch<{ created: number; total: number }>('/queries/seed', {
     method: 'POST',
   });
+}
+
+// ---------------------------------------------------------------------------
+// Admin — Data Sources & Config
+// ---------------------------------------------------------------------------
+
+export async function fetchSources(): Promise<{ sources: DataSourceInfo[] }> {
+  return apiFetch<{ sources: DataSourceInfo[] }>('/admin/sources');
+}
+
+export async function fetchConfig(): Promise<ExplorerConfig> {
+  return apiFetch<ExplorerConfig>('/admin/config');
+}
+
+export async function updateConfig(
+  input: Partial<Pick<ExplorerConfig, 'enabledSources' | 'refreshIntervalHours' | 'refreshIntervals'>>,
+): Promise<ExplorerConfig> {
+  return apiFetch<ExplorerConfig>('/admin/config', {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function fetchSnapshots(limit = 20): Promise<{ snapshots: SnapshotRecord[] }> {
+  return apiFetch<{ snapshots: SnapshotRecord[] }>(`/admin/snapshots?limit=${limit}`);
+}
+
+export async function triggerRefresh(): Promise<unknown> {
+  return apiFetch('/refresh', { method: 'POST' });
 }
