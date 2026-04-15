@@ -247,6 +247,8 @@ async function main(): Promise<void> {
           license: pkgData.license,
           keywords: pkgData.keywords,
           icon: pkgData.icon,
+          isCore: pkgData.isCore,
+          visibleToUsers: pkgData.visibleToUsers,
           publishStatus: 'published',
         },
         create: pkgData,
