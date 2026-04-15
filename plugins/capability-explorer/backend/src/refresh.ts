@@ -143,6 +143,23 @@ export async function refreshCapabilities(ctx: SourceContext): Promise<RefreshRe
     lastUpdated: new Date().toISOString(),
   }));
 
+  const hasErrors = sourceResults.some((s) => s.status === 'error');
+  if (capabilities.length === 0 && hasErrors) {
+    console.warn('[capability-explorer] All sources failed or returned empty — preserving existing data');
+    await prisma.capabilityExplorerConfig.update({
+      where: { id: 'default' },
+      data: {
+        lastRefreshAt: new Date(),
+        lastRefreshStatus: 'error',
+      },
+    });
+    return {
+      refreshedAt: new Date().toISOString(),
+      sources: sourceResults,
+      totalCapabilities: 0,
+    };
+  }
+
   const stats = computeStats(capabilities);
   const categories = computeCategories(capabilities);
   const sourceIds = sourceResults.map((s) => s.id);

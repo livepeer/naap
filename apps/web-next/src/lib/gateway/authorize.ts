@@ -78,6 +78,17 @@ export async function authorize(request: Request): Promise<AuthResult | null> {
     return authorizeJwt(token, request);
   }
 
+  // Path 3: CRON_SECRET auth (internal scheduled jobs like capability refresh)
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+    return {
+      authenticated: true,
+      callerType: 'cron',
+      callerId: 'system:cron',
+      teamId: 'system:cron',
+    };
+  }
+
   return null;
 }
 
