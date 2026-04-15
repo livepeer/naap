@@ -9,9 +9,10 @@ import { CapabilityDetail } from './components/CapabilityDetail';
 import { CapabilityStats } from './components/CapabilityStats';
 import { DiscoveryPage } from './pages/DiscoveryPage';
 import { QueryDetailPage } from './pages/QueryDetailPage';
+import { GraphQLPage } from './pages/GraphQLPage';
 import type { EnrichedCapability, ExplorerStats } from './lib/types';
 import { fetchStats } from './lib/api';
-import { Layers, Search } from 'lucide-react';
+import { Layers, Search, Terminal } from 'lucide-react';
 import './globals.css';
 
 const TabNav: React.FC = () => {
@@ -19,33 +20,31 @@ const TabNav: React.FC = () => {
   const location = useLocation();
   const isExplorer = location.pathname === '/' || location.pathname === '/explorer';
   const isDiscovery = location.pathname.startsWith('/queries');
+  const isGraphQL = location.pathname === '/graphql';
+
+  const tabs = [
+    { path: '/', label: 'Explorer', icon: <Layers size={16} />, active: isExplorer, testId: 'tab-explorer' },
+    { path: '/queries', label: 'Discovery', icon: <Search size={16} />, active: isDiscovery, testId: 'tab-discovery' },
+    { path: '/graphql', label: 'GraphQL', icon: <Terminal size={16} />, active: isGraphQL, testId: 'tab-graphql' },
+  ];
 
   return (
     <div className="flex items-center gap-1 mb-6 border-b border-[var(--border-color)] pb-0">
-      <button
-        onClick={() => navigate('/')}
-        className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-          isExplorer
-            ? 'border-accent-emerald text-accent-emerald'
-            : 'border-transparent text-text-muted hover:text-text-primary'
-        }`}
-        data-testid="tab-explorer"
-      >
-        <Layers size={16} />
-        Explorer
-      </button>
-      <button
-        onClick={() => navigate('/queries')}
-        className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-          isDiscovery
-            ? 'border-accent-emerald text-accent-emerald'
-            : 'border-transparent text-text-muted hover:text-text-primary'
-        }`}
-        data-testid="tab-discovery"
-      >
-        <Search size={16} />
-        Discovery
-      </button>
+      {tabs.map((tab) => (
+        <button
+          key={tab.path}
+          onClick={() => navigate(tab.path)}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            tab.active
+              ? 'border-accent-emerald text-accent-emerald'
+              : 'border-transparent text-text-muted hover:text-text-primary'
+          }`}
+          data-testid={tab.testId}
+        >
+          {tab.icon}
+          {tab.label}
+        </button>
+      ))}
     </div>
   );
 };
@@ -149,6 +148,7 @@ const AppRoutes: React.FC = () => (
       <Route path="/explorer" element={<ExplorerPage />} />
       <Route path="/queries" element={<DiscoveryPage />} />
       <Route path="/queries/:id" element={<QueryDetailPage />} />
+      <Route path="/graphql" element={<GraphQLPage />} />
     </Routes>
   </div>
 );
