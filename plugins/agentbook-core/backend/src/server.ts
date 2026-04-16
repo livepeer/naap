@@ -2434,6 +2434,12 @@ If no skill matches well, use "general-question" with parameter "question" = the
           selectedSkill = skills.find((s: any) => s.name === parsed.skill);
           extractedParams = parsed.parameters || { question: text };
           confidence = parsed.confidence || 0.7;
+          // Ensure skills that need 'question' or 'scenario' always get the full text
+          if (selectedSkill) {
+            const skillParams = selectedSkill.parameters as Record<string, any>;
+            if (skillParams.question && !extractedParams.question) extractedParams.question = text;
+            if (skillParams.scenario && !extractedParams.scenario) extractedParams.scenario = text;
+          }
         } catch { /* LLM parse failure */ }
       }
 
