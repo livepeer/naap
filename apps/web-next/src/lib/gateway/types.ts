@@ -60,7 +60,7 @@ export interface ResolvedConfig {
 
 // ── Auth ──
 
-export type CallerType = 'jwt' | 'apiKey' | 'masterKey';
+export type CallerType = 'jwt' | 'apiKey' | 'masterKey' | 'cron';
 
 export type AuthResult = AuthResultAuthenticated;
 

@@ -31,6 +31,7 @@ logs/
 
 # Plugin backends (Vercel only builds frontends + Next.js)
 plugins/*/backend/
+!plugins/capability-explorer/backend/
 examples/*/backend/
 
 # Test files

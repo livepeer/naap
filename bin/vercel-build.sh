@@ -99,6 +99,14 @@ else
   echo "[3/6] Skipping prisma db push (VERCEL_ENV=${VERCEL_ENV:-unset}, only runs on production/preview)"
 fi
 
+# Step 3.5: Seed capability explorer config and demo data
+if [ "${VERCEL_ENV}" = "production" ] || [ "${VERCEL_ENV}" = "preview" ]; then
+  echo "[3.5/6] Seeding capability explorer..."
+  npx tsx bin/seed-capability-explorer.ts || echo "WARN: capability explorer seed had issues (non-fatal)"
+  echo "[3.6/6] Seeding clickhouse-query connector..."
+  npx tsx bin/seed-capability-connector.ts || echo "WARN: clickhouse connector seed had issues (non-fatal)"
+fi
+
 # Step 4: Sync plugin registry in database (BEFORE build so generated files
 # like plugin-routes.json are available to the Next.js middleware bundler).
 # Only runs on real Vercel deploys where the database is reachable.
