@@ -4,9 +4,7 @@
  * Used when FACADE_USE_STUBS=true. All values are typed against the same
  * interfaces as real resolvers — TypeScript will catch any shape drift.
  *
- * Replace each stub with a real resolver import as backends are wired in
- * (Phases 1-4). The stubs intentionally use plausible-looking numbers so
- * the UI renders realistically during development.
+ * Stub data sampled from NAAP API.
  */
 
 import type {
@@ -26,8 +24,8 @@ import type { NetworkModel, JobFeedItem } from './types.js';
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Fixed base timestamp for deterministic stub data (2026-03-31T12:00:00Z). */
-const STUB_BASE_TS = 1_743_339_600_000;
+/** Fixed base timestamp for deterministic stub data (2026-04-16T09:00:00Z). */
+const STUB_BASE_TS = 1_744_794_000_000;
 
 /** Mulberry32 seeded PRNG — deterministic replacement for Math.random(). */
 function seededRandom(seed: number): () => number {
@@ -42,291 +40,204 @@ function seededRandom(seed: number): () => number {
 
 const rand = seededRandom(42);
 
-function hourlyBuckets(baseValue: number, count = 24) {
-  const now = new Date(STUB_BASE_TS);
-  return Array.from({ length: count }, (_, i) => {
-    const h = new Date(now);
-    h.setHours(now.getHours() - (count - 1 - i), 0, 0, 0);
-    const jitter = 1 + (Math.sin(i * 0.7) * 0.2);
-    return { hour: h.toISOString(), value: Math.round(baseValue * jitter) };
-  });
-}
-
 function daysAgoUnix(n: number, baseTs = STUB_BASE_TS) {
   return Math.floor((baseTs - n * 86_400_000) / 1000);
 }
 
 // ---------------------------------------------------------------------------
-// Pipelines — real pipeline counts from /v1/net/orchestrators RawCapabilities (2026-03-31)
+// KPI — sampled from GET /v1/dashboard/kpi?window=24h (2026-04-16)
+// ---------------------------------------------------------------------------
+
+export const kpi: DashboardKPI = {
+  successRate: { value: 85.6, delta: 0 },
+  orchestratorsOnline: { value: 28, delta: 0 },
+  dailyUsageMins: { value: 36493, delta: -9.4 },
+  dailySessionCount: { value: 30104, delta: -2.8 },
+  dailyNetworkFeesEth: { value: 0, delta: 0 },
+  timeframeHours: 24,
+  hourlySessions: [
+    { hour: '2026-04-15T10:00:00Z', value: 1311 },
+    { hour: '2026-04-15T11:00:00Z', value: 1288 },
+    { hour: '2026-04-15T12:00:00Z', value: 1260 },
+    { hour: '2026-04-15T13:00:00Z', value: 1224 },
+    { hour: '2026-04-15T14:00:00Z', value: 1297 },
+    { hour: '2026-04-15T15:00:00Z', value: 1285 },
+    { hour: '2026-04-15T16:00:00Z', value: 1297 },
+    { hour: '2026-04-15T17:00:00Z', value: 1301 },
+    { hour: '2026-04-15T18:00:00Z', value: 1268 },
+    { hour: '2026-04-15T19:00:00Z', value: 1218 },
+    { hour: '2026-04-15T20:00:00Z', value: 1262 },
+    { hour: '2026-04-15T21:00:00Z', value: 1257 },
+    { hour: '2026-04-15T22:00:00Z', value: 1125 },
+    { hour: '2026-04-15T23:00:00Z', value: 1276 },
+    { hour: '2026-04-16T00:00:00Z', value: 1221 },
+    { hour: '2026-04-16T01:00:00Z', value: 1198 },
+    { hour: '2026-04-16T02:00:00Z', value: 1247 },
+    { hour: '2026-04-16T03:00:00Z', value: 1297 },
+    { hour: '2026-04-16T04:00:00Z', value: 1298 },
+    { hour: '2026-04-16T05:00:00Z', value: 1250 },
+    { hour: '2026-04-16T06:00:00Z', value: 1281 },
+    { hour: '2026-04-16T07:00:00Z', value: 1222 },
+    { hour: '2026-04-16T08:00:00Z', value: 1265 },
+    { hour: '2026-04-16T09:00:00Z', value: 1156 },
+  ],
+  hourlyUsage: [
+    { hour: '2026-04-15T10:00:00Z', value: 1520 },
+    { hour: '2026-04-15T11:00:00Z', value: 1497 },
+    { hour: '2026-04-15T12:00:00Z', value: 1528 },
+    { hour: '2026-04-15T13:00:00Z', value: 1646 },
+    { hour: '2026-04-15T14:00:00Z', value: 1495 },
+    { hour: '2026-04-15T15:00:00Z', value: 1599 },
+    { hour: '2026-04-15T16:00:00Z', value: 1579 },
+    { hour: '2026-04-15T17:00:00Z', value: 1664 },
+    { hour: '2026-04-15T18:00:00Z', value: 1552 },
+    { hour: '2026-04-15T19:00:00Z', value: 1637 },
+    { hour: '2026-04-15T20:00:00Z', value: 2005 },
+    { hour: '2026-04-15T21:00:00Z', value: 1419 },
+    { hour: '2026-04-15T22:00:00Z', value: 752 },
+    { hour: '2026-04-15T23:00:00Z', value: 1641 },
+    { hour: '2026-04-16T00:00:00Z', value: 1427 },
+    { hour: '2026-04-16T01:00:00Z', value: 1415 },
+    { hour: '2026-04-16T02:00:00Z', value: 1546 },
+    { hour: '2026-04-16T03:00:00Z', value: 1452 },
+    { hour: '2026-04-16T04:00:00Z', value: 1446 },
+    { hour: '2026-04-16T05:00:00Z', value: 1696 },
+    { hour: '2026-04-16T06:00:00Z', value: 1453 },
+    { hour: '2026-04-16T07:00:00Z', value: 1481 },
+    { hour: '2026-04-16T08:00:00Z', value: 1712 },
+    { hour: '2026-04-16T09:00:00Z', value: 1331 },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Pipelines — sampled from GET /v1/dashboard/pipelines?window=24h (2026-04-16)
 // ---------------------------------------------------------------------------
 
 export const pipelines: DashboardPipelineUsage[] = [
   {
     name: 'live-video-to-video',
-    mins: 0,
-    sessions: 36_456,
-    avgFps: 15.7,
+    mins: 36191,
+    sessions: 29841,
+    avgFps: 17.4,
     color: '#10b981',
     modelMins: [
-      { model: 'streamdiffusion-sdxl',     mins: 0, sessions: 22_785, avgFps: 15.7 },
-      { model: 'streamdiffusion-sdxl-v2v', mins: 0, sessions: 10_214, avgFps: 15.6 },
-      { model: 'streamdiffusion',           mins: 0, sessions: 3_212,  avgFps: 15.9 },
-      { model: 'streamdiffusion-sdturbo',   mins: 0, sessions: 245,    avgFps: 16.1 },
+      { model: 'streamdiffusion-sdxl', mins: 23061, sessions: 18772, avgFps: 16.9 },
+      { model: 'streamdiffusion-sdxl-v2v', mins: 12717, sessions: 10353, avgFps: 18.6 },
+      { model: 'streamdiffusion', mins: 313, sessions: 636, avgFps: 12.8 },
+      { model: 'streamdiffusion-sdturbo', mins: 54, sessions: 42, avgFps: 8.8 },
+      { model: 'noop', mins: 42, sessions: 32, avgFps: 9.2 },
+      { model: 'streamdiffusion-sdxl-faceid', mins: 5, sessions: 6, avgFps: 0 },
     ],
   },
   {
-    name: 'text-to-image',
-    mins: 0,
-    sessions: 124,
-    avgFps: 0,
-    color: '#f59e0b',
-    modelMins: [
-      { model: 'SG161222/RealVisXL_V4.0_Lightning', mins: 0, sessions: 80, avgFps: 0 },
-      { model: 'ByteDance/SDXL-Lightning',           mins: 0, sessions: 44, avgFps: 0 },
-    ],
-  },
-  {
-    name: 'upscale',
-    mins: 0,
-    sessions: 87,
-    avgFps: 0,
-    color: '#84cc16',
-    modelMins: [
-      { model: 'stabilityai/stable-diffusion-x4-upscaler', mins: 0, sessions: 87, avgFps: 0 },
-    ],
-  },
-  {
-    name: 'audio-to-text',
-    mins: 0,
-    sessions: 62,
-    avgFps: 0,
-    color: '#06b6d4',
-    modelMins: [
-      { model: 'openai/whisper-large-v3', mins: 0, sessions: 62, avgFps: 0 },
-    ],
-  },
-  {
-    name: 'llm',
-    mins: 0,
-    sessions: 38,
-    avgFps: 0,
-    color: '#a855f7',
-    modelMins: [
-      { model: 'glm-4.7-flash',                          mins: 0, sessions: 18, avgFps: 0 },
-      { model: 'meta-llama/Meta-Llama-3.1-8B-Instruct',  mins: 0, sessions: 14, avgFps: 0 },
-      { model: 'llama3.2-vision',                        mins: 0, sessions: 6,  avgFps: 0 },
-    ],
-  },
-  {
-    name: 'image-to-image',
-    mins: 0,
-    sessions: 29,
-    avgFps: 0,
-    color: '#8b5cf6',
-    modelMins: [
-      { model: 'timbrooks/instruct-pix2pix', mins: 0, sessions: 29, avgFps: 0 },
-    ],
-  },
-  {
-    name: 'image-to-video',
-    mins: 0,
-    sessions: 21,
-    avgFps: 0,
-    color: '#3b82f6',
-    modelMins: [
-      { model: 'stabilityai/stable-video-diffusion-img2vid-xt-1-1', mins: 0, sessions: 21, avgFps: 0 },
-    ],
-  },
-  {
-    name: 'segment-anything-2',
-    mins: 0,
-    sessions: 14,
-    avgFps: 0,
-    color: '#f97316',
-    modelMins: [
-      { model: 'facebook/sam2-hiera-large', mins: 0, sessions: 14, avgFps: 0 },
-    ],
-  },
-  {
-    name: 'text-to-speech',
-    mins: 0,
-    sessions: 9,
-    avgFps: 0,
-    color: '#14b8a6',
-    modelMins: [
-      { model: 'parler-tts/parler-tts-large-v1', mins: 0, sessions: 9, avgFps: 0 },
-    ],
+    name: 'noop',
+    mins: 11,
+    sessions: 13,
+    avgFps: 12.3,
+    color: '#6b7280',
   },
 ];
 
 // ---------------------------------------------------------------------------
-// KPI — derived from pipeline stubs + /v1/net/summary patterns
-// ---------------------------------------------------------------------------
-
-const _totalPipelineMins = pipelines.reduce((s, p) => s + p.mins, 0);
-const _totalPipelineSessions = pipelines.reduce((s, p) => s + p.sessions, 0);
-const _hourlyUsage = hourlyBuckets(Math.round(_totalPipelineMins / 24));
-const _hourlySessions = hourlyBuckets(Math.round(_totalPipelineSessions / 24));
-
-export const kpi: DashboardKPI = {
-  successRate: { value: 77.8, delta: -2.1 },
-  orchestratorsOnline: { value: 33, delta: 0 },
-  dailyUsageMins: { value: _hourlyUsage.reduce((s, b) => s + b.value, 0), delta: 3.4 },
-  dailySessionCount: { value: _hourlySessions.reduce((s, b) => s + b.value, 0), delta: 5.2 },
-  dailyNetworkFeesEth: { value: 6.43, delta: 7.2 },
-  timeframeHours: 24,
-  hourlyUsage: _hourlyUsage,
-  hourlySessions: _hourlySessions,
-};
-
-// ---------------------------------------------------------------------------
-// Pipeline catalog — all pipelines+models from /v1/net/orchestrators (2026-03-31)
+// Pipeline catalog — sampled from GET /v1/dashboard/pipeline-catalog (2026-04-16)
 // ---------------------------------------------------------------------------
 
 export const pipelineCatalog: DashboardPipelineCatalogEntry[] = [
   {
     id: 'live-video-to-video',
-    name: 'Live Video-to-Video',
-    models: ['streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v', 'streamdiffusion', 'streamdiffusion-sdturbo'],
-    regions: [],
-  },
-  {
-    id: 'text-to-image',
-    name: 'Text-to-Image',
-    models: ['SG161222/RealVisXL_V4.0_Lightning', 'ByteDance/SDXL-Lightning'],
-    regions: [],
-  },
-  {
-    id: 'upscale',
-    name: 'Upscale',
-    models: ['stabilityai/stable-diffusion-x4-upscaler'],
-    regions: [],
-  },
-  {
-    id: 'audio-to-text',
-    name: 'Audio-to-Text',
-    models: ['openai/whisper-large-v3'],
+    name: 'live-video-to-video',
+    models: ['streamdiffusion', 'streamdiffusion-sdturbo', 'streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v'],
     regions: [],
   },
   {
     id: 'llm',
-    name: 'LLM',
-    models: ['glm-4.7-flash', 'meta-llama/Meta-Llama-3.1-8B-Instruct', 'llama3.2-vision'],
+    name: 'llm',
+    models: ['glm-4.7-flash', 'llama3.2-vision', 'meta-llama/Meta-Llama-3.1-8B-Instruct'],
     regions: [],
   },
   {
-    id: 'image-to-image',
-    name: 'Image-to-Image',
-    models: ['timbrooks/instruct-pix2pix'],
+    id: 'text-to-image',
+    name: 'text-to-image',
+    models: ['SG161222/RealVisXL_V4.0_Lightning'],
     regions: [],
   },
   {
-    id: 'image-to-video',
-    name: 'Image-to-Video',
-    models: ['stabilityai/stable-video-diffusion-img2vid-xt-1-1'],
-    regions: [],
-  },
-  {
-    id: 'segment-anything-2',
-    name: 'Segment Anything 2',
-    models: ['facebook/sam2-hiera-large'],
-    regions: [],
-  },
-  {
-    id: 'text-to-speech',
-    name: 'Text-to-Speech',
-    models: ['parler-tts/parler-tts-large-v1'],
+    id: 'upscale',
+    name: 'upscale',
+    models: ['stabilityai/stable-diffusion-x4-upscaler'],
     regions: [],
   },
 ];
 
 // ---------------------------------------------------------------------------
-// Orchestrators — real addresses from /v1/net/orchestrators (2026-03-31)
-// SLA scores are illustrative (derived from /v1/sla/compliance shape)
+// Orchestrators — sampled from GET /v1/dashboard/orchestrators?window=24h (2026-04-16)
 // ---------------------------------------------------------------------------
 
 export const orchestrators: DashboardOrchestrator[] = [
   {
-    address: '0x3b28a7d785356dc67c7970666747e042305bfb79', // ai.ad-astra.live — top live-v2v orch
+    address: '0x3b28a7d785356dc67c7970666747e042305bfb79',
     uris: ['https://ai.ad-astra.live:9966'],
-    knownSessions: 8_420,
-    successSessions: 6_854,
-    successRatio: 81.4,
-    effectiveSuccessRate: 79.2,
-    noSwapRatio: 91.3,
-    slaScore: 84,
+    knownSessions: 4829,
+    successSessions: 4823,
+    successRatio: 99.9,
+    effectiveSuccessRate: 99.9,
+    noSwapRatio: 99.2,
+    slaScore: 99,
+    pipelines: ['live-video-to-video'],
+    pipelineModels: [
+      { pipelineId: 'live-video-to-video', modelIds: ['streamdiffusion', 'streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v'] },
+    ],
+    gpuCount: 2,
+  },
+  {
+    address: '0xb120a72a9264e90092e8197c0fabd210c18bc5be',
+    uris: ['https://ai.lpt-1.moudi.network:18935'],
+    knownSessions: 4828,
+    successSessions: 4818,
+    successRatio: 99.5,
+    effectiveSuccessRate: 99.5,
+    noSwapRatio: 96.5,
+    slaScore: 92,
     pipelines: ['live-video-to-video'],
     pipelineModels: [
       { pipelineId: 'live-video-to-video', modelIds: ['streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v'] },
     ],
-    gpuCount: 4,
+    gpuCount: 11,
   },
   {
-    address: '0xd00354656922168815fcd1e51cbddb9e359e3c7f', // rtav-orch.xodeapp.xyz — two service URIs
-    uris: ['https://rtav-orch.xodeapp.xyz:28935', 'https://livepeer-ai.xodeapp.xyz:18935'],
-    knownSessions: 5_130,
-    successSessions: 4_217,
-    successRatio: 82.2,
-    effectiveSuccessRate: 80.5,
-    noSwapRatio: 93.1,
-    slaScore: 86,
+    address: '0xdc28f2842810d1a013ad51de174d02eaba192dc7',
+    uris: ['https://ai.pon-eth.com:9191'],
+    knownSessions: 2680,
+    successSessions: 2672,
+    successRatio: 99.6,
+    effectiveSuccessRate: 99.6,
+    noSwapRatio: 97.5,
+    slaScore: 98,
     pipelines: ['live-video-to-video'],
     pipelineModels: [
-      { pipelineId: 'live-video-to-video', modelIds: ['streamdiffusion-sdxl'] },
-    ],
-    gpuCount: 3,
-  },
-  {
-    address: '0x22b1bcc0c0db224bfc56c9b95a2db407548666ee', // lpt.thomasblock.io — two service URIs
-    uris: ['https://lpt.thomasblock.io:20110', 'https://45.153.35.148:20080'],
-    knownSessions: 4_890,
-    successSessions: 3_921,
-    successRatio: 80.2,
-    effectiveSuccessRate: 78.8,
-    noSwapRatio: 90.7,
-    slaScore: 82,
-    pipelines: ['live-video-to-video'],
-    pipelineModels: [
-      { pipelineId: 'live-video-to-video', modelIds: ['streamdiffusion-sdxl', 'streamdiffusion'] },
+      { pipelineId: 'live-video-to-video', modelIds: ['streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v'] },
     ],
     gpuCount: 2,
   },
   {
-    address: '0xb8c66a19c2d4ccfe79e002d9e3a02dff73de4aba', // ai.organic-node.uk
-    uris: ['https://ai.organic-node.uk:6500'],
-    knownSessions: 3_210,
-    successSessions: 2_589,
-    successRatio: 80.7,
-    effectiveSuccessRate: 79.1,
-    noSwapRatio: 92.4,
-    slaScore: 83,
+    address: '0x104a7ca059a35fd4def5ecb16600b2caa1fe1361',
+    uris: ['https://ai.eliteencoder.net:8936'],
+    knownSessions: 1494,
+    successSessions: 1485,
+    successRatio: 98.9,
+    effectiveSuccessRate: 98.9,
+    noSwapRatio: 98.3,
+    slaScore: 93,
     pipelines: ['live-video-to-video'],
     pipelineModels: [
-      { pipelineId: 'live-video-to-video', modelIds: ['streamdiffusion-sdxl-v2v'] },
+      { pipelineId: 'live-video-to-video', modelIds: ['noop', 'streamdiffusion-sdturbo', 'streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v'] },
     ],
     gpuCount: 2,
-  },
-  {
-    address: '0xd4c467d8c13752ab7bb9711bc77de2a9f52a65f6', // 2.9.173.59 — top orch for llm/upscale/text-to-image
-    uris: ['https://example.invalid/orch/d4c467d8'],
-    knownSessions: 0,
-    successSessions: 0,
-    successRatio: 0,
-    effectiveSuccessRate: null,
-    noSwapRatio: null,
-    slaScore: null,
-    pipelines: ['llm', 'text-to-image', 'upscale'],
-    pipelineModels: [
-      { pipelineId: 'llm', modelIds: ['glm-4.7-flash', 'meta-llama/Meta-Llama-3.1-8B-Instruct', 'llama3.2-vision'] },
-      { pipelineId: 'text-to-image', modelIds: ['SG161222/RealVisXL_V4.0_Lightning'] },
-      { pipelineId: 'upscale', modelIds: ['stabilityai/stable-diffusion-x4-upscaler'] },
-    ],
-    gpuCount: 1,
   },
 ];
 
 // ---------------------------------------------------------------------------
-// Protocol
+// Protocol — illustrative (The Graph backed, not NAAP API)
 // ---------------------------------------------------------------------------
 
 export const protocol: DashboardProtocol = {
@@ -337,7 +248,7 @@ export const protocol: DashboardProtocol = {
 };
 
 // ---------------------------------------------------------------------------
-// Fees
+// Fees — illustrative (The Graph backed, not NAAP API)
 // ---------------------------------------------------------------------------
 
 const dayDataCount = 180;
@@ -365,157 +276,159 @@ export const fees: DashboardFeesInfo = {
 };
 
 // ---------------------------------------------------------------------------
-// GPU capacity — illustrative; real data comes from /v1/gpu/metrics
+// GPU capacity — sampled from GET /v1/dashboard/gpu-capacity (2026-04-16)
 // ---------------------------------------------------------------------------
 
 export const gpuCapacity: DashboardGPUCapacity = {
-  totalGPUs: 67,
-  activeGPUs: 67,
+  totalGPUs: 55,
+  activeGPUs: 55,
   availableCapacity: 1.0,
   models: [
-    { model: 'NVIDIA RTX 4090', count: 36 },
-    { model: 'NVIDIA RTX 3090', count: 18 },
-    { model: 'NVIDIA A100', count: 5 },
-    { model: 'NVIDIA RTX 4080', count: 8 },
+    { model: 'NVIDIA GeForce RTX 4090', count: 29 },
+    { model: 'NVIDIA GeForce RTX 5090', count: 22 },
+    { model: 'NVIDIA GeForce RTX 3090', count: 3 },
+    { model: 'NVIDIA GeForce RTX 4070 Ti SUPER', count: 1 },
   ],
   pipelineGPUs: [
     {
       name: 'live-video-to-video',
-      gpus: 60,
+      gpus: 51,
       models: [
-        { model: 'NVIDIA RTX 4090', gpus: 34 },
-        { model: 'NVIDIA RTX 3090', gpus: 18 },
-        { model: 'NVIDIA RTX 4080', gpus: 8 },
-      ],
-    },
-    {
-      name: 'llm',
-      gpus: 5,
-      models: [
-        { model: 'NVIDIA A100', gpus: 5 },
+        { model: 'streamdiffusion-sdxl', gpus: 37 },
+        { model: 'streamdiffusion-sdxl-v2v', gpus: 10 },
+        { model: 'streamdiffusion', gpus: 3 },
+        { model: 'streamdiffusion-sdturbo', gpus: 1 },
       ],
     },
     {
       name: 'text-to-image',
       gpus: 2,
       models: [
-        { model: 'NVIDIA RTX 4090', gpus: 2 },
+        { model: 'SG161222/RealVisXL_V4.0_Lightning', gpus: 2 },
+      ],
+    },
+    {
+      name: 'upscale',
+      gpus: 2,
+      models: [
+        { model: 'stabilityai/stable-diffusion-x4-upscaler', gpus: 2 },
       ],
     },
   ],
 };
 
 // ---------------------------------------------------------------------------
-// Pricing — derived from real /v1/net/models data (2026-03-31)
-// price = PriceAvgWeiPerPixel / 1e12
-// outputPerDollar = 1e18 / (ETH_USD_PRICE * PriceAvgWeiPerPixel) — see pricing resolver
+// Pricing — sampled from GET /v1/dashboard/pricing (2026-04-16)
+// Aggregated from per-orchestrator rows into per (pipeline, model) summary
 // ---------------------------------------------------------------------------
 
 export const pricing: DashboardPipelinePricing[] = [
-  // live-video-to-video models (Wei/pixel scale ~2400 → ~2.4e-9 per pixel)
-  { pipeline: 'live-video-to-video', model: 'streamdiffusion-sdxl',     unit: 'pixel', price: 0.000_000_002_23, avgWeiPerUnit: '2230', pixelsPerUnit: 1, outputPerDollar: '~149B pixels' },
-  { pipeline: 'live-video-to-video', model: 'streamdiffusion-sdxl-v2v', unit: 'pixel', price: 0.000_000_002_40, avgWeiPerUnit: '2400', pixelsPerUnit: 1, outputPerDollar: '~139B pixels' },
-  { pipeline: 'live-video-to-video', model: 'streamdiffusion',          unit: 'pixel', price: 0.000_000_002_40, avgWeiPerUnit: '2400', pixelsPerUnit: 1, outputPerDollar: '~139B pixels' },
-  { pipeline: 'live-video-to-video', model: 'streamdiffusion-sdturbo',  unit: 'pixel', price: 0.000_000_002_40, avgWeiPerUnit: '2400', pixelsPerUnit: 1, outputPerDollar: '~139B pixels' },
-  // text-to-image
-  { pipeline: 'text-to-image', model: 'SG161222/RealVisXL_V4.0_Lightning', unit: 'pixel', price: 0.000_004_77, avgWeiPerUnit: '4770000', pixelsPerUnit: 1, outputPerDollar: '~70K pixels' },
-  // upscale
-  { pipeline: 'upscale', model: 'stabilityai/stable-diffusion-x4-upscaler', unit: 'pixel', price: 0.000_009_12, avgWeiPerUnit: '9120000', pixelsPerUnit: 1, outputPerDollar: '~37K pixels' },
-  // llm (Wei/token scale ~24M–43M → ~0.024–0.043 per token)
-  { pipeline: 'llm', model: 'glm-4.7-flash',                            unit: 'token', price: 0.000_023_92, avgWeiPerUnit: '23920000', pixelsPerUnit: null, outputPerDollar: '~14K tokens' },
-  { pipeline: 'llm', model: 'meta-llama/Meta-Llama-3.1-8B-Instruct',   unit: 'token', price: 0.000_038_27, avgWeiPerUnit: '38270000', pixelsPerUnit: null, outputPerDollar: '~8.7K tokens' },
-  { pipeline: 'llm', model: 'llama3.2-vision',                          unit: 'token', price: 0.000_043_05, avgWeiPerUnit: '43050000', pixelsPerUnit: null, outputPerDollar: '~7.7K tokens' },
+  { pipeline: 'live-video-to-video', model: 'streamdiffusion-sdxl', unit: 'pixel', price: 0.000_000_000_429, avgWeiPerUnit: '429', pixelsPerUnit: 1, outputPerDollar: '~777B pixels', capacity: 23 },
+  { pipeline: 'live-video-to-video', model: 'streamdiffusion-sdxl-v2v', unit: 'pixel', price: 0.000_000_002_15, avgWeiPerUnit: '2146', pixelsPerUnit: 1, outputPerDollar: '~155B pixels', capacity: 5 },
+  { pipeline: 'live-video-to-video', model: 'streamdiffusion-sdturbo', unit: 'pixel', price: 0.000_000_002_15, avgWeiPerUnit: '2146', pixelsPerUnit: 1, outputPerDollar: '~155B pixels', capacity: 1 },
+  { pipeline: 'live-video-to-video', model: 'streamdiffusion', unit: 'pixel', price: 0.000_000_002_15, avgWeiPerUnit: '2146', pixelsPerUnit: 1, outputPerDollar: '~155B pixels', capacity: 2 },
+  { pipeline: 'text-to-image', model: 'SG161222/RealVisXL_V4.0_Lightning', unit: 'pixel', price: 0.000_004_77, avgWeiPerUnit: '4768371', pixelsPerUnit: 1, outputPerDollar: '~70K pixels', capacity: 2 },
+  { pipeline: 'upscale', model: 'stabilityai/stable-diffusion-x4-upscaler', unit: 'pixel', price: 0.000_009_12, avgWeiPerUnit: '9123537', pixelsPerUnit: 1, outputPerDollar: '~37K pixels', capacity: 2 },
+  { pipeline: 'llm', model: 'glm-4.7-flash', unit: 'token', price: 0.000_023_92, avgWeiPerUnit: '23920000', pixelsPerUnit: null, outputPerDollar: '~14K tokens', capacity: 1 },
+  { pipeline: 'llm', model: 'meta-llama/Meta-Llama-3.1-8B-Instruct', unit: 'token', price: 0.000_038_27, avgWeiPerUnit: '38270000', pixelsPerUnit: null, outputPerDollar: '~9K tokens', capacity: 1 },
+  { pipeline: 'llm', model: 'llama3.2-vision', unit: 'token', price: 0.000_043_05, avgWeiPerUnit: '43050000', pixelsPerUnit: null, outputPerDollar: '~8K tokens', capacity: 1 },
 ];
 
 // ---------------------------------------------------------------------------
-// Job feed — real model names from /v1/net/models + real orch addresses
+// Job feed — sampled from GET /v1/dashboard/job-feed?limit=5 (2026-04-16)
 // ---------------------------------------------------------------------------
 
 export const jobFeed: JobFeedItem[] = [
   {
-    id: 'stream-a1b2c3d4',
+    id: '292c2c61-32f5-4fee-b26d-d21bf6b86f9c',
     pipeline: 'live-video-to-video',
     model: 'streamdiffusion-sdxl',
-    gateway: 'gateway.livepeer.cloud',
-    orchestratorUrl: 'https://ai.ad-astra.live:9966',
-    state: 'running',
-    inputFps: 30,
-    outputFps: 15.8,
-    firstSeen: new Date(Date.now() - 142_000).toISOString(),
-    lastSeen: new Date(Date.now() - 1_000).toISOString(),
-    durationSeconds: 142,
-    runningFor: '2m 22s',
+    gateway: 'ai-live-video-tester-sea',
+    orchestratorAddress: '0x104a7ca059a35fd4def5ecb16600b2caa1fe1361',
+    orchestratorUrl: 'https://ai.eliteencoder.net:8936',
+    state: 'DEGRADED_INPUT',
+    job_type: 'streaming',
+    inputFps: 9.7,
+    outputFps: 8.6,
+    firstSeen: '2026-04-16T09:43:23Z',
+    lastSeen: '2026-04-16T09:44:34Z',
+    durationSeconds: 90,
   },
   {
-    id: 'stream-b2c3d4e5',
+    id: 'ec69ea69-2ab1-4431-aadf-bbad318d8d50',
+    pipeline: 'live-video-to-video',
+    model: 'streamdiffusion-sdxl',
+    gateway: 'fra-ai-prod-livepeer-ai-gateway-1.livepeer.com',
+    orchestratorAddress: '0xb120a72a9264e90092e8197c0fabd210c18bc5be',
+    orchestratorUrl: 'https://ai.lpt-1.moudi.network:18935',
+    state: 'ONLINE',
+    job_type: 'streaming',
+    inputFps: 24.0,
+    outputFps: 17.9,
+    firstSeen: '2026-04-16T09:43:41Z',
+    lastSeen: '2026-04-16T09:44:32Z',
+    durationSeconds: 72,
+  },
+  {
+    id: '8665a806-f30a-4329-964d-a563998488db',
     pipeline: 'live-video-to-video',
     model: 'streamdiffusion-sdxl-v2v',
-    gateway: 'gateway.livepeer.cloud',
-    orchestratorUrl: 'https://rtav-orch.xodeapp.xyz:28935',
-    state: 'running',
-    inputFps: 30,
-    outputFps: 15.6,
-    firstSeen: new Date(Date.now() - 67_000).toISOString(),
-    lastSeen: new Date(Date.now() - 1_000).toISOString(),
-    durationSeconds: 67,
-    runningFor: '1m 7s',
-  },
-  {
-    id: 'stream-c3d4e5f6',
-    pipeline: 'live-video-to-video',
-    model: 'streamdiffusion-sdxl',
-    gateway: 'gateway.livepeer.cloud',
-    orchestratorUrl: 'https://lpt.thomasblock.io:20110',
-    state: 'running',
-    inputFps: 30,
-    outputFps: 16.1,
-    firstSeen: new Date(Date.now() - 23_000).toISOString(),
-    lastSeen: new Date(Date.now() - 1_000).toISOString(),
-    durationSeconds: 23,
-    runningFor: '23s',
-  },
-  {
-    id: 'stream-d4e5f6a7',
-    pipeline: 'live-video-to-video',
-    model: 'streamdiffusion',
-    gateway: 'gateway.livepeer.cloud',
+    gateway: 'nyc-ai-prod-livepeer-ai-gateway-1.livepeer.com',
+    orchestratorAddress: '0xb8c66a19c2d4ccfe79e002d9e3a02dff73de4aba',
     orchestratorUrl: 'https://ai.organic-node.uk:59165',
-    state: 'running',
-    inputFps: 30,
-    outputFps: 15.9,
-    firstSeen: new Date(Date.now() - 310_000).toISOString(),
-    lastSeen: new Date(Date.now() - 1_000).toISOString(),
-    durationSeconds: 310,
-    runningFor: '5m 10s',
+    state: 'DEGRADED_INFERENCE',
+    job_type: 'streaming',
+    inputFps: 394.3,
+    outputFps: 0,
+    firstSeen: '2026-04-16T09:44:25Z',
+    lastSeen: '2026-04-16T09:44:32Z',
+    durationSeconds: 29,
   },
   {
-    id: 'stream-e5f6a7b8',
+    id: '951d9afb-142b-4521-8640-3d026bb9ceb2',
     pipeline: 'live-video-to-video',
     model: 'streamdiffusion-sdxl',
-    gateway: 'gateway.livepeer.cloud',
-    orchestratorUrl: 'https://ai.ad-astra.live:9966',
-    state: 'degraded_inference',
-    inputFps: 30,
-    outputFps: 7.4,
-    firstSeen: new Date(Date.now() - 88_000).toISOString(),
-    lastSeen: new Date(Date.now() - 1_000).toISOString(),
-    durationSeconds: 88,
-    runningFor: '1m 28s',
+    gateway: 'lax-ai-prod-livepeer-ai-gateway-1.livepeer.com',
+    orchestratorAddress: '0x4416a274f86e1db860b513548b672154d43b81b2',
+    orchestratorUrl: 'https://livepeer-msi-1.prod.dcg-labs.co:8935',
+    state: 'ONLINE',
+    job_type: 'streaming',
+    inputFps: 24.1,
+    outputFps: 18.3,
+    firstSeen: '2026-04-16T09:43:31Z',
+    lastSeen: '2026-04-16T09:44:31Z',
+    durationSeconds: 83,
+  },
+  {
+    id: 'a4b424c4-0405-43e2-835a-4822bce3d47b',
+    pipeline: 'live-video-to-video',
+    model: 'streamdiffusion-sdxl',
+    gateway: 'nyc-ai-prod-livepeer-ai-gateway-0.livepeer.com',
+    orchestratorAddress: '0x47a907a0bd1627d71cd14430a721d1550d6d6f58',
+    orchestratorUrl: 'https://ai.nightnode.net:8888',
+    state: 'ONLINE',
+    job_type: 'streaming',
+    inputFps: 24.1,
+    outputFps: 21.5,
+    firstSeen: '2026-04-16T09:43:20Z',
+    lastSeen: '2026-04-16T09:44:31Z',
+    durationSeconds: 93,
   },
 ];
 
 // ---------------------------------------------------------------------------
-// Network models — exact data from /v1/net/models (2026-03-31)
+// Network models — sampled from GET /v1/streaming/models + /v1/requests/models (2026-04-16)
 // ---------------------------------------------------------------------------
 
 export const networkModels: NetworkModel[] = [
-  { Pipeline: 'live-video-to-video', Model: 'streamdiffusion-sdxl',                        WarmOrchCount: 16, TotalCapacity: 16, PriceMinWeiPerPixel: 480,        PriceMaxWeiPerPixel: 2_536,        PriceAvgWeiPerPixel: 2_229.875 },
-  { Pipeline: 'live-video-to-video', Model: 'streamdiffusion-sdxl-v2v',                    WarmOrchCount: 8,  TotalCapacity: 8,  PriceMinWeiPerPixel: 2_381,       PriceMaxWeiPerPixel: 2_402,        PriceAvgWeiPerPixel: 2_399.375 },
-  { Pipeline: 'live-video-to-video', Model: 'streamdiffusion',                              WarmOrchCount: 3,  TotalCapacity: 3,  PriceMinWeiPerPixel: 2_392,       PriceMaxWeiPerPixel: 2_402,        PriceAvgWeiPerPixel: 2_398.667 },
-  { Pipeline: 'live-video-to-video', Model: 'streamdiffusion-sdturbo',                     WarmOrchCount: 1,  TotalCapacity: 1,  PriceMinWeiPerPixel: 2_398,       PriceMaxWeiPerPixel: 2_398,        PriceAvgWeiPerPixel: 2_398 },
-  { Pipeline: 'llm',                 Model: 'glm-4.7-flash',                               WarmOrchCount: 1,  TotalCapacity: 1,  PriceMinWeiPerPixel: 23_916_807,  PriceMaxWeiPerPixel: 23_916_807,   PriceAvgWeiPerPixel: 23_916_807 },
-  { Pipeline: 'llm',                 Model: 'meta-llama/Meta-Llama-3.1-8B-Instruct',       WarmOrchCount: 1,  TotalCapacity: 1,  PriceMinWeiPerPixel: 38_266_892,  PriceMaxWeiPerPixel: 38_266_892,   PriceAvgWeiPerPixel: 38_266_892 },
-  { Pipeline: 'llm',                 Model: 'llama3.2-vision',                             WarmOrchCount: 1,  TotalCapacity: 1,  PriceMinWeiPerPixel: 43_050_253,  PriceMaxWeiPerPixel: 43_050_253,   PriceAvgWeiPerPixel: 43_050_253 },
-  { Pipeline: 'text-to-image',       Model: 'SG161222/RealVisXL_V4.0_Lightning',           WarmOrchCount: 1,  TotalCapacity: 1,  PriceMinWeiPerPixel: 4_768_371,   PriceMaxWeiPerPixel: 4_768_371,    PriceAvgWeiPerPixel: 4_768_371 },
-  { Pipeline: 'upscale',             Model: 'stabilityai/stable-diffusion-x4-upscaler',   WarmOrchCount: 1,  TotalCapacity: 1,  PriceMinWeiPerPixel: 9_123_537,   PriceMaxWeiPerPixel: 9_123_537,    PriceAvgWeiPerPixel: 9_123_537 },
+  { Pipeline: 'live-video-to-video', Model: 'streamdiffusion-sdxl', WarmOrchCount: 23, TotalCapacity: 37, PriceMinWeiPerPixel: 0, PriceMaxWeiPerPixel: 0, PriceAvgWeiPerPixel: 0 },
+  { Pipeline: 'live-video-to-video', Model: 'streamdiffusion-sdxl-v2v', WarmOrchCount: 5, TotalCapacity: 10, PriceMinWeiPerPixel: 0, PriceMaxWeiPerPixel: 0, PriceAvgWeiPerPixel: 0 },
+  { Pipeline: 'live-video-to-video', Model: 'streamdiffusion', WarmOrchCount: 2, TotalCapacity: 3, PriceMinWeiPerPixel: 0, PriceMaxWeiPerPixel: 0, PriceAvgWeiPerPixel: 0 },
+  { Pipeline: 'live-video-to-video', Model: 'streamdiffusion-sdturbo', WarmOrchCount: 1, TotalCapacity: 1, PriceMinWeiPerPixel: 0, PriceMaxWeiPerPixel: 0, PriceAvgWeiPerPixel: 0 },
+  { Pipeline: 'openai-chat-completions', Model: 'Qwen/Qwen2.5-14B-Instruct-AWQ', WarmOrchCount: 1, TotalCapacity: 0, PriceMinWeiPerPixel: 0, PriceMaxWeiPerPixel: 0, PriceAvgWeiPerPixel: 0 },
+  { Pipeline: 'text-to-image', Model: 'SG161222/RealVisXL_V4.0_Lightning', WarmOrchCount: 2, TotalCapacity: 2, PriceMinWeiPerPixel: 0, PriceMaxWeiPerPixel: 0, PriceAvgWeiPerPixel: 0 },
+  { Pipeline: 'llm', Model: 'meta-llama/Meta-Llama-3.1-8B-Instruct', WarmOrchCount: 1, TotalCapacity: 0, PriceMinWeiPerPixel: 0, PriceMaxWeiPerPixel: 0, PriceAvgWeiPerPixel: 0 },
+  { Pipeline: 'upscale', Model: 'stabilityai/stable-diffusion-x4-upscaler', WarmOrchCount: 2, TotalCapacity: 2, PriceMinWeiPerPixel: 0, PriceMaxWeiPerPixel: 0, PriceAvgWeiPerPixel: 0 },
+  { Pipeline: 'openai-text-embeddings', Model: 'nomic-embed-text:latest', WarmOrchCount: 2, TotalCapacity: 0, PriceMinWeiPerPixel: 0, PriceMaxWeiPerPixel: 0, PriceAvgWeiPerPixel: 0 },
+  { Pipeline: 'openai-image-generation', Model: 'black-forest-labs/FLUX.1-dev', WarmOrchCount: 1, TotalCapacity: 0, PriceMinWeiPerPixel: 0, PriceMaxWeiPerPixel: 0, PriceAvgWeiPerPixel: 0 },
 ];

@@ -62,16 +62,12 @@ export const TTL = {
   /** Short origin TTL — job list is the most time-sensitive dashboard surface */
   JOB_FEED: 30 * 1000,
   NETWORK_MODELS: DASHBOARD_ORIGIN_TTL_MS,
-  /** Shared raw /v1/net/models cache — used by network-models resolver */
-  NET_MODELS: DASHBOARD_ORIGIN_TTL_MS,
   /** api.daydream.live /v1/capacity per-model idle container count */
   DAYDREAM_CAPACITY: DASHBOARD_ORIGIN_TTL_MS,
   /** The Graph subgraph protocol/round data — matches dashboard protocol route s-maxage */
   PROTOCOL: DASHBOARD_ORIGIN_TTL_MS,
   /** The Graph subgraph fees/volume data */
   FEES: DASHBOARD_ORIGIN_TTL_MS,
-  /** NAAP /v1/net/capacity — warm-orch capacity snapshot; semantically distinct from PRICING */
-  NET_CAPACITY: DASHBOARD_ORIGIN_TTL_MS,
 } as const;
 
 /**

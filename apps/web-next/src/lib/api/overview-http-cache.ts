@@ -26,10 +26,8 @@ export const OverviewHttpCacheSec = {
   pipelineCatalog: OVERVIEW_HTTP_CACHE_SEC,
   orchestrators: OVERVIEW_HTTP_CACHE_SEC,
   pricing: OVERVIEW_HTTP_CACHE_SEC,
-  netCapacity: OVERVIEW_HTTP_CACHE_SEC,
   liveVideo: OVERVIEW_HTTP_CACHE_SEC,
   networkModels: OVERVIEW_HTTP_CACHE_SEC,
-  perfByModel: OVERVIEW_HTTP_CACHE_SEC,
   protocol: OVERVIEW_HTTP_CACHE_SEC,
   fees: OVERVIEW_HTTP_CACHE_SEC,
 } as const;

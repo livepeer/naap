@@ -2,46 +2,26 @@
  * GPU Capacity resolver — NAAP Dashboard API backed.
  *
  * Single call to GET /v1/dashboard/gpu-capacity which returns GPU hardware
- * inventory grouped by pipeline/model from capability snapshots.
+ * inventory grouped by pipeline/model from capability snapshots. The endpoint
+ * reflects orchestrators active in the last 30 minutes and does not
+ * accept a `window` parameter.
  *
- * The UI timeframe still drives KPI / pipelines; for this endpoint, long NAAP
- * `window` values (12h+) have been observed to collapse the breakdown to a
- * single dominant pipeline (e.g. live-video only). We therefore query a
- * shorter upstream window while the overview still labels the user’s period.
+ * The response includes `activeGPUs` (distinct GPUs currently serving streams)
+ * and `availableCapacity` (totalGPUs - activeGPUs).
  *
  * Source:
- *   GET /v1/dashboard/gpu-capacity?window=Nh
+ *   GET /v1/dashboard/gpu-capacity
  */
 
 import type { DashboardGPUCapacity } from '@naap/plugin-sdk';
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
 
-/** Upstream window (hours) — capped so multi-pipeline GPU rows are not dropped. */
-function naapGpuCapacityWindowHours(uiHours: number): number {
-  if (uiHours >= 12) return 6;
-  return uiHours;
-}
-
-/**
- * Canonical hours string for BFF SWR keys. Matches {@link resolveGPUCapacity}
- * (trim / whitespace, parseInt, clamp 1–168, default 24).
- */
-export function normalizeGpuCapacityTimeframeKey(timeframe: string | undefined): string {
-  const raw = String(timeframe ?? '').trim().replace(/\s+/g, '');
-  const parsed = parseInt(raw.length ? raw : '24', 10);
-  const uiHours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
-  return String(uiHours);
-}
-
-export async function resolveGPUCapacity(opts: { timeframe?: string }): Promise<DashboardGPUCapacity> {
-  const uiHours = Number.parseInt(normalizeGpuCapacityTimeframeKey(opts.timeframe), 10);
-  const naapHours = naapGpuCapacityWindowHours(uiHours);
-  const window = `${naapHours}h`;
-  return cachedFetch(`facade:gpu-capacity:naap${naapHours}h`, TTL.GPU_CAPACITY, () =>
-    naapGet<DashboardGPUCapacity>('dashboard/gpu-capacity', { window }, {
+export async function resolveGPUCapacity(): Promise<DashboardGPUCapacity> {
+  return cachedFetch('facade:gpu-capacity', TTL.GPU_CAPACITY, async () => {
+    return naapGet<DashboardGPUCapacity>('dashboard/gpu-capacity', undefined, {
       cache: 'no-store',
       errorLabel: 'gpu-capacity',
-    })
-  );
+    });
+  });
 }

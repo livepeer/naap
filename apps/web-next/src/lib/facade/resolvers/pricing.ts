@@ -1,37 +1,28 @@
 /**
  * Pricing resolver — NAAP Dashboard API backed.
  *
- * Fetches GET /v1/dashboard/pricing (raw wei-per-unit pricing across active
- * orchestrators) and converts to human-readable DashboardPipelinePricing[].
+ * Fetches GET /v1/dashboard/pricing which returns per-orchestrator pricing rows
+ * with orchAddress, orchName, pipeline, model, priceWeiPerUnit, pixelsPerUnit, isWarm.
  *
- * When dashboard/pricing omits rows (or lags), merges in GET /v1/net/models
- * rows that carry PriceAvgWeiPerPixel so the overview table matches Developer
- * API → Network Models pricing.
- *
- * Price conversion: price = priceAvgWeiPerUnit / 1e12
- * outputPerDollar: uses ETH_USD_PRICE (USD per ETH) or defaults to 3000
+ * Aggregates into per (pipeline, model) summary rows with min/max/avg pricing
+ * and orchestrator counts for the UI pricing table.
  *
  * Source:
  *   GET /v1/dashboard/pricing
- *   GET /v1/net/models (fallback rows only)
  */
 
-import type { DashboardPipelinePricing, NetworkModel } from '@naap/plugin-sdk';
+import type { DashboardPipelinePricing } from '@naap/plugin-sdk';
 import { cachedFetch, TTL } from '../cache.js';
-import { getRawNetModels } from '../network-data.js';
-import { resolveNetCapacity } from './net-capacity.js';
 import { naapGet } from '../naap-get.js';
 
-const LIVE_VIDEO_PIPELINE = 'live-video-to-video';
-
-interface ApiPipelinePricing {
+interface ApiPricingRow {
+  orchAddress: string;
+  orchName: string;
   pipeline: string;
   model: string;
-  orchCount: number;
-  priceMinWeiPerUnit: number;
-  priceMaxWeiPerUnit: number;
-  priceAvgWeiPerUnit: number;
+  priceWeiPerUnit: number;
   pixelsPerUnit: number;
+  isWarm: boolean;
 }
 
 const PIPELINE_UNIT: Record<string, string> = {
@@ -61,96 +52,66 @@ function pricingKey(pipeline: string, model: string): string {
   return `${pipeline}:${model}`;
 }
 
-function fromApiPipelinePricing(
-  r: ApiPipelinePricing,
-  netCapacity: Record<string, number>,
-  ethUsd: number,
-): DashboardPipelinePricing {
-  const unit = PIPELINE_UNIT[r.pipeline] ?? 'pixel';
-  const price = r.priceAvgWeiPerUnit / 1e12;
-  const netKey = pricingKey(r.pipeline, r.model);
-  const capacity =
-    r.pipeline === LIVE_VIDEO_PIPELINE
-      ? (r.orchCount > 0 ? r.orchCount : (netCapacity[netKey] ?? r.orchCount))
-      : (netCapacity[netKey] ?? r.orchCount);
-  return {
-    pipeline: r.pipeline,
-    model: r.model,
-    unit,
-    price,
-    avgWeiPerUnit: String(Math.round(r.priceAvgWeiPerUnit)),
-    pixelsPerUnit: r.pixelsPerUnit > 0 ? r.pixelsPerUnit : null,
-    outputPerDollar: computeOutputPerDollar(r.priceAvgWeiPerUnit, unit, ethUsd),
-    capacity,
-  };
-}
-
-function fromNetModelRow(
-  nm: NetworkModel,
-  netCapacity: Record<string, number>,
-  ethUsd: number,
-): DashboardPipelinePricing | null {
-  const pipeline = nm.Pipeline?.trim() ?? '';
-  const model = nm.Model?.trim() ?? '';
-  if (!pipeline || !model) return null;
-  const avgWei = nm.PriceAvgWeiPerPixel;
-  if (!Number.isFinite(avgWei) || avgWei <= 0) return null;
-
-  const unit = PIPELINE_UNIT[pipeline] ?? 'pixel';
-  const netKey = pricingKey(pipeline, model);
-  const orchLike =
-    nm.WarmOrchCount > 0 ? nm.WarmOrchCount : nm.TotalCapacity;
-  const capacity =
-    pipeline === LIVE_VIDEO_PIPELINE
-      ? (nm.WarmOrchCount > 0 ? nm.WarmOrchCount : (netCapacity[netKey] ?? orchLike))
-      : (netCapacity[netKey] ?? nm.TotalCapacity ?? nm.WarmOrchCount);
-
-  return {
-    pipeline,
-    model,
-    unit,
-    price: avgWei / 1e12,
-    avgWeiPerUnit: String(Math.round(avgWei)),
-    pixelsPerUnit: null,
-    outputPerDollar: computeOutputPerDollar(avgWei, unit, ethUsd),
-    capacity,
-  };
+interface Accumulator {
+  pipeline: string;
+  model: string;
+  prices: number[];
+  pixelsPerUnit: number;
+  warmCount: number;
+  totalCount: number;
 }
 
 export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
   return cachedFetch('facade:pricing', TTL.PRICING, async () => {
     const ethUsd = parseEthUsdReference();
-    const [rows, netCapacity, netModels] = await Promise.all([
-      naapGet<ApiPipelinePricing[]>('dashboard/pricing', undefined, {
-        cache: 'no-store',
-        errorLabel: 'pricing',
-      }),
-      resolveNetCapacity().catch((err) => {
-        console.warn('[facade/pricing] net/capacity merge skipped:', err);
-        return {} as Record<string, number>;
-      }),
-      getRawNetModels().catch((err) => {
-        console.warn('[facade/pricing] net/models pricing merge skipped:', err);
-        return [] as NetworkModel[];
-      }),
-    ]);
+    const rows = await naapGet<ApiPricingRow[]>('dashboard/pricing', undefined, {
+      cache: 'no-store',
+      errorLabel: 'pricing',
+    });
 
-    const byKey = new Map<string, DashboardPipelinePricing>();
+    // Aggregate per-orchestrator rows into per (pipeline, model) summaries
+    const accByKey = new Map<string, Accumulator>();
 
     for (const r of rows) {
-      if (!Number.isFinite(r.priceAvgWeiPerUnit) || r.priceAvgWeiPerUnit <= 0) continue;
-      const row = fromApiPipelinePricing(r, netCapacity, ethUsd);
-      byKey.set(pricingKey(row.pipeline, row.model ?? ''), row);
+      if (!Number.isFinite(r.priceWeiPerUnit) || r.priceWeiPerUnit <= 0) continue;
+      const key = pricingKey(r.pipeline, r.model);
+      let acc = accByKey.get(key);
+      if (!acc) {
+        acc = {
+          pipeline: r.pipeline,
+          model: r.model,
+          prices: [],
+          pixelsPerUnit: r.pixelsPerUnit,
+          warmCount: 0,
+          totalCount: 0,
+        };
+        accByKey.set(key, acc);
+      }
+      acc.prices.push(r.priceWeiPerUnit);
+      acc.totalCount++;
+      if (r.isWarm) acc.warmCount++;
+      if (r.pixelsPerUnit > 0) acc.pixelsPerUnit = r.pixelsPerUnit;
     }
 
-    for (const nm of netModels) {
-      const row = fromNetModelRow(nm, netCapacity, ethUsd);
-      if (!row) continue;
-      const key = pricingKey(row.pipeline, row.model ?? '');
-      if (byKey.has(key)) continue;
-      byKey.set(key, row);
+    const results: DashboardPipelinePricing[] = [];
+
+    for (const acc of accByKey.values()) {
+      const avgWei = acc.prices.reduce((s, v) => s + v, 0) / acc.prices.length;
+      const unit = PIPELINE_UNIT[acc.pipeline] ?? 'pixel';
+      const price = avgWei / 1e12;
+
+      results.push({
+        pipeline: acc.pipeline,
+        model: acc.model,
+        unit,
+        price,
+        avgWeiPerUnit: String(Math.round(avgWei)),
+        pixelsPerUnit: acc.pixelsPerUnit > 0 ? acc.pixelsPerUnit : null,
+        outputPerDollar: computeOutputPerDollar(avgWei, unit, ethUsd),
+        capacity: acc.warmCount > 0 ? acc.warmCount : acc.totalCount,
+      });
     }
 
-    return [...byKey.values()].sort((a, b) => b.price - a.price);
+    return results.sort((a, b) => b.price - a.price);
   });
 }

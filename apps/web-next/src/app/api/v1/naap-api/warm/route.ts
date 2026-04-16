@@ -2,7 +2,7 @@
 // GET /api/v1/naap-api/warm
 //
 // Populates the in-process mem cache for NAAP API-backed data
-// (currently: network models used by the pipeline-catalog resolver).
+// (currently: network models and pipeline catalog).
 // Called by:
 //   - Vercel cron (every ~50 min, before the 1hr TTL expires)
 //   - Manual invocation for debugging
@@ -13,7 +13,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 import { NextRequest, NextResponse } from 'next/server';
-import { warmNetworkData } from '@/lib/facade/network-data';
+import { getNetworkModels, getDashboardPipelineCatalog } from '@/lib/facade';
 
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -34,9 +34,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await warmNetworkData();
+    const [modelsResult, catalog] = await Promise.all([
+      getNetworkModels({ limit: 200 }),
+      getDashboardPipelineCatalog(),
+    ]);
     const results = [
-      { target: 'network-models', ok: true, count: result.models },
+      { target: 'network-models', ok: true, count: modelsResult.total },
+      { target: 'pipeline-catalog', ok: true, count: catalog.length },
     ];
     return NextResponse.json({
       warmed: results.length,

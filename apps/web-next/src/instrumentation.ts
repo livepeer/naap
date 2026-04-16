@@ -49,22 +49,28 @@ export async function register() {
       console.warn(`[naap] Warning: ${warning}`);
     }
 
-    const { warmNetworkData } = await import('@/lib/facade/network-data');
+    const { getNetworkModels, getDashboardPipelineCatalog } = await import('@/lib/facade');
     const { TTL } = await import('@/lib/facade/cache');
 
     try {
-      const networkResult = await warmNetworkData();
-      console.log('[naap] Network data cache warmed on startup:', networkResult);
+      const [modelsResult, catalog] = await Promise.all([
+        getNetworkModels({ limit: 200 }),
+        getDashboardPipelineCatalog(),
+      ]);
+      console.log(`[naap] Cache warmed on startup: ${modelsResult.total} models, ${catalog.length} pipelines`);
     } catch (err) {
       console.warn('[naap] Startup cache warm failed (non-fatal):', err);
     }
 
-    const NET_MODELS_TTL_SEC = Math.floor(TTL.NET_MODELS / 1000);
+    const NETWORK_MODELS_TTL_SEC = Math.floor(TTL.NETWORK_MODELS / 1000);
     const MIN_REWARM_INTERVAL_MS = 60_000;
-    const rewarmMs = Math.max(MIN_REWARM_INTERVAL_MS, Math.floor(NET_MODELS_TTL_SEC * 0.9 * 1000));
+    const rewarmMs = Math.max(MIN_REWARM_INTERVAL_MS, Math.floor(NETWORK_MODELS_TTL_SEC * 0.9 * 1000));
     setInterval(() => {
-      warmNetworkData()
-        .then((n) => console.log('[naap] Background cache re-warm:', n))
+      Promise.all([
+        getNetworkModels({ limit: 200 }),
+        getDashboardPipelineCatalog(),
+      ])
+        .then(([m, c]) => console.log(`[naap] Background cache re-warm: ${m.total} models, ${c.length} pipelines`))
         .catch((err) => console.warn('[naap] Background re-warm failed:', err));
     }, rewarmMs);
   }

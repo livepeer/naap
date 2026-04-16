@@ -165,27 +165,12 @@ function pipelinesRowCapacity(
   if (pipelineId === LIVE_VIDEO_PIPELINE_ID) {
     const fromDaydream = liveVideoCapacity[model];
     if (fromDaydream != null && fromDaydream >= 0) return fromDaydream;
-    return '—';
   }
   const key = `${pipelineId}:${model}`;
   const fromNet = netCapacity[key];
   if (fromNet != null && fromNet >= 0) return fromNet;
   const fallback = pricingRow?.capacity;
   return fallback != null && fallback >= 0 ? fallback : '—';
-}
-
-function catalogNeedsNetCapacityFetch(
-  catalog: DashboardPipelineCatalogEntry[],
-  pricing: DashboardPipelinePricing[],
-): boolean {
-  for (const entry of catalog) {
-    if (entry.id === LIVE_VIDEO_PIPELINE_ID) continue;
-    for (const model of entry.models) {
-      const p = pricing.find((x) => x.pipeline === entry.id && x.model === model);
-      if (!p || p.capacity == null) return true;
-    }
-  }
-  return false;
 }
 
 /** Lossless avg wei for display/sort; GraphQL Float `price` can round to 0 for large wei. */
@@ -228,14 +213,6 @@ function formatUsd(n: number): string {
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(n);
-}
-
-function getTimeframeRangeIso(timeframe: string): { start: string; end: string } {
-  const parsed = Number.parseInt(timeframe, 10);
-  const hours = Number.isFinite(parsed) && parsed > 0 ? parsed : 12;
-  const end = new Date();
-  const start = new Date(end.getTime() - hours * 60 * 60 * 1000);
-  return { start: start.toISOString(), end: end.toISOString() };
 }
 
 const MODEL_BADGE_COLORS = [
@@ -1856,43 +1833,9 @@ export function OverviewContent(props: OverviewContentProps) {
     rtRefreshing, feesRefreshing, lbError, rtError, feesError, prefsReady,
   } = props;
 
-  // Supplementary REST enrichment (capacity, live-video, perf-by-model)
-  const [netCapacity, setNetCapacity] = useState<Record<string, number>>({});
+  // Supplementary REST enrichment (live-video capacity from daydream)
   const [liveVideoCapacity, setLiveVideoCapacity] = useState<Record<string, number>>({});
-  const [modelFpsByPipelineModel, setModelFpsByPipelineModel] = useState<Record<string, number>>({});
-  const lastFetchedNetCapacityKeyRef = useRef<string | null>(null);
   const liveVideoCapacityModelsRef = useRef<string>('');
-
-  useEffect(() => {
-    if (!prefsReady) return;
-    if (!pipelineCatalog?.length || !pricing.length) return;
-
-    const catalogKeyPart = [...pipelineCatalog]
-      .map((e) => ({ id: e.id, models: [...e.models].sort() }))
-      .sort((a, b) => a.id.localeCompare(b.id));
-    const pricingKeyPart = [...pricing]
-      .map((p) => ({ pipeline: p.pipeline, model: p.model ?? '', capacity: p.capacity ?? null }))
-      .sort((a, b) => a.pipeline.localeCompare(b.pipeline) || a.model.localeCompare(b.model));
-    const key = JSON.stringify({ catalog: catalogKeyPart, pricing: pricingKeyPart });
-
-    if (!catalogNeedsNetCapacityFetch(pipelineCatalog, pricing)) {
-      lastFetchedNetCapacityKeyRef.current = null;
-      setNetCapacity({});
-      return;
-    }
-    if (lastFetchedNetCapacityKeyRef.current === key) return;
-
-    let cancelled = false;
-    fetch('/api/v1/network/capacity')
-      ?.then((res) => (res.ok ? res.json() : null))
-      ?.then((body: { capacityByPipelineModel?: Record<string, number> } | null) => {
-        if (cancelled || !body?.capacityByPipelineModel || typeof body.capacityByPipelineModel !== 'object') return;
-        setNetCapacity(body.capacityByPipelineModel);
-        lastFetchedNetCapacityKeyRef.current = key;
-      })
-      ?.catch(() => {});
-    return () => { cancelled = true; };
-  }, [prefsReady, pipelineCatalog, pricing]);
 
   useEffect(() => {
     if (!prefsReady || !pipelineCatalog?.length) return;
@@ -1911,20 +1854,6 @@ export function OverviewContent(props: OverviewContentProps) {
       ?.catch(() => { if (!cancelled) liveVideoCapacityModelsRef.current = ''; });
     return () => { cancelled = true; };
   }, [prefsReady, pipelineCatalog]);
-
-  useEffect(() => {
-    if (!prefsReady) return;
-    const { start, end } = getTimeframeRangeIso(timeframe);
-    let cancelled = false;
-    fetch(`/api/v1/network/perf-by-model?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`)
-      ?.then((res) => (res.ok ? res.json() : null))
-      ?.then((body: { fpsByPipelineModel?: Record<string, number> } | null) => {
-        if (cancelled || !body?.fpsByPipelineModel || typeof body.fpsByPipelineModel !== 'object') return;
-        setModelFpsByPipelineModel(body.fpsByPipelineModel);
-      })
-      ?.catch(() => {});
-    return () => { cancelled = true; };
-  }, [prefsReady, timeframe]);
 
   const transientDashboardErrors = useMemo(() => {
     return [lbError, rtError, feesError].filter(
@@ -2002,9 +1931,9 @@ export function OverviewContent(props: OverviewContentProps) {
                 data={pipelines}
                 catalog={pipelineCatalog}
                 pricing={pricing}
-                netCapacity={netCapacity}
+                netCapacity={{}}
                 liveVideoCapacity={liveVideoCapacity}
-                modelFpsByPipelineModel={modelFpsByPipelineModel}
+                modelFpsByPipelineModel={{}}
                 timeframeHours={kpi?.timeframeHours ?? 12}
                 gpuCapacity={gpuCapacity ?? null}
               />

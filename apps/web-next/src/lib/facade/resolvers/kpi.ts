@@ -1,29 +1,35 @@
 /**
  * KPI resolver — NAAP Dashboard API backed.
  *
- * Fetches pre-aggregated KPI from GET /v1/dashboard/kpi, then overrides
- * orchestratorsOnline.value using GET /v1/net/orchestrators (shared cached fetch):
- * distinct listed addresses (non-blank service URI) whose latest `LastSeen` falls
- * within the KPI window. When the registry omits `LastSeen`, falls back to the full
- * listed count (same rule as the orchestrator table). The overview table is unchanged
- * and still lists every listed address.
- *
- * Both fetches run in parallel; if net/orchestrators fails the upstream
- * KPI value is preserved as-is.
+ * Fetches pre-aggregated KPI from GET /v1/dashboard/kpi which returns the
+ * combined shape `{ streaming: DashboardKPI, requests: DashboardJobsOverview }`.
+ * We extract `.streaming` for the dashboard KPI panel. All five KPI fields
+ * (successRate, orchestratorsOnline, dailyUsageMins, dailySessionCount,
+ * dailyNetworkFeesEth) return `{ value, delta }` from the API.
  *
  * Source:
  *   GET /v1/dashboard/kpi?window=Nh[&pipeline=...&model_id=...]
- *   GET /v1/net/orchestrators?active_only=false&limit=…&offset=…  (shared, cached, paged)
  */
 
-import type { DashboardKPI } from '@naap/plugin-sdk';
+import type { DashboardKPI, MetricDelta } from '@naap/plugin-sdk';
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
-import {
-  getNetOrchestratorDataSafe,
-  hasNonBlankServiceUri,
-  type NetOrchestratorData,
-} from './net-orchestrators.js';
+
+/** combined response shape from /v1/dashboard/kpi */
+interface DashboardKPICombined {
+  streaming: DashboardKPI;
+  requests?: unknown;
+}
+
+/** Round to 2 decimal places. */
+function r2(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
+/** Round both value and delta to 2dp. */
+function roundDelta(m: MetricDelta): MetricDelta {
+  return { value: r2(m.value), delta: r2(m.delta) };
+}
 
 /** Clamp a raw timeframe string to a canonical hours value in [1, 168]. */
 export function normalizeTimeframeHours(timeframe?: string): number {
@@ -31,29 +37,7 @@ export function normalizeTimeframeHours(timeframe?: string): number {
   return Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
 }
 
-/** KPI-only: listed orchestrators with registry evidence they were seen within the window. */
-function orchestratorKpiCountForTimeframe(
-  netData: NetOrchestratorData,
-  hours: number,
-): number {
-  if (!netData.hasLastSeenData) {
-    return netData.listedCount;
-  }
-  const cutoffMs = Date.now() - hours * 60 * 60 * 1000;
-  let n = 0;
-  for (const [addrLower, uris] of netData.urisByAddress) {
-    if (!hasNonBlankServiceUri(uris)) {
-      continue;
-    }
-    const lastMs = netData.lastSeenMsByAddress.get(addrLower);
-    if (lastMs !== undefined && lastMs >= cutoffMs) {
-      n++;
-    }
-  }
-  return n;
-}
-
-export async function resolveKPI(opts: { 
+export async function resolveKPI(opts: {
   timeframe?: string;
   pipeline?: string;
   model_id?: string;
@@ -67,25 +51,19 @@ export async function resolveKPI(opts: {
   const cacheKey = `facade:kpi:${hours}:${opts.pipeline || 'all'}:${opts.model_id || 'all'}`;
 
   return cachedFetch(cacheKey, TTL.KPI, async () => {
-    const [kpi, netData] = await Promise.all([
-      naapGet<DashboardKPI>('dashboard/kpi', params, {
-        cache: 'no-store',
-        errorLabel: 'kpi',
-      }),
-      getNetOrchestratorDataSafe(),
-    ]);
+    const combined = await naapGet<DashboardKPICombined>('dashboard/kpi', params, {
+      cache: 'no-store',
+      errorLabel: 'kpi',
+    });
 
-    const hasNetRegistrySnapshot =
-      netData.listedCount > 0 ||
-      netData.activeCount > 0 ||
-      netData.urisByAddress.size > 0;
-    if (hasNetRegistrySnapshot) {
-      kpi.orchestratorsOnline = {
-        ...kpi.orchestratorsOnline,
-        value: orchestratorKpiCountForTimeframe(netData, hours),
-      };
-    }
-
-    return kpi;
+    const s = combined.streaming;
+    return {
+      ...s,
+      successRate: roundDelta(s.successRate),
+      orchestratorsOnline: roundDelta(s.orchestratorsOnline),
+      dailyUsageMins: roundDelta(s.dailyUsageMins),
+      dailySessionCount: roundDelta(s.dailySessionCount),
+      dailyNetworkFeesEth: roundDelta(s.dailyNetworkFeesEth),
+    };
   });
 }

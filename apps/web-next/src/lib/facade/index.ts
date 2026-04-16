@@ -6,8 +6,8 @@
  * resolvers, raw-data, or external services directly.
  *
  * FACADE_USE_STUBS=true — forces all functions to return hardcoded stub data.
- * Unset (or "false") — all resolvers call the live NAAP API; stub data is never
- * injected, including catalog seeding stubs.
+ * Unset (or "false") — all resolvers call the live NAAP API; stub data is
+ * never injected, including catalog seeding stubs.
  *
  * Adding a new data domain:
  *   1. Add the function signature here
@@ -36,8 +36,6 @@ import { resolveOrchestrators } from './resolvers/orchestrators.js';
 import { resolveGPUCapacity } from './resolvers/gpu-capacity.js';
 import { resolvePricing } from './resolvers/pricing.js';
 import { resolveNetworkModels } from './resolvers/network-models.js';
-import { resolveNetCapacity } from './resolvers/net-capacity.js';
-import { resolvePerfByModel } from './resolvers/perf-by-model.js';
 import { resolveDaydreamCapacity } from './resolvers/daydream-capacity.js';
 import { resolveProtocol } from './resolvers/protocol.js';
 import { resolveFees } from './resolvers/fees.js';
@@ -46,10 +44,10 @@ import { resolveJobFeed } from './resolvers/job-feed.js';
 const USE_STUBS = process.env.FACADE_USE_STUBS === 'true';
 
 // ---------------------------------------------------------------------------
-// Dashboard — NAAP API backed (Phase 1)
+// Dashboard — NAAP API backed
 // ---------------------------------------------------------------------------
 
-export async function getDashboardKPI(opts: { 
+export async function getDashboardKPI(opts: {
   timeframe?: string;
   pipeline?: string;
   model_id?: string;
@@ -113,11 +111,9 @@ export async function getDashboardFees(opts: { days?: number }): Promise<Dashboa
 // Dashboard — NAAP API backed
 // ---------------------------------------------------------------------------
 
-export async function getDashboardGPUCapacity(opts: {
-  timeframe?: string;
-}): Promise<DashboardGPUCapacity> {
+export async function getDashboardGPUCapacity(): Promise<DashboardGPUCapacity> {
   if (USE_STUBS) return stubs.gpuCapacity;
-  return resolveGPUCapacity(opts);
+  return resolveGPUCapacity();
 }
 
 export async function getDashboardJobFeed(): Promise<JobFeedItem[]> {
@@ -142,23 +138,6 @@ export async function getNetworkModels(opts: { limit?: number }): Promise<{
     return { models, total: all.length };
   }
   return resolveNetworkModels(opts);
-}
-
-// ---------------------------------------------------------------------------
-// Net capacity — NAAP API backed
-// ---------------------------------------------------------------------------
-
-export async function getNetCapacity(): Promise<Record<string, number>> {
-  if (USE_STUBS) return {};
-  return resolveNetCapacity();
-}
-
-export async function getPerfByModel(opts: {
-  start: string;
-  end: string;
-}): Promise<Record<string, number>> {
-  if (USE_STUBS) return {};
-  return resolvePerfByModel(opts);
 }
 
 // ---------------------------------------------------------------------------
