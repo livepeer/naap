@@ -71,3 +71,40 @@ cd plugins/<name>/frontend && npm run build
 cp dist/production/<name>.js ../../apps/web-next/public/cdn/plugins/<name>/<name>.js
 cp dist/production/<name>.js ../../apps/web-next/public/cdn/plugins/<name>/1.0.0/<name>.js
 ```
+
+### Agent Brain v2 Architecture
+
+The agent brain powers all conversational AI via Telegram, web, and API. Single endpoint: `POST /api/v1/agentbook-core/agent/message`.
+
+**Modules** (all in `plugins/agentbook-core/backend/src/`):
+| Module | File | Purpose |
+|--------|------|---------|
+| Brain | `agent-brain.ts` | Pipeline orchestrator — sessions, context, routing |
+| Memory | `agent-memory.ts` | Relevance-scored retrieval, confidence learning, corrections |
+| Planner | `agent-planner.ts` | Complexity assessment, LLM plan generation, step execution |
+| Evaluator | `agent-evaluator.ts` | Per-step quality checks, plan evaluation, suggestions |
+| Server | `server.ts` | Route handler, skill manifests, `classifyAndExecuteV1()` |
+
+**Pipeline:** Session recovery → Context assembly → Intent classification (shortcuts → regex → LLM) → Complexity assessment → Simple execution OR Plan → Execute → Evaluate → Learn
+
+**Key models:** `AbAgentSession` (plan state), `AbUserMemory` (confidence-decayed learning), `AbSkillManifest` (skill registry), `AbConversation` (history + feedback)
+
+**Skills (16 built-in):** record-expense, query-expenses, query-finance, scan-receipt, scan-document, create-invoice, simulate-scenario, proactive-alerts, expense-breakdown, categorize-expenses, edit-expense, split-expense, review-queue, manage-recurring, vendor-insights, general-question
+
+**Specs & Plans:**
+- Design: `docs/superpowers/specs/2026-04-14-agent-brain-v2-design.md`
+- Plan: `docs/superpowers/plans/2026-04-14-agent-brain-v2.md`
+
+**Telegram Adapter** (`apps/web-next/src/app/api/v1/agentbook/telegram/webhook/route.ts`):
+- Thin adapter — all logic in agent brain
+- Session-aware: detects confirm/cancel/undo/skip/status
+- Feedback detection: "no, that should be Travel" → correction flow
+- Plan display with Proceed/Cancel inline buttons
+
+**E2E Tests:** `tests/e2e/agent-brain.spec.ts` (16 tests) + `tests/e2e/agent-brain-v2.spec.ts` (12 tests)
+
+**Adding a new skill:**
+1. Add manifest to `BUILT_IN_SKILLS` array in `server.ts` (before `general-question`)
+2. Run `POST /agent/seed-skills` to upsert
+3. If skill needs special pre-processing (multi-step orchestration), add handler in `classifyAndExecuteV1()`
+4. For INTERNAL skills (no HTTP endpoint), add inline handler before the HTTP execution block
