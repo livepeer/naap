@@ -1,21 +1,18 @@
 const SUBGRAPH_ID = 'FE63YgkzcpVocxdCEyEYbvjYqEf2kb1A6daMYRxmejYC';
 
-let warned = false;
-
 function getSubgraphUrls(): string[] {
   if (process.env.LIVEPEER_SUBGRAPH_URL) return [process.env.LIVEPEER_SUBGRAPH_URL];
   const key = process.env.SUBGRAPH_API_KEY || process.env.NEXT_PUBLIC_SUBGRAPH_API_KEY;
-  if (key) {
-    return [
-      `https://gateway.thegraph.com/api/${key}/subgraphs/id/${SUBGRAPH_ID}`,
-      `https://gateway-arbitrum.network.thegraph.com/api/${key}/subgraphs/id/${SUBGRAPH_ID}`,
-    ];
+  if (!key) {
+    throw new Error(
+      '[capability-explorer] SUBGRAPH_API_KEY is not set — on-chain registry source cannot query The Graph. ' +
+        'Set SUBGRAPH_API_KEY in your environment variables.',
+    );
   }
-  if (!warned) {
-    console.warn('[capability-explorer] No SUBGRAPH_API_KEY — using free endpoint (rate-limited)');
-    warned = true;
-  }
-  return [`https://gateway.thegraph.com/api/subgraphs/id/${SUBGRAPH_ID}`];
+  return [
+    `https://gateway.thegraph.com/api/${key}/subgraphs/id/${SUBGRAPH_ID}`,
+    `https://gateway-arbitrum.network.thegraph.com/api/${key}/subgraphs/id/${SUBGRAPH_ID}`,
+  ];
 }
 
 export async function querySubgraph<T = unknown>(

@@ -32,12 +32,17 @@ async function handleRefresh(request: NextRequest): Promise<NextResponse> {
 
   const authToken = getAuthToken(request) || process.env.CRON_SECRET || '';
 
+  const isManual = auth.callerType !== 'cron';
+
   try {
-    const result = await refreshCapabilities({
-      authToken,
-      requestUrl: request.url,
-      cookieHeader: request.headers.get('cookie'),
-    });
+    const result = await refreshCapabilities(
+      {
+        authToken,
+        requestUrl: request.url,
+        cookieHeader: request.headers.get('cookie'),
+      },
+      { force: isManual },
+    );
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Refresh failed';

@@ -88,6 +88,16 @@ export async function getQuery(
   return row ? toRecord(row as unknown as Record<string, unknown>) : null;
 }
 
+export async function getQueryBySlug(
+  slug: string,
+  scope: QueryScope,
+): Promise<CapabilityQueryRecord | null> {
+  const row = await prisma.capabilityQuery.findFirst({
+    where: { slug, ...scopeWhere(scope) },
+  });
+  return row ? toRecord(row as unknown as Record<string, unknown>) : null;
+}
+
 export async function updateQuery(
   id: string,
   input: UpdateCapabilityQueryInput,

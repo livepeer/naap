@@ -10,7 +10,7 @@ export { handleGraphQL } from './handlers/graphql.js';
 // V2: Query CRUD handlers
 export { handleListQueries } from './handlers/queries-list.js';
 export { handleCreateQuery, handleGetQuery, handleUpdateQuery, handleDeleteQuery } from './handlers/queries-crud.js';
-export { handleGetQueryResults } from './handlers/queries-results.js';
+export { handleGetQueryResults, handleGetQueryResultsBySlug } from './handlers/queries-results.js';
 export { handleSeedQueries } from './handlers/queries-seed.js';
 
 // V2: Admin handlers

@@ -3,17 +3,19 @@ import { Copy, Check, ExternalLink } from 'lucide-react';
 
 interface EndpointGuideProps {
   queryId: string;
+  querySlug: string;
   compact?: boolean;
 }
 
-export const EndpointGuide: React.FC<EndpointGuideProps> = ({ queryId, compact }) => {
+export const EndpointGuide: React.FC<EndpointGuideProps> = ({ queryId, querySlug, compact }) => {
   const [copied, setCopied] = useState(false);
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-  const endpointUrl = `${baseUrl}/api/v1/capability-explorer/queries/${queryId}/results`;
+  const slugUrl = `${baseUrl}/api/v1/capability-explorer/queries/by-slug/${encodeURIComponent(querySlug)}/results`;
+  const idUrl = `${baseUrl}/api/v1/capability-explorer/queries/${queryId}/results`;
 
-  const handleCopy = (e: React.MouseEvent) => {
+  const handleCopy = (text: string) => (e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(endpointUrl).then(() => {
+    navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -22,9 +24,9 @@ export const EndpointGuide: React.FC<EndpointGuideProps> = ({ queryId, compact }
   if (compact) {
     return (
       <div className="flex items-center gap-2">
-        <code className="text-[10px] text-text-muted font-mono truncate flex-1">{endpointUrl}</code>
+        <code className="text-[10px] text-text-muted font-mono truncate flex-1">{slugUrl}</code>
         <button
-          onClick={handleCopy}
+          onClick={handleCopy(slugUrl)}
           className="shrink-0 p-1 hover:bg-bg-tertiary rounded transition-colors"
           title="Copy endpoint URL"
         >
@@ -43,15 +45,28 @@ export const EndpointGuide: React.FC<EndpointGuideProps> = ({ queryId, compact }
       <p className="text-xs text-text-secondary">
         Use this endpoint to retrieve filtered capabilities for this query. Configure the query once, then poll this URL — no need to pass filter parameters each time.
       </p>
-      <div className="flex items-center gap-2 bg-bg-tertiary rounded-lg p-3">
-        <code className="text-xs font-mono text-accent-emerald flex-1 break-all">{endpointUrl}</code>
-        <button
-          onClick={handleCopy}
-          className="shrink-0 p-1.5 hover:bg-bg-secondary rounded transition-colors"
-          title="Copy endpoint URL"
-        >
-          {copied ? <Check size={14} className="text-accent-emerald" /> : <Copy size={14} className="text-text-muted" />}
-        </button>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 bg-bg-tertiary rounded-lg p-3">
+          <code className="text-xs font-mono text-accent-emerald flex-1 break-all">{slugUrl}</code>
+          <button
+            onClick={handleCopy(slugUrl)}
+            className="shrink-0 p-1.5 hover:bg-bg-secondary rounded transition-colors"
+            title="Copy slug endpoint URL"
+          >
+            {copied ? <Check size={14} className="text-accent-emerald" /> : <Copy size={14} className="text-text-muted" />}
+          </button>
+        </div>
+        <div className="flex items-center gap-2 bg-bg-tertiary/50 rounded-lg p-2.5">
+          <span className="text-[10px] text-text-muted shrink-0">by id:</span>
+          <code className="text-[10px] font-mono text-text-muted flex-1 break-all">{idUrl}</code>
+          <button
+            onClick={handleCopy(idUrl)}
+            className="shrink-0 p-1 hover:bg-bg-secondary rounded transition-colors"
+            title="Copy ID endpoint URL"
+          >
+            <Copy size={12} className="text-text-disabled" />
+          </button>
+        </div>
       </div>
       <div className="text-[11px] text-text-muted space-y-1">
         <p><strong>Method:</strong> GET</p>

@@ -75,7 +75,7 @@ async function isSourceRefreshDue(
   intervalHours: number,
 ): Promise<boolean> {
   const latest = await prisma.capabilitySnapshot.findFirst({
-    where: { sourceId },
+    where: { sourceId, status: { in: ['success', 'partial'] } },
     orderBy: { createdAt: 'desc' },
     select: { createdAt: true },
   });
@@ -97,12 +97,13 @@ async function fetchOrUseCachedSnapshot(
   source: CapabilityDataSource,
   ctx: SourceContext,
   refreshIntervals: Record<string, number>,
+  force = false,
 ): Promise<{
   result: { capabilities: PartialCapability[]; status: string; durationMs: number; errorMessage?: string };
   fromCache: boolean;
 }> {
   const intervalHours = refreshIntervals[source.id] ?? DEFAULT_REFRESH_INTERVALS[source.id] ?? 4;
-  const due = await isSourceRefreshDue(source.id, intervalHours);
+  const due = force || await isSourceRefreshDue(source.id, intervalHours);
 
   if (!due) {
     const start = Date.now();
@@ -154,7 +155,8 @@ function computeCategories(caps: EnrichedCapability[]): CategoryInfo[] {
  * if their last snapshot is still within interval, the cached snapshot is
  * merged instead of re-fetching, keeping the cron cycle fast.
  */
-export async function refreshCapabilities(ctx: SourceContext): Promise<RefreshResult> {
+export async function refreshCapabilities(ctx: SourceContext, opts?: { force?: boolean }): Promise<RefreshResult> {
+  const force = opts?.force ?? false;
   ensureDefaultSources();
 
   const config = await prisma.capabilityExplorerConfig.upsert({
@@ -175,7 +177,7 @@ export async function refreshCapabilities(ctx: SourceContext): Promise<RefreshRe
   // Phase 1: run core sources (with per-source caching for slow ones)
   const coreSources = getCoreSources(enabledMap);
   for (const source of coreSources) {
-    const { result, fromCache } = await fetchOrUseCachedSnapshot(source, ctx, refreshIntervals);
+    const { result, fromCache } = await fetchOrUseCachedSnapshot(source, ctx, refreshIntervals, force);
     mergePartials(merged, result.capabilities);
 
     if (!fromCache) {
@@ -206,7 +208,7 @@ export async function refreshCapabilities(ctx: SourceContext): Promise<RefreshRe
       source.setCapabilitiesToEnrich(Array.from(merged.values()));
     }
 
-    const { result, fromCache } = await fetchOrUseCachedSnapshot(source, ctx, refreshIntervals);
+    const { result, fromCache } = await fetchOrUseCachedSnapshot(source, ctx, refreshIntervals, force);
     mergePartials(merged, result.capabilities);
 
     if (!fromCache) {

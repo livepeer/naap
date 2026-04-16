@@ -256,7 +256,7 @@ export const QueryDetailPage: React.FC = () => {
         </div>
       )}
 
-      <EndpointGuide queryId={query.id} />
+      <EndpointGuide queryId={query.id} querySlug={query.slug} />
 
       <div>
         <h3 className="text-sm font-semibold text-text-primary mb-3">

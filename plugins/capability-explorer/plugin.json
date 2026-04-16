@@ -14,7 +14,7 @@
   "keywords": ["capability", "explorer", "ai", "model", "huggingface", "pipeline", "gpu"],
   "category": "core",
   "isCore": true,
-  "visibleToUsers": false,
+  "visibleToUsers": true,
   "experimental": false,
 
   "shell": {

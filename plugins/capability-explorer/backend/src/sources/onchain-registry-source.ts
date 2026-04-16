@@ -4,9 +4,14 @@ import { PIPELINE_TO_CATEGORY } from '../types.js';
 import { fetchActiveOrchestrators } from './subgraph.js';
 import { generateSnippets } from '../snippets.js';
 import { getHuggingFaceUrl } from '../hf-model-map.js';
+import { Agent } from 'undici';
 
 const MAX_CONCURRENT = parseInt(process.env.ONCHAIN_MAX_CONCURRENT || '10', 10);
 const ORCH_TIMEOUT_MS = parseInt(process.env.ONCHAIN_ORCH_TIMEOUT_MS || '5000', 10);
+
+const tlsInsecureAgent = new Agent({
+  connect: { rejectUnauthorized: false },
+});
 
 interface OrchCapabilityResponse {
   pipeline: string;
@@ -15,6 +20,11 @@ interface OrchCapabilityResponse {
     warm: boolean;
   }>;
 }
+
+type FetchResult =
+  | { status: 'capabilities'; data: OrchCapabilityResponse[] }
+  | { status: 'reachable-no-caps' }
+  | { status: 'unreachable' };
 
 function categorize(pipelineType: string): CapabilityCategory {
   return PIPELINE_TO_CATEGORY[pipelineType] || 'other';
@@ -27,24 +37,26 @@ function humanName(capabilityName: string): string {
     .join(' ');
 }
 
-async function fetchOrchCapabilities(
-  serviceURI: string,
-): Promise<OrchCapabilityResponse[] | null> {
+async function fetchOrchCapabilities(serviceURI: string): Promise<FetchResult> {
   try {
     const url = serviceURI.replace(/\/+$/, '') + '/getCapabilities';
     const res = await fetch(url, {
       signal: AbortSignal.timeout(ORCH_TIMEOUT_MS),
       headers: { Accept: 'application/json' },
+      // @ts-expect-error -- undici dispatcher for Node.js fetch (self-signed certs)
+      dispatcher: tlsInsecureAgent,
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { status: 'reachable-no-caps' };
     const json = await res.json();
-    if (Array.isArray(json)) return json as OrchCapabilityResponse[];
-    if (json && typeof json === 'object' && Array.isArray(json.capabilities)) {
-      return json.capabilities as OrchCapabilityResponse[];
+    if (Array.isArray(json) && json.length > 0) {
+      return { status: 'capabilities', data: json as OrchCapabilityResponse[] };
     }
-    return null;
+    if (json && typeof json === 'object' && Array.isArray(json.capabilities) && json.capabilities.length > 0) {
+      return { status: 'capabilities', data: json.capabilities as OrchCapabilityResponse[] };
+    }
+    return { status: 'reachable-no-caps' };
   } catch {
-    return null;
+    return { status: 'unreachable' };
   }
 }
 
@@ -97,13 +109,22 @@ export class OnChainRegistrySource implements CapabilityDataSource {
 
       const aggregated = new Map<string, AggregatedCapability>();
       let reachable = 0;
+      let withCaps = 0;
+      let unreachable = 0;
 
       const tasks = withServiceURI.map((orch) => async () => {
-        const caps = await fetchOrchCapabilities(orch.serviceURI!);
-        if (!caps) return;
-        reachable++;
+        const result = await fetchOrchCapabilities(orch.serviceURI!);
 
-        for (const pipeline of caps) {
+        if (result.status === 'unreachable') {
+          unreachable++;
+          return;
+        }
+
+        reachable++;
+        if (result.status !== 'capabilities') return;
+        withCaps++;
+
+        for (const pipeline of result.data) {
           const pipelineType = pipeline.pipeline || '';
           for (const model of pipeline.models || []) {
             const capName = model.id || pipelineType;
@@ -179,16 +200,16 @@ export class OnChainRegistrySource implements CapabilityDataSource {
       );
 
       const total = withServiceURI.length;
-      const status = reachable === 0 ? 'error' : reachable < total ? 'partial' : 'success';
+      const status = reachable === 0 ? 'error' : 'success';
+      const parts: string[] = [];
+      if (withCaps > 0) parts.push(`${withCaps} with AI capabilities`);
+      if (unreachable > 0) parts.push(`${unreachable}/${total} unreachable`);
 
       return {
         capabilities,
         status,
         durationMs: Date.now() - start,
-        errorMessage:
-          reachable < total
-            ? `${total - reachable}/${total} orchestrators unreachable`
-            : undefined,
+        errorMessage: parts.length > 0 ? parts.join(', ') : undefined,
       };
     } catch (err) {
       return {
