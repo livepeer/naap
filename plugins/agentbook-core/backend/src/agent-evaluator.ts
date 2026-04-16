@@ -51,6 +51,21 @@ export function assessStepQuality(step: PlanStep): StepQuality {
     }
   }
 
+  const data = step.result?.data;
+
+  if (step.action === 'create-invoice' || step.action === 'create-estimate') {
+    if (!data?.number && !data?.id) { score -= 0.5; issues.push('Invoice/estimate not created'); }
+    if (!data?.clientId) { score -= 0.2; issues.push('No client resolved'); }
+  }
+
+  if (step.action === 'send-invoice') {
+    if (data && !data.emailSent) { score -= 0.3; issues.push('Email not sent (client may lack email address)'); }
+  }
+
+  if (step.action === 'record-payment') {
+    if (data?.amountCents === 0) { score -= 0.5; issues.push('Zero payment recorded'); }
+  }
+
   return { score: Math.max(0, Math.min(1, score)), issues };
 }
 

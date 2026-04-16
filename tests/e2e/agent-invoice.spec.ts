@@ -115,3 +115,25 @@ test.describe.serial('Invoice Agent — Action Skills', () => {
     expect((await res.json()).data.skillUsed).toBe('send-reminder');
   });
 });
+
+test.describe.serial('Invoice Agent — Multi-Step', () => {
+  test('multi-step: "invoice and send" triggers plan or executes', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H,
+      data: { text: 'invoice Acme $5000 for consulting and then send it', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body.data.plan || body.data.message).toBeTruthy();
+  });
+
+  test('send-reminder with no overdue returns friendly message', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H, data: { text: 'send payment reminders', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body.data.skillUsed).toBe('send-reminder');
+    expect(body.data.message).toBeTruthy();
+  });
+});

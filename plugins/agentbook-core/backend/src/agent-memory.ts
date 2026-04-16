@@ -129,110 +129,127 @@ export async function learnFromInteraction(
   result: any,
   feedback?: string,
 ): Promise<void> {
-  // Only learn from successful record-expense with vendor + category
-  if (skillUsed !== 'record-expense') return;
+  // Only learn from successful interactions
   if (!result?.success) return;
-  const vendorId: string | undefined = result?.data?.vendorId;
-  const categoryId: string | undefined = result?.data?.categoryId;
-  if (!vendorId || !categoryId) return;
 
-  const vendorName: string =
-    (result?.data?.vendorName || params?.vendor || vendorId)
-      .trim()
-      .toLowerCase();
+  // 1. record-expense learning: vendor→category patterns
+  if (skillUsed === 'record-expense') {
+    const vendorId: string | undefined = result?.data?.vendorId;
+    const categoryId: string | undefined = result?.data?.categoryId;
+    if (vendorId && categoryId) {
+      const vendorName: string =
+        (result?.data?.vendorName || params?.vendor || vendorId)
+          .trim()
+          .toLowerCase();
 
-  const primaryKey = `vendor_category:${vendorName}`;
+      const primaryKey = `vendor_category:${vendorName}`;
 
-  try {
-    const existing: any = await db.abUserMemory.findUnique({
-      where: { tenantId_key: { tenantId, key: primaryKey } },
-    });
-
-    if (existing) {
-      if (existing.value === categoryId) {
-        // Same category — reinforce confidence
-        const newConfidence = Math.min(0.99, (existing.confidence ?? 0.5) + 0.15);
-        await db.abUserMemory.update({
+      try {
+        const existing: any = await db.abUserMemory.findUnique({
           where: { tenantId_key: { tenantId, key: primaryKey } },
-          data: {
-            confidence: newConfidence,
-            usageCount: { increment: 1 },
-            lastUsed: new Date(),
-          },
-        });
-      } else {
-        // Different category — contradiction
-        const decayedConfidence = Math.max(
-          0.1,
-          (existing.confidence ?? 0.5) - 0.2,
-        );
-        await db.abUserMemory.update({
-          where: { tenantId_key: { tenantId, key: primaryKey } },
-          data: {
-            confidence: decayedConfidence,
-            contradictions: { increment: 1 },
-            lastUsed: new Date(),
-          },
         });
 
-        // Create (or update) competing pattern
-        const competingKey = `vendor_category:${vendorName}:${categoryId}`;
-        await db.abUserMemory.upsert({
-          where: { tenantId_key: { tenantId, key: competingKey } },
-          create: {
+        if (existing) {
+          if (existing.value === categoryId) {
+            // Same category — reinforce confidence
+            const newConfidence = Math.min(0.99, (existing.confidence ?? 0.5) + 0.15);
+            await db.abUserMemory.update({
+              where: { tenantId_key: { tenantId, key: primaryKey } },
+              data: {
+                confidence: newConfidence,
+                usageCount: { increment: 1 },
+                lastUsed: new Date(),
+              },
+            });
+          } else {
+            // Different category — contradiction
+            const decayedConfidence = Math.max(
+              0.1,
+              (existing.confidence ?? 0.5) - 0.2,
+            );
+            await db.abUserMemory.update({
+              where: { tenantId_key: { tenantId, key: primaryKey } },
+              data: {
+                confidence: decayedConfidence,
+                contradictions: { increment: 1 },
+                lastUsed: new Date(),
+              },
+            });
+
+            // Create (or update) competing pattern
+            const competingKey = `vendor_category:${vendorName}:${categoryId}`;
+            await db.abUserMemory.upsert({
+              where: { tenantId_key: { tenantId, key: competingKey } },
+              create: {
+                tenantId,
+                key: competingKey,
+                value: categoryId,
+                type: 'vendor_category',
+                confidence: 0.5,
+                source: 'interaction',
+                usageCount: 1,
+                lastUsed: new Date(),
+              },
+              update: {
+                confidence: { increment: 0.15 },
+                usageCount: { increment: 1 },
+                lastUsed: new Date(),
+              },
+            });
+          }
+        } else {
+          // No existing memory — create new
+          await db.abUserMemory.create({
+            data: {
+              tenantId,
+              key: primaryKey,
+              value: categoryId,
+              type: 'vendor_category',
+              confidence: 0.5,
+              source: 'interaction',
+              usageCount: 1,
+              lastUsed: new Date(),
+            },
+          });
+        }
+
+        // 2. Auto-promote high-usage patterns
+        await db.abUserMemory.updateMany({
+          where: {
             tenantId,
-            key: competingKey,
-            value: categoryId,
             type: 'vendor_category',
-            confidence: 0.5,
-            source: 'interaction',
-            usageCount: 1,
-            lastUsed: new Date(),
+            usageCount: { gte: 3 },
+            confidence: { lt: 0.95 },
           },
-          update: {
-            confidence: { increment: 0.15 },
-            usageCount: { increment: 1 },
-            lastUsed: new Date(),
-          },
+          data: { confidence: 0.95 },
         });
+      } catch (_err) {
+        // Best-effort — never throw
       }
-    } else {
-      // No existing memory — create new
-      await db.abUserMemory.create({
-        data: {
-          tenantId,
-          key: primaryKey,
-          value: categoryId,
-          type: 'vendor_category',
-          confidence: 0.5,
-          source: 'interaction',
-          usageCount: 1,
-          lastUsed: new Date(),
-        },
-      });
     }
-
-    // Auto-promote high-usage patterns
-    await autoPromotePatterns(tenantId);
-  } catch (_err) {
-    // Best-effort — never throw
   }
-}
 
-/** Promote vendor_category memories with usageCount >= 3 and confidence < 0.95 */
-async function autoPromotePatterns(tenantId: string): Promise<void> {
-  try {
-    await db.abUserMemory.updateMany({
-      where: {
-        tenantId,
-        type: 'vendor_category',
-        usageCount: { gte: 3 },
-        confidence: { lt: 0.95 },
-      },
-      data: { confidence: 0.95 },
-    });
-  } catch (_err) {
-    // Best-effort
+  // 3. Client rate learning (from invoices)
+  if (skillUsed === 'create-invoice' && result?.success && result.data?.clientId) {
+    try {
+      const lines = (result.data.lines as any[]) || [];
+      if (lines.length > 0 && lines[0].rateCents) {
+        const key = `client_rate:${result.data.clientId}`;
+        const existing = await db.abUserMemory.findFirst({ where: { tenantId, key } });
+        if (existing) {
+          if (existing.value === String(lines[0].rateCents)) {
+            await db.abUserMemory.update({
+              where: { id: existing.id },
+              data: { confidence: Math.min(0.99, existing.confidence + 0.15), usageCount: { increment: 1 }, lastUsed: new Date() },
+            });
+          }
+        } else {
+          await db.abUserMemory.create({
+            data: { tenantId, key, value: String(lines[0].rateCents), type: 'client_rate', confidence: 0.5, source: 'learned' },
+          });
+        }
+      }
+    } catch { /* best-effort */ }
   }
 }
 
