@@ -75,7 +75,8 @@ async function evaluate(
       const evaluated = evaluatePlan(rows, plan);
       capabilities[capability] = evaluated;
       totalOrchestrators += evaluated.length;
-    } catch {
+    } catch (err) {
+      console.error(`[leaderboard] Failed to evaluate capability "${capability}":`, err);
       capabilities[capability] = [];
     }
   }
@@ -113,7 +114,9 @@ export async function evaluateAndCache(
   }
 
   if (entry && isValid(entry)) {
-    void refreshSingle(plan, authToken, requestUrl, cookieHeader);
+    refreshSingle(plan, authToken, requestUrl, cookieHeader).catch((err) => {
+      console.error(`[leaderboard] Background refresh failed for plan ${plan.id}:`, err);
+    });
     return {
       ...entry.results,
       meta: { ...entry.results.meta, cacheAgeMs: Date.now() - entry.cachedAt },
@@ -193,7 +196,9 @@ export function startLocalRefreshLoop(authToken: string, requestUrl?: string): v
   if (process.env.VERCEL) return;
   if (localInterval) return;
   localInterval = setInterval(() => {
-    void refreshAllPlans(authToken, requestUrl);
+    refreshAllPlans(authToken, requestUrl).catch((err) => {
+      console.error('[leaderboard] Local refresh loop failed:', err);
+    });
   }, REFRESH_INTERVAL_MS);
 }
 

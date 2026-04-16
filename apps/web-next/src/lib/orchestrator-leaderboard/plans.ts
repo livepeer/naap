@@ -91,37 +91,31 @@ export async function updatePlan(
   input: UpdatePlanInput,
   scope: PlanScope,
 ): Promise<DiscoveryPlan | null> {
-  const existing = await prisma.discoveryPlan.findFirst({
+  const result = await prisma.discoveryPlan.updateMany({
     where: { id, ...scopeWhere(scope) },
-  });
-  if (!existing) return null;
-
-  const row = await prisma.discoveryPlan.update({
-    where: { id },
     data: {
       ...(input.name !== undefined && { name: input.name }),
       ...(input.description !== undefined && { description: input.description }),
       ...(input.capabilities !== undefined && { capabilities: input.capabilities }),
       ...(input.topN !== undefined && { topN: input.topN }),
-      ...(input.slaWeights !== undefined && { slaWeights: input.slaWeights ?? undefined }),
+      ...(input.slaWeights !== undefined && { slaWeights: input.slaWeights }),
       ...(input.slaMinScore !== undefined && { slaMinScore: input.slaMinScore }),
       ...(input.sortBy !== undefined && { sortBy: input.sortBy }),
-      ...(input.filters !== undefined && { filters: input.filters ?? undefined }),
+      ...(input.filters !== undefined && { filters: input.filters }),
     },
   });
-  return toPlan(row as unknown as Record<string, unknown>);
+  if (result.count === 0) return null;
+  return getPlan(id, scope);
 }
 
 export async function deletePlan(
   id: string,
   scope: PlanScope,
 ): Promise<boolean> {
-  const existing = await prisma.discoveryPlan.findFirst({
+  const result = await prisma.discoveryPlan.deleteMany({
     where: { id, ...scopeWhere(scope) },
   });
-  if (!existing) return false;
-  await prisma.discoveryPlan.delete({ where: { id } });
-  return true;
+  return result.count > 0;
 }
 
 export async function listEnabledPlans(): Promise<DiscoveryPlan[]> {
