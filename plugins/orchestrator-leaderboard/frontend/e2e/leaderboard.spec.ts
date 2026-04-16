@@ -158,3 +158,106 @@ test.describe('Orchestrator Leaderboard Page', () => {
     expect(callCount).toBeGreaterThan(initialCount);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Dataset config API stubs (verifies no crash with admin panel present)
+// ---------------------------------------------------------------------------
+
+test.describe('Global Dataset & Plan Integration', () => {
+  test.beforeEach(async ({ page }) => {
+    await stubAPIs(page);
+
+    await page.route('**/api/v1/orchestrator-leaderboard/dataset/config', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            refreshIntervalHours: 1,
+            lastRefreshedAt: new Date().toISOString(),
+            lastRefreshedBy: 'cron',
+            updatedAt: new Date().toISOString(),
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/v1/orchestrator-leaderboard/plans', (route) => {
+      if (route.request().method() === 'GET') {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            data: {
+              plans: [
+                {
+                  id: 'plan-1',
+                  billingPlanId: 'bp-1',
+                  name: 'Test Plan',
+                  description: 'A test plan',
+                  capabilities: ['noop'],
+                  topN: 5,
+                  slaWeights: null,
+                  slaMinScore: null,
+                  sortBy: null,
+                  filters: null,
+                  enabled: true,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                },
+              ],
+            },
+          }),
+        });
+      } else {
+        route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' });
+      }
+    });
+
+    await page.route('**/api/v1/orchestrator-leaderboard/plans/plan-1/results', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            data: {
+              planId: 'plan-1',
+              refreshedAt: new Date().toISOString(),
+              capabilities: {
+                noop: [FIXTURE_RANK.data[0]],
+              },
+              plan: { name: 'Test Plan', description: 'A test plan', capabilities: ['noop'], topN: 5 },
+              meta: { totalOrchestrators: 1, refreshIntervalMs: 60000, cacheAgeMs: 0 },
+            },
+          },
+        }),
+      });
+    });
+  });
+
+  test('page loads without errors when dataset config endpoint is present', async ({ page }) => {
+    await page.goto('/orchestrator-leaderboard');
+    await expect(page.locator('select').first()).toBeVisible();
+  });
+
+  test('plan results contain plan metadata', async ({ page }) => {
+    await page.goto('/orchestrator-leaderboard');
+    await page.locator('select').first().selectOption('noop');
+    await expect(page.locator('table')).toBeVisible();
+
+    const resp = await page.evaluate(async () => {
+      const r = await fetch('/api/v1/orchestrator-leaderboard/plans/plan-1/results', {
+        credentials: 'include',
+      });
+      return r.json();
+    });
+
+    expect(resp.success).toBe(true);
+    expect(resp.data.data.plan.name).toBe('Test Plan');
+    expect(resp.data.data.plan.description).toBe('A test plan');
+    expect(resp.data.data.capabilities.noop).toHaveLength(1);
+  });
+});

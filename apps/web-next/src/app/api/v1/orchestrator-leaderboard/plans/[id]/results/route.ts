@@ -46,7 +46,17 @@ export async function GET(
       request.headers.get('cookie'),
     );
 
-    const response = success({ data: results });
+    const withPlanMeta = {
+      ...results,
+      plan: {
+        name: plan.name,
+        description: plan.description,
+        capabilities: plan.capabilities,
+        topN: plan.topN,
+      },
+    };
+
+    const response = success({ data: withPlanMeta });
     response.headers.set('Cache-Control', 'private, max-age=10');
     response.headers.set('X-Cache-Age', String(results.meta.cacheAgeMs));
     response.headers.set('X-Refresh-Interval', String(results.meta.refreshIntervalMs));

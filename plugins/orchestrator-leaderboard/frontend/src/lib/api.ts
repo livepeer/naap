@@ -139,6 +139,7 @@ export interface DiscoveryPlan {
   id: string;
   billingPlanId: string;
   name: string;
+  description: string | null;
   teamId: string | null;
   ownerUserId: string | null;
   capabilities: string[];
@@ -231,6 +232,84 @@ export async function updatePlan(
   if (!json.success) throw new Error(json.error?.message || 'Request failed');
 
   return json.data.plan;
+}
+
+// ---------------------------------------------------------------------------
+// Dataset Config (admin)
+// ---------------------------------------------------------------------------
+
+export interface DatasetConfig {
+  refreshIntervalHours: number;
+  lastRefreshedAt: string | null;
+  lastRefreshedBy: string | null;
+  updatedAt: string;
+}
+
+export async function fetchDatasetConfig(): Promise<DatasetConfig> {
+  const res = await fetch(`${BASE_URL}/dataset/config`, {
+    headers: buildHeaders(false),
+    credentials: 'include',
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<DatasetConfig> = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+
+  return json.data;
+}
+
+export async function updateDatasetConfig(
+  refreshIntervalHours: number,
+): Promise<DatasetConfig> {
+  const res = await fetch(`${BASE_URL}/dataset/config`, {
+    method: 'PUT',
+    headers: buildHeaders(true),
+    body: JSON.stringify({ refreshIntervalHours }),
+    credentials: 'include',
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<DatasetConfig> = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+
+  return json.data;
+}
+
+export async function triggerDatasetRefresh(): Promise<{
+  refreshed: boolean;
+  capabilities: number;
+  orchestrators: number;
+}> {
+  const res = await fetch(`${BASE_URL}/dataset/refresh`, {
+    method: 'POST',
+    headers: buildHeaders(true),
+    credentials: 'include',
+    signal: AbortSignal.timeout(120_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<{
+    refreshed: boolean;
+    capabilities: number;
+    orchestrators: number;
+  }> = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+
+  return json.data;
 }
 
 export async function seedDemoPlans(): Promise<{ created: number }> {

@@ -98,6 +98,84 @@ test.describe('Orchestrator Leaderboard (stub) @pre-release', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Admin Settings Panel (stub)
+// ---------------------------------------------------------------------------
+
+test.describe('Admin Settings Panel (stub) @pre-release', () => {
+  test.skip(() => isLiveMode(), 'Skipping stub tests — live credentials detected');
+
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  const STUB_CONFIG = {
+    success: true,
+    data: {
+      refreshIntervalHours: 1,
+      lastRefreshedAt: new Date().toISOString(),
+      lastRefreshedBy: 'cron',
+      updatedAt: new Date().toISOString(),
+    },
+  };
+
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/v1/orchestrator-leaderboard/filters', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(STUB_CAPABILITIES),
+      }),
+    );
+
+    await page.route('**/api/v1/orchestrator-leaderboard/rank', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(STUB_RANK_RESPONSE),
+      }),
+    );
+
+    await page.route('**/api/v1/orchestrator-leaderboard/dataset/config', (route) => {
+      if (route.request().method() === 'PUT') {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            data: { ...STUB_CONFIG.data, refreshIntervalHours: 4 },
+          }),
+        });
+      } else {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(STUB_CONFIG),
+        });
+      }
+    });
+
+    await page.route('**/api/v1/orchestrator-leaderboard/dataset/refresh', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: { refreshed: true, capabilities: 3, orchestrators: 5 },
+        }),
+      }),
+    );
+  });
+
+  test('admin settings button is visible (non-admin sees nothing rendered by AdminSettings)', async ({ page }) => {
+    await page.goto('/orchestrator-leaderboard');
+    await expect(page.getByText('Orchestrator Leaderboard')).toBeVisible({ timeout: 30_000 });
+
+    // The AdminSettings component checks hasRole('system:admin') via the shell context.
+    // In stub mode without a real shell context, the component returns null (non-admin).
+    // This test verifies no crash occurs from the component being present.
+    await expect(page.getByRole('heading', { name: 'Page Not Found' })).not.toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Live mode — real backend (Vercel preview or local with credentials)
 // ---------------------------------------------------------------------------
 

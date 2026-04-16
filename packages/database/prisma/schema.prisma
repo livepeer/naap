@@ -2239,6 +2239,7 @@ model DiscoveryPlan {
   id              String   @id @default(cuid())
   billingPlanId   String   @unique
   name            String
+  description     String?
   teamId          String?
   ownerUserId     String?
   capabilities    String[]
@@ -2253,5 +2254,17 @@ model DiscoveryPlan {
 
   @@index([teamId, enabled])
   @@index([ownerUserId, enabled])
+  @@schema("plugin_orchestrator_leaderboard")
+}
+
+/// Singleton config row for the orchestrator-leaderboard plugin.
+/// Stores admin-configurable refresh interval and last-refresh metadata.
+model LeaderboardConfig {
+  id                    String    @id @default("singleton")
+  refreshIntervalHours  Int       @default(1)
+  lastRefreshedAt       DateTime?
+  lastRefreshedBy       String?
+  updatedAt             DateTime  @updatedAt
+
   @@schema("plugin_orchestrator_leaderboard")
 }

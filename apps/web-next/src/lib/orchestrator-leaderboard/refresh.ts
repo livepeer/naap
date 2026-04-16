@@ -4,17 +4,19 @@
  * Lazy evaluation: GET /plans/:id/results checks the in-memory plan cache;
  * if stale or missing, evaluates the plan and caches the result.
  *
- * Proactive warming: POST /plans/refresh (Vercel Cron) bulk-evaluates all
- * enabled plans so most reads are cache hits.
+ * Plan evaluation reads from the global dataset cache first (zero ClickHouse
+ * calls when the global dataset is populated). Falls back to direct
+ * fetchLeaderboard() if the global dataset is stale or missing.
  *
  * Optional local dev loop: startLocalRefreshLoop() uses setInterval for
  * sub-minute refresh in long-running dev servers (skipped on Vercel).
  */
 
-import type { DiscoveryPlan, OrchestratorRow, PlanResults } from './types';
+import type { ClickHouseLeaderboardRow, DiscoveryPlan, OrchestratorRow, PlanResults } from './types';
 import { fetchLeaderboard } from './query';
 import { evaluatePlan } from './ranking';
 import { listEnabledPlans } from './plans';
+import { getGlobalDataset } from './global-dataset';
 
 const REFRESH_INTERVAL_MS = Number(process.env.LEADERBOARD_REFRESH_INTERVAL_MS) || 60_000;
 const CACHE_TTL_MS = REFRESH_INTERVAL_MS * 2;
@@ -36,8 +38,27 @@ function isValid(entry: PlanCacheEntry): boolean {
 }
 
 /**
+ * Get rows for a capability. Reads from the global dataset cache if
+ * available; falls back to fetchLeaderboard() (direct ClickHouse query).
+ */
+async function getRowsForCapability(
+  capability: string,
+  authToken: string,
+  requestUrl?: string,
+  cookieHeader?: string | null,
+): Promise<ClickHouseLeaderboardRow[]> {
+  const globalDataset = getGlobalDataset();
+  if (globalDataset && capability in globalDataset.capabilities) {
+    return globalDataset.capabilities[capability];
+  }
+  const { rows } = await fetchLeaderboard(capability, authToken, requestUrl, cookieHeader);
+  return rows;
+}
+
+/**
  * Evaluate one plan across all its capabilities, merge results.
- * Uses the existing fetchLeaderboard() which has its own 10s in-memory cache.
+ * Reads from the global dataset cache first (in-memory), falls back to
+ * fetchLeaderboard() if the global dataset is stale or missing.
  */
 async function evaluate(
   plan: DiscoveryPlan,
@@ -50,7 +71,7 @@ async function evaluate(
 
   for (const capability of plan.capabilities) {
     try {
-      const { rows } = await fetchLeaderboard(capability, authToken, requestUrl, cookieHeader);
+      const rows = await getRowsForCapability(capability, authToken, requestUrl, cookieHeader);
       const evaluated = evaluatePlan(rows, plan);
       capabilities[capability] = evaluated;
       totalOrchestrators += evaluated.length;

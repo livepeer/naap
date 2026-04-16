@@ -31,6 +31,7 @@ function toPlan(row: Record<string, unknown>): DiscoveryPlan {
     id: row.id as string,
     billingPlanId: row.billingPlanId as string,
     name: row.name as string,
+    description: (row.description as string) ?? null,
     teamId: (row.teamId as string) ?? null,
     ownerUserId: (row.ownerUserId as string) ?? null,
     capabilities: row.capabilities as string[],
@@ -53,6 +54,7 @@ export async function createPlan(
     data: {
       billingPlanId: input.billingPlanId,
       name: input.name,
+      description: input.description ?? undefined,
       capabilities: input.capabilities,
       topN: input.topN ?? 10,
       slaWeights: input.slaWeights ?? undefined,
@@ -98,6 +100,7 @@ export async function updatePlan(
     where: { id },
     data: {
       ...(input.name !== undefined && { name: input.name }),
+      ...(input.description !== undefined && { description: input.description }),
       ...(input.capabilities !== undefined && { capabilities: input.capabilities }),
       ...(input.topN !== undefined && { topN: input.topN }),
       ...(input.slaWeights !== undefined && { slaWeights: input.slaWeights ?? undefined }),

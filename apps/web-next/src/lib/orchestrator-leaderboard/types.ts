@@ -113,6 +113,7 @@ export type PlanSortBy = (typeof PLAN_SORT_OPTIONS)[number];
 export const CreatePlanSchema = z.object({
   billingPlanId: z.string().min(1).max(255),
   name: z.string().min(1).max(255),
+  description: z.string().max(1000).optional(),
   capabilities: z.array(z.string().regex(CAPABILITY_RE).max(128)).min(1).max(50),
   topN: z.number().int().min(1).max(1000).default(10),
   slaWeights: SLAWeightsSchema,
@@ -135,6 +136,7 @@ export interface DiscoveryPlan {
   id: string;
   billingPlanId: string;
   name: string;
+  description: string | null;
   teamId: string | null;
   ownerUserId: string | null;
   capabilities: string[];
@@ -157,6 +159,12 @@ export interface PlanResults {
   planId: string;
   refreshedAt: string;
   capabilities: Record<string, OrchestratorRow[]>;
+  plan?: {
+    name: string;
+    description: string | null;
+    capabilities: string[];
+    topN: number;
+  };
   meta: {
     totalOrchestrators: number;
     refreshIntervalMs: number;

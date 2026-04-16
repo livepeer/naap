@@ -13,7 +13,7 @@
   "license": "MIT",
   "keywords": ["orchestrator", "leaderboard", "ranking", "sla", "latency", "gpu"],
   "category": "operations",
-  "experimental": true,
+  "isCore": true,
 
   "shell": {
     "minVersion": "0.1.0",
