@@ -3,6 +3,10 @@
     {
       "path": "/api/internal/bff-warm",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/v1/orchestrator-leaderboard/dataset/refresh",
+      "schedule": "0 * * * *"
     }
   ]
 }
