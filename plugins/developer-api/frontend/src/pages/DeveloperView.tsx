@@ -568,13 +568,14 @@ result = [...result].sort((a, b) => {
         return;
       }
       const startData = await startRes.json();
-      const directApiKey = startData.data?.api_key || startData.api_key;
+      const directAccessToken = startData.data?.access_token || startData.access_token;
       const authUrl = startData.data?.auth_url || startData.auth_url;
       const loginSessionId = startData.data?.login_session_id || startData.login_session_id;
 
-      // Server-to-server providers (e.g. PymtHouse) return api_key directly.
-      // Browser-redirect providers (e.g. Daydream) return auth_url for popup + polling.
-      let providerApiKey: string | null = directApiKey || null;
+      // Server-to-server providers (e.g. PymtHouse) return a short-lived JWT as
+      // `access_token` directly. Browser-redirect providers (e.g. Daydream)
+      // return `auth_url` for popup + polling and deliver the credential later.
+      let providerApiKey: string | null = directAccessToken || null;
 
       if (!providerApiKey) {
         if (!authUrl || !loginSessionId) {

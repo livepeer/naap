@@ -2,8 +2,8 @@
  * GET /api/v1/auth/providers/:providerSlug/callback
  * Provider redirects the browser here after user authentication.
  *
- * PymtHouse no longer uses this route — it uses the client_credentials
- * server-to-server flow via POST /api/v1/auth/providers/pymthouse/start.
+ * PymtHouse does not use this route — it uses client_credentials + the Builder API
+ * via POST /api/v1/auth/providers/pymthouse/start.
  * Only Daydream (browser-redirect OAuth) reaches this callback.
  */
 
