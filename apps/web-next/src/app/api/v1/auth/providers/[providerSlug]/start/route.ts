@@ -3,10 +3,14 @@
  * Start a brokered billing-provider authentication session.
  *
  * - daydream: browser-redirect OAuth (unchanged).
- * - pymthouse: server-to-server client_credentials + link-user (no browser popup).
- *   NaaP obtains a service JWT from PymtHouse, provisions the NaaP user on
- *   PymtHouse, and returns the gateway API key directly in the response.
- *   The frontend receives `api_key` in the response and skips popup/polling.
+ * - pymthouse: server-to-server Basic-auth Builder API (no browser popup).
+ *   NaaP upserts the user on PymtHouse and returns a fresh short-lived
+ *   `sign:job` JWT as `access_token` in the response. The frontend receives
+ *   `access_token` directly and skips popup/polling.
+ *
+ *   The JWT is intentionally short-lived (~15 min) and is NOT persisted.
+ *   For subsequent requests, callers should re-mint via
+ *   POST /api/v1/billing/pymthouse/token.
  */
 
 import * as crypto from 'crypto';
@@ -14,8 +18,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
-import { encryptToken } from '@naap/database';
 import { resolveBillingOAuthAppUrl } from '@/lib/billing-oauth-origin';
+import {
+  isPymthouseConfigured,
+  issuePymthouseUserAccessToken,
+  type PymthouseUserAccessToken,
+} from '@/lib/pymthouse-oidc';
 
 const DAYDREAM_AUTH_URL =
   process.env.DAYDREAM_AUTH_URL || 'https://app.daydream.live/sign-in/local';
@@ -58,17 +66,14 @@ async function buildDaydreamAuthUrl(
 }
 
 /**
- * PymtHouse: pure server-to-server client_credentials flow.
- * Returns the API key directly — no browser redirect.
+ * PymtHouse: pure server-to-server Basic-auth flow. Upserts the user and mints
+ * a fresh short-lived `sign:job` JWT — no browser redirect, no persistence.
  */
-async function executePymthouseClientCredentials(
+async function executePymthouseUserLink(
   naapUserId: string | null,
   userEmail?: string | null,
-): Promise<{ apiKey: string } | null> {
-  const { getPymthouseIssuerBase, getPymthouseOidcClientSecret, getPymthouseServiceToken, linkPymthouseUser } =
-    await import('@/lib/pymthouse-oidc');
-
-  if (!getPymthouseIssuerBase() || !getPymthouseOidcClientSecret()) {
+): Promise<PymthouseUserAccessToken | null> {
+  if (!isPymthouseConfigured()) {
     return null;
   }
 
@@ -76,11 +81,9 @@ async function executePymthouseClientCredentials(
     throw new Error('User must be logged in to link a PymtHouse billing provider');
   }
 
-  const serviceToken = await getPymthouseServiceToken();
-  const apiKey = await linkPymthouseUser(serviceToken, naapUserId, {
+  return issuePymthouseUserAccessToken(naapUserId, {
     email: userEmail ?? undefined,
   });
-  return { apiKey };
 }
 
 export async function POST(
@@ -105,35 +108,30 @@ export async function POST(
 
     const loginSessionId = crypto.randomBytes(32).toString('hex');
 
-    // ── PymtHouse: client credentials, no browser redirect ──────────────────
-    // TODO: Once PymtHouse's developer_apps ownerId FK constraint is resolved,
-    // replace the link-user call with the standard builder API:
-    //   1. POST {base}/api/v1/apps/{PMTHOUSE_APP_ID}/users  (provision NaaP user)
-    //   2. POST {base}/api/v1/apps/{PMTHOUSE_APP_ID}/users/{naapUserId}/token
-    //      (issue user-scoped JWT: gateway + sign:job + discover:orchestrators)
-    // Store the returned refresh_token (pmth_*) as the API key.
-    // Env required: PMTHOUSE_APP_ID (developer app UUID from PymtHouse dashboard).
-    // See: pymthouse/docs/builder-api.md + src/app/api/v1/apps/[id]/users/
+    // ── PymtHouse: Basic-auth Builder API (docs/builder-api.md) ──────────────
+    // NaaP client Basic-auths to PymtHouse → upsert user → POST .../token { scope: sign:job }.
+    // The JWT is short-lived (~15 min) and is NOT persisted; callers re-mint on demand
+    // via POST /api/v1/billing/pymthouse/token.
     if (providerSlug === 'pymthouse') {
-      let result: { apiKey: string } | null;
+      let token: PymthouseUserAccessToken | null;
       try {
-        result = await executePymthouseClientCredentials(
+        token = await executePymthouseUserLink(
           naapUserId,
           authenticatedUser?.email,
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
-        console.error('[billing-auth:pymthouse] link-user error:', msg);
+        console.error('[billing-auth:pymthouse] Builder API error:', msg);
         return errors.badRequest(
           `PymtHouse user linking failed: ${msg}. ` +
-            'Ensure PYMTHOUSE_ISSUER_URL (…/api/v1/oidc) and PMTHOUSE_CLIENT_SECRET are set, ' +
-            'and run oidc:seed on PymtHouse (naap-service must have gateway scope).',
+            'Ensure PYMTHOUSE_ISSUER_URL (…/api/v1/oidc), PMTHOUSE_CLIENT_SECRET, and PMTHOUSE_CLIENT_ID (app_…) are set, ' +
+            'and the confidential client on PymtHouse allows users:read, users:write, and users:token.',
         );
       }
 
-      if (!result) {
+      if (!token) {
         return errors.badRequest(
-          'PymtHouse is not configured. Set PYMTHOUSE_ISSUER_URL and PMTHOUSE_CLIENT_SECRET, then restart.',
+          'PymtHouse is not configured. Set PYMTHOUSE_ISSUER_URL, PMTHOUSE_CLIENT_SECRET, and PMTHOUSE_CLIENT_ID, then restart.',
         );
       }
 
@@ -147,10 +145,10 @@ export async function POST(
           state: crypto.randomBytes(16).toString('hex'),
           pkceCodeVerifier: null,
           status: 'complete',
-          accessToken: encryptToken(result.apiKey),
+          accessToken: null,
           providerUserId: naapUserId,
-          redeemedAt: null,
-          expiresAt: new Date(Date.now() + LOGIN_SESSION_TTL_MS),
+          redeemedAt: new Date(),
+          expiresAt: new Date(Date.now() + token.expiresIn * 1000),
         },
       });
 
@@ -158,9 +156,11 @@ export async function POST(
 
       return success({
         auth_url: null,
-        api_key: result.apiKey,
+        access_token: token.accessToken,
+        token_type: token.tokenType,
+        scope: token.scope,
         login_session_id: loginSessionId,
-        expires_in: Math.floor(LOGIN_SESSION_TTL_MS / 1000),
+        expires_in: token.expiresIn,
         poll_after_ms: 0,
       });
     }
