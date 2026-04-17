@@ -14,7 +14,8 @@
  * range; they are multiplied by 100 for the UI.
  *
  * Source:
- *   GET /v1/dashboard/orchestrators?window=…
+ *   GET /v1/dashboard/orchestrators?window=… — **capped at 24h** for upstream performance
+ *     (wider UI timeframes still load the table; SLA metrics use at most the last 24h).
  *   GET /v1/streaming/orchestrators + GET /v1/requests/orchestrators (see net-orchestrators.ts)
  */
 
@@ -43,13 +44,20 @@ interface ApiOrchestrator {
   gpuCount: number;
 }
 
-/** Hours with optional trailing `h`, clamped to [1, 168]; formatted like other dashboard `window` values. */
-function orchestratorWindowFromPeriod(period?: string): string {
+/** Wider UI windows make this endpoint expensive; do not exceed 24h on the NAAP dashboard route. */
+export const DASHBOARD_ORCHESTRATORS_UPSTREAM_MAX_HOURS = 24;
+
+/**
+ * Hours with optional trailing `h`, clamped to [1, 168], then capped at
+ * {@link DASHBOARD_ORCHESTRATORS_UPSTREAM_MAX_HOURS}; formatted like other dashboard `window` values.
+ */
+export function orchestratorUpstreamWindowFromPeriod(period?: string): string {
   const raw = (period ?? '24').trim();
   const stripped = raw.toLowerCase().endsWith('h') ? raw.slice(0, -1).trim() : raw;
   const parsed = parseInt(stripped, 10);
   const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
-  return formatDashboardWindow(hours);
+  const capped = Math.min(hours, DASHBOARD_ORCHESTRATORS_UPSTREAM_MAX_HOURS);
+  return formatDashboardWindow(capped);
 }
 
 function mergeOrchestratorServiceUris(netUris: string[], dash: ApiOrchestrator): string[] {
@@ -140,7 +148,7 @@ function netOnlyPlaceholder(
 }
 
 export async function resolveOrchestrators(opts?: { period?: string }): Promise<DashboardOrchestrator[]> {
-  const window = orchestratorWindowFromPeriod(opts?.period);
+  const window = orchestratorUpstreamWindowFromPeriod(opts?.period);
   return cachedFetch(`facade:orchestrators:${window}`, TTL.ORCHESTRATORS, async () => {
     const [dashRows, netData] = await Promise.all([
       naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window }, {
