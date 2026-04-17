@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { bffStaleWhileRevalidate } from '@/lib/api/bff-swr';
 import { getDashboardOrchestrators } from '@/lib/facade';
 import { TTL, dashboardRouteCacheControl } from '@/lib/facade/cache';
+import { orchestratorUpstreamWindowFromPeriod } from '@/lib/facade/resolvers/orchestrators';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -9,7 +10,8 @@ export const maxDuration = 60;
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;
   const period = params.get('period')?.trim() || '24h';
-  const cacheKey = `orchestrators:${period}`;
+  const effectiveWindow = orchestratorUpstreamWindowFromPeriod(period);
+  const cacheKey = `orchestrators:${effectiveWindow}`;
 
   try {
     const { data: result, cache } = await bffStaleWhileRevalidate(
