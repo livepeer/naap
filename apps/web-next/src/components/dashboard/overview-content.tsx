@@ -795,9 +795,8 @@ function sortPipelineTableModels(
     const p = pricingByKey.get(`${pipelineId}:${model}`);
     const modelUsage = modelMinsMap.get(model);
     const modelFpsFromPerf = modelFpsByPipelineModel[`${pipelineId}:${model}`];
-    const modelFps = Number.isFinite(modelFpsFromPerf)
-      ? modelFpsFromPerf
-      : Number.isFinite(modelUsage?.avgFps) ? (modelUsage?.avgFps as number) : null;
+    /** Only `streaming/models` (24h avg; live-video rows only per OpenAPI) — do not fall back to modelMins.avgFps (was coerced to 0 when missing). */
+    const modelFps = Number.isFinite(modelFpsFromPerf) ? modelFpsFromPerf : null;
     const modelMins = Number.isFinite(modelUsage?.mins) ? (modelUsage?.mins as number) : null;
     const cap = pipelinesRowCapacity(pipelineId, model, p, netCapacity, liveVideoCapacity);
     const gpus = gpuByPipelineModel.get(`${pipelineId}\x1f${model}`) ?? 0;
@@ -929,6 +928,7 @@ function PipelineTH({
   sortCol,
   sortDir,
   onSort,
+  headerInfo,
 }: {
   col: PipelineTableSortCol;
   label: string;
@@ -936,28 +936,44 @@ function PipelineTH({
   sortCol: PipelineTableSortCol;
   sortDir: 'asc' | 'desc';
   onSort: (col: PipelineTableSortCol) => void;
+  /** Non-sorting info (e.g. metric provenance); kept outside the sort button for accessibility. */
+  headerInfo?: ReactNode;
 }) {
   const ariaSort: 'ascending' | 'descending' | 'none' =
     sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
+  const right = className.includes('text-right');
   return (
     <th scope="col" className={className} aria-sort={ariaSort}>
-      <button
-        type="button"
-        onClick={() => onSort(col)}
-        className={`inline-flex w-full items-center gap-1 select-none hover:text-foreground transition-colors ${className.includes('text-right') ? 'justify-end' : 'justify-start'}`}
+      <div
+        className={`flex w-full items-center gap-0.5 ${right ? 'justify-end' : 'justify-start'}`}
       >
-        {className.includes('text-right') ? (
-          <>
-            <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
-            {label}
-          </>
-        ) : (
-          <>
-            {label}
-            <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
-          </>
-        )}
-      </button>
+        <button
+          type="button"
+          onClick={() => onSort(col)}
+          className={`inline-flex min-w-0 flex-1 items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'justify-end' : 'justify-start'}`}
+        >
+          {right ? (
+            <>
+              <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
+              {label}
+            </>
+          ) : (
+            <>
+              {label}
+              <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
+            </>
+          )}
+        </button>
+        {headerInfo ? (
+          <span
+            className="shrink-0 inline-flex text-muted-foreground pointer-events-auto"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            {headerInfo}
+          </span>
+        ) : null}
+      </div>
     </th>
   );
 }
@@ -1087,7 +1103,23 @@ function PipelinesCard({
                 <PipelineTH col="gpus" label="GPUs" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
                 <PipelineTH col="capacity" label="Capacity" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
                 <PipelineTH col="price" label="Price" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
-                <PipelineTH col="fps" label="FPS" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
+                <PipelineTH
+                  col="fps"
+                  label="FPS"
+                  className={thNum}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={togglePipelineTableSort}
+                  headerInfo={
+                    <span
+                      title="Average output FPS from GET /v1/streaming/models (24-hour weighted average; live-video-to-video models only). BFF-cached."
+                      className="cursor-help"
+                      aria-label="Average output FPS from streaming models API, last 24 hours, live-video pipelines only"
+                    >
+                      <Info className="w-3 h-3 opacity-60" aria-hidden />
+                    </span>
+                  }
+                />
                 <PipelineTH col="mins" label="Mins" className={`${thNum} pr-4`} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
               </tr>
             </thead>
@@ -1151,9 +1183,7 @@ function PipelinesCard({
                         const p = pricingByKey.get(`${entry.id}:${model}`);
                         const modelUsage = pipelineUsage?.modelMins?.find((m) => m.model === model);
                         const modelFpsFromPerf = modelFpsByPipelineModel[`${entry.id}:${model}`];
-                        const modelFps = Number.isFinite(modelFpsFromPerf)
-                          ? modelFpsFromPerf
-                          : Number.isFinite(modelUsage?.avgFps) ? (modelUsage?.avgFps as number) : null;
+                        const modelFps = Number.isFinite(modelFpsFromPerf) ? modelFpsFromPerf : null;
                         const modelMins = Number.isFinite(modelUsage?.mins) ? (modelUsage?.mins as number) : null;
                         const wei = avgWeiBigIntForPricingRow(p);
                         const priceStr =
