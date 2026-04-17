@@ -2240,6 +2240,30 @@ const BUILT_IN_SKILLS = [
     endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/reconciliation-summary' },
   },
   {
+    name: 'cpa-notes', description: 'Add or view notes for CPA/accountant — tax questions, review items', category: 'finance',
+    triggerPatterns: ['cpa.*note', 'accountant.*note', 'note.*cpa', 'note.*accountant', 'tell.*cpa', 'ask.*cpa'],
+    parameters: { note: { type: 'string', required: false, extractHint: 'the note content' } },
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-core/cpa/notes' },
+  },
+  {
+    name: 'cpa-share', description: 'Generate a secure access link to share financial data with CPA/accountant', category: 'finance',
+    triggerPatterns: ['share.*cpa', 'share.*accountant', 'cpa.*access', 'cpa.*link', 'give.*cpa.*access'],
+    parameters: {},
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-core/cpa/generate-link' },
+  },
+  {
+    name: 'create-automation', description: 'Create an automation rule from natural language — triggers, conditions, actions', category: 'finance',
+    triggerPatterns: ['automat', 'when.*then', 'alert.*when', 'notify.*when', 'rule.*when'],
+    parameters: { description: { type: 'string', required: true, extractHint: 'natural language rule description' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-core/automations/from-description' },
+  },
+  {
+    name: 'list-automations', description: 'Show active automation rules', category: 'finance',
+    triggerPatterns: ['show.*automat', 'list.*automat', 'my.*automat', 'active.*rule'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-core/automations' },
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
@@ -2524,6 +2548,15 @@ async function classifyAndExecuteV1(
                 if (/got.*\$.*from/i.test(lower)) continue;  // payment, not expense
                 if (/received.*payment/i.test(lower)) continue;
                 if (/^(?:estimate|quote|proposal)\s/i.test(lower)) continue;  // estimate, not expense
+                if (/alert.*when|notify.*when|automat/i.test(lower)) continue;  // automation, not expense
+              }
+              // Special check: proactive-alerts should not match automation creation commands
+              if (skill.name === 'proactive-alerts') {
+                if (/alert.*when|notify.*when|automat/i.test(lower)) continue;  // automation, not alert check
+              }
+              // Special check: create-automation should not match listing/showing automations
+              if (skill.name === 'create-automation') {
+                if (/^(?:show|list|get|view|display|what|my)\s.*automat|^automat.*(?:show|list|get)|show.*my.*automat|list.*automat|my.*automat|active.*rule/i.test(lower)) continue;
               }
               selectedSkill = skill;
               confidence = 0.85;
@@ -2775,6 +2808,12 @@ If no skill matches well, use "general-question" with parameter "question" = the
         delete extractedParams.clientName;
       }
     } catch (err) { console.warn('Create-estimate resolution error:', err); }
+  }
+
+  // Pre-processing: cpa-notes — switch to POST if note content provided
+  if (selectedSkill.name === 'cpa-notes' && extractedParams.note) {
+    endpoint = { method: 'POST', url: '/api/v1/agentbook-core/cpa/notes' };
+    targetUrl = (baseUrls['/api/v1/agentbook-core'] || 'http://localhost:4050') + '/api/v1/agentbook-core/cpa/notes';
   }
 
   // Pre-processing: start-timer — resolve client/project names to IDs
@@ -3181,6 +3220,32 @@ If no skill matches well, use "general-question" with parameter "question" = the
       message += `\nUnmatched: ${data.unmatched} transactions`;
       if (data.totalMatchedCents) message += `\nMatched Amount: $${(data.totalMatchedCents / 100).toFixed(2)}`;
       if (data.totalUnmatchedCents) message += `\nUnmatched Amount: $${(data.totalUnmatchedCents / 100).toFixed(2)}`;
+
+    // CPA notes
+    } else if (Array.isArray(data) && data.length > 0 && data[0]?.note) {
+      message = '**CPA Notes**\n';
+      for (const n of data.slice(0, 10)) {
+        message += `\n\u2022 ${n.note}`;
+        if (n.createdAt) message += ` _(${new Date(n.createdAt).toLocaleDateString()})_`;
+      }
+
+    // CPA share link
+    } else if (data?.token || data?.link || data?.accessUrl) {
+      const link = data.accessUrl || data.link || `Access token: ${data.token}`;
+      message = `**CPA Access Link Generated**\n\n${link}\n\nValid for ${data.expiresInDays || 30} days.`;
+
+    // Automations list
+    } else if (Array.isArray(data) && data.length > 0 && data[0]?.trigger) {
+      message = '**Active Automations**\n';
+      for (const a of data.slice(0, 10)) {
+        const icon = a.enabled ? '\u2705' : '\u23F8\uFE0F';
+        message += `\n${icon} **${a.name || a.description}**\n  When: ${a.trigger} \u2192 Then: ${a.action}`;
+      }
+
+    // Created automation
+    } else if (data?.trigger && data?.action && data?.id) {
+      message = `**Automation Created**\n\nWhen: ${data.trigger}\nThen: ${data.action}`;
+      if (data.description) message += `\n\n${data.description}`;
 
     } else if (data?.id && data?.amountCents !== undefined) {
       const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';
