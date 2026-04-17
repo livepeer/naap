@@ -27,7 +27,7 @@ test.describe.serial('Agent Brain', () => {
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.success).toBe(true);
-    expect(body.data.total).toBe(28);
+    expect(body.data.total).toBe(37);
   });
 
   // 3. Skill registry lists built-in skills

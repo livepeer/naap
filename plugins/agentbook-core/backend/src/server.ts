@@ -2186,6 +2186,60 @@ const BUILT_IN_SKILLS = [
     endpoint: { method: 'INTERNAL', url: '' },
   },
   {
+    name: 'tax-estimate', description: 'Show tax estimate — income tax, self-employment tax, effective rate', category: 'tax',
+    triggerPatterns: ['tax.*estimate', 'how much.*tax', 'tax.*owe', 'tax.*situation', 'tax.*liability'],
+    parameters: { period: { type: 'string', required: false, default: 'ytd' } },
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax/estimate', queryParams: ['startDate', 'endDate'] },
+  },
+  {
+    name: 'quarterly-payments', description: 'Show quarterly tax payment schedule and status', category: 'tax',
+    triggerPatterns: ['quarterly.*payment', 'quarterly.*tax', 'estimated.*payment', 'quarterly.*due'],
+    parameters: { year: { type: 'string', required: false } },
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax/quarterly', queryParams: ['year'] },
+  },
+  {
+    name: 'tax-deductions', description: 'Show potential tax deductions and savings opportunities', category: 'tax',
+    triggerPatterns: ['deduction', 'tax.*saving', 'write.*off', 'deductible', 'tax.*break'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax/deductions' },
+  },
+  {
+    name: 'pnl-report', description: 'Show profit & loss report — revenue, expenses, net income', category: 'tax',
+    triggerPatterns: ['p.?&?.?l', 'profit.*loss', 'income.*statement', 'net.*income', 'how.*much.*profit'],
+    parameters: { startDate: { type: 'string', required: false }, endDate: { type: 'string', required: false } },
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/reports/pnl', queryParams: ['startDate', 'endDate'] },
+  },
+  {
+    name: 'balance-sheet', description: 'Show balance sheet — assets, liabilities, equity', category: 'tax',
+    triggerPatterns: ['balance.*sheet', 'asset.*liabilit', 'net.*worth', 'equity'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/reports/balance-sheet', queryParams: ['asOfDate'] },
+  },
+  {
+    name: 'cashflow-report', description: 'Show cash flow statement or projection — inflows, outflows, runway', category: 'tax',
+    triggerPatterns: ['cash.*flow', 'cash.*projection', 'runway', 'burn.*rate', 'how long.*cash.*last'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/cashflow/projection' },
+  },
+  {
+    name: 'financial-snapshot', description: 'Quick financial summary — cash, revenue, expenses, profit at a glance', category: 'finance',
+    triggerPatterns: ['financial.*summary', 'financial.*snapshot', 'overview', 'dashboard', 'how.*doing.*financially', 'financial.*health'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-core/financial-snapshot' },
+  },
+  {
+    name: 'money-moves', description: 'Proactive money moves and action items — things you should do with your money', category: 'finance',
+    triggerPatterns: ['money.*move', 'action.*item', 'what.*should.*do', 'suggestion', 'recommend', 'advice.*money'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-core/money-moves' },
+  },
+  {
+    name: 'bank-reconciliation', description: 'Check bank reconciliation status — matched vs unmatched transactions', category: 'bookkeeping',
+    triggerPatterns: ['reconcil', 'unmatched.*transaction', 'bank.*match', 'bank.*status'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/reconciliation-summary' },
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
@@ -2458,6 +2512,10 @@ async function classifyAndExecuteV1(
         for (const pattern of patterns) {
           try {
             if (new RegExp(pattern, 'i').test(lower)) {
+              // Special check: query-finance should not match tax-specific queries that have dedicated skills
+              if (skill.name === 'query-finance') {
+                if (/tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status/i.test(lower)) continue;
+              }
               // Special check: record-expense needs a $ amount and should not match invoice/simulation commands
               if (skill.name === 'record-expense') {
                 if (!/\$\s*[\d,]+\.?\d{0,2}|\d+\s*(?:dollars|bucks)/i.test(text)) continue;
@@ -3025,6 +3083,104 @@ If no skill matches well, use "general-question" with parameter "question" = the
     } else if (selectedSkill.name === 'stop-timer' && data) {
       const mins = data.durationMinutes || data.elapsedMinutes || 0;
       message = `Timer stopped. Duration: ${mins} minutes.`;
+
+    // Tax estimate
+    } else if (data?.totalTaxCents !== undefined && data?.effectiveRate !== undefined) {
+      message = '**Tax Estimate**\n';
+      if (data.grossRevenueCents) message += `\nGross Revenue: $${(data.grossRevenueCents / 100).toFixed(2)}`;
+      if (data.totalExpensesCents) message += `\nExpenses: $${(data.totalExpensesCents / 100).toFixed(2)}`;
+      if (data.netIncomeCents !== undefined) message += `\nNet Income: $${(data.netIncomeCents / 100).toFixed(2)}`;
+      message += `\n\n**Taxes:**`;
+      if (data.selfEmploymentTaxCents) message += `\nSE Tax: $${(data.selfEmploymentTaxCents / 100).toFixed(2)}`;
+      if (data.incomeTaxCents) message += `\nIncome Tax: $${(data.incomeTaxCents / 100).toFixed(2)}`;
+      message += `\n**Total Tax: $${(data.totalTaxCents / 100).toFixed(2)}**`;
+      message += `\nEffective Rate: ${(data.effectiveRate * 100).toFixed(1)}%`;
+
+    // Quarterly payments
+    } else if (data?.quarters && Array.isArray(data.quarters)) {
+      message = '**Quarterly Tax Payments**\n';
+      for (const q of data.quarters) {
+        const icon = q.status === 'paid' ? '\u2705' : q.status === 'due' ? '\u{1F534}' : '\u{1F7E1}';
+        message += `\n${icon} Q${q.quarter}: $${(q.amountDueCents / 100).toFixed(2)}`;
+        if (q.amountPaidCents > 0) message += ` (paid: $${(q.amountPaidCents / 100).toFixed(2)})`;
+        message += ` [${q.status}]`;
+      }
+      if (data.summary) {
+        message += `\n\nTotal Due: $${(data.summary.totalDueCents / 100).toFixed(2)} | Paid: $${(data.summary.totalPaidCents / 100).toFixed(2)} | Remaining: $${(data.summary.remainingCents / 100).toFixed(2)}`;
+      }
+
+    // Deductions
+    } else if (data?.deductions && Array.isArray(data.deductions)) {
+      message = '**Tax Deductions**\n';
+      for (const d of data.deductions.slice(0, 10)) {
+        const icon = d.status === 'applied' ? '\u2705' : d.status === 'dismissed' ? '\u274C' : '\u{1F4A1}';
+        message += `\n${icon} ${d.description}: $${(d.amountCents / 100).toFixed(2)} [${d.status}]`;
+      }
+      if (data.summary) {
+        message += `\n\n**Estimated Savings: $${(data.summary.estimatedSavingsCents / 100).toFixed(2)}**`;
+      }
+
+    // P&L report
+    } else if (data?.grossRevenueCents !== undefined && data?.totalExpensesCents !== undefined && data?.netIncomeCents !== undefined && !data?.totalTaxCents) {
+      message = '**Profit & Loss**\n';
+      message += `\nRevenue: $${(data.grossRevenueCents / 100).toFixed(2)}`;
+      message += `\nExpenses: $${(data.totalExpensesCents / 100).toFixed(2)}`;
+      message += `\n**Net Income: $${(data.netIncomeCents / 100).toFixed(2)}**`;
+      if (data.revenueLines?.length) {
+        message += '\n\nRevenue Breakdown:';
+        data.revenueLines.forEach((l: any) => { message += `\n  \u2022 ${l.name}: $${(l.amountCents / 100).toFixed(2)}`; });
+      }
+      if (data.expenseLines?.length) {
+        message += '\n\nExpense Breakdown:';
+        data.expenseLines.slice(0, 8).forEach((l: any) => { message += `\n  \u2022 ${l.name}: $${(l.amountCents / 100).toFixed(2)}`; });
+      }
+
+    // Balance sheet
+    } else if (data?.totalAssetsCents !== undefined && data?.totalLiabilitiesCents !== undefined) {
+      message = '**Balance Sheet**\n';
+      message += `\nAssets: $${(data.totalAssetsCents / 100).toFixed(2)}`;
+      message += `\nLiabilities: $${(data.totalLiabilitiesCents / 100).toFixed(2)}`;
+      message += `\n**Equity: $${((data.totalAssetsCents - data.totalLiabilitiesCents) / 100).toFixed(2)}**`;
+
+    // Cashflow projection
+    } else if (data?.currentBalanceCents !== undefined && data?.projections) {
+      message = '**Cash Flow Projection**\n';
+      message += `\nCurrent Cash: $${(data.currentBalanceCents / 100).toFixed(2)}`;
+      if (data.outstandingInvoicesCents) message += `\nOutstanding Invoices: $${(data.outstandingInvoicesCents / 100).toFixed(2)}`;
+      if (data.recurringExpensesCents) message += `\nMonthly Recurring: $${(data.recurringExpensesCents / 100).toFixed(2)}`;
+      if (data.projections) {
+        message += '\n\nProjections:';
+        if (data.projections.days30) message += `\n  30 days: $${(data.projections.days30.balanceCents / 100).toFixed(2)}`;
+        if (data.projections.days60) message += `\n  60 days: $${(data.projections.days60.balanceCents / 100).toFixed(2)}`;
+        if (data.projections.days90) message += `\n  90 days: $${(data.projections.days90.balanceCents / 100).toFixed(2)}`;
+      }
+
+    // Financial snapshot
+    } else if (data?.snapshot || (data?.cashBalanceCents !== undefined && data?.revenueThisMonthCents !== undefined)) {
+      const s = data.snapshot || data;
+      message = '**Financial Summary**\n';
+      if (s.cashBalanceCents !== undefined) message += `\nCash: $${(s.cashBalanceCents / 100).toFixed(2)}`;
+      if (s.revenueThisMonthCents !== undefined) message += `\nRevenue (this month): $${(s.revenueThisMonthCents / 100).toFixed(2)}`;
+      if (s.expensesThisMonthCents !== undefined) message += `\nExpenses (this month): $${(s.expensesThisMonthCents / 100).toFixed(2)}`;
+      if (s.profitThisMonthCents !== undefined) message += `\n**Profit: $${(s.profitThisMonthCents / 100).toFixed(2)}**`;
+      if (s.outstandingInvoicesCents !== undefined) message += `\nOutstanding Invoices: $${(s.outstandingInvoicesCents / 100).toFixed(2)}`;
+
+    // Money moves / suggestions
+    } else if (data?.moves && Array.isArray(data.moves)) {
+      message = '**Money Moves**\n';
+      for (const m of data.moves.slice(0, 8)) {
+        const icon = m.priority === 'high' ? '\u{1F534}' : m.priority === 'medium' ? '\u{1F7E1}' : '\u{1F7E2}';
+        message += `\n${icon} **${m.title}**\n  ${m.description}`;
+        if (m.savingsCents) message += ` (save $${(m.savingsCents / 100).toFixed(2)})`;
+      }
+
+    // Reconciliation summary
+    } else if (data?.matched !== undefined && data?.unmatched !== undefined) {
+      message = '**Bank Reconciliation**\n';
+      message += `\nMatched: ${data.matched} transactions`;
+      message += `\nUnmatched: ${data.unmatched} transactions`;
+      if (data.totalMatchedCents) message += `\nMatched Amount: $${(data.totalMatchedCents / 100).toFixed(2)}`;
+      if (data.totalUnmatchedCents) message += `\nUnmatched Amount: $${(data.totalUnmatchedCents / 100).toFixed(2)}`;
 
     } else if (data?.id && data?.amountCents !== undefined) {
       const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';
