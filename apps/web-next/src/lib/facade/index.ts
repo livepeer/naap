@@ -17,8 +17,8 @@
  */
 
 import type {
-  DashboardKPI,
-  DashboardPipelineUsage,
+  DashboardKPIWithRequests,
+  DashboardPipelinesWithRequests,
   DashboardPipelineCatalogEntry,
   DashboardOrchestrator,
   DashboardProtocol,
@@ -49,31 +49,34 @@ const USE_STUBS = process.env.FACADE_USE_STUBS === 'true';
 // Dashboard — NAAP API backed (Phase 1)
 // ---------------------------------------------------------------------------
 
-export async function getDashboardKPI(opts: { 
+export async function getDashboardKPI(opts: {
   timeframe?: string;
   pipeline?: string;
   model_id?: string;
-}): Promise<DashboardKPI> {
-  if (USE_STUBS) return { ...stubs.kpi, timeframeHours: parseInt(opts.timeframe ?? '24', 10) || 24 };
+}): Promise<DashboardKPIWithRequests> {
+  if (USE_STUBS) {
+    return { ...stubs.kpi, timeframeHours: parseInt(opts.timeframe ?? '24', 10) || 24 };
+  }
   return resolveKPI(opts);
 }
 
 export async function getDashboardPipelines(opts: {
   limit?: number;
   timeframe?: string;
-}): Promise<DashboardPipelineUsage[]> {
+}): Promise<DashboardPipelinesWithRequests> {
   if (USE_STUBS) {
     const lim = opts.limit ?? 5;
     const parsed = parseInt(opts.timeframe ?? '24', 10);
     const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
     const factor = hours / 24;
-    return stubs.pipelines
+    const streaming = stubs.pipelines
       .map((p) => ({
         ...p,
         mins: Math.round(p.mins * factor),
         sessions: Math.max(0, Math.round(p.sessions * factor)),
       }))
       .slice(0, lim);
+    return { streaming, requests: undefined };
   }
   return resolvePipelines({ limit: opts.limit, timeframe: opts.timeframe });
 }

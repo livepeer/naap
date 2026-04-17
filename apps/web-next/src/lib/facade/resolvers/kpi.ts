@@ -1,24 +1,21 @@
 /**
  * KPI resolver — NAAP Dashboard API backed.
  *
- * Fetches pre-aggregated KPI from GET /v1/dashboard/kpi, then overrides
- * orchestratorsOnline.value using GET /v1/net/orchestrators (shared cached fetch):
- * distinct listed addresses (non-blank service URI) whose latest `LastSeen` falls
- * within the KPI window. When the registry omits `LastSeen`, falls back to the full
- * listed count (same rule as the orchestrator table). The overview table is unchanged
- * and still lists every listed address.
- *
- * Both fetches run in parallel; if net/orchestrators fails the upstream
- * KPI value is preserved as-is.
+ * Fetches GET /v1/dashboard/kpi (combined `streaming` + `requests` on API v1),
+ * then overrides orchestratorsOnline.value using streaming + requests orchestrator
+ * inventory (shared cached fetch).
  *
  * Source:
- *   GET /v1/dashboard/kpi?window=Nh[&pipeline=...&model_id=...]
- *   GET /v1/net/orchestrators?active_only=false&limit=…&offset=…  (shared, cached, paged)
+ *   GET /v1/dashboard/kpi?window=…[&pipeline=…&model_id=…] — `window` is OpenAPI
+ *   `DashboardWindow` (e.g. 24h, 7d); BFF accepts `timeframe` in hours only.
+ *   GET /v1/streaming/orchestrators + GET /v1/requests/orchestrators (shared, cached)
  */
 
-import type { DashboardKPI } from '@naap/plugin-sdk';
+import type { DashboardKPIWithRequests } from '@naap/plugin-sdk';
+import { dashboardUpstreamTimeoutMs, formatDashboardWindow } from '../dashboard-window.js';
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
+import { parseDashboardKpiWithRequests } from '../upstream-parse.js';
 import {
   getNetOrchestratorDataSafe,
   hasNonBlankServiceUri,
@@ -53,39 +50,42 @@ function orchestratorKpiCountForTimeframe(
   return n;
 }
 
-export async function resolveKPI(opts: { 
+export async function resolveKPI(opts: {
   timeframe?: string;
   pipeline?: string;
   model_id?: string;
-}): Promise<DashboardKPI> {
+}): Promise<DashboardKPIWithRequests> {
   const hours = normalizeTimeframeHours(opts.timeframe);
 
-  const params: Record<string, string> = { window: `${hours}h` };
+  const params: Record<string, string> = { window: formatDashboardWindow(hours) };
   if (opts.pipeline) params.pipeline = opts.pipeline;
   if (opts.model_id) params.model_id = opts.model_id;
 
   const cacheKey = `facade:kpi:${hours}:${opts.pipeline || 'all'}:${opts.model_id || 'all'}`;
 
   return cachedFetch(cacheKey, TTL.KPI, async () => {
-    const [kpi, netData] = await Promise.all([
-      naapGet<DashboardKPI>('dashboard/kpi', params, {
+    const [rawBody, netData] = await Promise.all([
+      naapGet<unknown>('dashboard/kpi', params, {
         cache: 'no-store',
         errorLabel: 'kpi',
+        timeoutMs: dashboardUpstreamTimeoutMs(hours),
       }),
       getNetOrchestratorDataSafe(),
     ]);
+
+    const merged = parseDashboardKpiWithRequests(rawBody);
 
     const hasNetRegistrySnapshot =
       netData.listedCount > 0 ||
       netData.activeCount > 0 ||
       netData.urisByAddress.size > 0;
     if (hasNetRegistrySnapshot) {
-      kpi.orchestratorsOnline = {
-        ...kpi.orchestratorsOnline,
+      merged.orchestratorsOnline = {
+        ...merged.orchestratorsOnline,
         value: orchestratorKpiCountForTimeframe(netData, hours),
       };
     }
 
-    return kpi;
+    return merged;
   });
 }
