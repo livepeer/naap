@@ -144,15 +144,19 @@ app.get('/api/v1/developer/models', async (req, res) => {
 });
 
 // ============================================
-// Network Models (NAAP /v1/net/models)
+// Network Models (NAAP OpenAPI v1: streaming/models + requests/models)
 // ============================================
 
-/** Matches apps/web-next `.env` example: NAAP API base including /v1. */
-const DEFAULT_NET_MODELS_API_BASE = 'https://naap-api.livepeer.cloud/v1';
-
-const NET_MODELS_API_BASE = (
-  process.env.NAAP_API_SERVER_URL?.trim() || DEFAULT_NET_MODELS_API_BASE
-).replace(/\/+$/, '');
+/** Same env as apps/web-next: full NAAP API base including `/v1` (no trailing slash). */
+function getNaapApiServerBase(): string {
+  const raw = process.env.NAAP_API_SERVER_URL?.trim();
+  if (!raw) {
+    throw new Error(
+      'NAAP_API_SERVER_URL is not set. Set it to the NAAP OpenAPI base URL (including /v1). See repo root .env.example.',
+    );
+  }
+  return raw.replace(/\/+$/, '');
+}
 
 const NET_MODELS_CACHE_TTL_MS = 60_000;
 const netModelsJsonCache = new Map<
@@ -161,30 +165,7 @@ const netModelsJsonCache = new Map<
 >();
 const netModelsInflight = new Map<string, Promise<{ models: unknown[]; total: number }>>();
 
-function parseNetModelsJson(payload: unknown): unknown[] {
-  if (Array.isArray(payload)) {
-    return payload;
-  }
-  if (payload && typeof payload === 'object') {
-    const o = payload as Record<string, unknown>;
-    if (Array.isArray(o.models)) {
-      return o.models;
-    }
-    if (Array.isArray(o.data)) {
-      return o.data;
-    }
-    throw new Error(
-      `Unsupported net models JSON shape: object with keys [${Object.keys(o).join(', ')}]`
-    );
-  }
-  throw new Error(
-    `Unsupported net models JSON shape: primitive value of type ${typeof payload} with value ${
-      typeof payload === 'string' ? JSON.stringify(payload) : String(payload)
-    }`
-  );
-}
-
-/** Row shape aligned with NAAP `GET /v1/net/models` and plugin-sdk `NetworkModel`. */
+/** Row shape aligned with merged NAAP streaming + requests model rows and plugin-sdk `NetworkModel`. */
 interface NetModelRow {
   Pipeline: string;
   Model: string;
@@ -197,35 +178,6 @@ interface NetModelRow {
 
 function netModelRowKey(pipeline: string, model: string): string {
   return `${pipeline.trim()}:${model.trim()}`;
-}
-
-function numField(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function normalizeNetModelRow(raw: unknown): NetModelRow | null {
-  if (!raw || typeof raw !== 'object') {
-    return null;
-  }
-  const o = raw as Record<string, unknown>;
-  const pipeline = String(o.Pipeline ?? o.pipeline ?? '').trim();
-  const model = String(o.Model ?? o.model ?? '').trim();
-  if (!pipeline || !model) {
-    return null;
-  }
-  return {
-    Pipeline: pipeline,
-    Model: model,
-    WarmOrchCount: numField(o.WarmOrchCount),
-    TotalCapacity: numField(o.TotalCapacity),
-    PriceMinWeiPerPixel: numField(o.PriceMinWeiPerPixel),
-    PriceMaxWeiPerPixel: numField(o.PriceMaxWeiPerPixel),
-    PriceAvgWeiPerPixel: numField(o.PriceAvgWeiPerPixel),
-  };
 }
 
 function parsePipelineCatalog(payload: unknown): Array<{ id: string; models: string[] }> {
@@ -277,10 +229,61 @@ function catalogOnlyRow(pipeline: string, model: string): NetModelRow {
   };
 }
 
+async function fetchStreamingAndRequestsModelRows(
+  upstreamBase: string,
+  signal: AbortSignal,
+): Promise<NetModelRow[]> {
+  const [sRes, rRes] = await Promise.all([
+    fetch(`${upstreamBase}/streaming/models`, { headers: { Accept: 'application/json' }, signal }),
+    fetch(`${upstreamBase}/requests/models`, { headers: { Accept: 'application/json' }, signal }),
+  ]);
+
+  const accum: NetModelRow[] = [];
+
+  const ingest = async (res: Response) => {
+    if (!res.ok) return;
+    const json: unknown = await res.json();
+    const arr = Array.isArray(json) ? json : [];
+    for (const raw of arr) {
+      if (!raw || typeof raw !== 'object') continue;
+      const o = raw as Record<string, unknown>;
+      const pipeline = String(o.pipeline ?? o.Pipeline ?? '').trim();
+      const model = String(o.model ?? o.Model ?? '').trim();
+      if (!pipeline || !model) continue;
+      accum.push({
+        Pipeline: pipeline,
+        Model: model,
+        WarmOrchCount: Number(o.warm_orch_count ?? o.WarmOrchCount ?? 0),
+        TotalCapacity: Number(o.gpu_slots ?? o.TotalCapacity ?? 0),
+        PriceMinWeiPerPixel: 0,
+        PriceMaxWeiPerPixel: 0,
+        PriceAvgWeiPerPixel: 0,
+      });
+    }
+  };
+
+  await ingest(sRes);
+  await ingest(rRes);
+
+  const byKey = new Map<string, NetModelRow>();
+  for (const r of accum) {
+    const k = netModelRowKey(r.Pipeline, r.Model);
+    const ex = byKey.get(k);
+    if (ex) {
+      ex.WarmOrchCount += r.WarmOrchCount;
+      ex.TotalCapacity += r.TotalCapacity;
+    } else {
+      byKey.set(k, { ...r });
+    }
+  }
+
+  return [...byKey.values()];
+}
+
 /**
- * `/v1/net/models` can be activity-biased; union with `/v1/dashboard/pipeline-catalog`
- * so Developer Models tab lists every registered pipeline + model (zeros for capacity
- * when cold).
+ * Merged streaming + requests model inventory can be sparse; union with
+ * `/v1/dashboard/pipeline-catalog` so Developer Models tab lists every registered
+ * pipeline + model (zeros for capacity when cold).
  */
 async function fetchMergedNetModels(
   upstreamBase: string,
@@ -288,19 +291,19 @@ async function fetchMergedNetModels(
   limit: number | undefined,
   signal: AbortSignal,
 ): Promise<NetModelRow[]> {
-  const netUrl = limitIsAll
-    ? `${upstreamBase}/net/models`
-    : `${upstreamBase}/net/models?limit=${limit}`;
-
-  const [netResult, catalogResult] = await Promise.allSettled([
-    fetch(netUrl, { headers: { Accept: 'application/json' }, signal }),
+  const [apiResult, catalogResult] = await Promise.allSettled([
+    fetchStreamingAndRequestsModelRows(upstreamBase, signal),
     fetch(`${upstreamBase}/dashboard/pipeline-catalog`, { headers: { Accept: 'application/json' }, signal }),
   ]);
 
-  if (netResult.status !== 'fulfilled') {
-    throw netResult.reason;
+  if (apiResult.status !== 'fulfilled') {
+    throw apiResult.reason;
   }
-  const netRes = netResult.value;
+  const merged: NetModelRow[] = [...apiResult.value];
+  const seen = new Set<string>();
+  for (const r of merged) {
+    seen.add(netModelRowKey(r.Pipeline, r.Model));
+  }
 
   let catalogRes: Response | null = null;
   if (catalogResult.status === 'fulfilled') {
@@ -309,30 +312,7 @@ async function fetchMergedNetModels(
     console.warn(
       `[developer-api] dashboard/pipeline-catalog fetch failed (${upstreamBase}/dashboard/pipeline-catalog):`,
       catalogResult.reason,
-      `(net/models HTTP ${netRes.status}; netResult.status=${netResult.status})`,
     );
-  }
-
-  if (!netRes.ok) {
-    throw new Error(`upstream net/models HTTP ${netRes.status}`);
-  }
-
-  const netPayload = await netRes.json();
-  const rawNet = parseNetModelsJson(netPayload);
-  const merged: NetModelRow[] = [];
-  const seen = new Set<string>();
-
-  for (const r of rawNet) {
-    const row = normalizeNetModelRow(r);
-    if (!row) {
-      continue;
-    }
-    const k = netModelRowKey(row.Pipeline, row.Model);
-    if (seen.has(k)) {
-      continue;
-    }
-    seen.add(k);
-    merged.push(row);
   }
 
   let catalogSlotsRemaining = limitIsAll
@@ -372,6 +352,7 @@ async function fetchMergedNetModels(
 
 app.get('/api/v1/developer/network-models', async (req, res) => {
   try {
+    const upstreamBase = getNaapApiServerBase();
     const limitParam = typeof req.query.limit === 'string' ? req.query.limit : undefined;
     const limitIsAll = limitParam === 'all' || limitParam === '0' || limitParam == null;
     const limit = limitIsAll
@@ -394,7 +375,7 @@ app.get('/api/v1/developer/network-models', async (req, res) => {
       const timeout = setTimeout(() => controller.abort(), 15_000);
       try {
         const models = await fetchMergedNetModels(
-          NET_MODELS_API_BASE,
+          upstreamBase,
           limitIsAll,
           limit,
           controller.signal,
@@ -418,6 +399,9 @@ app.get('/api/v1/developer/network-models', async (req, res) => {
     }
   } catch (error) {
     console.error('Error fetching network models:', error);
+    if (error instanceof Error && error.message.includes('NAAP_API_SERVER_URL')) {
+      return res.status(503).json({ error: error.message });
+    }
     res.status(502).json({ error: 'Failed to fetch network models from NAAP API' });
   }
 });
