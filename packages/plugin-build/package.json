@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Shared build configuration for NAAP plugins",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.js",
   "exports": {

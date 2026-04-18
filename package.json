@@ -30,6 +30,9 @@
     "logs": "./bin/start.sh logs"
   },
   "private": true,
+  "engines": {
+    "node": ">=20.19.0 || >=22.12.0"
+  },
   "dependencies": {
     "@rollup/plugin-terser": "1.0.0",
     "framer-motion": "^12.0.0",
@@ -39,7 +42,9 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.0",
+    "redis-errors": "^1.2.0",
     "recharts": "^2.15.0",
+    "standard-as-callback": "2.1.0",
     "vitest": "4.1.4"
   },
   "optionalDependencies": {
