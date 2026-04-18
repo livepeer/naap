@@ -9,7 +9,7 @@ import {
   useMemo,
   type ReactNode,
 } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import type { User } from '@naap/types';
 
 // Re-export for consumers that import User from here
@@ -113,8 +113,6 @@ function clearAllAuthStorage() {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const router = useRouter();
-
   const [state, setState] = useState<AuthState>({
     user: null,
     isAuthenticated: false,
@@ -261,12 +259,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionExpiresAt: expiresAtData ? new Date(expiresAtData) : null,
         authErrorStatus: null,
       });
-      router.push('/dashboard');
     } catch (error) {
       setState(prev => ({ ...prev, isLoading: false }));
       throw error;
     }
-  }, [router]);
+  }, []);
 
   const loginWithOAuth = useCallback(async (provider: 'google' | 'github') => {
     try {
@@ -325,12 +322,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionExpiresAt: expiresAtData ? new Date(expiresAtData) : null,
         authErrorStatus: null,
       });
-      router.push('/dashboard');
     } catch (error) {
       setState(prev => ({ ...prev, isLoading: false }));
       throw error;
     }
-  }, [router]);
+  }, []);
 
   const logout = useCallback(async () => {
     const token = getToken();

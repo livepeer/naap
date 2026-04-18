@@ -5,6 +5,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { handleOAuthCallback } from '@/lib/api/auth';
+import {
+  NAAP_PMTH_DEVICE_APPROVAL_COOKIE,
+  tryParseDeviceApprovalCookie,
+} from '@/lib/pymthouse-device-initiate';
 
 interface RouteParams {
   params: Promise<{ provider: string }>;
@@ -43,8 +47,14 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     // Handle the callback
     const result = await handleOAuthCallback(provider, code);
 
-    // Redirect to dashboard with auth cookie
-    const response = NextResponse.redirect(new URL('/dashboard', request.url));
+    const deviceApproval = tryParseDeviceApprovalCookie(
+      request.cookies.get(NAAP_PMTH_DEVICE_APPROVAL_COOKIE)?.value,
+    );
+    const redirectUrl = deviceApproval
+      ? new URL('/oidc/device-approved', request.url)
+      : new URL('/dashboard', request.url);
+
+    const response = NextResponse.redirect(redirectUrl);
 
     // Set auth cookie
     response.cookies.set('naap_auth_token', result.token, {
