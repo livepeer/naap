@@ -44,5 +44,6 @@
       }
     }
   ],
-  "defaultProject": "web-next"
+  "defaultProject": "web-next",
+  "analytics": false
 }
