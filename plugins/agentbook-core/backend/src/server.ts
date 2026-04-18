@@ -2318,6 +2318,18 @@ const BUILT_IN_SKILLS = [
     endpoint: { method: 'POST', url: '/api/v1/agentbook-tax/tax-filing/2025/field' },
   },
   {
+    name: 'tax-filing-validate', description: 'Run validation rules on tax return — check for errors before filing', category: 'tax',
+    triggerPatterns: ['validate.*tax', 'check.*tax.*error', 'verify.*return', 'tax.*ready.*file', 'any.*error.*tax'],
+    parameters: { taxYear: { type: 'number', required: false, default: 2025 } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-tax/tax-filing/2025/validate' },
+  },
+  {
+    name: 'tax-filing-export', description: 'Generate and export tax forms — PDF or JSON format', category: 'tax',
+    triggerPatterns: ['export.*tax', 'generate.*tax.*form', 'download.*return', 'create.*tax.*file', 'print.*tax', 'pdf.*tax'],
+    parameters: { format: { type: 'string', required: false, default: 'json' } },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
@@ -2592,7 +2604,7 @@ async function classifyAndExecuteV1(
             if (new RegExp(pattern, 'i').test(lower)) {
               // Special check: query-finance should not match tax-specific queries that have dedicated skills
               if (skill.name === 'query-finance') {
-                if (/tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip/i.test(lower)) continue;
+                if (/tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax/i.test(lower)) continue;
               }
               // Special check: record-expense needs a $ amount and should not match invoice/simulation commands
               if (skill.name === 'record-expense') {
@@ -2989,6 +3001,42 @@ If no skill matches well, use "general-question" with parameter "question" = the
     }
   }
 
+  // INTERNAL handler: tax-filing-export
+    if (selectedSkill.name === 'tax-filing-export') {
+      try {
+        const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
+        const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+        const format = extractedParams.format || 'json';
+        const res = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/2025/export`, {
+          method: 'POST', headers: IH, body: JSON.stringify({ format }),
+        });
+        const data = format === 'pdf' ? { success: true, format: 'pdf' } : await res.json() as any;
+        let message: string;
+        if (format === 'pdf' && res.ok) {
+          message = 'Tax return PDF generated! Your return is ready for review and printing.';
+        } else if (data.success) {
+          message = '**Tax Return Exported** in JSON format.';
+          if (data.data?.validation?.warnings?.length > 0) {
+            message += `\n\n**Warnings:**\n`;
+            data.data.validation.warnings.forEach((w: any) => { message += `- ${w.message}\n`; });
+          }
+        } else {
+          message = data.error || 'Export failed.';
+          if (data.data?.validation?.errors?.length > 0) {
+            message += `\n\n**Errors:**\n`;
+            data.data.validation.errors.forEach((e: any) => { message += `- ${e.message}\n`; });
+          }
+        }
+        await db.abConversation.create({ data: { tenantId, question: text || '[export]', answer: message, queryType: 'agent', channel, skillUsed: 'tax-filing-export' } });
+        return { selectedSkill, extractedParams, confidence, skillUsed: 'tax-filing-export', skillResponse: data,
+          responseData: { message, actions: [], chartData: null, skillUsed: 'tax-filing-export', confidence, latencyMs: Date.now() - startTime } };
+      } catch (err) {
+        console.error('Tax export error:', err);
+        return { selectedSkill, extractedParams, confidence, skillUsed: 'tax-filing-export', skillResponse: null,
+          responseData: { message: "Export failed. Please try again.", actions: [], chartData: null, skillUsed: 'tax-filing-export', confidence: 0, latencyMs: Date.now() - startTime } };
+      }
+    }
+
   // Special inline handler: categorize-expenses (no external endpoint)
   if (selectedSkill.name === 'categorize-expenses') {
     try {
@@ -3350,6 +3398,19 @@ If no skill matches well, use "general-question" with parameter "question" = the
     } else if (data?.trigger && data?.action && data?.id) {
       message = `**Automation Created**\n\nWhen: ${data.trigger}\nThen: ${data.action}`;
       if (data.description) message += `\n\n${data.description}`;
+
+    // Tax validation result
+    } else if (data?.valid !== undefined && (data?.errors || data?.warnings)) {
+      if (data.valid) {
+        message = '\u2705 **Tax Return Validated — Ready to file!**\n';
+      } else {
+        message = '\u274C **Validation Failed**\n\n**Errors:**\n';
+        for (const e of (data.errors || [])) { message += `- ${e.message} (${e.formCode})\n`; }
+      }
+      if (data.warnings?.length > 0) {
+        message += `\n**Warnings:**\n`;
+        for (const w of (data.warnings || [])) { message += `- ${w.message} (${w.formCode})\n`; }
+      }
 
     // Tax filing status
     } else if (data?.filingId && data?.completeness !== undefined && data?.forms) {

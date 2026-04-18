@@ -27,7 +27,7 @@ test.describe.serial('Agent Brain', () => {
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.success).toBe(true);
-    expect(body.data.total).toBe(50);
+    expect(body.data.total).toBe(52);
   });
 
   // 3. Skill registry lists built-in skills
@@ -35,7 +35,7 @@ test.describe.serial('Agent Brain', () => {
     const res = await request.get(`${CORE}/api/v1/agentbook-core/agent/skills`, { headers: H });
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
-    expect(body.data.length).toBeGreaterThanOrEqual(50);
+    expect(body.data.length).toBeGreaterThanOrEqual(52);
     const names = body.data.map((s: any) => s.name);
     expect(names).toContain('record-expense');
     expect(names).toContain('query-expenses');

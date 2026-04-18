@@ -89,3 +89,62 @@ test.describe.serial('Tax Filing Agent', () => {
     expect((await updateRes.json()).data.updated).toBe(true);
   });
 });
+
+test.describe.serial('Tax Filing — Phase B', () => {
+  test('tax-filing-validate skill routes correctly', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H, data: { text: 'check my tax for errors before submitting', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body.data.skillUsed).toBe('tax-filing-validate');
+    expect(body.data.message).toBeTruthy();
+  });
+
+  test('validation endpoint returns result structure', async ({ request }) => {
+    const res = await request.post(`${TAX}/api/v1/agentbook-tax/tax-filing/2025/validate`, { headers: H });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty('valid');
+    expect(body.data).toHaveProperty('errors');
+    expect(body.data).toHaveProperty('warnings');
+  });
+
+  test('tax-filing-export skill routes correctly', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H, data: { text: 'export my tax forms', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body.data.skillUsed).toBe('tax-filing-export');
+    expect(body.data.message).toBeTruthy();
+  });
+
+  test('JSON export endpoint responds', async ({ request }) => {
+    const res = await request.post(`${TAX}/api/v1/agentbook-tax/tax-filing/2025/export`, {
+      headers: H, data: { format: 'json' },
+    });
+    const body = await res.json();
+    // Either succeeds with export data or fails with validation errors
+    expect(body).toHaveProperty('success');
+    if (body.success) {
+      expect(body.data).toHaveProperty('validation');
+    }
+  });
+
+  test('PDF export returns HTML or handles validation errors', async ({ request }) => {
+    const res = await request.post(`${TAX}/api/v1/agentbook-tax/tax-filing/2025/export`, {
+      headers: H, data: { format: 'pdf' },
+    });
+    // PDF export returns HTML (text/html) on success, or JSON on validation failure
+    const contentType = res.headers()['content-type'] || '';
+    if (contentType.includes('text/html')) {
+      const html = await res.text();
+      expect(html).toContain('Tax Return');
+    } else {
+      const body = await res.json();
+      expect(body).toHaveProperty('success');
+    }
+  });
+});

@@ -20,6 +20,7 @@ import { db } from './db/client.js';
 import { seedCanadianForms } from './tax-forms.js';
 import { populateFiling, updateFilingField } from './tax-filing.js';
 import { processSlipOCR, confirmSlip, listSlips } from './tax-slips.js';
+import { validateFiling, exportFiling } from './tax-export.js';
 
 const pluginConfig = JSON.parse(
   readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
@@ -1437,6 +1438,35 @@ server.app.get('/api/v1/agentbook-tax/tax-slips', async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }
+});
+
+// ============================================
+// TAX FILING VALIDATION & EXPORT
+// ============================================
+
+server.app.post('/api/v1/agentbook-tax/tax-filing/:year/validate', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const taxYear = parseInt(req.params.year, 10);
+    const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
+    if (!filing) return res.status(404).json({ success: false, error: 'No filing found' });
+    const result = validateFiling((filing.forms as any) || {});
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+server.app.post('/api/v1/agentbook-tax/tax-filing/:year/export', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const taxYear = parseInt(req.params.year, 10);
+    const format = (req.body.format || 'json') as 'pdf' | 'json';
+    const result = await exportFiling(tenantId, taxYear, format);
+    if (result.success && format === 'pdf' && result.data?.html) {
+      res.setHeader('Content-Type', 'text/html');
+      return res.send(result.data.html);
+    }
+    res.json(result);
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
 // ============================================
