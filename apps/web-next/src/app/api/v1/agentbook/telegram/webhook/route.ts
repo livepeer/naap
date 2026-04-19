@@ -82,8 +82,126 @@ function getBot(): Bot {
       await ctx.reply('👋 Welcome to <b>AgentBook</b>!\n\nI\'m your AI accounting agent. Here\'s what I can do:\n\n💬 <b>Record expenses:</b> "Spent $45 on lunch at Starbucks"\n📸 <b>Snap receipts:</b> Send a photo or PDF\n❓ <b>Ask anything:</b> "How much on travel this month?"\n📊 <b>Get insights:</b> "Show me spending breakdown"\n💰 <b>Check balance:</b> "What\'s my cash balance?"\n🧾 <b>Invoicing:</b> "Invoice Acme $5000 for consulting"\n\n/help for all commands', { parse_mode: 'HTML' });
       return;
     }
-    if (text === '/help') {
-      await ctx.reply('📚 <b>AgentBook Commands</b>\n\n<b>Expenses:</b>\n• Type: "Spent $45 on lunch"\n• "Show last 5 expenses"\n\n<b>Finance:</b>\n• "What\'s my balance?"\n• "Tax estimate"\n• "Revenue summary"\n\n<b>Insights:</b>\n• "Spending breakdown"\n• "Any alerts?"\n• "What if I hire someone at $5K/mo?"\n\n<b>Actions:</b>\n• Send receipt photo/PDF\n• "Invoice Acme $5000"\n\nOr just type anything — I\'ll figure it out.', { parse_mode: 'HTML' });
+    if (text === '/help' || text === '/help@Agentbookdev_bot') {
+      await ctx.reply(
+        '📚 <b>AgentBook — What I Can Do</b>\n\n'
+        + 'Just type naturally — I\'ll figure it out. Or use /help [topic] for details:\n\n'
+        + '/help expenses — record, query, categorize\n'
+        + '/help invoices — create, send, track payments\n'
+        + '/help tax — estimates, deductions, filing\n'
+        + '/help reports — P&amp;L, balance sheet, cashflow\n'
+        + '/help timer — time tracking &amp; billing\n'
+        + '/help planning — multi-step tasks &amp; automation\n\n'
+        + '<b>Quick examples:</b>\n'
+        + '• "Spent $45 on lunch at Starbucks"\n'
+        + '• "Show my invoices"\n'
+        + '• "How much tax do I owe?"\n'
+        + '• Send a receipt photo or tax slip\n'
+        + '• "Start my tax filing"',
+        { parse_mode: 'HTML' },
+      );
+      return;
+    }
+
+    // Topic-specific help
+    const helpMatch = text.match(/^\/help\s+(\w+)/i);
+    if (helpMatch) {
+      const topic = helpMatch[1].toLowerCase();
+      const helpTopics: Record<string, string> = {
+        expenses:
+          '💰 <b>Expenses</b>\n\n'
+          + '<b>Record:</b>\n'
+          + '• "Spent $45 on lunch at Starbucks"\n'
+          + '• "Paid $99 for GitHub subscription"\n'
+          + '• Send a receipt photo — I\'ll OCR it\n\n'
+          + '<b>Query:</b>\n'
+          + '• "Show last 5 expenses"\n'
+          + '• "How much on travel this month?"\n'
+          + '• "Top spending categories"\n\n'
+          + '<b>Manage:</b>\n'
+          + '• "Categorize my uncategorized expenses"\n'
+          + '• "Show expenses pending review"\n'
+          + '• "Show recurring subscriptions"\n'
+          + '• "Any alerts I should know about?"\n\n'
+          + '<b>Correct:</b>\n'
+          + '• "No, that should be Travel" — re-categorizes &amp; learns\n'
+          + '• "Show vendor spending patterns"',
+        invoices:
+          '🧾 <b>Invoices</b>\n\n'
+          + '<b>Create:</b>\n'
+          + '• "Invoice Acme $5000 for consulting"\n'
+          + '• "Create estimate for TechCorp $3000 web design"\n\n'
+          + '<b>Send &amp; Track:</b>\n'
+          + '• "Send that invoice"\n'
+          + '• "Show my invoices"\n'
+          + '• "Show unpaid invoices"\n'
+          + '• "Who owes me money?" — AR aging report\n\n'
+          + '<b>Payments:</b>\n'
+          + '• "Got $5000 from Acme"\n'
+          + '• "Send payment reminders"\n\n'
+          + '<b>Clients:</b>\n'
+          + '• "Show my clients"\n'
+          + '• "Show pending estimates"',
+        tax:
+          '🧾 <b>Tax</b>\n\n'
+          + '<b>Quick Checks:</b>\n'
+          + '• "How much tax do I owe?"\n'
+          + '• "Show quarterly payments"\n'
+          + '• "What deductions can I claim?"\n\n'
+          + '<b>Tax Filing (Canada T1/T2125/GST):</b>\n'
+          + '• "Start my tax filing" — creates session, auto-fills from books\n'
+          + '• Send T4, T5, RRSP slips as photos — I\'ll OCR them\n'
+          + '• "Review T2125" / "Review T1" / "Review GST return"\n'
+          + '• "What\'s missing for my tax filing?"\n'
+          + '• "Validate my tax return"\n'
+          + '• "Export my tax forms"\n'
+          + '• "Submit to CRA" — e-file via partner API\n'
+          + '• "Check filing status"',
+        reports:
+          '📊 <b>Reports</b>\n\n'
+          + '• "Show profit and loss"\n'
+          + '• "Show balance sheet"\n'
+          + '• "How long will my cash last?" — cashflow projection\n'
+          + '• "Financial summary"\n'
+          + '• "Spending breakdown"\n'
+          + '• "Show bank reconciliation status"',
+        timer:
+          '⏱ <b>Time Tracking</b>\n\n'
+          + '• "Start timer for TechCorp project"\n'
+          + '• "Stop timer"\n'
+          + '• "Is my timer running?"\n'
+          + '• "Show unbilled time"\n\n'
+          + 'Unbilled time can be converted to invoices.',
+        planning:
+          '🧠 <b>Planning &amp; Automation</b>\n\n'
+          + '<b>Multi-step tasks:</b>\n'
+          + '• "Categorize expenses and then show breakdown"\n'
+          + '• "Invoice Acme $5000 and then send it"\n'
+          + '• I\'ll show you the plan first, you confirm\n\n'
+          + '<b>Simulations:</b>\n'
+          + '• "What if I hire someone at $5K/mo?"\n'
+          + '• "What money moves should I make?"\n\n'
+          + '<b>Automations:</b>\n'
+          + '• "Alert me when spending exceeds $500"\n'
+          + '• "Show my automations"\n\n'
+          + '<b>Session commands:</b>\n'
+          + '• "yes" / "no" — confirm or cancel a plan\n'
+          + '• "undo" — revert last action\n'
+          + '• "skip" — skip current step\n'
+          + '• "status" — check active plan',
+        cpa:
+          '👔 <b>CPA Collaboration</b>\n\n'
+          + '• "Show my CPA notes"\n'
+          + '• "Add note for CPA: review Q3 expenses"\n'
+          + '• "Share access with my accountant"',
+      };
+
+      const helpText = helpTopics[topic];
+      if (helpText) {
+        await ctx.reply(helpText, { parse_mode: 'HTML' });
+      } else {
+        await ctx.reply(`No help found for "${topic}". Try: /help expenses, /help invoices, /help tax, /help reports, /help timer, /help planning, /help cpa`);
+      }
       return;
     }
 
