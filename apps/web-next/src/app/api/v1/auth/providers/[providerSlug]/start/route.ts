@@ -1,6 +1,16 @@
 /**
  * POST /api/v1/auth/providers/:providerSlug/start
  * Start a brokered billing-provider authentication session.
+ *
+ * - daydream: browser-redirect OAuth (unchanged).
+ * - pymthouse: server-to-server Basic-auth Builder API (no browser popup).
+ *   NaaP upserts the user on PymtHouse and returns a fresh short-lived
+ *   `sign:job` JWT as `access_token` in the response. The frontend receives
+ *   `access_token` directly and skips popup/polling.
+ *
+ *   The JWT is intentionally short-lived (~15 min) and is NOT persisted.
+ *   For subsequent requests, callers should re-mint via
+ *   POST /api/v1/billing/pymthouse/token.
  */
 
 import * as crypto from 'crypto';
@@ -8,6 +18,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
+import { resolveBillingOAuthAppUrl } from '@/lib/billing-oauth-origin';
+import {
+  isPymthouseConfigured,
+  issuePymthouseUserAccessToken,
+  type PymthouseUserAccessToken,
+} from '@/lib/pymthouse-oidc';
 
 const DAYDREAM_AUTH_URL =
   process.env.DAYDREAM_AUTH_URL || 'https://app.daydream.live/sign-in/local';
@@ -31,65 +47,43 @@ function checkRateLimit(key: string): boolean {
   return true;
 }
 
-function firstHeaderValue(value: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-  const first = value.split(',')[0]?.trim();
-  return first || null;
-}
-
-function resolveAppUrl(request: NextRequest): string {
-  const isProduction =
-    process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
-
-  // Dedicated override for OAuth callback origin (e.g. local dev through a plugin shell)
-  if (isProduction) {
-    if (!process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN) {
-      throw new Error('BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN must be set in production');
-    }
-    return process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN;
-  }
-
-  if (process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN) {
-    return process.env.BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN;
-  }
-
-  const host = firstHeaderValue(request.headers.get('host'));
-  const forwardedHost = firstHeaderValue(request.headers.get('x-forwarded-host'));
-  const forwardedProto = firstHeaderValue(request.headers.get('x-forwarded-proto'));
-
-  const isLocalHost = (value: string): boolean =>
-    value.includes('localhost') ||
-    value.startsWith('127.') ||
-    value.startsWith('0.0.0.0') ||
-    value.startsWith('[::1]');
-
-  if (host) {
-    const useForwardedHost = isLocalHost(host) && !!forwardedHost;
-    const resolvedHost = useForwardedHost ? (forwardedHost as string) : host;
-
-    const protocol = isLocalHost(resolvedHost)
-      ? (forwardedProto || 'http')
-      : 'https';
-
-    return `${protocol}://${resolvedHost}`;
-  }
-
-  // Last-resort/dev fallback: only trust forwarded headers for localhost/127.*
-  if (forwardedHost && isLocalHost(forwardedHost)) {
-    const protocol = forwardedProto || 'http';
-    return `${protocol}://${forwardedHost}`;
-  }
-
-  return 'http://localhost:3000';
-}
-
 function resolveProviderAuthUrl(providerSlug: string): string | null {
   if (providerSlug === 'daydream') {
     return DAYDREAM_AUTH_URL;
   }
   return null;
+}
+
+async function buildDaydreamAuthUrl(
+  callbackUrl: string
+): Promise<{ authUrl: string } | null> {
+  const base = resolveProviderAuthUrl('daydream');
+  if (!base) return null;
+  const state = crypto.randomBytes(16).toString('hex');
+  return {
+    authUrl: `${base}?redirect_url=${encodeURIComponent(callbackUrl)}&state=${encodeURIComponent(state)}`,
+  };
+}
+
+/**
+ * PymtHouse: pure server-to-server Basic-auth flow. Upserts the user and mints
+ * a fresh short-lived `sign:job` JWT — no browser redirect, no persistence.
+ */
+async function executePymthouseUserLink(
+  naapUserId: string | null,
+  userEmail?: string | null,
+): Promise<PymthouseUserAccessToken | null> {
+  if (!isPymthouseConfigured()) {
+    return null;
+  }
+
+  if (!naapUserId) {
+    throw new Error('User must be logged in to link a PymtHouse billing provider');
+  }
+
+  return issuePymthouseUserAccessToken(naapUserId, {
+    email: userEmail ?? undefined,
+  });
 }
 
 export async function POST(
@@ -101,14 +95,7 @@ export async function POST(
 
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
     if (!checkRateLimit(`billing-auth:${clientIp}`)) {
-      return errors.tooManyRequests(
-        'Too many authentication requests. Please try again later.'
-      );
-    }
-
-    const providerAuthUrl = resolveProviderAuthUrl(providerSlug);
-    if (!providerAuthUrl) {
-      return errors.badRequest(`Unsupported billing provider for OAuth: ${providerSlug}`);
+      return errors.tooManyRequests('Too many authentication requests. Please try again later.');
     }
 
     const body = await request.json().catch(() => ({}));
@@ -121,14 +108,80 @@ export async function POST(
 
     const loginSessionId = crypto.randomBytes(32).toString('hex');
 
-    // Build the callback URL that provider will redirect the browser to
-    const appUrl = resolveAppUrl(request);
+    // ── PymtHouse: Basic-auth Builder API (docs/builder-api.md) ──────────────
+    // NaaP client Basic-auths to PymtHouse → upsert user → POST .../token { scope: sign:job }.
+    // The JWT is short-lived (~15 min) and is NOT persisted; callers re-mint on demand
+    // via POST /api/v1/billing/pymthouse/token.
+    if (providerSlug === 'pymthouse') {
+      let token: PymthouseUserAccessToken | null;
+      try {
+        token = await executePymthouseUserLink(
+          naapUserId,
+          authenticatedUser?.email,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        console.error('[billing-auth:pymthouse] Builder API error:', msg);
+        return errors.badRequest(
+          `PymtHouse user linking failed: ${msg}. ` +
+            'Ensure PYMTHOUSE_ISSUER_URL (…/api/v1/oidc), PMTHOUSE_CLIENT_SECRET, and PMTHOUSE_CLIENT_ID (app_…) are set, ' +
+            'and the confidential client on PymtHouse allows users:read, users:write, and users:token.',
+        );
+      }
+
+      if (!token) {
+        return errors.badRequest(
+          'PymtHouse is not configured. Set PYMTHOUSE_ISSUER_URL, PMTHOUSE_CLIENT_SECRET, and PMTHOUSE_CLIENT_ID, then restart.',
+        );
+      }
+
+      await prisma.billingProviderOAuthSession.create({
+        data: {
+          loginSessionId,
+          providerSlug,
+          gatewayNonce,
+          gatewayInstanceId,
+          naapUserId,
+          state: crypto.randomBytes(16).toString('hex'),
+          pkceCodeVerifier: null,
+          status: 'complete',
+          accessToken: null,
+          providerUserId: naapUserId,
+          redeemedAt: new Date(),
+          expiresAt: new Date(Date.now() + token.expiresIn * 1000),
+        },
+      });
+
+      console.log(`[billing-auth:pymthouse] Linked user ${naapUserId?.slice(0, 8)}... session ${loginSessionId.slice(0, 8)}...`);
+
+      return success({
+        auth_url: null,
+        access_token: token.accessToken,
+        token_type: token.tokenType,
+        scope: token.scope,
+        login_session_id: loginSessionId,
+        expires_in: token.expiresIn,
+        poll_after_ms: 0,
+      });
+    }
+
+    // ── Daydream (and any future) OAuth redirect flow ────────────────────────
+    const appUrl = resolveBillingOAuthAppUrl(request);
     const callbackUrl = `${appUrl}/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/callback`;
 
-    const state = crypto.randomBytes(16).toString('hex');
+    const built = providerSlug === 'daydream'
+      ? await buildDaydreamAuthUrl(callbackUrl)
+      : null;
 
-    // Build auth URL with redirect back to NAAP callback
-    const authUrl = `${providerAuthUrl}?redirect_url=${encodeURIComponent(callbackUrl)}&state=${encodeURIComponent(state)}`;
+    if (!built) {
+      return errors.badRequest(`Unsupported billing provider for OAuth: ${providerSlug}`);
+    }
+
+    const state = new URL(built.authUrl).searchParams.get('state');
+    if (!state) {
+      return errors.internal('Failed to build OAuth state');
+    }
+
     await prisma.billingProviderOAuthSession.create({
       data: {
         loginSessionId,
@@ -137,6 +190,7 @@ export async function POST(
         gatewayInstanceId,
         naapUserId,
         state,
+        pkceCodeVerifier: null,
         status: 'pending',
         accessToken: null,
         providerUserId: null,
@@ -148,7 +202,7 @@ export async function POST(
     console.log(`[billing-auth:${providerSlug}] Started login session ${loginSessionId.slice(0, 8)}...`);
 
     return success({
-      auth_url: authUrl,
+      auth_url: built.authUrl,
       login_session_id: loginSessionId,
       expires_in: Math.floor(LOGIN_SESSION_TTL_MS / 1000),
       poll_after_ms: 1500,
