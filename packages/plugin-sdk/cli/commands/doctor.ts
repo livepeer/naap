@@ -40,7 +40,9 @@ export const doctorCommand = new Command('doctor')
     const majorVersion = parseInt(majorStr, 10);
     const minorVersion = parseInt(minorStr, 10);
 
-    // Workspace requires Node >=20.19.0 || >=22.12.0 (matches root package.json engines).
+    // Workspace requires Node ^20.19.0 || >=22.12.0 (matches root package.json engines
+    // and Vite 8's supported runtime matrix). Anything else will fail at install/build,
+    // so doctor reports a hard failure rather than a warning.
     const meetsRequirement =
       (majorVersion === 20 && minorVersion >= 19) ||
       (majorVersion === 22 && minorVersion >= 12) ||
@@ -49,20 +51,12 @@ export const doctorCommand = new Command('doctor')
     if (meetsRequirement) {
       nodeSpinner.succeed(`Node.js version: ${nodeVersion}`);
       results.push({ name: 'Node.js version', status: 'pass', message: nodeVersion });
-    } else if (majorVersion >= 20) {
-      nodeSpinner.warn(`Node.js version: ${nodeVersion} (recommended: >=20.19.0 || >=22.12.0)`);
-      results.push({
-        name: 'Node.js version',
-        status: 'warn',
-        message: `${nodeVersion} (recommended: >=20.19.0 || >=22.12.0)`,
-        suggestion: 'Upgrade to Node.js 20.19+ or 22.12+ LTS for best compatibility',
-      });
     } else {
-      nodeSpinner.fail(`Node.js version: ${nodeVersion} (required: >=20.19.0 || >=22.12.0)`);
+      nodeSpinner.fail(`Node.js version: ${nodeVersion} (required: ^20.19.0 || >=22.12.0)`);
       results.push({
         name: 'Node.js version',
         status: 'fail',
-        message: `${nodeVersion} (required: >=20.19.0 || >=22.12.0)`,
+        message: `${nodeVersion} (required: ^20.19.0 || >=22.12.0)`,
         suggestion: 'Please upgrade to Node.js 20.19+ or 22.12+ LTS: https://nodejs.org/',
       });
     }
