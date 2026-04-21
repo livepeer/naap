@@ -1002,7 +1002,7 @@ Return ONLY valid JSON: {"amount_cents": <integer>, "vendor": "<string or null>"
               ...imageParts,
               { text: 'Extract the receipt data from this image. Focus on the total amount, vendor name, and date.' },
             ] }],
-            generationConfig: { maxOutputTokens: 4096, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
+            generationConfig: { maxOutputTokens: 4096, temperature: 0.1 },
           }),
         });
 
@@ -1053,8 +1053,32 @@ Return ONLY valid JSON: {"amount_cents": <integer>, "vendor": "<string or null>"
           }
         } else {
           const errBody = await llmRes.text().catch(() => '');
-          console.warn('Gemini OCR HTTP error:', llmRes.status, errBody.slice(0, 200));
-          ocrResult.status = 'gemini_http_error';
+          console.warn('Gemini OCR HTTP error:', llmRes.status, errBody.slice(0, 500));
+          // Retry with gemini-2.0-flash (no thinking mode) if primary model fails
+          if (model !== 'gemini-2.0-flash') {
+            try {
+              const retryUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${llmConfig.apiKey}`;
+              const retryRes = await fetch(retryUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  systemInstruction: { parts: [{ text: systemPrompt }] },
+                  contents: [{ role: 'user', parts: [...imageParts, { text: 'Extract the receipt data from this image.' }] }],
+                  generationConfig: { maxOutputTokens: 1024, temperature: 0.1 },
+                }),
+              });
+              if (retryRes.ok) {
+                const retryData = await retryRes.json();
+                const retryText = retryData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+                const jsonMatch = retryText.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                  const parsed = JSON.parse(jsonMatch[0]);
+                  ocrResult = { ...parsed, status: 'processed_by_gemini', model: 'gemini-2.0-flash' };
+                }
+              }
+            } catch { /* retry failed too */ }
+          }
+          if (ocrResult.status !== 'processed_by_gemini') ocrResult.status = 'gemini_http_error';
         }
       } catch (err) {
         console.warn('Gemini OCR failed:', err);
