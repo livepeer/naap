@@ -10,15 +10,19 @@
  */
 
 import type { DashboardKPIWithRequests } from '@naap/plugin-sdk';
+import { OVERVIEW_TIMEFRAME_MAX_HOURS } from '@/lib/dashboard/overview-timeframe';
 import { dashboardUpstreamTimeoutMs, formatDashboardWindow } from '../dashboard-window.js';
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
 import { parseDashboardKpiWithRequests } from '../upstream-parse.js';
 
-/** Clamp a raw timeframe string to a canonical hours value in [1, 168]. */
+/** Clamp a raw timeframe string to a canonical hours value in [1, {@link OVERVIEW_TIMEFRAME_MAX_HOURS}]. */
 export function normalizeTimeframeHours(timeframe?: string): number {
   const parsed = parseInt(timeframe ?? '24', 10);
-  return Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
+  return Math.max(
+    1,
+    Math.min(Number.isFinite(parsed) ? parsed : 24, OVERVIEW_TIMEFRAME_MAX_HOURS),
+  );
 }
 
 export async function resolveKPI(opts: {

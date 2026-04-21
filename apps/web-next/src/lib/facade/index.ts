@@ -29,7 +29,7 @@ import type {
 
 import type { NetworkModel, JobFeedItem } from './types.js';
 import * as stubs from './stubs.js';
-import { resolveKPI } from './resolvers/kpi.js';
+import { normalizeTimeframeHours, resolveKPI } from './resolvers/kpi.js';
 import { resolvePipelines } from './resolvers/pipelines.js';
 import { resolvePipelineCatalog } from './resolvers/pipeline-catalog.js';
 import { resolveOrchestrators } from './resolvers/orchestrators.js';
@@ -55,7 +55,7 @@ export async function getDashboardKPI(opts: {
   model_id?: string;
 }): Promise<DashboardKPIWithRequests> {
   if (USE_STUBS) {
-    return { ...stubs.kpi, timeframeHours: parseInt(opts.timeframe ?? '24', 10) || 24 };
+    return { ...stubs.kpi, timeframeHours: normalizeTimeframeHours(opts.timeframe) };
   }
   return resolveKPI(opts);
 }
@@ -66,8 +66,7 @@ export async function getDashboardPipelines(opts: {
 }): Promise<DashboardPipelinesWithRequests> {
   if (USE_STUBS) {
     const lim = opts.limit ?? 5;
-    const parsed = parseInt(opts.timeframe ?? '24', 10);
-    const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
+    const hours = normalizeTimeframeHours(opts.timeframe);
     const factor = hours / 24;
     const streaming = stubs.pipelines
       .map((p) => ({

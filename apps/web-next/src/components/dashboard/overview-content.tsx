@@ -997,8 +997,9 @@ function PipelinesCard({
   timeframeHours: number;
   gpuCapacity: DashboardGPUCapacity | null;
 }) {
-  const [sortCol, setSortCol] = useState<PipelineTableSortCol>('model');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  /** Default: GPUs descending so busy models surface first (was Model A–Z). */
+  const [sortCol, setSortCol] = useState<PipelineTableSortCol>('gpus');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const { copiedId, copyToClipboard } = useClipboardFlash();
 
   const togglePipelineTableSort = (col: PipelineTableSortCol) => {
