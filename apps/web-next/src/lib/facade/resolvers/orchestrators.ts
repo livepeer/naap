@@ -20,6 +20,7 @@
  */
 
 import type { DashboardOrchestrator } from '@naap/plugin-sdk';
+import { OVERVIEW_TIMEFRAME_MAX_HOURS } from '@/lib/dashboard/overview-timeframe';
 import { formatDashboardWindow } from '../dashboard-window.js';
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
@@ -48,14 +49,14 @@ interface ApiOrchestrator {
 export const DASHBOARD_ORCHESTRATORS_UPSTREAM_MAX_HOURS = 24;
 
 /**
- * Hours with optional trailing `h`, clamped to [1, 168], then capped at
+ * Hours with optional trailing `h`, clamped to [1, {@link OVERVIEW_TIMEFRAME_MAX_HOURS}], then capped at
  * {@link DASHBOARD_ORCHESTRATORS_UPSTREAM_MAX_HOURS}; formatted like other dashboard `window` values.
  */
 export function orchestratorUpstreamWindowFromPeriod(period?: string): string {
   const raw = (period ?? '24').trim();
   const stripped = raw.toLowerCase().endsWith('h') ? raw.slice(0, -1).trim() : raw;
   const parsed = parseInt(stripped, 10);
-  const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
+  const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, OVERVIEW_TIMEFRAME_MAX_HOURS));
   const capped = Math.min(hours, DASHBOARD_ORCHESTRATORS_UPSTREAM_MAX_HOURS);
   return formatDashboardWindow(capped);
 }

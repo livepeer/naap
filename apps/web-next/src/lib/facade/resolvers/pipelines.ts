@@ -17,6 +17,7 @@ import {
   DEFAULT_PIPELINE_COLOR,
   LIVE_VIDEO_PIPELINE_ID,
 } from '@/lib/dashboard/pipeline-config';
+import { OVERVIEW_TIMEFRAME_MAX_HOURS } from '@/lib/dashboard/overview-timeframe';
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
 import { parseDashboardPipelinesBody } from '../upstream-parse.js';
@@ -99,7 +100,7 @@ export async function resolvePipelines(opts: {
     Math.min(Math.floor(Number.isFinite(raw) ? raw : 5), 200),
   );
   const parsed = parseInt(opts.timeframe ?? '24', 10);
-  const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
+  const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, OVERVIEW_TIMEFRAME_MAX_HOURS));
   const window = formatDashboardWindow(hours);
   const timeframe = String(hours);
 
