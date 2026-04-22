@@ -8,11 +8,11 @@
  * Rendering is delegated to the shared OverviewContent component.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useDashboardQuery } from '@/hooks/useDashboardQuery';
 import { useJobFeedStream } from '@/hooks/useJobFeedStream';
 import { OverviewContent } from '@/components/dashboard/overview-content';
-import type { DashboardData, DashboardOrchestrator } from '@naap/plugin-sdk';
+import type { DashboardData, DashboardKPI, DashboardOrchestrator } from '@naap/plugin-sdk';
 import { AlertCircle } from 'lucide-react';
 import {
   DEFAULT_OVERVIEW_TIMEFRAME,
@@ -134,6 +134,15 @@ export default function DashboardPage() {
   const [orchestrators, setOrchestrators] = useState<DashboardOrchestrator[]>([]);
   const [fetchedOrchestratorsTimeframe, setFetchedOrchestratorsTimeframe] = useState<string | null>(null);
   const [orchestratorsLoading, setOrchestratorsLoading] = useState(true);
+  /**
+   * Orchestrator snapshot fields come from the BFF (same resolver as GraphQL would use)
+   * because the dashboard provider plugin bundles an older GraphQL schema that may not
+   * yet include `orchestratorsWindowHours` on type KPI.
+   */
+  const [orchKpiFromBff, setOrchKpiFromBff] = useState<Pick<
+    DashboardKPI,
+    'orchestratorsObserved' | 'orchestratorsWindowHours'
+  > | null>(null);
 
   useEffect(() => {
     setJobFeedPollInterval(getStoredJobFeedPollInterval());
@@ -165,6 +174,31 @@ export default function DashboardPage() {
           setFetchedOrchestratorsTimeframe(null);
           setOrchestratorsLoading(false);
         }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [prefsReady, timeframe]);
+
+  useEffect(() => {
+    if (!prefsReady) return;
+    let cancelled = false;
+    const url = `/api/v1/dashboard/kpi?timeframe=${encodeURIComponent(timeframe)}`;
+    void fetch(url)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json() as Promise<DashboardKPI>;
+      })
+      .then((body) => {
+        if (!cancelled) {
+          setOrchKpiFromBff({
+            orchestratorsObserved: body.orchestratorsObserved,
+            orchestratorsWindowHours: body.orchestratorsWindowHours,
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setOrchKpiFromBff(null);
       });
     return () => {
       cancelled = true;
@@ -227,6 +261,17 @@ export default function DashboardPage() {
     pollInterval: jobFeedPollInterval,
   });
 
+  const mergedKpi = useMemo((): DashboardKPI | null => {
+    const base = lbData?.kpi;
+    if (!base) return null;
+    if (!orchKpiFromBff) return base;
+    return {
+      ...base,
+      orchestratorsObserved: orchKpiFromBff.orchestratorsObserved,
+      orchestratorsWindowHours: orchKpiFromBff.orchestratorsWindowHours,
+    };
+  }, [lbData?.kpi, orchKpiFromBff]);
+
   if (lbError?.type === 'no-provider' && !lbData) {
     return <NoProviderMessage />;
   }
@@ -237,7 +282,7 @@ export default function DashboardPage() {
   return (
     <OverviewContent
       isPublic={false}
-      kpi={lbData?.kpi ?? null}
+      kpi={mergedKpi}
       pipelines={lbData?.pipelines ?? []}
       pipelineCatalog={lbData?.pipelineCatalog ?? []}
       orchestrators={visibleOrchestrators}

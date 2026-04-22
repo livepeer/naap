@@ -444,6 +444,18 @@ function HourlySparkline({ data, color = 'var(--color-muted-foreground)' }: { da
 
 function KPIGroupCard({ data }: { data: DashboardKPI }) {
   const tfLabel = formatOverviewTimeframeLabel(data.timeframeHours);
+  /**
+   * Orchestrator snapshot has no timeframe filter upstream — label this tile with the
+   * effective window implied by the oldest `LastSeen` instead of the selected timeframe.
+   */
+  const orchLabel =
+    data.orchestratorsWindowHours != null && Number.isFinite(data.orchestratorsWindowHours)
+      ? `~${formatOverviewTimeframeLabel(Math.max(1, Math.round(data.orchestratorsWindowHours)))}`
+      : tfLabel;
+  const orchTooltip =
+    data.orchestratorsWindowHours != null
+      ? 'Distinct orchestrator endpoints (Address + service URI) in the registry snapshot. Window is derived from the oldest LastSeen — the list endpoint does not accept a timeframe.'
+      : undefined;
 
   const tile = (
     icon: ElementType,
@@ -464,8 +476,8 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
           {tooltip && (
             <div className="relative group ml-auto">
               <Info className="w-3 h-3 text-muted-foreground/50 cursor-help" />
-              <div className="absolute bottom-full right-0 mb-1.5 hidden group-hover:block z-20 pointer-events-none">
-                <div className="bg-popover text-popover-foreground text-[10px] px-2 py-1 rounded shadow-md border border-border max-w-[200px] text-wrap leading-relaxed">
+              <div className="absolute bottom-full right-0 z-20 mb-1.5 hidden group-hover:block pointer-events-none">
+                <div className="w-max min-w-[10rem] max-w-[min(20rem,calc(100vw-2rem))] rounded border border-border bg-popover px-2.5 py-1.5 text-xs leading-relaxed text-popover-foreground shadow-md">
                   {tooltip}
                 </div>
               </div>
@@ -484,7 +496,7 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
   return (
     <div className="grid shrink-0 grid-cols-2 gap-2 content-start rounded-lg border border-border bg-card p-2 sm:gap-3 sm:p-3">
       {tile(CheckCircle2, `Success Rate (${tfLabel})`, `${data.successRate.value.toFixed(1)}%`)}
-      {tile(Server, `Orchestrators (${tfLabel})`, data.orchestratorsObserved.value)}
+      {tile(Server, `Orchestrators (${orchLabel})`, data.orchestratorsObserved.value, undefined, undefined, orchTooltip)}
       {tile(Clock, `Usage (${tfLabel})`, formatNumber(data.dailyUsageMins.value), 'mins', data.hourlyUsage, 'Total transcoding minutes. Sparkline: one bar per UTC hour.')}
       {tile(Radio, `Sessions (${tfLabel})`, data.dailySessionCount.value.toLocaleString(), undefined, data.hourlySessions, 'Demand sessions. Sparkline: one bar per UTC hour.')}
     </div>
@@ -1624,6 +1636,15 @@ function OrchestratorTableCard({
   );
 
   const totalGPUsInList = useMemo(() => sorted.reduce((sum, r) => sum + (r.gpuCount ?? 0), 0), [sorted]);
+  /** Sum of service URIs across rows — equals the number of `(Address, URI)` pairs from the registry. */
+  const totalPairsInList = useMemo(
+    () => sorted.reduce((sum, r) => sum + r.uris.length, 0),
+    [sorted],
+  );
+  const totalPairsAll = useMemo(
+    () => mergedByAddress.reduce((sum, r) => sum + r.uris.length, 0),
+    [mergedByAddress],
+  );
 
   const pricingByKey = useMemo(
     () => new Map(pricing.map((p) => [`${p.pipeline}:${p.model ?? ''}`, p])),
@@ -1636,7 +1657,7 @@ function OrchestratorTableCard({
         <div className="flex min-w-0 items-center gap-2">
           <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0"><Server className="w-3.5 h-3.5" /></div>
           <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider leading-snug sm:text-[11px]">
-            Orchestrators ({sorted.length}{filter ? ` of ${mergedByAddress.length}` : ''}) · {totalGPUsInList} GPUs
+            Orchestrators ({totalPairsInList}{filter ? ` of ${totalPairsAll}` : ''}) · {totalGPUsInList} GPUs
           </span>
         </div>
         <input

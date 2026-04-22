@@ -130,16 +130,38 @@ function parseLastSeenMs(raw: string | undefined): number | undefined {
   return Number.isFinite(t) ? t : undefined;
 }
 
+/** Stable map key for a (address, service URI) pair; both sides should be trimmed. */
+export function orchestratorPairKey(addrLower: string, uri: string): string {
+  return `${addrLower}\0${uri}`;
+}
+
 export interface NetOrchestratorData {
   activeCount: number;
+  /**
+   * Distinct (Address, service URI) pairs with non-blank URI — same row count as the
+   * orchestrator table (`resolveOrchestrators`).
+   */
   listedCount: number;
   urisByAddress: Map<string, string[]>;
   displayAddressByLower: Map<string, string>;
   hasLastSeenData: boolean;
   lastSeenMsByAddress: Map<string, number>;
+  /**
+   * Per (address, URI) max `LastSeen` (ms) across registry rows for that endpoint.
+   * Keys from {@link orchestratorPairKey}.
+   */
+  lastSeenMsByPair: Map<string, number>;
+  /**
+   * Oldest parseable `LastSeen` (ms) across all registry rows. `undefined` when the
+   * registry had no parseable timestamps. Used to label the effective window of the
+   * snapshot the orchestrator count is derived from.
+   */
+  oldestLastSeenMs?: number;
+  /** Per-address pipeline/model offers parsed from RawCapabilities.hardware. */
   pipelineModelsByAddress: Map<string, DashboardPipelineModelOffer[]>;
 }
 
+/** True if this URI list would produce at least one row in the overview orchestrator table. */
 export function hasNonBlankServiceUri(uris: string[]): boolean {
   return uris.some((u) => typeof u === 'string' && u.trim().length > 0);
 }
@@ -151,6 +173,7 @@ const EMPTY: NetOrchestratorData = {
   displayAddressByLower: new Map(),
   hasLastSeenData: false,
   lastSeenMsByAddress: new Map(),
+  lastSeenMsByPair: new Map(),
   pipelineModelsByAddress: new Map(),
 };
 
@@ -177,10 +200,11 @@ function ingestRow(
   displayAddressByLower: Map<string, string>,
   activeAddresses: Set<string>,
   lastSeenMsByAddress: Map<string, number>,
+  lastSeenMsByPair: Map<string, number>,
   pipelineModelsByAddress: Map<string, DashboardPipelineModelOffer[]>,
-): { hasLastSeen: boolean } {
+): { lastSeenMs?: number } {
   const addrRaw = typeof r.address === 'string' ? r.address.trim() : '';
-  if (!addrRaw) return { hasLastSeen: false };
+  if (!addrRaw) return {};
   const addr = addrRaw.toLowerCase();
   if (!displayAddressByLower.has(addr)) {
     displayAddressByLower.set(addr, addrRaw);
@@ -221,9 +245,16 @@ function ingestRow(
     if (prev === undefined || ls > prev) {
       lastSeenMsByAddress.set(addr, ls);
     }
-    return { hasLastSeen: true };
+    if (uri.length > 0) {
+      const pairKey = orchestratorPairKey(addr, uri);
+      const prevPair = lastSeenMsByPair.get(pairKey);
+      if (prevPair === undefined || ls > prevPair) {
+        lastSeenMsByPair.set(pairKey, ls);
+      }
+    }
+    return { lastSeenMs: ls };
   }
-  return { hasLastSeen: false };
+  return {};
 }
 
 export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
@@ -244,38 +275,54 @@ export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
     const displayAddressByLower = new Map<string, string>();
     const activeAddresses = new Set<string>();
     const lastSeenMsByAddress = new Map<string, number>();
+    const lastSeenMsByPair = new Map<string, number>();
     const pipelineModelsByAddress = new Map<string, DashboardPipelineModelOffer[]>();
     let hasLastSeenData = false;
+    let oldestLastSeenMs: number | undefined;
 
     for (const r of streamRows) {
-      const { hasLastSeen } = ingestRow(
+      const { lastSeenMs } = ingestRow(
         r,
         'streaming',
         urisByAddress,
         displayAddressByLower,
         activeAddresses,
         lastSeenMsByAddress,
+        lastSeenMsByPair,
         pipelineModelsByAddress,
       );
-      if (hasLastSeen) hasLastSeenData = true;
+      if (lastSeenMs !== undefined) {
+        hasLastSeenData = true;
+        if (oldestLastSeenMs === undefined || lastSeenMs < oldestLastSeenMs) {
+          oldestLastSeenMs = lastSeenMs;
+        }
+      }
     }
     for (const r of reqRows) {
-      const { hasLastSeen } = ingestRow(
+      const { lastSeenMs } = ingestRow(
         r,
         'requests',
         urisByAddress,
         displayAddressByLower,
         activeAddresses,
         lastSeenMsByAddress,
+        lastSeenMsByPair,
         pipelineModelsByAddress,
       );
-      if (hasLastSeen) hasLastSeenData = true;
+      if (lastSeenMs !== undefined) {
+        hasLastSeenData = true;
+        if (oldestLastSeenMs === undefined || lastSeenMs < oldestLastSeenMs) {
+          oldestLastSeenMs = lastSeenMs;
+        }
+      }
     }
 
     let listedCount = 0;
     for (const uris of urisByAddress.values()) {
-      if (hasNonBlankServiceUri(uris)) {
-        listedCount++;
+      for (const u of uris) {
+        if (typeof u === 'string' && u.trim().length > 0) {
+          listedCount++;
+        }
       }
     }
 
@@ -286,6 +333,8 @@ export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
       displayAddressByLower,
       hasLastSeenData,
       lastSeenMsByAddress,
+      lastSeenMsByPair,
+      oldestLastSeenMs,
       pipelineModelsByAddress,
     };
   });
