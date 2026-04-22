@@ -54,6 +54,11 @@ import {
   formatOverviewTimeframeLabel,
   OVERVIEW_TIMEFRAME_OPTIONS,
 } from '@/lib/dashboard/overview-timeframe';
+import {
+  LIVE_VIDEO_PIPELINE_ID,
+  PIPELINE_ETH_USD_CLIENT_FALLBACK,
+  pipelineTablePriceCellContent,
+} from '@naap/utils';
 
 // Recharts is only used inside FeesCard. Defer the bundle parse until the
 // fees data arrives so the initial JS execution budget is not spent on charting.
@@ -145,15 +150,56 @@ export interface OverviewContentProps {
   prefsReady: boolean;
 }
 
-// ============================================================================
-// Constants
-// ============================================================================
+function PipelineTablePriceCell({
+  pipelineId,
+  wei,
+  unit,
+  modelFps,
+  pipelineAvgFps,
+  ethUsd,
+  tdClass,
+}: {
+  pipelineId: string;
+  wei: bigint | null;
+  unit: string;
+  modelFps: number | null;
+  pipelineAvgFps: number | undefined;
+  ethUsd: number;
+  tdClass: string;
+}) {
+  const { main, richLines } = pipelineTablePriceCellContent({
+    pipelineId,
+    wei,
+    unit,
+    modelFps,
+    pipelineAvgFps,
+    ethUsd,
+  });
+  const tip = richLines?.join('\n') ?? null;
 
-const LIVE_VIDEO_PIPELINE_ID = 'live-video-to-video';
+  if (!tip) {
+    return <td className={tdClass}>{main}</td>;
+  }
 
-// ============================================================================
-// Utilities
-// ============================================================================
+  return (
+    <td className={tdClass}>
+      <div className="group/cell relative flex justify-end">
+        <span className="cursor-default border-b border-dotted border-muted-foreground/35" title={tip}>
+          {main}
+        </span>
+        <div className="pointer-events-none absolute bottom-full right-0 z-20 mb-1.5 hidden w-max min-w-[12rem] max-w-[min(22rem,calc(100vw-2rem))] group-hover/cell:block">
+          <div className="rounded border border-border bg-popover px-2.5 py-1.5 text-left text-[10px] leading-relaxed text-popover-foreground shadow-md">
+            {richLines!.map((line, i) => (
+              <p key={i} className={i > 0 ? 'mt-1' : ''}>
+                {line}
+              </p>
+            ))}
+          </div>
+        </div>
+      </div>
+    </td>
+  );
+}
 
 function pipelinesRowCapacity(
   pipelineId: string,
@@ -413,6 +459,10 @@ function DeltaBadge({ value, unit = '%', invert = false }: { value: number | nul
 const OVERVIEW_CHART_ACCENT = 'hsl(var(--primary))';
 const OVERVIEW_CHART_CURSOR = 'hsl(var(--primary) / 0.12)';
 
+/** KPI tile tooltip: matches upstream ClickHouse aggregation for GET /v1/dashboard/kpi. */
+const SUCCESS_RATE_KPI_TOOLTIP =
+  'Success rate (%) = 100 × (sum of startup_success_sessions) / (sum of requested_sessions) over the selected window, using hourly rows from ClickHouse table naap.api_hourly_streaming_demand, with optional filters on pipeline_id and model_id.';
+
 function HourlySparkline({ data, color = 'var(--color-muted-foreground)' }: { data: HourlyBucket[]; color?: string }) {
   if (!data || data.length === 0) return null;
   const max = Math.max(...data.map((d) => d.value), 1);
@@ -463,21 +513,27 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
     value: string | number,
     suffix?: string,
     sparkline?: HourlyBucket[],
-    tooltip?: string,
+    tooltip?: ReactNode,
   ) => {
     const Icon = icon;
     return (
       <div className="flex flex-col p-3 rounded-lg bg-muted/30 border border-border/50">
-        <div className="flex items-center gap-1.5 mb-2">
-          <div className="p-1 rounded-md bg-muted text-muted-foreground">
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0">
             <Icon className="w-3.5 h-3.5" />
           </div>
-          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
-          {tooltip && (
-            <div className="relative group ml-auto">
-              <Info className="w-3 h-3 text-muted-foreground/50 cursor-help" />
-              <div className="absolute bottom-full right-0 z-20 mb-1.5 hidden group-hover:block pointer-events-none">
-                <div className="w-max min-w-[10rem] max-w-[min(20rem,calc(100vw-2rem))] rounded border border-border bg-popover px-2.5 py-1.5 text-xs leading-relaxed text-popover-foreground shadow-md">
+          <span className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider leading-tight">
+            {label}
+          </span>
+          {tooltip != null && tooltip !== '' && (
+            <div
+              className="relative group ml-auto shrink-0 rounded-sm outline-offset-2 focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
+              tabIndex={0}
+              aria-label="Metric definition"
+            >
+              <Info className="w-3.5 h-3.5 text-muted-foreground/70 cursor-help" aria-hidden />
+              <div className="absolute bottom-full right-0 z-20 mb-1.5 hidden group-hover:block group-focus-within:block pointer-events-none">
+                <div className="w-max min-w-[10rem] max-w-[min(32rem,calc(100vw-2rem))] rounded border border-border bg-popover px-2.5 py-1.5 text-xs leading-relaxed text-popover-foreground shadow-md whitespace-normal text-left">
                   {tooltip}
                 </div>
               </div>
@@ -495,7 +551,7 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
 
   return (
     <div className="grid shrink-0 grid-cols-2 gap-2 content-start rounded-lg border border-border bg-card p-2 sm:gap-3 sm:p-3">
-      {tile(CheckCircle2, `Success Rate (${tfLabel})`, `${data.successRate.value.toFixed(1)}%`)}
+      {tile(CheckCircle2, `Success Rate (${tfLabel})`, `${data.successRate.value.toFixed(1)}%`, undefined, undefined, SUCCESS_RATE_KPI_TOOLTIP)}
       {tile(Server, `Orchestrators (${orchLabel})`, data.orchestratorsObserved.value, undefined, undefined, orchTooltip)}
       {tile(Clock, `Usage (${tfLabel})`, formatNumber(data.dailyUsageMins.value), 'mins', data.hourlyUsage, 'Total transcoding minutes. Sparkline: one bar per UTC hour.')}
       {tile(Radio, `Sessions (${tfLabel})`, data.dailySessionCount.value.toLocaleString(), undefined, data.hourlySessions, 'Demand sessions. Sparkline: one bar per UTC hour.')}
@@ -785,7 +841,7 @@ function pipelineTableModelIds(
 ): string[] {
   const fromUsage = pipelineUsage?.modelMins?.map((m) => m.model).filter(Boolean) ?? [];
   const set = new Set<string>([...entry.models, ...fromUsage]);
-  return [...set].sort((a, b) => a.localeCompare(b));
+  return [...set];
 }
 
 type PipelineTableSortCol = 'model' | 'gpus' | 'capacity' | 'price' | 'fps' | 'mins';
@@ -811,7 +867,9 @@ function sortPipelineTableModels(
     const modelFps = Number.isFinite(modelFpsFromPerf) ? modelFpsFromPerf : null;
     const modelMins = Number.isFinite(modelUsage?.mins) ? (modelUsage?.mins as number) : null;
     const cap = pipelinesRowCapacity(pipelineId, model, p, netCapacity, liveVideoCapacity);
-    const gpus = gpuByPipelineModel.get(`${pipelineId}\x1f${model}`) ?? 0;
+    const gpusRaw = gpuByPipelineModel.get(`${pipelineId}\x1f${model}`) ?? 0;
+    const gpusN = Number(gpusRaw);
+    const gpus = Number.isFinite(gpusN) ? gpusN : 0;
     const priceWei = avgWeiBigIntForPricingRow(p);
     return { cap, gpus, priceWei, modelFps, modelMins };
   };
@@ -862,7 +920,8 @@ function sortPipelineTableModels(
         break;
     }
     if (c !== 0) return sortDir === 'asc' ? c : -c;
-    return a.localeCompare(b);
+    const tie = a.localeCompare(b);
+    return sortDir === 'asc' ? tie : -tie;
   });
 }
 
@@ -941,6 +1000,7 @@ function PipelineTH({
   sortDir,
   onSort,
   headerInfo,
+  headerTitle,
 }: {
   col: PipelineTableSortCol;
   label: string;
@@ -950,12 +1010,14 @@ function PipelineTH({
   onSort: (col: PipelineTableSortCol) => void;
   /** Non-sorting info (e.g. metric provenance); kept outside the sort button for accessibility. */
   headerInfo?: ReactNode;
+  /** Optional native tooltip for the column header. */
+  headerTitle?: string;
 }) {
   const ariaSort: 'ascending' | 'descending' | 'none' =
     sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
   const right = className.includes('text-right');
   return (
-    <th scope="col" className={className} aria-sort={ariaSort}>
+    <th scope="col" className={`${className} bg-card`.trim()} aria-sort={ariaSort} title={headerTitle}>
       <div
         className={`flex w-full items-center gap-0.5 ${right ? 'justify-end' : 'justify-start'}`}
       >
@@ -999,6 +1061,7 @@ function PipelinesCard({
   modelFpsByPipelineModel,
   timeframeHours,
   gpuCapacity,
+  ethUsdOracle,
 }: {
   data: DashboardPipelineUsage[];
   catalog: DashboardPipelineCatalogEntry[];
@@ -1008,6 +1071,8 @@ function PipelinesCard({
   modelFpsByPipelineModel: Record<string, number>;
   timeframeHours: number;
   gpuCapacity: DashboardGPUCapacity | null;
+  /** USD per 1 ETH (from GET /api/v1/dashboard/eth-usd). */
+  ethUsdOracle: number;
 }) {
   /** Default: GPUs descending so busy models surface first (was Model A–Z). */
   const [sortCol, setSortCol] = useState<PipelineTableSortCol>('gpus');
@@ -1110,12 +1175,20 @@ function PipelinesCard({
               <col className="w-[9%]" />
               <col className="w-[9%]" />
             </colgroup>
-            <thead className="sticky top-0 z-10 bg-card border-b border-border shadow-[0_1px_0_0_hsl(var(--border))]">
+            <thead className="sticky top-0 z-30 bg-card border-b border-border shadow-[0_1px_0_0_hsl(var(--border))]">
               <tr className="text-[10px] text-muted-foreground uppercase tracking-wider">
                 <PipelineTH col="model" label="Model" className={thModel} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
                 <PipelineTH col="gpus" label="GPUs" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
                 <PipelineTH col="capacity" label="Capacity" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
-                <PipelineTH col="price" label="Price" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
+                <PipelineTH
+                  col="price"
+                  label="Price"
+                  className={thNum}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={togglePipelineTableSort}
+                  headerTitle="Live video: est. USD/min at 512x512 from wei/pixel and FPS. Text-to-image: USD per 512x512 image. Upscale: USD per x4 output (4x512^2 pixels from 512x512 input). LLM: USD per 10k tokens from wei/token. Other pipelines: wei per billing unit. USD uses ETH/USD from the pricing oracle."
+                />
                 <PipelineTH
                   col="fps"
                   label="FPS"
@@ -1199,12 +1272,9 @@ function PipelinesCard({
                         const modelFps = Number.isFinite(modelFpsFromPerf) ? modelFpsFromPerf : null;
                         const modelMins = Number.isFinite(modelUsage?.mins) ? (modelUsage?.mins as number) : null;
                         const wei = avgWeiBigIntForPricingRow(p);
-                        const priceStr =
-                          wei != null
-                            ? `${wei.toLocaleString('en-US')} wei/${p?.unit ?? 'unit'}`
-                            : '—';
                         const cap = pipelinesRowCapacity(entry.id, model, p, netCapacity, liveVideoCapacity);
                         const gpus = gpuByPipelineModel.get(`${entry.id}\x1f${model}`) ?? 0;
+                        const pipeAvgFps = pipelineUsage?.avgFps;
                         return (
                           <tr key={`${entry.id}:${model}`} className="border-b border-border/25 hover:bg-muted/20">
                             <td className={`${tdModel} group/model`}>
@@ -1224,7 +1294,15 @@ function PipelinesCard({
                             </td>
                             <td className={tdNum}>{formatNumber(gpus)}</td>
                             <td className={tdNum}>{cap === '—' ? '—' : formatNumber(cap)}</td>
-                            <td className={`${tdNum} text-muted-foreground`}>{priceStr}</td>
+                            <PipelineTablePriceCell
+                              pipelineId={entry.id}
+                              wei={wei}
+                              unit={p?.unit ?? 'unit'}
+                              modelFps={modelFps}
+                              pipelineAvgFps={pipeAvgFps}
+                              ethUsd={ethUsdOracle}
+                              tdClass={`${tdNum} text-muted-foreground`}
+                            />
                             <td className={`${tdNum} text-muted-foreground`}>{modelFps != null ? modelFps.toFixed(1) : '—'}</td>
                             <td className={`${tdNum} pr-4 text-muted-foreground`}>{modelMins != null ? formatNumber(Math.round(modelMins)) : '—'}</td>
                           </tr>
@@ -1579,7 +1657,7 @@ function OrchestratorTableCard({
   catalog?: DashboardPipelineCatalogEntry[] | null;
   pricing: DashboardPipelinePricing[];
 }) {
-  const [sortCol, setSortCol] = useState<OrchestratorSortCol>('knownSessions');
+  const [sortCol, setSortCol] = useState<OrchestratorSortCol>('gpuCount');
   const formatURI = (uri?: string) => {
     if (!uri) return '—';
     return stripOrchestratorServiceUri(uri);
@@ -1912,8 +1990,24 @@ export function OverviewContent(props: OverviewContentProps) {
   const [netCapacity, setNetCapacity] = useState<Record<string, number>>({});
   const [liveVideoCapacity, setLiveVideoCapacity] = useState<Record<string, number>>({});
   const [modelFpsByPipelineModel, setModelFpsByPipelineModel] = useState<Record<string, number>>({});
+  const [pipelineEthUsdSpot, setPipelineEthUsdSpot] = useState<number | null>(null);
   const lastFetchedNetCapacityKeyRef = useRef<string | null>(null);
   const liveVideoCapacityModelsRef = useRef<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/v1/dashboard/eth-usd')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { ethUsd?: number } | null) => {
+        const n = body?.ethUsd;
+        if (cancelled || n == null || !Number.isFinite(n) || n <= 0) return;
+        setPipelineEthUsdSpot(n);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!prefsReady) return;
@@ -1989,6 +2083,8 @@ export function OverviewContent(props: OverviewContentProps) {
   const uiFeesLoading = feesLoading || !prefsReady;
   const uiOrchestratorsLoading = (orchestratorsLoading ?? lbLoading) || !prefsReady;
 
+  const pipelineTableEthUsd = pipelineEthUsdSpot ?? PIPELINE_ETH_USD_CLIENT_FALLBACK;
+
   return (
     <div className="mx-auto min-w-0 w-full max-w-[1440px] space-y-4 sm:space-y-6">
       <DashboardHeader timeframe={timeframe} onTimeframeChange={onTimeframeChange} />
@@ -2059,6 +2155,7 @@ export function OverviewContent(props: OverviewContentProps) {
                 modelFpsByPipelineModel={modelFpsByPipelineModel}
                 timeframeHours={kpi?.timeframeHours ?? 12}
                 gpuCapacity={gpuCapacity ?? null}
+                ethUsdOracle={pipelineTableEthUsd}
               />
             </RefreshWrap>
           ) : uiLbLoading ? (

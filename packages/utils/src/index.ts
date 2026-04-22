@@ -24,6 +24,9 @@ export * from './tracing.js';
 // Re-export shared security utilities
 export * from './security.js';
 
+// Pipeline list-price USD estimates (dashboard + developer plugin)
+export * from './pipelinePricingEstimate.js';
+
 /**
  * Format an Ethereum address to a shortened display format
  */

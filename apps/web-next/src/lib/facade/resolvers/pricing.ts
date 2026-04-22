@@ -11,6 +11,8 @@
  */
 
 import type { DashboardPipelinePricing, NetworkModel } from '@naap/plugin-sdk';
+import { pipelineBillingUnit } from '@naap/utils';
+import { getEthUsdOracle } from '../../prices/eth-usd-oracle.js';
 import { cachedFetch, TTL } from '../cache.js';
 import { getRawNetModels } from '../network-data.js';
 import { resolveNetCapacity } from './net-capacity.js';
@@ -36,20 +38,6 @@ interface PerOrchRow {
   priceWeiPerUnit: number;
   pixelsPerUnit: number;
   isWarm?: boolean;
-}
-
-const PIPELINE_UNIT: Record<string, string> = {
-  llm: 'token',
-  'audio-to-text': 'second',
-  'text-to-speech': 'second',
-};
-
-function parseEthUsdReference(): number {
-  const raw = process.env.ETH_USD_PRICE?.trim();
-  if (!raw) return 3000;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return 3000;
-  return n;
 }
 
 function computeOutputPerDollar(avgWei: number, unit: string, ethUsd: number): string {
@@ -90,7 +78,7 @@ function fromAggregatedRow(
   netCapacity: Record<string, number>,
   ethUsd: number,
 ): DashboardPipelinePricing {
-  const unit = PIPELINE_UNIT[r.pipeline] ?? 'pixel';
+  const unit = pipelineBillingUnit(r.pipeline);
   const price = r.priceAvgWeiPerUnit / 1e12;
   const netKey = pricingKey(r.pipeline, r.model);
   const capacity =
@@ -120,7 +108,7 @@ function fromNetModelRow(
   const avgWei = nm.PriceAvgWeiPerPixel;
   if (!Number.isFinite(avgWei) || avgWei <= 0) return null;
 
-  const unit = PIPELINE_UNIT[pipeline] ?? 'pixel';
+  const unit = pipelineBillingUnit(pipeline);
   const netKey = pricingKey(pipeline, model);
   const orchLike =
     nm.WarmOrchCount > 0 ? nm.WarmOrchCount : nm.TotalCapacity;
@@ -197,7 +185,7 @@ function fromPerOrchAggregate(
   ethUsd: number,
 ): DashboardPipelinePricing {
   const avgWei = agg.sumWei / Math.max(1, agg.count);
-  const unit = PIPELINE_UNIT[agg.pipeline] ?? 'pixel';
+  const unit = pipelineBillingUnit(agg.pipeline);
   const netKey = pricingKey(agg.pipeline, agg.model);
   const orchLike = agg.warmOrchCount > 0 ? agg.warmOrchCount : agg.orchCount;
   const capacity =
@@ -219,7 +207,7 @@ function fromPerOrchAggregate(
 
 export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
   return cachedFetch('facade:pricing', TTL.PRICING, async () => {
-    const ethUsd = parseEthUsdReference();
+    const ethUsd = await getEthUsdOracle();
     const [rawRows, netCapacity, netModels] = await Promise.all([
       naapGet<unknown[]>('dashboard/pricing', undefined, {
         cache: 'no-store',

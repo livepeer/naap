@@ -25,6 +25,12 @@ ChevronUp,
 } from 'lucide-react';
 import { Card, Badge, Modal } from '@naap/ui';
 import type { NetworkModel } from '@naap/plugin-sdk';
+import {
+  avgWeiBigIntFromNumber,
+  pipelineBillingUnit,
+  pipelineTablePriceCellContent,
+  PIPELINE_ETH_USD_CLIENT_FALLBACK,
+} from '@naap/utils';
 
 const PIPELINE_COLOR: Record<string, string> = {
   'text-to-image':           '#f59e0b',
@@ -193,6 +199,89 @@ const selectClassName =
 const inputClassName =
   'w-full bg-bg-tertiary border border-white/10 rounded-lg py-2 px-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue';
 
+function developerPriceCellContent(
+  pipelineId: string,
+  wei: bigint | null,
+  ethUsd: number,
+): { main: string; richLines: string[] | null } {
+  const unit = pipelineBillingUnit(pipelineId);
+  return pipelineTablePriceCellContent({
+    pipelineId,
+    wei,
+    unit,
+    modelFps: null,
+    pipelineAvgFps: undefined,
+    ethUsd,
+  });
+}
+
+function DeveloperModelPriceCell(props: {
+  pipelineId: string;
+  wei: bigint | null;
+  ethUsd: number;
+  tdClass: string;
+}) {
+  const { pipelineId, wei, ethUsd, tdClass } = props;
+  const { main, richLines } = developerPriceCellContent(pipelineId, wei, ethUsd);
+  const hasTip = richLines != null && richLines.length > 0;
+  const active = wei != null && main !== '—';
+  return (
+    <td className={`${tdClass} text-sm font-mono ${active ? 'text-accent-emerald' : 'text-text-secondary opacity-40'}`}>
+      <span
+        className={hasTip ? 'cursor-default border-b border-dotted border-white/25' : undefined}
+        title={hasTip ? richLines!.join('\n') : undefined}
+      >
+        {main}
+      </span>
+    </td>
+  );
+}
+
+function DeveloperModelPriceRangeCell(props: {
+  pipelineId: string;
+  minWei: bigint | null;
+  maxWei: bigint | null;
+  ethUsd: number;
+  tdClass: string;
+}) {
+  const { pipelineId, minWei, maxWei, ethUsd, tdClass } = props;
+  const left = developerPriceCellContent(pipelineId, minWei, ethUsd);
+  const right = developerPriceCellContent(pipelineId, maxWei, ethUsd);
+  const hasAny =
+    (minWei != null && minWei > 0n) ||
+    (maxWei != null && maxWei > 0n);
+  if (!hasAny) {
+    return (
+      <td className={`${tdClass} text-sm font-mono text-text-secondary opacity-40`}>
+        —
+      </td>
+    );
+  }
+  const leftTip = left.richLines?.join('\n');
+  const rightTip = right.richLines?.join('\n');
+  return (
+    <td className={`${tdClass} text-sm font-mono text-text-secondary`}>
+      <span className="inline-flex flex-wrap items-center justify-end gap-x-1">
+        <span
+          className={left.richLines ? 'cursor-default border-b border-dotted border-white/25' : undefined}
+          title={leftTip}
+        >
+          {left.main}
+        </span>
+        <span aria-hidden className="text-text-secondary/60">
+          –
+        </span>
+        <span
+          className={right.richLines ? 'cursor-default border-b border-dotted border-white/25' : undefined}
+          title={rightTip}
+        >
+          {right.main}
+        </span>
+      </span>
+    </td>
+  );
+}
+
 export const DeveloperView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>(() => resolveTabFromPath(window.location.pathname));
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -222,6 +311,7 @@ export const DeveloperView: React.FC = () => {
   const pollAbortControllerRef = useRef<AbortController | null>(null);
 
   const [networkModels, setNetworkModels] = useState<NetworkModel[]>([]);
+  const [networkModelsEthUsd, setNetworkModelsEthUsd] = useState<number>(PIPELINE_ETH_USD_CLIENT_FALLBACK);
   const [networkModelsLoading, setNetworkModelsLoading] = useState(false);
   const [networkModelsError, setNetworkModelsError] = useState<string | null>(null);
   const [networkModelSearch, setNetworkModelSearch] = useState('');
@@ -345,10 +435,23 @@ export const DeveloperView: React.FC = () => {
     setNetworkModelsLoading(true);
     setNetworkModelsError(null);
     try {
-      const [netRes, catalogRes] = await Promise.allSettled([
+      const [netRes, catalogRes, ethRes] = await Promise.allSettled([
         fetch('/api/v1/developer/network-models?limit=all'),
         fetch('/api/v1/dashboard/pipeline-catalog'),
+        fetch('/api/v1/dashboard/eth-usd'),
       ]);
+
+      if (ethRes.status === 'fulfilled' && ethRes.value.ok) {
+        try {
+          const ethJson = await ethRes.value.json();
+          const n = ethJson.ethUsd;
+          if (typeof n === 'number' && Number.isFinite(n) && n > 0) {
+            setNetworkModelsEthUsd(n);
+          }
+        } catch {
+          /* keep previous ETH/USD */
+        }
+      }
 
       // Require net/models to succeed
       if (netRes.status !== 'fulfilled' || !netRes.value.ok) {
@@ -849,16 +952,34 @@ result = [...result].sort((a, b) => {
                                 { key: 'Model', label: 'Model', align: 'left' },
                                 { key: 'WarmOrchCount', label: 'Warm Orchestrators', align: 'right' },
                                 { key: 'TotalCapacity', label: 'Total Capacity', align: 'right' },
-                                { key: 'PriceAvgWeiPerPixel', label: 'Avg Price (wei/px)', align: 'right' },
-                                { key: 'PriceMinWeiPerPixel', label: 'Price Range (wei/px)', align: 'right' },
-                              ] as { key: ModelSortKey; label: string; align: 'left' | 'right' }[]
-                            ).map(({ key, label, align }) => {
+                                {
+                                  key: 'PriceAvgWeiPerPixel',
+                                  label: 'Price',
+                                  align: 'right',
+                                  headerTitle:
+                                    'Live video: est. USD/min at 512×512 from wei/pixel. Text-to-image: USD per 512×512 image. Upscale: USD per x4 output. Token pipelines: USD per 10k tokens. Other: wei per billing unit. USD uses ETH/USD from the pricing oracle.',
+                                },
+                                {
+                                  key: 'PriceMinWeiPerPixel',
+                                  label: 'Price range',
+                                  align: 'right',
+                                  headerTitle:
+                                    'Min and max list-price estimates over orchestrators (same rules as Price column). Hover each value for wei detail.',
+                                },
+                              ] as {
+                                key: ModelSortKey;
+                                label: string;
+                                align: 'left' | 'right';
+                                headerTitle?: string;
+                              }[]
+                            ).map(({ key, label, align, headerTitle }) => {
                               const active = modelSortKey === key;
                               const Icon = active ? (modelSortDir === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown;
                               return (
                                 <th key={key} className={`pb-3 font-medium${align === 'right' ? ' text-right' : ''}`}>
                                   <button
                                     type="button"
+                                    title={headerTitle}
                                     onClick={() => {
                                       if (modelSortKey === key) {
                                         setModelSortDir((d) => d === 'asc' ? 'desc' : 'asc');
@@ -905,16 +1026,19 @@ result = [...result].sort((a, b) => {
                               <td className="py-3 pr-4 text-right">
                                 <span className={`text-sm font-mono ${model.TotalCapacity > 0 ? 'text-text-primary' : 'text-text-secondary opacity-40'}`}>{model.TotalCapacity > 0 ? model.TotalCapacity : '—'}</span>
                               </td>
-                              <td className="py-3 pr-4 text-right">
-                                <span className={`text-sm font-mono ${model.PriceAvgWeiPerPixel > 0 ? 'text-accent-emerald' : 'text-text-secondary opacity-40'}`}>{model.PriceAvgWeiPerPixel > 0 ? model.PriceAvgWeiPerPixel.toLocaleString() : '—'}</span>
-                              </td>
-                              <td className="py-3 text-right">
-                                <span className="text-sm font-mono text-text-secondary">
-                                  {model.PriceMinWeiPerPixel > 0 || model.PriceMaxWeiPerPixel > 0
-                                    ? `${model.PriceMinWeiPerPixel.toLocaleString()} – ${model.PriceMaxWeiPerPixel.toLocaleString()}`
-                                    : '—'}
-                                </span>
-                              </td>
+                              <DeveloperModelPriceCell
+                                pipelineId={model.Pipeline}
+                                wei={avgWeiBigIntFromNumber(model.PriceAvgWeiPerPixel)}
+                                ethUsd={networkModelsEthUsd}
+                                tdClass="py-3 pr-4 text-right"
+                              />
+                              <DeveloperModelPriceRangeCell
+                                pipelineId={model.Pipeline}
+                                minWei={avgWeiBigIntFromNumber(model.PriceMinWeiPerPixel)}
+                                maxWei={avgWeiBigIntFromNumber(model.PriceMaxWeiPerPixel)}
+                                ethUsd={networkModelsEthUsd}
+                                tdClass="py-3 text-right"
+                              />
                             </tr>
                           ))}
                         </tbody>
