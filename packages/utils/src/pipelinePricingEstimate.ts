@@ -1,0 +1,144 @@
+/**
+ * Shared list-price USD estimates from wei-per-unit (dashboard + developer UI).
+ * Mirrors billing assumptions in apps/web-next dashboard pipeline table.
+ */
+
+export const LIVE_VIDEO_PIPELINE_ID = 'live-video-to-video';
+export const TEXT_TO_IMAGE_PIPELINE_ID = 'text-to-image';
+export const UPSCALE_PIPELINE_ID = 'upscale';
+export const LLM_PIPELINE_ID = 'llm';
+
+/** Billing reference resolution for list-price estimates (512×512). */
+export const PIPELINE_PRICE_REF_PIXELS = 512 * 512;
+/** LLM list-price USD estimate: one request billed at 10k tokens (wei/token × 10_000). */
+export const LLM_PRICE_REF_TOKENS = 10_000;
+/** x4 upscale: bill on returned pixels = 4× input area (512² → 1024²). */
+export const UPSCALE_X4_OUTPUT_PIXEL_FACTOR = 4;
+export const LIVE_VIDEO_ESTIMATE_FPS_FALLBACK = 24;
+export const PIPELINE_ETH_USD_CLIENT_FALLBACK = 3000;
+
+const PIPELINE_BILLING_UNIT: Record<string, string> = {
+  llm: 'token',
+  lms: 'token',
+  'openai-chat-completions': 'token',
+  'openai-text-embeddings': 'token',
+  'audio-to-text': 'second',
+  'text-to-speech': 'second',
+};
+
+/** Billing unit for a pipeline id (pixel, token, or second). */
+export function pipelineBillingUnit(pipelineId: string): string {
+  return PIPELINE_BILLING_UNIT[pipelineId] ?? 'pixel';
+}
+
+export function formatUsdPipelineEstimate(usd: number): string {
+  if (!Number.isFinite(usd) || usd < 0) return '—';
+  if (usd === 0) return '$0.00';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: usd < 0.01 ? 5 : usd < 1 ? 4 : 2,
+  }).format(usd);
+}
+
+/** Whole thousands as "10k"; otherwise en-US grouping (e.g. 1,500). */
+export function formatTokenCountShort(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0';
+  if (n >= 1000 && n % 1000 === 0) {
+    return `${n / 1000}k`;
+  }
+  return n.toLocaleString('en-US');
+}
+
+export function weiBigintToUsd(weiTotal: bigint, ethUsd: number): number {
+  return (Number(weiTotal) / 1e18) * ethUsd;
+}
+
+export function pipelineTablePriceCellContent(input: {
+  pipelineId: string;
+  wei: bigint | null;
+  unit: string;
+  modelFps: number | null;
+  pipelineAvgFps: number | undefined;
+  ethUsd: number;
+}): { main: string; richLines: string[] | null } {
+  const { pipelineId, wei, unit, modelFps, pipelineAvgFps, ethUsd } = input;
+  if (wei == null) {
+    return { main: '—', richLines: null };
+  }
+  const weiLabel = `${wei.toLocaleString('en-US')} wei/${unit}`;
+
+  if (pipelineId === LIVE_VIDEO_PIPELINE_ID) {
+    const fps =
+      modelFps != null && Number.isFinite(modelFps) && modelFps > 0
+        ? modelFps
+        : pipelineAvgFps != null && Number.isFinite(pipelineAvgFps) && pipelineAvgFps > 0
+          ? pipelineAvgFps
+          : LIVE_VIDEO_ESTIMATE_FPS_FALLBACK;
+    const weiPerMinute = wei * BigInt(Math.round(PIPELINE_PRICE_REF_PIXELS * fps * 60));
+    const usd = weiBigintToUsd(weiPerMinute, ethUsd);
+    return {
+      main: `${formatUsdPipelineEstimate(usd)}/min`,
+      richLines: [
+        weiLabel,
+        `Estimate: ${fps.toFixed(1)} FPS at 512×512 for one minute of output.`,
+        `USD from ETH/USD ≈ $${ethUsd.toFixed(2)} (oracle / cache).`,
+      ],
+    };
+  }
+
+  if (pipelineId === TEXT_TO_IMAGE_PIPELINE_ID) {
+    const weiPerImage = wei * BigInt(PIPELINE_PRICE_REF_PIXELS);
+    const usd = weiBigintToUsd(weiPerImage, ethUsd);
+    return {
+      main: `${formatUsdPipelineEstimate(usd)}/img`,
+      richLines: [
+        weiLabel,
+        '512×512 output image (single frame).',
+        `USD from ETH/USD ≈ $${ethUsd.toFixed(2)} (oracle / cache).`,
+      ],
+    };
+  }
+
+  if (pipelineId === UPSCALE_PIPELINE_ID) {
+    const outputPixels = BigInt(PIPELINE_PRICE_REF_PIXELS * UPSCALE_X4_OUTPUT_PIXEL_FACTOR);
+    const weiForJob = wei * outputPixels;
+    const usd = weiBigintToUsd(weiForJob, ethUsd);
+    return {
+      main: `${formatUsdPipelineEstimate(usd)}/img`,
+      richLines: [
+        weiLabel,
+        '512×512 input, x4 upscale: 4× output pixels (≈1024×1024) billed on returned pixels.',
+        `USD from ETH/USD ≈ $${ethUsd.toFixed(2)} (oracle / cache).`,
+      ],
+    };
+  }
+
+  if (unit === 'token') {
+    const weiForRequest = wei * BigInt(LLM_PRICE_REF_TOKENS);
+    const usd = weiBigintToUsd(weiForRequest, ethUsd);
+    return {
+      main: `${formatUsdPipelineEstimate(usd)}/${formatTokenCountShort(LLM_PRICE_REF_TOKENS)} tokens`,
+      richLines: [
+        weiLabel,
+        `Estimate: ${formatTokenCountShort(LLM_PRICE_REF_TOKENS)} tokens at list wei/token (total request size assumption).`,
+        `USD from ETH/USD ≈ $${ethUsd.toFixed(2)} (oracle / cache).`,
+      ],
+    };
+  }
+
+  return { main: weiLabel, richLines: null };
+}
+
+/** Integer wei per billing unit from a float average (e.g. net/models). */
+export function avgWeiBigIntFromNumber(priceAvgWeiPerUnit: number): bigint | null {
+  if (!Number.isFinite(priceAvgWeiPerUnit) || priceAvgWeiPerUnit <= 0) return null;
+  const r = Math.round(priceAvgWeiPerUnit);
+  if (r <= 0) return null;
+  try {
+    return BigInt(r);
+  } catch {
+    return null;
+  }
+}

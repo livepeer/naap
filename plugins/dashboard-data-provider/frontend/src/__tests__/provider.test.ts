@@ -76,8 +76,9 @@ const STUB_GPU_CAPACITY = {
 
 const STUB_PRICING = [
   {
-    pipeline: 'streamdiffusion-sdxl',
-    unit: 'live-video-to-video',
+    pipeline: 'live-video-to-video',
+    model: 'streamdiffusion-sdxl',
+    unit: 'pixel',
     price: 2578,
     avgWeiPerUnit: '2578',
     pixelsPerUnit: 1,

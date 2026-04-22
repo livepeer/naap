@@ -43,6 +43,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     `${base}/api/v1/dashboard/orchestrators?period=24h`,
     `${base}/api/v1/dashboard/pipeline-catalog`,
     `${base}/api/v1/dashboard/pricing`,
+    `${base}/api/v1/dashboard/eth-usd`,
     `${base}/api/v1/dashboard/gpu-capacity?timeframe=24`,
     `${base}/api/v1/network/perf-by-model?${perfQs}`,
     `${base}/api/v1/network/capacity`,

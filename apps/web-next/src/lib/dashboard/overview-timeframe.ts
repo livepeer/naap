@@ -23,7 +23,8 @@ export const OVERVIEW_TIMEFRAME_VALUES: readonly string[] = OVERVIEW_TIMEFRAME_O
 export const DEFAULT_OVERVIEW_TIMEFRAME: OverviewTimeframeValue = '12';
 
 export function formatOverviewTimeframeLabel(hours: number): string {
-  if (hours >= 24 && hours % 24 === 0) return `${hours / 24}d`;
   if (hours === 1) return '1h';
-  return `${hours}h`;
+  if (hours < 24) return `${hours}h`;
+  if (hours % 24 === 0) return `${hours / 24}d`;
+  return `${Math.round(hours / 24)}d`;
 }

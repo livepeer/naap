@@ -7,9 +7,12 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
+import {
+  fetchEthUsdFromPublicExchanges,
+  fetchLptUsdFromPublicExchanges,
+} from '@/lib/prices/public-exchange-spot';
 
 const CACHE_TTL = 5 * 60 * 1000;
-const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,8 +29,8 @@ export async function GET(request: NextRequest) {
       distinct: ['symbol'],
     });
 
-    const lpt = cached.find(c => c.symbol === 'LPT');
-    const eth = cached.find(c => c.symbol === 'ETH');
+    const lpt = cached.find((c) => c.symbol === 'LPT');
+    const eth = cached.find((c) => c.symbol === 'ETH');
 
     if (lpt && eth) {
       return success({
@@ -37,16 +40,13 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Fetch fresh
     try {
-      const headers: Record<string, string> = { Accept: 'application/json' };
-      const apiKey = process.env.COINGECKO_API_KEY;
-      if (apiKey) headers['x-cg-demo-api-key'] = apiKey;
-
-      const resp = await fetch(`${COINGECKO_BASE}/simple/price?ids=livepeer,ethereum&vs_currencies=usd`, { headers });
-      const data = await resp.json();
-      const lptUsd = data?.livepeer?.usd ?? 0;
-      const ethUsd = data?.ethereum?.usd ?? 0;
+      const [lptUsdRaw, ethUsdRaw] = await Promise.all([
+        fetchLptUsdFromPublicExchanges(),
+        fetchEthUsdFromPublicExchanges(),
+      ]);
+      const lptUsd = lptUsdRaw != null && Number.isFinite(lptUsdRaw) && lptUsdRaw > 0 ? lptUsdRaw : 0;
+      const ethUsd = ethUsdRaw != null && Number.isFinite(ethUsdRaw) && ethUsdRaw > 0 ? ethUsdRaw : 0;
       const now = new Date();
 
       await Promise.all([
@@ -56,15 +56,14 @@ export async function GET(request: NextRequest) {
 
       return success({ lptUsd, ethUsd, fetchedAt: now.toISOString() });
     } catch {
-      // Return last known
       const fallback = await prisma.walletPriceCache.findMany({
         where: { symbol: { in: ['LPT', 'ETH'] } },
         orderBy: { fetchedAt: 'desc' },
         distinct: ['symbol'],
       });
       return success({
-        lptUsd: Number(fallback.find(c => c.symbol === 'LPT')?.priceUsd ?? 0),
-        ethUsd: Number(fallback.find(c => c.symbol === 'ETH')?.priceUsd ?? 0),
+        lptUsd: Number(fallback.find((c) => c.symbol === 'LPT')?.priceUsd ?? 0),
+        ethUsd: Number(fallback.find((c) => c.symbol === 'ETH')?.priceUsd ?? 0),
         fetchedAt: fallback[0]?.fetchedAt.toISOString() ?? new Date().toISOString(),
       });
     }
