@@ -175,6 +175,7 @@ export const kpi: DashboardKPI = {
   dailySessionCount: { value: _hourlySessions.reduce((s, b) => s + b.value, 0), delta: 5.2 },
   dailyNetworkFeesEth: { value: 6.43, delta: 7.2 },
   timeframeHours: 24,
+  orchestratorsWindowHours: 6,
   hourlyUsage: _hourlyUsage,
   hourlySessions: _hourlySessions,
 };

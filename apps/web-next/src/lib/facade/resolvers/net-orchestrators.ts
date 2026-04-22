@@ -1,7 +1,7 @@
 /**
  * Shared net/orchestrators fetch — single cached call used by both
  * the KPI resolver (time-scoped count when `LastSeen` is present) and the
- * orchestrator-table resolver (multi-URI enrichment).
+ * orchestrator-table resolver (one row per Address+URI endpoint).
  *
  * Source: GET /v1/net/orchestrators?active_only=false&limit=1000&offset=0
  */
@@ -117,12 +117,17 @@ function parseOrchestratorLastSeenMs(row: NaapNetOrchestrator): number | undefin
   return Number.isFinite(t) ? t : undefined;
 }
 
+/** Stable map key for a (address, service URI) pair; both sides should be trimmed. */
+export function orchestratorPairKey(addrLower: string, uri: string): string {
+  return `${addrLower}\0${uri}`;
+}
+
 export interface NetOrchestratorData {
   /** Distinct addresses where at least one entry has IsActive === true. */
   activeCount: number;
   /**
-   * Distinct addresses with at least one non-blank service URI — same inclusion rule as
-   * the orchestrator table (`resolveOrchestrators` after `rowHasNonBlankServiceUri`).
+   * Distinct (Address, service URI) pairs with non-blank URI — same row count as the
+   * orchestrator table (`resolveOrchestrators`).
    */
   listedCount: number;
   /** Address (lower-cased) → deduplicated list of service URIs. */
@@ -136,11 +141,22 @@ export interface NetOrchestratorData {
   hasLastSeenData: boolean;
   /** Per-address max `LastSeen` (ms) across URI rows; only addresses with a seen timestamp appear. */
   lastSeenMsByAddress: Map<string, number>;
+  /**
+   * Per (address, URI) max `LastSeen` (ms) across registry rows for that endpoint.
+   * Keys from {@link orchestratorPairKey}.
+   */
+  lastSeenMsByPair: Map<string, number>;
+  /**
+   * Oldest parseable `LastSeen` (ms) across all registry rows. `undefined` when the
+   * registry had no parseable timestamps. Used to label the effective window of the
+   * snapshot the orchestrator count is derived from.
+   */
+  oldestLastSeenMs?: number;
   /** Per-address pipeline/model offers parsed from RawCapabilities.hardware. */
   pipelineModelsByAddress: Map<string, DashboardPipelineModelOffer[]>;
 }
 
-/** True if this URI list would produce a row in the overview orchestrator table. */
+/** True if this URI list would produce at least one row in the overview orchestrator table. */
 export function hasNonBlankServiceUri(uris: string[]): boolean {
   return uris.some((u) => typeof u === 'string' && u.trim().length > 0);
 }
@@ -152,6 +168,7 @@ const EMPTY: NetOrchestratorData = {
   displayAddressByLower: new Map(),
   hasLastSeenData: false,
   lastSeenMsByAddress: new Map(),
+  lastSeenMsByPair: new Map(),
   pipelineModelsByAddress: new Map(),
 };
 
@@ -177,8 +194,10 @@ export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
     const displayAddressByLower = new Map<string, string>();
     const activeAddresses = new Set<string>();
     const lastSeenMsByAddress = new Map<string, number>();
+    const lastSeenMsByPair = new Map<string, number>();
     const pipelineModelsByAddress = new Map<string, DashboardPipelineModelOffer[]>();
     let hasLastSeenData = false;
+    let oldestLastSeenMs: number | undefined;
 
     for (const r of rows) {
       const addr = r.Address.trim().toLowerCase();
@@ -208,17 +227,29 @@ export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
       const ls = parseOrchestratorLastSeenMs(r);
       if (ls !== undefined) {
         hasLastSeenData = true;
+        if (oldestLastSeenMs === undefined || ls < oldestLastSeenMs) {
+          oldestLastSeenMs = ls;
+        }
         const prev = lastSeenMsByAddress.get(addr);
         if (prev === undefined || ls > prev) {
           lastSeenMsByAddress.set(addr, ls);
+        }
+        if (uri.length > 0) {
+          const pk = orchestratorPairKey(addr, uri);
+          const prevPair = lastSeenMsByPair.get(pk);
+          if (prevPair === undefined || ls > prevPair) {
+            lastSeenMsByPair.set(pk, ls);
+          }
         }
       }
     }
 
     let listedCount = 0;
     for (const uris of urisByAddress.values()) {
-      if (hasNonBlankServiceUri(uris)) {
-        listedCount++;
+      for (const u of uris) {
+        if (typeof u === 'string' && u.trim().length > 0) {
+          listedCount++;
+        }
       }
     }
 
@@ -229,6 +260,8 @@ export function getNetOrchestratorData(): Promise<NetOrchestratorData> {
       displayAddressByLower,
       hasLastSeenData,
       lastSeenMsByAddress,
+      lastSeenMsByPair,
+      oldestLastSeenMs,
       pipelineModelsByAddress,
     };
   });

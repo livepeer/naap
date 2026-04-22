@@ -2,13 +2,14 @@
  * Orchestrators resolver — net registry as source of truth, dashboard merge.
  *
  * The Overview table **lists every distinct address** from GET /v1/net/orchestrators
- * (active_only=false, paged limit/offset — see net-orchestrators.ts), in registry order.
+ * (active_only=false — see net-orchestrators.ts), in registry order. Each row carries
+ * the full list of known service URIs for that address so the UI can render them
+ * together as one row per orchestrator. The total `(Address, URI)` pair count (used
+ * for the table header) is derivable from `uris.length` summed across rows.
+ *
  * For each address, when GET /v1/dashboard/orchestrators includes the same address
  * for the requested window, we fill SLA/session/GPU/pipeline fields from that row;
- * otherwise we use empty metrics.
- *
- * Rows with no non-empty service URI are dropped so the table only lists reachable
- * orchestrators.
+ * otherwise we use empty metrics. Rows with no non-empty service URI are dropped.
  *
  * The dashboard API returns effectiveSuccessRate, noSwapRatio, and slaScore in 0–1
  * range; they are multiplied by 100 for the UI.

@@ -2,14 +2,15 @@
  * KPI resolver — NAAP Dashboard API backed.
  *
  * Fetches pre-aggregated KPI from GET /v1/dashboard/kpi, then overrides
- * orchestratorsOnline.value using GET /v1/net/orchestrators (shared cached fetch):
- * distinct listed addresses (non-blank service URI) whose latest `LastSeen` falls
- * within the KPI window. When the registry omits `LastSeen`, falls back to the full
- * listed count (same rule as the orchestrator table). The overview table is unchanged
- * and still lists every listed address.
+ * `orchestratorsOnline.value` with the distinct `(Address, URI)` pair count from the
+ * shared /v1/net/orchestrators snapshot. The orchestrator list endpoint has no
+ * timeframe filter, so this value is independent of the user-selected window — which
+ * is why `orchestratorsWindowHours` is exposed alongside: it carries the effective
+ * span implied by the oldest `LastSeen` in the snapshot so the UI can label the tile
+ * accordingly (e.g. "last ~3h") instead of the global dashboard timeframe.
  *
- * Both fetches run in parallel; if net/orchestrators fails the upstream
- * KPI value is preserved as-is.
+ * Both fetches run in parallel; if net/orchestrators fails the upstream KPI value is
+ * preserved as-is.
  *
  * Source:
  *   GET /v1/dashboard/kpi?window=Nh[&pipeline=...&model_id=...]
@@ -21,7 +22,6 @@ import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
 import {
   getNetOrchestratorDataSafe,
-  hasNonBlankServiceUri,
   type NetOrchestratorData,
 } from './net-orchestrators.js';
 
@@ -31,26 +31,21 @@ export function normalizeTimeframeHours(timeframe?: string): number {
   return Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
 }
 
-/** KPI-only: listed orchestrators with registry evidence they were seen within the window. */
-function orchestratorKpiCountForTimeframe(
-  netData: NetOrchestratorData,
-  hours: number,
-): number {
-  if (!netData.hasLastSeenData) {
-    return netData.listedCount;
+/**
+ * Effective window (hours) implied by the orchestrator registry snapshot:
+ * how far back the oldest `LastSeen` reaches. Rounded to one decimal; at least 1h.
+ * `null` when the registry had no parseable timestamps.
+ */
+function orchestratorSnapshotWindowHours(netData: NetOrchestratorData): number | null {
+  if (!netData.hasLastSeenData || netData.oldestLastSeenMs === undefined) {
+    return null;
   }
-  const cutoffMs = Date.now() - hours * 60 * 60 * 1000;
-  let n = 0;
-  for (const [addrLower, uris] of netData.urisByAddress) {
-    if (!hasNonBlankServiceUri(uris)) {
-      continue;
-    }
-    const lastMs = netData.lastSeenMsByAddress.get(addrLower);
-    if (lastMs !== undefined && lastMs >= cutoffMs) {
-      n++;
-    }
+  const ageMs = Date.now() - netData.oldestLastSeenMs;
+  if (!Number.isFinite(ageMs) || ageMs <= 0) {
+    return null;
   }
-  return n;
+  const hours = ageMs / 3_600_000;
+  return Math.max(1, Math.round(hours * 10) / 10);
 }
 
 export async function resolveKPI(opts: { 
@@ -82,8 +77,9 @@ export async function resolveKPI(opts: {
     if (hasNetRegistrySnapshot) {
       kpi.orchestratorsOnline = {
         ...kpi.orchestratorsOnline,
-        value: orchestratorKpiCountForTimeframe(netData, hours),
+        value: netData.listedCount,
       };
+      kpi.orchestratorsWindowHours = orchestratorSnapshotWindowHours(netData);
     }
 
     return kpi;
