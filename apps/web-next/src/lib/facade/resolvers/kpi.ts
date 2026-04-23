@@ -2,7 +2,7 @@
  * KPI resolver — NAAP Dashboard API backed.
  *
  * Fetches GET /v1/dashboard/kpi (combined `streaming` + `requests` on API v1).
- * `orchestratorsOnline` and other KPI fields come from the API response as-is.
+ * `orchestratorsObserved` and other KPI fields come from the API response as-is.
  *
  * Source:
  *   GET /v1/dashboard/kpi?window=…[&pipeline=…&model_id=…] — `window` is OpenAPI

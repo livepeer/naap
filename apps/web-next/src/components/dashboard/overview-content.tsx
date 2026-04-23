@@ -484,7 +484,7 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
   return (
     <div className="grid shrink-0 grid-cols-2 gap-2 content-start rounded-lg border border-border bg-card p-2 sm:gap-3 sm:p-3">
       {tile(CheckCircle2, `Success Rate (${tfLabel})`, `${data.successRate.value}%`)}
-      {tile(Server, `Orchestrators (${tfLabel})`, data.orchestratorsOnline.value)}
+      {tile(Server, `Orchestrators (${tfLabel})`, data.orchestratorsObserved.value)}
       {tile(Clock, `Usage (${tfLabel})`, formatNumber(data.dailyUsageMins.value), 'mins', data.hourlyUsage, 'Total transcoding minutes. Sparkline: one bar per UTC hour.')}
       {tile(Radio, `Sessions (${tfLabel})`, data.dailySessionCount.value.toLocaleString(), undefined, data.hourlySessions, 'Demand sessions. Sparkline: one bar per UTC hour.')}
     </div>

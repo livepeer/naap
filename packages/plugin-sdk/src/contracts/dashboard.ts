@@ -69,7 +69,7 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
 
   type KPI {
     successRate: MetricDelta!
-    orchestratorsOnline: MetricDelta!
+    orchestratorsObserved: MetricDelta!
     dailyUsageMins: MetricDelta!
     dailySessionCount: MetricDelta!
     dailyNetworkFeesEth: MetricDelta!
@@ -219,7 +219,7 @@ export interface HourlyBucket {
 /** KPI widget data */
 export interface DashboardKPI {
   successRate: MetricDelta;
-  orchestratorsOnline: MetricDelta;
+  orchestratorsObserved: MetricDelta;
   dailyUsageMins: MetricDelta;
   dailySessionCount: MetricDelta;
   dailyNetworkFeesEth: MetricDelta;
