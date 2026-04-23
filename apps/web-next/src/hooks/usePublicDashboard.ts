@@ -17,7 +17,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type {
-  DashboardKPI,
+  DashboardKPIWithRequests,
+  DashboardPipelinesWithRequests,
   DashboardPipelineUsage,
   DashboardPipelineCatalogEntry,
   DashboardOrchestrator,
@@ -29,7 +30,7 @@ import type {
 } from '@naap/plugin-sdk';
 
 export interface PublicDashboardData {
-  kpi: DashboardKPI | null;
+  kpi: DashboardKPIWithRequests | null;
   pipelines: DashboardPipelineUsage[];
   pipelineCatalog: DashboardPipelineCatalogEntry[];
   orchestrators: DashboardOrchestrator[];
@@ -128,8 +129,10 @@ export function usePublicDashboard(
     const excludedPaths = ['/kpi', '/pipelines', '/pipeline-catalog', '/orchestrators'];
     const period = timeframeToPeriod(timeframe);
     const settled = await Promise.allSettled([
-      fetchJson<DashboardKPI>(`${API}/kpi?timeframe=${timeframe}`),
-      fetchJson<DashboardPipelineUsage[]>(`${API}/pipelines?timeframe=${timeframe}&limit=200`),
+      fetchJson<DashboardKPIWithRequests>(`${API}/kpi?timeframe=${timeframe}`),
+      fetchJson<DashboardPipelineUsage[] | DashboardPipelinesWithRequests>(
+        `${API}/pipelines?timeframe=${timeframe}&limit=200`,
+      ),
       fetchJson<DashboardPipelineCatalogEntry[]>(`${API}/pipeline-catalog`),
       fetchJson<DashboardOrchestrator[]>(`${API}/orchestrators?period=${period}`),
     ]);
@@ -137,7 +140,10 @@ export function usePublicDashboard(
     if (!mountedRef.current) return;
 
     const kpi = settledValue(settled[0]);
-    const pipelines = settledValue(settled[1]);
+    const pipelinesRaw = settledValue(settled[1]);
+    const pipelines = Array.isArray(pipelinesRaw)
+      ? pipelinesRaw
+      : (pipelinesRaw?.streaming ?? []);
     const catalog = settledValue(settled[2]);
     const orchestrators = settledValue(settled[3]);
 

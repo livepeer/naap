@@ -1,5 +1,5 @@
 /**
- * Developer Network Models — live NAAP /v1/net/models via facade.
+ * Developer Network Models — merged NAAP OpenAPI v1 `streaming/models` + `requests/models` via facade.
  * GET /api/v1/developer/network-models?limit=50 | limit=all
  */
 
