@@ -483,7 +483,7 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
 
   return (
     <div className="grid shrink-0 grid-cols-2 gap-2 content-start rounded-lg border border-border bg-card p-2 sm:gap-3 sm:p-3">
-      {tile(CheckCircle2, `Success Rate (${tfLabel})`, `${data.successRate.value}%`)}
+      {tile(CheckCircle2, `Success Rate (${tfLabel})`, `${data.successRate.value.toFixed(1)}%`)}
       {tile(Server, `Orchestrators (${tfLabel})`, data.orchestratorsObserved.value)}
       {tile(Clock, `Usage (${tfLabel})`, formatNumber(data.dailyUsageMins.value), 'mins', data.hourlyUsage, 'Total transcoding minutes. Sparkline: one bar per UTC hour.')}
       {tile(Radio, `Sessions (${tfLabel})`, data.dailySessionCount.value.toLocaleString(), undefined, data.hourlySessions, 'Demand sessions. Sparkline: one bar per UTC hour.')}
@@ -1384,8 +1384,8 @@ function JobFeedCard({
                   job.startedAt ? `First seen: ${job.startedAt}` : null,
                   job.lastSeen ? `Last seen: ${job.lastSeen}` : null,
                   job.durationSeconds != null ? `Duration: ${job.durationSeconds}s` : null,
-                  job.inputFps != null ? `Input FPS: ${job.inputFps}` : null,
-                  job.outputFps != null ? `Output FPS: ${job.outputFps}` : null,
+                  job.inputFps != null ? `Input FPS: ${job.inputFps.toFixed(1)}` : null,
+                  job.outputFps != null ? `Output FPS: ${job.outputFps.toFixed(1)}` : null,
                   `Status: ${job.status}`,
                 ].filter(Boolean).join('\n');
                 const rawPipeline = job.pipeline.trim();
@@ -1440,7 +1440,7 @@ function JobFeedCard({
                         )}
                       </div>
                     </td>
-                    <td className="py-1.5 text-right font-mono text-foreground">{job.inputFps != null && job.outputFps != null ? `${job.inputFps} / ${job.outputFps}` : '—'}</td>
+                    <td className="py-1.5 text-right font-mono text-foreground">{job.inputFps != null && job.outputFps != null ? `${job.inputFps.toFixed(1)} / ${job.outputFps.toFixed(1)}` : '—'}</td>
                     <td className="py-1.5 text-right font-mono text-muted-foreground">{job.runningFor ?? '—'}</td>
                     <td className="py-1.5 text-right">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusStyles[job.status] ?? ''}`}>{job.status}</span>
