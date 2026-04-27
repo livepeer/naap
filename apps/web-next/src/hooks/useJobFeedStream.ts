@@ -133,8 +133,10 @@ function dedupeAndSortJobs(entries: JobFeedEntry[], maxItems: number): JobFeedEn
  */
 const NO_PROVIDER_RETRY_DELAYS = [1000, 2000, 3000, 5000];
 /**
- * When the upstream briefly errors on first load, retry quickly before falling
- * back to the steady poll interval.
+ * Recovery backoff (ms) after any failed poll: while `feedFailureStreak > 0`, the
+ * next poll delay is `min(steadyPollInterval, JOB_FEED_RECOVERY_RETRY_DELAYS[index])`
+ * where `index` is derived from the streak (transient or persistent failures). After
+ * a healthy response, the streak resets and the steady poll interval is used again.
  */
 const JOB_FEED_RECOVERY_RETRY_DELAYS = [1000, 2000, 5000, 10000, 15000, 30000];
 
@@ -192,10 +194,16 @@ export function useJobFeedStream(
     let retryCount = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    async function fetchJobFeed(fetchUrl: string, options?: { bustCache?: boolean }): Promise<boolean> {
-      const requestUrl = options?.bustCache
-        ? appendJobFeedPollQuery(fetchUrl, pollIntervalMs, true)
-        : fetchUrl;
+    async function fetchJobFeed(
+      baseFetchUrl: string,
+      effectivePollMs: number,
+      options?: { bustCache?: boolean },
+    ): Promise<boolean> {
+      const requestUrl = appendJobFeedPollQuery(
+        baseFetchUrl,
+        effectivePollMs,
+        options?.bustCache ?? false,
+      );
       try {
         const res = await fetch(requestUrl, { signal: AbortSignal.timeout(20_000) });
         let body = {} as {
@@ -293,13 +301,15 @@ export function useJobFeedStream(
           setConnected(true);
           setError(null);
 
-          const feedUrl = appendJobFeedPollQuery(channelInfo.fetchUrl, normalizedPollIntervalMs);
+          const baseJobFeedUrl = channelInfo.fetchUrl;
           let feedFailureStreak = 0;
 
           if (normalizedPollIntervalMs > 0) {
             async function poll() {
               const shouldBustCache = feedFailureStreak > 0;
-              const healthy = await fetchJobFeed(feedUrl, { bustCache: shouldBustCache });
+              const healthy = await fetchJobFeed(baseJobFeedUrl, normalizedPollIntervalMs, {
+                bustCache: shouldBustCache,
+              });
               feedFailureStreak = healthy ? 0 : feedFailureStreak + 1;
               if (!pollStopped && isCurrentRun()) {
                 const retryIndex = Math.min(
@@ -315,7 +325,7 @@ export function useJobFeedStream(
             }
             void poll();
           } else {
-            void fetchJobFeed(feedUrl);
+            void fetchJobFeed(baseJobFeedUrl, normalizedPollIntervalMs);
           }
 
           // Also listen on the event bus so Ably pushes or manual

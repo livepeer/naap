@@ -39,7 +39,7 @@ interface ApiOrchestrator {
   service_uri?: string;
   knownSessions: number;
   successSessions: number;
-  successRatio: number;
+  successRatio: number | null;
   effectiveSuccessRate: number | null;
   noSwapRatio: number | null;
   slaScore: number | null;
@@ -64,14 +64,26 @@ export function orchestratorUpstreamWindowFromPeriod(period?: string): string {
   return formatDashboardWindow(capped);
 }
 
+/** Normalized key for deduping URIs (trim, lowercase, strip trailing slashes). */
+function normalizeServiceUriKey(uri: string): string {
+  return uri.trim().toLowerCase().replace(/\/+$/, '');
+}
+
 function mergeOrchestratorServiceUris(netUris: string[], dash: ApiOrchestrator): string[] {
   const out = [...netUris];
+  const normalizedSeen = new Set(
+    out.map((u) => normalizeServiceUriKey(u)).filter((k) => k.length > 0),
+  );
   const extra =
     (typeof dash.serviceUri === 'string' && dash.serviceUri.trim()) ||
     (typeof dash.service_uri === 'string' && dash.service_uri.trim()) ||
     '';
-  if (extra && !out.includes(extra)) {
-    out.push(extra);
+  if (extra) {
+    const key = normalizeServiceUriKey(extra);
+    if (key.length > 0 && !normalizedSeen.has(key)) {
+      normalizedSeen.add(key);
+      out.push(extra);
+    }
   }
   return out;
 }
@@ -151,6 +163,12 @@ function netOnlyPlaceholder(
   };
 }
 
+function dashboardServiceUrisEmpty(dash: ApiOrchestrator): boolean {
+  const a = typeof dash.serviceUri === 'string' ? dash.serviceUri.trim() : '';
+  const b = typeof dash.service_uri === 'string' ? dash.service_uri.trim() : '';
+  return a.length === 0 && b.length === 0;
+}
+
 export async function resolveOrchestrators(opts?: { period?: string }): Promise<DashboardOrchestrator[]> {
   const window = orchestratorUpstreamWindowFromPeriod(opts?.period);
   return cachedFetch(`facade:orchestrators:${window}`, TTL.ORCHESTRATORS, async () => {
@@ -173,20 +191,51 @@ export async function resolveOrchestrators(opts?: { period?: string }): Promise<
       }
     }
 
-    const netKeys = [...netData.urisByAddress.keys()];
+    const netKeySet = new Set<string>([
+      ...netData.urisByAddress.keys(),
+      ...netData.pipelineModelsByAddress.keys(),
+      ...netData.lastSeenMsByAddress.keys(),
+    ]);
     const seenDash = new Set(dashboardOrder);
-    const orderedKeys = [...dashboardOrder, ...netKeys.filter((k) => !seenDash.has(k))];
+    const extraNetKeys = [...netKeySet].filter((k) => !seenDash.has(k)).sort((a, b) => a.localeCompare(b));
+    const orderedKeys = [...dashboardOrder, ...extraNetKeys];
 
-    const merged: DashboardOrchestrator[] = [];
+    const mergedPairs: Array<{ addressLower: string; row: DashboardOrchestrator }> = [];
     for (const addressLower of orderedKeys) {
       const dash = dashboardByLower.get(addressLower);
       if (dash) {
-        merged.push(mapDashboardIntoNetRow(addressLower, dash, netData));
+        mergedPairs.push({ addressLower, row: mapDashboardIntoNetRow(addressLower, dash, netData) });
       } else {
-        merged.push(netOnlyPlaceholder(addressLower, netData));
+        mergedPairs.push({ addressLower, row: netOnlyPlaceholder(addressLower, netData) });
       }
     }
 
-    return merged.filter((row) => hasNonBlankServiceUri(row.uris));
+    const merged = mergedPairs.map((p) => p.row);
+    const beforeFilter = merged.length;
+    const filtered = merged.filter((row) => hasNonBlankServiceUri(row.uris));
+    const dropped = beforeFilter - filtered.length;
+
+    let droppedNoDashboardNoNetUri = 0;
+    for (const { addressLower, row } of mergedPairs) {
+      if (hasNonBlankServiceUri(row.uris)) continue;
+      const dash = dashboardByLower.get(addressLower);
+      const netUris = netData.urisByAddress.get(addressLower) ?? [];
+      const netHasUri = hasNonBlankServiceUri(netUris);
+      if (dash) {
+        if (dashboardServiceUrisEmpty(dash) && !netHasUri) {
+          droppedNoDashboardNoNetUri += 1;
+        }
+      } else if (!netHasUri) {
+        droppedNoDashboardNoNetUri += 1;
+      }
+    }
+
+    if (dropped > 0) {
+      console.warn(
+        `[facade/orchestrators] merge: orderedKeys=${orderedKeys.length} beforeFilter=${beforeFilter} afterFilter=${filtered.length} dropped=${dropped} droppedNoServiceUriAndNoNetUri=${droppedNoDashboardNoNetUri}`,
+      );
+    }
+
+    return filtered;
   });
 }
