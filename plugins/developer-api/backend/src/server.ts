@@ -240,8 +240,11 @@ async function fetchStreamingAndRequestsModelRows(
 
   const accum: NetModelRow[] = [];
 
-  const ingest = async (res: Response) => {
-    if (!res.ok) return;
+  const ingest = async (res: Response, label: string): Promise<boolean> => {
+    if (!res.ok) {
+      console.warn(`[DeveloperAPI] ingest failed: ${label} returned HTTP ${res.status} (${res.url || label})`);
+      return false;
+    }
     const json: unknown = await res.json();
     const arr = Array.isArray(json) ? json : [];
     for (const raw of arr) {
@@ -260,10 +263,14 @@ async function fetchStreamingAndRequestsModelRows(
         PriceAvgWeiPerPixel: 0,
       });
     }
+    return true;
   };
 
-  await ingest(sRes);
-  await ingest(rRes);
+  const streamingOk = await ingest(sRes, 'streaming/models');
+  const requestsOk = await ingest(rRes, 'requests/models');
+  if (!streamingOk && !requestsOk) {
+    throw new Error('Both streaming/models and requests/models upstream requests failed');
+  }
 
   const byKey = new Map<string, NetModelRow>();
   for (const r of accum) {
