@@ -60,7 +60,7 @@ export function registerProvider(eventBus: IEventBus, api: IApiClient) {
       const stats = await api.get('/api/v1/my-service/stats');
       return {
         successRate: { value: stats.successRate, delta: stats.successRateDelta },
-        orchestratorsOnline: { value: stats.orchCount, delta: stats.orchDelta },
+        orchestratorsObserved: { value: stats.orchCount, delta: stats.orchDelta },
         dailyUsageMins: { value: stats.usageMins, delta: stats.usageDelta },
         dailySessionCount: { value: stats.streams, delta: stats.streamsDelta },
       };
@@ -177,7 +177,7 @@ type Query {
 
 | Type | Fields |
 |---|---|
-| `KPI` | `successRate`, `orchestratorsOnline`, `dailyUsageMins`, `dailySessionCount` (all `MetricDelta!`) |
+| `KPI` | `successRate`, `orchestratorsObserved`, `dailyUsageMins`, `dailySessionCount` (all `MetricDelta!`) |
 | `MetricDelta` | `value: Float!`, `delta: Float!` |
 | `Protocol` | `currentRound: Int!`, `blockProgress: Int!`, `totalBlocks: Int!`, `totalStakedLPT: Float!` |
 | `FeesInfo` | `totalEth: Float!`, `entries: [FeeEntry!]!` |
