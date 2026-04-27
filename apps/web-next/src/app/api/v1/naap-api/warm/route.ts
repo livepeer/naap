@@ -2,7 +2,7 @@
 // GET /api/v1/naap-api/warm
 //
 // Populates the in-process mem cache for NAAP API-backed data
-// (streaming/models + requests/models merge — see repo openapi.yaml).
+// (currently: network models used by the pipeline-catalog resolver).
 // Called by:
 //   - Vercel cron (every ~50 min, before the 1hr TTL expires)
 //   - Manual invocation for debugging

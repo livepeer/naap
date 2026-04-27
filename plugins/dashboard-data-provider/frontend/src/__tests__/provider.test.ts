@@ -29,7 +29,7 @@ import { registerJobFeedEmitter } from '../job-feed-emitter.js';
 
 const STUB_KPI = {
   successRate: { value: 100, delta: 0 },
-  orchestratorsObserved: { value: 2, delta: 0 },
+  orchestratorsOnline: { value: 2, delta: 0 },
   dailyUsageMins: { value: 14, delta: 0 },
   dailySessionCount: { value: 9, delta: 0 },
   dailyNetworkFeesEth: { value: 0, delta: 0 },
@@ -264,7 +264,7 @@ describe('registerDashboardProvider', () => {
 
     const request: DashboardQueryRequest = {
       query: `{
-        kpi { successRate { value delta } orchestratorsObserved { value delta } dailyUsageMins { value delta } dailySessionCount { value delta } }
+        kpi { successRate { value delta } orchestratorsOnline { value delta } dailyUsageMins { value delta } dailySessionCount { value delta } }
         protocol { currentRound blockProgress totalBlocks totalStakedLPT }
         fees(days: 7) { totalEth totalUsd oneDayVolumeUsd dayData { dateS volumeEth volumeUsd } weeklyData { date weeklyVolumeUsd weeklyVolumeEth } }
         pipelines { name mins color }
@@ -286,8 +286,8 @@ describe('registerDashboardProvider', () => {
     expect(typeof response.data!.kpi!.successRate.value).toBe('number');
     expect(response.data!.kpi!.successRate.value).toBeGreaterThanOrEqual(0);
     expect(response.data!.kpi!.successRate.value).toBeLessThanOrEqual(100);
-    expect(typeof response.data!.kpi!.orchestratorsObserved.value).toBe('number');
-    expect(response.data!.kpi!.orchestratorsObserved.value).toBeGreaterThan(0);
+    expect(typeof response.data!.kpi!.orchestratorsOnline.value).toBe('number');
+    expect(response.data!.kpi!.orchestratorsOnline.value).toBeGreaterThan(0);
     expect(response.data!.kpi!.dailyUsageMins.value).toBeGreaterThanOrEqual(0);
     expect(response.data!.kpi!.dailySessionCount.value).toBeGreaterThanOrEqual(0);
 
