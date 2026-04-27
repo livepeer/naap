@@ -82,7 +82,7 @@ export interface NetworkStats {
   healthScore: number;
   activeJobsNow: number;
   gatewaysOnline: number;
-  orchestratorsObserved: number;
+  orchestratorsOnline: number;
   totalValueLocked: number;
   feesThisRound: number;
   currentRound: number;

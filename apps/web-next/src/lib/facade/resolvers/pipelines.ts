@@ -1,7 +1,8 @@
 /**
  * Pipelines resolver — NAAP Dashboard API backed.
  *
- * Uses GET /v1/dashboard/pipelines (combined `streaming` + `requests` on API v1).
+ * Uses the dashboard pipelines endpoint and maps the response into
+ * DashboardPipelineUsage rows for the facade.
  *
  * Source:
  *   GET /v1/dashboard/pipelines?limit=N&window=Nh
@@ -10,21 +11,24 @@
 import type {
   DashboardPipelineModelMins,
   DashboardPipelineUsage,
-  DashboardPipelinesWithRequests,
 } from '@naap/plugin-sdk';
 import {
   PIPELINE_COLOR,
   DEFAULT_PIPELINE_COLOR,
   LIVE_VIDEO_PIPELINE_ID,
 } from '@/lib/dashboard/pipeline-config';
-import { OVERVIEW_TIMEFRAME_MAX_HOURS } from '@/lib/dashboard/overview-timeframe';
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
-import { parseDashboardPipelinesBody } from '../upstream-parse.js';
-import { dashboardUpstreamTimeoutMs, formatDashboardWindow } from '../dashboard-window.js';
 import { resolveKPI } from './kpi.js';
 import { resolvePipelineCatalog } from './pipeline-catalog.js';
 import { resolvePerfByModel } from './perf-by-model.js';
+
+interface DashboardPipelineRow {
+  name: string;
+  sessions: number;
+  mins: number;
+  avgFps: number;
+}
 
 function timeframeRangeIso(hours: number): { start: string; end: string } {
   const end = new Date();
@@ -75,6 +79,8 @@ async function resolveLiveVideoModelMins(opts: {
     ]);
     const allModels = catalog.find((entry) => entry.id === LIVE_VIDEO_PIPELINE_ID)?.models ?? [];
 
+    // Prioritise models with recent FPS activity; cap at MAX_LIVE_VIDEO_KPI_MODELS
+    // to keep the fan-out bounded regardless of how many models the catalog contains.
     const ranked = allModels
       .map((m) => ({ model: m, fps: fpsByPipelineModel[`${LIVE_VIDEO_PIPELINE_ID}:${m}`] ?? 0 }))
       .sort((a, b) => b.fps - a.fps)
@@ -90,32 +96,25 @@ async function resolveLiveVideoModelMins(opts: {
   });
 }
 
-export async function resolvePipelines(opts: {
-  limit?: number;
-  timeframe?: string;
-}): Promise<DashboardPipelinesWithRequests> {
+export async function resolvePipelines(opts: { limit?: number; timeframe?: string }): Promise<DashboardPipelineUsage[]> {
   const raw = Number(opts.limit ?? 5);
   const safeLimit = Math.max(
     1,
     Math.min(Math.floor(Number.isFinite(raw) ? raw : 5), 200),
   );
   const parsed = parseInt(opts.timeframe ?? '24', 10);
-  const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, OVERVIEW_TIMEFRAME_MAX_HOURS));
-  const window = formatDashboardWindow(hours);
+  const hours = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 24, 168));
+  const window = `${hours}h`;
   const timeframe = String(hours);
 
   return cachedFetch(`facade:pipelines:${safeLimit}:${hours}`, TTL.PIPELINES, async () => {
-    const rawBody = await naapGet<unknown>('dashboard/pipelines', {
+    const rows = await naapGet<DashboardPipelineRow[]>('dashboard/pipelines', {
       limit: String(safeLimit),
       window,
     }, {
       cache: 'no-store',
       errorLabel: 'pipelines',
-      timeoutMs: dashboardUpstreamTimeoutMs(hours),
     });
-
-    const { streaming: rows, requests: requestsBreakdown } = parseDashboardPipelinesBody(rawBody);
-
     const includesLiveVideoPipeline = rows.some((row) => row.name === LIVE_VIDEO_PIPELINE_ID);
     const liveVideoModelMins = includesLiveVideoPipeline
       ? await resolveLiveVideoModelMins({ hours, timeframe })
@@ -134,9 +133,6 @@ export async function resolvePipelines(opts: {
       };
     });
 
-    return {
-      streaming: enriched,
-      requests: requestsBreakdown,
-    };
+    return enriched;
   });
 }

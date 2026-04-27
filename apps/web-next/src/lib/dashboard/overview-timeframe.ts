@@ -1,11 +1,7 @@
 /**
  * Shared overview / dashboard timeframe options (hours as string values).
  * Used by Overview UI, public page localStorage allowlist, and /dashboard prefs.
- *
- * {@link OVERVIEW_TIMEFRAME_MAX_HOURS} caps the selector and BFF `timeframe` parsing for performance.
  */
-
-export const OVERVIEW_TIMEFRAME_MAX_HOURS = 48 as const;
 
 export const OVERVIEW_TIMEFRAME_OPTIONS = [
   { label: '1h', value: '1', description: 'Last hour' },
@@ -13,7 +9,9 @@ export const OVERVIEW_TIMEFRAME_OPTIONS = [
   { label: '12h', value: '12', description: 'Last 12 hours' },
   { label: '18h', value: '18', description: 'Last 18 hours' },
   { label: '24h', value: '24', description: 'Last 24 hours' },
-  { label: '48h', value: '48', description: 'Last 48 hours (max)' },
+  { label: '48h', value: '48', description: 'Last 48 hours' },
+  { label: '72h', value: '72', description: 'Last 72 hours' },
+  { label: '7d', value: '168', description: 'Last 7 days (max)' },
 ] as const;
 
 export type OverviewTimeframeValue = (typeof OVERVIEW_TIMEFRAME_OPTIONS)[number]['value'];

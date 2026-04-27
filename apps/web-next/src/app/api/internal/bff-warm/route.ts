@@ -17,7 +17,6 @@ function authorized(request: NextRequest): boolean {
 
 /**
  * Warms slow BFF routes so the first real user typically sees SWR HIT/STALE from Redis/memory.
- * Upstream contract: repo-root `openapi.yaml` (NAAP Analytics API v1).
  * Vercel Cron: set `CRON_SECRET` and schedule `GET /api/internal/bff-warm`.
  * Manual: `GET /api/internal/bff-warm?secret=$BFF_WARM_SECRET`
  */

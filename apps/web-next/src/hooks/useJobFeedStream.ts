@@ -73,16 +73,13 @@ const STATUS_RANK: Record<string, number> = {
 };
 
 /** Adds `pollMs` for CDN/browser cache keying; keeps relative `/api/...` paths relative. */
-function appendJobFeedPollQuery(fetchUrl: string, pollMs: number, bustCache = false): string {
+function appendJobFeedPollQuery(fetchUrl: string, pollMs: number): string {
   const ms = pollMs >= 1000 ? Math.round(pollMs) : 30_000;
   try {
     const origin =
       typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
     const u = new URL(fetchUrl, origin);
     u.searchParams.set('pollMs', String(ms));
-    if (bustCache) {
-      u.searchParams.set('refresh', '1');
-    }
     if (/^https?:\/\//i.test(fetchUrl)) {
       return u.toString();
     }
@@ -132,13 +129,6 @@ function dedupeAndSortJobs(entries: JobFeedEntry[], maxItems: number): JobFeedEn
  * we retry with increasing back-off so the feed connects once ready.
  */
 const NO_PROVIDER_RETRY_DELAYS = [1000, 2000, 3000, 5000];
-/**
- * Recovery backoff (ms) after any failed poll: while `feedFailureStreak > 0`, the
- * next poll delay is `min(steadyPollInterval, JOB_FEED_RECOVERY_RETRY_DELAYS[index])`
- * where `index` is derived from the streak (transient or persistent failures). After
- * a healthy response, the streak resets and the steady poll interval is used again.
- */
-const JOB_FEED_RECOVERY_RETRY_DELAYS = [1000, 2000, 5000, 10000, 15000, 30000];
 
 export function useJobFeedStream(
   options?: UseJobFeedStreamOptions
@@ -194,18 +184,9 @@ export function useJobFeedStream(
     let retryCount = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    async function fetchJobFeed(
-      baseFetchUrl: string,
-      effectivePollMs: number,
-      options?: { bustCache?: boolean },
-    ): Promise<boolean> {
-      const requestUrl = appendJobFeedPollQuery(
-        baseFetchUrl,
-        effectivePollMs,
-        options?.bustCache ?? false,
-      );
+    async function fetchJobFeed(fetchUrl: string) {
       try {
-        const res = await fetch(requestUrl, { signal: AbortSignal.timeout(20_000) });
+        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(20_000) });
         let body = {} as {
           streams?: unknown[];
           clickhouseConfigured?: boolean;
@@ -217,10 +198,10 @@ export function useJobFeedStream(
         } catch {
           jsonFailed = true;
         }
-        if (!isCurrentRun()) return false;
+        if (!isCurrentRun()) return;
 
         if (!res.ok) {
-          console.warn('[useJobFeedStream] job-feed HTTP', res.status, requestUrl);
+          console.warn('[useJobFeedStream] job-feed HTTP', res.status, fetchUrl);
           setFeedMeta({
             clickhouseConfigured: body.clickhouseConfigured ?? false,
             queryFailed: body.queryFailed ?? true,
@@ -230,11 +211,11 @@ export function useJobFeedStream(
             type: 'unknown',
             message: `Could not load the job feed (HTTP ${res.status}). Check the network or try again.`,
           });
-          return false;
+          return;
         }
 
         if (jsonFailed) {
-          console.warn('[useJobFeedStream] job-feed 200 but invalid JSON', requestUrl);
+          console.warn('[useJobFeedStream] job-feed 200 but invalid JSON', fetchUrl);
           setFeedMeta({
             clickhouseConfigured: false,
             queryFailed: true,
@@ -244,7 +225,7 @@ export function useJobFeedStream(
             type: 'unknown',
             message: 'Job feed returned invalid data. Try again later.',
           });
-          return false;
+          return;
         }
 
         const entries = (body.streams ?? [])
@@ -256,10 +237,9 @@ export function useJobFeedStream(
           queryFailed: body.queryFailed ?? false,
         });
         setError(null);
-        return !(body.queryFailed ?? false);
       } catch (e) {
         console.warn('[useJobFeedStream] job-feed fetch error', e);
-        if (!isCurrentRun()) return false;
+        if (!isCurrentRun()) return;
         setFeedMeta({
           clickhouseConfigured: false,
           queryFailed: true,
@@ -269,7 +249,6 @@ export function useJobFeedStream(
           type: 'unknown',
           message: 'Could not reach the job feed. Check your network connection.',
         });
-        return false;
       } finally {
         if (isCurrentRun() && !initialHttpFetchDoneRef.current) {
           initialHttpFetchDoneRef.current = true;
@@ -301,31 +280,21 @@ export function useJobFeedStream(
           setConnected(true);
           setError(null);
 
-          const baseJobFeedUrl = channelInfo.fetchUrl;
-          let feedFailureStreak = 0;
+          const feedUrl = appendJobFeedPollQuery(
+            channelInfo.fetchUrl,
+            normalizedPollIntervalMs,
+          );
 
           if (normalizedPollIntervalMs > 0) {
             async function poll() {
-              const shouldBustCache = feedFailureStreak > 0;
-              const healthy = await fetchJobFeed(baseJobFeedUrl, normalizedPollIntervalMs, {
-                bustCache: shouldBustCache,
-              });
-              feedFailureStreak = healthy ? 0 : feedFailureStreak + 1;
+              await fetchJobFeed(feedUrl);
               if (!pollStopped && isCurrentRun()) {
-                const retryIndex = Math.min(
-                  Math.max(feedFailureStreak - 1, 0),
-                  JOB_FEED_RECOVERY_RETRY_DELAYS.length - 1,
-                );
-                const retryDelayMs = JOB_FEED_RECOVERY_RETRY_DELAYS[retryIndex];
-                const nextDelayMs = feedFailureStreak > 0
-                  ? Math.min(normalizedPollIntervalMs, retryDelayMs)
-                  : normalizedPollIntervalMs;
-                fetchPollTimer = setTimeout(poll, nextDelayMs);
+                fetchPollTimer = setTimeout(poll, normalizedPollIntervalMs);
               }
             }
             void poll();
           } else {
-            void fetchJobFeed(baseJobFeedUrl, normalizedPollIntervalMs);
+            void fetchJobFeed(feedUrl);
           }
 
           // Also listen on the event bus so Ably pushes or manual

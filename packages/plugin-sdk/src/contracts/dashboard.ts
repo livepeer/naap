@@ -69,7 +69,7 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
 
   type KPI {
     successRate: MetricDelta!
-    orchestratorsObserved: MetricDelta!
+    orchestratorsOnline: MetricDelta!
     dailyUsageMins: MetricDelta!
     dailySessionCount: MetricDelta!
     dailyNetworkFeesEth: MetricDelta!
@@ -219,7 +219,7 @@ export interface HourlyBucket {
 /** KPI widget data */
 export interface DashboardKPI {
   successRate: MetricDelta;
-  orchestratorsObserved: MetricDelta;
+  orchestratorsOnline: MetricDelta;
   dailyUsageMins: MetricDelta;
   dailySessionCount: MetricDelta;
   dailyNetworkFeesEth: MetricDelta;
@@ -227,57 +227,6 @@ export interface DashboardKPI {
   timeframeHours: number;
   hourlyUsage?: HourlyBucket[];
   hourlySessions?: HourlyBucket[];
-}
-
-/** AI Batch + BYOC job totals (OpenAPI `DashboardJobsStats` under `requests`) */
-export interface DashboardJobsStats {
-  total_jobs: number;
-  selected_jobs: number;
-  no_orch_jobs: number;
-  success_rate: number;
-  avg_duration_ms: number;
-}
-
-/** OpenAPI `DashboardJobsOverview` — nested under combined KPI `requests` */
-export interface DashboardJobsOverview {
-  ai_batch: DashboardJobsStats;
-  byoc: DashboardJobsStats;
-}
-
-/**
- * KPI from NAAP Analytics API v1 combined payload: streaming metrics plus optional
- * request-mode job stats (`requests`). Extra keys are ignored by GraphQL when not selected.
- */
-export type DashboardKPIWithRequests = DashboardKPI & {
-  requests?: DashboardJobsOverview;
-};
-
-/** OpenAPI `DashboardJobsByPipelineRow` / `DashboardJobsByCapabilityRow` */
-export interface DashboardJobsByPipelineRow {
-  pipeline: string;
-  total_jobs: number;
-  selected_jobs: number;
-  no_orch_jobs: number;
-  success_rate: number;
-  avg_duration_ms: number;
-}
-
-export interface DashboardJobsByCapabilityRow {
-  capability: string;
-  total_jobs: number;
-  selected_jobs: number;
-  no_orch_jobs: number;
-  success_rate: number;
-  avg_duration_ms: number;
-}
-
-/** OpenAPI `DashboardPipelinesCombined` — BFF returns this shape from `/api/v1/dashboard/pipelines` */
-export interface DashboardPipelinesWithRequests {
-  streaming: DashboardPipelineUsage[];
-  requests?: {
-    by_pipeline: DashboardJobsByPipelineRow[];
-    by_capability: DashboardJobsByCapabilityRow[];
-  };
 }
 
 /** Protocol widget data */
@@ -399,7 +348,7 @@ export interface DashboardPipelinePricing {
   /** Weighted avg pixelsPerUnit from capabilities_prices (pixel block size for price). */
   pixelsPerUnit?: number | null;
   outputPerDollar: string;
-  /** Total capacity (warm orchestrators) for this pipeline+model when derivable from capacity endpoints. */
+  /** Total capacity (warm + cold orchestrators) for this pipeline+model from /net/models. */
   capacity?: number;
 }
 
@@ -412,7 +361,7 @@ export interface DashboardPipelineModelOffer {
 /** Single orchestrator row aggregated over a time window */
 export interface DashboardOrchestrator {
   address: string;
-  /** All known service URIs for this address (from streaming + requests orchestrator inventory). */
+  /** All known service URIs for this address (from /v1/net/orchestrators). */
   uris: string[];
   /**
    * Latest registry `LastSeen` for this address (max across URI rows), ISO 8601 UTC.
@@ -501,12 +450,7 @@ export interface JobFeedEntry {
  */
 export interface DashboardResolvers {
   // Optimized/summary resolvers
-  kpi?: (args: {
-    window?: string;
-    timeframe?: string;
-    pipeline?: string;
-    model_id?: string;
-  }) => DashboardKPI | DashboardKPIWithRequests | Promise<DashboardKPI | DashboardKPIWithRequests>;
+  kpi?: (args: { window?: string; timeframe?: string; pipeline?: string; model_id?: string }) => DashboardKPI | Promise<DashboardKPI>;
   protocol?: () => DashboardProtocol | Promise<DashboardProtocol>;
   fees?: (args: { days?: number }) => DashboardFeesInfo | Promise<DashboardFeesInfo>;
   pipelines?: (args: { limit?: number; timeframe?: string }) => DashboardPipelineUsage[] | Promise<DashboardPipelineUsage[]>;

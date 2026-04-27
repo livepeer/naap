@@ -11,8 +11,6 @@
 
 import {
   createDashboardProvider,
-  type DashboardPipelineUsage,
-  type DashboardPipelinesWithRequests,
   type IEventBus,
 } from '@naap/plugin-sdk';
 
@@ -50,15 +48,12 @@ export function registerDashboardProvider(eventBus: IEventBus): () => void {
     },
     protocol: () => apiFetch('/api/v1/dashboard/protocol'),
     fees: ({ days }) => apiFetch(`/api/v1/dashboard/fees${days != null ? `?days=${days}` : ''}`),
-    pipelines: async ({ limit, timeframe }) => {
+    pipelines: ({ limit, timeframe }) => {
       const params = new URLSearchParams();
       if (timeframe != null) params.set('timeframe', String(timeframe));
       if (limit != null) params.set('limit', String(limit));
       const qs = params.toString();
-      const raw = await apiFetch<DashboardPipelineUsage[] | DashboardPipelinesWithRequests>(
-        `/api/v1/dashboard/pipelines${qs ? `?${qs}` : ''}`,
-      );
-      return Array.isArray(raw) ? raw : raw.streaming;
+      return apiFetch(`/api/v1/dashboard/pipelines${qs ? `?${qs}` : ''}`);
     },
     pipelineCatalog: () => apiFetch('/api/v1/dashboard/pipeline-catalog'),
     gpuCapacity: (args) => apiFetch(`/api/v1/dashboard/gpu-capacity${args?.timeframe != null ? `?timeframe=${args.timeframe}` : ''}`),
