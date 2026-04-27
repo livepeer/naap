@@ -1440,7 +1440,7 @@ function JobFeedCard({
                         )}
                       </div>
                     </td>
-                    <td className="py-1.5 text-right font-mono text-foreground">{job.inputFps != null && job.outputFps != null ? `${job.inputFps.toFixed(1)} / ${job.outputFps.toFixed(1)}` : '—'}</td>
+                    <td className="py-1.5 text-right font-mono text-foreground">{job.outputFps != null ? `${job.inputFps != null ? job.inputFps.toFixed(1) : '—'} / ${job.outputFps.toFixed(1)}` : '—'}</td>
                     <td className="py-1.5 text-right font-mono text-muted-foreground">{job.runningFor ?? '—'}</td>
                     <td className="py-1.5 text-right">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusStyles[job.status] ?? ''}`}>{job.status}</span>

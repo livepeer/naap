@@ -10,8 +10,11 @@
  *
  * Rows with no non-empty service URI after merge are dropped.
  *
- * The dashboard API returns effectiveSuccessRate, noSwapRatio, and slaScore in 0–1
- * range; they are multiplied by 100 for the UI.
+ * The dashboard API returns effectiveSuccessRate and noSwapRatio in 0–1 range;
+ * those are scaled via `pct()` for UI display.
+ *
+ * The dashboard API returns slaScore and successRatio in 0–100 range; slaScore is
+ * rounded via `Math.round(dash.slaScore)` and successRatio is rounded to 1 decimal.
  *
  * Source:
  *   GET /v1/dashboard/orchestrators?window=… — **capped at 24h** for upstream performance
