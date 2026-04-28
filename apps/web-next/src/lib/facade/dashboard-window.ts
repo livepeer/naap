@@ -25,8 +25,5 @@ export function dashboardUpstreamTimeoutMs(hours: number): number {
   if (hours <= 24) {
     return 30_000;
   }
-  if (hours <= 72) {
-    return 55_000;
-  }
   return 55_000;
 }

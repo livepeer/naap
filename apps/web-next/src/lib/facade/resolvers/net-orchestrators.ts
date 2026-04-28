@@ -156,7 +156,7 @@ const EMPTY: NetOrchestratorData = {
 
 async function fetchStreamingOrchestrators(): Promise<StreamingOrchestratorRow[]> {
   const revalidateSec = Math.floor(TTL.NET_MODELS / 1000);
-  return naapGet<StreamingOrchestratorRow[]>('streaming/orchestrators', undefined, {
+  return naapGet<StreamingOrchestratorRow[]>('streaming/orchestrators', { limit: '1000' }, {
     next: { revalidate: revalidateSec },
     errorLabel: 'streaming-orchestrators',
   });
@@ -164,7 +164,7 @@ async function fetchStreamingOrchestrators(): Promise<StreamingOrchestratorRow[]
 
 async function fetchRequestsOrchestrators(): Promise<RequestsOrchestratorRow[]> {
   const revalidateSec = Math.floor(TTL.NET_MODELS / 1000);
-  return naapGet<RequestsOrchestratorRow[]>('requests/orchestrators', undefined, {
+  return naapGet<RequestsOrchestratorRow[]>('requests/orchestrators', { limit: '1000' }, {
     next: { revalidate: revalidateSec },
     errorLabel: 'requests-orchestrators',
   });

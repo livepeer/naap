@@ -52,7 +52,7 @@ export const DASHBOARD_JOB_FEED_EMIT_EVENT = 'dashboard:job-feed:event' as const
 export const DASHBOARD_SCHEMA = /* GraphQL */ `
   type Query {
     # Optimized/summary queries
-    kpi(window: String, timeframe: String): KPI
+    kpi(window: String, timeframe: String, pipeline: String, model_id: String): KPI
     protocol: Protocol
     fees(days: Int): FeesInfo
     pipelines(limit: Int, timeframe: String): [PipelineUsage!]

@@ -12,15 +12,23 @@ import { naapGet } from './naap-get.js';
 interface StreamingModelRow {
   pipeline?: string;
   model?: string;
+  Pipeline?: string;
+  Model?: string;
   warm_orch_count?: number;
+  WarmOrchCount?: number;
   gpu_slots?: number;
+  GpuSlots?: number;
 }
 
 interface RequestsModelRow {
   pipeline?: string;
   model?: string;
+  Pipeline?: string;
+  Model?: string;
   warm_orch_count?: number;
+  WarmOrchCount?: number;
   gpu_slots?: number;
+  GpuSlots?: number;
 }
 
 function toNetworkModel(
@@ -50,24 +58,34 @@ function mergeModels(stream: StreamingModelRow[], req: RequestsModelRow[]): Netw
     const key = `${p}:${m}`;
     const existing = byKey.get(key);
     if (existing) {
-      existing.WarmOrchCount += warm;
-      existing.TotalCapacity += slots;
+      existing.WarmOrchCount = Math.max(existing.WarmOrchCount, warm);
+      existing.TotalCapacity = Math.max(existing.TotalCapacity, slots);
       return;
     }
     byKey.set(key, toNetworkModel(p, m, warm, slots));
   };
 
   for (const r of stream) {
-    const pipeline = r.pipeline?.trim() ?? '';
-    const model = r.model?.trim() ?? '';
+    const pipeline = (r.pipeline ?? r.Pipeline)?.trim() ?? '';
+    const model = (r.model ?? r.Model)?.trim() ?? '';
     if (!pipeline || !model) continue;
-    add(pipeline, model, Number(r.warm_orch_count ?? 0), Number(r.gpu_slots ?? 0));
+    add(
+      pipeline,
+      model,
+      Number(r.warm_orch_count ?? r.WarmOrchCount ?? 0),
+      Number(r.gpu_slots ?? r.GpuSlots ?? 0),
+    );
   }
   for (const r of req) {
-    const pipeline = r.pipeline?.trim() ?? '';
-    const model = r.model?.trim() ?? '';
+    const pipeline = (r.pipeline ?? r.Pipeline)?.trim() ?? '';
+    const model = (r.model ?? r.Model)?.trim() ?? '';
     if (!pipeline || !model) continue;
-    add(pipeline, model, Number(r.warm_orch_count ?? 0), Number(r.gpu_slots ?? 0));
+    add(
+      pipeline,
+      model,
+      Number(r.warm_orch_count ?? r.WarmOrchCount ?? 0),
+      Number(r.gpu_slots ?? r.GpuSlots ?? 0),
+    );
   }
 
   return [...byKey.values()].sort((a, b) => {

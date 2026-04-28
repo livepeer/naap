@@ -255,9 +255,18 @@ async function fetchStreamingAndRequestsModelRows(
   upstreamBase: string,
   signal: AbortSignal,
 ): Promise<{ rows: NetModelRow[]; partial: boolean }> {
+  const safeFetch = async (url: string, label: string): Promise<Response | null> => {
+    try {
+      return await fetch(url, { headers: { Accept: 'application/json' }, signal });
+    } catch (err) {
+      console.warn(`[DeveloperAPI] fetch failed for ${label} (${url}):`, err);
+      return null;
+    }
+  };
+
   const [sRes, rRes] = await Promise.all([
-    fetch(`${upstreamBase}/streaming/models`, { headers: { Accept: 'application/json' }, signal }),
-    fetch(`${upstreamBase}/requests/models`, { headers: { Accept: 'application/json' }, signal }),
+    safeFetch(`${upstreamBase}/streaming/models`, 'streaming/models'),
+    safeFetch(`${upstreamBase}/requests/models`, 'requests/models'),
   ]);
 
   const accum: TaggedNetModelRow[] = [];
@@ -271,7 +280,13 @@ async function fetchStreamingAndRequestsModelRows(
       console.warn(`[DeveloperAPI] ingest failed: ${label} returned HTTP ${res.status} (${res.url || label})`);
       return false;
     }
-    const json: unknown = await res.json();
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch (err) {
+      console.warn(`[DeveloperAPI] ingest failed: ${label} returned invalid JSON (${res.url || label})`, err);
+      return false;
+    }
     const arr = Array.isArray(json) ? json : [];
     for (const raw of arr) {
       if (!raw || typeof raw !== 'object') continue;
@@ -295,8 +310,8 @@ async function fetchStreamingAndRequestsModelRows(
     return true;
   };
 
-  const streamingOk = await ingest(sRes, 'streaming/models', 'streaming');
-  const requestsOk = await ingest(rRes, 'requests/models', 'requests');
+  const streamingOk = sRes ? await ingest(sRes, 'streaming/models', 'streaming') : false;
+  const requestsOk = rRes ? await ingest(rRes, 'requests/models', 'requests') : false;
   if (!streamingOk && !requestsOk) {
     throw new Error('Both streaming/models and requests/models upstream requests failed');
   }
@@ -352,7 +367,10 @@ async function fetchMergedNetModels(
     throw apiResult.reason;
   }
   const { rows: modelRows, partial } = apiResult.value;
-  const merged: NetModelRow[] = [...modelRows];
+  let merged: NetModelRow[] = [...modelRows];
+  if (!limitIsAll) {
+    merged = merged.slice(0, limit ?? merged.length);
+  }
   const seen = new Set<string>();
   for (const r of merged) {
     seen.add(netModelRowKey(r.Pipeline, r.Model));

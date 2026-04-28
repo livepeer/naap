@@ -80,6 +80,13 @@ describe('DASHBOARD_SCHEMA', () => {
     expect(fields).toHaveProperty('orchestrators');
   });
 
+  it('exposes KPI filter arguments', () => {
+    const schema = buildSchema(DASHBOARD_SCHEMA);
+    const kpiArgs = schema.getQueryType()!.getFields().kpi.args.map((arg) => arg.name);
+
+    expect(kpiArgs).toEqual(['window', 'timeframe', 'pipeline', 'model_id']);
+  });
+
   it('has all root Query fields nullable (for partial providers)', () => {
     const schema = buildSchema(DASHBOARD_SCHEMA);
     const queryType = schema.getQueryType()!;
@@ -211,6 +218,48 @@ describe('createDashboardProvider', () => {
     expect(response.data!.kpi!.successRate.delta).toBe(1.2);
     expect(response.data!.kpi!.orchestratorsObserved.value).toBe(142);
     expect(response.errors).toBeUndefined();
+  });
+
+  it('forwards KPI filter arguments to the resolver', async () => {
+    let receivedArgs:
+      | { window?: string; timeframe?: string; pipeline?: string; model_id?: string }
+      | undefined;
+    const resolvers: DashboardResolvers = {
+      kpi: async (args) => {
+        receivedArgs = args;
+        return {
+          successRate: { value: 97.3, delta: 1.2 },
+          orchestratorsObserved: { value: 142, delta: 8 },
+          dailyUsageMins: { value: 48720, delta: 3200 },
+          dailySessionCount: { value: 1843, delta: -47 },
+          dailyNetworkFeesEth: { value: 1.2, delta: 0.1 },
+          timeframeHours: 24,
+        };
+      },
+    };
+
+    createDashboardProvider(mockEventBus as any, resolvers);
+
+    const request: DashboardQueryRequest = {
+      query: `query GetKpi($timeframe: String, $pipeline: String, $model: String) {
+        kpi(timeframe: $timeframe, pipeline: $pipeline, model_id: $model) {
+          successRate { value }
+        }
+      }`,
+      variables: {
+        timeframe: '24h',
+        pipeline: 'live-video-to-video',
+        model: 'model-a',
+      },
+    };
+
+    await mockEventBus._invoke(DASHBOARD_QUERY_EVENT, request);
+
+    expect(receivedArgs).toEqual({
+      timeframe: '24h',
+      pipeline: 'live-video-to-video',
+      model_id: 'model-a',
+    });
   });
 
   it('returns null for unimplemented resolvers (not an error)', async () => {

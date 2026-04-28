@@ -157,12 +157,15 @@ function aggregatePerOrchRows(rows: PerOrchRow[]): Map<string, PerPipelineModelA
   const map = new Map<string, PerPipelineModelAgg>();
   for (const r of rows) {
     if (!Number.isFinite(r.priceWeiPerUnit) || r.priceWeiPerUnit <= 0) continue;
-    const key = pricingKey(r.pipeline, r.model);
+    const pipeline = r.pipeline.trim();
+    const model = r.model.trim();
+    if (!pipeline || !model) continue;
+    const key = pricingKey(pipeline, model);
     let slot = map.get(key);
     if (!slot) {
       slot = {
-        pipeline: r.pipeline.trim(),
-        model: r.model.trim(),
+        pipeline,
+        model,
         minWei: r.priceWeiPerUnit,
         maxWei: r.priceWeiPerUnit,
         sumWei: 0,
@@ -238,7 +241,10 @@ export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
       for (const r of rawRows) {
         if (!isLegacyAgg(r)) continue;
         if (!Number.isFinite(r.priceAvgWeiPerUnit) || r.priceAvgWeiPerUnit <= 0) continue;
-        const row = fromAggregatedRow(r, netCapacity, ethUsd);
+        const pipeline = typeof r.pipeline === 'string' ? r.pipeline.trim() : '';
+        const model = typeof r.model === 'string' ? r.model.trim() : '';
+        if (!pipeline || !model) continue;
+        const row = fromAggregatedRow({ ...r, pipeline, model }, netCapacity, ethUsd);
         byKey.set(pricingKey(row.pipeline, row.model ?? ''), row);
       }
     } else {

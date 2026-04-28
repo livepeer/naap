@@ -89,7 +89,8 @@ function appendJobFeedPollQuery(fetchUrl: string, pollMs: number, bustCache = fa
     return `${u.pathname}${u.search}${u.hash}`;
   } catch {
     const sep = fetchUrl.includes('?') ? '&' : '?';
-    return `${fetchUrl}${sep}pollMs=${encodeURIComponent(String(ms))}`;
+    const refresh = bustCache ? `&refresh=${encodeURIComponent('1')}` : '';
+    return `${fetchUrl}${sep}pollMs=${encodeURIComponent(String(ms))}${refresh}`;
   }
 }
 

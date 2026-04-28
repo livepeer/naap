@@ -29,14 +29,15 @@ export async function resolvePerfByModel(_opts: {
   end: string;
 }): Promise<Record<string, number>> {
   return cachedFetch(STREAMING_MODELS_FPS_CACHE_KEY, TTL.PIPELINES, async () => {
-    const rawRows = await naapGet<StreamingModelRow[] | null | undefined>(
+    const result = await naapGet<StreamingModelRow[] | null | undefined>(
       'streaming/models',
       undefined,
       {
         cache: 'no-store',
         errorLabel: 'perf-by-model',
       },
-    ).catch(() => [] as StreamingModelRow[]);
+    );
+    const rawRows = result ?? [];
 
     const rows = Array.isArray(rawRows) ? rawRows : [];
     const out = new Map<string, number>();
