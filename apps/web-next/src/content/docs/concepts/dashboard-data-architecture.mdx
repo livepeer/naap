@@ -167,9 +167,38 @@ Setting `FACADE_USE_STUBS=true` forces all facade functions to return hardcoded 
 | `/api/v1/dashboard/embed` | GET | Embeddable dashboard URLs |
 | `/api/v1/dashboard/config` | GET/PUT | Dashboard configuration |
 
+### Orchestrator SLA Granularity
+
+`/api/v1/dashboard/orchestrators` merges three upstream views:
+
+- Aggregate orchestrator rows from `/v1/dashboard/orchestrators`
+- Per-capability streaming SLA rows from `/v1/streaming/sla`
+- URI / last-seen inventory from `/v1/streaming/orchestrators` and `/v1/requests/orchestrators`
+
+This has two important implications:
+
+1. **Per-(orchestrator, pipeline, model) SLA is streaming-only**. The current public API exposes model-granular SLA in `/v1/streaming/sla` (live-video pipeline) but does not expose equivalent per-model SLA for request-mode pipelines (AI Batch/BYOC).
+2. **Upstream readiness is required for accurate SLA rendering**. If the configured NAAP upstream is returning empty `/v1/streaming/sla` pages, orchestrator rows can still render identity + inventory but SLA fields will degrade to partial or missing values (`—`) depending on fallback availability.
+
+### Design Decisions and Trade-offs
+
+- **Decision:** Prefer model-granular streaming SLA when dashboard aggregate SLA is missing or stale.
+  - **Trade-off:** Adds one cursor-paginated upstream dependency to orchestrator resolution, but preserves meaningful per-capability visibility when aggregate tables are incomplete.
+- **Decision:** Preserve null SLA semantics in the BFF contract (show `—`) instead of coercing to `0`.
+  - **Trade-off:** UI sorting and downstream consumers must handle nullable percentages, but users no longer misread "missing telemetry" as "hard failure."
+- **Decision:** Keep request-mode capability inventory in the same table even without per-model request SLA.
+  - **Trade-off:** Mixed fidelity by pipeline type, but a single orchestrator surface remains operationally useful.
+
 ### Adding a New Data Domain
 
 1. Add the function signature to `apps/web-next/src/lib/facade/index.ts`
 2. Add stub data in `stubs.ts`
 3. Add the real resolver in `resolvers/<domain>.ts`
 4. Wire the BFF route to call the facade function
+
+### Implementation Tasks
+
+1. Validate the configured upstream returns non-empty `/v1/streaming/sla` data for the selected window.
+2. Confirm orchestrator row-level SLA values match the merged fallback logic in `resolvers/orchestrators.ts`.
+3. Confirm model tag tooltips show capability-level metrics only where per-model SLA exists.
+4. Add request-mode per-capability SLA endpoints before attempting parity with streaming model-level metrics.

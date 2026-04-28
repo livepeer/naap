@@ -183,6 +183,7 @@ export {
   type DashboardGPUCapacity,
   type DashboardPipelinePricing,
   type DashboardOrchestrator,
+  type DashboardOrchestratorPipelineModelSla,
   type DashboardData,
   type DashboardQueryRequest,
   type DashboardQueryResponse,
