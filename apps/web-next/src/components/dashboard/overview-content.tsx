@@ -20,6 +20,7 @@ import type {
   DashboardGPUCapacity,
   DashboardPipelinePricing,
   DashboardOrchestrator,
+  DashboardOrchestratorPipelineModelSla,
   JobFeedEntry,
 } from '@naap/plugin-sdk';
 import type { DashboardError } from '@/hooks/useDashboardQuery';
@@ -1509,7 +1510,11 @@ function mergeOrchestratorRowsByAddress(rows: DashboardOrchestrator[]): Orchestr
         mergedUris.push(u);
       }
     }
-    map.set(key, { ...existing, uris: mergedUris });
+    map.set(key, {
+      ...existing,
+      uris: mergedUris,
+      lastSeen: pickNewerOrchestratorLastSeen(existing.lastSeen, row.lastSeen),
+    });
   }
   return [...map.values()];
 }
@@ -1519,6 +1524,30 @@ function formatOrchestratorLastSeenForTooltip(iso: string | null | undefined): s
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return `Last seen: ${iso}`;
   return `Last seen: ${new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`;
+}
+
+/** When merging rows for the same address, keep the most recent registry lastSeen. */
+function pickNewerOrchestratorLastSeen(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): string | null {
+  const pa = a?.trim() ? Date.parse(a) : NaN;
+  const pb = b?.trim() ? Date.parse(b) : NaN;
+  if (!Number.isFinite(pa) && !Number.isFinite(pb)) return null;
+  if (!Number.isFinite(pb)) return a?.trim() || null;
+  if (!Number.isFinite(pa)) return b?.trim() || null;
+  return pa >= pb ? (a?.trim() ?? null) : (b?.trim() ?? null);
+}
+
+/** Smallest (oldest) parseable lastSeen among rows — for “how stale is the coldest row” context. */
+function formatOldestLastSeenAmongRows(rows: { lastSeen?: string | null }[]): string | null {
+  let min = Infinity;
+  for (const r of rows) {
+    const t = r.lastSeen?.trim() ? Date.parse(r.lastSeen) : NaN;
+    if (Number.isFinite(t) && t < min) min = t;
+  }
+  if (min === Infinity) return null;
+  return new Date(min).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 function orchestratorModelPriceForTooltip(
@@ -1531,6 +1560,10 @@ function orchestratorModelPriceForTooltip(
   return 'Price: —';
 }
 
+function orchestratorModelSlaPercentLabel(value: number | null | undefined): string {
+  return value != null ? `${value}%` : '—';
+}
+
 /** Tooltip for model tags: last seen, network price, URI when unambiguous; else URI list. */
 function orchestratorModelTagTooltip(
   pipelineName: string,
@@ -1539,6 +1572,7 @@ function orchestratorModelTagTooltip(
   opts: {
     lastSeen?: string | null;
     pricing?: DashboardPipelinePricing | undefined;
+    modelSla?: DashboardOrchestratorPipelineModelSla | undefined;
   },
 ): string {
   const lines = [
@@ -1547,6 +1581,15 @@ function orchestratorModelTagTooltip(
     formatOrchestratorLastSeenForTooltip(opts.lastSeen),
     orchestratorModelPriceForTooltip(opts.pricing, modelLabel),
   ];
+  if (opts.modelSla) {
+    lines.push(
+      `Sessions: ${opts.modelSla.knownSessions.toLocaleString()}`,
+      `Startup %: ${orchestratorModelSlaPercentLabel(opts.modelSla.successRatio)}`,
+      `Effective %: ${orchestratorModelSlaPercentLabel(opts.modelSla.effectiveSuccessRate)}`,
+      `SLA: ${opts.modelSla.slaScore ?? '—'}`,
+      `Avg FPS: ${opts.modelSla.avgOutputFps != null ? opts.modelSla.avgOutputFps.toFixed(1) : '—'}`,
+    );
+  }
   if (uris.length === 1) {
     lines.push(`Service URI: ${stripOrchestratorServiceUri(uris[0])}`);
   } else if (uris.length > 1) {
@@ -1625,6 +1668,11 @@ function OrchestratorTableCard({
 
   const totalGPUsInList = useMemo(() => sorted.reduce((sum, r) => sum + (r.gpuCount ?? 0), 0), [sorted]);
 
+  const oldestLastSeenLabel = useMemo(
+    () => formatOldestLastSeenAmongRows(sorted),
+    [sorted],
+  );
+
   const pricingByKey = useMemo(
     () => new Map(pricing.map((p) => [`${p.pipeline}:${p.model ?? ''}`, p])),
     [pricing],
@@ -1632,12 +1680,35 @@ function OrchestratorTableCard({
 
   return (
     <div className="p-3 rounded-lg bg-card border border-border min-w-0 sm:p-4">
-      <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0"><Server className="w-3.5 h-3.5" /></div>
-          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider leading-snug sm:text-[11px]">
-            Orchestrators ({sorted.length}{filter ? ` of ${mergedByAddress.length}` : ''}) · {totalGPUsInList} GPUs
-          </span>
+      <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0"><Server className="w-3.5 h-3.5" /></div>
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider leading-snug sm:text-[11px]">
+                All orchestrators ({sorted.length}{filter ? ` of ${mergedByAddress.length}` : ''}) · {totalGPUsInList} GPUs
+              </span>
+              <div className="relative group shrink-0">
+                <button
+                  type="button"
+                  className="p-0 border-0 bg-transparent cursor-help"
+                  aria-label="About the all orchestrators table"
+                >
+                  <Info className="w-3 h-3 text-muted-foreground/50" aria-hidden />
+                </button>
+                <div className="absolute bottom-full left-0 mb-1.5 hidden group-hover:block z-20 pointer-events-none sm:left-auto sm:right-0">
+                  <div className="bg-popover text-popover-foreground text-[10px] px-2 py-1.5 rounded shadow-md border border-border max-w-[260px] text-wrap leading-relaxed normal-case">
+                    Full registry inventory (every address with a service URI). This block is cached server-side and does not reload on every dashboard poll; session and SLA columns still use the period you select. “Oldest last seen” is the least recent registry timestamp among the rows currently shown.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {oldestLastSeenLabel != null && (
+            <p className="text-[10px] text-muted-foreground normal-case leading-snug pl-0 sm:pl-8">
+              Oldest last seen: {oldestLastSeenLabel}
+            </p>
+          )}
         </div>
         <input
           id="orchestrator-filter"
@@ -1737,7 +1808,7 @@ function OrchestratorTableCard({
                   </div>
                 </td>
                 <td className="py-1.5 text-right font-mono">{row.knownSessions.toLocaleString()}</td>
-                <td className="py-1.5 text-right font-mono">{row.successRatio}%</td>
+                <td className="py-1.5 text-right font-mono">{row.successRatio != null ? `${row.successRatio}%` : '—'}</td>
                 <td className="py-1.5 text-right font-mono">{row.effectiveSuccessRate != null ? `${row.effectiveSuccessRate}%` : '—'}</td>
                 <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
                 <td className="py-1.5 pr-5 text-right font-mono">{row.gpuCount}</td>
@@ -1750,18 +1821,24 @@ function OrchestratorTableCard({
                       const entry = catalog?.find((c) => c.id === p);
                       const pipelineName = entry?.name ?? p;
                       return modelIds.length > 0 ? (
-                        modelIds.map((modelId) => (
-                          <span
-                            key={`${p}:${modelId}`}
-                            className={`inline-flex max-w-full cursor-default items-center rounded px-2 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId, p)}`}
-                            title={orchestratorModelTagTooltip(pipelineName, modelId, row.uris, {
-                              lastSeen: row.lastSeen,
-                              pricing: pricingByKey.get(`${p}:${modelId}`),
-                            })}
-                          >
-                            <span className="truncate">{modelId}</span>
-                          </span>
-                        ))
+                        modelIds.map((modelId) => {
+                          const modelSla = row.pipelineModelSla?.find(
+                            (s) => s.pipelineId === p && s.modelId === modelId,
+                          );
+                          return (
+                            <span
+                              key={`${p}:${modelId}`}
+                              className={`inline-flex max-w-full cursor-default items-center rounded px-2 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId, p)}`}
+                              title={orchestratorModelTagTooltip(pipelineName, modelId, row.uris, {
+                                lastSeen: row.lastSeen,
+                                pricing: pricingByKey.get(`${p}:${modelId}`),
+                                modelSla,
+                              })}
+                            >
+                              <span className="truncate">{modelId}</span>
+                            </span>
+                          );
+                        })
                       ) : (
                         <span
                           key={p}
@@ -2048,7 +2125,10 @@ export function OverviewContent(props: OverviewContentProps) {
         </div>
       </section>
 
-      {/* Row 3: Orchestrators (full width) */}
+      {/*
+        Row 3: All orchestrators — full-width registry table. Fetched via /api/v1/dashboard/orchestrators
+        (server-cached; intentionally not tied to the same refresh cadence as live KPI tiles).
+      */}
       <section>
         {orchestrators.length > 0 ? (
           <RefreshWrap refreshing={orchestratorsLoading ?? lbRefreshing} className="block min-h-0">
@@ -2057,7 +2137,7 @@ export function OverviewContent(props: OverviewContentProps) {
         ) : uiOrchestratorsLoading ? (
           <WidgetSkeleton className="h-[320px]" />
         ) : (
-          <WidgetUnavailable label="Orchestrators" />
+          <WidgetUnavailable label="All orchestrators" />
         )}
       </section>
     </div>
