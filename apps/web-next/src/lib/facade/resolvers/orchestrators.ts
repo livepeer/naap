@@ -44,6 +44,7 @@ interface ApiOrchestrator {
   /** OpenAPI `serviceUri` — may be only URI when inventory rows omit `uri`. */
   serviceUri?: string;
   service_uri?: string;
+  serviceUris?: string[];
   knownSessions: number;
   successSessions: number;
   successRatio: number | null;
@@ -81,11 +82,14 @@ function mergeOrchestratorServiceUris(netUris: string[], dash: ApiOrchestrator):
   const normalizedSeen = new Set(
     out.map((u) => normalizeServiceUriKey(u)).filter((k) => k.length > 0),
   );
-  const extra =
-    (typeof dash.serviceUri === 'string' && dash.serviceUri.trim()) ||
-    (typeof dash.service_uri === 'string' && dash.service_uri.trim()) ||
-    '';
-  if (extra) {
+  const extras = [
+    ...(dash.serviceUris ?? []),
+    typeof dash.serviceUri === 'string' ? dash.serviceUri : '',
+    typeof dash.service_uri === 'string' ? dash.service_uri : '',
+  ];
+  for (const extraRaw of extras) {
+    const extra = extraRaw.trim();
+    if (!extra) continue;
     const key = normalizeServiceUriKey(extra);
     if (key.length > 0 && !normalizedSeen.has(key)) {
       normalizedSeen.add(key);
@@ -93,6 +97,36 @@ function mergeOrchestratorServiceUris(netUris: string[], dash: ApiOrchestrator):
     }
   }
   return out;
+}
+
+function dashboardServiceUriCandidates(dash: ApiOrchestrator): string[] {
+  return [
+    ...(dash.serviceUris ?? []),
+    typeof dash.serviceUri === 'string' ? dash.serviceUri : '',
+    typeof dash.service_uri === 'string' ? dash.service_uri : '',
+  ].map((u) => u.trim()).filter(Boolean);
+}
+
+function mergeDashboardRowsForAddress(existing: ApiOrchestrator, incoming: ApiOrchestrator): ApiOrchestrator {
+  const serviceUris: string[] = [];
+  const seenUris = new Set<string>();
+  for (const uri of [
+    ...dashboardServiceUriCandidates(existing),
+    ...dashboardServiceUriCandidates(incoming),
+  ]) {
+    const key = normalizeServiceUriKey(uri);
+    if (!key || seenUris.has(key)) continue;
+    seenUris.add(key);
+    serviceUris.push(uri);
+  }
+
+  return {
+    ...existing,
+    serviceUris,
+    pipelines: [...new Set([...existing.pipelines, ...incoming.pipelines])],
+    pipelineModels: mergePipelineModels(existing.pipelineModels, incoming.pipelineModels),
+    gpuCount: Math.max(existing.gpuCount ?? 0, incoming.gpuCount ?? 0),
+  };
 }
 
 function pct(v: number | null): number | null {
@@ -251,7 +285,7 @@ function dashboardServiceUrisEmpty(dash: ApiOrchestrator): boolean {
 export async function resolveOrchestrators(opts?: { period?: string }): Promise<DashboardOrchestrator[]> {
   const window = orchestratorUpstreamWindowFromPeriod(opts?.period);
   // Merged registry + SLA; cached (TTL.ORCHESTRATORS) so the overview table is not recomputed on every dashboard poll.
-  return cachedFetch(`facade:orchestrators:${window}`, TTL.ORCHESTRATORS, async () => {
+  return cachedFetch(`facade:orchestrators:v2:${window}`, TTL.ORCHESTRATORS, async () => {
     const [dashRows, netData, streamingSla] = await Promise.all([
       naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window }, {
         cache: 'no-store',
@@ -269,6 +303,8 @@ export async function resolveOrchestrators(opts?: { period?: string }): Promise<
       if (!dashboardByLower.has(k)) {
         dashboardByLower.set(k, r);
         dashboardOrder.push(k);
+      } else {
+        dashboardByLower.set(k, mergeDashboardRowsForAddress(dashboardByLower.get(k)!, r));
       }
     }
 

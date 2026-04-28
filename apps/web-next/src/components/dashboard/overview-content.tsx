@@ -9,7 +9,7 @@
  */
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import type { ElementType, ReactNode } from 'react';
+import type { ElementType, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import type {
   DashboardKPI,
   HourlyBucket,
@@ -45,9 +45,11 @@ import {
   List,
   ChevronUp,
   ChevronDown,
+  ChevronRight,
   ChevronsUpDown,
   Copy,
   Check,
+  Search,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { PIPELINE_COLOR, DEFAULT_PIPELINE_COLOR } from '@/lib/dashboard/pipeline-config';
@@ -1474,6 +1476,107 @@ function formatPipelineLabel(
   return name;
 }
 
+function OrchestratorPipelineFilterMenu({
+  pipelineIds,
+  selectedIds,
+  onToggle,
+  onClearAll,
+  catalog,
+}: {
+  pipelineIds: string[];
+  selectedIds: Set<string>;
+  onToggle: (pipelineId: string) => void;
+  onClearAll: () => void;
+  catalog?: DashboardPipelineCatalogEntry[] | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+    return undefined;
+  }, [open]);
+
+  const nSelected = selectedIds.size;
+  if (pipelineIds.length === 0) return null;
+
+  return (
+    <div className="relative shrink-0" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`flex h-[calc(1.25rem+0.5rem+2px)] items-center gap-1 rounded border px-2 text-xs font-medium transition-colors sm:h-[calc(1rem+0.25rem+2px)] ${
+          nSelected > 0
+            ? 'border-primary/40 bg-primary/10 text-foreground'
+            : 'border-border bg-background text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+        }`}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={`Filter by pipeline${nSelected > 0 ? `, ${nSelected} selected` : ''}`}
+      >
+        <Layers className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
+        <span className="max-w-[5.5rem] truncate sm:max-w-none">Pipelines</span>
+        {nSelected > 0 && (
+          <span className="rounded bg-primary/20 px-1 py-px text-[10px] font-semibold tabular-nums text-primary">
+            {nSelected}
+          </span>
+        )}
+        <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-50" aria-hidden />
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 z-50 mt-1 max-h-56 w-[min(18rem,calc(100vw-2rem))] overflow-y-auto rounded-md border border-border bg-card py-1 shadow-lg"
+          role="listbox"
+          aria-multiselectable="true"
+        >
+          <label className="flex cursor-pointer items-center gap-2 px-2.5 py-2 text-xs hover:bg-muted/50">
+            <input
+              type="checkbox"
+              className="rounded border-border"
+              checked={nSelected === 0}
+              onChange={() => {
+                onClearAll();
+              }}
+            />
+            <span className="font-medium">All pipelines</span>
+          </label>
+          <div className="mx-1 border-t border-border" />
+          {pipelineIds.map((id) => {
+            const color = PIPELINE_COLOR[id] ?? DEFAULT_PIPELINE_COLOR;
+            const label = formatPipelineLabel(id, catalog ?? null, null);
+            const checked = selectedIds.has(id);
+            return (
+              <label
+                key={id}
+                className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-xs hover:bg-muted/50"
+              >
+                <input
+                  type="checkbox"
+                  className="rounded border-border"
+                  checked={checked}
+                  onChange={() => {
+                    onToggle(id);
+                  }}
+                />
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden />
+                <span className="min-w-0 flex-1 truncate" title={id}>
+                  {label}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function stripOrchestratorServiceUri(uri: string): string {
   return uri.replace(/^https?:\/\//, '');
 }
@@ -1489,6 +1592,13 @@ function livepeerOrchestratingExplorerHref(address: string): string | null {
 
 /** Row after merge: stable key for React lists (blank addresses never share a bucket). */
 type OrchestratorTableRow = DashboardOrchestrator & { stableRowKey: string };
+
+type OrchestratorModelMetricRow = {
+  pipelineId: string;
+  pipelineName: string;
+  modelId: string;
+  modelSla?: DashboardOrchestratorPipelineModelSla;
+};
 
 /** One row per orchestrator address; union service URIs if the same address appears more than once. */
 function mergeOrchestratorRowsByAddress(rows: DashboardOrchestrator[]): OrchestratorTableRow[] {
@@ -1539,15 +1649,18 @@ function pickNewerOrchestratorLastSeen(
   return pa >= pb ? (a?.trim() ?? null) : (b?.trim() ?? null);
 }
 
-/** Smallest (oldest) parseable lastSeen among rows — for “how stale is the coldest row” context. */
-function formatOldestLastSeenAmongRows(rows: { lastSeen?: string | null }[]): string | null {
+/** Registry freshness line: today (view context) and oldest lastSeen among visible rows. */
+function formatOrchestratorRegistryFreshnessLine(rows: { lastSeen?: string | null }[]): string | null {
   let min = Infinity;
   for (const r of rows) {
     const t = r.lastSeen?.trim() ? Date.parse(r.lastSeen) : NaN;
     if (Number.isFinite(t) && t < min) min = t;
   }
   if (min === Infinity) return null;
-  return new Date(min).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const shortDate: Intl.DateTimeFormatOptions = { dateStyle: 'short' };
+  const todayStr = new Date().toLocaleDateString(undefined, shortDate);
+  const oldestStr = new Date(min).toLocaleDateString(undefined, shortDate);
+  return `Including data (${todayStr}) - (${oldestStr})`;
 }
 
 function orchestratorModelPriceForTooltip(
@@ -1562,6 +1675,59 @@ function orchestratorModelPriceForTooltip(
 
 function orchestratorModelSlaPercentLabel(value: number | null | undefined): string {
   return value != null ? `${value}%` : '—';
+}
+
+function orchestratorModelSlaScoreLabel(value: number | null | undefined): string {
+  return value != null ? value.toFixed(1).replace(/\.0$/, '') : '—';
+}
+
+function orchestratorModelSlaHealthClasses(value: number | null | undefined): string {
+  if (value == null) return 'border-border bg-muted/60 text-muted-foreground';
+  if (value >= 95) return 'border-emerald-500/35 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
+  if (value >= 90) return 'border-amber-500/35 bg-amber-500/15 text-amber-700 dark:text-amber-300';
+  return 'border-red-500/35 bg-red-500/15 text-red-700 dark:text-red-300';
+}
+
+function orchestratorModelSlaHealthDotClasses(value: number | null | undefined): string {
+  if (value == null) return 'bg-muted-foreground/50';
+  if (value >= 95) return 'bg-emerald-400';
+  if (value >= 90) return 'bg-amber-400';
+  return 'bg-red-400';
+}
+
+function orchestratorModelSlaHealthLabel(value: number | null | undefined): string {
+  if (value == null) return 'No SLA sample';
+  if (value >= 95) return 'Strong SLA';
+  if (value >= 90) return 'Borderline SLA';
+  return 'Weak SLA';
+}
+
+function orchestratorModelMetricRows(
+  row: OrchestratorTableRow,
+  catalog: DashboardPipelineCatalogEntry[] | null | undefined,
+): OrchestratorModelMetricRow[] {
+  const rows: OrchestratorModelMetricRow[] = [];
+  for (const pipelineId of row.pipelines) {
+    const offer = row.pipelineModels?.find((o) => o.pipelineId === pipelineId);
+    const modelIds = offer?.modelIds ?? [];
+    const entry = catalog?.find((c) => c.id === pipelineId);
+    const pipelineName = entry?.name ?? pipelineId;
+    if (modelIds.length === 0) {
+      rows.push({ pipelineId, pipelineName, modelId: '—' });
+      continue;
+    }
+    for (const modelId of modelIds) {
+      rows.push({
+        pipelineId,
+        pipelineName,
+        modelId,
+        modelSla: row.pipelineModelSla?.find(
+          (s) => s.pipelineId === pipelineId && s.modelId === modelId,
+        ),
+      });
+    }
+  }
+  return rows;
 }
 
 /** Tooltip for model tags: last seen, network price, URI when unambiguous; else URI list. */
@@ -1617,11 +1783,28 @@ function OrchestratorTableCard({
   };
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [filter, setFilter] = useState('');
+  const [pipelineFilterIds, setPipelineFilterIds] = useState<Set<string>>(() => new Set());
+  const [expandedRowKeys, setExpandedRowKeys] = useState<Set<string>>(() => new Set());
   const { copiedId, copyToClipboard } = useClipboardFlash();
 
   const toggleSort = (col: OrchestratorSortCol) => {
     if (sortCol === col) { setSortDir(d => (d === 'asc' ? 'desc' : 'asc')); }
     else { setSortCol(col); setSortDir('desc'); }
+  };
+
+  const toggleExpandedRow = (key: string) => {
+    setExpandedRowKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const onOrchestratorDataRowClick = (rowKey: string) => (e: ReactMouseEvent<HTMLTableRowElement>) => {
+    if (!(e.target instanceof Element)) return;
+    if (e.target.closest('button, a, input, textarea, select')) return;
+    toggleExpandedRow(rowKey);
   };
 
   const SortIcon = ({ col }: { col: OrchestratorSortCol }) => {
@@ -1630,6 +1813,37 @@ function OrchestratorTableCard({
   };
 
   const mergedByAddress = useMemo(() => mergeOrchestratorRowsByAddress([...data]), [data]);
+
+  const orchestratorPipelineIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of mergedByAddress) {
+      for (const p of r.pipelines ?? []) ids.add(p);
+    }
+    return [...ids].sort((a, b) => a.localeCompare(b));
+  }, [mergedByAddress]);
+
+  useEffect(() => {
+    const avail = new Set(orchestratorPipelineIds);
+    setPipelineFilterIds((prev) => {
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (avail.has(id)) next.add(id);
+      }
+      if (next.size === prev.size) return prev;
+      return next;
+    });
+  }, [orchestratorPipelineIds]);
+
+  const toggleOrchestratorPipelineFilter = (pipelineId: string) => {
+    setPipelineFilterIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(pipelineId)) next.delete(pipelineId);
+      else next.add(pipelineId);
+      return next;
+    });
+  };
+
+  const clearOrchestratorPipelineFilter = () => setPipelineFilterIds(new Set());
 
   const sorted = useMemo(() => {
     let rows = [...mergedByAddress];
@@ -1645,6 +1859,9 @@ function OrchestratorTableCard({
         });
       });
     }
+    if (pipelineFilterIds.size > 0) {
+      rows = rows.filter((r) => (r.pipelines ?? []).some((p) => pipelineFilterIds.has(p)));
+    }
     rows.sort((a, b) => {
       const av = sortCol === 'uri' ? (a.uris[0] ?? '') : (a[sortCol] ?? 0);
       const bv = sortCol === 'uri' ? (b.uris[0] ?? '') : (b[sortCol] ?? 0);
@@ -1652,7 +1869,7 @@ function OrchestratorTableCard({
       return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
     });
     return rows;
-  }, [mergedByAddress, sortCol, sortDir, filter, catalog]);
+  }, [mergedByAddress, sortCol, sortDir, filter, catalog, pipelineFilterIds]);
 
   const ariaSortValue = (col: OrchestratorSortCol): 'ascending' | 'descending' | 'none' =>
     sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
@@ -1668,8 +1885,8 @@ function OrchestratorTableCard({
 
   const totalGPUsInList = useMemo(() => sorted.reduce((sum, r) => sum + (r.gpuCount ?? 0), 0), [sorted]);
 
-  const oldestLastSeenLabel = useMemo(
-    () => formatOldestLastSeenAmongRows(sorted),
+  const registryFreshnessLine = useMemo(
+    () => formatOrchestratorRegistryFreshnessLine(sorted),
     [sorted],
   );
 
@@ -1686,7 +1903,8 @@ function OrchestratorTableCard({
             <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0"><Server className="w-3.5 h-3.5" /></div>
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider leading-snug sm:text-[11px]">
-                All orchestrators ({sorted.length}{filter ? ` of ${mergedByAddress.length}` : ''}) · {totalGPUsInList} GPUs
+                All orchestrators ({sorted.length}
+                {filter.trim() || pipelineFilterIds.size > 0 ? ` of ${mergedByAddress.length}` : ''}) · {totalGPUsInList} GPUs
               </span>
               <div className="relative group shrink-0">
                 <button
@@ -1698,26 +1916,41 @@ function OrchestratorTableCard({
                 </button>
                 <div className="absolute bottom-full left-0 mb-1.5 hidden group-hover:block z-20 pointer-events-none sm:left-auto sm:right-0">
                   <div className="bg-popover text-popover-foreground text-[10px] px-2 py-1.5 rounded shadow-md border border-border max-w-[260px] text-wrap leading-relaxed normal-case">
-                    Full registry inventory (every address with a service URI). This block is cached server-side and does not reload on every dashboard poll; session and SLA columns still use the period you select. “Oldest last seen” is the least recent registry timestamp among the rows currently shown.
+                    Full registry inventory (every address with a service URI). This block is cached server-side and does not reload on every dashboard poll; session and SLA columns still use the period you select. The line below uses today’s date (when you opened the page) and the oldest “last seen” registry timestamp among the rows currently shown, both in short locale format.
                   </div>
                 </div>
               </div>
             </div>
           </div>
-          {oldestLastSeenLabel != null && (
+          {registryFreshnessLine != null && (
             <p className="text-[10px] text-muted-foreground normal-case leading-snug pl-0 sm:pl-8">
-              Oldest last seen: {oldestLastSeenLabel}
+              {registryFreshnessLine}
             </p>
           )}
         </div>
-        <input
-          id="orchestrator-filter"
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-          placeholder="Filter URI / pipeline…"
-          aria-label="Filter orchestrators by URI, address, or pipeline"
-          className="w-full min-w-0 px-2 py-1.5 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground sm:max-w-xs sm:py-0.5"
-        />
+        <div className="flex min-w-0 w-full flex-col gap-1.5 sm:w-auto sm:max-w-md sm:flex-shrink-0 sm:flex-row sm:items-stretch">
+          <div className="relative flex min-w-0 flex-1">
+            <Search
+              className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <input
+              id="orchestrator-filter"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter URI / pipeline…"
+              aria-label="Filter orchestrators by URI, address, or pipeline"
+              className="w-full min-w-0 rounded border border-border bg-background py-1.5 pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground sm:py-0.5"
+            />
+          </div>
+          <OrchestratorPipelineFilterMenu
+            pipelineIds={orchestratorPipelineIds}
+            selectedIds={pipelineFilterIds}
+            onToggle={toggleOrchestratorPipelineFilter}
+            onClearAll={clearOrchestratorPipelineFilter}
+            catalog={catalog}
+          />
+        </div>
       </div>
       <div className="max-h-[min(70vh,640px)] min-w-0 overflow-x-auto overflow-y-auto overscroll-x-contain">
         <table className="w-full min-w-[720px] text-xs">
@@ -1735,126 +1968,214 @@ function OrchestratorTableCard({
           <tbody>
             {sorted.map((row) => {
               const explorerHref = livepeerOrchestratingExplorerHref(row.address);
+              const modelMetricRows = orchestratorModelMetricRows(row, catalog);
+              const isExpanded = expandedRowKeys.has(row.stableRowKey);
+              const primaryRowLabel = row.uris[0] ? stripOrchestratorServiceUri(row.uris[0]) : row.address || 'orchestrator';
               return (
-              <tr key={row.stableRowKey} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors group">
-                <td
-                  className="py-1.5 min-w-0 align-top"
-                  title={row.uris.length ? row.uris.map(stripOrchestratorServiceUri).join('\n') : undefined}
-                >
-                  <div className="flex min-w-0 w-full flex-col gap-1">
-                    {row.uris.length > 0 ? (
-                      row.uris.map((uri, i) => {
-                        const label = formatURI(uri);
-                        return (
-                          <div
-                            key={`${row.stableRowKey}:uri:${i}`}
-                            className="flex w-full min-w-0 items-center justify-start gap-1"
-                          >
-                            {explorerHref ? (
-                              <a
-                                href={explorerHref}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground underline-offset-2 hover:text-primary hover:underline"
-                                title={`${stripOrchestratorServiceUri(uri)} — Livepeer Explorer (orchestrating)`}
-                                aria-label={`${label}: view orchestrator on Livepeer Explorer (opens in new tab)`}
-                              >
-                                {label}
-                              </a>
-                            ) : (
-                              <span
-                                className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground"
-                                title={stripOrchestratorServiceUri(uri)}
-                              >
-                                {label}
-                              </span>
-                            )}
-                            <PipelineTableCopyButton
-                              inline
-                              copied={copiedId === `orch:${row.stableRowKey}:uri:${i}`}
-                              onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:uri:${i}`, uri)}
-                              title="Copy this service URI"
-                              ariaLabel={`Copy service URI ${uri}`}
-                            />
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="flex min-w-0 flex-wrap items-center gap-1">
-                        {explorerHref ? (
-                          <a
-                            href={explorerHref}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-                            aria-label="View orchestrator on Livepeer Explorer (opens in new tab)"
-                          >
-                            Livepeer Explorer
-                          </a>
-                        ) : (
-                          <span className="font-mono text-muted-foreground">—</span>
-                        )}
-                        {row.address ? (
-                          <PipelineTableCopyButton
-                            inline
-                            copied={copiedId === `orch:${row.stableRowKey}:addr`}
-                            onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:addr`, row.address)}
-                            title="Copy orchestrator address"
-                            ariaLabel={`Copy address ${row.address}`}
-                          />
-                        ) : null}
+                <Fragment key={row.stableRowKey}>
+                  <tr
+                    className="border-b border-border/50 last:border-0 cursor-pointer hover:bg-muted/30 transition-colors group"
+                    onClick={onOrchestratorDataRowClick(row.stableRowKey)}
+                  >
+                    <td
+                      className="py-1.5 min-w-0 align-top"
+                      title={row.uris.length ? row.uris.map(stripOrchestratorServiceUri).join('\n') : undefined}
+                    >
+                      <div className="flex min-w-0 w-full items-start gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => toggleExpandedRow(row.stableRowKey)}
+                          className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          aria-expanded={isExpanded}
+                          aria-label={`${isExpanded ? 'Hide' : 'Show'} model SLA details for ${primaryRowLabel}`}
+                        >
+                          <ChevronRight className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} aria-hidden />
+                        </button>
+                        <div className="flex min-w-0 w-full flex-col gap-1">
+                          {row.uris.length > 0 ? (
+                            row.uris.map((uri, i) => {
+                              const label = formatURI(uri);
+                              return (
+                                <div
+                                  key={`${row.stableRowKey}:uri:${i}`}
+                                  className="flex w-full min-w-0 items-center justify-start gap-1"
+                                >
+                                  {explorerHref ? (
+                                    <a
+                                      href={explorerHref}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground underline-offset-2 hover:text-primary hover:underline"
+                                      title={`${stripOrchestratorServiceUri(uri)} — Livepeer Explorer (orchestrating)`}
+                                      aria-label={`${label}: view orchestrator on Livepeer Explorer (opens in new tab)`}
+                                    >
+                                      {label}
+                                    </a>
+                                  ) : (
+                                    <span
+                                      className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground"
+                                      title={stripOrchestratorServiceUri(uri)}
+                                    >
+                                      {label}
+                                    </span>
+                                  )}
+                                  <PipelineTableCopyButton
+                                    inline
+                                    copied={copiedId === `orch:${row.stableRowKey}:uri:${i}`}
+                                    onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:uri:${i}`, uri)}
+                                    title="Copy this service URI"
+                                    ariaLabel={`Copy service URI ${uri}`}
+                                  />
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="flex min-w-0 flex-wrap items-center gap-1">
+                              {explorerHref ? (
+                                <a
+                                  href={explorerHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                                  aria-label="View orchestrator on Livepeer Explorer (opens in new tab)"
+                                >
+                                  Livepeer Explorer
+                                </a>
+                              ) : (
+                                <span className="font-mono text-muted-foreground">—</span>
+                              )}
+                              {row.address ? (
+                                <PipelineTableCopyButton
+                                  inline
+                                  copied={copiedId === `orch:${row.stableRowKey}:addr`}
+                                  onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:addr`, row.address)}
+                                  title="Copy orchestrator address"
+                                  ariaLabel={`Copy address ${row.address}`}
+                                />
+                              ) : null}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                </td>
-                <td className="py-1.5 text-right font-mono">{row.knownSessions.toLocaleString()}</td>
-                <td className="py-1.5 text-right font-mono">{row.successRatio != null ? `${row.successRatio}%` : '—'}</td>
-                <td className="py-1.5 text-right font-mono">{row.effectiveSuccessRate != null ? `${row.effectiveSuccessRate}%` : '—'}</td>
-                <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
-                <td className="py-1.5 pr-5 text-right font-mono">{row.gpuCount}</td>
-                <td className="py-1.5 pl-2 max-w-[180px]">
-                  <div className="flex flex-wrap gap-1">
-                    {row.pipelines.length === 0 && '—'}
-                    {row.pipelines.map((p) => {
-                      const offer = row.pipelineModels?.find((o) => o.pipelineId === p);
-                      const modelIds = offer?.modelIds ?? [];
-                      const entry = catalog?.find((c) => c.id === p);
-                      const pipelineName = entry?.name ?? p;
-                      return modelIds.length > 0 ? (
-                        modelIds.map((modelId) => {
-                          const modelSla = row.pipelineModelSla?.find(
-                            (s) => s.pipelineId === p && s.modelId === modelId,
-                          );
-                          return (
+                    </td>
+                    <td className="py-1.5 text-right font-mono">{row.knownSessions.toLocaleString()}</td>
+                    <td className="py-1.5 text-right font-mono">{row.successRatio != null ? `${row.successRatio}%` : '—'}</td>
+                    <td className="py-1.5 text-right font-mono">{row.effectiveSuccessRate != null ? `${row.effectiveSuccessRate}%` : '—'}</td>
+                    <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
+                    <td className="py-1.5 pr-5 text-right font-mono">{row.gpuCount}</td>
+                    <td className="py-1.5 pl-2 max-w-[260px]">
+                      <div className="flex flex-wrap gap-1">
+                        {modelMetricRows.length === 0 && '—'}
+                        {modelMetricRows.map(({ pipelineId, pipelineName, modelId, modelSla }) => {
+                          const hasModel = modelId !== '—';
+                          return hasModel ? (
+                            <div
+                              key={`${pipelineId}:${modelId}`}
+                              className="group/model flex min-w-0 max-w-full items-center gap-0.5"
+                            >
+                              <span
+                                className={`inline-flex min-w-0 max-w-full cursor-default items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId, pipelineId)}`}
+                                title={orchestratorModelTagTooltip(pipelineName, modelId, row.uris, {
+                                  lastSeen: row.lastSeen,
+                                  pricing: pricingByKey.get(`${pipelineId}:${modelId}`),
+                                  modelSla,
+                                })}
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-background/60 ${orchestratorModelSlaHealthDotClasses(modelSla?.slaScore)}`}
+                                  aria-label={orchestratorModelSlaHealthLabel(modelSla?.slaScore)}
+                                />
+                                <span className="truncate">{modelId}</span>
+                              </span>
+                              <PipelineTableCopyButton
+                                inline
+                                inlineGroup="model"
+                                copied={copiedId === `orch:${row.stableRowKey}:${pipelineId}:${modelId}`}
+                                onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:${pipelineId}:${modelId}`, modelId)}
+                                title="Copy model id"
+                                ariaLabel={`Copy model id ${modelId}`}
+                              />
+                            </div>
+                          ) : (
                             <span
-                              key={`${p}:${modelId}`}
-                              className={`inline-flex max-w-full cursor-default items-center rounded px-2 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId, p)}`}
-                              title={orchestratorModelTagTooltip(pipelineName, modelId, row.uris, {
+                              key={pipelineId}
+                              className="inline-flex max-w-full cursor-default items-center rounded border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                              title={orchestratorModelTagTooltip(pipelineName, '—', row.uris, {
                                 lastSeen: row.lastSeen,
-                                pricing: pricingByKey.get(`${p}:${modelId}`),
-                                modelSla,
+                                pricing: undefined,
                               })}
                             >
-                              <span className="truncate">{modelId}</span>
+                              —
                             </span>
                           );
-                        })
-                      ) : (
-                        <span
-                          key={p}
-                          className="inline-flex max-w-full cursor-default items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground"
-                          title={orchestratorModelTagTooltip(pipelineName, '—', row.uris, {
-                            lastSeen: row.lastSeen,
-                            pricing: undefined,
-                          })}
-                        >
-                          —
-                        </span>
-                      );
-                    })}
-                  </div>
-                </td>
-              </tr>
+                        })}
+                      </div>
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="border-b border-border/50 bg-muted/15">
+                      <td colSpan={7} className="px-2 pb-3 pt-1">
+                        <div className="ml-5 rounded-md border border-border/70 bg-card/70 p-2">
+                          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                              Model SLA details
+                            </span>
+                            {row.uris.length > 1 ? (
+                              <span className="text-[10px] text-muted-foreground">
+                                Metrics are aggregated per orchestrator address across {row.uris.length} service URIs.
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="overflow-x-auto">
+                            <table className="w-full min-w-[640px] text-[10px]">
+                              <thead className="text-muted-foreground">
+                                <tr className="border-b border-border/60">
+                                  <th className="py-1 pr-2 text-left font-medium">Model</th>
+                                  <th className="py-1 px-2 text-left font-medium">Pipeline</th>
+                                  <th className="py-1 px-2 text-right font-medium">Sessions</th>
+                                  <th className="py-1 px-2 text-right font-medium">Startup %</th>
+                                  <th className="py-1 px-2 text-right font-medium">Effective %</th>
+                                  <th className="py-1 px-2 text-right font-medium">SLA</th>
+                                  <th className="py-1 pl-2 text-right font-medium">Avg FPS</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {modelMetricRows.map(({ pipelineId, pipelineName, modelId, modelSla }) => (
+                                  <tr key={`${pipelineId}:${modelId}:details`} className="border-b border-border/40 last:border-0">
+                                    <td className="py-1 pr-2">
+                                      <div className="flex min-w-0 items-center gap-1.5">
+                                        {modelId !== '—' ? (
+                                          <span
+                                            className="h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-border/40"
+                                            style={{ backgroundColor: modelHexColor(modelId, PIPELINE_COLOR[pipelineId]) }}
+                                            aria-hidden
+                                          />
+                                        ) : null}
+                                        <span className="truncate font-mono text-foreground">{modelId}</span>
+                                      </div>
+                                    </td>
+                                    <td className="py-1 px-2 text-muted-foreground">{pipelineName}</td>
+                                    <td className="py-1 px-2 text-right font-mono">{modelSla?.knownSessions.toLocaleString() ?? '—'}</td>
+                                    <td className="py-1 px-2 text-right font-mono">{orchestratorModelSlaPercentLabel(modelSla?.successRatio)}</td>
+                                    <td className="py-1 px-2 text-right font-mono">{orchestratorModelSlaPercentLabel(modelSla?.effectiveSuccessRate)}</td>
+                                    <td className="py-1 px-2 text-right">
+                                      <span className={`inline-flex min-w-10 justify-center rounded border px-1.5 py-0.5 font-mono ${orchestratorModelSlaHealthClasses(modelSla?.slaScore)}`}>
+                                        {orchestratorModelSlaScoreLabel(modelSla?.slaScore)}
+                                      </span>
+                                    </td>
+                                    <td className="py-1 pl-2 text-right font-mono">
+                                      {modelSla?.avgOutputFps != null ? modelSla.avgOutputFps.toFixed(1) : '—'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
             {sorted.length === 0 && (
