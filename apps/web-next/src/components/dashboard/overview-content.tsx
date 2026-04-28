@@ -483,8 +483,8 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
 
   return (
     <div className="grid shrink-0 grid-cols-2 gap-2 content-start rounded-lg border border-border bg-card p-2 sm:gap-3 sm:p-3">
-      {tile(CheckCircle2, `Success Rate (${tfLabel})`, `${data.successRate.value}%`)}
-      {tile(Server, `Orchestrators (${tfLabel})`, data.orchestratorsOnline.value)}
+      {tile(CheckCircle2, `Success Rate (${tfLabel})`, `${data.successRate.value.toFixed(1)}%`)}
+      {tile(Server, `Orchestrators (${tfLabel})`, data.orchestratorsObserved.value)}
       {tile(Clock, `Usage (${tfLabel})`, formatNumber(data.dailyUsageMins.value), 'mins', data.hourlyUsage, 'Total transcoding minutes. Sparkline: one bar per UTC hour.')}
       {tile(Radio, `Sessions (${tfLabel})`, data.dailySessionCount.value.toLocaleString(), undefined, data.hourlySessions, 'Demand sessions. Sparkline: one bar per UTC hour.')}
     </div>
@@ -795,9 +795,8 @@ function sortPipelineTableModels(
     const p = pricingByKey.get(`${pipelineId}:${model}`);
     const modelUsage = modelMinsMap.get(model);
     const modelFpsFromPerf = modelFpsByPipelineModel[`${pipelineId}:${model}`];
-    const modelFps = Number.isFinite(modelFpsFromPerf)
-      ? modelFpsFromPerf
-      : Number.isFinite(modelUsage?.avgFps) ? (modelUsage?.avgFps as number) : null;
+    /** Only `streaming/models` (24h avg; live-video rows only per OpenAPI) — do not fall back to modelMins.avgFps (was coerced to 0 when missing). */
+    const modelFps = Number.isFinite(modelFpsFromPerf) ? modelFpsFromPerf : null;
     const modelMins = Number.isFinite(modelUsage?.mins) ? (modelUsage?.mins as number) : null;
     const cap = pipelinesRowCapacity(pipelineId, model, p, netCapacity, liveVideoCapacity);
     const gpus = gpuByPipelineModel.get(`${pipelineId}\x1f${model}`) ?? 0;
@@ -929,6 +928,7 @@ function PipelineTH({
   sortCol,
   sortDir,
   onSort,
+  headerInfo,
 }: {
   col: PipelineTableSortCol;
   label: string;
@@ -936,28 +936,44 @@ function PipelineTH({
   sortCol: PipelineTableSortCol;
   sortDir: 'asc' | 'desc';
   onSort: (col: PipelineTableSortCol) => void;
+  /** Non-sorting info (e.g. metric provenance); kept outside the sort button for accessibility. */
+  headerInfo?: ReactNode;
 }) {
   const ariaSort: 'ascending' | 'descending' | 'none' =
     sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
+  const right = className.includes('text-right');
   return (
     <th scope="col" className={className} aria-sort={ariaSort}>
-      <button
-        type="button"
-        onClick={() => onSort(col)}
-        className={`inline-flex w-full items-center gap-1 select-none hover:text-foreground transition-colors ${className.includes('text-right') ? 'justify-end' : 'justify-start'}`}
+      <div
+        className={`flex w-full items-center gap-0.5 ${right ? 'justify-end' : 'justify-start'}`}
       >
-        {className.includes('text-right') ? (
-          <>
-            <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
-            {label}
-          </>
-        ) : (
-          <>
-            {label}
-            <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
-          </>
-        )}
-      </button>
+        <button
+          type="button"
+          onClick={() => onSort(col)}
+          className={`inline-flex min-w-0 flex-1 items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'justify-end' : 'justify-start'}`}
+        >
+          {right ? (
+            <>
+              <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
+              {label}
+            </>
+          ) : (
+            <>
+              {label}
+              <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
+            </>
+          )}
+        </button>
+        {headerInfo ? (
+          <span
+            className="shrink-0 inline-flex text-muted-foreground pointer-events-auto"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            {headerInfo}
+          </span>
+        ) : null}
+      </div>
     </th>
   );
 }
@@ -981,8 +997,9 @@ function PipelinesCard({
   timeframeHours: number;
   gpuCapacity: DashboardGPUCapacity | null;
 }) {
-  const [sortCol, setSortCol] = useState<PipelineTableSortCol>('model');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  /** Default: GPUs descending so busy models surface first (was Model A–Z). */
+  const [sortCol, setSortCol] = useState<PipelineTableSortCol>('gpus');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const { copiedId, copyToClipboard } = useClipboardFlash();
 
   const togglePipelineTableSort = (col: PipelineTableSortCol) => {
@@ -1087,7 +1104,23 @@ function PipelinesCard({
                 <PipelineTH col="gpus" label="GPUs" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
                 <PipelineTH col="capacity" label="Capacity" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
                 <PipelineTH col="price" label="Price" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
-                <PipelineTH col="fps" label="FPS" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
+                <PipelineTH
+                  col="fps"
+                  label="FPS"
+                  className={thNum}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={togglePipelineTableSort}
+                  headerInfo={
+                    <span
+                      title="Average output FPS from GET /v1/streaming/models (24-hour weighted average; live-video-to-video models only). BFF-cached."
+                      className="cursor-help"
+                      aria-label="Average output FPS from streaming models API, last 24 hours, live-video pipelines only"
+                    >
+                      <Info className="w-3 h-3 opacity-60" aria-hidden />
+                    </span>
+                  }
+                />
                 <PipelineTH col="mins" label="Mins" className={`${thNum} pr-4`} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
               </tr>
             </thead>
@@ -1151,9 +1184,7 @@ function PipelinesCard({
                         const p = pricingByKey.get(`${entry.id}:${model}`);
                         const modelUsage = pipelineUsage?.modelMins?.find((m) => m.model === model);
                         const modelFpsFromPerf = modelFpsByPipelineModel[`${entry.id}:${model}`];
-                        const modelFps = Number.isFinite(modelFpsFromPerf)
-                          ? modelFpsFromPerf
-                          : Number.isFinite(modelUsage?.avgFps) ? (modelUsage?.avgFps as number) : null;
+                        const modelFps = Number.isFinite(modelFpsFromPerf) ? modelFpsFromPerf : null;
                         const modelMins = Number.isFinite(modelUsage?.mins) ? (modelUsage?.mins as number) : null;
                         const wei = avgWeiBigIntForPricingRow(p);
                         const priceStr =
@@ -1353,8 +1384,8 @@ function JobFeedCard({
                   job.startedAt ? `First seen: ${job.startedAt}` : null,
                   job.lastSeen ? `Last seen: ${job.lastSeen}` : null,
                   job.durationSeconds != null ? `Duration: ${job.durationSeconds}s` : null,
-                  job.inputFps != null ? `Input FPS: ${job.inputFps}` : null,
-                  job.outputFps != null ? `Output FPS: ${job.outputFps}` : null,
+                  job.inputFps != null ? `Input FPS: ${job.inputFps.toFixed(1)}` : null,
+                  job.outputFps != null ? `Output FPS: ${job.outputFps.toFixed(1)}` : null,
                   `Status: ${job.status}`,
                 ].filter(Boolean).join('\n');
                 const rawPipeline = job.pipeline.trim();
@@ -1409,7 +1440,7 @@ function JobFeedCard({
                         )}
                       </div>
                     </td>
-                    <td className="py-1.5 text-right font-mono text-foreground">{job.inputFps != null && job.outputFps != null ? `${job.inputFps} / ${job.outputFps}` : '—'}</td>
+                    <td className="py-1.5 text-right font-mono text-foreground">{job.outputFps != null ? `${job.inputFps != null ? job.inputFps.toFixed(1) : '—'} / ${job.outputFps.toFixed(1)}` : '—'}</td>
                     <td className="py-1.5 text-right font-mono text-muted-foreground">{job.runningFor ?? '—'}</td>
                     <td className="py-1.5 text-right">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusStyles[job.status] ?? ''}`}>{job.status}</span>
