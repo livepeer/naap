@@ -88,7 +88,6 @@ function isPerOrch(r: unknown): r is PerOrchRow {
 function fromAggregatedRow(
   r: LegacyAggRow,
   netCapacity: Record<string, number>,
-  ethUsd: number,
 ): DashboardPipelinePricing {
   const unit = PIPELINE_UNIT[r.pipeline] ?? 'pixel';
   const price = r.priceAvgWeiPerUnit / 1e12;
@@ -104,7 +103,7 @@ function fromAggregatedRow(
     price,
     avgWeiPerUnit: String(Math.round(r.priceAvgWeiPerUnit)),
     pixelsPerUnit: r.pixelsPerUnit > 0 ? r.pixelsPerUnit : null,
-    outputPerDollar: computeOutputPerDollar(r.priceAvgWeiPerUnit, unit, ethUsd),
+    outputPerDollar: '',
     capacity,
   };
 }
@@ -112,7 +111,6 @@ function fromAggregatedRow(
 function fromNetModelRow(
   nm: NetworkModel,
   netCapacity: Record<string, number>,
-  ethUsd: number,
 ): DashboardPipelinePricing | null {
   const pipeline = nm.Pipeline?.trim() ?? '';
   const model = nm.Model?.trim() ?? '';
@@ -136,7 +134,7 @@ function fromNetModelRow(
     price: avgWei / 1e12,
     avgWeiPerUnit: String(Math.round(avgWei)),
     pixelsPerUnit: null,
-    outputPerDollar: computeOutputPerDollar(avgWei, unit, ethUsd),
+    outputPerDollar: '',
     capacity,
   };
 }
@@ -194,7 +192,6 @@ function aggregatePerOrchRows(rows: PerOrchRow[]): Map<string, PerPipelineModelA
 function fromPerOrchAggregate(
   agg: PerPipelineModelAgg,
   netCapacity: Record<string, number>,
-  ethUsd: number,
 ): DashboardPipelinePricing {
   const avgWei = agg.sumWei / Math.max(1, agg.count);
   const unit = PIPELINE_UNIT[agg.pipeline] ?? 'pixel';
@@ -212,14 +209,29 @@ function fromPerOrchAggregate(
     price: avgWei / 1e12,
     avgWeiPerUnit: String(Math.round(avgWei)),
     pixelsPerUnit: agg.pixelsPerUnit > 0 ? agg.pixelsPerUnit : null,
-    outputPerDollar: computeOutputPerDollar(avgWei, unit, ethUsd),
+    outputPerDollar: '',
     capacity,
   };
 }
 
+function finalizePricingEthConversion(
+  rows: DashboardPipelinePricing[],
+  ethUsd: number,
+): DashboardPipelinePricing[] {
+  return rows.map((row) => {
+    const avgWei = Number(row.avgWeiPerUnit);
+    if (!Number.isFinite(avgWei) || avgWei <= 0) {
+      return { ...row, outputPerDollar: '' };
+    }
+    return {
+      ...row,
+      outputPerDollar: computeOutputPerDollar(avgWei, row.unit, ethUsd),
+    };
+  });
+}
+
 export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
-  return cachedFetch('facade:pricing', TTL.PRICING, async () => {
-    const ethUsd = parseEthUsdReference();
+  const rows = await cachedFetch('facade:pricing', TTL.PRICING, async () => {
     const [rawRows, netCapacity, netModels] = await Promise.all([
       naapGet<unknown[]>('dashboard/pricing', undefined, {
         cache: 'no-store',
@@ -244,7 +256,7 @@ export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
         const pipeline = typeof r.pipeline === 'string' ? r.pipeline.trim() : '';
         const model = typeof r.model === 'string' ? r.model.trim() : '';
         if (!pipeline || !model) continue;
-        const row = fromAggregatedRow({ ...r, pipeline, model }, netCapacity, ethUsd);
+        const row = fromAggregatedRow({ ...r, pipeline, model }, netCapacity);
         byKey.set(pricingKey(row.pipeline, row.model ?? ''), row);
       }
     } else {
@@ -254,13 +266,13 @@ export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
       }
       const aggs = aggregatePerOrchRows(perOrch);
       for (const agg of aggs.values()) {
-        const row = fromPerOrchAggregate(agg, netCapacity, ethUsd);
+        const row = fromPerOrchAggregate(agg, netCapacity);
         byKey.set(pricingKey(row.pipeline, row.model ?? ''), row);
       }
     }
 
     for (const nm of netModels) {
-      const row = fromNetModelRow(nm, netCapacity, ethUsd);
+      const row = fromNetModelRow(nm, netCapacity);
       if (!row) continue;
       const key = pricingKey(row.pipeline, row.model ?? '');
       if (byKey.has(key)) continue;
@@ -269,4 +281,7 @@ export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
 
     return [...byKey.values()].sort((a, b) => b.price - a.price);
   });
+
+  const ethUsd = parseEthUsdReference();
+  return finalizePricingEthConversion(rows, ethUsd);
 }

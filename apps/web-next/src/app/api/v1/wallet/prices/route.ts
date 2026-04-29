@@ -11,6 +11,10 @@ import { success, errors, getAuthToken } from '@/lib/api/response';
 const CACHE_TTL = 5 * 60 * 1000;
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 
+function validPositiveUsd(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const token = getAuthToken(request);
@@ -45,14 +49,20 @@ export async function GET(request: NextRequest) {
 
       const resp = await fetch(`${COINGECKO_BASE}/simple/price?ids=livepeer,ethereum&vs_currencies=usd`, { headers });
       const data = await resp.json();
-      const lptUsd = data?.livepeer?.usd ?? 0;
-      const ethUsd = data?.ethereum?.usd ?? 0;
+      const lptUsdRaw = data?.livepeer?.usd;
+      const ethUsdRaw = data?.ethereum?.usd;
+      const lptUsd = validPositiveUsd(lptUsdRaw) ? lptUsdRaw : 0;
+      const ethUsd = validPositiveUsd(ethUsdRaw) ? ethUsdRaw : 0;
       const now = new Date();
 
-      await Promise.all([
-        prisma.walletPriceCache.create({ data: { symbol: 'LPT', priceUsd: lptUsd, fetchedAt: now } }),
-        prisma.walletPriceCache.create({ data: { symbol: 'ETH', priceUsd: ethUsd, fetchedAt: now } }),
-      ]);
+      const creates: Promise<unknown>[] = [];
+      if (validPositiveUsd(lptUsdRaw)) {
+        creates.push(prisma.walletPriceCache.create({ data: { symbol: 'LPT', priceUsd: lptUsdRaw, fetchedAt: now } }));
+      }
+      if (validPositiveUsd(ethUsdRaw)) {
+        creates.push(prisma.walletPriceCache.create({ data: { symbol: 'ETH', priceUsd: ethUsdRaw, fetchedAt: now } }));
+      }
+      if (creates.length > 0) await Promise.all(creates);
 
       return success({ lptUsd, ethUsd, fetchedAt: now.toISOString() });
     } catch {

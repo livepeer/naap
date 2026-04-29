@@ -2000,59 +2000,68 @@ function OrchestratorTableCard({
                                   key={`${row.stableRowKey}:uri:${i}`}
                                   className="flex w-full min-w-0 items-center justify-start gap-1"
                                 >
-                                  {explorerHref ? (
-                                    <a
-                                      href={explorerHref}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground underline-offset-2 hover:text-primary hover:underline"
-                                      title={`${stripOrchestratorServiceUri(uri)} — Livepeer Explorer (orchestrating)`}
-                                      aria-label={`${label}: view orchestrator on Livepeer Explorer (opens in new tab)`}
-                                    >
-                                      {label}
-                                    </a>
-                                  ) : (
-                                    <span
-                                      className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground"
-                                      title={stripOrchestratorServiceUri(uri)}
-                                    >
-                                      {label}
-                                    </span>
-                                  )}
-                                  <PipelineTableCopyButton
-                                    inline
-                                    copied={copiedId === `orch:${row.stableRowKey}:uri:${i}`}
-                                    onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:uri:${i}`, uri)}
-                                    title="Copy this service URI"
-                                    ariaLabel={`Copy service URI ${uri}`}
-                                  />
+                                  <span
+                                    className="min-w-0 flex-1 truncate font-mono text-foreground"
+                                    title={stripOrchestratorServiceUri(uri)}
+                                  >
+                                    {label}
+                                  </span>
+                                  <div className="flex shrink-0 items-center gap-0.5">
+                                    {explorerHref ? (
+                                      <a
+                                        href={explorerHref}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={`${pipelineCopyInlineHoverCls('default')} inline-flex shrink-0 items-center justify-center text-muted-foreground hover:text-primary`}
+                                        title={`${stripOrchestratorServiceUri(uri)} — Livepeer Explorer (orchestrating)`}
+                                        aria-label={`${label}: view orchestrator on Livepeer Explorer (opens in new tab)`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                        }}
+                                      >
+                                        <LivepeerMarkIcon className="w-3.5 h-3.5" />
+                                      </a>
+                                    ) : null}
+                                    <PipelineTableCopyButton
+                                      inline
+                                      copied={copiedId === `orch:${row.stableRowKey}:uri:${i}`}
+                                      onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:uri:${i}`, uri)}
+                                      title="Copy this service URI"
+                                      ariaLabel={`Copy service URI ${uri}`}
+                                    />
+                                  </div>
                                 </div>
                               );
                             })
                           ) : (
                             <div className="flex min-w-0 flex-wrap items-center gap-1">
-                              {explorerHref ? (
-                                <a
-                                  href={explorerHref}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-                                  aria-label="View orchestrator on Livepeer Explorer (opens in new tab)"
-                                >
-                                  Livepeer Explorer
-                                </a>
-                              ) : (
-                                <span className="font-mono text-muted-foreground">—</span>
-                              )}
-                              {row.address ? (
-                                <PipelineTableCopyButton
-                                  inline
-                                  copied={copiedId === `orch:${row.stableRowKey}:addr`}
-                                  onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:addr`, row.address)}
-                                  title="Copy orchestrator address"
-                                  ariaLabel={`Copy address ${row.address}`}
-                                />
-                              ) : null}
+                              <span className="min-w-0 flex-1 font-mono text-muted-foreground">—</span>
+                              <div className="flex shrink-0 items-center gap-0.5">
+                                {explorerHref ? (
+                                  <a
+                                    href={explorerHref}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={`${pipelineCopyInlineHoverCls('default')} inline-flex shrink-0 items-center justify-center text-muted-foreground hover:text-primary`}
+                                    title="Livepeer Explorer — orchestrating view"
+                                    aria-label="View orchestrator on Livepeer Explorer (opens in new tab)"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                    }}
+                                  >
+                                    <LivepeerMarkIcon className="w-3.5 h-3.5" />
+                                  </a>
+                                ) : null}
+                                {row.address ? (
+                                  <PipelineTableCopyButton
+                                    inline
+                                    copied={copiedId === `orch:${row.stableRowKey}:addr`}
+                                    onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:addr`, row.address)}
+                                    title="Copy orchestrator address"
+                                    ariaLabel={`Copy address ${row.address}`}
+                                  />
+                                ) : null}
+                              </div>
                             </div>
                           )}
                         </div>
