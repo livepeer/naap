@@ -239,20 +239,20 @@ function ingestRow(
     );
   }
 
-  const ls = parseLastSeenMs(r.last_seen);
-  if (ls !== undefined) {
-    const prev = lastSeenMsByAddress.get(addr);
-    if (prev === undefined || ls > prev) {
-      lastSeenMsByAddress.set(addr, ls);
-    }
-    if (uri.length > 0) {
+  if (uri.length > 0) {
+    const ls = parseLastSeenMs(r.last_seen);
+    if (ls !== undefined) {
+      const prev = lastSeenMsByAddress.get(addr);
+      if (prev === undefined || ls > prev) {
+        lastSeenMsByAddress.set(addr, ls);
+      }
       const pairKey = orchestratorPairKey(addr, uri);
       const prevPair = lastSeenMsByPair.get(pairKey);
       if (prevPair === undefined || ls > prevPair) {
         lastSeenMsByPair.set(pairKey, ls);
       }
+      return { lastSeenMs: ls };
     }
-    return { lastSeenMs: ls };
   }
   return {};
 }

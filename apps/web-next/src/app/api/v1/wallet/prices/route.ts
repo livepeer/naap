@@ -49,18 +49,26 @@ export async function GET(request: NextRequest) {
       const ethUsd = ethUsdRaw != null && Number.isFinite(ethUsdRaw) && ethUsdRaw > 0 ? ethUsdRaw : 0;
       const now = new Date();
 
-      await Promise.all([
-        prisma.walletPriceCache.upsert({
-          where: { symbol_fetchedAt: { symbol: 'LPT', fetchedAt: now } },
-          create: { symbol: 'LPT', priceUsd: lptUsd, fetchedAt: now },
-          update: { priceUsd: lptUsd },
-        }),
-        prisma.walletPriceCache.upsert({
-          where: { symbol_fetchedAt: { symbol: 'ETH', fetchedAt: now } },
-          create: { symbol: 'ETH', priceUsd: ethUsd, fetchedAt: now },
-          update: { priceUsd: ethUsd },
-        }),
-      ]);
+      const persist: Promise<unknown>[] = [];
+      if (lptUsd > 0) {
+        persist.push(
+          prisma.walletPriceCache.upsert({
+            where: { symbol_fetchedAt: { symbol: 'LPT', fetchedAt: now } },
+            create: { symbol: 'LPT', priceUsd: lptUsd, fetchedAt: now },
+            update: { priceUsd: lptUsd },
+          }),
+        );
+      }
+      if (ethUsd > 0) {
+        persist.push(
+          prisma.walletPriceCache.upsert({
+            where: { symbol_fetchedAt: { symbol: 'ETH', fetchedAt: now } },
+            create: { symbol: 'ETH', priceUsd: ethUsd, fetchedAt: now },
+            update: { priceUsd: ethUsd },
+          }),
+        );
+      }
+      if (persist.length > 0) await Promise.all(persist);
 
       return success({ lptUsd, ethUsd, fetchedAt: now.toISOString() });
     } catch {

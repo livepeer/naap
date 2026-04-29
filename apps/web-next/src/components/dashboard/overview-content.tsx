@@ -158,6 +158,7 @@ function PipelineTablePriceCell({
   pipelineAvgFps,
   ethUsd,
   tdClass,
+  ethUsdProvenance,
 }: {
   pipelineId: string;
   wei: bigint | null;
@@ -166,7 +167,9 @@ function PipelineTablePriceCell({
   pipelineAvgFps: number | undefined;
   ethUsd: number;
   tdClass: string;
+  ethUsdProvenance?: string | null;
 }) {
+  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLButtonElement>();
   const { main, richLines } = pipelineTablePriceCellContent({
     pipelineId,
     wei,
@@ -174,6 +177,7 @@ function PipelineTablePriceCell({
     modelFps,
     pipelineAvgFps,
     ethUsd,
+    ethUsdProvenance,
   });
   const tip = richLines?.join('\n') ?? null;
 
@@ -183,20 +187,23 @@ function PipelineTablePriceCell({
 
   return (
     <td className={tdClass}>
-      <div className="group/cell relative flex justify-end">
-        <span className="cursor-default border-b border-dotted border-muted-foreground/35" title={tip}>
-          {main}
-        </span>
-        <div className="pointer-events-none absolute bottom-full right-0 z-20 mb-1.5 hidden w-max min-w-[12rem] max-w-[min(22rem,calc(100vw-2rem))] group-hover/cell:block">
-          <div className="rounded border border-border bg-popover px-2.5 py-1.5 text-left text-[10px] leading-relaxed text-popover-foreground shadow-md">
-            {richLines!.map((line, i) => (
-              <p key={i} className={i > 0 ? 'mt-1' : ''}>
-                {line}
-              </p>
-            ))}
-          </div>
-        </div>
-      </div>
+      <button
+        type="button"
+        {...triggerProps}
+        title={tip}
+        className="group/cell w-full cursor-default border-b border-dotted border-muted-foreground/35 bg-transparent p-0 text-right font-inherit text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      >
+        {main}
+      </button>
+      {tipOpen && tipAnchor ? (
+        <OverviewDefinitionTooltipPortal anchor={tipAnchor}>
+          {richLines!.map((line, i) => (
+            <p key={i} className={i > 0 ? 'mt-1' : ''}>
+              {line}
+            </p>
+          ))}
+        </OverviewDefinitionTooltipPortal>
+      ) : null}
     </td>
   );
 }
@@ -542,17 +549,18 @@ function OverviewDefinitionTooltipPortal(props: { anchor: OverviewDefAnchor; chi
 
 function KpiTileTitleWithDefinition(props: { label: string; definition: string }) {
   const { label, definition } = props;
-  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLSpanElement>();
+  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLButtonElement>();
   return (
     <>
       <span className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider leading-tight">
-        <span
+        <button
+          type="button"
           {...triggerProps}
-          className="cursor-default border-b border-dotted border-border/60"
+          className="cursor-default rounded-sm border-b border-dotted border-border/60 bg-transparent p-0 text-left font-inherit text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           aria-label={definition}
         >
           {label}
-        </span>
+        </button>
       </span>
       {tipOpen && tipAnchor ? (
         <OverviewDefinitionTooltipPortal anchor={tipAnchor}>
@@ -1856,16 +1864,17 @@ function OrchestratorSortTH(props: {
 
 function OrchestratorModelsHeader(props: { label: string; description: string }) {
   const { label, description } = props;
-  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLSpanElement>();
+  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLButtonElement>();
   return (
     <th className="pb-2 pl-2 font-medium text-left align-bottom">
-      <span
+      <button
+        type="button"
         {...triggerProps}
-        className="cursor-default border-b border-dotted border-border/60"
+        className="cursor-default rounded-sm border-b border-dotted border-border/60 bg-transparent p-0 text-left font-inherit text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         aria-label={description}
       >
         {label}
-      </span>
+      </button>
       {tipOpen && tipAnchor ? (
         <OverviewDefinitionTooltipPortal anchor={tipAnchor}>
           <p>{description}</p>

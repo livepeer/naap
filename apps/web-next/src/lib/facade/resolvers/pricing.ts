@@ -49,6 +49,32 @@ function computeOutputPerDollar(avgWei: number, unit: string, ethUsd: number): s
   return `~${unitsPerDollar.toFixed(0)} ${unit}s`;
 }
 
+/** Recompute `outputPerDollar` after ETH/USD moves (cached pricing rows omit live conversion). */
+function avgWeiNumericForOutputPerDollar(row: DashboardPipelinePricing): number {
+  const s = row.avgWeiPerUnit?.trim();
+  if (s && /^\d+$/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  if (row.price > 0 && Number.isFinite(row.price)) {
+    const r = Math.round(row.price * 1e12);
+    if (r > 0) return r;
+  }
+  return NaN;
+}
+
+function decoratePricingRowsWithEthUsd(
+  rows: DashboardPipelinePricing[],
+  ethUsd: number,
+): DashboardPipelinePricing[] {
+  return rows.map((row) => {
+    const avgWei = avgWeiNumericForOutputPerDollar(row);
+    const outputPerDollar =
+      Number.isFinite(avgWei) && avgWei > 0 ? computeOutputPerDollar(avgWei, row.unit, ethUsd) : '';
+    return { ...row, outputPerDollar };
+  });
+}
+
 function pricingKey(pipeline: string, model: string): string {
   return `${pipeline.trim()}:${model.trim()}`;
 }
@@ -206,8 +232,8 @@ function fromPerOrchAggregate(
 }
 
 export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
-  return cachedFetch('facade:pricing', TTL.PRICING, async () => {
-    const ethUsd = await getEthUsdOracle();
+  const rows = await cachedFetch('facade:pricing', TTL.PRICING, async () => {
+    const PLACEHOLDER_ETH = 0;
     const [rawRows, netCapacity, netModels] = await Promise.all([
       naapGet<unknown[]>('dashboard/pricing', undefined, {
         cache: 'no-store',
@@ -232,7 +258,7 @@ export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
         const pipeline = typeof r.pipeline === 'string' ? r.pipeline.trim() : '';
         const model = typeof r.model === 'string' ? r.model.trim() : '';
         if (!pipeline || !model) continue;
-        const row = fromAggregatedRow({ ...r, pipeline, model }, netCapacity, ethUsd);
+        const row = fromAggregatedRow({ ...r, pipeline, model }, netCapacity, PLACEHOLDER_ETH);
         byKey.set(pricingKey(row.pipeline, row.model ?? ''), row);
       }
     } else {
@@ -242,13 +268,13 @@ export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
       }
       const aggs = aggregatePerOrchRows(perOrch);
       for (const agg of aggs.values()) {
-        const row = fromPerOrchAggregate(agg, netCapacity, ethUsd);
+        const row = fromPerOrchAggregate(agg, netCapacity, PLACEHOLDER_ETH);
         byKey.set(pricingKey(row.pipeline, row.model ?? ''), row);
       }
     }
 
     for (const nm of netModels) {
-      const row = fromNetModelRow(nm, netCapacity, ethUsd);
+      const row = fromNetModelRow(nm, netCapacity, PLACEHOLDER_ETH);
       if (!row) continue;
       const key = pricingKey(row.pipeline, row.model ?? '');
       if (byKey.has(key)) continue;
@@ -257,4 +283,6 @@ export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
 
     return [...byKey.values()].sort((a, b) => b.price - a.price);
   });
+  const ethUsd = await getEthUsdOracle();
+  return decoratePricingRowsWithEthUsd(rows, ethUsd);
 }

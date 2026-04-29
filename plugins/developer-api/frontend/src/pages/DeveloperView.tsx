@@ -403,7 +403,7 @@ function DeveloperModelCombinedPriceCell(props: {
   const showHover = hoverBlocks.length > 0;
   const active = avgWei != null && avg.main !== '—';
 
-  const { tipAnchor, tipOpen, triggerProps } = usePortaledTooltip<HTMLDivElement>();
+  const { tipAnchor, tipOpen, triggerProps } = usePortaledTooltip<HTMLButtonElement>();
 
   const tipPanel =
     tipOpen && tipAnchor ? (
@@ -425,12 +425,13 @@ function DeveloperModelCombinedPriceCell(props: {
     <td className={`${tdClass} text-sm font-mono ${active ? 'text-accent-emerald' : 'text-text-secondary opacity-40'}`}>
       {showHover ? (
         <div className="flex justify-end">
-          <div
+          <button
+            type="button"
             {...triggerProps}
-            className="inline-flex max-w-full"
+            className="inline-flex max-w-full cursor-default border-0 bg-transparent p-0 font-inherit text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/50 rounded-sm"
           >
             <span className="cursor-default border-b border-dotted border-white/35">{avg.main}</span>
-          </div>
+          </button>
           {tipPanel}
         </div>
       ) : (

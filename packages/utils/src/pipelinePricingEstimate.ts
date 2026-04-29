@@ -74,9 +74,17 @@ export function pipelineTablePriceCellContent(input: {
   modelFps: number | null;
   pipelineAvgFps: number | undefined;
   ethUsd: number;
+  /** When set, appended to the ETH/USD line in tooltips; omit for a neutral line. */
+  ethUsdProvenance?: string | null;
 }): { main: string; richLines: string[] | null } {
-  const { pipelineId, wei, unit, modelFps, pipelineAvgFps, ethUsd } = input;
+  const { pipelineId, wei, unit, modelFps, pipelineAvgFps, ethUsd, ethUsdProvenance } = input;
   const pid = normalizePipelineIdForPricing(pipelineId);
+  const ethUsdLine = (() => {
+    const base = `USD @ ETH/USD ≈ $${ethUsd.toFixed(2)}`;
+    const p = ethUsdProvenance?.trim();
+    if (p) return `${base} (${p}).`;
+    return `${base}.`;
+  })();
   if (wei == null) {
     return { main: '—', richLines: null };
   }
@@ -96,7 +104,7 @@ export function pipelineTablePriceCellContent(input: {
       richLines: [
         weiLabel,
         `${fps.toFixed(1)} FPS @ 512×512, one minute of output.`,
-        `USD @ ETH/USD ≈ $${ethUsd.toFixed(2)} (cached oracle).`,
+        ethUsdLine,
       ],
     };
   }
@@ -109,7 +117,7 @@ export function pipelineTablePriceCellContent(input: {
       richLines: [
         weiLabel,
         '512×512, one frame.',
-        `USD @ ETH/USD ≈ $${ethUsd.toFixed(2)} (cached oracle).`,
+        ethUsdLine,
       ],
     };
   }
@@ -123,7 +131,7 @@ export function pipelineTablePriceCellContent(input: {
       richLines: [
         weiLabel,
         '512×512 in → ~1024×1024 out (4× pixels billed).',
-        `USD @ ETH/USD ≈ $${ethUsd.toFixed(2)} (cached oracle).`,
+        ethUsdLine,
       ],
     };
   }
@@ -136,7 +144,7 @@ export function pipelineTablePriceCellContent(input: {
       richLines: [
         weiLabel,
         `${formatTokenCountShort(LLM_PRICE_REF_TOKENS)} tokens @ list wei/token.`,
-        `USD @ ETH/USD ≈ $${ethUsd.toFixed(2)} (cached oracle).`,
+        ethUsdLine,
       ],
     };
   }

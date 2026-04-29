@@ -86,6 +86,7 @@ export async function resolveKPI(opts: {
       kpi.orchestratorsObserved = {
         ...kpi.orchestratorsObserved,
         value: netData.listedCount,
+        delta: 0,
       };
       kpi.orchestratorsWindowHours = orchestratorSnapshotWindowHours(netData);
     }

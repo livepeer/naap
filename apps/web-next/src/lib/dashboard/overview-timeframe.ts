@@ -28,5 +28,7 @@ export function formatOverviewTimeframeLabel(hours: number): string {
   if (hours === 1) return '1h';
   if (hours < 24) return `${hours}h`;
   if (hours % 24 === 0) return `${hours / 24}d`;
-  return `${Math.round(hours / 24)}d`;
+  const days = (hours / 24).toFixed(1);
+  const trimmed = days.endsWith('.0') ? days.slice(0, -2) : days;
+  return `${trimmed}d`;
 }

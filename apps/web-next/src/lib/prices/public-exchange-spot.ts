@@ -7,10 +7,13 @@
 
 const BINANCE_API = 'https://api.binance.com/api/v3';
 
+const FETCH_TIMEOUT_MS = 3000;
+
 async function fetchBinanceLastPrice(symbol: string): Promise<number | null> {
   try {
     const res = await fetch(`${BINANCE_API}/ticker/price?symbol=${encodeURIComponent(symbol)}`, {
       headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     const j = (await res.json()) as { price?: string };
@@ -25,7 +28,10 @@ async function fetchKrakenTickerClose(pair: string): Promise<number | null> {
   try {
     const res = await fetch(
       `https://api.kraken.com/0/public/Ticker?pair=${encodeURIComponent(pair)}`,
-      { headers: { Accept: 'application/json' } },
+      {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      },
     );
     if (!res.ok) return null;
     const json = (await res.json()) as {
@@ -70,6 +76,7 @@ export async function fetchLptUsd24hChangePercent(): Promise<number | null> {
   try {
     const res = await fetch(`${BINANCE_API}/ticker/24hr?symbol=LPTUSDT`, {
       headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     const j = (await res.json()) as { priceChangePercent?: string };
@@ -91,7 +98,10 @@ export async function fetchLptUsdDailyCloseChart(
   try {
     const res = await fetch(
       `${BINANCE_API}/klines?symbol=LPTUSDT&interval=1d&limit=${limit}`,
-      { headers: { Accept: 'application/json' } },
+      {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      },
     );
     if (!res.ok) return [];
     const rows = (await res.json()) as unknown[][];
