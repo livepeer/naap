@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
 import { validateCSRF } from '@/lib/api/csrf';
+import { PYMTHOUSE_NOT_CONFIGURED_MESSAGE } from '@/lib/pymthouse-env';
 import {
   isPymthouseConfigured,
   issuePymthouseUserAccessToken,
@@ -62,9 +63,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     if (!isPymthouseConfigured()) {
-      return errors.badRequest(
-        'PymtHouse is not configured. Set PYMTHOUSE_ISSUER_URL, PMTHOUSE_CLIENT_SECRET, and PMTHOUSE_CLIENT_ID, then restart.',
-      );
+      return errors.badRequest(PYMTHOUSE_NOT_CONFIGURED_MESSAGE);
     }
 
     try {

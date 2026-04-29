@@ -19,6 +19,7 @@ import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { resolveBillingOAuthAppUrl } from '@/lib/billing-oauth-origin';
+import { PYMTHOUSE_NOT_CONFIGURED_MESSAGE } from '@/lib/pymthouse-env';
 import {
   isPymthouseConfigured,
   issuePymthouseUserAccessToken,
@@ -124,15 +125,13 @@ export async function POST(
         console.error('[billing-auth:pymthouse] Builder API error:', msg);
         return errors.badRequest(
           `PymtHouse user linking failed: ${msg}. ` +
-            'Ensure PYMTHOUSE_ISSUER_URL (…/api/v1/oidc), PMTHOUSE_CLIENT_SECRET, and PMTHOUSE_CLIENT_ID (app_…) are set, ' +
+            'Ensure PYMTHOUSE_ISSUER_URL (…/api/v1/oidc), PYMTHOUSE_PUBLIC_CLIENT_ID (app_…), PYMTHOUSE_M2M_CLIENT_ID, and PYMTHOUSE_M2M_CLIENT_SECRET are set, ' +
             'and the confidential client on PymtHouse allows users:read, users:write, and users:token.',
         );
       }
 
       if (!token) {
-        return errors.badRequest(
-          'PymtHouse is not configured. Set PYMTHOUSE_ISSUER_URL, PMTHOUSE_CLIENT_SECRET, and PMTHOUSE_CLIENT_ID, then restart.',
-        );
+        return errors.badRequest(PYMTHOUSE_NOT_CONFIGURED_MESSAGE);
       }
 
       await prisma.billingProviderOAuthSession.create({

@@ -24,6 +24,8 @@ export * from './tracing.js';
 // Re-export shared security utilities
 export * from './security.js';
 
+export * from './formatFeeWeiString.js';
+
 /**
  * Format an Ethereum address to a shortened display format
  */

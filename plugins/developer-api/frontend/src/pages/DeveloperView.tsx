@@ -25,6 +25,7 @@ ChevronUp,
 } from 'lucide-react';
 import { Card, Badge, Modal } from '@naap/ui';
 import type { NetworkModel } from '@naap/plugin-sdk';
+import { formatFeeWeiStringToEthDisplay } from '@naap/utils';
 
 const PIPELINE_COLOR: Record<string, string> = {
   'text-to-image':           '#f59e0b',
@@ -145,6 +146,16 @@ interface ProjectInfo {
   isDefault: boolean;
 }
 
+interface PymthouseUsageMePayload {
+  clientId: string;
+  period: { start: string | null; end: string | null };
+  currentUser: {
+    externalUserId: string;
+    requestCount: number;
+    feeWei: string;
+  };
+}
+
 async function fetchCsrfToken(): Promise<string> {
   try {
     const res = await fetch('/api/v1/auth/csrf', { credentials: 'include' });
@@ -230,6 +241,10 @@ export const DeveloperView: React.FC = () => {
   const [modelSortKey, setModelSortKey] = useState<ModelSortKey>('WarmOrchCount');
   const [modelSortDir, setModelSortDir] = useState<'asc' | 'desc'>('desc');
   const [copiedCell, setCopiedCell] = useState<string | null>(null);
+
+  const [usagePayload, setUsagePayload] = useState<PymthouseUsageMePayload | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState<string | null>(null);
 
   const copyCell = useCallback(async (key: string, text: string) => {
     try {
@@ -465,6 +480,54 @@ result = [...result].sort((a, b) => {
   useEffect(() => {
     if (activeTab === 'usage' || activeTab === 'api-keys') loadBillingProviders();
   }, [activeTab, loadBillingProviders]);
+
+  const loadPymthouseUsage = useCallback(async () => {
+    setUsageLoading(true);
+    setUsageError(null);
+    try {
+      const now = new Date();
+      const y = now.getUTCFullYear();
+      const m = now.getUTCMonth();
+      const start = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
+      const end = new Date(Date.UTC(y, m + 1, 0, 23, 59, 59, 999));
+      const params = new URLSearchParams({
+        scope: 'me',
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+      });
+      const res = await fetch(`/api/v1/billing/pymthouse/usage?${params}`, {
+        credentials: 'include',
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          (json?.error && typeof json.error === 'object' && json.error.message) ||
+          json?.message ||
+          `Failed to load usage (HTTP ${res.status})`;
+        setUsagePayload(null);
+        setUsageError(typeof msg === 'string' ? msg : 'Failed to load usage');
+        return;
+      }
+      const data = json.data ?? json;
+      if (!data?.currentUser) {
+        setUsagePayload(null);
+        setUsageError('Invalid usage response from server');
+        return;
+      }
+      setUsagePayload(data as PymthouseUsageMePayload);
+    } catch (e) {
+      setUsagePayload(null);
+      setUsageError(e instanceof Error ? e.message : 'Network error loading usage');
+    } finally {
+      setUsageLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'usage') {
+      void loadPymthouseUsage();
+    }
+  }, [activeTab, loadPymthouseUsage]);
 
   const loadModalData = useCallback(async () => {
     setModalDataLoading(true);
@@ -1113,11 +1176,70 @@ result = [...result].sort((a, b) => {
                 </div>
               </Card>
               <Card>
-                <div className="text-center py-6">
-                  <BarChart3 size={24} className="mx-auto mb-3 text-text-secondary opacity-30" />
-                  <h3 className="text-sm font-semibold text-text-primary mb-1">Usage Dashboard</h3>
-                  <p className="text-sm text-text-secondary">Usage tracking and cost breakdown coming soon</p>
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-3">
+                    <BarChart3 size={16} className="text-accent-blue" />
+                    <div>
+                      <h3 className="text-sm font-semibold text-text-primary">PymtHouse usage (this month, UTC)</h3>
+                      <p className="text-xs text-text-secondary">
+                        Signed requests attributed to your account via PymtHouse
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadPymthouseUsage()}
+                    className="text-xs text-text-secondary hover:text-accent-blue transition-colors shrink-0"
+                  >
+                    Refresh
+                  </button>
                 </div>
+                {usageLoading ? (
+                  <div className="flex items-center justify-center gap-3 py-8">
+                    <Loader2 size={16} className="animate-spin text-text-secondary" />
+                    <span className="text-sm text-text-secondary">Loading usage…</span>
+                  </div>
+                ) : usageError ? (
+                  <div className="flex items-start gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                    <AlertTriangle size={18} className="text-red-400 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm">
+                      <p className="text-red-200 font-medium">Could not load usage</p>
+                      <p className="text-text-secondary mt-1">{usageError}</p>
+                      <button
+                        type="button"
+                        onClick={() => void loadPymthouseUsage()}
+                        className="text-accent-blue hover:underline mt-2 text-xs"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  </div>
+                ) : usagePayload ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="p-4 rounded-lg border bg-bg-tertiary/50 border-white/10">
+                      <p className="text-xs uppercase tracking-wide text-text-secondary mb-1">Requests</p>
+                      <p className="text-2xl font-mono text-text-primary">
+                        {usagePayload.currentUser.requestCount.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-4 rounded-lg border bg-bg-tertiary/50 border-white/10">
+                      <p className="text-xs uppercase tracking-wide text-text-secondary mb-1">Fees (wei raw)</p>
+                      <p className="text-sm font-mono text-text-primary break-all">{usagePayload.currentUser.feeWei}</p>
+                      <p className="text-xs text-text-secondary mt-2">
+                        ≈ {formatFeeWeiStringToEthDisplay(usagePayload.currentUser.feeWei)} ETH
+                      </p>
+                    </div>
+                    <div className="sm:col-span-2 text-xs text-text-secondary font-mono">
+                      <span className="text-text-secondary">Period: </span>
+                      {usagePayload.period?.start ?? '—'} → {usagePayload.period?.end ?? '—'}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-text-secondary">
+                    <BarChart3 size={24} className="mx-auto mb-3 opacity-30" />
+                    <p className="text-sm">No usage data for this period.</p>
+                  </div>
+                )}
               </Card>
             </div>
           )}
