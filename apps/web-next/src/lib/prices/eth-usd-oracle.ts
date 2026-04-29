@@ -35,8 +35,11 @@ async function readCachedEthUsd(): Promise<number | null> {
 
 async function persistEthUsd(ethUsd: number): Promise<void> {
   try {
-    await prisma.walletPriceCache.create({
-      data: { symbol: 'ETH', priceUsd: ethUsd, fetchedAt: new Date() },
+    const now = new Date();
+    await prisma.walletPriceCache.upsert({
+      where: { symbol_fetchedAt: { symbol: 'ETH', fetchedAt: now } },
+      create: { symbol: 'ETH', priceUsd: ethUsd, fetchedAt: now },
+      update: { priceUsd: ethUsd },
     });
   } catch {
     /* ignore */

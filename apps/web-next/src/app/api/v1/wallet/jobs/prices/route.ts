@@ -26,8 +26,16 @@ export async function GET(request: NextRequest) {
     const now = new Date();
 
     await Promise.all([
-      prisma.walletPriceCache.create({ data: { symbol: 'LPT', priceUsd: lptUsd, fetchedAt: now } }),
-      prisma.walletPriceCache.create({ data: { symbol: 'ETH', priceUsd: ethUsd, fetchedAt: now } }),
+      prisma.walletPriceCache.upsert({
+        where: { symbol_fetchedAt: { symbol: 'LPT', fetchedAt: now } },
+        create: { symbol: 'LPT', priceUsd: lptUsd, fetchedAt: now },
+        update: { priceUsd: lptUsd },
+      }),
+      prisma.walletPriceCache.upsert({
+        where: { symbol_fetchedAt: { symbol: 'ETH', fetchedAt: now } },
+        create: { symbol: 'ETH', priceUsd: ethUsd, fetchedAt: now },
+        update: { priceUsd: ethUsd },
+      }),
     ]);
 
     return success({ lptUsd, ethUsd });
