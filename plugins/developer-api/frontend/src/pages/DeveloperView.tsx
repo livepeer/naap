@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Box,
@@ -19,7 +20,7 @@ import {
   Cpu,
   Users,
   X,
-ChevronUp,
+  ChevronUp,
   ChevronDown,
   ChevronsUpDown,
 } from 'lucide-react';
@@ -151,6 +152,8 @@ interface ProjectInfo {
   isDefault: boolean;
 }
 
+type ModelSortKey = 'Model' | 'Pipeline' | 'WarmOrchCount' | 'TotalCapacity' | 'PriceAvgWeiPerPixel';
+
 async function fetchCsrfToken(): Promise<string> {
   try {
     const res = await fetch('/api/v1/auth/csrf', { credentials: 'include' });
@@ -215,70 +218,270 @@ function developerPriceCellContent(
   });
 }
 
-function DeveloperModelPriceCell(props: {
-  pipelineId: string;
-  wei: bigint | null;
-  ethUsd: number;
-  tdClass: string;
+/** First line of richLines is always wei/…; remaining lines are shared when avg/min/max use the same formula. */
+function commonRichLinesSuffix(linesList: (string[] | null | undefined)[]): string[] | null {
+  const slices = linesList
+    .filter((l): l is string[] => l != null && l.length > 1)
+    .map((l) => l.slice(1));
+  if (slices.length === 0) return null;
+  const ref = slices[0];
+  for (let s = 1; s < slices.length; s++) {
+    const cur = slices[s];
+    if (cur.length !== ref.length) return null;
+    for (let i = 0; i < ref.length; i++) {
+      if (cur[i] !== ref[i]) return null;
+    }
+  }
+  return ref;
+}
+
+function weiHeadlineFromCell(cell: { main: string; richLines: string[] | null }): string {
+  const head = cell.richLines?.[0];
+  if (head && head.trim() !== '') return head;
+  return cell.main;
+}
+
+const NETWORK_MODEL_PRICE_HEADER_INFO =
+  'Price shown is the average price per billing unit advertised across orchestrators that quote this model in the merged network registry. Min and max quotes across those orchestrators appear when you hover the cell. USD figures use the ETH/USD oracle.';
+
+const TOOLTIP_GAP_PX = 8;
+const TOOLTIP_EDGE_PADDING_PX = 12;
+const NETWORK_MODEL_TOOLTIP_WIDTH_PX = 336;
+
+type TooltipAnchor = {
+  left: number;
+  top: number;
+};
+
+function usePortaledTooltip<T extends HTMLElement>() {
+  const triggerRef = useRef<T>(null);
+  const [tipOpen, setTipOpen] = useState(false);
+  const [tipAnchor, setTipAnchor] = useState<TooltipAnchor | null>(null);
+
+  const syncTipAnchor = useCallback(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+
+    const rect = el.getBoundingClientRect();
+    const preferredLeft = rect.right - NETWORK_MODEL_TOOLTIP_WIDTH_PX;
+    const maxLeft = window.innerWidth - NETWORK_MODEL_TOOLTIP_WIDTH_PX - TOOLTIP_EDGE_PADDING_PX;
+    const left = Math.min(
+      Math.max(preferredLeft, TOOLTIP_EDGE_PADDING_PX),
+      Math.max(maxLeft, TOOLTIP_EDGE_PADDING_PX),
+    );
+
+    setTipAnchor({
+      left,
+      top: rect.bottom + TOOLTIP_GAP_PX,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!tipOpen) return;
+    syncTipAnchor();
+  }, [tipOpen, syncTipAnchor]);
+
+  useEffect(() => {
+    if (!tipOpen) return;
+    const onReposition = () => syncTipAnchor();
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+    return () => {
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
+    };
+  }, [tipOpen, syncTipAnchor]);
+
+  const triggerProps = {
+    ref: triggerRef,
+    onMouseEnter: () => {
+      syncTipAnchor();
+      setTipOpen(true);
+    },
+    onMouseLeave: () => setTipOpen(false),
+    onFocus: () => {
+      syncTipAnchor();
+      setTipOpen(true);
+    },
+    onBlur: () => setTipOpen(false),
+  };
+
+  return {
+    tipAnchor,
+    tipOpen,
+    triggerProps,
+  };
+}
+
+function NetworkModelTooltipPanel(props: {
+  anchor: TooltipAnchor;
+  children: React.ReactNode;
 }) {
-  const { pipelineId, wei, ethUsd, tdClass } = props;
-  const { main, richLines } = developerPriceCellContent(pipelineId, wei, ethUsd);
-  const hasTip = richLines != null && richLines.length > 0;
-  const active = wei != null && main !== '—';
-  return (
-    <td className={`${tdClass} text-sm font-mono ${active ? 'text-accent-emerald' : 'text-text-secondary opacity-40'}`}>
-      <span
-        className={hasTip ? 'cursor-default border-b border-dotted border-white/25' : undefined}
-        title={hasTip ? richLines!.join('\n') : undefined}
-      >
-        {main}
-      </span>
-    </td>
+  const { anchor, children } = props;
+
+  return createPortal(
+    <div
+      className="pointer-events-none fixed z-[9999] w-[min(21rem,calc(100vw-1.5rem))] whitespace-normal break-words rounded border border-white/10 bg-bg-tertiary px-3 py-2 text-left text-[10px] leading-relaxed text-text-primary shadow-md"
+      style={{ left: anchor.left, top: anchor.top }}
+      role="tooltip"
+    >
+      {children}
+    </div>,
+    document.body,
   );
 }
 
-function DeveloperModelPriceRangeCell(props: {
+function DeveloperModelCombinedPriceCell(props: {
   pipelineId: string;
+  avgWei: bigint | null;
   minWei: bigint | null;
   maxWei: bigint | null;
   ethUsd: number;
   tdClass: string;
 }) {
-  const { pipelineId, minWei, maxWei, ethUsd, tdClass } = props;
-  const left = developerPriceCellContent(pipelineId, minWei, ethUsd);
-  const right = developerPriceCellContent(pipelineId, maxWei, ethUsd);
-  const hasAny =
+  const { pipelineId, avgWei, minWei, maxWei, ethUsd, tdClass } = props;
+  const avg = developerPriceCellContent(pipelineId, avgWei, ethUsd);
+  const lo = developerPriceCellContent(pipelineId, minWei, ethUsd);
+  const hi = developerPriceCellContent(pipelineId, maxWei, ethUsd);
+  const hasRangeWei =
     (minWei != null && minWei > 0n) ||
     (maxWei != null && maxWei > 0n);
-  if (!hasAny) {
-    return (
-      <td className={`${tdClass} text-sm font-mono text-text-secondary opacity-40`}>
-        —
-      </td>
-    );
+  const rangeMainsOk =
+    hasRangeWei &&
+    lo.main !== '—' &&
+    hi.main !== '—';
+  const rangeSummary =
+    rangeMainsOk && lo.main !== hi.main
+      ? `${lo.main} – ${hi.main}`
+      : rangeMainsOk
+        ? lo.main
+        : null;
+
+  const hoverBlocks: { title: string; lines: string[] }[] = [];
+
+  if (rangeMainsOk && lo.main !== hi.main) {
+    hoverBlocks.push({
+      title: 'Range',
+      lines: [`${lo.main} – ${hi.main}`],
+    });
+    const weiLines: string[] = [];
+    weiLines.push(`Average: ${weiHeadlineFromCell(avg)}`);
+    weiLines.push(`Minimum: ${weiHeadlineFromCell(lo)}`);
+    weiLines.push(`Maximum: ${weiHeadlineFromCell(hi)}`);
+    hoverBlocks.push({ title: 'Wei', lines: weiLines });
+    const sharedSuffix = commonRichLinesSuffix([avg.richLines, lo.richLines, hi.richLines]);
+    if (sharedSuffix?.length) {
+      hoverBlocks.push({ title: 'Basis', lines: sharedSuffix });
+    }
+  } else if (rangeMainsOk && lo.main === hi.main) {
+    hoverBlocks.push({
+      title: 'List price',
+      lines: [lo.main],
+    });
+    const weiLines: string[] = [];
+    const a = weiHeadlineFromCell(avg);
+    const l = weiHeadlineFromCell(lo);
+    if (a === l) {
+      weiLines.push(a);
+    } else {
+      weiLines.push(`Average: ${a}`);
+      weiLines.push(`Quoted: ${l}`);
+    }
+    hoverBlocks.push({ title: 'Wei', lines: weiLines });
+    const sharedSuffix = commonRichLinesSuffix([avg.richLines, lo.richLines]);
+    if (sharedSuffix?.length) {
+      hoverBlocks.push({ title: 'Basis', lines: sharedSuffix });
+    }
+  } else {
+    if (avg.richLines && avg.richLines.length > 0) {
+      hoverBlocks.push({ title: 'Details', lines: avg.richLines });
+    } else if (avg.main !== '—') {
+      hoverBlocks.push({ title: 'Price', lines: [avg.main] });
+    }
   }
-  const leftTip = left.richLines?.join('\n');
-  const rightTip = right.richLines?.join('\n');
+
+  const showHover = hoverBlocks.length > 0;
+  const active = avgWei != null && avg.main !== '—';
+
+  const { tipAnchor, tipOpen, triggerProps } = usePortaledTooltip<HTMLDivElement>();
+
+  const tipPanel =
+    tipOpen && tipAnchor ? (
+      <NetworkModelTooltipPanel anchor={tipAnchor}>
+        {hoverBlocks.map((block, bi) => (
+          <div key={block.title} className={bi > 0 ? 'mt-2.5 border-t border-white/10 pt-2.5' : ''}>
+            <p className="font-medium text-text-primary/90">{block.title}</p>
+            {block.lines.map((line, i) => (
+              <p key={`${block.title}-${i}`} className={i > 0 ? 'mt-1' : 'mt-0.5'}>
+                {line}
+              </p>
+            ))}
+          </div>
+        ))}
+      </NetworkModelTooltipPanel>
+    ) : null;
+
   return (
-    <td className={`${tdClass} text-sm font-mono text-text-secondary`}>
-      <span className="inline-flex flex-wrap items-center justify-end gap-x-1">
-        <span
-          className={left.richLines ? 'cursor-default border-b border-dotted border-white/25' : undefined}
-          title={leftTip}
-        >
-          {left.main}
-        </span>
-        <span aria-hidden className="text-text-secondary/60">
-          –
-        </span>
-        <span
-          className={right.richLines ? 'cursor-default border-b border-dotted border-white/25' : undefined}
-          title={rightTip}
-        >
-          {right.main}
-        </span>
-      </span>
+    <td className={`${tdClass} text-sm font-mono ${active ? 'text-accent-emerald' : 'text-text-secondary opacity-40'}`}>
+      {showHover ? (
+        <div className="flex justify-end">
+          <div
+            {...triggerProps}
+            className="inline-flex max-w-full"
+          >
+            <span className="cursor-default border-b border-dotted border-white/35">{avg.main}</span>
+          </div>
+          {tipPanel}
+        </div>
+      ) : (
+        <span>{avg.main}</span>
+      )}
     </td>
+  );
+}
+
+function NetworkModelSortHeader(props: {
+  sortKey: ModelSortKey;
+  label: string;
+  align: 'left' | 'right';
+  headerTitle?: string;
+  active: boolean;
+  sortDir: 'asc' | 'desc';
+  onSort: () => void;
+}) {
+  const { sortKey, label, align, headerTitle, active, sortDir, onSort } = props;
+  const isPrice = sortKey === 'PriceAvgWeiPerPixel';
+  const Icon = active ? (sortDir === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown;
+  const { tipAnchor, tipOpen, triggerProps } = usePortaledTooltip<HTMLButtonElement>();
+  const priceTriggerProps = isPrice ? triggerProps : {};
+
+  return (
+    <div className={`inline-flex items-center gap-1${align === 'right' ? ' justify-end w-full' : ''}`}>
+      <button
+        {...priceTriggerProps}
+        type="button"
+        title={isPrice ? undefined : headerTitle}
+        onClick={onSort}
+        className={`inline-flex items-center gap-1 hover:text-text-primary transition-colors${align === 'right' ? ' flex-row-reverse' : ''}${active ? ' text-text-primary' : ''}`}
+      >
+        {isPrice ? (
+          <span
+            className="cursor-default border-b border-dotted border-white/35"
+            aria-label={NETWORK_MODEL_PRICE_HEADER_INFO}
+          >
+            {label}
+          </span>
+        ) : (
+          label
+        )}
+        <Icon size={12} className={active ? 'text-accent-blue' : 'opacity-40'} />
+      </button>
+      {isPrice && tipOpen && tipAnchor ? (
+        <NetworkModelTooltipPanel anchor={tipAnchor}>
+          <p>{NETWORK_MODEL_PRICE_HEADER_INFO}</p>
+        </NetworkModelTooltipPanel>
+      ) : null}
+    </div>
   );
 }
 
@@ -312,11 +515,12 @@ export const DeveloperView: React.FC = () => {
 
   const [networkModels, setNetworkModels] = useState<NetworkModel[]>([]);
   const [networkModelsEthUsd, setNetworkModelsEthUsd] = useState<number>(PIPELINE_ETH_USD_CLIENT_FALLBACK);
+  /** True when GET /api/v1/dashboard/eth-usd returned a usable rate (not client fallback alone). */
+  const [networkModelsEthUsdFromOracle, setNetworkModelsEthUsdFromOracle] = useState(false);
   const [networkModelsLoading, setNetworkModelsLoading] = useState(false);
   const [networkModelsError, setNetworkModelsError] = useState<string | null>(null);
   const [networkModelSearch, setNetworkModelSearch] = useState('');
   const [pipelineFilter, setPipelineFilter] = useState<string>('all');
-  type ModelSortKey = 'Model' | 'Pipeline' | 'WarmOrchCount' | 'TotalCapacity' | 'PriceAvgWeiPerPixel' | 'PriceMinWeiPerPixel';
   const [modelSortKey, setModelSortKey] = useState<ModelSortKey>('WarmOrchCount');
   const [modelSortDir, setModelSortDir] = useState<'asc' | 'desc'>('desc');
   const [copiedCell, setCopiedCell] = useState<string | null>(null);
@@ -434,6 +638,7 @@ export const DeveloperView: React.FC = () => {
   const loadNetworkModels = useCallback(async () => {
     setNetworkModelsLoading(true);
     setNetworkModelsError(null);
+    setNetworkModelsEthUsdFromOracle(false);
     try {
       const [netRes, catalogRes, ethRes] = await Promise.allSettled([
         fetch('/api/v1/developer/network-models?limit=all'),
@@ -447,6 +652,7 @@ export const DeveloperView: React.FC = () => {
           const n = ethJson.ethUsd;
           if (typeof n === 'number' && Number.isFinite(n) && n > 0) {
             setNetworkModelsEthUsd(n);
+            setNetworkModelsEthUsdFromOracle(true);
           }
         } catch {
           /* keep previous ETH/USD */
@@ -936,12 +1142,23 @@ result = [...result].sort((a, b) => {
                         {filteredNetworkModels.length} model{filteredNetworkModels.length !== 1 ? 's' : ''}
                         {(networkModelSearch || pipelineFilter !== 'all') && ` (filtered from ${networkModels.length})`}
                       </span>
-                      <button
-                        onClick={loadNetworkModels}
-                        className="text-xs text-text-secondary hover:text-accent-blue transition-colors"
-                      >
-                        Refresh
-                      </button>
+                      <div className="flex items-center gap-3 shrink-0">
+                        {networkModelsEthUsdFromOracle ? (
+                          <span
+                            className="text-[10px] text-text-secondary tabular-nums"
+                            title="USD list-price estimates use this ETH/USD from GET /api/v1/dashboard/eth-usd (cached)."
+                          >
+                            ETH/USD ≈ ${networkModelsEthUsd.toFixed(2)}
+                          </span>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={loadNetworkModels}
+                          className="text-xs text-text-secondary hover:text-accent-blue transition-colors"
+                        >
+                          Refresh
+                        </button>
+                      </div>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full">
@@ -956,15 +1173,6 @@ result = [...result].sort((a, b) => {
                                   key: 'PriceAvgWeiPerPixel',
                                   label: 'Price',
                                   align: 'right',
-                                  headerTitle:
-                                    'Live video: est. USD/min at 512×512 from wei/pixel. Text-to-image: USD per 512×512 image. Upscale: USD per x4 output. Token pipelines: USD per 10k tokens. Other: wei per billing unit. USD uses ETH/USD from the pricing oracle.',
-                                },
-                                {
-                                  key: 'PriceMinWeiPerPixel',
-                                  label: 'Price range',
-                                  align: 'right',
-                                  headerTitle:
-                                    'Min and max list-price estimates over orchestrators (same rules as Price column). Hover each value for wei detail.',
                                 },
                               ] as {
                                 key: ModelSortKey;
@@ -974,25 +1182,24 @@ result = [...result].sort((a, b) => {
                               }[]
                             ).map(({ key, label, align, headerTitle }) => {
                               const active = modelSortKey === key;
-                              const Icon = active ? (modelSortDir === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown;
                               return (
                                 <th key={key} className={`pb-3 font-medium${align === 'right' ? ' text-right' : ''}`}>
-                                  <button
-                                    type="button"
-                                    title={headerTitle}
-                                    onClick={() => {
+                                  <NetworkModelSortHeader
+                                    sortKey={key}
+                                    label={label}
+                                    align={align}
+                                    headerTitle={headerTitle}
+                                    active={active}
+                                    sortDir={modelSortDir}
+                                    onSort={() => {
                                       if (modelSortKey === key) {
-                                        setModelSortDir((d) => d === 'asc' ? 'desc' : 'asc');
+                                        setModelSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
                                       } else {
                                         setModelSortKey(key);
                                         setModelSortDir('desc');
                                       }
                                     }}
-                                    className={`inline-flex items-center gap-1 hover:text-text-primary transition-colors${align === 'right' ? ' flex-row-reverse' : ''}${active ? ' text-text-primary' : ''}`}
-                                  >
-                                    {label}
-                                    <Icon size={12} className={active ? 'text-accent-blue' : 'opacity-40'} />
-                                  </button>
+                                  />
                                 </th>
                               );
                             })}
@@ -1026,18 +1233,13 @@ result = [...result].sort((a, b) => {
                               <td className="py-3 pr-4 text-right">
                                 <span className={`text-sm font-mono ${model.TotalCapacity > 0 ? 'text-text-primary' : 'text-text-secondary opacity-40'}`}>{model.TotalCapacity > 0 ? model.TotalCapacity : '—'}</span>
                               </td>
-                              <DeveloperModelPriceCell
+                              <DeveloperModelCombinedPriceCell
                                 pipelineId={model.Pipeline}
-                                wei={avgWeiBigIntFromNumber(model.PriceAvgWeiPerPixel)}
-                                ethUsd={networkModelsEthUsd}
-                                tdClass="py-3 pr-4 text-right"
-                              />
-                              <DeveloperModelPriceRangeCell
-                                pipelineId={model.Pipeline}
+                                avgWei={avgWeiBigIntFromNumber(model.PriceAvgWeiPerPixel)}
                                 minWei={avgWeiBigIntFromNumber(model.PriceMinWeiPerPixel)}
                                 maxWei={avgWeiBigIntFromNumber(model.PriceMaxWeiPerPixel)}
                                 ethUsd={networkModelsEthUsd}
-                                tdClass="py-3 text-right"
+                                tdClass="py-3 pr-4 text-right"
                               />
                             </tr>
                           ))}

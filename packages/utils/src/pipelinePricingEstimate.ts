@@ -7,6 +7,8 @@ export const LIVE_VIDEO_PIPELINE_ID = 'live-video-to-video';
 export const TEXT_TO_IMAGE_PIPELINE_ID = 'text-to-image';
 export const UPSCALE_PIPELINE_ID = 'upscale';
 export const LLM_PIPELINE_ID = 'llm';
+/** Same list-price image estimate as {@link TEXT_TO_IMAGE_PIPELINE_ID} (512×512). */
+export const OPENAI_IMAGE_GENERATION_PIPELINE_ID = 'openai-image-generation';
 
 /** Billing reference resolution for list-price estimates (512×512). */
 export const PIPELINE_PRICE_REF_PIXELS = 512 * 512;
@@ -26,9 +28,19 @@ const PIPELINE_BILLING_UNIT: Record<string, string> = {
   'text-to-speech': 'second',
 };
 
+/**
+ * Canonical pipeline id for pricing (lowercase, hyphenated).
+ * Upstream sometimes emits snake_case or mixed casing; dashboard and developer UIs
+ * must agree on the same slugs for USD list-price branches.
+ */
+export function normalizePipelineIdForPricing(pipelineId: string): string {
+  return pipelineId.trim().toLowerCase().replace(/_/g, '-');
+}
+
 /** Billing unit for a pipeline id (pixel, token, or second). */
 export function pipelineBillingUnit(pipelineId: string): string {
-  return PIPELINE_BILLING_UNIT[pipelineId] ?? 'pixel';
+  const k = normalizePipelineIdForPricing(pipelineId);
+  return PIPELINE_BILLING_UNIT[k] ?? 'pixel';
 }
 
 export function formatUsdPipelineEstimate(usd: number): string {
@@ -64,12 +76,13 @@ export function pipelineTablePriceCellContent(input: {
   ethUsd: number;
 }): { main: string; richLines: string[] | null } {
   const { pipelineId, wei, unit, modelFps, pipelineAvgFps, ethUsd } = input;
+  const pid = normalizePipelineIdForPricing(pipelineId);
   if (wei == null) {
     return { main: '—', richLines: null };
   }
   const weiLabel = `${wei.toLocaleString('en-US')} wei/${unit}`;
 
-  if (pipelineId === LIVE_VIDEO_PIPELINE_ID) {
+  if (pid === LIVE_VIDEO_PIPELINE_ID) {
     const fps =
       modelFps != null && Number.isFinite(modelFps) && modelFps > 0
         ? modelFps
@@ -82,26 +95,26 @@ export function pipelineTablePriceCellContent(input: {
       main: `${formatUsdPipelineEstimate(usd)}/min`,
       richLines: [
         weiLabel,
-        `Estimate: ${fps.toFixed(1)} FPS at 512×512 for one minute of output.`,
-        `USD from ETH/USD ≈ $${ethUsd.toFixed(2)} (oracle / cache).`,
+        `${fps.toFixed(1)} FPS @ 512×512, one minute of output.`,
+        `USD @ ETH/USD ≈ $${ethUsd.toFixed(2)} (cached oracle).`,
       ],
     };
   }
 
-  if (pipelineId === TEXT_TO_IMAGE_PIPELINE_ID) {
+  if (pid === TEXT_TO_IMAGE_PIPELINE_ID || pid === OPENAI_IMAGE_GENERATION_PIPELINE_ID) {
     const weiPerImage = wei * BigInt(PIPELINE_PRICE_REF_PIXELS);
     const usd = weiBigintToUsd(weiPerImage, ethUsd);
     return {
       main: `${formatUsdPipelineEstimate(usd)}/img`,
       richLines: [
         weiLabel,
-        '512×512 output image (single frame).',
-        `USD from ETH/USD ≈ $${ethUsd.toFixed(2)} (oracle / cache).`,
+        '512×512, one frame.',
+        `USD @ ETH/USD ≈ $${ethUsd.toFixed(2)} (cached oracle).`,
       ],
     };
   }
 
-  if (pipelineId === UPSCALE_PIPELINE_ID) {
+  if (pid === UPSCALE_PIPELINE_ID) {
     const outputPixels = BigInt(PIPELINE_PRICE_REF_PIXELS * UPSCALE_X4_OUTPUT_PIXEL_FACTOR);
     const weiForJob = wei * outputPixels;
     const usd = weiBigintToUsd(weiForJob, ethUsd);
@@ -109,8 +122,8 @@ export function pipelineTablePriceCellContent(input: {
       main: `${formatUsdPipelineEstimate(usd)}/img`,
       richLines: [
         weiLabel,
-        '512×512 input, x4 upscale: 4× output pixels (≈1024×1024) billed on returned pixels.',
-        `USD from ETH/USD ≈ $${ethUsd.toFixed(2)} (oracle / cache).`,
+        '512×512 in → ~1024×1024 out (4× pixels billed).',
+        `USD @ ETH/USD ≈ $${ethUsd.toFixed(2)} (cached oracle).`,
       ],
     };
   }
@@ -122,8 +135,8 @@ export function pipelineTablePriceCellContent(input: {
       main: `${formatUsdPipelineEstimate(usd)}/${formatTokenCountShort(LLM_PRICE_REF_TOKENS)} tokens`,
       richLines: [
         weiLabel,
-        `Estimate: ${formatTokenCountShort(LLM_PRICE_REF_TOKENS)} tokens at list wei/token (total request size assumption).`,
-        `USD from ETH/USD ≈ $${ethUsd.toFixed(2)} (oracle / cache).`,
+        `${formatTokenCountShort(LLM_PRICE_REF_TOKENS)} tokens @ list wei/token.`,
+        `USD @ ETH/USD ≈ $${ethUsd.toFixed(2)} (cached oracle).`,
       ],
     };
   }

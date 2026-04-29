@@ -8,8 +8,9 @@
  * this component is purely presentational + supplementary REST enrichment.
  */
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ElementType, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   DashboardKPI,
   HourlyBucket,
@@ -38,7 +39,6 @@ import {
   Minus,
   Zap,
   AlertCircle,
-  Info,
   Loader2,
   Timer,
   List,
@@ -463,6 +463,106 @@ const OVERVIEW_CHART_CURSOR = 'hsl(var(--primary) / 0.12)';
 const SUCCESS_RATE_KPI_TOOLTIP =
   'Success rate (%) = 100 × (sum of startup_success_sessions) / (sum of requested_sessions) over the selected window, using hourly rows from ClickHouse table naap.api_hourly_streaming_demand, with optional filters on pipeline_id and model_id.';
 
+const OVERVIEW_DEF_TOOLTIP_GAP_PX = 8;
+const OVERVIEW_DEF_TOOLTIP_EDGE_PX = 12;
+const OVERVIEW_DEF_TOOLTIP_PREF_WIDTH_PX = 336;
+
+type OverviewDefAnchor = {
+  left: number;
+  top: number;
+};
+
+function useOverviewPortaledDefinitionTooltip<T extends HTMLElement>() {
+  const triggerRef = useRef<T>(null);
+  const [tipOpen, setTipOpen] = useState(false);
+  const [tipAnchor, setTipAnchor] = useState<OverviewDefAnchor | null>(null);
+
+  const syncTipAnchor = useCallback(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const preferredLeft = rect.right - OVERVIEW_DEF_TOOLTIP_PREF_WIDTH_PX;
+    const maxLeft = window.innerWidth - OVERVIEW_DEF_TOOLTIP_PREF_WIDTH_PX - OVERVIEW_DEF_TOOLTIP_EDGE_PX;
+    const left = Math.min(
+      Math.max(preferredLeft, OVERVIEW_DEF_TOOLTIP_EDGE_PX),
+      Math.max(maxLeft, OVERVIEW_DEF_TOOLTIP_EDGE_PX),
+    );
+    setTipAnchor({
+      left,
+      top: rect.bottom + OVERVIEW_DEF_TOOLTIP_GAP_PX,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!tipOpen) return;
+    syncTipAnchor();
+  }, [tipOpen, syncTipAnchor]);
+
+  useEffect(() => {
+    if (!tipOpen) return;
+    const onReposition = () => syncTipAnchor();
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+    return () => {
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
+    };
+  }, [tipOpen, syncTipAnchor]);
+
+  const triggerProps = {
+    ref: triggerRef,
+    onMouseEnter: () => {
+      syncTipAnchor();
+      setTipOpen(true);
+    },
+    onMouseLeave: () => setTipOpen(false),
+    onFocus: () => {
+      syncTipAnchor();
+      setTipOpen(true);
+    },
+    onBlur: () => setTipOpen(false),
+  };
+
+  return { tipAnchor, tipOpen, triggerProps };
+}
+
+function OverviewDefinitionTooltipPortal(props: { anchor: OverviewDefAnchor; children: React.ReactNode }) {
+  const { anchor, children } = props;
+  return createPortal(
+    <div
+      className="pointer-events-none fixed z-[9999] w-[min(21rem,calc(100vw-1.5rem))] whitespace-normal break-words rounded-md border border-border bg-popover px-3 py-2 text-left text-[10px] leading-relaxed text-popover-foreground shadow-md"
+      style={{ left: anchor.left, top: anchor.top }}
+      role="tooltip"
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+function KpiTileTitleWithDefinition(props: { label: string; definition: string }) {
+  const { label, definition } = props;
+  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLSpanElement>();
+  return (
+    <>
+      <span className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider leading-tight">
+        <span
+          {...triggerProps}
+          className="cursor-default border-b border-dotted border-border/60"
+          aria-label={definition}
+        >
+          {label}
+        </span>
+      </span>
+      {tipOpen && tipAnchor ? (
+        <OverviewDefinitionTooltipPortal anchor={tipAnchor}>
+          <p>{definition}</p>
+        </OverviewDefinitionTooltipPortal>
+      ) : null}
+    </>
+  );
+}
+
 function HourlySparkline({ data, color = 'var(--color-muted-foreground)' }: { data: HourlyBucket[]; color?: string }) {
   if (!data || data.length === 0) return null;
   const max = Math.max(...data.map((d) => d.value), 1);
@@ -513,7 +613,7 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
     value: string | number,
     suffix?: string,
     sparkline?: HourlyBucket[],
-    tooltip?: ReactNode,
+    definition?: string,
   ) => {
     const Icon = icon;
     return (
@@ -522,22 +622,12 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
           <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0">
             <Icon className="w-3.5 h-3.5" />
           </div>
-          <span className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider leading-tight">
-            {label}
-          </span>
-          {tooltip != null && tooltip !== '' && (
-            <div
-              className="relative group ml-auto shrink-0 rounded-sm outline-offset-2 focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
-              tabIndex={0}
-              aria-label="Metric definition"
-            >
-              <Info className="w-3.5 h-3.5 text-muted-foreground/70 cursor-help" aria-hidden />
-              <div className="absolute bottom-full right-0 z-20 mb-1.5 hidden group-hover:block group-focus-within:block pointer-events-none">
-                <div className="w-max min-w-[10rem] max-w-[min(32rem,calc(100vw-2rem))] rounded border border-border bg-popover px-2.5 py-1.5 text-xs leading-relaxed text-popover-foreground shadow-md whitespace-normal text-left">
-                  {tooltip}
-                </div>
-              </div>
-            </div>
+          {definition != null && definition !== '' ? (
+            <KpiTileTitleWithDefinition label={label} definition={definition} />
+          ) : (
+            <span className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider leading-tight">
+              {label}
+            </span>
           )}
         </div>
         <div className="flex items-baseline gap-1">
@@ -992,6 +1082,21 @@ function PipelineSortIcon({
   return sortDir === 'asc' ? <ChevronUp className="w-3 h-3 shrink-0" /> : <ChevronDown className="w-3 h-3 shrink-0" />;
 }
 
+const PIPELINE_TABLE_HEADER_DESCRIPTION: Record<PipelineTableSortCol, string> = {
+  model:
+    'Pipeline id on the summary row; model id on each detail row. Rows combine catalog seeds with usage so pipelines with demand still appear.',
+  gpus:
+    'Warm GPUs for the pipeline (summary row) or for the pipeline plus model (detail rows), merged from network capacity and the pipeline catalog.',
+  capacity:
+    'Published capacity for this model when the network exposes it (rules differ by pipeline type). Em dash when unknown.',
+  price:
+    'Estimated list price from orchestrator wei rates and the ETH/USD oracle. Live video: USD/min at 512×512 from wei/pixel and FPS. Text-to-image: USD per 512×512 image. Upscale: USD per 4×512² output. LLM-style pipelines: USD per 10k tokens. Other pipelines: wei per billing unit.',
+  fps:
+    'Average output FPS from GET /v1/streaming/models (24-hour weighted average; live-video-to-video models only). BFF-cached.',
+  mins:
+    'Usage minutes in the selected dashboard timeframe for the pipeline (summary) or for the model within that pipeline (detail).',
+};
+
 function PipelineTH({
   col,
   label,
@@ -999,8 +1104,7 @@ function PipelineTH({
   sortCol,
   sortDir,
   onSort,
-  headerInfo,
-  headerTitle,
+  headerDescription,
 }: {
   col: PipelineTableSortCol;
   label: string;
@@ -1008,44 +1112,48 @@ function PipelineTH({
   sortCol: PipelineTableSortCol;
   sortDir: 'asc' | 'desc';
   onSort: (col: PipelineTableSortCol) => void;
-  /** Non-sorting info (e.g. metric provenance); kept outside the sort button for accessibility. */
-  headerInfo?: ReactNode;
-  /** Optional native tooltip for the column header. */
-  headerTitle?: string;
+  /** Hover / focus: portaled definition (dotted label), same pattern as Developer API Manager column headers. */
+  headerDescription?: string;
 }) {
+  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLButtonElement>();
   const ariaSort: 'ascending' | 'descending' | 'none' =
     sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
   const right = className.includes('text-right');
+  const hasDef = headerDescription != null && headerDescription !== '';
+  const labelEl = hasDef ? (
+    <span className="cursor-default border-b border-dotted border-border/60" aria-label={headerDescription}>
+      {label}
+    </span>
+  ) : (
+    label
+  );
   return (
-    <th scope="col" className={`${className} bg-card`.trim()} aria-sort={ariaSort} title={headerTitle}>
+    <th scope="col" className={`${className} bg-card`.trim()} aria-sort={ariaSort}>
       <div
         className={`flex w-full items-center gap-0.5 ${right ? 'justify-end' : 'justify-start'}`}
       >
         <button
           type="button"
+          {...(hasDef ? triggerProps : {})}
           onClick={() => onSort(col)}
           className={`inline-flex min-w-0 flex-1 items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'justify-end' : 'justify-start'}`}
         >
           {right ? (
             <>
               <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
-              {label}
+              {labelEl}
             </>
           ) : (
             <>
-              {label}
+              {labelEl}
               <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
             </>
           )}
         </button>
-        {headerInfo ? (
-          <span
-            className="shrink-0 inline-flex text-muted-foreground pointer-events-auto"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            {headerInfo}
-          </span>
+        {hasDef && tipOpen && tipAnchor ? (
+          <OverviewDefinitionTooltipPortal anchor={tipAnchor}>
+            <p>{headerDescription}</p>
+          </OverviewDefinitionTooltipPortal>
         ) : null}
       </div>
     </th>
@@ -1177,9 +1285,33 @@ function PipelinesCard({
             </colgroup>
             <thead className="sticky top-0 z-30 bg-card border-b border-border shadow-[0_1px_0_0_hsl(var(--border))]">
               <tr className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                <PipelineTH col="model" label="Model" className={thModel} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
-                <PipelineTH col="gpus" label="GPUs" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
-                <PipelineTH col="capacity" label="Capacity" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
+                <PipelineTH
+                  col="model"
+                  label="Model"
+                  className={thModel}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={togglePipelineTableSort}
+                  headerDescription={PIPELINE_TABLE_HEADER_DESCRIPTION.model}
+                />
+                <PipelineTH
+                  col="gpus"
+                  label="GPUs"
+                  className={thNum}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={togglePipelineTableSort}
+                  headerDescription={PIPELINE_TABLE_HEADER_DESCRIPTION.gpus}
+                />
+                <PipelineTH
+                  col="capacity"
+                  label="Capacity"
+                  className={thNum}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={togglePipelineTableSort}
+                  headerDescription={PIPELINE_TABLE_HEADER_DESCRIPTION.capacity}
+                />
                 <PipelineTH
                   col="price"
                   label="Price"
@@ -1187,7 +1319,7 @@ function PipelinesCard({
                   sortCol={sortCol}
                   sortDir={sortDir}
                   onSort={togglePipelineTableSort}
-                  headerTitle="Live video: est. USD/min at 512x512 from wei/pixel and FPS. Text-to-image: USD per 512x512 image. Upscale: USD per x4 output (4x512^2 pixels from 512x512 input). LLM: USD per 10k tokens from wei/token. Other pipelines: wei per billing unit. USD uses ETH/USD from the pricing oracle."
+                  headerDescription={PIPELINE_TABLE_HEADER_DESCRIPTION.price}
                 />
                 <PipelineTH
                   col="fps"
@@ -1196,17 +1328,17 @@ function PipelinesCard({
                   sortCol={sortCol}
                   sortDir={sortDir}
                   onSort={togglePipelineTableSort}
-                  headerInfo={
-                    <span
-                      title="Average output FPS from GET /v1/streaming/models (24-hour weighted average; live-video-to-video models only). BFF-cached."
-                      className="cursor-help"
-                      aria-label="Average output FPS from streaming models API, last 24 hours, live-video pipelines only"
-                    >
-                      <Info className="w-3 h-3 opacity-60" aria-hidden />
-                    </span>
-                  }
+                  headerDescription={PIPELINE_TABLE_HEADER_DESCRIPTION.fps}
                 />
-                <PipelineTH col="mins" label="Mins" className={`${thNum} pr-4`} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
+                <PipelineTH
+                  col="mins"
+                  label="Mins"
+                  className={`${thNum} pr-4`}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={togglePipelineTableSort}
+                  headerDescription={PIPELINE_TABLE_HEADER_DESCRIPTION.mins}
+                />
               </tr>
             </thead>
             <tbody>
@@ -1648,6 +1780,101 @@ function orchestratorModelTagTooltip(
   return lines.join('\n');
 }
 
+const ORCHESTRATOR_TABLE_HEADER_DESCRIPTION: Record<OrchestratorSortCol, string> = {
+  uri:
+    'Service URI(s) registered for this orchestrator address. Rows merge multiple URIs under one address; Explorer links use the on-chain orchestrator address.',
+  knownSessions: 'Known demand sessions attributed to this orchestrator in the merged registry snapshot.',
+  successRatio:
+    'Startup success ratio for this orchestrator: successful startup sessions versus sessions requested, as reported upstream for the snapshot window.',
+  effectiveSuccessRate:
+    'End-to-end effective success rate when reported by upstream data. Null when the field is not available for this row.',
+  slaScore: 'SLA score from orchestrator inventory when present; higher is better. Null when not reported.',
+  gpuCount: 'Total GPUs advertised across all service URIs grouped under this orchestrator address.',
+};
+
+const ORCHESTRATOR_MODELS_HEADER_DESCRIPTION =
+  'Pipelines and models this orchestrator advertises. Model tags aggregate per address when the same address exposes multiple URIs.';
+
+function OrchestratorSortTH(props: {
+  col: OrchestratorSortCol;
+  label: string;
+  description: string;
+  right?: boolean;
+  className?: string;
+  activeSortCol: OrchestratorSortCol;
+  sortDir: 'asc' | 'desc';
+  onToggle: (col: OrchestratorSortCol) => void;
+}) {
+  const { col, label, description, right, className = '', activeSortCol, sortDir, onToggle } = props;
+  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLButtonElement>();
+  const ariaSort: 'ascending' | 'descending' | 'none' =
+    activeSortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
+  const Icon =
+    activeSortCol !== col ? (
+      <ChevronsUpDown className="w-3 h-3 opacity-30 shrink-0" />
+    ) : sortDir === 'asc' ? (
+      <ChevronUp className="w-3 h-3 shrink-0" />
+    ) : (
+      <ChevronDown className="w-3 h-3 shrink-0" />
+    );
+  const labelEl = (
+    <span className="cursor-default border-b border-dotted border-border/60" aria-label={description}>
+      {label}
+    </span>
+  );
+  return (
+    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'} ${className}`.trim()} aria-sort={ariaSort}>
+      <div className={`flex w-full min-w-0 items-center gap-0.5 ${right ? 'justify-end' : 'justify-start'}`}>
+        <button
+          type="button"
+          {...triggerProps}
+          onClick={() => onToggle(col)}
+          className={`inline-flex min-w-0 flex-1 items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'flex-row-reverse justify-end' : 'justify-start'}`}
+          aria-label={`Sort by ${label}`}
+        >
+          {right ? (
+            <>
+              {Icon}
+              {labelEl}
+            </>
+          ) : (
+            <>
+              {labelEl}
+              {Icon}
+            </>
+          )}
+        </button>
+        {tipOpen && tipAnchor ? (
+          <OverviewDefinitionTooltipPortal anchor={tipAnchor}>
+            <p>{description}</p>
+          </OverviewDefinitionTooltipPortal>
+        ) : null}
+      </div>
+    </th>
+  );
+}
+
+function OrchestratorModelsHeader(props: { label: string; description: string }) {
+  const { label, description } = props;
+  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLSpanElement>();
+  return (
+    <th className="pb-2 pl-2 font-medium text-left align-bottom">
+      <span
+        {...triggerProps}
+        className="cursor-default border-b border-dotted border-border/60"
+        aria-label={description}
+      >
+        {label}
+      </span>
+      {tipOpen && tipAnchor ? (
+        <OverviewDefinitionTooltipPortal anchor={tipAnchor}>
+          <p>{description}</p>
+        </OverviewDefinitionTooltipPortal>
+      ) : null}
+    </th>
+  );
+}
+
 function OrchestratorTableCard({
   data,
   catalog,
@@ -1669,11 +1896,6 @@ function OrchestratorTableCard({
   const toggleSort = (col: OrchestratorSortCol) => {
     if (sortCol === col) { setSortDir(d => (d === 'asc' ? 'desc' : 'asc')); }
     else { setSortCol(col); setSortDir('desc'); }
-  };
-
-  const SortIcon = ({ col }: { col: OrchestratorSortCol }) => {
-    if (sortCol !== col) return <ChevronsUpDown className="w-3 h-3 opacity-30" />;
-    return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />;
   };
 
   const mergedByAddress = useMemo(() => mergeOrchestratorRowsByAddress([...data]), [data]);
@@ -1700,18 +1922,6 @@ function OrchestratorTableCard({
     });
     return rows;
   }, [mergedByAddress, sortCol, sortDir, filter, catalog]);
-
-  const ariaSortValue = (col: OrchestratorSortCol): 'ascending' | 'descending' | 'none' =>
-    sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
-
-  const TH = ({ col, label, right, className = '' }: { col: OrchestratorSortCol; label: string; right?: boolean; className?: string }) => (
-    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'} ${className}`.trim()} aria-sort={ariaSortValue(col)}>
-      <button type="button" onClick={() => toggleSort(col)} className={`inline-flex items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'flex-row-reverse' : ''}`} aria-label={`Sort by ${label}`}>
-        {label}
-        <SortIcon col={col} />
-      </button>
-    </th>
-  );
 
   const totalGPUsInList = useMemo(() => sorted.reduce((sum, r) => sum + (r.gpuCount ?? 0), 0), [sorted]);
   /** Sum of service URIs across rows — equals the number of `(Address, URI)` pairs from the registry. */
@@ -1751,13 +1961,61 @@ function OrchestratorTableCard({
         <table className="w-full min-w-[720px] text-xs">
           <thead className="sticky top-0 bg-card text-muted-foreground border-b border-border">
             <tr>
-              <TH col="uri" label="URI" />
-              <TH col="knownSessions" label="Sessions" right />
-              <TH col="successRatio" label="Startup %" right />
-              <TH col="effectiveSuccessRate" label="Effective %" right />
-              <TH col="slaScore" label="SLA" right />
-              <TH col="gpuCount" label="GPUs" right className="pr-5" />
-              <th className="pb-2 pl-2 font-medium text-left">Models</th>
+              <OrchestratorSortTH
+                col="uri"
+                label="URI"
+                description={ORCHESTRATOR_TABLE_HEADER_DESCRIPTION.uri}
+                activeSortCol={sortCol}
+                sortDir={sortDir}
+                onToggle={toggleSort}
+              />
+              <OrchestratorSortTH
+                col="knownSessions"
+                label="Sessions"
+                description={ORCHESTRATOR_TABLE_HEADER_DESCRIPTION.knownSessions}
+                right
+                activeSortCol={sortCol}
+                sortDir={sortDir}
+                onToggle={toggleSort}
+              />
+              <OrchestratorSortTH
+                col="successRatio"
+                label="Startup %"
+                description={ORCHESTRATOR_TABLE_HEADER_DESCRIPTION.successRatio}
+                right
+                activeSortCol={sortCol}
+                sortDir={sortDir}
+                onToggle={toggleSort}
+              />
+              <OrchestratorSortTH
+                col="effectiveSuccessRate"
+                label="Effective %"
+                description={ORCHESTRATOR_TABLE_HEADER_DESCRIPTION.effectiveSuccessRate}
+                right
+                activeSortCol={sortCol}
+                sortDir={sortDir}
+                onToggle={toggleSort}
+              />
+              <OrchestratorSortTH
+                col="slaScore"
+                label="SLA"
+                description={ORCHESTRATOR_TABLE_HEADER_DESCRIPTION.slaScore}
+                right
+                activeSortCol={sortCol}
+                sortDir={sortDir}
+                onToggle={toggleSort}
+              />
+              <OrchestratorSortTH
+                col="gpuCount"
+                label="GPUs"
+                description={ORCHESTRATOR_TABLE_HEADER_DESCRIPTION.gpuCount}
+                right
+                className="pr-5"
+                activeSortCol={sortCol}
+                sortDir={sortDir}
+                onToggle={toggleSort}
+              />
+              <OrchestratorModelsHeader label="Models" description={ORCHESTRATOR_MODELS_HEADER_DESCRIPTION} />
             </tr>
           </thead>
           <tbody>

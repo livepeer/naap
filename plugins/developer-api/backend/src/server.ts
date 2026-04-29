@@ -177,6 +177,11 @@ type NetworkModelsResponseBody = {
   partial: boolean;
 };
 
+/** Align pipeline slugs with NAAP dashboard / `@naap/utils` pricing rules (hyphenated, lowercase). */
+function normalizeNaapPipelineSlug(raw: string): string {
+  return raw.trim().toLowerCase().replace(/_/g, '-');
+}
+
 const netModelsJsonCache = new Map<string, { expiresAt: number; body: NetworkModelsResponseBody }>();
 const netModelsInflight = new Map<string, Promise<NetworkModelsResponseBody>>();
 
@@ -204,7 +209,7 @@ function parsePipelineCatalog(payload: unknown): Array<{ id: string; models: str
   const out: Array<{ id: string; models: string[] }> = [];
   for (const raw of rawRows) {
     if (typeof raw === 'string') {
-      const id = raw.trim();
+      const id = normalizeNaapPipelineSlug(raw);
       if (id) {
         out.push({ id, models: [] });
       }
@@ -214,9 +219,11 @@ function parsePipelineCatalog(payload: unknown): Array<{ id: string; models: str
       continue;
     }
     const obj = raw as Record<string, unknown>;
-    const id = String(
-      obj.id ?? obj.pipeline_id ?? obj.pipelineId ?? obj.Pipeline ?? obj.pipeline ?? '',
-    ).trim();
+    const id = normalizeNaapPipelineSlug(
+      String(
+        obj.id ?? obj.pipeline_id ?? obj.pipelineId ?? obj.Pipeline ?? obj.pipeline ?? '',
+      ),
+    );
     if (!id) {
       continue;
     }
@@ -234,7 +241,7 @@ function parsePipelineCatalog(payload: unknown): Array<{ id: string; models: str
 
 function catalogOnlyRow(pipeline: string, model: string): NetModelRow {
   return {
-    Pipeline: pipeline,
+    Pipeline: normalizeNaapPipelineSlug(pipeline),
     Model: model,
     WarmOrchCount: 0,
     TotalCapacity: 0,
@@ -291,7 +298,7 @@ async function fetchStreamingAndRequestsModelRows(
     for (const raw of arr) {
       if (!raw || typeof raw !== 'object') continue;
       const o = raw as Record<string, unknown>;
-      const pipeline = String(o.pipeline ?? o.Pipeline ?? '').trim();
+      const pipeline = normalizeNaapPipelineSlug(String(o.pipeline ?? o.Pipeline ?? ''));
       const model = String(o.model ?? o.Model ?? '').trim();
       if (!pipeline || !model) continue;
       accum.push({
