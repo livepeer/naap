@@ -8,18 +8,18 @@ import {
 describe('pymthouse-device-initiate', () => {
   const prevBase = process.env.PMTHOUSE_BASE_URL;
   const prevIss = process.env.PYMTHOUSE_ISSUER_URL;
-  const prevClient = process.env.PMTHOUSE_CLIENT_ID;
+  const prevClient = process.env.PYMTHOUSE_PUBLIC_CLIENT_ID;
 
   beforeEach(() => {
     process.env.PMTHOUSE_BASE_URL = 'http://localhost:3001';
     process.env.PYMTHOUSE_ISSUER_URL = 'http://localhost:3001/api/v1/oidc';
-    process.env.PMTHOUSE_CLIENT_ID = 'app_testpublic123';
+    process.env.PYMTHOUSE_PUBLIC_CLIENT_ID = 'app_testpublic123';
   });
 
   afterEach(() => {
     process.env.PMTHOUSE_BASE_URL = prevBase;
     process.env.PYMTHOUSE_ISSUER_URL = prevIss;
-    process.env.PMTHOUSE_CLIENT_ID = prevClient;
+    process.env.PYMTHOUSE_PUBLIC_CLIENT_ID = prevClient;
   });
 
   it('extractDeviceApprovalTupleFromTargetLink parses user_code and client_id', () => {

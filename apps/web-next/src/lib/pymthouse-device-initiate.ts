@@ -6,6 +6,8 @@
  * user through login to `/oidc/device-approved` where NaaP completes RFC 8693 device approval at PymtHouse `{issuer}/token`.
  */
 
+import { getPymthousePublicClientId } from '@/lib/pymthouse-env';
+
 export const NAAP_PMTH_DEVICE_APPROVAL_COOKIE = 'naap_pmth_device_approval';
 
 function stripTrailingSlashes(url: string): string {
@@ -127,7 +129,7 @@ export function extractDeviceApprovalTupleFromTargetLink(targetHref: string): De
   if (!clientIdRaw || !clientIdRaw.startsWith('app_')) {
     return { error: 'invalid_client_id' };
   }
-  const expectedPublic = process.env.PMTHOUSE_CLIENT_ID?.trim();
+  const expectedPublic = getPymthousePublicClientId();
   if (expectedPublic && clientIdRaw !== expectedPublic) {
     return { error: 'client_id_mismatch' };
   }

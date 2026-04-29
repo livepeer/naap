@@ -1,4 +1,35 @@
+/** @vitest-environment node */
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+const mocks = vi.hoisted(() => {
+  const upsertAppUser = vi.fn().mockResolvedValue(undefined);
+  const mintUserAccessToken = vi.fn().mockResolvedValue({
+    access_token: 'SUBJECT.JWT.HERE',
+    token_type: 'Bearer' as const,
+    expires_in: 900,
+    scope: 'sign:job',
+    refresh_token: 'r',
+    subject_type: 'app_user' as const,
+  });
+  const completeDeviceApproval = vi.fn().mockResolvedValue({
+    access_token: 'exchanged',
+    token_type: 'Bearer' as const,
+    expires_in: 900,
+    scope: 'sign:job',
+    issued_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+  });
+  return { upsertAppUser, mintUserAccessToken, completeDeviceApproval };
+});
+
+vi.mock('@/lib/pymthouse-client', () => ({
+  getPmtHouseServerClient: vi.fn(() => ({
+    upsertAppUser: mocks.upsertAppUser,
+    mintUserAccessToken: mocks.mintUserAccessToken,
+    completeDeviceApproval: mocks.completeDeviceApproval,
+  })),
+  resetPmtHouseServerClientForTests: vi.fn(),
+}));
 
 import { approvePymthouseDeviceCode } from './pymthouse-oidc';
 
@@ -7,52 +38,27 @@ describe('approvePymthouseDeviceCode', () => {
 
   beforeEach(() => {
     env.PYMTHOUSE_ISSUER_URL = process.env.PYMTHOUSE_ISSUER_URL;
-    env.PMTHOUSE_CLIENT_ID = process.env.PMTHOUSE_CLIENT_ID;
-    env.PMTHOUSE_M2M_CLIENT_ID = process.env.PMTHOUSE_M2M_CLIENT_ID;
-    env.PMTHOUSE_M2M_CLIENT_SECRET = process.env.PMTHOUSE_M2M_CLIENT_SECRET;
-    env.PMTHOUSE_BASE_URL = process.env.PMTHOUSE_BASE_URL;
+    env.PYMTHOUSE_PUBLIC_CLIENT_ID = process.env.PYMTHOUSE_PUBLIC_CLIENT_ID;
+    env.PYMTHOUSE_M2M_CLIENT_ID = process.env.PYMTHOUSE_M2M_CLIENT_ID;
+    env.PYMTHOUSE_M2M_CLIENT_SECRET = process.env.PYMTHOUSE_M2M_CLIENT_SECRET;
 
     process.env.PYMTHOUSE_ISSUER_URL = 'http://localhost:3001/api/v1/oidc';
-    process.env.PMTHOUSE_CLIENT_ID = 'app_pub1';
-    process.env.PMTHOUSE_M2M_CLIENT_ID = 'm2m_sec1';
-    process.env.PMTHOUSE_M2M_CLIENT_SECRET = 'secret';
-    process.env.PMTHOUSE_BASE_URL = 'http://localhost:3001';
+    process.env.PYMTHOUSE_PUBLIC_CLIENT_ID = 'app_pub1';
+    process.env.PYMTHOUSE_M2M_CLIENT_ID = 'm2m_sec1';
+    process.env.PYMTHOUSE_M2M_CLIENT_SECRET = 'secret';
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(),
-    );
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
     vi.restoreAllMocks();
     process.env.PYMTHOUSE_ISSUER_URL = env.PYMTHOUSE_ISSUER_URL;
-    process.env.PMTHOUSE_CLIENT_ID = env.PMTHOUSE_CLIENT_ID;
-    process.env.PMTHOUSE_M2M_CLIENT_ID = env.PMTHOUSE_M2M_CLIENT_ID;
-    process.env.PMTHOUSE_M2M_CLIENT_SECRET = env.PMTHOUSE_M2M_CLIENT_SECRET;
-    process.env.PMTHOUSE_BASE_URL = env.PMTHOUSE_BASE_URL;
+    process.env.PYMTHOUSE_PUBLIC_CLIENT_ID = env.PYMTHOUSE_PUBLIC_CLIENT_ID;
+    process.env.PYMTHOUSE_M2M_CLIENT_ID = env.PYMTHOUSE_M2M_CLIENT_ID;
+    process.env.PYMTHOUSE_M2M_CLIENT_SECRET = env.PYMTHOUSE_M2M_CLIENT_SECRET;
   });
 
-  it('mints a user JWT then POSTs token-exchange with urn:pmth:device_code resource', async () => {
-    const fetchMock = vi.mocked(fetch);
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            access_token: 'SUBJECT.JWT.HERE',
-            token_type: 'Bearer',
-            expires_in: 900,
-            scope: 'sign:job',
-          }),
-          { status: 200 },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ access_token: 'returned' }), { status: 200 }),
-      );
-
+  it('upserts user, mints sign:job JWT, then completes device approval via SDK client', async () => {
     const result = await approvePymthouseDeviceCode({
       publicClientId: 'app_pub1',
       userCode: 'ABCD-EFGH',
@@ -60,21 +66,32 @@ describe('approvePymthouseDeviceCode', () => {
     });
 
     expect(result).toEqual({ ok: true });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-
-    const tokenExchangeUrl = fetchMock.mock.calls[2]?.[0];
-    expect(tokenExchangeUrl).toBe('http://localhost:3001/api/v1/oidc/token');
-
-    const init = fetchMock.mock.calls[2]?.[1] as RequestInit;
-    expect(init?.method).toBe('POST');
-    expect(init?.headers).toMatchObject({
-      'Content-Type': 'application/x-www-form-urlencoded',
+    expect(mocks.upsertAppUser).toHaveBeenCalledWith({
+      externalUserId: 'user-1',
+      email: undefined,
+      status: 'active',
     });
-    const body = String(init?.body ?? '');
-    expect(body).toContain(
-      'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange',
-    );
-    expect(body).toContain('subject_token=SUBJECT.JWT.HERE');
-    expect(body).toContain('urn%3Apmth%3Adevice_code%3AABCD-EFGH');
+    expect(mocks.mintUserAccessToken).toHaveBeenCalledWith({
+      externalUserId: 'user-1',
+      scope: 'sign:job',
+    });
+    expect(mocks.completeDeviceApproval).toHaveBeenCalledWith({
+      userJwt: 'SUBJECT.JWT.HERE',
+      userCode: 'ABCD-EFGH',
+    });
+  });
+
+  it('returns 400 when cookie public client id does not match configured public id', async () => {
+    const result = await approvePymthouseDeviceCode({
+      publicClientId: 'app_other',
+      userCode: 'ABCD-EFGH',
+      externalUserId: 'user-1',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(400);
+    expect(result.message).toContain('PYMTHOUSE_PUBLIC_CLIENT_ID');
+    expect(mocks.completeDeviceApproval).not.toHaveBeenCalled();
   });
 });
