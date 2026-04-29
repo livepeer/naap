@@ -2558,6 +2558,24 @@ const BUILT_IN_SKILLS = [
     endpoint: { method: 'PUT', url: '/api/v1/agentbook-core/tenant-config' },
   },
   {
+    name: 'set-budget', description: 'Set a monthly budget — total or per category', category: 'bookkeeping',
+    triggerPatterns: ['set.*budget', 'budget.*\\$', 'monthly.*budget', 'spending.*limit'],
+    parameters: { amountCents: { type: 'number', required: true }, category: { type: 'string', required: false }, period: { type: 'string', required: false, default: 'monthly' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/budgets' },
+  },
+  {
+    name: 'query-budget', description: 'Check budget status — spending vs budget by category', category: 'bookkeeping',
+    triggerPatterns: ['budget.*status', 'over.*budget', 'under.*budget', 'how.*budget', 'spending.*vs.*budget', 'check.*budget'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/budgets/status' },
+  },
+  {
+    name: 'expense-report', description: 'Generate an expense report for a date range', category: 'bookkeeping',
+    triggerPatterns: ['expense.*report', 'generate.*report', 'expense.*pdf', 'print.*expense', 'download.*expense'],
+    parameters: { startDate: { type: 'string', required: false }, endDate: { type: 'string', required: false } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/reports/expense-pdf' },
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
@@ -3503,6 +3521,20 @@ If no skill matches well, use "general-question" with parameter "question" = the
       }
     }
 
+  // Pre-processing: set-budget — resolve category name to ID
+  if (selectedSkill.name === 'set-budget' && extractedParams.category) {
+    try {
+      const account = await db.abAccount.findFirst({
+        where: { tenantId, accountType: 'expense', name: { contains: extractedParams.category, mode: 'insensitive' } },
+      });
+      if (account) {
+        extractedParams.categoryId = account.id;
+        extractedParams.categoryName = account.name;
+      }
+      delete extractedParams.category;
+    } catch { /* ignore */ }
+  }
+
   // Special inline handler: categorize-expenses (no external endpoint)
   if (selectedSkill.name === 'categorize-expenses') {
     try {
@@ -3834,6 +3866,25 @@ If no skill matches well, use "general-question" with parameter "question" = the
       }
       if (data.summary) {
         message += `\n\n**Estimated Savings: $${(data.summary.estimatedSavingsCents / 100).toFixed(2)}**`;
+      }
+
+    // Budget status
+    } else if (data?.budgets && Array.isArray(data.budgets) && data.budgets[0]?.amountCents) {
+      message = '**Budget Status**\n';
+      for (const b of data.budgets) {
+        const pct = b.percent || 0;
+        const icon = pct > 100 ? '\u{1F534}' : pct > (b.alertPercent || 80) ? '\u{1F7E1}' : '\u{1F7E2}';
+        message += `\n${icon} **${b.categoryName || 'Total'}**: $${(b.spentCents / 100).toFixed(0)} / $${(b.amountCents / 100).toFixed(0)} (${pct}%)`;
+      }
+
+    // Expense report
+    } else if (data?.html && data?.expenseCount !== undefined) {
+      message = `**Expense Report** generated\n\n${data.expenseCount} expenses, total: $${(data.totalCents / 100).toFixed(2)}`;
+      if (data.categories?.length > 0) {
+        message += '\n';
+        for (const cat of data.categories.slice(0, 8)) {
+          message += `\n\u2022 ${cat.name}: $${(cat.total / 100).toFixed(2)} (${cat.count})`;
+        }
       }
 
     // P&L report

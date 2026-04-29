@@ -1745,6 +1745,22 @@ model AbBankTransaction {
   @@schema("plugin_agentbook_expense")
 }
 
+model AbBudget {
+  id            String   @id @default(uuid())
+  tenantId      String
+  categoryId    String?
+  categoryName  String?
+  amountCents   Int
+  period        String   @default("monthly")
+  alertPercent  Int      @default(80)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, categoryId, period])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_expense")
+}
+
 model AbStripeWebhookEvent {
   id              String   @id @default(uuid())
   tenantId        String

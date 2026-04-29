@@ -2299,4 +2299,114 @@ app.get('/api/v1/agentbook-expense/advisor/proactive-alerts', async (req, res) =
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
+// === Budget Tracking ===
+
+// POST /budgets — Create/upsert budget
+app.post('/api/v1/agentbook-expense/budgets', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { amountCents, categoryId, categoryName, period, alertPercent } = req.body;
+    if (!amountCents || amountCents <= 0) return res.status(400).json({ success: false, error: 'amountCents required' });
+    const budget = await db.abBudget.upsert({
+      where: { tenantId_categoryId_period: { tenantId, categoryId: categoryId || null, period: period || 'monthly' } },
+      update: { amountCents, categoryName, alertPercent: alertPercent || 80 },
+      create: { tenantId, amountCents, categoryId: categoryId || null, categoryName: categoryName || 'Total', period: period || 'monthly', alertPercent: alertPercent || 80 },
+    });
+    res.json({ success: true, data: budget });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// GET /budgets — List all budgets
+app.get('/api/v1/agentbook-expense/budgets', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const budgets = await db.abBudget.findMany({ where: { tenantId }, orderBy: { categoryName: 'asc' } });
+    res.json({ success: true, data: budgets });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// GET /budgets/status — Budget health with spending comparison
+app.get('/api/v1/agentbook-expense/budgets/status', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const budgets = await db.abBudget.findMany({ where: { tenantId } });
+
+    // Get current month spending
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    const result = [];
+    for (const budget of budgets) {
+      let spentCents = 0;
+      if (budget.categoryId) {
+        const agg = await db.abExpense.aggregate({
+          _sum: { amountCents: true },
+          where: { tenantId, categoryId: budget.categoryId, date: { gte: monthStart, lte: monthEnd }, isPersonal: false },
+        });
+        spentCents = agg._sum.amountCents || 0;
+      } else {
+        const agg = await db.abExpense.aggregate({
+          _sum: { amountCents: true },
+          where: { tenantId, date: { gte: monthStart, lte: monthEnd }, isPersonal: false },
+        });
+        spentCents = agg._sum.amountCents || 0;
+      }
+      result.push({ ...budget, spentCents, percent: Math.round((spentCents / Math.max(1, budget.amountCents)) * 100) });
+    }
+
+    res.json({ success: true, data: { budgets: result, period: 'monthly', monthStart: monthStart.toISOString(), monthEnd: monthEnd.toISOString() } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// POST /reports/expense-pdf — Generate expense report HTML
+app.post('/api/v1/agentbook-expense/reports/expense-pdf', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { startDate, endDate } = req.body;
+    const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const end = endDate ? new Date(endDate) : new Date();
+
+    const expenses = await db.abExpense.findMany({
+      where: { tenantId, date: { gte: start, lte: end }, isPersonal: false },
+      orderBy: { date: 'desc' },
+      take: 500,
+    });
+
+    // Group by category
+    const categories: Record<string, { name: string; total: number; count: number }> = {};
+    let grandTotal = 0;
+    for (const exp of expenses) {
+      const cat = (exp as any).categoryName || 'Uncategorized';
+      if (!categories[cat]) categories[cat] = { name: cat, total: 0, count: 0 };
+      categories[cat].total += exp.amountCents;
+      categories[cat].count++;
+      grandTotal += exp.amountCents;
+    }
+
+    // Generate HTML
+    let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Expense Report</title>
+<style>body{font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:20px}h1{color:#1a1a2e}table{width:100%;border-collapse:collapse;margin:16px 0}th,td{padding:8px 12px;border-bottom:1px solid #eee;text-align:left}th{background:#f8f9fa;font-weight:600}td.amt{text-align:right;font-family:monospace}.total td{font-weight:bold;border-top:2px solid #333}.cat-header{background:#f0f0f0;font-weight:600}</style></head><body>`;
+    html += `<h1>Expense Report</h1>`;
+    html += `<p>${start.toLocaleDateString()} — ${end.toLocaleDateString()} | ${expenses.length} expenses | Total: $${(grandTotal / 100).toFixed(2)}</p>`;
+
+    // Category summary
+    html += `<h2>By Category</h2><table><tr><th>Category</th><th>Count</th><th style="text-align:right">Amount</th></tr>`;
+    for (const [, cat] of Object.entries(categories).sort((a, b) => b[1].total - a[1].total)) {
+      html += `<tr><td>${cat.name}</td><td>${cat.count}</td><td class="amt">$${(cat.total / 100).toFixed(2)}</td></tr>`;
+    }
+    html += `<tr class="total"><td>Total</td><td>${expenses.length}</td><td class="amt">$${(grandTotal / 100).toFixed(2)}</td></tr></table>`;
+
+    // Detail table
+    html += `<h2>All Expenses</h2><table><tr><th>Date</th><th>Description</th><th>Vendor</th><th style="text-align:right">Amount</th></tr>`;
+    for (const exp of expenses.slice(0, 200)) {
+      html += `<tr><td>${new Date(exp.date).toLocaleDateString()}</td><td>${exp.description || ''}</td><td>${(exp as any).vendorName || ''}</td><td class="amt">$${(exp.amountCents / 100).toFixed(2)}</td></tr>`;
+    }
+    html += `</table>`;
+    html += `<p style="color:#888;font-size:12px;margin-top:24px">Generated by AgentBook</p></body></html>`;
+
+    res.json({ success: true, data: { html, expenseCount: expenses.length, totalCents: grandTotal, categories: Object.values(categories) } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
 start();
