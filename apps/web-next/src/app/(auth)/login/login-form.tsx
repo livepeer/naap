@@ -23,7 +23,7 @@ function formatPymthouseDeviceDetail(code: string | null): string | null {
     invalid_user_code: 'user_code in the device link was missing or invalid.',
     invalid_client_id: 'client_id in the device link must be your public app id (starts with app_).',
     client_id_mismatch:
-      'client_id in the link does not match PMTHOUSE_CLIENT_ID on NaaP. PMTHOUSE_CLIENT_ID must be the public app_… id, not the m2m_… client. Set PMTHOUSE_M2M_CLIENT_ID for the confidential client.',
+      'client_id in the link does not match PYMTHOUSE_PUBLIC_CLIENT_ID on NaaP. Use the public app_… id for device flow; set PYMTHOUSE_M2M_CLIENT_ID for the confidential client.',
   };
   return detail[code] ?? `Device flow validation failed (${code}).`;
 }
@@ -40,7 +40,7 @@ function formatOAuthError(errorCode: string, pymthErr: string | null): string {
     access_denied: 'Access was denied. Please try again.',
     oauth_failed: 'Authentication failed. Please try again.',
     pymthouse_device_invalid:
-      'Device sign-in link was invalid or PymtHouse is misconfigured. Check PYMTHOUSE_ISSUER_URL, PMTHOUSE_BASE_URL, and that PMTHOUSE_CLIENT_ID is the public app_… id.',
+      'Device sign-in link was invalid or PymtHouse is misconfigured. Check PYMTHOUSE_ISSUER_URL, optional PMTHOUSE_BASE_URL for marketplace links, and that PYMTHOUSE_PUBLIC_CLIENT_ID is the public app_… id.',
   };
   return errorMessages[errorCode] || decodeURIComponent(errorCode);
 }
