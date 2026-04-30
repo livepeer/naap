@@ -51,24 +51,47 @@ async function fetchKrakenTickerClose(pair: string): Promise<number | null> {
   }
 }
 
+/** Which public venue produced a spot quote (for cache provenance). */
+export type PublicExchangeSpotSource = 'binance' | 'kraken';
+
+/** ETH vs USD/USDT — Binance ETHUSDT, then Kraken XETHZUSD. */
+export async function fetchEthUsdFromPublicExchangesWithSource(): Promise<{
+  price: number | null;
+  source: PublicExchangeSpotSource | null;
+}> {
+  const b = await fetchBinanceLastPrice('ETHUSDT');
+  if (b != null) return { price: b, source: 'binance' };
+  const k = await fetchKrakenTickerClose('XETHZUSD');
+  if (k != null) return { price: k, source: 'kraken' };
+  return { price: null, source: null };
+}
+
 /** ETH vs USD/USDT — Binance ETHUSDT, then Kraken XETHZUSD. */
 export async function fetchEthUsdFromPublicExchanges(): Promise<number | null> {
-  const b = await fetchBinanceLastPrice('ETHUSDT');
-  if (b != null) return b;
-  return fetchKrakenTickerClose('XETHZUSD');
+  const { price } = await fetchEthUsdFromPublicExchangesWithSource();
+  return price;
 }
 
 const KRAKEN_LPT_USD_PAIRS = ['LPTUSD', 'XLPTZUSD'] as const;
 
 /** LPT vs USD/USDT — Binance LPTUSDT, then Kraken LPT pairs. */
-export async function fetchLptUsdFromPublicExchanges(): Promise<number | null> {
+export async function fetchLptUsdFromPublicExchangesWithSource(): Promise<{
+  price: number | null;
+  source: PublicExchangeSpotSource | null;
+}> {
   const b = await fetchBinanceLastPrice('LPTUSDT');
-  if (b != null) return b;
+  if (b != null) return { price: b, source: 'binance' };
   for (const pair of KRAKEN_LPT_USD_PAIRS) {
     const v = await fetchKrakenTickerClose(pair);
-    if (v != null) return v;
+    if (v != null) return { price: v, source: 'kraken' };
   }
-  return null;
+  return { price: null, source: null };
+}
+
+/** LPT vs USD/USDT — Binance LPTUSDT, then Kraken LPT pairs. */
+export async function fetchLptUsdFromPublicExchanges(): Promise<number | null> {
+  const { price } = await fetchLptUsdFromPublicExchangesWithSource();
+  return price;
 }
 
 /** Binance 24h rolling stats; `priceChangePercent` matches CoinGecko-style % vs open. */
@@ -94,7 +117,9 @@ export async function fetchLptUsd24hChangePercent(): Promise<number | null> {
 export async function fetchLptUsdDailyCloseChart(
   days: number,
 ): Promise<Array<{ timestamp: number; price: number }>> {
-  const limit = Math.min(Math.max(1, Math.ceil(days)), 1000);
+  const sanitizedDays =
+    !Number.isFinite(days) || days <= 0 ? 1 : days;
+  const limit = Math.min(Math.max(1, Math.ceil(sanitizedDays)), 1000);
   try {
     const res = await fetch(
       `${BINANCE_API}/klines?symbol=LPTUSDT&interval=1d&limit=${limit}`,

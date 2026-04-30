@@ -37,9 +37,9 @@ async function persistEthUsd(ethUsd: number): Promise<void> {
   try {
     const now = new Date();
     await prisma.walletPriceCache.upsert({
-      where: { symbol_fetchedAt: { symbol: 'ETH', fetchedAt: now } },
+      where: { symbol: 'ETH' },
       create: { symbol: 'ETH', priceUsd: ethUsd, fetchedAt: now },
-      update: { priceUsd: ethUsd },
+      update: { priceUsd: ethUsd, fetchedAt: now },
     });
   } catch {
     /* ignore */

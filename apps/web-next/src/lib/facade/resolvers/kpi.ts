@@ -79,9 +79,7 @@ export async function resolveKPI(opts: {
     const kpi = parseDashboardKpiWithRequests(rawBody);
 
     const hasNetRegistrySnapshot =
-      netData.listedCount > 0 ||
-      netData.activeCount > 0 ||
-      netData.urisByAddress.size > 0;
+      netData.listedCount > 0 || netData.lastSeenMsByPair.size > 0;
     if (hasNetRegistrySnapshot) {
       kpi.orchestratorsObserved = {
         ...kpi.orchestratorsObserved,

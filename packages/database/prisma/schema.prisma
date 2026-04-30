@@ -1361,7 +1361,8 @@ model WalletPriceCache {
   source    String   @default("coingecko")
   fetchedAt DateTime @default(now())
 
-  @@unique([symbol, fetchedAt])
+  @@unique([symbol])
+  @@index([symbol, fetchedAt])
   @@map("WalletPriceCache")
   @@schema("plugin_wallet")
 }
