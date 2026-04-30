@@ -30,6 +30,7 @@ import {
   avgWeiBigIntFromNumber,
   pipelineBillingUnit,
   pipelineTablePriceCellContent,
+  splitPriceDisplay,
   PIPELINE_ETH_USD_CLIENT_FALLBACK,
 } from '@naap/utils';
 
@@ -366,8 +367,7 @@ function DeveloperModelCombinedPriceCell(props: {
     });
     const weiLines: string[] = [];
     weiLines.push(`Average: ${weiHeadlineFromCell(avg)}`);
-    weiLines.push(`Minimum: ${weiHeadlineFromCell(lo)}`);
-    weiLines.push(`Maximum: ${weiHeadlineFromCell(hi)}`);
+    weiLines.push(`${weiHeadlineFromCell(lo)} – ${weiHeadlineFromCell(hi)}`);
     hoverBlocks.push({ title: 'Wei', lines: weiLines });
     const sharedSuffix = commonRichLinesSuffix([avg.richLines, lo.richLines, hi.richLines]);
     if (sharedSuffix?.length) {
@@ -422,20 +422,24 @@ function DeveloperModelCombinedPriceCell(props: {
     ) : null;
 
   return (
-    <td className={`${tdClass} text-sm font-mono ${active ? 'text-accent-emerald' : 'text-text-secondary opacity-40'}`}>
+    <td className={`${tdClass} text-sm font-mono ${active ? 'text-text-primary' : 'text-text-secondary opacity-40'}`}>
       {showHover ? (
         <div className="flex justify-end">
           <button
             type="button"
             {...triggerProps}
-            className="inline-flex max-w-full cursor-default border-0 bg-transparent p-0 font-inherit text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/50 rounded-sm"
+            className="inline-flex w-fit max-w-full cursor-default border-0 bg-transparent p-0 font-inherit text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/50 rounded-sm"
           >
-            <span className="cursor-default border-b border-dotted border-white/35">{avg.main}</span>
+            <span className="inline-block w-fit cursor-default border-b border-dotted border-white/35">
+              {(() => { const { amount, unit } = splitPriceDisplay(avg.main); return <>{amount}{unit && <span className="text-[0.82em] text-text-secondary/70">{unit}</span>}</>; })()}
+            </span>
           </button>
           {tipPanel}
         </div>
       ) : (
-        <span>{avg.main}</span>
+        <span>
+          {(() => { const { amount, unit } = splitPriceDisplay(avg.main); return <>{amount}{unit && <span className="text-[0.82em] text-text-secondary/70">{unit}</span>}</>; })()}
+        </span>
       )}
     </td>
   );
@@ -457,17 +461,19 @@ function NetworkModelSortHeader(props: {
   const priceTriggerProps = isPrice ? triggerProps : {};
 
   return (
-    <div className={`inline-flex items-center gap-1${align === 'right' ? ' justify-end w-full' : ''}`}>
+    <div
+      className={`inline-flex items-center gap-1${align === 'right' ? ' ml-auto w-fit max-w-full justify-end' : ''}`}
+    >
       <button
         {...priceTriggerProps}
         type="button"
         title={isPrice ? undefined : headerTitle}
         onClick={onSort}
-        className={`inline-flex items-center gap-1 hover:text-text-primary transition-colors${align === 'right' ? ' flex-row-reverse' : ''}${active ? ' text-text-primary' : ''}`}
+        className={`inline-flex w-fit max-w-full items-center gap-1 hover:text-text-primary transition-colors${align === 'right' ? ' flex-row-reverse' : ''}${active ? ' text-text-primary' : ''}`}
       >
         {isPrice ? (
           <span
-            className="cursor-default border-b border-dotted border-white/35"
+            className="inline-block w-fit cursor-default border-b border-dotted border-white/35"
             aria-label={NETWORK_MODEL_PRICE_HEADER_INFO}
           >
             {label}

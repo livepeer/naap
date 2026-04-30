@@ -58,6 +58,7 @@ import {
   LIVE_VIDEO_PIPELINE_ID,
   PIPELINE_ETH_USD_CLIENT_FALLBACK,
   pipelineTablePriceCellContent,
+  splitPriceDisplay,
 } from '@naap/utils';
 
 // Recharts is only used inside FeesCard. Defer the bundle parse until the
@@ -187,14 +188,18 @@ function PipelineTablePriceCell({
 
   return (
     <td className={tdClass}>
-      <button
-        type="button"
-        {...triggerProps}
-        title={tip}
-        className="group/cell w-full cursor-default border-b border-dotted border-muted-foreground/35 bg-transparent p-0 text-right font-inherit text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-      >
-        {main}
-      </button>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          {...triggerProps}
+          title={tip}
+          className="group/cell inline-flex w-fit max-w-full cursor-default border-0 bg-transparent p-0 text-right font-inherit text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          <span className="inline-block w-fit border-b border-dotted border-muted-foreground/35">
+            {(() => { const { amount, unit } = splitPriceDisplay(main); return <>{amount}{unit && <span className="text-[0.82em] text-muted-foreground/70">{unit}</span>}</>; })()}
+          </span>
+        </button>
+      </div>
       {tipOpen && tipAnchor ? (
         <OverviewDefinitionTooltipPortal anchor={tipAnchor}>
           {richLines!.map((line, i) => (

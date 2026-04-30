@@ -46,6 +46,9 @@ export function pipelineBillingUnit(pipelineId: string): string {
 export function formatUsdPipelineEstimate(usd: number): string {
   if (!Number.isFinite(usd) || usd < 0) return '—';
   if (usd === 0) return '$0.00';
+  // Values below this threshold round to $0.00000 at 5 decimal places — show a
+  // "less than" indicator instead of the misleading "$0".
+  if (usd < 0.000005) return '< $0.00001';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -150,6 +153,19 @@ export function pipelineTablePriceCellContent(input: {
   }
 
   return { main: weiLabel, richLines: null };
+}
+
+/**
+ * Splits a formatted price string (e.g. "$0.00185/min", "< $0.00001/img") into
+ * an amount and unit part so renderers can style them differently.
+ * Returns null unit when no slash is found or the string has no price prefix.
+ */
+export function splitPriceDisplay(main: string): { amount: string; unit: string | null } {
+  const hasPrice = main.startsWith('$') || main.startsWith('< $');
+  if (!hasPrice) return { amount: main, unit: null };
+  const slash = main.indexOf('/');
+  if (slash === -1) return { amount: main, unit: null };
+  return { amount: main.slice(0, slash), unit: main.slice(slash) };
 }
 
 /** Integer wei per billing unit from a float average (e.g. net/models). */
