@@ -1,7 +1,7 @@
 /**
  * Network overview endpoint — Dune-style dashboard data.
  * Dedicated Next.js route handler (replaces proxy to wallet backend on Vercel).
- * Uses DB snapshots when available, falls back to live subgraph + public exchange spot prices.
+ * Uses DB snapshots when available, falls back to live subgraph + CoinGecko.
  */
 
 import { NextRequest, NextResponse } from 'next/server';

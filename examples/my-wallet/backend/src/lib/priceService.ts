@@ -70,15 +70,11 @@ export async function fetchAndCachePrices(): Promise<PriceData> {
 
     // Store in DB cache
     await Promise.all([
-      prisma.walletPriceCache.upsert({
-        where: { symbol: 'LPT' },
-        create: { symbol: 'LPT', priceUsd: lptUsd, fetchedAt: now, source: 'coingecko' },
-        update: { priceUsd: lptUsd, fetchedAt: now, source: 'coingecko' },
+      prisma.walletPriceCache.create({
+        data: { symbol: 'LPT', priceUsd: lptUsd, fetchedAt: now },
       }),
-      prisma.walletPriceCache.upsert({
-        where: { symbol: 'ETH' },
-        create: { symbol: 'ETH', priceUsd: ethUsd, fetchedAt: now, source: 'coingecko' },
-        update: { priceUsd: ethUsd, fetchedAt: now, source: 'coingecko' },
+      prisma.walletPriceCache.create({
+        data: { symbol: 'ETH', priceUsd: ethUsd, fetchedAt: now },
       }),
     ]);
 

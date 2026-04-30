@@ -5,10 +5,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
-import {
-  fetchEthUsdFromPublicExchangesWithSource,
-  fetchLptUsdFromPublicExchangesWithSource,
-} from '@/lib/prices/public-exchange-spot';
+
+const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 
 export async function GET(request: NextRequest) {
   const secret = request.headers.get('authorization')?.replace('Bearer ', '');
@@ -17,70 +15,20 @@ export async function GET(request: NextRequest) {
   if (secret !== cronSecret) return errors.unauthorized('Invalid cron secret');
 
   try {
-    const [lptMeta, ethMeta] = await Promise.all([
-      fetchLptUsdFromPublicExchangesWithSource(),
-      fetchEthUsdFromPublicExchangesWithSource(),
-    ]);
-    const lptUsdRaw = lptMeta.price;
-    const ethUsdRaw = ethMeta.price;
-    const lptUsd =
-      lptUsdRaw != null && Number.isFinite(lptUsdRaw) && lptUsdRaw > 0 ? lptUsdRaw : null;
-    const ethUsd =
-      ethUsdRaw != null && Number.isFinite(ethUsdRaw) && ethUsdRaw > 0 ? ethUsdRaw : null;
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    const apiKey = process.env.COINGECKO_API_KEY;
+    if (apiKey) headers['x-cg-demo-api-key'] = apiKey;
 
-    const lptOk = lptUsd != null;
-    const ethOk = ethUsd != null;
-    if (!lptOk && !ethOk) {
-      throw new Error(
-        `Public exchange price fetch miss (both LPT and ETH): lptUsdRaw=${String(lptUsdRaw)} ethUsdRaw=${String(ethUsdRaw)}`,
-      );
-    }
-
+    const resp = await fetch(`${COINGECKO_BASE}/simple/price?ids=livepeer,ethereum&vs_currencies=usd`, { headers });
+    const data = await resp.json();
     const now = new Date();
 
-    const persist: Promise<unknown>[] = [];
-    if (lptUsd != null && lptMeta.source) {
-      persist.push(
-        prisma.walletPriceCache.upsert({
-          where: { symbol: 'LPT' },
-          create: {
-            symbol: 'LPT',
-            priceUsd: lptUsd,
-            fetchedAt: now,
-            source: lptMeta.source,
-          },
-          update: {
-            priceUsd: lptUsd,
-            fetchedAt: now,
-            source: lptMeta.source,
-          },
-        }),
-      );
-    }
-    if (ethUsd != null && ethMeta.source) {
-      persist.push(
-        prisma.walletPriceCache.upsert({
-          where: { symbol: 'ETH' },
-          create: {
-            symbol: 'ETH',
-            priceUsd: ethUsd,
-            fetchedAt: now,
-            source: ethMeta.source,
-          },
-          update: {
-            priceUsd: ethUsd,
-            fetchedAt: now,
-            source: ethMeta.source,
-          },
-        }),
-      );
-    }
-    if (persist.length > 0) await Promise.all(persist);
+    await Promise.all([
+      prisma.walletPriceCache.create({ data: { symbol: 'LPT', priceUsd: data?.livepeer?.usd ?? 0, fetchedAt: now } }),
+      prisma.walletPriceCache.create({ data: { symbol: 'ETH', priceUsd: data?.ethereum?.usd ?? 0, fetchedAt: now } }),
+    ]);
 
-    return success({
-      lptUsd,
-      ethUsd,
-    });
+    return success({ lptUsd: data?.livepeer?.usd, ethUsd: data?.ethereum?.usd });
   } catch (err) {
     console.error('Cron prices error:', err);
     return errors.internal('Price fetch job failed');

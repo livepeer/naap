@@ -2,13 +2,6 @@
  * Shared Livepeer subgraph + price utilities for wallet route handlers.
  */
 
-import {
-  fetchEthUsdFromPublicExchanges,
-  fetchLptUsd24hChangePercent,
-  fetchLptUsdDailyCloseChart,
-  fetchLptUsdFromPublicExchanges,
-} from '@/lib/prices/public-exchange-spot';
-
 const SUBGRAPH_ID = 'FE63YgkzcpVocxdCEyEYbvjYqEf2kb1A6daMYRxmejYC';
 
 function getSubgraphUrls(): string[] {
@@ -119,15 +112,15 @@ export async function getProtocol() {
 
 export async function getPrices() {
   try {
-    const [lptUsdRaw, ethUsdRaw, chg] = await Promise.all([
-      fetchLptUsdFromPublicExchanges(),
-      fetchEthUsdFromPublicExchanges(),
-      fetchLptUsd24hChangePercent(),
-    ]);
+    const res = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=livepeer,ethereum&vs_currencies=usd&include_24hr_change=true',
+      { signal: AbortSignal.timeout(10_000), next: { revalidate: 60 } },
+    );
+    const data = await res.json();
     return {
-      lptUsd: lptUsdRaw != null && Number.isFinite(lptUsdRaw) && lptUsdRaw > 0 ? lptUsdRaw : 0,
-      ethUsd: ethUsdRaw != null && Number.isFinite(ethUsdRaw) && ethUsdRaw > 0 ? ethUsdRaw : 0,
-      lptChange24h: chg != null && Number.isFinite(chg) ? chg : 0,
+      lptUsd: data.livepeer?.usd || 0,
+      ethUsd: data.ethereum?.usd || 0,
+      lptChange24h: data.livepeer?.usd_24h_change || 0,
     };
   } catch {
     return { lptUsd: 0, ethUsd: 0, lptChange24h: 0 };
@@ -136,8 +129,12 @@ export async function getPrices() {
 
 export async function getPriceChart(days: number) {
   try {
-    const pts = await fetchLptUsdDailyCloseChart(days);
-    return pts.map((p) => ({ timestamp: p.timestamp, price: p.price }));
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/coins/livepeer/market_chart?vs_currency=usd&days=${days}`,
+      { signal: AbortSignal.timeout(10_000), next: { revalidate: 300 } },
+    );
+    const data = await res.json();
+    return (data.prices || []).map(([ts, price]: [number, number]) => ({ timestamp: ts, price }));
   } catch {
     return [];
   }

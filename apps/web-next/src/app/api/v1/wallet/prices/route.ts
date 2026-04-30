@@ -7,26 +7,9 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
-import {
-  fetchEthUsdFromPublicExchanges,
-  fetchLptUsdFromPublicExchanges,
-} from '@/lib/prices/public-exchange-spot';
 
 const CACHE_TTL = 5 * 60 * 1000;
-
-/** Provenance for rows written from {@link fetchLptUsdFromPublicExchanges} / ETH twin. */
-const WALLET_PRICE_SOURCE_PUBLIC_EXCHANGE = 'public_exchange';
-
-function positiveUsd(raw: number | null | undefined): number | null {
-  if (raw == null || !Number.isFinite(raw) || raw <= 0) return null;
-  return raw;
-}
-
-function maxFetchedAtIso(rows: { fetchedAt: Date }[]): string | null {
-  if (!rows.length) return null;
-  const t = Math.max(...rows.map((r) => r.fetchedAt.getTime()));
-  return Number.isFinite(t) ? new Date(t).toISOString() : null;
-}
+const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 
 export async function GET(request: NextRequest) {
   try {
@@ -43,105 +26,48 @@ export async function GET(request: NextRequest) {
       distinct: ['symbol'],
     });
 
-    const lpt = cached.find((c) => c.symbol === 'LPT');
-    const eth = cached.find((c) => c.symbol === 'ETH');
+    const lpt = cached.find(c => c.symbol === 'LPT');
+    const eth = cached.find(c => c.symbol === 'ETH');
 
     if (lpt && eth) {
-      const lptUsd = positiveUsd(Number(lpt.priceUsd));
-      const ethUsd = positiveUsd(Number(eth.priceUsd));
       return success({
-        lptUsd,
-        ethUsd,
-        pricesAvailable: lptUsd != null && ethUsd != null,
+        lptUsd: Number(lpt.priceUsd),
+        ethUsd: Number(eth.priceUsd),
         fetchedAt: lpt.fetchedAt.toISOString(),
       });
     }
 
-    let lptUsdRaw: number | null = null;
-    let ethUsdRaw: number | null = null;
+    // Fetch fresh
     try {
-      [lptUsdRaw, ethUsdRaw] = await Promise.all([
-        fetchLptUsdFromPublicExchanges(),
-        fetchEthUsdFromPublicExchanges(),
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      const apiKey = process.env.COINGECKO_API_KEY;
+      if (apiKey) headers['x-cg-demo-api-key'] = apiKey;
+
+      const resp = await fetch(`${COINGECKO_BASE}/simple/price?ids=livepeer,ethereum&vs_currencies=usd`, { headers });
+      const data = await resp.json();
+      const lptUsd = data?.livepeer?.usd ?? 0;
+      const ethUsd = data?.ethereum?.usd ?? 0;
+      const now = new Date();
+
+      await Promise.all([
+        prisma.walletPriceCache.create({ data: { symbol: 'LPT', priceUsd: lptUsd, fetchedAt: now } }),
+        prisma.walletPriceCache.create({ data: { symbol: 'ETH', priceUsd: ethUsd, fetchedAt: now } }),
       ]);
-    } catch (fetchErr) {
-      console.error('[wallet/prices] Public exchange fetch failed:', fetchErr);
-    }
 
-    let lptUsd = positiveUsd(lptUsdRaw);
-    let ethUsd = positiveUsd(ethUsdRaw);
-
-    let fallbackRows: Awaited<ReturnType<typeof prisma.walletPriceCache.findMany>> = [];
-    if (lptUsd == null || ethUsd == null) {
-      fallbackRows = await prisma.walletPriceCache.findMany({
+      return success({ lptUsd, ethUsd, fetchedAt: now.toISOString() });
+    } catch {
+      // Return last known
+      const fallback = await prisma.walletPriceCache.findMany({
         where: { symbol: { in: ['LPT', 'ETH'] } },
         orderBy: { fetchedAt: 'desc' },
         distinct: ['symbol'],
       });
-      if (lptUsd == null) {
-        const row = fallbackRows.find((c) => c.symbol === 'LPT');
-        lptUsd = positiveUsd(row != null ? Number(row.priceUsd) : null) ?? null;
-      }
-      if (ethUsd == null) {
-        const row = fallbackRows.find((c) => c.symbol === 'ETH');
-        ethUsd = positiveUsd(row != null ? Number(row.priceUsd) : null) ?? null;
-      }
+      return success({
+        lptUsd: Number(fallback.find(c => c.symbol === 'LPT')?.priceUsd ?? 0),
+        ethUsd: Number(fallback.find(c => c.symbol === 'ETH')?.priceUsd ?? 0),
+        fetchedAt: fallback[0]?.fetchedAt.toISOString() ?? new Date().toISOString(),
+      });
     }
-
-    const lptLive = positiveUsd(lptUsdRaw);
-    const ethLive = positiveUsd(ethUsdRaw);
-
-    const now = new Date();
-    const persist: Promise<unknown>[] = [];
-    if (lptLive != null) {
-      persist.push(
-        prisma.walletPriceCache.upsert({
-          where: { symbol: 'LPT' },
-          create: {
-            symbol: 'LPT',
-            priceUsd: lptLive,
-            fetchedAt: now,
-            source: WALLET_PRICE_SOURCE_PUBLIC_EXCHANGE,
-          },
-          update: {
-            priceUsd: lptLive,
-            fetchedAt: now,
-            source: WALLET_PRICE_SOURCE_PUBLIC_EXCHANGE,
-          },
-        }),
-      );
-    }
-    if (ethLive != null) {
-      persist.push(
-        prisma.walletPriceCache.upsert({
-          where: { symbol: 'ETH' },
-          create: {
-            symbol: 'ETH',
-            priceUsd: ethLive,
-            fetchedAt: now,
-            source: WALLET_PRICE_SOURCE_PUBLIC_EXCHANGE,
-          },
-          update: {
-            priceUsd: ethLive,
-            fetchedAt: now,
-            source: WALLET_PRICE_SOURCE_PUBLIC_EXCHANGE,
-          },
-        }),
-      );
-    }
-    if (persist.length > 0) await Promise.all(persist);
-
-    const usedLiveQuote = lptLive != null || ethLive != null;
-    const fetchedAt = usedLiveQuote
-      ? now.toISOString()
-      : maxFetchedAtIso(fallbackRows) ?? now.toISOString();
-
-    return success({
-      lptUsd,
-      ethUsd,
-      pricesAvailable: lptUsd != null && ethUsd != null,
-      fetchedAt,
-    });
   } catch (err) {
     console.error('Error fetching prices:', err);
     return errors.internal('Failed to fetch prices');
