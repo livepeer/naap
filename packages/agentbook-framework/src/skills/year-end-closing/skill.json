@@ -1,0 +1,7 @@
+{
+  "name": "year-end-closing",
+  "description": "Year-end closing — Close fiscal year and carry forward balances",
+  "tools": [
+    "close_year"
+  ]
+}

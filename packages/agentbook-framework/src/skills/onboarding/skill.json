@@ -1,0 +1,53 @@
+{
+  "name": "onboarding",
+  "version": "1.0.0",
+  "description": "Guided step-by-step onboarding for new AgentBook users",
+  "intents": ["get_onboarding_progress", "complete_onboarding_step"],
+  "tools": [
+    {
+      "name": "get_onboarding_progress",
+      "description": "Get the current onboarding progress for a tenant",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": { "type": "string" }
+        },
+        "required": ["tenant_id"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "steps": { "type": "array" },
+          "current_step": { "type": "integer" },
+          "percent_complete": { "type": "number" },
+          "is_complete": { "type": "boolean" }
+        }
+      },
+      "constraints": [],
+      "model_tier": "haiku"
+    },
+    {
+      "name": "complete_onboarding_step",
+      "description": "Mark an onboarding step as completed",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": { "type": "string" },
+          "step_id": { "type": "string" }
+        },
+        "required": ["tenant_id", "step_id"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "completed": { "type": "boolean" }
+        }
+      },
+      "constraints": [],
+      "model_tier": "haiku"
+    }
+  ],
+  "prompts": {},
+  "dependencies": ["agentbook-core"],
+  "calendar_providers": []
+}

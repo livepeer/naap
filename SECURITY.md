@@ -14,7 +14,7 @@ receives security fixes. All development uses feature branches off `main`.
 
 **Do not open a public issue for security vulnerabilities.**
 
-Please use [GitHub Security Advisories](https://github.com/livepeer/NaaP/security/advisories/new)
+Please use [GitHub Security Advisories](https://github.com/a3p/a3p/security/advisories/new)
 to report vulnerabilities privately. This ensures the issue is handled
 confidentially until a fix is available.
 
@@ -36,7 +36,7 @@ When reporting, please include:
 
 ## Disclosure Policy
 
-NaaP follows a **coordinated disclosure** process:
+A3P follows a **coordinated disclosure** process:
 
 1. Reporter submits vulnerability via GitHub Security Advisories.
 2. Core maintainers acknowledge receipt within the response timeline above.
@@ -53,7 +53,7 @@ throughout the process.
 
 The following are in scope for security reports:
 
-- The NaaP shell (`apps/web-next/`)
+- The A3P shell (`apps/web-next/`)
 - Core services (`services/`)
 - Shared packages (`packages/`)
 - Plugin SDK (`packages/plugin-sdk/`)

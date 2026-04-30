@@ -1,0 +1,28 @@
+@import '../../../../packages/theme/src/shell-variables.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code, pre, .font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.glass-card {
+  @apply backdrop-blur-md rounded-lg;
+  background-color: hsl(var(--card));
+  border: 1px solid var(--border-color);
+}
+
+.dark .glass-card {
+  background-color: #1a1a1acc;
+  border-color: #2a2a2a;
+}

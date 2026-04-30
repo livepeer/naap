@@ -176,11 +176,10 @@ async function main() {
   console.log('🔌 Creating plugin admin roles...');
 
   const pluginAdminRoles = [
-    { pluginName: 'capacity-planner', roleName: 'capacity-planner:admin', displayName: 'Capacity Planner Administrator' },
     { pluginName: 'marketplace', roleName: 'marketplace:admin', displayName: 'Marketplace Administrator' },
     { pluginName: 'community', roleName: 'community:admin', displayName: 'Community Hub Administrator' },
-    { pluginName: 'developer-api', roleName: 'developer-api:admin', displayName: 'Developer API Administrator' },
     { pluginName: 'plugin-publisher', roleName: 'plugin-publisher:admin', displayName: 'Plugin Publisher Administrator' },
+    { pluginName: 'service-gateway', roleName: 'service-gateway:admin', displayName: 'Service Gateway Administrator' },
   ];
 
   for (const pluginRole of pluginAdminRoles) {
@@ -206,16 +205,15 @@ async function main() {
   // ============================================
   console.log('👥 Creating test users...');
 
-  const passwordHash = hashPassword('livepeer');
+  const passwordHash = hashPassword('a3p-dev');
 
   const testUsers = [
-    { email: 'admin@livepeer.org', displayName: 'System Admin', roles: ['system:admin'] },
-    { email: 'capacity@livepeer.org', displayName: 'Capacity Admin', roles: ['capacity-planner:admin'] },
-    { email: 'marketplace@livepeer.org', displayName: 'Marketplace Admin', roles: ['marketplace:admin'] },
-    { email: 'community@livepeer.org', displayName: 'Community Admin', roles: ['community:admin'] },
-    { email: 'developer@livepeer.org', displayName: 'Developer Admin', roles: ['developer-api:admin'] },
-    { email: 'publisher@livepeer.org', displayName: 'Publisher Admin', roles: ['plugin-publisher:admin'] },
-    { email: 'viewer@livepeer.org', displayName: 'Viewer User', roles: ['system:viewer'] },
+    { email: 'admin@a3p.io', displayName: 'System Admin', roles: ['system:admin'] },
+    { email: 'marketplace@a3p.io', displayName: 'Marketplace Admin', roles: ['marketplace:admin'] },
+    { email: 'community@a3p.io', displayName: 'Community Admin', roles: ['community:admin'] },
+    { email: 'publisher@a3p.io', displayName: 'Publisher Admin', roles: ['plugin-publisher:admin'] },
+    { email: 'gateway@a3p.io', displayName: 'Gateway Admin', roles: ['service-gateway:admin'] },
+    { email: 'viewer@a3p.io', displayName: 'Viewer User', roles: ['system:viewer'] },
   ];
 
   const createdUsers: { id: string; email: string }[] = [];
@@ -273,7 +271,7 @@ async function main() {
     update: {},
     create: {
       address: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
-      displayName: 'Livepeer Operator',
+      displayName: 'A3P Operator',
       config: {
         create: {
           theme: 'dark',
@@ -306,15 +304,15 @@ async function main() {
   // ============================================
   console.log('👥 Creating test team...');
 
-  const firstAdmin = createdUsers.find(u => u.email === 'admin@livepeer.org');
+  const firstAdmin = createdUsers.find(u => u.email === 'admin@a3p.io');
   if (firstAdmin) {
     const testTeam = await prisma.team.upsert({
-      where: { slug: 'livepeer-dev' },
+      where: { slug: 'a3p-dev' },
       update: {},
       create: {
-        name: 'Livepeer Development',
-        slug: 'livepeer-dev',
-        description: 'Development team for Livepeer Network',
+        name: 'A3P Development',
+        slug: 'a3p-dev',
+        description: 'Development team for A3P - Agent as a Product',
         ownerId: firstAdmin.id,
       },
     });
@@ -389,11 +387,11 @@ async function main() {
     {
       name: 'marketplace',
       displayName: 'Plugin Marketplace',
-      description: 'Discover, install, and manage plugins to extend your NAAP experience.',
+      description: 'Discover, install, and manage plugins to extend your A3P experience.',
       category: 'platform',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/marketplace',
+      author: 'A3P Team',
+      authorEmail: 'team@a3p.io',
+      repository: 'https://github.com/a3p/plugins/tree/main/marketplace',
       license: 'MIT',
       keywords: ['marketplace', 'plugins', 'extensions', 'install'],
       icon: 'ShoppingBag',
@@ -402,27 +400,13 @@ async function main() {
       isCore: true,
     },
     {
-      name: 'capacityPlanner',
-      displayName: 'Capacity Planner',
-      description: 'Plan and manage capacity across your Livepeer infrastructure.',
-      category: 'monitoring',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/capacity-planner',
-      license: 'MIT',
-      keywords: ['capacity', 'planning', 'resources', 'forecasting'],
-      icon: 'Zap',
-      version: '1.0.0',
-      frontendUrl: getPluginUrl('capacityPlanner'),
-    },
-    {
       name: 'community',
       displayName: 'Community Hub',
-      description: 'Community forum and discussion platform for Livepeer operators.',
+      description: 'Community forum and discussion platform for A3P users.',
       category: 'social',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/community',
+      author: 'A3P Team',
+      authorEmail: 'team@a3p.io',
+      repository: 'https://github.com/a3p/plugins/tree/main/community',
       license: 'MIT',
       keywords: ['community', 'forum', 'discussion', 'social'],
       icon: 'Users',
@@ -431,48 +415,19 @@ async function main() {
       isCore: true,
     },
     {
-      name: 'developerApi',
-      displayName: 'Developer API Manager',
-      description: 'Manage API keys, access AI models, and configure gateway connections.',
-      category: 'developer',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/developer-api',
-      license: 'MIT',
-      keywords: ['api', 'developer', 'keys', 'integration', 'ai'],
-      icon: 'Code',
-      version: '1.0.0',
-      frontendUrl: getPluginUrl('developerApi'),
-      isCore: true,
-    },
-    {
       name: 'pluginPublisher',
       displayName: 'Plugin Publisher',
-      description: 'Publish, validate, and manage your plugins in the NAAP marketplace.',
+      description: 'Publish, validate, and manage your plugins in the A3P marketplace.',
       category: 'developer',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/naap/plugins/tree/main/plugin-publisher',
+      author: 'A3P Team',
+      authorEmail: 'team@a3p.io',
+      repository: 'https://github.com/a3p/plugins/tree/main/plugin-publisher',
       license: 'MIT',
       keywords: ['publisher', 'marketplace', 'upload', 'validate', 'deploy'],
       icon: 'Upload',
       version: '1.0.0',
       frontendUrl: getPluginUrl('pluginPublisher'),
       isCore: true,
-    },
-    {
-      name: 'dashboardDataProvider',
-      displayName: 'Dashboard Data Provider',
-      description: 'Dashboard data provider plugin. Serves data via the GraphQL-over-event-bus contract defined in @naap/plugin-sdk.',
-      category: 'analytics',
-      author: 'NAAP Team',
-      authorEmail: 'team@naap.io',
-      repository: 'https://github.com/livepeer/naap/tree/main/plugins/dashboard-data-provider',
-      license: 'MIT',
-      keywords: ['dashboard', 'provider', 'data', 'graphql'],
-      icon: 'Box',
-      version: '1.0.0',
-      frontendUrl: getPluginUrl('dashboardDataProvider'),
     },
   ];
 
@@ -731,23 +686,22 @@ async function main() {
   console.log('✅ Seeding completed successfully!');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('\n📋 Test Credentials:');
-  console.log('   All users use password: livepeer');
+  console.log('   All users use password: a3p-dev');
   console.log('');
   console.log('   👤 System Admin:');
-  console.log('      Email:    admin@livepeer.org');
-  console.log('      Password: livepeer');
+  console.log('      Email:    admin@a3p.io');
+  console.log('      Password: a3p-dev');
   console.log('      Role:     system:admin');
   console.log('');
   console.log('   👤 Plugin Admins (same password):');
-  console.log('      capacity@livepeer.org    - capacity-planner:admin');
-  console.log('      marketplace@livepeer.org - marketplace:admin');
-  console.log('      community@livepeer.org   - community:admin');
-  console.log('      developer@livepeer.org   - developer-api:admin');
-  console.log('      publisher@livepeer.org   - plugin-publisher:admin');
+  console.log('      marketplace@a3p.io - marketplace:admin');
+  console.log('      community@a3p.io   - community:admin');
+  console.log('      publisher@a3p.io   - plugin-publisher:admin');
+  console.log('      gateway@a3p.io     - service-gateway:admin');
   console.log('');
   console.log('   👤 Viewer:');
-  console.log('      Email:    viewer@livepeer.org');
-  console.log('      Password: livepeer');
+  console.log('      Email:    viewer@a3p.io');
+  console.log('      Password: a3p-dev');
   console.log('      Role:     system:viewer');
   console.log('');
   console.log('   🔗 Legacy Wallet User:');

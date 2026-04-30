@@ -1,0 +1,10 @@
+{
+  "name": "deduction-hunting",
+  "version": "1.0.0",
+  "description": "Proactively finds missing tax deductions by analyzing expenses against jurisdiction DeductionRuleSet",
+  "intents": ["suggest_deductions"],
+  "tools": [
+    {"name": "find_missing_deductions", "description": "Scan expenses and identify deduction opportunities", "constraints": [], "model_tier": "haiku"}
+  ],
+  "dependencies": ["agentbook-core"]
+}

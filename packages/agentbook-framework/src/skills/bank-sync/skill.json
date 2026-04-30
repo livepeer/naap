@@ -1,0 +1,12 @@
+{
+  "name": "bank-sync",
+  "version": "1.0.0",
+  "description": "Plaid bank connection: transaction sync, auto-matching, reconciliation",
+  "intents": ["sync_bank_transactions", "reconcile"],
+  "tools": [
+    {"name": "sync_transactions", "description": "Import transactions from Plaid", "constraints": [], "model_tier": "haiku"},
+    {"name": "auto_match", "description": "Match bank transactions to recorded expenses/invoices", "constraints": [], "model_tier": "haiku"},
+    {"name": "reconcile", "description": "Generate reconciliation status", "constraints": [], "model_tier": "haiku"}
+  ],
+  "dependencies": ["agentbook-core"]
+}

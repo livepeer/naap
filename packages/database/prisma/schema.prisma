@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api", "plugin_service_gateway"]
+  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax"]
 }
 
 // ============================================
@@ -64,8 +64,6 @@ model User {
   // Plugin relations - Community
   communityProfile CommunityProfile?
 
-  // Plugin relations - Wallet
-  walletConnection WalletConnection?
 
   @@schema("public")
 }
@@ -174,8 +172,6 @@ model BillingProvider {
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
-  devApiKeys DevApiKey[]
 
   @@index([enabled])
   @@schema("public")
@@ -1008,436 +1004,7 @@ model CommunityUserBadge {
   @@schema("plugin_community")
 }
 
-// ============================================
-// PLUGIN: MY WALLET
-// ============================================
-// Wallet connections, transactions, staking state
 
-model WalletConnection {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  address   String
-  chainId   Int
-  lastSeen  DateTime @default(now())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([address])
-  @@index([userId])
-  @@schema("plugin_wallet")
-}
-
-model WalletTransactionLog {
-  id          String    @id @default(uuid())
-  userId      String
-  address     String
-  txHash      String    @unique
-  type        String
-  status      String    @default("pending")
-  chainId     Int
-  value       String?
-  gasUsed     String?
-  gasPrice    String?
-  blockNumber Int?
-  toAddress   String?
-  timestamp   DateTime  @default(now())
-  confirmedAt DateTime?
-  metadata    Json?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@index([userId, timestamp])
-  @@index([address, timestamp])
-  @@index([txHash])
-  @@index([status])
-  @@schema("plugin_wallet")
-}
-
-model WalletStakingState {
-  id             String   @id @default(uuid())
-  address        String   @unique
-  chainId        Int
-  stakedAmount   String   @default("0")
-  delegatedTo    String?
-  pendingRewards String   @default("0")
-  pendingFees    String   @default("0")
-  startRound     String?
-  lastClaimRound String?
-  lastSynced     DateTime @default(now())
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  @@index([address])
-  @@index([delegatedTo])
-  @@schema("plugin_wallet")
-}
-
-model WalletOrchestrator {
-  id         String   @id @default(uuid())
-  address    String   @unique
-  chainId    Int
-  name       String?
-  serviceUri String?
-  totalStake String   @default("0")
-  rewardCut  Int      @default(0)
-  feeShare   Int      @default(0)
-  isActive   Boolean  @default(true)
-  lastSynced DateTime @default(now())
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@index([chainId, isActive])
-  @@index([totalStake])
-  @@schema("plugin_wallet")
-}
-
-model WalletSettings {
-  id             String   @id @default(uuid())
-  userId         String   @unique
-  defaultNetwork String   @default("arbitrum-one")
-  autoConnect    Boolean  @default(true)
-  showTestnets   Boolean  @default(false)
-  gasStrategy    String   @default("standard")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  @@schema("plugin_wallet")
-}
-
-// ============================================
-// PLUGIN: MY DASHBOARD
-// ============================================
-// Metabase dashboard integration
-
-model Dashboard {
-  id          String   @id @default(uuid())
-  metabaseId  Int
-  entityId    String?
-  name        String
-  description String?
-  thumbnail   String?
-  isDefault   Boolean  @default(false)
-  order       Int      @default(0)
-  createdBy   String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([isDefault])
-  @@index([order])
-  @@index([metabaseId])
-  @@schema("plugin_dashboard")
-}
-
-model DashboardUserPreference {
-  id          String   @id @default(uuid())
-  userId      String
-  dashboardId String
-  pinned      Boolean  @default(true)
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@unique([userId, dashboardId])
-  @@index([userId])
-  @@schema("plugin_dashboard")
-}
-
-model DashboardPluginConfig {
-  key       String   @id
-  value     String
-  updatedAt DateTime @updatedAt
-
-  @@schema("plugin_dashboard")
-}
-
-// ============================================
-// PLUGIN: DAYDREAM VIDEO
-// ============================================
-// AI video generation sessions
-
-model DaydreamSettings {
-  id             String   @id @default(uuid())
-  userId         String   @unique
-  apiKey         String?
-  defaultPrompt  String   @default("superman")
-  defaultSeed    Int      @default(42)
-  negativePrompt String   @default("blurry, low quality, flat, 2d")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  @@map("daydream_settings")
-  @@schema("plugin_daydream")
-}
-
-model DaydreamSession {
-  id           String    @id @default(uuid())
-  userId       String
-  streamId     String
-  playbackId   String
-  whipUrl      String?
-  startedAt    DateTime  @default(now())
-  endedAt      DateTime?
-  durationMins Float     @default(0)
-  status       String    @default("active")
-  prompt       String?
-  seed         Int?
-  errorMessage String?
-
-  @@index([userId])
-  @@index([status])
-  @@map("daydream_sessions")
-  @@schema("plugin_daydream")
-}
-
-// ============================================
-// PLUGIN: GATEWAY MANAGER
-// ============================================
-// Gateway node management and monitoring
-
-model Gateway {
-  id                     String   @id @default(uuid())
-  address                String   @unique
-  operatorName           String
-  serviceUri             String
-  region                 String
-  ip                     String?
-  status                 String   @default("online")
-  uptime                 Float    @default(100.0)
-  latencyP50             Int      @default(0)
-  latencyP99             Int      @default(0)
-  jobsPerMinute          Int      @default(0)
-  deposit                String   @default("0")
-  reserve                String   @default("0")
-  supportedPipelines     String[] @default([])
-  connectedOrchestrators Int      @default(0)
-  version                String
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
-
-  orchestratorConnections GatewayOrchestratorConnection[]
-  performanceMetrics      GatewayPerformanceMetric[]
-  configurations          GatewayConfig[]
-
-  @@index([status])
-  @@index([region])
-  @@index([address])
-  @@schema("plugin_gateway")
-}
-
-model GatewayOrchestratorConnection {
-  id                  String   @id @default(uuid())
-  gatewayId           String
-  gateway             Gateway  @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
-  orchestratorAddress String
-  latencyScore        Float
-  successRate         Float
-  jobsSent            Int      @default(0)
-  price               String
-  status              String   @default("active")
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  @@unique([gatewayId, orchestratorAddress])
-  @@index([gatewayId])
-  @@index([orchestratorAddress])
-  @@schema("plugin_gateway")
-}
-
-model GatewayPerformanceMetric {
-  id        String   @id @default(uuid())
-  gatewayId String
-  gateway   Gateway  @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
-  metric    String
-  value     Float
-  timestamp DateTime @default(now())
-  metadata  Json?
-
-  @@index([gatewayId, timestamp])
-  @@index([timestamp])
-  @@schema("plugin_gateway")
-}
-
-model GatewayConfig {
-  id            String   @id @default(uuid())
-  gatewayId     String   @unique
-  gateway       Gateway  @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
-  slaConfig     Json?
-  pricingConfig Json?
-  networkConfig Json?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@schema("plugin_gateway")
-}
-
-// ============================================
-// PLUGIN: CAPACITY PLANNER
-// ============================================
-// GPU capacity requests, soft commits, comments
-
-model CapacityRequest {
-  id               String                @id @default(uuid())
-  requesterName    String
-  requesterAccount String
-  gpuModel         String
-  vram             Int
-  osVersion        String                @default("Any")
-  cudaVersion      String                @default("Any")
-  count            Int
-  pipeline         String
-  startDate        DateTime
-  endDate          DateTime
-  validUntil       DateTime
-  hourlyRate       Float
-  reason           String
-  riskLevel        Int                   @default(3)
-  status           CapacityRequestStatus @default(ACTIVE)
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
-
-  softCommits CapacitySoftCommit[]
-  comments    CapacityRequestComment[]
-
-  @@index([gpuModel])
-  @@index([pipeline])
-  @@index([status])
-  @@index([validUntil])
-  @@index([createdAt])
-  @@index([riskLevel])
-  @@schema("plugin_capacity")
-}
-
-enum CapacityRequestStatus {
-  ACTIVE
-  EXPIRED
-  FULFILLED
-  CANCELLED
-
-  @@schema("plugin_capacity")
-}
-
-model CapacitySoftCommit {
-  id        String          @id @default(uuid())
-  requestId String
-  request   CapacityRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  userId    String
-  userName  String
-  gpuCount  Int             @default(1)
-  createdAt DateTime        @default(now())
-
-  @@unique([requestId, userId])
-  @@index([requestId])
-  @@index([userId])
-  @@schema("plugin_capacity")
-}
-
-model CapacityRequestComment {
-  id        String          @id @default(uuid())
-  requestId String
-  request   CapacityRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  author    String
-  text      String
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
-
-  @@index([requestId])
-  @@index([createdAt])
-  @@schema("plugin_capacity")
-}
-
-// ============================================
-// PLUGIN: DEVELOPER API
-// ============================================
-// AI model catalog, gateway offers, API keys, usage tracking
-
-model DevApiAIModel {
-  id            String   @id @default(uuid())
-  name          String   @unique
-  tagline       String
-  type          String
-  featured      Boolean  @default(false)
-  realtime      Boolean  @default(false)
-  costPerMinMin Float    @default(0)
-  costPerMinMax Float    @default(0)
-  latencyP50    Int      @default(0)
-  coldStart     Int      @default(0)
-  fps           Int      @default(0)
-  useCases      String[] @default([])
-  badges        String[] @default([])
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([type])
-  @@index([featured])
-  @@index([realtime])
-  @@schema("plugin_developer_api")
-}
-
-model DevApiProject {
-  id        String   @id @default(uuid())
-  userId    String
-  name      String
-  isDefault Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  apiKeys DevApiKey[]
-
-  @@unique([userId, name])
-  @@index([userId])
-  @@schema("plugin_developer_api")
-}
-
-model DevApiKey {
-  id                String              @id @default(uuid())
-  userId            String
-  projectId         String?
-  project           DevApiProject?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  billingProviderId String
-  billingProvider   BillingProvider     @relation(fields: [billingProviderId], references: [id], onDelete: Restrict)
-  keyLookupId       String?             @unique
-  keyPrefix         String
-  label             String?
-  projectName       String?
-  keyHash           String?             @unique
-  status            DevApiKeyStatus     @default(ACTIVE)
-  createdAt         DateTime            @default(now())
-  lastUsedAt        DateTime?
-  revokedAt         DateTime?
-
-  usageLogs DevApiUsageLog[]
-
-  @@index([userId])
-  @@index([projectId])
-  @@index([billingProviderId])
-  @@index([status])
-  @@index([keyHash])
-  @@index([keyLookupId])
-  @@schema("plugin_developer_api")
-}
-
-enum DevApiKeyStatus {
-  ACTIVE
-  REVOKED
-  EXPIRED
-
-  @@schema("plugin_developer_api")
-}
-
-model DevApiUsageLog {
-  id           String    @id @default(uuid())
-  apiKeyId     String
-  apiKey       DevApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
-  requestCount Int       @default(1)
-  tokensUsed   Int       @default(0)
-  costIncurred Float     @default(0)
-  timestamp    DateTime  @default(now())
-
-  @@index([apiKeyId])
-  @@index([timestamp])
-  @@schema("plugin_developer_api")
-}
 
 // ============================================
 // PLATFORM - PLUGIN REVIEWS
@@ -1839,4 +1406,968 @@ model GatewayHealthCheck {
 
   @@index([connectorId, checkedAt])
   @@schema("plugin_service_gateway")
+}
+
+// ============================================
+// PLUGIN: AGENTBOOK CORE
+// ============================================
+// Double-entry ledger, chart of accounts, journal entries, tenant config
+
+model AbTenantConfig {
+  id                      String   @id @default(uuid())
+  userId                  String   @unique
+  businessType            String   @default("freelancer")
+  jurisdiction            String   @default("us")       // us | ca | ...
+  region                  String   @default("")          // state/province code
+  currency                String   @default("USD")
+  locale                  String   @default("en-US")
+  timezone                String   @default("America/New_York")
+  fiscalYearStart         Int      @default(1)           // month 1-12
+  autoApproveLimitCents   Int      @default(50000)       // $500 default
+  autoRemindEnabled       Boolean  @default(false)
+  autoRemindDays          Int      @default(3)            // min days between reminders
+  companyName             String?
+  companyAddress          String?
+  companyEmail            String?
+  companyPhone            String?
+  logoUrl                 String?
+  brandColor              String   @default("#1a1a2e")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([userId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbTelegramBot {
+  id              String   @id @default(uuid())
+  tenantId        String
+  botToken        String
+  botUsername      String?
+  chatIds         Json     @default("[]")
+  webhookSecret   String?
+  webhookUrl      String?
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([tenantId])
+  @@index([botToken])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbAccount {
+  id            String   @id @default(uuid())
+  tenantId      String
+  code          String                          // e.g., "5010"
+  name          String                          // e.g., "Office Supplies"
+  accountType   String                          // asset | liability | equity | revenue | expense
+  parentId      String?
+  taxCategory   String?                         // Schedule C line / T2125 category
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  journalLines  AbJournalLine[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([tenantId, accountType])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbJournalEntry {
+  id          String   @id @default(uuid())
+  tenantId    String
+  date        DateTime
+  memo        String
+  sourceType  String                            // expense | invoice | payment | manual | adjustment
+  sourceId    String?                           // expense_id, invoice_id, etc.
+  createdBy   String   @default("agent")        // agent | human
+  verified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  lines       AbJournalLine[]
+
+  @@index([tenantId, date])
+  @@index([tenantId, sourceType])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbJournalLine {
+  id          String         @id @default(uuid())
+  entryId     String
+  entry       AbJournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  accountId   String
+  account     AbAccount      @relation(fields: [accountId], references: [id])
+  debitCents  Int            @default(0)
+  creditCents Int            @default(0)
+  description String?
+
+  @@index([entryId])
+  @@index([accountId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbFiscalPeriod {
+  id        String   @id @default(uuid())
+  tenantId  String
+  year      Int
+  month     Int
+  status    String   @default("open")           // open | closed
+  closedAt  DateTime?
+  closedBy  String?
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, year, month])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbEvent {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  eventType          String
+  actor              String   @default("agent")
+  action             Json
+  reasoning          String?
+  constraintsPassed  String[]
+  verificationResult String?
+  metadata           Json?
+  createdAt          DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, eventType])
+  @@schema("plugin_agentbook_core")
+}
+
+// Phase 12: Autonomous Workflow Automations
+model AbAutomation {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  description String?
+  trigger     Json                              // { type: "schedule|event|condition", config: {...} }
+  conditions  Json?                             // [{ field, operator, value }]
+  actions     Json                              // [{ type: "send_reminder|create_invoice|notify|...", config: {...} }]
+  status      String   @default("active")       // active | paused | completed | failed
+  lastRun     DateTime?
+  runCount    Int      @default(0)
+  maxRuns     Int?                              // null = unlimited
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_core")
+}
+
+// Phase 12: Financial Digital Twin — periodic snapshots for simulation
+model AbFinancialSnapshot {
+  id                String   @id @default(uuid())
+  tenantId          String
+  snapshotDate      DateTime
+  cashBalanceCents  Int
+  totalRevenueCents Int
+  totalExpenseCents Int
+  netIncomeCents    Int
+  arOutstandingCents Int
+  monthlyBurnCents  Int                         // avg monthly expenses
+  runwayMonths      Float                       // cash / monthly burn
+  clientCount       Int
+  topClients        Json                        // [{name, revenueCents, percentage}]
+  categoryBreakdown Json                        // [{category, amountCents}]
+  createdAt         DateTime @default(now())
+
+  @@index([tenantId, snapshotDate])
+  @@schema("plugin_agentbook_core")
+}
+
+// Phase 12: Conversation History for memory continuity
+model AbConversation {
+  id          String   @id @default(uuid())
+  tenantId    String
+  question    String
+  answer      String
+  queryType   String                            // pattern | llm | simulation | agent
+  channel     String   @default("web")          // web | telegram | api
+  skillUsed   String?                           // which skill handled this message
+  data        Json?
+  latencyMs   Int?
+  sessionId   String?
+  feedback    String?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@schema("plugin_agentbook_core")
+}
+
+// ============================================
+// PLUGIN: AGENTBOOK EXPENSE
+// ============================================
+
+model AbExpense {
+  id              String   @id @default(uuid())
+  tenantId        String
+  amountCents     Int
+  taxAmountCents  Int      @default(0)          // sales tax / GST / HST amount
+  tipAmountCents  Int      @default(0)          // tip amount (meals)
+  vendorId        String?
+  vendor          AbVendor? @relation(fields: [vendorId], references: [id])
+  categoryId      String?                       // AbAccount.id from core
+  date            DateTime
+  description     String?
+  notes           String?                       // additional notes
+  receiptUrl      String?
+  paymentMethod   String   @default("unknown")  // cash | credit_card | debit | bank_transfer | unknown
+  currency        String   @default("USD")
+  tags            String?                       // comma-separated tags
+  confidence      Float?                        // 0-1 categorization confidence
+  isPersonal      Boolean  @default(false)
+  isBillable      Boolean  @default(false)      // can be billed to a client
+  clientId        String?                       // if billable, which client
+  status          String   @default("confirmed") // confirmed | pending_review | rejected
+  source          String   @default("manual")    // manual | telegram_photo | telegram_pdf | ocr | csv_import | cc_statement | bank_sync
+  journalEntryId  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, date])
+  @@index([tenantId, vendorId])
+  @@index([tenantId, status])
+  @@index([tenantId, isPersonal])
+  @@index([tenantId, categoryId])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbExpenseSplit {
+  id            String   @id @default(uuid())
+  expenseId     String
+  categoryId    String?                         // AbAccount.id — the category for this split portion
+  amountCents   Int
+  isPersonal    Boolean  @default(false)
+  description   String?
+  createdAt     DateTime @default(now())
+
+  @@index([expenseId])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbVendor {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  name                String
+  normalizedName      String
+  defaultCategoryId   String?
+  transactionCount    Int      @default(0)
+  lastSeen            DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  expenses            AbExpense[]
+
+  @@unique([tenantId, normalizedName])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbPattern {
+  id            String   @id @default(uuid())
+  tenantId      String
+  vendorPattern String
+  categoryId    String
+  confidence    Float    @default(0.5)
+  source        String   @default("agent_learned")  // agent_learned | user_corrected
+  usageCount    Int      @default(0)
+  accuracyTrailing30 Float?
+  lastUsed      DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@unique([tenantId, vendorPattern])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbRecurringRule {
+  id          String   @id @default(uuid())
+  tenantId    String
+  vendorId    String
+  amountCents Int
+  frequency   String                            // monthly | weekly | biweekly | annual
+  nextExpected DateTime
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, active])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbBankAccount {
+  id              String   @id @default(uuid())
+  tenantId        String
+  plaidItemId     String?
+  plaidAccountId  String?  @unique
+  name            String
+  officialName    String?
+  type            String                          // checking | savings | credit
+  subtype         String?
+  mask            String?                         // last 4 digits
+  balanceCents    Int      @default(0)
+  currency        String   @default("USD")
+  institution     String?
+  connected       Boolean  @default(true)
+  lastSynced      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  transactions    AbBankTransaction[]
+
+  @@index([tenantId])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbBankTransaction {
+  id                String    @id @default(uuid())
+  tenantId          String
+  bankAccountId     String
+  bankAccount       AbBankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  plaidTransactionId String?  @unique
+  amount            Int                           // cents (positive = debit/outflow, negative = credit/inflow)
+  date              DateTime
+  merchantName      String?
+  name              String                        // transaction name/description
+  category          String?                       // Plaid category
+  pending           Boolean  @default(false)
+  matchedExpenseId  String?                       // matched to AbExpense
+  matchedInvoiceId  String?                       // matched to AbInvoice (for payments)
+  matchStatus       String   @default("pending")  // pending | matched | exception | ignored
+  idempotencyKey    String?  @unique              // prevent duplicate imports
+  createdAt         DateTime @default(now())
+
+  @@index([tenantId, date])
+  @@index([tenantId, matchStatus])
+  @@index([bankAccountId, date])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbBudget {
+  id            String   @id @default(uuid())
+  tenantId      String
+  categoryId    String?
+  categoryName  String?
+  amountCents   Int
+  period        String   @default("monthly")
+  alertPercent  Int      @default(80)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, categoryId, period])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbStripeWebhookEvent {
+  id              String   @id @default(uuid())
+  tenantId        String
+  stripeEventId   String   @unique               // idempotency
+  eventType       String                          // payment_intent.succeeded, charge.refunded, etc.
+  processed       Boolean  @default(false)
+  payload         Json
+  journalEntryId  String?
+  error           String?
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([stripeEventId])
+  @@schema("plugin_agentbook_expense")
+}
+
+// ============================================
+// PLUGIN: AGENTBOOK INVOICE
+// ============================================
+
+model AbClient {
+  id              String   @id @default(uuid())
+  tenantId        String
+  name            String
+  email           String?
+  address         String?
+  defaultTerms    String   @default("net-30")
+  avgDaysToPay    Float?
+  totalBilledCents  Int    @default(0)
+  totalPaidCents    Int    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  invoices        AbInvoice[]
+  estimates       AbEstimate[]
+
+  @@index([tenantId])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbInvoice {
+  id              String   @id @default(uuid())
+  tenantId        String
+  clientId        String
+  client          AbClient @relation(fields: [clientId], references: [id])
+  number          String                        // auto-incrementing: INV-2026-0001
+  amountCents     Int
+  currency        String   @default("USD")      // USD | CAD | GBP | AUD | EUR
+  issuedDate      DateTime
+  dueDate         DateTime
+  status          String   @default("draft")    // draft | sent | viewed | paid | overdue | void
+  pdfUrl          String?
+  pdfHtml         String?                       // stored HTML for PDF rendering
+  journalEntryId  String?
+  recurringId     String?                       // link to AbRecurringInvoice if auto-generated
+  paymentUrl      String?
+  lastRemindedAt  DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lines           AbInvoiceLine[]
+  payments        AbPayment[]
+  creditNotes     AbCreditNote[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, dueDate])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbInvoiceLine {
+  id          String    @id @default(uuid())
+  invoiceId   String
+  invoice     AbInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float     @default(1)
+  rateCents   Int
+  amountCents Int
+
+  @@index([invoiceId])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbPayment {
+  id               String    @id @default(uuid())
+  tenantId         String
+  invoiceId        String?
+  invoice          AbInvoice? @relation(fields: [invoiceId], references: [id])
+  amountCents      Int
+  method           String    @default("manual")   // manual | stripe | bank_transfer
+  date             DateTime
+  stripePaymentId  String?
+  feesCents        Int       @default(0)
+  journalEntryId   String?
+  createdAt        DateTime  @default(now())
+
+  @@index([tenantId, date])
+  @@index([invoiceId])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbEstimate {
+  id              String   @id @default(uuid())
+  tenantId        String
+  clientId        String
+  client          AbClient @relation(fields: [clientId], references: [id])
+  amountCents     Int
+  description     String
+  status          String   @default("pending")  // pending | approved | declined | expired | converted
+  validUntil      DateTime
+  convertedInvoiceId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbProject {
+  id            String   @id @default(uuid())
+  tenantId      String
+  clientId      String?
+  name          String
+  description   String?
+  hourlyRateCents Int?                          // null = not billable
+  status        String   @default("active")     // active | completed | archived
+  budgetHours   Float?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  timeEntries   AbTimeEntry[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbTimeEntry {
+  id            String    @id @default(uuid())
+  tenantId      String
+  projectId     String?
+  project       AbProject? @relation(fields: [projectId], references: [id])
+  clientId      String?
+  description   String
+  startedAt     DateTime
+  endedAt       DateTime?
+  durationMinutes Int     @default(0)
+  hourlyRateCents Int?
+  billable      Boolean  @default(true)
+  billed        Boolean  @default(false)
+  invoiceId     String?                         // linked when auto-invoiced
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, startedAt])
+  @@index([tenantId, projectId])
+  @@index([tenantId, billed])
+  @@index([tenantId, clientId])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbCreditNote {
+  id              String   @id @default(uuid())
+  tenantId        String
+  invoiceId       String
+  invoice         AbInvoice @relation(fields: [invoiceId], references: [id])
+  number          String                        // CN-2026-0001
+  amountCents     Int
+  reason          String                        // reason for credit
+  journalEntryId  String?
+  createdAt       DateTime @default(now())
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbRecurringInvoice {
+  id              String   @id @default(uuid())
+  tenantId        String
+  clientId        String
+  currency        String   @default("USD")
+  frequency       String                        // weekly | biweekly | monthly | quarterly | annual
+  nextDue         DateTime
+  endDate         DateTime?                     // null = no end
+  status          String   @default("active")   // active | paused | completed
+  templateLines   Json                          // [{description, quantity, rateCents, amountCents}]
+  totalCents      Int
+  daysToPay       Int      @default(30)         // net terms
+  autoSend        Boolean  @default(false)      // auto-send on generation
+  lastGenerated   DateTime?
+  generatedCount  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([nextDue])
+  @@schema("plugin_agentbook_invoice")
+}
+
+// ============================================
+// PLUGIN: AGENTBOOK TAX
+// ============================================
+
+model AbTaxEstimate {
+  id                String   @id @default(uuid())
+  tenantId          String
+  period            String                      // "2026-Q1", "2026-annual"
+  jurisdiction      String
+  region            String
+  grossRevenueCents Int
+  expensesCents     Int
+  netIncomeCents    Int
+  seTaxCents        Int                         // self-employment / CPP+EI
+  incomeTaxCents    Int
+  totalTaxCents     Int
+  calculatedAt      DateTime @default(now())
+
+  @@index([tenantId, period])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbQuarterlyPayment {
+  id              String    @id @default(uuid())
+  tenantId        String
+  year            Int
+  quarter         Int
+  jurisdiction    String
+  amountDueCents  Int
+  amountPaidCents Int       @default(0)
+  deadline        DateTime
+  paidAt          DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([tenantId, year, quarter, jurisdiction])
+  @@index([tenantId, year])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbDeductionSuggestion {
+  id                   String   @id @default(uuid())
+  tenantId             String
+  jurisdiction         String
+  category             String
+  description          String
+  estimatedSavingsCents Int
+  status               String   @default("suggested") // suggested | applied | dismissed
+  createdAt            DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbTaxConfig {
+  id                String   @id @default(uuid())
+  tenantId          String   @unique
+  filingStatus      String   @default("single")
+  region            String
+  retirementType    String?
+  homeOfficeMethod  String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbSalesTaxCollected {
+  id            String   @id @default(uuid())
+  tenantId      String
+  invoiceId     String?
+  jurisdiction  String
+  region        String
+  taxType       String                          // GST | HST | PST | state
+  rate          Float
+  amountCents   Int
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, jurisdiction])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbTaxFormTemplate {
+  id              String   @id @default(uuid())
+  jurisdiction    String
+  formCode        String
+  formName        String
+  version         String
+  category        String
+  sections        Json
+  validationRules Json     @default("[]")
+  exportSchema    Json?
+  dependencies    Json     @default("[]")
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([jurisdiction, formCode, version])
+  @@index([jurisdiction, version])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbTaxFiling {
+  id            String    @id @default(uuid())
+  tenantId      String
+  taxYear       Int
+  jurisdiction  String
+  region        String    @default("")
+  filingType    String    @default("personal_return")
+  status        String    @default("draft")
+  forms         Json      @default("{}")
+  missingFields Json      @default("[]")
+  slips         Json      @default("[]")
+  exportData    Json?
+  exportUrl     String?
+  filedAt       DateTime?
+  filedRef      String?
+  filedStatus   String?
+  notes         Json      @default("[]")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([tenantId, taxYear, filingType])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbTaxSlip {
+  id            String   @id @default(uuid())
+  tenantId      String
+  taxYear       Int
+  slipType      String
+  issuer        String?
+  imageUrl      String?
+  extractedData Json     @default("{}")
+  confidence    Float    @default(0)
+  status        String   @default("pending")
+  filingId      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, taxYear])
+  @@index([tenantId, slipType])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbTaxFilingPartner {
+  id            String   @id @default(uuid())
+  jurisdiction  String
+  partnerName   String
+  apiUrl        String
+  apiKey        String?
+  certId        String?
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@unique([jurisdiction, partnerName])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbCalendarEvent {
+  id              String   @id @default(uuid())
+  tenantId        String
+  eventType       String                        // tax_deadline | filing_deadline | invoice_due | renewal | ...
+  titleKey        String                        // i18n key
+  date            DateTime
+  leadTimeDays    Int[]                          // [7, 3, 1, 0]
+  urgency         String   @default("important")
+  actionUrl       String?
+  actionLabelKey  String?
+  recurrence      String   @default("once")     // annual | quarterly | monthly | once
+  sourceSkill     String
+  sourceEntityId  String?
+  status          String   @default("upcoming") // upcoming | alerted | acted_on | missed | snoozed
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId, date])
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbEngagementLog {
+  id                  String    @id @default(uuid())
+  tenantId            String
+  messageType         String
+  category            String
+  urgency             String
+  sentAt              DateTime  @default(now())
+  openedAt            DateTime?
+  actedOnAt           DateTime?
+  actionTaken         String?
+  snoozed             Boolean   @default(false)
+  dismissed           Boolean   @default(false)
+  responseTimeSeconds Int?
+
+  @@index([tenantId, sentAt])
+  @@index([tenantId, category])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbTenantAccess {
+  id          String   @id @default(uuid())
+  tenantId    String
+  userId      String
+  role        String   @default("viewer")        // owner | bookkeeper | viewer | cpa
+  email       String
+  invitedBy   String?
+  accessToken String?  @unique                   // for CPA read-only link
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([accessToken])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbCPANote {
+  id          String   @id @default(uuid())
+  tenantId    String
+  authorId    String
+  authorRole  String   @default("cpa")
+  content     String
+  attachedTo  String?                            // journal_entry_id, expense_id, etc.
+  attachedType String?                           // journal_entry | expense | invoice | tax
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, attachedTo])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbOnboardingProgress {
+  id          String   @id @default(uuid())
+  tenantId    String   @unique
+  currentStep Int      @default(0)
+  completedSteps String[] @default([])
+  businessType String?
+  jurisdiction String?
+  region       String?
+  currency     String?
+  bankConnected Boolean @default(false)
+  accountsSeeded Boolean @default(false)
+  firstExpense Boolean @default(false)
+  telegramConnected Boolean @default(false)
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@schema("plugin_agentbook_core")
+}
+
+model AbLLMProviderConfig {
+  id          String   @id @default(uuid())
+  tenantId    String?                           // null = platform-wide default
+  name        String                            // "Google Gemini", "OpenAI GPT"
+  provider    String                            // "gemini" | "openai" | "claude" | "kimi" | "minimax"
+  apiKey      String                            // encrypted in production
+  baseUrl     String?
+  enabled     Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  modelFast   String   @default("gemini-2.0-flash")
+  modelStandard String @default("gemini-2.5-flash")
+  modelPremium String  @default("gemini-2.5-pro")
+  modelVision String?  @default("gemini-2.5-flash")
+  rateLimit   Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbAgentConfig {
+  id                    String   @id @default(uuid())
+  tenantId              String
+  agentId               String                          // bookkeeper | tax-strategist | collections | insights
+  aggressiveness        Float    @default(0.5)          // 0-1
+  autoApprove           Boolean  @default(false)
+  notificationFrequency String   @default("daily")      // realtime | daily | weekly
+  modelTier             String   @default("fast")       // fast | standard | premium
+  enabled               Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([tenantId, agentId])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbAgentSkillBinding {
+  id          String   @id @default(uuid())
+  tenantId    String
+  agentId     String
+  skillName   String
+  source      String   @default("base")       // base | jurisdiction | industry | marketplace | personalized
+  enabled     Boolean  @default(true)
+  priority    Int      @default(50)
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, agentId, skillName])
+  @@index([tenantId, agentId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbAgentPersonality {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  agentId             String
+  communicationStyle  String   @default("auto")
+  proactiveLevel      String   @default("balanced")
+  riskTolerance       String   @default("moderate")
+  industryContext     String?
+  customInstructions  String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([tenantId, agentId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbSkillManifest {
+  id              String   @id @default(uuid())
+  tenantId        String?
+  name            String
+  description     String
+  category        String
+  triggerPatterns Json
+  parameters      Json
+  endpoint        Json
+  responseTemplate String?
+  confirmBefore   Boolean  @default(false)
+  postActions     Json?
+  enabled         Boolean  @default(true)
+  source          String   @default("built_in")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId, enabled])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbUserMemory {
+  id          String    @id @default(uuid())
+  tenantId    String
+  key         String
+  value       String
+  type        String
+  confidence  Float     @default(0.8)
+  source      String    @default("learned")
+  usageCount  Int       @default(0)
+  lastUsed    DateTime  @default(now())
+  expiresAt      DateTime?
+  decayRate      Float     @default(0.1)
+  lastVerified   DateTime?
+  contradictions Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([tenantId, key])
+  @@index([tenantId, type])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbAgentSession {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  status              String   @default("active")
+  trigger             String
+  plan                Json
+  currentStep         Int      @default(0)
+  stepResults         Json     @default("[]")
+  pendingConfirmation Json?
+  undoStack           Json     @default("[]")
+  evaluation          Json?
+  version             Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  expiresAt           DateTime
+
+  @@index([tenantId, status])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbLearningEvent {
+  id            String   @id @default(uuid())
+  tenantId      String
+  agentId       String
+  eventType     String
+  skillName     String
+  before        Json
+  after         Json
+  confidence    Float
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, agentId, createdAt])
+  @@schema("plugin_agentbook_core")
 }

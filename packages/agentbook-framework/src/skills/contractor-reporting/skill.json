@@ -1,0 +1,7 @@
+{
+  "name": "contractor-reporting",
+  "description": "Contractor reporting — 1099-NEC (US) and T4A (CA) tracking",
+  "tools": [
+    "get_contractor_summaries"
+  ]
+}

@@ -13,6 +13,12 @@
       "types": "./src/tailwind.config.ts",
       "import": "./src/tailwind.config.ts"
     },
-    "./globals.css": "./src/globals.css"
+    "./globals.css": "./src/globals.css",
+    "./shell-variables.css": {
+      "import": "./src/shell-variables.css",
+      "require": "./src/shell-variables.css",
+      "default": "./src/shell-variables.css"
+    },
+    "./tailwind-extend.cjs": "./tailwind-extend.cjs"
   }
 }

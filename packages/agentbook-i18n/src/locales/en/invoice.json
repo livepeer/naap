@@ -1,0 +1,20 @@
+{
+  "invoice_created": "Invoice #{number} created for {client} — {amount}.",
+  "invoice_sent": "Invoice #{number} sent to {client} at {email}.",
+  "invoice_paid": "{client} paid #{number} ({amount}). Net: {net_amount}.",
+  "invoice_overdue": "{client} is {days} days overdue on {amount}.",
+  "send_reminder": "Send reminder",
+  "wait": "Wait",
+  "skip": "Skip",
+  "create_invoice": "Create invoice",
+  "view_invoice": "View invoice",
+  "mark_as_paid": "Mark as paid",
+  "void_invoice": "Void invoice",
+  "aging_report_title": "Accounts Receivable Aging",
+  "current": "Current",
+  "days_30": "1-30 days",
+  "days_60": "31-60 days",
+  "days_90": "61-90 days",
+  "days_90_plus": "90+ days",
+  "total_outstanding": "Total outstanding: {amount}"
+}

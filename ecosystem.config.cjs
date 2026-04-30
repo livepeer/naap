@@ -50,40 +50,5 @@ module.exports = {
       merge_logs: true,
     },
 
-    // Plugin Backends
-    {
-      name: 'my-wallet-svc',
-      script: 'dist/server.js',
-      cwd: './plugins/my-wallet/backend',
-      instances: 2,
-      exec_mode: 'cluster',
-      env: {
-        NODE_ENV: 'production',
-        PORT: 4008,
-        REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
-      },
-      max_memory_restart: '300M',
-      kill_timeout: 30000,
-      error_file: './logs/my-wallet-svc-error.log',
-      out_file: './logs/my-wallet-svc-out.log',
-      merge_logs: true,
-    },
-    {
-      name: 'my-dashboard-svc',
-      script: 'dist/server.js',
-      cwd: './plugins/my-dashboard/backend',
-      instances: 2,
-      exec_mode: 'cluster',
-      env: {
-        NODE_ENV: 'production',
-        PORT: 4009,
-        REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
-      },
-      max_memory_restart: '300M',
-      kill_timeout: 30000,
-      error_file: './logs/my-dashboard-svc-error.log',
-      out_file: './logs/my-dashboard-svc-out.log',
-      merge_logs: true,
-    },
   ],
 };

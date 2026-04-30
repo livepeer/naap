@@ -1,0 +1,12 @@
+{
+  "name": "stripe-payments",
+  "version": "1.0.0",
+  "description": "Stripe payment processing: webhook handling, payment matching, fee tracking, refund handling",
+  "intents": ["process_stripe_webhook"],
+  "tools": [
+    {"name": "process_payment", "description": "Process Stripe payment received webhook", "constraints": ["balance_invariant"], "model_tier": "haiku"},
+    {"name": "process_refund", "description": "Process Stripe refund webhook", "constraints": ["balance_invariant"], "model_tier": "haiku"},
+    {"name": "match_payout", "description": "Match Stripe payout to bank deposit", "constraints": [], "model_tier": "haiku"}
+  ],
+  "dependencies": ["agentbook-core"]
+}

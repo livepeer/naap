@@ -1,5 +1,6 @@
 // Shared Tailwind CSS configuration for all apps
-import { tailwindExtend } from './index';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const tailwindExtend = require('../tailwind-extend.cjs');
 
 export const sharedTailwindConfig = {
   content: [],

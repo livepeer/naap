@@ -1,0 +1,9 @@
+{
+  "name": "tax-forms",
+  "description": "Tax form generation — Schedule C (US) and T2125 (CA)",
+  "tools": [
+    "generate_schedule_c",
+    "generate_t2125",
+    "export_tax_package"
+  ]
+}

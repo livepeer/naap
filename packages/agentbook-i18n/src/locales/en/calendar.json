@@ -1,0 +1,20 @@
+{
+  "q1_estimated_tax_due": "Q1 Estimated Tax Due",
+  "q2_estimated_tax_due": "Q2 Estimated Tax Due",
+  "q3_estimated_tax_due": "Q3 Estimated Tax Due",
+  "q4_estimated_tax_due": "Q4 Estimated Tax Due",
+  "annual_tax_filing_due": "Annual Tax Filing Due",
+  "q1_installment_due": "Q1 Tax Installment Due",
+  "q2_installment_due": "Q2 Tax Installment Due",
+  "q3_installment_due": "Q3 Tax Installment Due",
+  "q4_installment_due": "Q4 Tax Installment Due",
+  "sales_tax_filing_due": "Sales Tax Filing Due",
+  "contractor_report_due": "1099/T4A Filing Deadline",
+  "rrsp_deadline": "RRSP Contribution Deadline",
+  "fiscal_quarter_close": "Fiscal Quarter Close",
+  "year_end_close": "Year-End Close",
+  "invoice_due": "Invoice #{number} due — {client} ({amount})",
+  "action_pay_now": "Pay now",
+  "action_file_now": "File now",
+  "action_review": "Review"
+}

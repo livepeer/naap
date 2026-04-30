@@ -1,0 +1,62 @@
+{
+  "name": "invoice-creation",
+  "version": "1.0.0",
+  "description": "Create, send, and manage invoices from natural language input",
+  "intents": ["create_invoice", "send_invoice", "record_payment"],
+  "tools": [
+    {
+      "name": "create_invoice",
+      "description": "Create an invoice from natural language description",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "client": { "type": "string" },
+          "amount_cents": { "type": "integer" },
+          "description": { "type": "string" },
+          "terms": { "type": "string", "default": "net-30" },
+          "line_items": { "type": "array" }
+        },
+        "required": ["client", "amount_cents", "description"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": { "type": "string" },
+          "invoice_number": { "type": "string" },
+          "journal_entry_id": { "type": "string" }
+        }
+      },
+      "constraints": ["balance_invariant", "amount_threshold"],
+      "compensation": "void_invoice",
+      "model_tier": "haiku"
+    },
+    {
+      "name": "record_payment",
+      "description": "Record a payment against an invoice",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": { "type": "string" },
+          "amount_cents": { "type": "integer" },
+          "method": { "type": "string" },
+          "date": { "type": "string" }
+        },
+        "required": ["amount_cents"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "payment_id": { "type": "string" },
+          "invoice_status": { "type": "string" }
+        }
+      },
+      "constraints": ["balance_invariant"],
+      "compensation": "void_payment",
+      "model_tier": "haiku"
+    }
+  ],
+  "prompts": {
+    "intent_parse": { "version": "1.0", "file": "prompts/intent-parse.md" }
+  },
+  "dependencies": ["agentbook-core"]
+}

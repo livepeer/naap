@@ -49,12 +49,12 @@
       "@naap/plugin-server-sdk/*": ["packages/plugin-server-sdk/src/*"],
       "@naap/web3": ["packages/web3/src/index.ts"],
       "@naap/web3/*": ["packages/web3/src/*"],
-      "@naap/livepeer-contracts": ["packages/livepeer-contracts/src/index.ts"],
-      "@naap/livepeer-contracts/*": ["packages/livepeer-contracts/src/*"],
-      "@naap/livepeer-node-client": ["packages/livepeer-node-client/src/index.ts"],
-      "@naap/livepeer-node-client/*": ["packages/livepeer-node-client/src/*"],
-      "@naap/livepeer-pipeline": ["packages/livepeer-pipeline/src/index.ts"],
-      "@naap/livepeer-pipeline/*": ["packages/livepeer-pipeline/src/*"]
+      "@agentbook/framework": ["packages/agentbook-framework/src/index.ts"],
+      "@agentbook/framework/*": ["packages/agentbook-framework/src/*"],
+      "@agentbook/i18n": ["packages/agentbook-i18n/src/index.ts"],
+      "@agentbook/i18n/*": ["packages/agentbook-i18n/src/*"],
+      "@agentbook/jurisdictions": ["packages/agentbook-jurisdictions/src/index.ts"],
+      "@agentbook/jurisdictions/*": ["packages/agentbook-jurisdictions/src/*"]
     }
   },
   "exclude": ["node_modules", "dist"]

@@ -1,0 +1,12 @@
+{
+  "name": "gps-mileage",
+  "version": "1.0.0",
+  "description": "GPS-based mileage tracking with trip auto-detection and jurisdiction-aware rate calculation",
+  "intents": ["start_trip", "end_trip", "log_mileage"],
+  "tools": [
+    {"name": "start_trip", "description": "Start GPS trip recording", "constraints": [], "model_tier": "fast"},
+    {"name": "end_trip", "description": "End trip and calculate deduction", "constraints": [], "model_tier": "fast"},
+    {"name": "calculate_deduction", "description": "Calculate mileage deduction at jurisdiction rate", "constraints": [], "model_tier": "fast"}
+  ],
+  "dependencies": ["agentbook-core"]
+}

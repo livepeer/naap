@@ -61,8 +61,8 @@ export const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 /** base-svc: auth, plugin registry, lifecycle, teams, tenants, RBAC, secrets */
 export const baseSvcUrl = process.env.BASE_SVC_URL || 'http://localhost:4000';
 
-/** livepeer-svc: staking, orchestrators, protocol parameters, deposits (Phase 4) */
-export const livepeerSvcUrl = process.env.LIVEPEER_SVC_URL || 'http://localhost:4010';
+/** a3p-svc: staking, orchestrators, protocol parameters, deposits (Phase 4) */
+export const a3pSvcUrl = process.env.A3P_SVC_URL || 'http://localhost:4010';
 
 /** pipeline-gateway: AI pipelines, live video, BYOC (Phase 5) */
 export const pipelineGatewayUrl = process.env.PIPELINE_GATEWAY_URL || 'http://localhost:4020';
@@ -103,7 +103,7 @@ export function getEnvConfig() {
     // URLs
     appUrl,
     baseSvcUrl,
-    livepeerSvcUrl,
+    a3pSvcUrl,
     pipelineGatewayUrl,
     pluginServerUrl,
     storageSvcUrl,

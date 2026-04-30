@@ -1,0 +1,20 @@
+{
+  "invoice_created": "Facture #{number} creee pour {client} — {amount}.",
+  "invoice_sent": "Facture #{number} envoyee a {client} a {email}.",
+  "invoice_paid": "{client} a paye #{number} ({amount}). Net : {net_amount}.",
+  "invoice_overdue": "{client} a {days} jours de retard sur {amount}.",
+  "send_reminder": "Envoyer un rappel",
+  "wait": "Attendre",
+  "skip": "Passer",
+  "create_invoice": "Creer une facture",
+  "view_invoice": "Voir la facture",
+  "mark_as_paid": "Marquer comme paye",
+  "void_invoice": "Annuler la facture",
+  "aging_report_title": "Echeancier des comptes clients",
+  "current": "Courant",
+  "days_30": "1-30 jours",
+  "days_60": "31-60 jours",
+  "days_90": "61-90 jours",
+  "days_90_plus": "90+ jours",
+  "total_outstanding": "Total impaye : {amount}"
+}

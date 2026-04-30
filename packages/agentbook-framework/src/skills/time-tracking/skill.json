@@ -1,0 +1,17 @@
+{
+  "name": "time-tracking",
+  "version": "1.0.0",
+  "description": "Timer, time logging, project tracking, auto-invoicing from time entries",
+  "intents": ["start_timer", "stop_timer", "log_time", "auto_invoice_time"],
+  "tools": [
+    {"name": "start_timer", "description": "Start a timer for a project/client", "constraints": [], "model_tier": "haiku"},
+    {"name": "stop_timer", "description": "Stop running timer and record entry", "constraints": [], "model_tier": "haiku"},
+    {"name": "log_time", "description": "Manually log time worked", "constraints": [], "model_tier": "haiku"},
+    {"name": "get_unbilled_summary", "description": "Summarize unbilled hours per client/project", "constraints": [], "model_tier": "haiku"},
+    {"name": "auto_invoice_from_time", "description": "Generate invoice from unbilled time entries", "constraints": ["balance_invariant"], "model_tier": "haiku"}
+  ],
+  "prompts": {
+    "intent_parse": {"version": "1.0", "file": "prompts/intent-parse.md"}
+  },
+  "dependencies": ["agentbook-core"]
+}

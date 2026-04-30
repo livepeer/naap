@@ -15,9 +15,6 @@
     "app/api/v1/base/**": {
       "maxDuration": 60
     },
-    "app/api/v1/livepeer/**": {
-      "maxDuration": 60
-    },
     "app/api/v1/pipelines/**": {
       "maxDuration": 120
     },
@@ -30,6 +27,15 @@
     },
     "app/api/v1/[plugin]/**": {
       "maxDuration": 30
+    },
+    "app/api/v1/agentbook/telegram/**": {
+      "maxDuration": 25
+    },
+    "app/api/v1/agentbook/**": {
+      "maxDuration": 30
+    },
+    "app/api/v1/agentbook/cron/**": {
+      "maxDuration": 60
     }
   },
   "headers": [
@@ -102,6 +108,11 @@
   ],
   "redirects": [],
   "crons": [
-    { "path": "/api/v1/gw/admin/health/check", "schedule": "*/5 * * * *" }
+    { "path": "/api/v1/gw/admin/health/check", "schedule": "*/5 * * * *" },
+    { "path": "/api/v1/agentbook/cron/daily-pulse", "schedule": "0 13 * * *" },
+    { "path": "/api/v1/agentbook/cron/calendar-check", "schedule": "0 * * * *" },
+    { "path": "/api/v1/agentbook/cron/weekly-review", "schedule": "0 14 * * 1" },
+    { "path": "/api/v1/agentbook/cron/recurring-invoices", "schedule": "0 6 * * *" },
+    { "path": "/api/v1/agentbook/cron/payment-reminders", "schedule": "0 7 * * *" }
   ]
 }

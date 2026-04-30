@@ -15,21 +15,21 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Livepeer Dashboard',
-    template: '%s | Livepeer Dashboard',
+    default: 'AgentBook',
+    template: '%s | AgentBook',
   },
-  description: 'Network as a Platform - Decentralized Infrastructure Management',
-  keywords: ['NaaP', 'decentralized', 'infrastructure', 'Livepeer', 'AI', 'video'],
-  authors: [{ name: 'NaaP Team' }],
-  creator: 'Livepeer Dashboard',
+  description: 'AI-powered accounting for freelancers and small businesses. Your financial agent that works 24/7.',
+  keywords: ['AgentBook', 'AI accounting', 'freelancer', 'bookkeeping', 'invoicing', 'tax'],
+  authors: [{ name: 'AgentBook' }],
+  creator: 'AgentBook',
   icons: {
-    icon: '/icon.svg',
+    icon: '/agentbook-logo.png',
   },
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'),
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    siteName: 'Livepeer Dashboard',
+    siteName: 'AgentBook',
   },
   robots: {
     index: true,

@@ -84,6 +84,9 @@ plugins/daydream-video
 plugins/intelligent-dashboard
 plugins/leaderboard
 
+# Superpowers artifacts
+.superpowers/
+
 # Migration phase markers
 .phase-*
 .architecture-mode

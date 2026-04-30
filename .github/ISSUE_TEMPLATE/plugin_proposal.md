@@ -22,7 +22,7 @@ labels: plugin, enhancement
 
 - [ ] Frontend only (UI/dashboard)
 - [ ] Full-stack (frontend + backend + database)
-- [ ] Integrations needed: <!-- e.g., external APIs, Livepeer hooks -->
+- [ ] Integrations needed: <!-- e.g., external APIs, A3P hooks -->
 
 ## Data Requirements
 

@@ -1,0 +1,91 @@
+{
+  "name": "skill-marketplace",
+  "version": "1.0.0",
+  "description": "Discover, install, and publish AgentBook skills and jurisdiction packs",
+  "intents": ["list_skills", "install_skill", "publish_skill"],
+  "tools": [
+    {
+      "name": "list_available_skills",
+      "description": "List available skills in the marketplace, with optional filters",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string", "enum": ["jurisdiction", "integration", "analytics", "automation"] },
+          "installed": { "type": "boolean" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "version": { "type": "string" },
+                "description": { "type": "string" },
+                "author": { "type": "string" },
+                "category": { "type": "string" },
+                "downloads": { "type": "integer" },
+                "rating": { "type": "number" },
+                "installed": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      },
+      "constraints": [],
+      "model_tier": "haiku"
+    },
+    {
+      "name": "install_skill",
+      "description": "Install a skill from the marketplace by its ID",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "skill_id": { "type": "string" }
+        },
+        "required": ["skill_id"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" }
+        }
+      },
+      "constraints": [],
+      "model_tier": "haiku"
+    },
+    {
+      "name": "publish_skill",
+      "description": "Publish a new skill to the marketplace",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "version": { "type": "string" },
+          "description": { "type": "string" },
+          "author": { "type": "string" },
+          "category": { "type": "string", "enum": ["jurisdiction", "integration", "analytics", "automation"] }
+        },
+        "required": ["name", "version", "description", "author", "category"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "skill_id": { "type": "string" },
+          "error": { "type": "string" }
+        }
+      },
+      "constraints": [],
+      "model_tier": "haiku"
+    }
+  ],
+  "prompts": {},
+  "dependencies": ["agentbook-core"],
+  "calendar_providers": []
+}

@@ -1,142 +1,14 @@
 /* Fonts are loaded via next/font/google in layout.tsx (Inter Variable + JetBrains Mono) */
 
+@import '../../../../packages/theme/src/shell-variables.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /*
- * NAAP Brand Theme — Aligned with Livepeer Brand System
- * Light mode (default) with .dark class for dark mode
- * Surface hierarchy: 4 levels (base / elevated / card / border)
- * Text hierarchy: 6 opacity levels
+ * NAAP Brand Theme — variable definitions live in @naap/theme/shell-variables.css
  */
-
-/* ============================================
-   Light Mode (Default)
-   ============================================ */
-:root {
-  /* Surfaces */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f8fafc;
-  --bg-tertiary: #f1f5f9;
-  --border-color: #e2e8f0;
-
-  /* Text — 6-level hierarchy */
-  --text-primary: #0f172a;
-  --text-secondary: #334155;
-  --text-body: #475569;
-  --text-supporting: #64748b;
-  --text-muted: #94a3b8;
-  --text-disabled: #cbd5e1;
-
-  /* Brand accent — Livepeer green */
-  --accent-green: #18794E;
-  --accent-green-light: #1E9960;
-  --accent-green-bright: #40BF86;
-
-  /* Secondary accents */
-  --accent-blue: #18794E;
-  --accent-amber: #d97706;
-  --accent-rose: #dc2626;
-  --accent-purple: #7c3aed;
-
-  /* Legacy accent aliases (for existing component compat) */
-  --accent-emerald: #18794E;
-
-  /* Semantic mappings for UI components (HSL for Tailwind) */
-  --background: 0 0% 100%;
-  --foreground: 222 47% 11%;
-  --card: 210 40% 98%;
-  --card-foreground: 222 47% 11%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 11%;
-  --primary: 153 66% 28%;             /* Livepeer green #18794E */
-  --primary-foreground: 0 0% 100%;
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222 47% 11%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
-  --accent: 217 91% 60%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 98%;
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
-  --ring: 153 66% 28%;                /* Livepeer green ring */
-  --radius: 0.5rem;
-
-  /* Status Colors */
-  --success: 153 66% 28%;
-  --warning: 38 92% 50%;
-  --error: 350 89% 60%;
-  --info: 217 91% 60%;
-}
-
-/* ============================================
-   Dark Mode — Livepeer Brand
-   ============================================ */
-.dark {
-  /* Surfaces — Livepeer neutral dark scale
-     Frame (#121212) → Surface (#1F1F1F) → Elevated (#242424)
-     Sidebar + topbar + content share the surface level, creating
-     a cohesive panel that "floats" on the darker frame. */
-  --bg-primary: #121212;
-  --bg-secondary: #1A1A1A;
-  --bg-tertiary: #222222;
-  --border-color: #2A2A2A;
-
-  /* Text — 6-level opacity hierarchy */
-  --text-primary: rgba(255, 255, 255, 1);
-  --text-secondary: rgba(255, 255, 255, 0.7);
-  --text-body: rgba(255, 255, 255, 0.6);
-  --text-supporting: rgba(255, 255, 255, 0.5);
-  --text-muted: rgba(255, 255, 255, 0.4);
-  --text-disabled: rgba(255, 255, 255, 0.25);
-
-  /* Brand accent — Livepeer green (brighter on dark) */
-  --accent-green: #1E9960;
-  --accent-green-light: #40BF86;
-  --accent-green-bright: #6DB09C;
-
-  /* Secondary accents */
-  --accent-blue: #1E9960;
-  --accent-amber: #f59e0b;
-  --accent-rose: #f43f5e;
-  --accent-purple: #8b5cf6;
-
-  /* Legacy accent alias */
-  --accent-emerald: #1E9960;
-
-  /* Semantic mappings (HSL)
-     --background = dark frame (body, loading states)
-     --card = app surface (sidebar, topbar, content area, cards)
-     Cards within the surface use borders for structure, not bg differences. */
-  --background: 0 0% 7%;              /* #121212 — dark frame + sidebar */
-  --foreground: 0 0% 100%;
-  --card: 0 0% 10%;                   /* #1A1A1A — elevated content surface (subtle lift) */
-  --card-foreground: 0 0% 100%;
-  --popover: 0 0% 14%;                /* #242424 */
-  --popover-foreground: 0 0% 100%;
-  --primary: 153 66% 35%;             /* #1E9960 */
-  --primary-foreground: 0 0% 100%;
-  --secondary: 0 0% 14%;              /* #242424 */
-  --secondary-foreground: 0 0% 100%;
-  --muted: 0 0% 15%;
-  --muted-foreground: 0 0% 64%;
-  --accent: 217 91% 60%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 350 89% 60%;
-  --destructive-foreground: 0 0% 98%;
-  --border: 0 0% 17%;                 /* slightly lighter for contrast against darker surface */
-  --input: 0 0% 15%;
-  --ring: 153 66% 35%;
-
-  /* Status Colors */
-  --success: 153 66% 35%;
-  --warning: 43 96% 56%;
-  --error: 350 89% 60%;
-  --info: 217 91% 60%;
-}
 
 /* ============================================
    Base Layer

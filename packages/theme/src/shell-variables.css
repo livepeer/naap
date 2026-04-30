@@ -1,0 +1,105 @@
+/*
+ * Shared :root / .dark CSS variables for NAAP shell and UMD plugins (standalone + embedded).
+ * Imported by apps/web-next and AgentBook plugin globals.css — do not duplicate ad-hoc copies.
+ */
+
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --bg-tertiary: #f1f5f9;
+  --border-color: #e2e8f0;
+
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-body: #475569;
+  --text-supporting: #64748b;
+  --text-muted: #94a3b8;
+  --text-disabled: #cbd5e1;
+
+  --accent-green: #18794E;
+  --accent-green-light: #1E9960;
+  --accent-green-bright: #40BF86;
+
+  --accent-blue: #18794E;
+  --accent-amber: #d97706;
+  --accent-rose: #dc2626;
+  --accent-purple: #7c3aed;
+
+  --accent-emerald: #18794E;
+
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  --card: 210 40% 98%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 153 66% 28%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 217 91% 60%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 153 66% 28%;
+  --radius: 0.5rem;
+
+  --success: 153 66% 28%;
+  --warning: 38 92% 50%;
+  --error: 350 89% 60%;
+  --info: 217 91% 60%;
+}
+
+.dark {
+  --bg-primary: #121212;
+  --bg-secondary: #1A1A1A;
+  --bg-tertiary: #222222;
+  --border-color: #2A2A2A;
+
+  --text-primary: rgba(255, 255, 255, 1);
+  --text-secondary: rgba(255, 255, 255, 0.7);
+  --text-body: rgba(255, 255, 255, 0.6);
+  --text-supporting: rgba(255, 255, 255, 0.5);
+  --text-muted: rgba(255, 255, 255, 0.4);
+  --text-disabled: rgba(255, 255, 255, 0.25);
+
+  --accent-green: #1E9960;
+  --accent-green-light: #40BF86;
+  --accent-green-bright: #6DB09C;
+
+  --accent-blue: #1E9960;
+  --accent-amber: #f59e0b;
+  --accent-rose: #f43f5e;
+  --accent-purple: #8b5cf6;
+
+  --accent-emerald: #1E9960;
+
+  --background: 0 0% 7%;
+  --foreground: 0 0% 100%;
+  --card: 0 0% 10%;
+  --card-foreground: 0 0% 100%;
+  --popover: 0 0% 14%;
+  --popover-foreground: 0 0% 100%;
+  --primary: 153 66% 35%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 14%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 64%;
+  --accent: 217 91% 60%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 350 89% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 17%;
+  --input: 0 0% 15%;
+  --ring: 153 66% 35%;
+
+  --success: 153 66% 35%;
+  --warning: 43 96% 56%;
+  --error: 350 89% 60%;
+  --info: 217 91% 60%;
+}

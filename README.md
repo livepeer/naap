@@ -1,13 +1,13 @@
-# NaaP Platform
+# A3P Platform
 
-A plugin-based platform for the Livepeer AI Compute Network.
+A plugin-based platform for AgentBook — Agent as a Product.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/livepeer/NaaP/ci.yml?branch=main&label=CI)](https://github.com/livepeer/NaaP/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/a3p/a3p/ci.yml?branch=main&label=CI)](https://github.com/a3p/a3p/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-NaaP (Node as a Platform) is an open-source, plugin-based platform for
-managing and interacting with the Livepeer AI Compute Network. Built with
+A3P (Agent as a Product) is an open-source, plugin-based platform for
+building and deploying agent-based applications. Built with
 Next.js 15, React 19, TypeScript, and a micro-frontend plugin architecture,
 it enables independent teams to develop, deploy, and operate plugins without
 central coordination. A Next.js shell hosts plugins as UMD bundles loaded at
@@ -18,8 +18,8 @@ with schema-level isolation.
 
 ```bash
 # Clone and run (~30s)
-git clone https://github.com/livepeer/NaaP.git
-cd NaaP
+git clone https://github.com/a3p/a3p.git
+cd a3p
 ./bin/start.sh
 ```
 
@@ -45,7 +45,7 @@ starting only those plus the marketplace.
 ## Project Structure
 
 ```
-NaaP/
+a3p/
 ├── apps/web-next/            # Next.js shell (auth, layout, plugin host)
 ├── services/
 │   ├── base-svc/             # Core API (auth, teams, plugin registry)
@@ -73,7 +73,7 @@ onboarding process.
 
 ```bash
 # Scaffold a new plugin
-npx naap-plugin create my-plugin
+npx a3p-plugin create my-plugin
 
 # Start shell + your plugin (~6s)
 ./bin/start.sh my-plugin
@@ -116,7 +116,7 @@ npx naap-plugin create my-plugin
 
 ## Architecture
 
-The NaaP shell is a Next.js 15 application that dynamically loads plugins as
+The A3P shell is a Next.js 15 application that dynamically loads plugins as
 UMD bundles at runtime. Each plugin is an independent micro-frontend with its
 own React component tree, optional Express backend, and isolated database
 schema. The shell provides authentication, layout, routing, and a plugin SDK
@@ -145,7 +145,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 
 ## Governance
 
-NaaP uses a lightweight governance model built on lazy consensus, plugin team
+A3P uses a lightweight governance model built on lazy consensus, plugin team
 autonomy, and async-first coordination. Plugin teams have full authority over
 their own directories. Core maintainers focus on shared infrastructure and
 cross-cutting concerns.
@@ -155,3 +155,6 @@ See [GOVERNANCE.md](GOVERNANCE.md) for details.
 ## License
 
 [MIT](LICENSE)
+
+---
+(c) 2026 AgentBook. All rights reserved.

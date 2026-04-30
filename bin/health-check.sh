@@ -100,29 +100,17 @@ get_service_url() {
     plugin-server)
       echo "${PLUGIN_SERVER_URL:-http://localhost:3100}|/healthz"
       ;;
-    capacity-planner)
-      echo "${CAPACITY_PLANNER_URL:-http://localhost:4003}|/healthz"
-      ;;
     marketplace)
       echo "${MARKETPLACE_URL:-http://localhost:4005}|/healthz"
       ;;
     community)
       echo "${COMMUNITY_URL:-http://localhost:4006}|/healthz"
       ;;
-    developer-api)
-      echo "${DEVELOPER_API_URL:-http://localhost:4007}|/healthz"
-      ;;
-    my-wallet)
-      echo "${WALLET_URL:-http://localhost:4008}|/healthz"
-      ;;
-    my-dashboard)
-      echo "${DASHBOARD_URL:-http://localhost:4009}|/healthz"
-      ;;
     plugin-publisher)
       echo "${PLUGIN_PUBLISHER_URL:-http://localhost:4010}|/healthz"
       ;;
-    daydream-video)
-      echo "${DAYDREAM_VIDEO_URL:-http://localhost:4111}|/healthz"
+    service-gateway)
+      echo "${SERVICE_GATEWAY_URL:-http://localhost:4020}|/healthz"
       ;;
     *)
       echo ""
@@ -131,7 +119,7 @@ get_service_url() {
 }
 
 # All services list (core + plugin backends)
-ALL_SERVICES="vercel base-svc plugin-server capacity-planner marketplace community developer-api my-wallet my-dashboard plugin-publisher daydream-video"
+ALL_SERVICES="vercel base-svc plugin-server marketplace community plugin-publisher service-gateway"
 
 # Check a single service
 check_service() {

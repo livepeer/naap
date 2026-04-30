@@ -1,0 +1,10 @@
+{
+  "name": "anomaly-detection",
+  "version": "1.0.0",
+  "description": "Statistical anomaly detection: flags amounts > 2σ for expense categories",
+  "intents": ["detect_anomaly"],
+  "tools": [
+    {"name": "check_anomaly", "description": "Check if an expense amount is anomalous for its category", "constraints": [], "model_tier": "haiku"}
+  ],
+  "dependencies": ["agentbook-core"]
+}

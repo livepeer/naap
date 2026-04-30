@@ -16,17 +16,17 @@ export const PLUGIN_PORTS: Record<string, number> = {
   'base': 4000,
   'plugin-server': 3100,
 
-  // Core plugins (ports must match plugins/*/plugin.json → backend.devPort)
-  'capacity-planner': 4003,
+  // Plugins (ports must match plugins/*/plugin.json → backend.devPort)
   'marketplace': 4005,
   'community': 4006,
-  'developer-api': 4007,
-  'my-wallet': 4008,
-  'my-dashboard': 4009,
   'plugin-publisher': 4010,
+  'service-gateway': 4020,
 
-  // Extended plugins (4100+)
-  'daydream-video': 4111,
+  // AgentBook plugins
+  'agentbook-core': 4050,
+  'agentbook-expense': 4051,
+  'agentbook-invoice': 4052,
+  'agentbook-tax': 4053,
 };
 
 /** Default port when plugin is not found */

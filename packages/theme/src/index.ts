@@ -112,48 +112,7 @@ export const motion = {
   easingIn: 'cubic-bezier(0.4, 0, 1, 1)',
 } as const;
 
-// ============================================
-// Tailwind Extension Config
-// ============================================
-
-export const tailwindExtend = {
-  colors: {
-    'bg-primary': 'var(--bg-primary)',
-    'bg-secondary': 'var(--bg-secondary)',
-    'bg-tertiary': 'var(--bg-tertiary)',
-    'text-primary': 'var(--text-primary)',
-    'text-secondary': 'var(--text-secondary)',
-    'text-body': 'var(--text-body)',
-    'text-supporting': 'var(--text-supporting)',
-    'text-muted': 'var(--text-muted)',
-    'text-disabled': 'var(--text-disabled)',
-    'accent-green': 'var(--accent-green)',
-    'accent-blue': 'var(--accent-blue)',
-    'accent-amber': 'var(--accent-amber)',
-    'accent-rose': 'var(--accent-rose)',
-    'accent-purple': 'var(--accent-purple)',
-  },
-  fontFamily: {
-    sans: ['Inter', 'system-ui', 'sans-serif'],
-    mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
-  },
-  borderRadius: {
-    sm: '0.375rem',
-    md: '0.5rem',
-    lg: '0.75rem',
-    xl: '1rem',
-    '2xl': '1.5rem',
-  },
-  transitionDuration: {
-    instant: '100ms',
-    fast: '150ms',
-    normal: '200ms',
-    slow: '300ms',
-  },
-  transitionTimingFunction: {
-    'ease-out-smooth': 'cubic-bezier(0.4, 0, 0.2, 1)',
-  },
-};
+// Tailwind theme.extend lives in packages/theme/tailwind-extend.cjs (required by tailwind.config.js / plugins).
 
 export type ThemeColors = typeof colors;
 export type ThemeSpacing = typeof spacing;

@@ -479,12 +479,11 @@ UNIFIED_DB_URL="postgresql://postgres:postgres@localhost:5432/naap"
 PLUGIN_SCHEMAS=(
   "public"
   "plugin_community"
-  "plugin_capacity"
-  "plugin_developer_api"
-  "plugin_wallet"
-  "plugin_dashboard"
-  "plugin_daydream"
   "plugin_service_gateway"
+  "plugin_agentbook_core"
+  "plugin_agentbook_expense"
+  "plugin_agentbook_invoice"
+  "plugin_agentbook_tax"
 )
 
 get_all_plugins() {

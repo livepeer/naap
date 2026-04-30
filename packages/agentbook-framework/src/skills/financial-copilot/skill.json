@@ -1,0 +1,14 @@
+{
+  "name": "financial-copilot",
+  "version": "1.0.0",
+  "description": "Proactive financial advisor: subscription audit, client concentration, seasonal patterns, pricing suggestions, multi-year tax planning",
+  "intents": ["financial_advice", "subscription_audit", "concentration_check", "pricing_suggestion"],
+  "tools": [
+    {"name": "subscription_audit", "description": "Identify recurring expenses and flag unused/overpriced subscriptions", "constraints": [], "model_tier": "standard"},
+    {"name": "client_concentration", "description": "Analyze revenue concentration risk across clients", "constraints": [], "model_tier": "fast"},
+    {"name": "seasonal_patterns", "description": "Detect seasonal revenue/expense patterns and recommend cash reserves", "constraints": [], "model_tier": "standard"},
+    {"name": "pricing_suggestions", "description": "Analyze effective hourly rates and suggest pricing changes", "constraints": [], "model_tier": "standard"},
+    {"name": "multi_year_tax_plan", "description": "Model tax liability across multiple years for strategic decisions", "constraints": [], "model_tier": "premium"}
+  ],
+  "dependencies": ["agentbook-core"]
+}

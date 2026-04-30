@@ -8,16 +8,27 @@ import type { NextRequest } from 'next/server';
 // Routes with their own page.tsx (/marketplace, /dashboard) are excluded.
 // /plugins/* paths are handled by the dynamic [pluginName] route automatically.
 const PLUGIN_ROUTE_MAP: Record<string, string> = {
-  '/wallet': 'myWallet',
   '/gateway': 'serviceGateway',
-  '/capacity': 'capacityPlanner',
   '/forum': 'community',
-  '/developers': 'developerApi',
   '/publish': 'pluginPublisher',
-  '/daydream': 'daydreamVideo',
-  '/intelligent-dashboard': 'intelligentDashboard',
-  '/deployments': 'deploymentManager',
-  '/lightning-client': 'lightningClient',
+  // AgentBook — specific sub-paths BEFORE the catch-all
+  '/agentbook/expenses': 'agentbookExpense',
+  '/agentbook/receipts': 'agentbookExpense',
+  '/agentbook/vendors': 'agentbookExpense',
+  '/agentbook/bank': 'agentbookExpense',
+  '/agentbook/invoices': 'agentbookInvoice',
+  '/agentbook/clients': 'agentbookInvoice',
+  '/agentbook/estimates': 'agentbookInvoice',
+  '/agentbook/timer': 'agentbookInvoice',
+  '/agentbook/projects': 'agentbookInvoice',
+  '/agentbook/tax': 'agentbookTax',
+  '/agentbook/reports': 'agentbookTax',
+  '/agentbook/cashflow': 'agentbookTax',
+  '/agentbook/analytics': 'agentbookTax',
+  '/agentbook/whatif': 'agentbookTax',
+  '/agentbook/agents': 'agentbookCore',
+  // AgentBook core — catch-all for /agentbook, /agentbook/ledger, /agentbook/accounts, etc.
+  '/agentbook': 'agentbookCore',
 };
 
 // CSP configuration for plugin pages
@@ -56,16 +67,9 @@ const PLUGIN_CSP_SOURCES = {
     'wss://*.naap.io',
     'http://localhost:*',
     'ws://localhost:*',
-    // Livepeer / Daydream: WHIP/WHEP WebRTC ingest + API
-    'https://*.livepeer.com',
-    'https://ai.livepeer.com',
-    'https://api.daydream.live',
   ],
   frame: [
     "'self'",
-    // Livepeer playback player
-    'https://lvpr.tv',
-    'https://*.lvpr.tv',
   ],
 };
 

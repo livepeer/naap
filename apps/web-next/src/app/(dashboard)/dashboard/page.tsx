@@ -4,7 +4,7 @@
  * Dashboard Overview Page
  *
  * Network status overview showing key metrics, performance, costs, and live activity.
- * Designed as a single-page command center for the Livepeer network.
+ * Designed as a single-page command center for the A3P Platform.
  *
  * All data is fetched from a provider plugin via a single GraphQL query
  * over the event bus. The dashboard has ZERO hardcoded data — it only
@@ -1075,7 +1075,7 @@ function OrchestratorTableCard({
 // Polling Interval Selector
 // ============================================================================
 
-const POLL_INTERVAL_KEY = 'naap_dashboard_poll_interval';
+const POLL_INTERVAL_KEY = 'a3p_dashboard_poll_interval';
 const DEFAULT_POLL_INTERVAL = 15_000;
 
 const POLL_OPTIONS = [
@@ -1118,7 +1118,7 @@ function PollIntervalSelector({ value, onChange }: { value: number; onChange: (m
 // Timeframe Selector
 // ============================================================================
 
-const TIMEFRAME_KEY = 'naap_dashboard_timeframe';
+const TIMEFRAME_KEY = 'a3p_dashboard_timeframe';
 const DEFAULT_TIMEFRAME = '24';
 
 const TIMEFRAME_OPTIONS = [
@@ -1314,7 +1314,7 @@ function DashboardHeader({
       <div className="space-y-0.5">
         <h1 className="text-lg font-semibold text-foreground">Network Overview</h1>
         <p className="text-[13px] text-muted-foreground">
-          Livepeer network health, performance, and cost at a glance
+          A3P Platform health, performance, and cost at a glance
         </p>
       </div>
       <div className="flex items-center gap-2">

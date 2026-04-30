@@ -1,0 +1,96 @@
+{
+  "name": "multi-user",
+  "version": "1.0.0",
+  "description": "Role-based access control for AgentBook with owner, bookkeeper, viewer, and CPA roles",
+  "intents": ["grant_access", "revoke_access", "generate_cpa_link", "check_permission"],
+  "tools": [
+    {
+      "name": "grant_access",
+      "description": "Grant a user access to a tenant with a specific role",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": { "type": "string" },
+          "user_id": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "role": { "type": "string", "enum": ["owner", "bookkeeper", "viewer", "cpa"] }
+        },
+        "required": ["tenant_id", "user_id", "email", "role"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "access_id": { "type": "string" },
+          "role": { "type": "string" }
+        }
+      },
+      "constraints": [],
+      "model_tier": "haiku"
+    },
+    {
+      "name": "revoke_access",
+      "description": "Revoke a user's access to a tenant",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": { "type": "string" },
+          "user_id": { "type": "string" }
+        },
+        "required": ["tenant_id", "user_id"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "revoked": { "type": "boolean" }
+        }
+      },
+      "constraints": [],
+      "model_tier": "haiku"
+    },
+    {
+      "name": "generate_cpa_link",
+      "description": "Generate a time-limited read-only access link for a CPA",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": { "type": "string" },
+          "cpa_email": { "type": "string", "format": "email" }
+        },
+        "required": ["tenant_id", "cpa_email"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "token": { "type": "string" },
+          "expires_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "constraints": [],
+      "model_tier": "haiku"
+    },
+    {
+      "name": "check_permission",
+      "description": "Check whether a user has a specific permission on a tenant",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": { "type": "string" },
+          "user_id": { "type": "string" },
+          "permission": { "type": "string" }
+        },
+        "required": ["tenant_id", "user_id", "permission"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "allowed": { "type": "boolean" }
+        }
+      },
+      "constraints": [],
+      "model_tier": "haiku"
+    }
+  ],
+  "prompts": {},
+  "dependencies": ["agentbook-core"],
+  "calendar_providers": []
+}

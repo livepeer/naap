@@ -1,0 +1,20 @@
+{
+  "tax_estimate_title": "Estimation fiscale",
+  "gross_revenue": "Revenus bruts : {amount}",
+  "total_expenses": "Depenses totales : {amount}",
+  "net_income": "Revenu net : {amount}",
+  "se_tax": "Cotisations travailleur autonome : {amount}",
+  "income_tax": "Impot sur le revenu : {amount}",
+  "total_tax": "Impot total estime : {amount}",
+  "effective_rate": "Taux effectif : {rate}",
+  "quarterly_due": "Acompte provisionnel du dans {days} jours. J'ai calcule {amount} pour {quarter}.",
+  "pay_now": "Payer maintenant",
+  "adjust": "Ajuster",
+  "remind_later": "Me rappeler dans 3 jours",
+  "deduction_found": "Vous n'avez pas enregistre de depenses {category} cette annee. {suggestion} Vous pourriez economiser ~{savings}.",
+  "bracket_alert": "Vous etes a {amount} du prochain palier d'imposition. Prepayez des depenses pour economiser ~{savings}.",
+  "pnl_title": "Etat des resultats",
+  "balance_sheet_title": "Bilan",
+  "cash_flow_title": "Etat des flux de tresorerie",
+  "trial_balance_title": "Balance de verification"
+}

@@ -1,0 +1,13 @@
+{
+  "name": "expense-analytics",
+  "version": "1.0.0",
+  "description": "Category breakdown, vendor analysis, spending trends, and what-if scenarios",
+  "intents": ["analyze_expenses", "what_if_scenario"],
+  "tools": [
+    {"name": "category_breakdown", "description": "Expense totals by category for a period", "constraints": [], "model_tier": "haiku"},
+    {"name": "spending_trend", "description": "Month-over-month spending trend by category", "constraints": [], "model_tier": "haiku"},
+    {"name": "vendor_analysis", "description": "Top vendors by spend with transaction counts", "constraints": [], "model_tier": "haiku"},
+    {"name": "what_if", "description": "Project impact of adding/removing an expense on tax liability", "constraints": [], "model_tier": "sonnet"}
+  ],
+  "dependencies": ["agentbook-core"]
+}

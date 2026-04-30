@@ -17,22 +17,19 @@ import { PLUGIN_PORTS, DEFAULT_PORT } from '@/lib/plugin-ports';
 
 /** Mapping from plugin kebab-name to its env-var override key. */
 const PLUGIN_ENV_MAP: Record<string, string> = {
-  'capacity-planner': 'CAPACITY_PLANNER_URL',
   'marketplace': 'MARKETPLACE_URL',
   'community': 'COMMUNITY_URL',
-  'my-wallet': 'WALLET_URL',
-  'my-dashboard': 'DASHBOARD_URL',
-  'daydream-video': 'DAYDREAM_VIDEO_URL',
-  'developer-api': 'DEVELOPER_API_URL',
   'plugin-publisher': 'PLUGIN_PUBLISHER_URL',
+  'service-gateway': 'SERVICE_GATEWAY_URL',
+  'agentbook-core': 'AGENTBOOK_CORE_URL',
+  'agentbook-expense': 'AGENTBOOK_EXPENSE_URL',
+  'agentbook-invoice': 'AGENTBOOK_INVOICE_URL',
+  'agentbook-tax': 'AGENTBOOK_TAX_URL',
 };
 
-/** Short aliases so both `/api/v1/wallet/...` and `/api/v1/my-wallet/...` resolve. */
+/** Short aliases so both `/api/v1/gateway/...` and `/api/v1/service-gateway/...` resolve. */
 const SHORT_ALIASES: Record<string, string> = {
-  'capacity': 'capacity-planner',
-  'wallet': 'my-wallet',
-  'dashboard': 'my-dashboard',
-  'daydream': 'daydream-video',
+  'gateway': 'service-gateway',
 };
 
 function buildPluginServices(): Record<string, string> {
@@ -102,8 +99,10 @@ async function handleRequest(
   }
 
   // Build the proxy URL
+  // Resolve the canonical plugin name (alias -> canonical)
+  const canonicalPlugin = SHORT_ALIASES[plugin] || plugin;
   const pathString = path.join('/');
-  const targetUrl = `${serviceUrl}/api/v1/${pathString}${request.nextUrl.search}`;
+  const targetUrl = `${serviceUrl}/api/v1/${canonicalPlugin}/${pathString}${request.nextUrl.search}`;
 
   // Build headers for the proxy request
   const headers = new Headers();
@@ -148,6 +147,22 @@ async function handleRequest(
   if (teamId) {
     headers.set('x-team-id', teamId);
   }
+
+  // AgentBook tenant resolution: header > cookie > auth session user ID > 'default'
+  let tenantId = request.headers.get('x-tenant-id')
+    || request.cookies.get('ab-tenant')?.value;
+  if (!tenantId) {
+    // Extract user ID from auth token for automatic tenant isolation
+    const authToken = request.cookies.get('naap_auth_token')?.value;
+    if (authToken) {
+      try {
+        const { validateSession } = await import('@/lib/api/auth');
+        const user = await validateSession(authToken);
+        if (user) tenantId = user.id;
+      } catch { /* session validation failed, use default */ }
+    }
+  }
+  headers.set('x-tenant-id', tenantId || 'default');
 
   // Forward CSRF token
   const csrfToken = request.headers.get('x-csrf-token');

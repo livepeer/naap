@@ -1,0 +1,11 @@
+{
+  "name": "pattern-learning",
+  "version": "1.0.0",
+  "description": "Vendor categorization learning with confidence drift detection, auto-improving accuracy",
+  "intents": ["learn_pattern", "detect_drift"],
+  "tools": [
+    {"name": "update_pattern_confidence", "description": "Recalculate pattern confidence from recent accuracy", "constraints": [], "model_tier": "haiku"},
+    {"name": "detect_pattern_drift", "description": "Alert when learned pattern accuracy drops below threshold", "constraints": [], "model_tier": "haiku"}
+  ],
+  "dependencies": ["agentbook-core"]
+}

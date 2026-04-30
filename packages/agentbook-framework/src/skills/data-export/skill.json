@@ -1,0 +1,9 @@
+{
+  "name": "data-export",
+  "description": "Data export — CSV, JSON, QBO-compatible formats",
+  "tools": [
+    "export_expenses",
+    "export_journal_entries",
+    "export_invoices"
+  ]
+}

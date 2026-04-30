@@ -1,0 +1,7 @@
+{
+  "name": "mileage-tracking",
+  "description": "Mileage tracking — IRS standard rate (US) or CRA tiered rate (CA)",
+  "tools": [
+    "calculate_mileage_deduction"
+  ]
+}

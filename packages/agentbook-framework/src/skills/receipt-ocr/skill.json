@@ -1,0 +1,40 @@
+{
+  "name": "receipt-ocr",
+  "version": "1.0.0",
+  "description": "Extract structured expense data from receipt photos and PDF documents using LLM vision",
+  "intents": ["process_receipt"],
+  "tools": [
+    {
+      "name": "extract_receipt",
+      "description": "Extract amount, vendor, date, line items, tax, and tip from a receipt image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_url": { "type": "string", "description": "URL of the receipt image" },
+          "file_type": { "type": "string", "enum": ["photo", "pdf", "document"] }
+        },
+        "required": ["image_url"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "amount_cents": { "type": "integer" },
+          "vendor": { "type": "string" },
+          "date": { "type": "string" },
+          "line_items": { "type": "array" },
+          "subtotal_cents": { "type": "integer" },
+          "tax_cents": { "type": "integer" },
+          "tip_cents": { "type": "integer" },
+          "currency": { "type": "string" },
+          "confidence": { "type": "number" }
+        }
+      },
+      "constraints": [],
+      "model_tier": "sonnet"
+    }
+  ],
+  "prompts": {
+    "extract_receipt": { "version": "1.0", "file": "prompts/extract-receipt.md" }
+  },
+  "dependencies": []
+}

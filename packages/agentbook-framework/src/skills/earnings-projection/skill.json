@@ -1,0 +1,11 @@
+{
+  "name": "earnings-projection",
+  "version": "1.0.0",
+  "description": "Annual revenue projection with confidence bands, client payment prediction",
+  "intents": ["project_earnings", "predict_payment"],
+  "tools": [
+    {"name": "project_annual_revenue", "description": "Project annual revenue from YTD with confidence bands", "constraints": [], "model_tier": "haiku"},
+    {"name": "predict_client_payment", "description": "Predict when a client will pay based on historical pattern", "constraints": [], "model_tier": "haiku"}
+  ],
+  "dependencies": ["agentbook-core"]
+}
