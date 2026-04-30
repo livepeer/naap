@@ -145,47 +145,43 @@ app.get('/api/v1/developer/models', async (req, res) => {
 });
 
 // ============================================
-// Network Models (NAAP /v1/net/models)
+// Network Models (NAAP OpenAPI v1: streaming/models + requests/models)
 // ============================================
 
-/** Matches apps/web-next `.env` example: NAAP API base including /v1. */
-const DEFAULT_NET_MODELS_API_BASE = 'https://naap-api.livepeer.cloud/v1';
-
-const NET_MODELS_API_BASE = (
-  process.env.NAAP_API_SERVER_URL?.trim() || DEFAULT_NET_MODELS_API_BASE
-).replace(/\/+$/, '');
-
-const NET_MODELS_CACHE_TTL_MS = 60_000;
-const netModelsJsonCache = new Map<
-  string,
-  { expiresAt: number; body: { models: unknown[]; total: number } }
->();
-const netModelsInflight = new Map<string, Promise<{ models: unknown[]; total: number }>>();
-
-function parseNetModelsJson(payload: unknown): unknown[] {
-  if (Array.isArray(payload)) {
-    return payload;
+/** Thrown when NAAP upstream base URL is missing or invalid (distinct from upstream 502s). */
+class NaapConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NaapConfigError';
   }
-  if (payload && typeof payload === 'object') {
-    const o = payload as Record<string, unknown>;
-    if (Array.isArray(o.models)) {
-      return o.models;
-    }
-    if (Array.isArray(o.data)) {
-      return o.data;
-    }
-    throw new Error(
-      `Unsupported net models JSON shape: object with keys [${Object.keys(o).join(', ')}]`
-    );
-  }
-  throw new Error(
-    `Unsupported net models JSON shape: primitive value of type ${typeof payload} with value ${
-      typeof payload === 'string' ? JSON.stringify(payload) : String(payload)
-    }`
-  );
 }
 
-/** Row shape aligned with NAAP `GET /v1/net/models` and plugin-sdk `NetworkModel`. */
+/** Same env as apps/web-next: full NAAP API base including `/v1` (no trailing slash). */
+function getNaapApiServerBase(): string {
+  const raw = process.env.NAAP_API_SERVER_URL?.trim();
+  if (!raw) {
+    throw new NaapConfigError(
+      'NAAP_API_SERVER_URL is not set. Set it to the NAAP OpenAPI base URL (including /v1). See repo root .env.example.',
+    );
+  }
+  return raw.replace(/\/+$/, '');
+}
+
+const NET_MODELS_CACHE_TTL_MS = 60_000;
+/** When only one of streaming/models or requests/models succeeded, avoid caching stale partials long. */
+const NET_MODELS_PARTIAL_CACHE_TTL_MS = 5_000;
+
+type NetworkModelsResponseBody = {
+  models: unknown[];
+  total: number;
+  /** True when only one upstream (streaming vs requests) contributed model rows. */
+  partial: boolean;
+};
+
+const netModelsJsonCache = new Map<string, { expiresAt: number; body: NetworkModelsResponseBody }>();
+const netModelsInflight = new Map<string, Promise<NetworkModelsResponseBody>>();
+
+/** Row shape aligned with merged NAAP streaming + requests model rows and plugin-sdk `NetworkModel`. */
 interface NetModelRow {
   Pipeline: string;
   Model: string;
@@ -198,35 +194,6 @@ interface NetModelRow {
 
 function netModelRowKey(pipeline: string, model: string): string {
   return `${pipeline.trim()}:${model.trim()}`;
-}
-
-function numField(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function normalizeNetModelRow(raw: unknown): NetModelRow | null {
-  if (!raw || typeof raw !== 'object') {
-    return null;
-  }
-  const o = raw as Record<string, unknown>;
-  const pipeline = String(o.Pipeline ?? o.pipeline ?? '').trim();
-  const model = String(o.Model ?? o.model ?? '').trim();
-  if (!pipeline || !model) {
-    return null;
-  }
-  return {
-    Pipeline: pipeline,
-    Model: model,
-    WarmOrchCount: numField(o.WarmOrchCount),
-    TotalCapacity: numField(o.TotalCapacity),
-    PriceMinWeiPerPixel: numField(o.PriceMinWeiPerPixel),
-    PriceMaxWeiPerPixel: numField(o.PriceMaxWeiPerPixel),
-    PriceAvgWeiPerPixel: numField(o.PriceAvgWeiPerPixel),
-  };
 }
 
 function parsePipelineCatalog(payload: unknown): Array<{ id: string; models: string[] }> {
@@ -278,30 +245,137 @@ function catalogOnlyRow(pipeline: string, model: string): NetModelRow {
   };
 }
 
+type NetModelSource = 'streaming' | 'requests';
+
+interface TaggedNetModelRow {
+  row: NetModelRow;
+  source: NetModelSource;
+}
+
+async function fetchStreamingAndRequestsModelRows(
+  upstreamBase: string,
+  signal: AbortSignal,
+): Promise<{ rows: NetModelRow[]; partial: boolean }> {
+  const safeFetch = async (url: string, label: string): Promise<Response | null> => {
+    try {
+      return await fetch(url, { headers: { Accept: 'application/json' }, signal });
+    } catch (err) {
+      console.warn(`[DeveloperAPI] fetch failed for ${label} (${url}):`, err);
+      return null;
+    }
+  };
+
+  const [sRes, rRes] = await Promise.all([
+    safeFetch(`${upstreamBase}/streaming/models`, 'streaming/models'),
+    safeFetch(`${upstreamBase}/requests/models`, 'requests/models'),
+  ]);
+
+  const accum: TaggedNetModelRow[] = [];
+
+  const ingest = async (
+    res: Response,
+    label: string,
+    source: NetModelSource,
+  ): Promise<boolean> => {
+    if (!res.ok) {
+      console.warn(`[DeveloperAPI] ingest failed: ${label} returned HTTP ${res.status} (${res.url || label})`);
+      return false;
+    }
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch (err) {
+      console.warn(`[DeveloperAPI] ingest failed: ${label} returned invalid JSON (${res.url || label})`, err);
+      return false;
+    }
+    const arr = Array.isArray(json) ? json : [];
+    for (const raw of arr) {
+      if (!raw || typeof raw !== 'object') continue;
+      const o = raw as Record<string, unknown>;
+      const pipeline = String(o.pipeline ?? o.Pipeline ?? '').trim();
+      const model = String(o.model ?? o.Model ?? '').trim();
+      if (!pipeline || !model) continue;
+      accum.push({
+        source,
+        row: {
+          Pipeline: pipeline,
+          Model: model,
+          WarmOrchCount: Number(o.warm_orch_count ?? o.WarmOrchCount ?? 0),
+          TotalCapacity: Number(o.gpu_slots ?? o.TotalCapacity ?? 0),
+          PriceMinWeiPerPixel: 0,
+          PriceMaxWeiPerPixel: 0,
+          PriceAvgWeiPerPixel: 0,
+        },
+      });
+    }
+    return true;
+  };
+
+  const streamingOk = sRes ? await ingest(sRes, 'streaming/models', 'streaming') : false;
+  const requestsOk = rRes ? await ingest(rRes, 'requests/models', 'requests') : false;
+  if (!streamingOk && !requestsOk) {
+    throw new Error('Both streaming/models and requests/models upstream requests failed');
+  }
+
+  const partial = streamingOk !== requestsOk;
+
+  const byKey = new Map<
+    string,
+    { row: NetModelRow; sources: Set<NetModelSource> }
+  >();
+  for (const { row: r, source } of accum) {
+    const k = netModelRowKey(r.Pipeline, r.Model);
+    const ex = byKey.get(k);
+    if (!ex) {
+      byKey.set(k, { row: { ...r }, sources: new Set([source]) });
+      continue;
+    }
+    const hadStreaming = ex.sources.has('streaming');
+    const hadRequests = ex.sources.has('requests');
+    ex.sources.add(source);
+    if (
+      (hadStreaming && source === 'requests') ||
+      (hadRequests && source === 'streaming')
+    ) {
+      console.warn(
+        `[DeveloperAPI] net model key ${k} appears in both streaming/models and requests/models; merging with max(WarmOrchCount, TotalCapacity) to avoid double-count`,
+      );
+    }
+    ex.row.WarmOrchCount = Math.max(ex.row.WarmOrchCount, r.WarmOrchCount);
+    ex.row.TotalCapacity = Math.max(ex.row.TotalCapacity, r.TotalCapacity);
+  }
+
+  return { rows: [...byKey.values()].map((e) => e.row), partial };
+}
+
 /**
- * `/v1/net/models` can be activity-biased; union with `/v1/dashboard/pipeline-catalog`
- * so Developer Models tab lists every registered pipeline + model (zeros for capacity
- * when cold).
+ * Merged streaming + requests model inventory can be sparse; union with
+ * `/v1/dashboard/pipeline-catalog` so Developer Models tab lists every registered
+ * pipeline + model (zeros for capacity when cold).
  */
 async function fetchMergedNetModels(
   upstreamBase: string,
   limitIsAll: boolean,
   limit: number | undefined,
   signal: AbortSignal,
-): Promise<NetModelRow[]> {
-  const netUrl = limitIsAll
-    ? `${upstreamBase}/net/models`
-    : `${upstreamBase}/net/models?limit=${limit}`;
-
-  const [netResult, catalogResult] = await Promise.allSettled([
-    fetch(netUrl, { headers: { Accept: 'application/json' }, signal }),
+): Promise<{ merged: NetModelRow[]; partial: boolean }> {
+  const [apiResult, catalogResult] = await Promise.allSettled([
+    fetchStreamingAndRequestsModelRows(upstreamBase, signal),
     fetch(`${upstreamBase}/dashboard/pipeline-catalog`, { headers: { Accept: 'application/json' }, signal }),
   ]);
 
-  if (netResult.status !== 'fulfilled') {
-    throw netResult.reason;
+  if (apiResult.status !== 'fulfilled') {
+    throw apiResult.reason;
   }
-  const netRes = netResult.value;
+  const { rows: modelRows, partial } = apiResult.value;
+  let merged: NetModelRow[] = [...modelRows];
+  if (!limitIsAll) {
+    merged = merged.slice(0, limit ?? merged.length);
+  }
+  const seen = new Set<string>();
+  for (const r of merged) {
+    seen.add(netModelRowKey(r.Pipeline, r.Model));
+  }
 
   let catalogRes: Response | null = null;
   if (catalogResult.status === 'fulfilled') {
@@ -310,30 +384,7 @@ async function fetchMergedNetModels(
     console.warn(
       `[developer-api] dashboard/pipeline-catalog fetch failed (${upstreamBase}/dashboard/pipeline-catalog):`,
       catalogResult.reason,
-      `(net/models HTTP ${netRes.status}; netResult.status=${netResult.status})`,
     );
-  }
-
-  if (!netRes.ok) {
-    throw new Error(`upstream net/models HTTP ${netRes.status}`);
-  }
-
-  const netPayload = await netRes.json();
-  const rawNet = parseNetModelsJson(netPayload);
-  const merged: NetModelRow[] = [];
-  const seen = new Set<string>();
-
-  for (const r of rawNet) {
-    const row = normalizeNetModelRow(r);
-    if (!row) {
-      continue;
-    }
-    const k = netModelRowKey(row.Pipeline, row.Model);
-    if (seen.has(k)) {
-      continue;
-    }
-    seen.add(k);
-    merged.push(row);
   }
 
   let catalogSlotsRemaining = limitIsAll
@@ -368,11 +419,12 @@ async function fetchMergedNetModels(
   merged.sort(
     (a, b) => a.Pipeline.localeCompare(b.Pipeline) || a.Model.localeCompare(b.Model),
   );
-  return merged;
+  return { merged, partial };
 }
 
 app.get('/api/v1/developer/network-models', async (req, res) => {
   try {
+    const upstreamBase = getNaapApiServerBase();
     const limitParam = typeof req.query.limit === 'string' ? req.query.limit : undefined;
     const limitIsAll = limitParam === 'all' || limitParam === '0' || limitParam == null;
     const limit = limitIsAll
@@ -394,13 +446,13 @@ app.get('/api/v1/developer/network-models', async (req, res) => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15_000);
       try {
-        const models = await fetchMergedNetModels(
-          NET_MODELS_API_BASE,
+        const { merged, partial } = await fetchMergedNetModels(
+          upstreamBase,
           limitIsAll,
           limit,
           controller.signal,
         );
-        return { models, total: models.length };
+        return { models: merged, total: merged.length, partial };
       } finally {
         clearTimeout(timeout);
       }
@@ -409,8 +461,9 @@ app.get('/api/v1/developer/network-models', async (req, res) => {
     netModelsInflight.set(cacheKey, fetchPromise);
     try {
       const body = await fetchPromise;
+      const cacheTtl = body.partial ? NET_MODELS_PARTIAL_CACHE_TTL_MS : NET_MODELS_CACHE_TTL_MS;
       netModelsJsonCache.set(cacheKey, {
-        expiresAt: Date.now() + NET_MODELS_CACHE_TTL_MS,
+        expiresAt: Date.now() + cacheTtl,
         body,
       });
       return res.json(body);
@@ -419,6 +472,9 @@ app.get('/api/v1/developer/network-models', async (req, res) => {
     }
   } catch (error) {
     console.error('Error fetching network models:', error);
+    if (error instanceof NaapConfigError) {
+      return res.status(503).json({ error: error.message });
+    }
     res.status(502).json({ error: 'Failed to fetch network models from NAAP API' });
   }
 });

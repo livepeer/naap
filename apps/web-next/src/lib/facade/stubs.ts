@@ -170,7 +170,7 @@ const _hourlySessions = hourlyBuckets(Math.round(_totalPipelineSessions / 24));
 
 export const kpi: DashboardKPI = {
   successRate: { value: 77.8, delta: -2.1 },
-  orchestratorsOnline: { value: 33, delta: 0 },
+  orchestratorsObserved: { value: 33, delta: 0 },
   dailyUsageMins: { value: _hourlyUsage.reduce((s, b) => s + b.value, 0), delta: 3.4 },
   dailySessionCount: { value: _hourlySessions.reduce((s, b) => s + b.value, 0), delta: 5.2 },
   dailyNetworkFeesEth: { value: 6.43, delta: 7.2 },

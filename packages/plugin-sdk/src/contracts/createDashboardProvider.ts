@@ -63,7 +63,12 @@ export function createDashboardProvider(
   const rootValue: Record<string, unknown> = {};
 
   if (resolvers.kpi) {
-    rootValue.kpi = (_args: { window?: string; timeframe?: string }) => resolvers.kpi!(_args);
+    rootValue.kpi = (args: {
+      window?: string;
+      timeframe?: string;
+      pipeline?: string;
+      model_id?: string;
+    }) => resolvers.kpi!(args);
   }
   if (resolvers.protocol) {
     rootValue.protocol = () => resolvers.protocol!();

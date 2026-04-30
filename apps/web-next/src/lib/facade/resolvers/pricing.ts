@@ -1,19 +1,13 @@
 /**
  * Pricing resolver — NAAP Dashboard API backed.
  *
- * Fetches GET /v1/dashboard/pricing (raw wei-per-unit pricing across active
- * orchestrators) and converts to human-readable DashboardPipelinePricing[].
+ * GET /v1/dashboard/pricing returns either legacy aggregated rows or OpenAPI v1
+ * per-orchestrator rows (`orchAddress`, `priceWeiPerUnit`, …). Rows are merged
+ * into DashboardPipelinePricing[] (one row per pipeline+model with aggregated
+ * min/max/avg wei when multiple orchestrators quote the same capability).
  *
- * When dashboard/pricing omits rows (or lags), merges in GET /v1/net/models
- * rows that carry PriceAvgWeiPerPixel so the overview table matches Developer
- * API → Network Models pricing.
- *
- * Price conversion: price = priceAvgWeiPerUnit / 1e12
- * outputPerDollar: uses ETH_USD_PRICE (USD per ETH) or defaults to 3000
- *
- * Source:
- *   GET /v1/dashboard/pricing
- *   GET /v1/net/models (fallback rows only)
+ * When dashboard/pricing omits rows, merges in merged streaming+requests model
+ * rows that carry PriceAvgWeiPerPixel when non-zero (see network-data).
  */
 
 import type { DashboardPipelinePricing, NetworkModel } from '@naap/plugin-sdk';
@@ -24,7 +18,7 @@ import { naapGet } from '../naap-get.js';
 
 const LIVE_VIDEO_PIPELINE = 'live-video-to-video';
 
-interface ApiPipelinePricing {
+interface LegacyAggRow {
   pipeline: string;
   model: string;
   orchCount: number;
@@ -34,8 +28,18 @@ interface ApiPipelinePricing {
   pixelsPerUnit: number;
 }
 
+interface PerOrchRow {
+  orchAddress?: string;
+  orchName?: string;
+  pipeline: string;
+  model: string;
+  priceWeiPerUnit: number;
+  pixelsPerUnit: number;
+  isWarm?: boolean;
+}
+
 const PIPELINE_UNIT: Record<string, string> = {
-  'llm': 'token',
+  llm: 'token',
   'audio-to-text': 'second',
   'text-to-speech': 'second',
 };
@@ -58,11 +62,31 @@ function computeOutputPerDollar(avgWei: number, unit: string, ethUsd: number): s
 }
 
 function pricingKey(pipeline: string, model: string): string {
-  return `${pipeline}:${model}`;
+  return `${pipeline.trim()}:${model.trim()}`;
 }
 
-function fromApiPipelinePricing(
-  r: ApiPipelinePricing,
+function isLegacyAgg(r: unknown): r is LegacyAggRow {
+  return (
+    typeof r === 'object' &&
+    r !== null &&
+    'priceAvgWeiPerUnit' in r &&
+    typeof (r as LegacyAggRow).priceAvgWeiPerUnit === 'number'
+  );
+}
+
+function isPerOrch(r: unknown): r is PerOrchRow {
+  return (
+    typeof r === 'object' &&
+    r !== null &&
+    'priceWeiPerUnit' in r &&
+    typeof (r as PerOrchRow).priceWeiPerUnit === 'number' &&
+    typeof (r as PerOrchRow).pipeline === 'string' &&
+    typeof (r as PerOrchRow).model === 'string'
+  );
+}
+
+function fromAggregatedRow(
+  r: LegacyAggRow,
   netCapacity: Record<string, number>,
   ethUsd: number,
 ): DashboardPipelinePricing {
@@ -117,30 +141,122 @@ function fromNetModelRow(
   };
 }
 
+interface PerPipelineModelAgg {
+  pipeline: string;
+  model: string;
+  minWei: number;
+  maxWei: number;
+  sumWei: number;
+  count: number;
+  pixelsPerUnit: number;
+  orchCount: number;
+  warmOrchCount: number;
+}
+
+function aggregatePerOrchRows(rows: PerOrchRow[]): Map<string, PerPipelineModelAgg> {
+  const map = new Map<string, PerPipelineModelAgg>();
+  for (const r of rows) {
+    if (!Number.isFinite(r.priceWeiPerUnit) || r.priceWeiPerUnit <= 0) continue;
+    const pipeline = r.pipeline.trim();
+    const model = r.model.trim();
+    if (!pipeline || !model) continue;
+    const key = pricingKey(pipeline, model);
+    let slot = map.get(key);
+    if (!slot) {
+      slot = {
+        pipeline,
+        model,
+        minWei: r.priceWeiPerUnit,
+        maxWei: r.priceWeiPerUnit,
+        sumWei: 0,
+        count: 0,
+        pixelsPerUnit: Number(r.pixelsPerUnit ?? 0),
+        orchCount: 0,
+        warmOrchCount: 0,
+      };
+      map.set(key, slot);
+    }
+    slot.minWei = Math.min(slot.minWei, r.priceWeiPerUnit);
+    slot.maxWei = Math.max(slot.maxWei, r.priceWeiPerUnit);
+    slot.sumWei += r.priceWeiPerUnit;
+    slot.count += 1;
+    slot.orchCount += 1;
+    if (r.isWarm) {
+      slot.warmOrchCount += 1;
+    }
+    if (r.pixelsPerUnit > 0 && slot.pixelsPerUnit <= 0) {
+      slot.pixelsPerUnit = r.pixelsPerUnit;
+    }
+  }
+  return map;
+}
+
+function fromPerOrchAggregate(
+  agg: PerPipelineModelAgg,
+  netCapacity: Record<string, number>,
+  ethUsd: number,
+): DashboardPipelinePricing {
+  const avgWei = agg.sumWei / Math.max(1, agg.count);
+  const unit = PIPELINE_UNIT[agg.pipeline] ?? 'pixel';
+  const netKey = pricingKey(agg.pipeline, agg.model);
+  const orchLike = agg.warmOrchCount > 0 ? agg.warmOrchCount : agg.orchCount;
+  const capacity =
+    agg.pipeline === LIVE_VIDEO_PIPELINE
+      ? (orchLike > 0 ? orchLike : (netCapacity[netKey] ?? orchLike))
+      : (netCapacity[netKey] ?? orchLike);
+
+  return {
+    pipeline: agg.pipeline,
+    model: agg.model,
+    unit,
+    price: avgWei / 1e12,
+    avgWeiPerUnit: String(Math.round(avgWei)),
+    pixelsPerUnit: agg.pixelsPerUnit > 0 ? agg.pixelsPerUnit : null,
+    outputPerDollar: computeOutputPerDollar(avgWei, unit, ethUsd),
+    capacity,
+  };
+}
+
 export async function resolvePricing(): Promise<DashboardPipelinePricing[]> {
   return cachedFetch('facade:pricing', TTL.PRICING, async () => {
     const ethUsd = parseEthUsdReference();
-    const [rows, netCapacity, netModels] = await Promise.all([
-      naapGet<ApiPipelinePricing[]>('dashboard/pricing', undefined, {
+    const [rawRows, netCapacity, netModels] = await Promise.all([
+      naapGet<unknown[]>('dashboard/pricing', undefined, {
         cache: 'no-store',
         errorLabel: 'pricing',
       }),
       resolveNetCapacity().catch((err) => {
-        console.warn('[facade/pricing] net/capacity merge skipped:', err);
+        console.warn('[facade/pricing] net capacity merge skipped:', err);
         return {} as Record<string, number>;
       }),
       getRawNetModels().catch((err) => {
-        console.warn('[facade/pricing] net/models pricing merge skipped:', err);
+        console.warn('[facade/pricing] model registry pricing merge skipped:', err);
         return [] as NetworkModel[];
       }),
     ]);
 
     const byKey = new Map<string, DashboardPipelinePricing>();
 
-    for (const r of rows) {
-      if (!Number.isFinite(r.priceAvgWeiPerUnit) || r.priceAvgWeiPerUnit <= 0) continue;
-      const row = fromApiPipelinePricing(r, netCapacity, ethUsd);
-      byKey.set(pricingKey(row.pipeline, row.model ?? ''), row);
+    if (rawRows.length > 0 && isLegacyAgg(rawRows[0])) {
+      for (const r of rawRows) {
+        if (!isLegacyAgg(r)) continue;
+        if (!Number.isFinite(r.priceAvgWeiPerUnit) || r.priceAvgWeiPerUnit <= 0) continue;
+        const pipeline = typeof r.pipeline === 'string' ? r.pipeline.trim() : '';
+        const model = typeof r.model === 'string' ? r.model.trim() : '';
+        if (!pipeline || !model) continue;
+        const row = fromAggregatedRow({ ...r, pipeline, model }, netCapacity, ethUsd);
+        byKey.set(pricingKey(row.pipeline, row.model ?? ''), row);
+      }
+    } else {
+      const perOrch: PerOrchRow[] = [];
+      for (const r of rawRows) {
+        if (isPerOrch(r)) perOrch.push(r);
+      }
+      const aggs = aggregatePerOrchRows(perOrch);
+      for (const agg of aggs.values()) {
+        const row = fromPerOrchAggregate(agg, netCapacity, ethUsd);
+        byKey.set(pricingKey(row.pipeline, row.model ?? ''), row);
+      }
     }
 
     for (const nm of netModels) {
