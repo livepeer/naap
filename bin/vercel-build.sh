@@ -25,8 +25,10 @@ if [ ! -f "package.json" ] || [ ! -d "apps/web-next" ]; then
   exit 1
 fi
 
-# Ensure DATABASE_URL is set (Vercel Storage uses POSTGRES_* prefixes)
-export DATABASE_URL="${DATABASE_URL:-$POSTGRES_PRISMA_URL}"
+# Ensure DATABASE_URL is set
+# Vercel Neon integration may use project-prefixed names (e.g., a3p_DATABASE_URL)
+export DATABASE_URL="${DATABASE_URL:-${a3p_DATABASE_URL:-${POSTGRES_PRISMA_URL:-$a3p_POSTGRES_PRISMA_URL}}}"
+export DATABASE_URL_UNPOOLED="${DATABASE_URL_UNPOOLED:-${a3p_DATABASE_URL_UNPOOLED:-${POSTGRES_URL_NON_POOLING:-$a3p_POSTGRES_URL_NON_POOLING}}}"
 
 echo "=== Vercel Build Pipeline ==="
 echo "Environment: ${VERCEL_ENV:-unknown}"
