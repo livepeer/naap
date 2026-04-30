@@ -137,11 +137,11 @@ export default function DashboardPage() {
   /**
    * Orchestrator snapshot fields come from the BFF (same resolver as GraphQL would use)
    * because the dashboard provider plugin bundles an older GraphQL schema that may not
-   * yet include `orchestratorsWindowHours` on type KPI.
+   * yet include the latest orchestrator snapshot metadata on type KPI.
    */
   const [orchKpiFromBff, setOrchKpiFromBff] = useState<Pick<
     DashboardKPI,
-    'orchestratorsObserved' | 'orchestratorsWindowHours'
+    'orchestratorsObserved' | 'orchestratorsWindowHours' | 'orchestratorsObservedSource'
   > | null>(null);
 
   useEffect(() => {
@@ -194,6 +194,7 @@ export default function DashboardPage() {
           setOrchKpiFromBff({
             orchestratorsObserved: body.orchestratorsObserved,
             orchestratorsWindowHours: body.orchestratorsWindowHours,
+            orchestratorsObservedSource: body.orchestratorsObservedSource,
           });
         }
       })
@@ -269,6 +270,7 @@ export default function DashboardPage() {
       ...base,
       orchestratorsObserved: orchKpiFromBff.orchestratorsObserved,
       orchestratorsWindowHours: orchKpiFromBff.orchestratorsWindowHours,
+      orchestratorsObservedSource: orchKpiFromBff.orchestratorsObservedSource,
     };
   }, [lbData?.kpi, orchKpiFromBff]);
 

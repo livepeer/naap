@@ -79,6 +79,9 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     # response; null when the registry had no parseable timestamps. Independent
     # of the user-selected dashboard timeframe.
     orchestratorsWindowHours: Float
+    # Explicit source for orchestratorsObserved when it comes from the registry
+    # snapshot, including cases where no snapshot timeframe can be derived.
+    orchestratorsObservedSource: String
     hourlyUsage: [HourlyBucket!]
     hourlySessions: [HourlyBucket!]
   }
@@ -239,6 +242,12 @@ export interface DashboardKPI {
    * `LastSeen` across rows). `null` when the registry had no parseable timestamps.
    */
   orchestratorsWindowHours?: number | null;
+  /**
+   * Explicit source for {@link orchestratorsObserved}. Set to `snapshot` when the
+   * value comes from the registry snapshot, including cases where no effective
+   * snapshot window could be derived.
+   */
+  orchestratorsObservedSource?: 'snapshot';
   hourlyUsage?: HourlyBucket[];
   hourlySessions?: HourlyBucket[];
 }

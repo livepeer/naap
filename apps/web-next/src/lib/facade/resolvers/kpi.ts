@@ -3,10 +3,11 @@
  *
  * Fetches GET /v1/dashboard/kpi (combined `streaming` + `requests` on API v1), then
  * overrides `orchestratorsObserved.value` with the distinct `(Address, URI)` pair count
- * from the shared streaming/requests orchestrator snapshot. The orchestrator endpoints have no
- * timeframe filter, so this value is independent of the user-selected window — which
- * is why `orchestratorsWindowHours` is exposed alongside: it carries the effective
- * span implied by the oldest `LastSeen` in the snapshot so the UI can label the tile
+ * from the shared streaming/requests orchestrator snapshot when the snapshot has a
+ * parseable effective window. The orchestrator endpoints have no timeframe filter, so
+ * this value is independent of the user-selected window — which is why
+ * `orchestratorsWindowHours` is exposed alongside: it carries the effective span
+ * implied by the oldest `LastSeen` in the snapshot so the UI can label the tile
  * accordingly (e.g. "last ~3h") instead of the global dashboard timeframe.
  *
  * Both fetches run in parallel; if orchestrator inventory fails the upstream KPI value
@@ -81,12 +82,16 @@ export async function resolveKPI(opts: {
     const hasNetRegistrySnapshot =
       netData.listedCount > 0 || netData.lastSeenMsByPair.size > 0;
     if (hasNetRegistrySnapshot) {
-      kpi.orchestratorsObserved = {
-        ...kpi.orchestratorsObserved,
-        value: netData.listedCount,
-        delta: 0,
-      };
-      kpi.orchestratorsWindowHours = orchestratorSnapshotWindowHours(netData);
+      const window = orchestratorSnapshotWindowHours(netData);
+      kpi.orchestratorsObservedSource = 'snapshot';
+      if (window !== null) {
+        kpi.orchestratorsObserved = {
+          ...kpi.orchestratorsObserved,
+          value: netData.listedCount,
+          delta: 0,
+        };
+        kpi.orchestratorsWindowHours = window;
+      }
     }
 
     return kpi;

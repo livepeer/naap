@@ -614,10 +614,14 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
   const orchLabel =
     data.orchestratorsWindowHours != null && Number.isFinite(data.orchestratorsWindowHours)
       ? `~${formatOverviewTimeframeLabel(Math.max(1, Math.round(data.orchestratorsWindowHours)))}`
-      : tfLabel;
+      : data.orchestratorsObservedSource === 'snapshot'
+        ? 'snapshot'
+        : tfLabel;
   const orchTooltip =
-    data.orchestratorsWindowHours != null
-      ? 'Distinct orchestrator endpoints (Address + service URI) in the registry snapshot. Window is derived from the oldest LastSeen — the list endpoint does not accept a timeframe.'
+    data.orchestratorsObservedSource === 'snapshot'
+      ? data.orchestratorsWindowHours != null
+        ? 'Distinct orchestrator endpoints (Address + service URI) in the registry snapshot. Window is derived from the oldest LastSeen — the list endpoint does not accept a timeframe.'
+        : 'Orchestrator data came from the registry snapshot, but the snapshot did not include parseable LastSeen timestamps for a timeframe label.'
       : undefined;
 
   const tile = (

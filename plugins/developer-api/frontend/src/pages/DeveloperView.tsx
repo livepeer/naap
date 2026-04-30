@@ -645,6 +645,7 @@ export const DeveloperView: React.FC = () => {
   const loadNetworkModels = useCallback(async () => {
     setNetworkModelsLoading(true);
     setNetworkModelsError(null);
+    setNetworkModelsEthUsd(PIPELINE_ETH_USD_CLIENT_FALLBACK);
     setNetworkModelsEthUsdFromOracle(false);
     try {
       const [netRes, catalogRes, ethRes] = await Promise.allSettled([
@@ -662,7 +663,7 @@ export const DeveloperView: React.FC = () => {
             setNetworkModelsEthUsdFromOracle(true);
           }
         } catch {
-          /* keep previous ETH/USD */
+          /* keep client fallback */
         }
       }
 
