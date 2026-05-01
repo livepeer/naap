@@ -309,7 +309,7 @@ export function resolve(
       }
 
       if (winner && winnerValue !== null && winnerValue !== undefined) {
-        (merged as Record<string, unknown>)[field] = winnerValue;
+        (merged as unknown as Record<string, unknown>)[field] = winnerValue;
       }
 
       if (losers.length > 0 && winner) {

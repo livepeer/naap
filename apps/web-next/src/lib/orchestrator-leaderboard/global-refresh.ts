@@ -13,8 +13,9 @@
  */
 
 import { prisma } from '@/lib/db';
+import { Prisma } from '@naap/database';
 import type { SourceKind, NormalizedOrch, SourceStats } from './sources/types';
-import { SOURCE_KINDS, getAdapter } from './sources';
+import { getAdapter } from './sources';
 import { resolve, type ResolverConfig, type AuditEntry } from './resolver';
 import { setGlobalDataset } from './global-dataset';
 import { getRefreshIntervalMs, markRefreshed } from './config';
@@ -83,9 +84,9 @@ async function writeAudit(input: AuditWriteInput): Promise<void> {
         membershipSource: input.membershipSource,
         totalOrchestrators: input.totalOrchestrators,
         totalCapabilities: input.totalCapabilities,
-        perSource: input.perSource as Record<string, unknown>,
-        conflicts: input.conflicts as unknown[],
-        dropped: input.dropped as unknown[],
+        perSource: input.perSource as unknown as Prisma.InputJsonValue,
+        conflicts: input.conflicts as unknown as Prisma.InputJsonValue,
+        dropped: input.dropped as unknown as Prisma.InputJsonValue,
         warnings: input.warnings,
       },
     });
