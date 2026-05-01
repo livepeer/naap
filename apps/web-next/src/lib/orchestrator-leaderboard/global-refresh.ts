@@ -148,6 +148,13 @@ export async function refreshGlobalDataset(
     perSource: sourceStats,
   });
 
+  await writeAudit({
+    ...audit,
+    durationMs: Date.now() - t0,
+    refreshedBy,
+    perSource: sourceStats,
+  });
+
   clearPlanCache();
 
   return {
