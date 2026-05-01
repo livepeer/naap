@@ -510,6 +510,106 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
+  /api/v1/orchestrator-leaderboard/sources:
+    get:
+      tags: [Admin]
+      summary: List configured data sources
+      description: Returns all data sources with their priority, enabled status, and config.
+      operationId: listSources
+      responses:
+        "200":
+          description: Source list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/LeaderboardSource" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    put:
+      tags: [Admin]
+      summary: Update data source priority and enabled status
+      description: |
+        Atomic upsert of source configurations. Requires `system:admin` role.
+        The source with the lowest `priority` number owns orchestrator membership.
+      operationId: updateSources
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sources]
+              properties:
+                sources:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    type: object
+                    required: [kind, enabled, priority]
+                    properties:
+                      kind: { $ref: "#/components/schemas/SourceKind" }
+                      enabled: { type: boolean }
+                      priority: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        "200":
+          description: Updated source list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/LeaderboardSource" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/orchestrator-leaderboard/audits:
+    get:
+      tags: [Admin]
+      summary: List recent refresh audit records
+      description: Paginated list of refresh audit records with per-source stats, conflicts, and dropped orchestrators.
+      operationId: listAudits
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+          description: Opaque cursor for keyset pagination
+      responses:
+        "200":
+          description: Audit list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/RefreshAudit" }
+                      pagination:
+                        type: object
+                        properties:
+                          nextCursor: { type: [string, "null"] }
+                          hasMore: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
 components:
   securitySchemes:
     bearerJwt:
@@ -850,3 +950,72 @@ components:
             refreshIntervalHours: { type: integer }
             lastRefreshedAt: { type: [string, "null"], format: date-time }
             lastRefreshedBy: { type: [string, "null"] }
+
+    SourceKind:
+      type: string
+      enum: [livepeer-subgraph, clickhouse-query, naap-discover, naap-pricing]
+      description: Identifier for a leaderboard data source adapter
+
+    LeaderboardSource:
+      type: object
+      required: [kind, enabled, priority, updatedAt]
+      properties:
+        kind: { $ref: "#/components/schemas/SourceKind" }
+        enabled: { type: boolean }
+        priority:
+          type: integer
+          minimum: 1
+          description: Lower number = higher priority. Tier-1 owns membership.
+        config:
+          type: [object, "null"]
+          description: Optional per-source overrides (e.g. timeout, page size)
+        updatedAt: { type: string, format: date-time }
+
+    RefreshAudit:
+      type: object
+      required: [id, refreshedAt, refreshedBy, durationMs, membershipSource, totalOrchestrators, totalCapabilities, perSource, conflicts, dropped, warnings]
+      properties:
+        id: { type: string }
+        refreshedAt: { type: string, format: date-time }
+        refreshedBy:
+          type: string
+          description: "'cron' or 'admin:<userId>'"
+        durationMs: { type: integer }
+        membershipSource: { $ref: "#/components/schemas/SourceKind" }
+        totalOrchestrators: { type: integer }
+        totalCapabilities: { type: integer }
+        perSource:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              ok: { type: boolean }
+              fetched: { type: integer }
+              durationMs: { type: integer }
+              errorMessage: { type: string }
+        conflicts:
+          type: array
+          items:
+            type: object
+            properties:
+              orchKey: { type: string }
+              field: { type: string }
+              winner: { type: string }
+              losers:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    source: { type: string }
+                    value: {}
+        dropped:
+          type: array
+          items:
+            type: object
+            properties:
+              orchKey: { type: string }
+              source: { type: string }
+              reason: { type: string }
+        warnings:
+          type: array
+          items: { type: string }

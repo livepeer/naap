@@ -1,0 +1,36 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "naap-pricing",
+  "name": "NaaP Dashboard Pricing",
+  "description": "Orchestrator pricing API — per-pipeline, per-model pricing in wei with warmth status from the NaaP network dashboard",
+  "icon": "💰",
+  "category": "infrastructure",
+  "connector": {
+    "slug": "naap-pricing",
+    "displayName": "NaaP Dashboard Pricing",
+    "description": "Fetches orchestrator pricing data including per-pipeline/model prices and warmth status",
+    "category": "infrastructure",
+    "upstreamBaseUrl": "https://naap-api.cloudspe.com",
+    "allowedHosts": ["naap-api.cloudspe.com"],
+    "defaultTimeout": 15000,
+    "healthCheckPath": "/v1/dashboard/pricing",
+    "authType": "none",
+    "authConfig": {},
+    "secretRefs": [],
+    "streamingEnabled": false,
+    "responseWrapper": false,
+    "tags": ["livepeer", "orchestrator", "pricing", "dashboard"]
+  },
+  "endpoints": [
+    {
+      "name": "list-pricing",
+      "description": "List all orchestrator pricing entries with pipeline, model, and warmth info",
+      "method": "GET",
+      "path": "/pricing",
+      "upstreamPath": "/v1/dashboard/pricing",
+      "timeout": 15000,
+      "cacheTtl": 60,
+      "retries": 1
+    }
+  ]
+}

@@ -1,77 +1,103 @@
 /**
- * Orchestrator Leaderboard — Global Dataset Refresh
+ * Orchestrator Leaderboard — Global Dataset Refresh (pluggable pipeline)
  *
- * Fetches all warm capabilities from ClickHouse, then fetches leaderboard
- * rows for each capability and stores the result as the global dataset
- * (full replace). Also clears plan caches so they re-evaluate lazily.
+ * Reads enabled LeaderboardSource rows from the DB, fetches data from each
+ * source adapter in parallel, runs the hybrid conflict resolver, writes the
+ * audit record, and replaces the in-memory global dataset. Plan caches are
+ * cleared so they re-evaluate lazily.
+ *
+ * Downstream consumers (ranking.ts, plan evaluator, /dataset route) are
+ * unchanged — the in-memory shape
+ *   { capabilities: Record<string, ClickHouseLeaderboardRow[]> }
+ * is preserved.
  */
 
-import type { ClickHouseJSONResponse } from './types';
-import { fetchLeaderboard, resolveClickhouseGatewayQueryUrl } from './query';
+import { prisma } from '@/lib/db';
+import type { SourceKind, NormalizedOrch, SourceStats } from './sources/types';
+import { SOURCE_KINDS, getAdapter } from './sources';
+import { resolve, type ResolverConfig, type AuditEntry } from './resolver';
 import { setGlobalDataset } from './global-dataset';
 import { getRefreshIntervalMs, markRefreshed } from './config';
 import { clearPlanCache } from './refresh';
 
-const CAPABILITIES_SQL = `SELECT DISTINCT capability_name
-FROM semantic.network_capabilities
-WHERE timestamp_ts >= now() - INTERVAL 1 HOUR
-  AND warm_bool = 1
-ORDER BY capability_name
-FORMAT JSON`;
+// ---------------------------------------------------------------------------
+// Load resolver config from DB (LeaderboardSource table)
+// ---------------------------------------------------------------------------
 
-const FALLBACK_CAPABILITIES = [
-  'noop',
-  'streamdiffusion',
-  'streamdiffusion-sdxl',
-  'streamdiffusion-sdxl-v2v',
+const DEFAULT_SOURCES: { kind: SourceKind; priority: number; enabled: boolean }[] = [
+  { kind: 'livepeer-subgraph', priority: 1, enabled: true },
+  { kind: 'clickhouse-query', priority: 2, enabled: true },
+  { kind: 'naap-discover', priority: 3, enabled: true },
+  { kind: 'naap-pricing', priority: 4, enabled: true },
 ];
 
-/**
- * Fetch all warm capability names from ClickHouse.
- */
-async function fetchCapabilities(
-  authToken: string,
-  requestUrl?: string,
-  cookieHeader?: string | null,
-): Promise<string[]> {
-  const url = resolveClickhouseGatewayQueryUrl(requestUrl);
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'text/plain',
-    Authorization: `Bearer ${authToken}`,
-  };
-
-  if (cookieHeader) headers['cookie'] = cookieHeader;
-
-  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-  if (bypassSecret) headers['x-vercel-protection-bypass'] = bypassSecret;
-
+async function loadResolverConfig(): Promise<ResolverConfig> {
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: CAPABILITIES_SQL,
-      signal: AbortSignal.timeout(10_000),
+    const rows = await prisma.leaderboardSource.findMany({
+      orderBy: { priority: 'asc' },
     });
 
-    if (!res.ok) throw new Error(`ClickHouse query failed (${res.status})`);
+    if (rows.length === 0) {
+      // Seed default rows on first run
+      await prisma.$transaction(
+        DEFAULT_SOURCES.map((s) =>
+          prisma.leaderboardSource.upsert({
+            where: { kind: s.kind },
+            update: {},
+            create: { kind: s.kind, priority: s.priority, enabled: s.enabled },
+          }),
+        ),
+      );
+      return { sources: DEFAULT_SOURCES };
+    }
 
-    const json = await res.json();
-    const chData = (json.data ?? json) as {
-      data?: Array<{ capability_name: string }>;
+    return {
+      sources: rows.map((r) => ({
+        kind: r.kind as SourceKind,
+        priority: r.priority,
+        enabled: r.enabled,
+      })),
     };
-    return (chData.data ?? []).map(
-      (row: { capability_name: string }) => row.capability_name,
-    );
   } catch {
-    return FALLBACK_CAPABILITIES;
+    // DB not migrated yet — fall back to defaults
+    return { sources: DEFAULT_SOURCES };
   }
 }
 
-/**
- * Full refresh: fetch all capabilities, fetch rows for each, store as
- * the global dataset (full replace). Returns summary stats.
- */
+// ---------------------------------------------------------------------------
+// Audit writer
+// ---------------------------------------------------------------------------
+
+interface AuditWriteInput extends AuditEntry {
+  durationMs: number;
+  refreshedBy: string;
+  perSource: Record<string, SourceStats>;
+}
+
+async function writeAudit(input: AuditWriteInput): Promise<void> {
+  try {
+    await prisma.leaderboardRefreshAudit.create({
+      data: {
+        refreshedBy: input.refreshedBy,
+        durationMs: input.durationMs,
+        membershipSource: input.membershipSource,
+        totalOrchestrators: input.totalOrchestrators,
+        totalCapabilities: input.totalCapabilities,
+        perSource: input.perSource as Record<string, unknown>,
+        conflicts: input.conflicts as unknown[],
+        dropped: input.dropped as unknown[],
+        warnings: input.warnings,
+      },
+    });
+  } catch (err) {
+    console.error('[orchestrator-leaderboard] Failed to write audit:', err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API — preserved signature
+// ---------------------------------------------------------------------------
+
 export async function refreshGlobalDataset(
   refreshedBy: string,
   authToken: string,
@@ -82,31 +108,42 @@ export async function refreshGlobalDataset(
   capabilities: number;
   orchestrators: number;
 }> {
-  const capabilities = await fetchCapabilities(authToken, requestUrl, cookieHeader);
+  const t0 = Date.now();
+  const cfg = await loadResolverConfig();
+  const enabled = cfg.sources.filter((s) => s.enabled).sort((a, b) => a.priority - b.priority);
+  const ctx = { authToken, requestUrl, cookieHeader };
 
-  const capData: Record<string, import('./types').ClickHouseLeaderboardRow[]> = {};
-  let totalOrchestrators = 0;
+  const perSource: Partial<Record<SourceKind, NormalizedOrch[]>> = {};
+  const sourceStats: Record<string, SourceStats> = {};
 
-  for (const capability of capabilities) {
+  // Fetch from all enabled sources (concurrently for speed)
+  const fetchPromises = enabled.map(async (s) => {
     try {
-      const { rows } = await fetchLeaderboard(
-        capability,
-        authToken,
-        requestUrl,
-        cookieHeader,
-      );
-      capData[capability] = rows;
-      totalOrchestrators += rows.length;
-    } catch {
-      capData[capability] = [];
+      const adapter = getAdapter(s.kind);
+      const { rows, stats } = await adapter.fetchAll(ctx);
+      perSource[s.kind] = rows;
+      sourceStats[s.kind] = stats;
+    } catch (err) {
+      sourceStats[s.kind] = {
+        ok: false,
+        fetched: 0,
+        durationMs: Date.now() - t0,
+        errorMessage: (err as Error).message,
+      };
+      perSource[s.kind] = [];
     }
-  }
+  });
 
+  await Promise.all(fetchPromises);
+
+  const { capabilities, audit } = resolve(perSource, cfg);
+
+  const totalOrchestrators = audit.totalOrchestrators;
   const intervalMs = await getRefreshIntervalMs();
 
   setGlobalDataset(
     {
-      capabilities: capData,
+      capabilities,
       refreshedAt: Date.now(),
       refreshedBy,
       totalOrchestrators,
@@ -116,11 +153,18 @@ export async function refreshGlobalDataset(
 
   await markRefreshed(refreshedBy);
 
+  await writeAudit({
+    ...audit,
+    durationMs: Date.now() - t0,
+    refreshedBy,
+    perSource: sourceStats,
+  });
+
   clearPlanCache();
 
   return {
     refreshed: true,
-    capabilities: capabilities.length,
+    capabilities: Object.keys(capabilities).length,
     orchestrators: totalOrchestrators,
   };
 }

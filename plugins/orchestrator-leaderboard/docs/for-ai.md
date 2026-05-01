@@ -69,6 +69,9 @@ Base path: `/api/v1/orchestrator-leaderboard`. Full host comes from the user
 | `PUT`    | `/dataset/config`             | JWT (`system:admin`)    | Set refresh interval (1, 4, 8, or 12 hours).    |
 | `POST`   | `/dataset/refresh`            | JWT admin / CRON_SECRET | Force global refresh (admin only).              |
 | `POST`   | `/plans/refresh`              | CRON_SECRET             | Cron-only bulk refresh. **Never call.**         |
+| `GET`    | `/sources`                    | JWT or `gw_`            | List data source priority & status.             |
+| `PUT`    | `/sources`                    | JWT (`system:admin`)    | Reorder / enable / disable data sources.        |
+| `GET`    | `/audits`                     | JWT or `gw_`            | Recent refresh audit log.                       |
 
 ---
 
@@ -94,6 +97,8 @@ Need to inspect every capability + every orchestrator?
 Building admin tooling?
 └── /dataset/config (read = any auth, write = admin)
 └── /dataset/refresh (admin)
+└── /sources (read = any auth, write = admin)
+└── /audits (read = any auth)
 ```
 
 ---
@@ -370,6 +375,59 @@ orchestrators with at least 16 GB VRAM."
 
 ---
 
+## Data sources & audit (admin)
+
+The leaderboard refreshes from **4 pluggable data sources** with configurable
+priority. The highest-priority enabled source **owns orchestrator membership**
+(defines who is in the set). Lower-priority sources only contribute metric
+fields. After each refresh, an audit log records per-source stats, field-level
+conflicts, and dropped orchestrators.
+
+### Default source priority
+
+| Priority | Kind                | Owns membership? | Key fields |
+| -------- | ------------------- | ---------------- | ---------- |
+| 1        | `livepeer-subgraph` | yes              | `ethAddress`, `orchUri`, activation |
+| 2        | `clickhouse-query`  | no               | latency, GPU, swap ratio, availability |
+| 3        | `naap-discover`     | no               | capabilities, score, liveness |
+| 4        | `naap-pricing`      | no               | `pricePerUnit` |
+
+### Endpoints for source management
+
+| Verb  | Path       | Auth                 | Purpose |
+| ----- | ---------- | -------------------- | ------- |
+| `GET` | `/sources` | JWT or `gw_`         | List enabled/disabled sources with priority |
+| `PUT` | `/sources` | JWT (`system:admin`) | Reorder / enable / disable sources |
+| `GET` | `/audits`  | JWT or `gw_`         | Recent refresh audit log (`?limit=N&cursor=…`) |
+
+### Agent checklist for source configuration
+
+1. `GET /sources` to see current order.
+2. To disable a source: `PUT /sources` with `enabled: false` for that kind.
+3. To change priority: `PUT /sources` with updated `priority` values.
+4. After changes, trigger `POST /dataset/refresh` (admin) and check
+   `GET /audits` to verify the new pipeline produces the expected dataset.
+
+### Audit record shape
+
+```ts
+type RefreshAudit = {
+  id: string;
+  refreshedAt: string;
+  refreshedBy: string;     // 'cron' | 'admin:<userId>'
+  durationMs: number;
+  membershipSource: string;
+  totalOrchestrators: number;
+  totalCapabilities: number;
+  perSource: Record<string, { ok: boolean; fetched: number; durationMs: number; errorMessage?: string }>;
+  conflicts: Array<{ orchKey: string; field: string; winner: string; losers: Array<{ source: string; value: unknown }> }>;
+  dropped: Array<{ orchKey: string; source: string; reason: string }>;
+  warnings: string[];
+};
+```
+
+---
+
 ## When NOT to use this plugin
 
 - For *real-time* per-request orchestrator selection at sub-second latency:
@@ -404,3 +462,6 @@ re-read [`openapi.yaml`](./openapi.yaml):
 - `billingPlanId` immutable; uniqueness enforced platform-wide.
 - Plan scoping by `(teamId, ownerUserId)`.
 - Refresh-interval enum = `[1, 4, 8, 12]` hours.
+- Data source kinds = `livepeer-subgraph`, `clickhouse-query`, `naap-discover`, `naap-pricing`.
+- Membership owned by the highest-priority enabled source.
+- Hybrid conflict resolution: source-level membership, field-level metric priority.

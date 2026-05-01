@@ -2268,3 +2268,34 @@ model LeaderboardConfig {
 
   @@schema("plugin_orchestrator_leaderboard")
 }
+
+/// Configurable data source for the orchestrator-leaderboard refresh pipeline.
+/// Admin can enable/disable each source and reorder priority (lower = higher).
+model LeaderboardSource {
+  kind      String   @id
+  enabled   Boolean  @default(true)
+  priority  Int
+  config    Json?
+  updatedAt DateTime @updatedAt
+
+  @@schema("plugin_orchestrator_leaderboard")
+}
+
+/// Durable audit log written after every global dataset refresh. Records
+/// per-source fetch stats, field-level conflict resolutions, and dropped rows.
+model LeaderboardRefreshAudit {
+  id                 String   @id @default(cuid())
+  refreshedAt        DateTime @default(now())
+  refreshedBy        String
+  durationMs         Int
+  membershipSource   String
+  totalOrchestrators Int
+  totalCapabilities  Int
+  perSource          Json
+  conflicts          Json
+  dropped            Json
+  warnings           String[]
+
+  @@index([refreshedAt])
+  @@schema("plugin_orchestrator_leaderboard")
+}

@@ -572,7 +572,62 @@ curl -s -H "Authorization: Bearer $NAAP_API_KEY" \
 
 ---
 
-## 11. Going further
+## 11. Configuring data sources (admin)
+
+The leaderboard refresh pipeline pulls from 4 pluggable data sources. Admins
+can reorder, enable, or disable them via the API or the admin UI.
+
+### List current sources
+
+```bash
+curl -H "Authorization: Bearer $NAAP_API_KEY" \
+  "$NAAP_API_URL/api/v1/orchestrator-leaderboard/sources"
+```
+
+### Reorder / disable a source
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer $NAAP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sources": [
+      { "kind": "livepeer-subgraph", "enabled": true, "priority": 1 },
+      { "kind": "clickhouse-query", "enabled": true, "priority": 2 },
+      { "kind": "naap-discover", "enabled": true, "priority": 3 },
+      { "kind": "naap-pricing", "enabled": false, "priority": 4 }
+    ]
+  }' \
+  "$NAAP_API_URL/api/v1/orchestrator-leaderboard/sources"
+```
+
+**Key rules:**
+
+- The source with the **lowest** `priority` number owns orchestrator
+  **membership** — only orchestrators present in that source appear in the
+  final dataset. Other sources contribute metrics only.
+- After changing sources, trigger a manual refresh:
+  `POST /dataset/refresh` (admin auth required).
+- Check the audit log to verify:
+  `GET /audits?limit=1`.
+
+### View the refresh audit log
+
+```bash
+curl -H "Authorization: Bearer $NAAP_API_KEY" \
+  "$NAAP_API_URL/api/v1/orchestrator-leaderboard/audits?limit=5"
+```
+
+Each audit entry shows per-source stats (how many rows, duration, errors),
+field-level conflicts (which source "won" each field), and dropped
+orchestrators (those not in the membership source).
+
+For a deep dive on how sources work, see
+[`data-sources.md`](./data-sources.md).
+
+---
+
+## 12. Going further
 
 - Machine-readable contract: [`openapi.yaml`](./openapi.yaml) — render in
   Swagger UI, Redoc, Stoplight, or generate clients with `openapi-generator`.

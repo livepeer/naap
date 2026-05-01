@@ -129,6 +129,117 @@ SDK clients should respect the `Cache-Control: private, max-age=10` header to av
 
 ---
 
+## GET /api/v1/orchestrator-leaderboard/sources
+
+Returns the list of configured data sources with their priority and enabled status.
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "kind": "livepeer-subgraph",
+      "enabled": true,
+      "priority": 1,
+      "config": null,
+      "updatedAt": "2025-06-01T12:00:00.000Z"
+    },
+    {
+      "kind": "clickhouse-query",
+      "enabled": true,
+      "priority": 2,
+      "config": null,
+      "updatedAt": "2025-06-01T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `kind` | string | Source identifier: `livepeer-subgraph`, `clickhouse-query`, `naap-discover`, `naap-pricing` |
+| `enabled` | boolean | Whether this source is active in the refresh pipeline |
+| `priority` | integer | Lower = higher priority. Tier-1 (lowest number) owns orchestrator membership |
+| `config` | object\|null | Optional per-source overrides |
+
+---
+
+## PUT /api/v1/orchestrator-leaderboard/sources
+
+Update source priority and enabled/disabled status. **Admin only** (`system:admin` role).
+
+### Request Body
+
+```json
+{
+  "sources": [
+    { "kind": "livepeer-subgraph", "enabled": true, "priority": 1 },
+    { "kind": "clickhouse-query", "enabled": true, "priority": 2 },
+    { "kind": "naap-discover", "enabled": true, "priority": 3 },
+    { "kind": "naap-pricing", "enabled": false, "priority": 4 }
+  ]
+}
+```
+
+### Response
+
+Same shape as `GET /sources` — returns the updated list.
+
+### Error Codes
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Invalid kind, priority, or missing required fields |
+| 401 | `UNAUTHORIZED` | Missing or invalid auth |
+| 403 | `FORBIDDEN` | Caller is not `system:admin` |
+
+---
+
+## GET /api/v1/orchestrator-leaderboard/audits
+
+Returns recent refresh audit records with per-source stats, conflicts, and dropped orchestrators.
+
+### Query Parameters
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | integer | 20 | Number of audit rows (1–100) |
+| `cursor` | string | — | Opaque cursor for keyset pagination |
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "clxyz...",
+      "refreshedAt": "2025-06-01T12:00:00.000Z",
+      "refreshedBy": "cron",
+      "durationMs": 3200,
+      "membershipSource": "livepeer-subgraph",
+      "totalOrchestrators": 85,
+      "totalCapabilities": 4,
+      "perSource": {
+        "livepeer-subgraph": { "ok": true, "fetched": 120, "durationMs": 800 },
+        "clickhouse-query": { "ok": true, "fetched": 340, "durationMs": 1500 }
+      },
+      "conflicts": [],
+      "dropped": [],
+      "warnings": []
+    }
+  ],
+  "pagination": {
+    "nextCursor": "clxyz...",
+    "hasMore": true
+  }
+}
+```
+
+---
+
 ## Quick Start (curl)
 
 ```bash
@@ -142,4 +253,12 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"capability":"streamdiffusion-sdxl","topN":5}' \
   https://your-host/api/v1/orchestrator-leaderboard/rank
+
+# List data sources
+curl -H "Authorization: Bearer gw_YOUR_KEY" \
+  https://your-host/api/v1/orchestrator-leaderboard/sources
+
+# View recent audit log
+curl -H "Authorization: Bearer gw_YOUR_KEY" \
+  https://your-host/api/v1/orchestrator-leaderboard/audits?limit=5
 ```

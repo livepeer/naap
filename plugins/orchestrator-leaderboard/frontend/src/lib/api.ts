@@ -312,6 +312,105 @@ export async function triggerDatasetRefresh(): Promise<{
   return json.data;
 }
 
+// ---------------------------------------------------------------------------
+// Data Sources (admin)
+// ---------------------------------------------------------------------------
+
+export interface LeaderboardSourceDTO {
+  kind: string;
+  enabled: boolean;
+  priority: number;
+  config: Record<string, unknown> | null;
+  updatedAt: string;
+}
+
+export async function fetchSources(): Promise<LeaderboardSourceDTO[]> {
+  const res = await fetch(`${BASE_URL}/sources`, {
+    headers: buildHeaders(false),
+    credentials: 'include',
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<LeaderboardSourceDTO[]> = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+
+  return json.data;
+}
+
+export async function updateSources(
+  sources: { kind: string; enabled: boolean; priority: number }[],
+): Promise<LeaderboardSourceDTO[]> {
+  const res = await fetch(`${BASE_URL}/sources`, {
+    method: 'PUT',
+    headers: buildHeaders(true),
+    body: JSON.stringify({ sources }),
+    credentials: 'include',
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<LeaderboardSourceDTO[]> = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+
+  return json.data;
+}
+
+// ---------------------------------------------------------------------------
+// Refresh Audits
+// ---------------------------------------------------------------------------
+
+export interface RefreshAuditDTO {
+  id: string;
+  refreshedAt: string;
+  refreshedBy: string;
+  durationMs: number;
+  membershipSource: string;
+  totalOrchestrators: number;
+  totalCapabilities: number;
+  perSource: Record<string, { ok: boolean; fetched: number; durationMs: number; errorMessage?: string }>;
+  conflicts: Array<{ orchKey: string; field: string; winner: string; losers: Array<{ source: string; value: unknown }> }>;
+  dropped: Array<{ orchKey: string; source: string; reason: string }>;
+  warnings: string[];
+}
+
+export async function fetchAudits(limit = 20, cursor?: string): Promise<{
+  items: RefreshAuditDTO[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+
+  const res = await fetch(`${BASE_URL}/audits?${params}`, {
+    headers: buildHeaders(false),
+    credentials: 'include',
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<RefreshAuditDTO[]> & { pagination?: { nextCursor: string | null; hasMore: boolean } } = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+
+  return {
+    items: json.data,
+    nextCursor: json.pagination?.nextCursor ?? null,
+    hasMore: json.pagination?.hasMore ?? false,
+  };
+}
+
 export async function seedDemoPlans(): Promise<{ created: number }> {
   const res = await fetch(`${BASE_URL}/plans/seed`, {
     method: 'POST',
