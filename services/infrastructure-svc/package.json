@@ -12,16 +12,16 @@
   },
   "dependencies": {
     "cors": "^2.8.6",
-    "dockerode": "^4.0.2",
+    "dockerode": "^4.0.12",
     "dotenv": "^16.6.1",
     "express": "^4.18.2",
-    "pg": "^8.19.0",
+    "pg": "^8.20.0",
     "tar": "^7.5.7",
-    "ws": "^8.19.0"
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
-    "@types/dockerode": "^3.3.28",
+    "@types/dockerode": "^4.0.1",
     "@types/express": "^4.17.21",
     "@types/node": "^20.19.35",
     "@types/pg": "^8.18.0",
@@ -31,6 +31,6 @@
     "yaml": "^2.3.0",
     "tsx": "^4.7.0",
     "typescript": "~5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.5"
   }
 }
