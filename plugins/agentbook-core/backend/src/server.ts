@@ -13,9 +13,17 @@ import { handleDashboardOverview } from './dashboard/overview.js';
 import { handleDashboardActivity } from './dashboard/activity.js';
 import { handleDashboardAgentSummary } from './dashboard/agent-summary.js';
 
-const pluginConfig = JSON.parse(
-  readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
-);
+// Read plugin.json for dev-only fields. When bundled by webpack (Next.js
+// on Vercel), `new URL(..., import.meta.url)` is incompatible with fs —
+// fall back to defaults so module load doesn't crash.
+let pluginConfig: { backend?: { devPort?: number } } = {};
+try {
+  pluginConfig = JSON.parse(
+    readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
+  );
+} catch {
+  /* bundled environment — defaults are fine */
+}
 
 const { app, start } = createPluginServer({
   ...pluginConfig,
