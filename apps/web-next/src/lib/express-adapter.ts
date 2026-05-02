@@ -140,16 +140,14 @@ export async function dispatchToExpress(
     res.on('finish', () => finalize());
     res.on('close', () => finalize());
 
+    // IMPORTANT: do NOT pass a callback to app(). Express uses the callback
+    // *in place of* its built-in finalhandler, so a "no match" or unhandled
+    // error path would write nothing — leaving our promise unresolved until
+    // Vercel times out and returns 500 with an empty body. With no callback,
+    // Express's finalhandler writes the response (404 / 500) through our
+    // wrapped res.end, which calls finalize() and resolves the promise.
     try {
-      app(req, res, (err?: unknown) => {
-        if (err) {
-          console.error(`[express-adapter] ${req.method} ${req.url} threw:`, err);
-          if (!resolved) {
-            resolved = true;
-            reject(err instanceof Error ? err : new Error(String(err)));
-          }
-        }
-      });
+      app(req, res);
     } catch (err) {
       console.error(`[express-adapter] ${req.method} ${req.url} sync-threw:`, err);
       if (!resolved) {
