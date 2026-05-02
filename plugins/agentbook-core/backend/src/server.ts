@@ -10,6 +10,7 @@ import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
 import { handleAgentMessage } from './agent-brain.js';
 import { handleDashboardOverview } from './dashboard/overview.js';
+import { handleDashboardActivity } from './dashboard/activity.js';
 
 const pluginConfig = JSON.parse(
   readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
@@ -543,6 +544,7 @@ app.get('/api/v1/agentbook-core/trial-balance', async (req, res) => {
 
 // === Dashboard Overview Aggregator ===
 app.get('/api/v1/agentbook-core/dashboard/overview', handleDashboardOverview);
+app.get('/api/v1/agentbook-core/dashboard/activity', handleDashboardActivity);
 
 // === Fiscal Periods ===
 app.get('/api/v1/agentbook-core/fiscal-periods', async (req, res) => {
