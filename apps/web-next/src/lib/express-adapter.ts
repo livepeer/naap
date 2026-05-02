@@ -41,6 +41,12 @@ export async function dispatchToExpress(
       headers[key.toLowerCase()] = value;
     }
   }
+  // Force the inner Express server to skip compression middleware. The
+  // compression middleware wraps res.write/res.end and buffers/flushes
+  // through the underlying socket — but our socket has no peer, so its
+  // flush silently fails and the captured body comes back empty.
+  // We capture an uncompressed buffer here; Vercel/CDN handles outer encoding.
+  headers['accept-encoding'] = 'identity';
   req.headers = headers;
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
@@ -53,32 +59,24 @@ export async function dispatchToExpress(
   return new Promise<Response>((resolve, reject) => {
     const chunks: Buffer[] = [];
     const res = new ServerResponse(req);
+    let resolved = false;
 
-    const originalWrite = res.write.bind(res);
-    const originalEnd = res.end.bind(res);
+    const finalize = (lastChunk?: unknown, encoding?: unknown) => {
+      if (resolved) return;
+      resolved = true;
 
-    (res as unknown as { write: (...args: unknown[]) => boolean }).write = (
-      chunk: unknown,
-      encoding?: unknown,
-      cb?: unknown
-    ) => {
-      if (chunk != null) chunks.push(toBuffer(chunk, encoding));
-      return (originalWrite as (...args: unknown[]) => boolean)(chunk, encoding, cb);
-    };
-
-    (res as unknown as { end: (...args: unknown[]) => ServerResponse }).end = (
-      chunk?: unknown,
-      encoding?: unknown,
-      cb?: unknown
-    ) => {
-      if (chunk != null && typeof chunk !== 'function') {
-        chunks.push(toBuffer(chunk, encoding));
+      if (lastChunk != null && typeof lastChunk !== 'function') {
+        chunks.push(toBuffer(lastChunk, encoding));
       }
 
       const responseHeaders = new Headers();
       const raw = res.getHeaders();
       for (const [name, value] of Object.entries(raw)) {
         if (value == null) continue;
+        // Strip content-length — we set the body explicitly, fetch will
+        // recompute it. A stale content-length from compression's pre-flush
+        // bookkeeping can cause truncated responses.
+        if (name.toLowerCase() === 'content-length') continue;
         if (Array.isArray(value)) {
           for (const item of value) responseHeaders.append(name, String(item));
         } else {
@@ -102,20 +100,62 @@ export async function dispatchToExpress(
           headers: responseHeaders,
         })
       );
-
-      return (originalEnd as (...args: unknown[]) => ServerResponse)(chunk, encoding, cb);
     };
+
+    // Hook write to capture body chunks. Don't forward to the original —
+    // the underlying socket is fake and forwarding can throw.
+    (res as unknown as { write: (...args: unknown[]) => boolean }).write = (
+      chunk: unknown,
+      encoding?: unknown,
+      cb?: unknown
+    ) => {
+      if (chunk != null) chunks.push(toBuffer(chunk, encoding));
+      if (typeof encoding === 'function') (encoding as () => void)();
+      else if (typeof cb === 'function') (cb as () => void)();
+      return true;
+    };
+
+    // Hook end to capture the final chunk and resolve the promise. Skip
+    // calling the original end — its socket writes can throw on our fake
+    // peer-less Socket and tank the function with an empty 500.
+    (res as unknown as { end: (...args: unknown[]) => ServerResponse }).end = (
+      chunk?: unknown,
+      encoding?: unknown,
+      cb?: unknown
+    ) => {
+      const cbActual = typeof chunk === 'function' ? chunk
+        : typeof encoding === 'function' ? encoding
+        : typeof cb === 'function' ? cb
+        : null;
+      const chunkActual = typeof chunk === 'function' ? undefined : chunk;
+      const encodingActual = typeof encoding === 'function' ? undefined : encoding;
+      finalize(chunkActual, encodingActual);
+      if (cbActual) (cbActual as () => void)();
+      return res;
+    };
+
+    // Safety net: if Express ends without our hooks firing (shouldn't happen
+    // but defends against future middleware shenanigans), emit a final
+    // status when the response signals 'finish'.
+    res.on('finish', () => finalize());
+    res.on('close', () => finalize());
 
     try {
       app(req, res, (err?: unknown) => {
         if (err) {
           console.error(`[express-adapter] ${req.method} ${req.url} threw:`, err);
-          reject(err instanceof Error ? err : new Error(String(err)));
+          if (!resolved) {
+            resolved = true;
+            reject(err instanceof Error ? err : new Error(String(err)));
+          }
         }
       });
     } catch (err) {
       console.error(`[express-adapter] ${req.method} ${req.url} sync-threw:`, err);
-      reject(err instanceof Error ? err : new Error(String(err)));
+      if (!resolved) {
+        resolved = true;
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     }
   });
 }
