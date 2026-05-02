@@ -158,8 +158,7 @@ Response shape:
     vendor: string;
     amountCents: number;
     nextExpectedDate: string;
-    confidence: number;                  // 0–1
-  }>;
+  }>;                                    // ≥3 occurrences in last 90d at 25–35d cadence
   monthMtd: { revenueCents: number; expenseCents: number; netCents: number };
   monthPrev: { revenueCents: number; expenseCents: number; netCents: number };
 }
@@ -182,7 +181,7 @@ Array<{
 
 3. **`GET /api/v1/agentbook-core/dashboard/agent-summary`** *(V1+, see §7)*
 
-LLM-generated 1–2 sentence summary of the attention payload. Cached 15 min per tenant in `AbDashboardCache`. Returns `{ summary: string, generatedAt: ISO }`.
+LLM-generated 1–2 sentence summary of the attention payload. Cached 15 min per tenant in an **in-memory Map** inside the function process (Fluid Compute reuses instances; a fresh cold start at most produces one LLM call). Returns `{ summary: string, generatedAt: ISO }`. **No new database table.**
 
 ## 7. V1+ items (pulled forward from V2)
 
@@ -194,30 +193,30 @@ Above the attention list, a 1–2 sentence judgment line: *"Two big invoices lan
 
 - New endpoint `dashboard/agent-summary` (see §6).
 - Calls existing agent brain with the attention payload as context.
-- Cached 15 min per tenant; bypass cache when overview payload changes materially (hash of overview JSON).
+- Cached 15 min per tenant in an in-memory Map (TTL only; no hash invalidation — slightly stale for ≤15 min is fine).
 - **Fallback:** if the LLM call fails or exceeds 3s, return the deterministic counts string (e.g. "3 invoices overdue ($8,400). Tax payment in 12 days."). Never blocks page render.
 
 ### 7.2 Auto-detected recurring outflows
 
 Server-side detection of monthly recurring expenses, surfaced as red markers on the timeline and entries in "next moments." Without this, the cashflow timeline misses rent/SaaS/contractors and users distrust the projection.
 
-- **Detection algo:** scan last 90 days of expenses; cluster by `(vendor, amount within ±10%, monthly cadence)`. If a cluster has ≥2 occurrences spaced 25–35 days apart, predict the next occurrence.
-- **Confidence:** 0.5 for 2 matches, 0.7 for 3, 0.9 for 4+.
+- **Detection algo:** scan last 90 days of expenses; cluster by `(vendor, amount within ±10%, monthly cadence)`. **Single high-confidence threshold:** require **≥3 occurrences** spaced 25–35 days apart before predicting the next occurrence. Fewer items detected, all trustworthy.
 - **Output** appears in `dashboard/overview` as `recurringOutflows`. No new round-trip.
-- **User control:** tap a detected bill → "Not recurring" toggle. Stored in `AbDashboardSuppressedBill (tenantId, vendor, suppressedAt)`.
+- **No suppression UI in V1** (no `AbDashboardSuppressedBill` table). With a 3-occurrence threshold, false positives are rare. If real-world feedback shows we need an "ignore this" affordance, add it in a later iteration.
 
 ### 7.3 Daily Telegram morning digest
 
 A 7–9am-local Telegram message gives users their dashboard before they open the app — turning the page from a destination into a habit.
 
 - New endpoint `POST /api/v1/agentbook-core/dashboard/morning-digest` invoked by Vercel Cron **hourly at minute 0** (`0 * * * *`). A single 7am-UTC schedule cannot cover all timezones; running hourly + filtering inside the handler covers every tenant exactly once per day.
-- Handler iterates tenants, computes their local hour from `AbTenantConfig.timezone`, sends only when local hour is **7** (one window per day per tenant). Records `lastDigestSentAt` on the tenant config to make the cron idempotent if it retries.
+- Handler iterates tenants, computes their local hour from `AbTenantConfig.timezone`, sends only when local hour is **7** (one window per day per tenant). Vercel Cron is at-most-once; we accept rare duplicate digests rather than building idempotency tracking.
 - Reuses `dashboard/overview` + `dashboard/agent-summary`. Composes a short Telegram message:
   > ☀️ Good morning, Maya. Cash $14,200 today, projected $18,400 by May 31.
   > **Heads up:** Acme is 32d overdue ($4,500). Tax in 12d.
   > /open to see the full dashboard.
 - **Delivery:** Telegram if a chat is linked, else email via existing Resend setup. No-op if neither is configured.
-- **Opt-out:** `AbTenantConfig.dailyDigestEnabled` (default `true`). Telegram message accepts `/quiet` to flip it off.
+- **Opt-out:** `AbTenantConfig.dailyDigestEnabled` (default `true`) — toggled in existing settings page. No `/quiet` chat command (would require bot-side command parsing).
+- **Discoverability:** if `dailyDigestEnabled === true` but no Telegram chat linked, show a one-line dismissible hint in the dashboard kebab menu: "Get this summary at 7am — connect Telegram."
 
 ## 8. Persona behavior
 
@@ -228,30 +227,30 @@ No persona-specific templates. **Smart-hide-when-empty** handles all three perso
 - **Jordan** (side-hustle): no timer → no unbilled work item; no Canadian content; minimal attention list.
 - **Empty action queue:** "All clear ☕" panel — calm, not celebratory.
 - **No upcoming receivables:** hero shows "No upcoming receivables" subtitle, no green markers.
-- **Brand-new tenant:** hero replaced by "Set up your books" CTA.
+- **Brand-new tenant** (no expenses, no invoices, no accounts beyond seeded defaults): hero replaced by a 3-step onboarding panel — "① Link bank account · ② Add first invoice · ③ Snap a receipt" — each step a tap target with a tick mark when done. Once at least one expense and one invoice exist, the normal hero takes over. This prevents Jordan from staring at "$0 → $0" on day one.
 
 ## 9. Loading & freshness
 
-- All sections fetched in parallel via the aggregator (or via leaf endpoints if aggregator unavailable).
-- **Skeleton states** render section shells immediately; sections fill independently.
-- **Stale-while-revalidate:** cache last response in localStorage keyed by tenant; render instantly on next mount, then refetch.
+- One round-trip to the aggregator on mount.
+- **Skeleton states** render section shells immediately; the page swaps in the real content when the response lands.
 - **Pull-to-refresh** on mobile (inline implementation, no library); refresh button in kebab on desktop.
-- 8-second per-section timeout → switch to retry state. No infinite spinners.
+- No localStorage stale-while-revalidate in V1 — keeps cache invalidation out of the surface area; the dashboard is opened a few times per day, not as a real-time feed.
 
 ## 10. Error handling
 
-The dashboard never crashes whole. Each section has its own boundary:
+Pragmatic, not over-engineered:
 
-- **Section error** → that section shows "Couldn't load — retry" state. Other sections keep working.
-- **Aggregator endpoint missing** → automatic fan-out to leaf endpoints. Same UI, slower.
-- **All sections fail** → header + sticky actions + one banner: "Couldn't reach AgentBook. [Retry]"
-- **LLM summary fails or times out** → deterministic fallback string. User never notices.
+- Each subcomponent receives `{ data, error }` from its hook. If `error`, the section renders a quiet "—" or short "Couldn't load" line — no React error boundary plumbing.
+- **Aggregator returns 500** (whole-page failure) → page shows header + sticky actions + one banner: "Couldn't reach AgentBook. [Retry]"
+- **Aggregator returns partial data** (one slice missing) → that section is "—"; the rest renders normally.
+- **LLM summary fails or times out (3s)** → deterministic fallback string. User never notices.
 
 Errors are logged via the existing `console.error` path → Vercel function logs / browser logs.
 
 ## 11. Mobile interaction
 
 - **Sticky bottom action bar** with `env(safe-area-inset-bottom)` padding for notched phones; 3 actions only (New Invoice, Snap, Ask).
+- **Snap opens the camera directly** — `<input type="file" accept="image/*" capture="environment">` so tapping the icon brings up the rear camera in one tap, not a routed upload page. This is the table-stakes mobile receipt flow and the single biggest UX upgrade vs the current dashboard.
 - **Pull-to-refresh** on the page container.
 - **Tap a "next moment" card** → bottom sheet with detail (no navigation away).
 - **Tap an attention item action** → either inline action (`postEndpoint`, fire-and-toast) or route via `href`.
@@ -280,22 +279,21 @@ Untouched: route registration, plugin manifest, `/agentbook` URL, snapshot endpo
 - **AttentionPanel:** empty state; ranking order (overdue invoices > tax-within-14d > unbilled > books-out-of-balance > missing-receipts); 5-item cap.
 - **ThisMonthStrip:** delta sign and color; "—" when prior month is zero (no `Infinity%`); thousands separator.
 - **ActivityFeed:** mixed item types render; empty state.
-- **useDashboardOverview:** falls back to leaf-fetch on aggregator 404; SWR from localStorage.
+- **useDashboardOverview:** returns `{ data, error }` shape; sets `error` on non-2xx; resolves cleanly on partial payload.
 
 ### V1+ unit tests
 
-- **agent-summary endpoint:** cache hit/miss; fallback to deterministic when LLM rejects/times out.
-- **Recurring detection:** clustering algo with synthetic histories (positive: 3 monthly Uber Eats; negative: 3 unrelated; edge: exactly 2 occurrences at 30 days).
-- **Morning digest:** timezone gating (only fires within tenant's 7–9am window); integration test that one tenant with stub Telegram receives expected payload.
+- **agent-summary endpoint:** cache hit/miss against in-memory Map; fallback to deterministic when LLM rejects/times out (3s).
+- **Recurring detection:** clustering algo with synthetic histories — *positive:* 3 monthly Uber Eats at 30d cadence (detected); *negative:* 3 unrelated single-occurrence expenses (not detected); *edge:* exactly 2 occurrences at 30d cadence (**not** detected — under the ≥3 threshold).
+- **Morning digest:** timezone gating (only fires when tenant's local hour equals 7); integration test that one tenant with stub Telegram receives expected payload; tenant without Telegram or email is no-op (no error).
 
 ### Integration (Vitest + MSW)
 
 `Dashboard.integration.test.tsx`:
 - Happy path with mock aggregator payload.
-- One section returns 500 → only that section shows retry; others render.
-- Aggregator returns 404 → fan-out fallback succeeds.
-- Empty tenant → empty/onboarding states render without errors.
-- Stale cache → first paint shows cache, then refreshes.
+- Aggregator returns partial payload (e.g. missing `attention`) → that section renders "—"; others render normally.
+- Aggregator returns 500 → page renders header + sticky actions + "Couldn't reach AgentBook. [Retry]" banner.
+- Empty tenant → 3-step onboarding panel renders in place of hero; no console errors.
 
 ### Backend (Vitest)
 
@@ -317,22 +315,25 @@ Untouched: route registration, plugin manifest, `/agentbook` URL, snapshot endpo
 
 ## 14. Rollout
 
-Single PR. Same flow:
+Single PR, **no Prisma migration** (zero new tables — see §7 cuts):
 
 1. Backend: aggregator + activity + agent-summary + recurring-outflows in overview + morning-digest endpoint + cron.
-2. Frontend: new components, summary line wired to LLM endpoint, timeline shows recurring outflow markers.
-3. New tables: `AbDashboardCache`, `AbDashboardSuppressedBill` (Prisma migration in same PR).
-4. `vercel.json` cron entry.
-5. Tests + manual QA + Vercel preview → smoke against Maya/Alex/Jordan → merge to main.
+2. Frontend: new components, summary line wired to LLM endpoint, timeline shows recurring outflow markers, mobile camera capture wired into Snap action.
+3. `vercel.json` cron entry (hourly).
+4. Tests + manual QA + Vercel preview → smoke against Maya/Alex/Jordan → merge to main.
 
 No feature flag — single page, single PR, revert if needed.
 
 ## 15. Out of scope (V2+)
 
 - User-managed scheduled bills (manual add/edit) — auto-detection covers 80% at 20% cost.
+- "Not recurring" suppression UI for auto-detected outflows — high-confidence threshold (≥3 occurrences) makes this rarely needed; revisit if real users complain.
+- Persistent agent-summary cache (DB-backed) — in-memory cache is sufficient at current usage; revisit if cost forecasting indicates otherwise.
+- Stale-while-revalidate from localStorage — add only if measured first-paint becomes a problem.
 - Custom date range on "This month" strip.
 - Persona-specific layouts (smart-empty handles it).
 - Push notifications beyond Telegram/email digest.
+- `/quiet` Telegram command (settings toggle covers the use case).
 
 ## 16. Open follow-ups
 
