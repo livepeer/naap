@@ -86,8 +86,17 @@ export async function dispatchToExpress(
         }
       }
 
+      const body = Buffer.concat(chunks);
+
+      if (res.statusCode >= 500) {
+        console.error(
+          `[express-adapter] ${req.method} ${req.url} → ${res.statusCode}`,
+          body.toString('utf8').slice(0, 500),
+        );
+      }
+
       resolve(
-        new Response(Buffer.concat(chunks), {
+        new Response(body, {
           status: res.statusCode,
           statusText: res.statusMessage || '',
           headers: responseHeaders,
@@ -99,9 +108,13 @@ export async function dispatchToExpress(
 
     try {
       app(req, res, (err?: unknown) => {
-        if (err) reject(err instanceof Error ? err : new Error(String(err)));
+        if (err) {
+          console.error(`[express-adapter] ${req.method} ${req.url} threw:`, err);
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
       });
     } catch (err) {
+      console.error(`[express-adapter] ${req.method} ${req.url} sync-threw:`, err);
       reject(err instanceof Error ? err : new Error(String(err)));
     }
   });

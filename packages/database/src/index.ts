@@ -36,37 +36,40 @@ const globalForPrisma = globalThis as unknown as {
  * Resolve the database connection URL.
  *
  * Vercel Storage (Neon) sets env vars with POSTGRES_* prefixes.
- * Local development uses DATABASE_URL.  We check all known names
- * so the same code works everywhere without extra config.
+ * The Neon integration on Vercel projects with a name prefix exposes them
+ * as `<prefix>_DATABASE_URL` etc (e.g. `a3p_DATABASE_URL`). Local dev uses
+ * the unprefixed `DATABASE_URL`. We check all known names so the same code
+ * works everywhere without extra config.
  *
  * Priority:
  *   1. DATABASE_URL          – explicit override / local dev
- *   2. POSTGRES_PRISMA_URL   – Vercel Storage (includes connect_timeout)
- *   3. POSTGRES_URL          – Vercel Storage pooled URL
+ *   2. a3p_DATABASE_URL      – Neon integration on the a3p Vercel project
+ *   3. POSTGRES_PRISMA_URL   – Vercel Storage (includes connect_timeout)
+ *   4. a3p_POSTGRES_PRISMA_URL
+ *   5. POSTGRES_URL          – Vercel Storage pooled URL
+ *   6. a3p_POSTGRES_URL
  */
 function getConnectionUrl(): string {
-  const baseUrl =
-    process.env.DATABASE_URL ||
-    process.env.POSTGRES_PRISMA_URL ||
-    process.env.POSTGRES_URL ||
-    '';
+  const candidates: Array<[string, string | undefined]> = [
+    ['DATABASE_URL', process.env.DATABASE_URL],
+    ['a3p_DATABASE_URL', process.env.a3p_DATABASE_URL],
+    ['POSTGRES_PRISMA_URL', process.env.POSTGRES_PRISMA_URL],
+    ['a3p_POSTGRES_PRISMA_URL', process.env.a3p_POSTGRES_PRISMA_URL],
+    ['POSTGRES_URL', process.env.POSTGRES_URL],
+    ['a3p_POSTGRES_URL', process.env.a3p_POSTGRES_URL],
+  ];
 
-  if (!baseUrl) {
+  const hit = candidates.find(([, value]) => !!value);
+
+  if (!hit) {
     console.warn(
-      '[database] No database URL found. Checked: DATABASE_URL=%s, POSTGRES_PRISMA_URL=%s, POSTGRES_URL=%s',
-      process.env.DATABASE_URL ? 'SET' : 'EMPTY',
-      process.env.POSTGRES_PRISMA_URL ? 'SET' : 'EMPTY',
-      process.env.POSTGRES_URL ? 'SET' : 'EMPTY',
+      '[database] No database URL found. Checked: %s',
+      candidates.map(([name, value]) => `${name}=${value ? 'SET' : 'EMPTY'}`).join(', '),
     );
     return '';
   }
 
-  // Log which env var was resolved (mask the value for security)
-  const source = process.env.DATABASE_URL
-    ? 'DATABASE_URL'
-    : process.env.POSTGRES_PRISMA_URL
-    ? 'POSTGRES_PRISMA_URL'
-    : 'POSTGRES_URL';
+  const [source, baseUrl] = hit as [string, string];
   console.log(`[database] Using ${source} (${baseUrl.substring(0, 30)}...)`);
 
   // If URL already has query params, don't modify
