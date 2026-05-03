@@ -26,6 +26,43 @@ const nextConfig = {
     '/api/v1/agentbook-expense/**': ['../../plugins/agentbook-expense/plugin.json'],
   },
 
+  // Each plugin catch-all route imports a single plugin's Express app.
+  // Without these excludes, every Vercel function bundles all four plugin
+  // backends + their node_modules — pushing past Vercel's 262 MB limit.
+  // Trim each function to only its own plugin sources.
+  outputFileTracingExcludes: {
+    '/api/v1/agentbook-tax/**': [
+      '../../plugins/agentbook-invoice/**',
+      '../../plugins/agentbook-core/**',
+      '../../plugins/agentbook-expense/**',
+    ],
+    '/api/v1/agentbook-invoice/**': [
+      '../../plugins/agentbook-tax/**',
+      '../../plugins/agentbook-core/**',
+      '../../plugins/agentbook-expense/**',
+    ],
+    '/api/v1/agentbook-core/**': [
+      '../../plugins/agentbook-tax/**',
+      '../../plugins/agentbook-invoice/**',
+      '../../plugins/agentbook-expense/**',
+    ],
+    '/api/v1/agentbook-expense/**': [
+      '../../plugins/agentbook-tax/**',
+      '../../plugins/agentbook-invoice/**',
+      '../../plugins/agentbook-core/**',
+    ],
+    // Other API routes don't need any plugin backend bundled.
+    '/api/**': [
+      '../../plugins/*/backend/node_modules/**',
+      '../../plugins/*/frontend/**',
+    ],
+    // Pages don't need any plugin backend at all.
+    '/**': [
+      '../../plugins/*/backend/**',
+      '../../plugins/*/frontend/**',
+    ],
+  },
+
   // Transpile monorepo packages
   // Note: @naap/database is excluded — Prisma generates JS output via postinstall,
   // and adding it here causes type-portability errors with Prisma runtime internals.
