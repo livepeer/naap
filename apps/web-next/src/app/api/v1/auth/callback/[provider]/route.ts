@@ -43,8 +43,8 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     // Handle the callback
     const result = await handleOAuthCallback(provider, code);
 
-    // Redirect to dashboard with auth cookie
-    const response = NextResponse.redirect(new URL('/dashboard', request.url));
+    // Redirect to agentbook home with auth cookie
+    const response = NextResponse.redirect(new URL('/agentbook', request.url));
 
     // Set auth cookie
     response.cookies.set('naap_auth_token', result.token, {

@@ -57,7 +57,7 @@ export default function AdminPluginsPage() {
 
   useEffect(() => {
     if (!isAdmin) {
-      router.push('/dashboard');
+      router.push('/agentbook');
       return;
     }
     loadPlugins();

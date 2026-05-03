@@ -95,3 +95,19 @@ packages/types/src/*.js
 packages/types/src/*.d.ts
 packages/types/src/*.d.ts.map
 apps/workflows/*/tsconfig.tsbuildinfo
+.vercel
+
+# Local-only artifacts (not committed)
+.env.vercel
+.env.vercel.*
+.playwright-mcp/
+.claude/scheduled_tasks.lock
+.vercel/
+tests/e2e/nightly/junit*.xml
+tests/e2e/nightly/playwright-report/
+
+# macOS Finder / iCloud duplicates
+* 2.ts
+* 2.tsx
+* 2.yml
+* 2.yaml

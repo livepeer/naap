@@ -11,8 +11,8 @@ function useViewTitle(): string {
   const pathname = usePathname();
 
   const titles: Record<string, string> = {
-    '/': 'Overview',
-    '/dashboard': 'Overview',
+    '/': 'AgentBook',
+    '/agentbook': 'AgentBook',
     '/settings': 'Settings',
     '/teams': 'Teams',
     '/marketplace': 'Marketplace',

@@ -5,7 +5,7 @@ import type { NextRequest } from 'next/server';
 // Maps custom route prefixes to their plugin so the middleware can rewrite
 // e.g. /gateway → /plugins/serviceGateway.
 // Keep in sync with WorkflowPlugin.routes / plugin.json.
-// Routes with their own page.tsx (/marketplace, /dashboard) are excluded.
+// Routes with their own page.tsx (/marketplace, /agentbook) are excluded.
 // /plugins/* paths are handled by the dynamic [pluginName] route automatically.
 const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/gateway': 'serviceGateway',
@@ -94,7 +94,7 @@ function generatePluginCSP(isDev: boolean): string {
 
 // Routes that require authentication
 const protectedRoutes = [
-  '/dashboard',
+  '/agentbook',
   '/settings',
   '/plugins',
   '/admin',
@@ -193,7 +193,7 @@ export function middleware(request: NextRequest) {
   // Handle root path - always redirect
   if (pathname === '/') {
     if (token) {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
+      return NextResponse.redirect(new URL('/agentbook', request.url));
     }
     return NextResponse.redirect(new URL('/login', request.url));
   }
@@ -213,7 +213,7 @@ export function middleware(request: NextRequest) {
   if (authRoutes.some(route => pathname === route || pathname.startsWith(`${route}/`))) {
     if (token) {
       // User has a cookie - redirect to dashboard (they should use logout first)
-      return NextResponse.redirect(new URL('/dashboard', request.url));
+      return NextResponse.redirect(new URL('/agentbook', request.url));
     }
     // No cookie - allow access to login/register pages
   }

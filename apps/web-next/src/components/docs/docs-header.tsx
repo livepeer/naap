@@ -68,7 +68,7 @@ export function DocsHeader({ onToggleSidebar, isSidebarOpen }: DocsHeaderProps) 
 
           {/* Back to app */}
           <Link
-            href="/dashboard"
+            href="/agentbook"
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
           >
             <ArrowLeft size={14} />

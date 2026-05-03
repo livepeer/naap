@@ -229,7 +229,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionExpiresAt: expiresAtData ? new Date(expiresAtData) : null,
         authErrorStatus: null,
       });
-      router.push('/dashboard');
+      router.push('/agentbook');
     } catch (error) {
       setState(prev => ({ ...prev, isLoading: false }));
       throw error;
@@ -293,7 +293,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionExpiresAt: expiresAtData ? new Date(expiresAtData) : null,
         authErrorStatus: null,
       });
-      router.push('/dashboard');
+      router.push('/agentbook');
     } catch (error) {
       setState(prev => ({ ...prev, isLoading: false }));
       throw error;

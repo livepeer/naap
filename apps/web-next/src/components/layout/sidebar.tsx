@@ -284,7 +284,7 @@ export function Sidebar() {
 
   // Routes that should use exact matching only
   const exactMatchRoutes = new Set([
-    '/dashboard',
+    '/agentbook',
     '/settings',
     '/teams',
     '/marketplace',
@@ -296,7 +296,6 @@ export function Sidebar() {
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
-    if (href === '/dashboard') return pathname === '/dashboard' || pathname === '/';
 
     if (exactMatchRoutes.has(href)) {
       return pathname === href;
@@ -364,11 +363,6 @@ export function Sidebar() {
           />
           {mainExpanded && (
             <div className="space-y-0.5 mt-1">
-              <NavLink
-                item={{ name: 'Overview', href: '/dashboard', icon: Activity }}
-                isActive={isActive('/dashboard')}
-                isOpen={isSidebarOpen}
-              />
               {isLoading ? (
                 <div className="py-2 px-3">
                   <div className="h-4 w-20 bg-muted/50 animate-pulse rounded" />

@@ -28,8 +28,8 @@ export default function LoginForm() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      const raw = searchParams.get('redirect') || '/dashboard';
-      const safeRedirect = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/dashboard';
+      const raw = searchParams.get('redirect') || '/agentbook';
+      const safeRedirect = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/agentbook';
       router.replace(safeRedirect);
     }
   }, [isLoading, isAuthenticated, router, searchParams]);

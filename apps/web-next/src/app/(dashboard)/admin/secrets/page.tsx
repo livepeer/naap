@@ -44,7 +44,7 @@ export default function AdminSecretsPage() {
 
   useEffect(() => {
     if (!isAdmin) {
-      router.push('/dashboard');
+      router.push('/agentbook');
       return;
     }
     loadSecrets();

@@ -134,7 +134,7 @@ export default function AdminFeedbackPage() {
 
   useEffect(() => {
     if (!isAdmin) {
-      router.push('/dashboard');
+      router.push('/agentbook');
     }
   }, [isAdmin, router]);
 
