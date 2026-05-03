@@ -51,10 +51,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       invoiceCount,
       ninetyDayExpenses,
     ] = await Promise.all([
-      // Cash today: sum of asset-account journal-line balances
+      // Cash today: sum of (debit − credit) on journal lines of active asset accounts
       db.abAccount.findMany({
         where: { tenantId, accountType: 'asset', isActive: true },
-        select: { id: true, balance: true },
+        select: {
+          id: true,
+          journalLines: { select: { debitCents: true, creditCents: true } },
+        },
       }),
 
       // Overdue invoices
@@ -125,11 +128,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // 90-day expense window for recurring-outflow detection
       db.abExpense.findMany({
         where: { tenantId, isPersonal: false, date: { gte: daysAgo(90) } },
-        select: { id: true, vendor: true, description: true, amountCents: true, date: true },
+        select: {
+          id: true,
+          description: true,
+          amountCents: true,
+          date: true,
+          vendor: { select: { name: true } },
+        },
       }),
     ]);
 
-    const cashToday = assetAccounts.reduce((s, a) => s + (a.balance || 0), 0);
+    const cashToday = assetAccounts.reduce((sum, account) => {
+      const accountBalance = account.journalLines.reduce(
+        (acc, line) => acc + line.debitCents - line.creditCents,
+        0,
+      );
+      return sum + accountBalance;
+    }, 0);
 
     const overdueForRanking = overdueInvoices.map((i) => ({
       id: i.id,
@@ -148,7 +163,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const recurring = detectRecurringFromHistory(
       ninetyDayExpenses.map((e) => ({
         id: e.id,
-        vendor: e.vendor || e.description || '',
+        vendor: e.vendor?.name || e.description || '',
         amountCents: e.amountCents,
         date: e.date,
       })),
