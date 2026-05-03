@@ -3,13 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "main": "./src/server.ts",
+  "main": "./dist/server.js",
   "exports": {
-    ".": "./src/server.ts"
+    ".": "./dist/server.js"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "rm -rf dist && npx esbuild $(find src -name '*.ts' -not -path '*__tests__*' -not -name '*.test.ts') --platform=node --format=esm --outdir=dist --target=node20 --log-level=error",
     "start": "node dist/server.js",
     "test": "vitest run"
   },

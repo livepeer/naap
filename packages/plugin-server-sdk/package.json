@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Backend SDK for NaaP plugin servers -- eliminates Express boilerplate",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "types": "src/index.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "rm -rf dist && npx esbuild $(find src -name '*.ts' -not -name '*.test.ts' -not -path '*__tests__*') --platform=node --format=esm --outdir=dist --target=node20 --log-level=error",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

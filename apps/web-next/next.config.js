@@ -1,5 +1,4 @@
 const path = require('path');
-const { PrismaPlugin } = require('@prisma/nextjs-monorepo-workaround-plugin');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -22,21 +21,84 @@ const nextConfig = {
     '@prisma/engines',
     'express',
     'grammy',
+    '@naap/plugin-server-sdk',
+    '@naap/plugin-agentbook-tax-backend',
+    '@naap/plugin-agentbook-invoice-backend',
+    '@naap/plugin-agentbook-core-backend',
+    '@naap/plugin-agentbook-expense-backend',
   ],
 
   // Monorepo: set tracing root to the repo root so Next.js can find
   // files from workspace packages (e.g. @naap/database engine binaries).
   outputFileTracingRoot: path.join(__dirname, '../../'),
 
-  // Plugin Express backends read their plugin.json via
-  // `readFileSync(new URL('../../plugin.json', import.meta.url))`. Force the
-  // file into the function bundle so Vercel deployments include it.
-  outputFileTracingIncludes: {
-    '/api/v1/agentbook-tax/**': ['../../plugins/agentbook-tax/plugin.json'],
-    '/api/v1/agentbook-invoice/**': ['../../plugins/agentbook-invoice/plugin.json'],
-    '/api/v1/agentbook-core/**': ['../../plugins/agentbook-core/plugin.json'],
-    '/api/v1/agentbook-expense/**': ['../../plugins/agentbook-expense/plugin.json'],
-  },
+  // Plugin Express backends are externalized via serverExternalPackages, so
+  // Next.js does not trace their files automatically. Force their pre-built
+  // dist/ output + plugin.json + transitive runtime deps into each function
+  // bundle so the runtime dynamic import (and the readFileSync of plugin.json)
+  // can resolve. outputFileTracingIncludes does NOT recurse through externalized
+  // packages, so we must enumerate transitive deps explicitly.
+  outputFileTracingIncludes: (() => {
+    // Deps that every plugin Express server pulls in (dotenv, plugin-server-sdk
+    // + its express/cors/helmet/compression middleware stack). Hoisted to root
+    // node_modules by npm workspaces.
+    const sharedPluginBackendDeps = [
+      '../../packages/plugin-server-sdk/dist/**',
+      '../../packages/plugin-server-sdk/package.json',
+      '../../node_modules/dotenv/**',
+      '../../node_modules/cors/**',
+      '../../node_modules/helmet/**',
+      '../../node_modules/compression/**',
+      '../../node_modules/accepts/**',
+      '../../node_modules/bytes/**',
+      '../../node_modules/on-headers/**',
+      '../../node_modules/safe-buffer/**',
+      '../../node_modules/vary/**',
+      '../../node_modules/object-assign/**',
+    ];
+    return {
+      '/api/v1/agentbook-tax/**': [
+        '../../plugins/agentbook-tax/plugin.json',
+        '../../plugins/agentbook-tax/backend/dist/**',
+        '../../plugins/agentbook-tax/backend/package.json',
+        ...sharedPluginBackendDeps,
+      ],
+      '/api/v1/agentbook-invoice/**': [
+        '../../plugins/agentbook-invoice/plugin.json',
+        '../../plugins/agentbook-invoice/backend/dist/**',
+        '../../plugins/agentbook-invoice/backend/package.json',
+        ...sharedPluginBackendDeps,
+      ],
+      '/api/v1/agentbook-core/**': [
+        '../../plugins/agentbook-core/plugin.json',
+        '../../plugins/agentbook-core/backend/dist/**',
+        '../../plugins/agentbook-core/backend/package.json',
+        ...sharedPluginBackendDeps,
+      ],
+      '/api/v1/agentbook-expense/**': [
+        '../../plugins/agentbook-expense/plugin.json',
+        '../../plugins/agentbook-expense/backend/dist/**',
+        '../../plugins/agentbook-expense/backend/package.json',
+        ...sharedPluginBackendDeps,
+        // expense-specific: plaid SDK + its axios HTTP client.
+        '../../node_modules/plaid/dist/**',
+        '../../node_modules/plaid/package.json',
+        '../../node_modules/axios/dist/**',
+        '../../node_modules/axios/lib/**',
+        '../../node_modules/axios/index.js',
+        '../../node_modules/axios/package.json',
+        '../../node_modules/follow-redirects/**',
+        '../../node_modules/form-data/lib/**',
+        '../../node_modules/form-data/package.json',
+        '../../node_modules/asynckit/**',
+        '../../node_modules/combined-stream/**',
+        '../../node_modules/delayed-stream/**',
+        '../../node_modules/proxy-from-env/**',
+        '../../node_modules/mime-types/**',
+        '../../node_modules/mime-db/**',
+      ],
+    };
+  })(),
 
   // Each plugin catch-all route imports a single plugin's Express app.
   // Without these excludes, every Vercel function bundles all four plugin
@@ -66,12 +128,24 @@ const nextConfig = {
     // Other API routes don't need any plugin backend bundled.
     '/api/**': [
       '../../plugins/*/backend/node_modules/**',
+      '../../plugins/*/backend/src/**',
       '../../plugins/*/frontend/**',
+      // Darwin Prisma binaries: Vercel runs Linux only.
+      '../../packages/database/src/generated/client/libquery_engine-darwin-*.node',
+      '../../packages/database/src/generated/client/libquery_engine-windows-*.node',
     ],
     // Pages don't need any plugin backend at all.
+    // Explicitly target src/ + node_modules/ rather than backend/** so that
+    // each agentbook-* route can still pull in its own backend/dist/** via
+    // outputFileTracingIncludes (the broad backend/** pattern was winning
+    // over the per-route include and stripping the externalized backends).
     '/**': [
-      '../../plugins/*/backend/**',
+      '../../plugins/*/backend/node_modules/**',
+      '../../plugins/*/backend/src/**',
       '../../plugins/*/frontend/**',
+      // Darwin Prisma binaries: Vercel runs Linux only.
+      '../../packages/database/src/generated/client/libquery_engine-darwin-*.node',
+      '../../packages/database/src/generated/client/libquery_engine-windows-*.node',
     ],
   },
 
@@ -86,11 +160,6 @@ const nextConfig = {
     '@naap/config',
     '@naap/plugin-sdk',
     '@naap/cache',
-    '@naap/plugin-server-sdk',
-    '@naap/plugin-agentbook-tax-backend',
-    '@naap/plugin-agentbook-invoice-backend',
-    '@naap/plugin-agentbook-core-backend',
-    '@naap/plugin-agentbook-expense-backend',
   ],
 
   // Image optimization
@@ -109,14 +178,13 @@ const nextConfig = {
 
   // Webpack configuration for monorepo
   webpack: (config, { isServer }) => {
-    // Prisma: ensure engine binaries are included in the standalone bundle.
-    // This is the official fix for Prisma + Next.js monorepo deployments.
-    // Important: in `next dev`, the server output directories may not exist
-    // when the plugin runs, which can cause copyfile ENOENT errors.
-    // We only need this plugin for production (standalone) builds.
-    if (isServer && process.env.NODE_ENV === 'production') {
-      config.plugins = [...config.plugins, new PrismaPlugin()];
-    }
+    // Prisma engines are resolved from packages/database/src/generated/client/
+    // at runtime via @prisma/client + @prisma/engines (serverExternalPackages).
+    // The PrismaPlugin webpack helper used to copy engines into .next/server/chunks/
+    // but it duplicated each engine 4-5 times (one copy per webpack chunk that
+    // referenced Prisma), pushing every function bundle past Vercel's 262 MB cap.
+    // outputFileTracingIncludes (next.config below) ensures engines ship via
+    // file tracing — once per platform, deduped — without webpack chunking.
 
     // Transpiled workspace packages use TypeScript's .js extension convention
     // (e.g. `from './utils/index.js'` in .ts files). Webpack needs extensionAlias
