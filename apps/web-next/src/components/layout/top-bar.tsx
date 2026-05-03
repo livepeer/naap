@@ -15,7 +15,6 @@ function useViewTitle(): string {
     '/agentbook': 'AgentBook',
     '/settings': 'Settings',
     '/teams': 'Teams',
-    '/marketplace': 'Marketplace',
     '/feedback': 'Feedback',
     '/docs': 'Documentation',
     '/admin/users': 'Admin',

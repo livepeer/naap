@@ -287,7 +287,6 @@ export function Sidebar() {
     '/agentbook',
     '/settings',
     '/teams',
-    '/marketplace',
     '/feedback',
     '/releases',
     '/treasury',
