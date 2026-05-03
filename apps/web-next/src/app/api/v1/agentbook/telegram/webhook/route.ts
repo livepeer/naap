@@ -1,9 +1,16 @@
 /**
- * Telegram Bot Webhook — Thin adapter that routes all messages through
- * the channel-agnostic Agent Brain at POST /agent/message.
+ * Telegram Bot Webhook.
+ *
+ * Self-contained: tenant resolution and the minimal agent both run
+ * against Prisma directly. The full Express agent-brain pipeline
+ * (memory, planner, evaluator, 16 skills, Gemini) is not bundled
+ * into this Vercel function — instead we pattern-match the common
+ * queries (balance, invoices, expenses, tax) so the bot is
+ * responsive for daily testing.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { Bot } from 'grammy';
+import { prisma as db } from '@naap/database';
 
 // Dev fallback: hardcoded chat ID → tenant mapping
 const CHAT_TO_TENANT_FALLBACK: Record<string, string> = {
@@ -21,42 +28,146 @@ interface CaptureEntry { chatId: number | string; text: string; payload?: unknow
 const E2E_CAPTURE = process.env.E2E_TELEGRAM_CAPTURE === '1';
 let currentCapture: CaptureEntry[] | null = null;
 
-const CORE_API = process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050';
-
-/** Resolve tenant from chat ID — checks DB first, falls back to hardcoded dev mapping. */
+/** Resolve tenant from chat ID via direct DB lookup, then fallback map. */
 async function resolveTenantId(chatId: number, botToken?: string): Promise<string> {
   const chatStr = String(chatId);
 
-  // Try DB lookup: find bot config where chatIds contains this chat ID
   try {
-    const res = await fetch(`${CORE_API}/api/v1/agentbook-core/telegram/resolve-chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chatId: chatStr, botToken }),
-    });
-    if (res.ok) {
-      const data = await res.json() as any;
-      if (data.data?.tenantId) return data.data.tenantId;
+    let bot: { id: string; tenantId: string; chatIds: unknown } | null = null;
+    if (botToken) {
+      bot = await db.abTelegramBot.findFirst({ where: { botToken, enabled: true } });
     }
-  } catch { /* DB lookup failed, use fallback */ }
+    if (!bot) {
+      const allBots = await db.abTelegramBot.findMany({ where: { enabled: true } });
+      bot = allBots.find((b) => {
+        const ids = (b.chatIds as string[]) || [];
+        return ids.includes(chatStr);
+      }) || null;
+    }
+    if (bot) {
+      const ids = (bot.chatIds as string[]) || [];
+      if (!ids.includes(chatStr)) {
+        ids.push(chatStr);
+        await db.abTelegramBot.update({ where: { id: bot.id }, data: { chatIds: ids as never } });
+      }
+      return bot.tenantId;
+    }
+  } catch (err) {
+    console.warn('[telegram] DB tenant lookup failed:', err);
+  }
 
   if (CHAT_TO_TENANT_FALLBACK[chatStr]) return CHAT_TO_TENANT_FALLBACK[chatStr];
   console.warn(`Unknown Telegram chat ${chatStr} — no tenant mapping found`);
-  return `unmapped:${chatStr}`; // Will not match any real tenantId, prevents silent data pollution
+  return `unmapped:${chatStr}`;
 }
 
-/** Call the agent brain and return the response data. */
+function fmtUsd(cents: number): string {
+  return '$' + (Math.abs(cents) / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+
+/** Minimal in-process agent — pattern-matches common queries against the tenant's books. */
 async function callAgentBrain(
-  tenantId: string, text: string,
-  attachments?: { type: string; url: string }[],
-  sessionAction?: string, feedback?: string,
-): Promise<any> {
-  const res = await fetch(`${CORE_API}/api/v1/agentbook-core/agent/message`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-    body: JSON.stringify({ text, channel: 'telegram', attachments, sessionAction, feedback }),
-  });
-  return res.json();
+  tenantId: string,
+  text: string,
+  _attachments?: { type: string; url: string }[],
+  sessionAction?: string,
+  _feedback?: string,
+): Promise<{ success: true; data: { message: string; skillUsed?: string } } | { success: false; error: string }> {
+  if (sessionAction) {
+    return { success: true, data: { message: 'Session-based actions (yes/no/undo) require the full agent brain, which isn\'t enabled in this build yet. Try a direct query: balance, invoices, expenses, tax.' } };
+  }
+
+  const lower = text.toLowerCase().trim();
+
+  try {
+    if (/(balance|cash|how much.*(have|in the bank))/i.test(lower)) {
+      const accounts = await db.abAccount.findMany({
+        where: { tenantId, accountType: 'asset', isActive: true },
+        select: { name: true, journalLines: { select: { debitCents: true, creditCents: true } } },
+      });
+      const total = accounts.reduce((sum, a) => sum + a.journalLines.reduce((s, l) => s + l.debitCents - l.creditCents, 0), 0);
+      const lines = accounts
+        .map((a) => ({ name: a.name, bal: a.journalLines.reduce((s, l) => s + l.debitCents - l.creditCents, 0) }))
+        .filter((a) => a.bal !== 0)
+        .slice(0, 5);
+      const detail = lines.length ? '\n\n' + lines.map((l) => `• ${l.name}: ${fmtUsd(l.bal)}`).join('\n') : '';
+      return { success: true, data: { message: `💰 <b>Cash on hand:</b> ${fmtUsd(total)}${detail}`, skillUsed: 'query-finance' } };
+    }
+
+    if (/(invoice|owed|outstanding|unpaid|who owes)/i.test(lower)) {
+      const open = await db.abInvoice.findMany({
+        where: { tenantId, status: { in: ['sent', 'viewed', 'overdue'] } },
+        include: { client: { select: { name: true } } },
+        orderBy: { dueDate: 'asc' },
+        take: 8,
+      });
+      if (open.length === 0) {
+        return { success: true, data: { message: '🧾 No outstanding invoices.', skillUsed: 'query-finance' } };
+      }
+      const total = open.reduce((s, i) => s + i.amountCents, 0);
+      const today = Date.now();
+      const list = open.map((i) => {
+        const days = Math.round((today - i.dueDate.getTime()) / 86_400_000);
+        const tag = days > 0 ? ` · ${days}d overdue` : days < 0 ? ` · due in ${-days}d` : ' · due today';
+        return `• ${i.client?.name || 'Client'} ${i.number} — ${fmtUsd(i.amountCents)}${tag}`;
+      }).join('\n');
+      return { success: true, data: { message: `🧾 <b>${open.length} open invoice${open.length === 1 ? '' : 's'}</b> — total ${fmtUsd(total)}\n\n${list}`, skillUsed: 'query-finance' } };
+    }
+
+    if (/(expense|spent|spending|recent.*(expense|spend))/i.test(lower)) {
+      const recent = await db.abExpense.findMany({
+        where: { tenantId, isPersonal: false },
+        include: { vendor: { select: { name: true } } },
+        orderBy: { date: 'desc' },
+        take: 5,
+      });
+      if (recent.length === 0) {
+        return { success: true, data: { message: '💸 No business expenses on record yet. Send "Spent $X on Y" to add one.', skillUsed: 'query-expenses' } };
+      }
+      const list = recent.map((e) => `• ${e.date.toISOString().slice(0, 10)} — ${e.vendor?.name || e.description || 'Expense'} ${fmtUsd(e.amountCents)}`).join('\n');
+      return { success: true, data: { message: `💸 <b>Last ${recent.length} expense${recent.length === 1 ? '' : 's'}:</b>\n\n${list}`, skillUsed: 'query-expenses' } };
+    }
+
+    if (/(tax|owe.*(cra|irs|government))/i.test(lower)) {
+      const tenantConfig = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+      const jurisdiction = tenantConfig?.jurisdiction || 'us';
+      const yearStart = new Date(new Date().getFullYear(), 0, 1);
+      const [revAccts, expAccts] = await Promise.all([
+        db.abAccount.findMany({ where: { tenantId, accountType: 'revenue', isActive: true }, select: { id: true } }),
+        db.abAccount.findMany({ where: { tenantId, accountType: 'expense', isActive: true }, select: { id: true } }),
+      ]);
+      const [revAgg, expAgg] = await Promise.all([
+        revAccts.length ? db.abJournalLine.aggregate({
+          where: { accountId: { in: revAccts.map((a) => a.id) }, entry: { tenantId, date: { gte: yearStart } } },
+          _sum: { creditCents: true, debitCents: true },
+        }) : Promise.resolve({ _sum: { creditCents: 0, debitCents: 0 } }),
+        expAccts.length ? db.abJournalLine.aggregate({
+          where: { accountId: { in: expAccts.map((a) => a.id) }, entry: { tenantId, date: { gte: yearStart } } },
+          _sum: { creditCents: true, debitCents: true },
+        }) : Promise.resolve({ _sum: { creditCents: 0, debitCents: 0 } }),
+      ]);
+      const gross = (revAgg._sum.creditCents || 0) - (revAgg._sum.debitCents || 0);
+      const exp = (expAgg._sum.debitCents || 0) - (expAgg._sum.creditCents || 0);
+      const net = gross - exp;
+      const seTax = net <= 0 ? 0 : jurisdiction === 'ca' ? Math.round(net * 0.119) : Math.round(net * 0.9235 * 0.153);
+      const taxableUS = Math.max(0, net - Math.round(seTax / 2));
+      const incomeTax = jurisdiction === 'ca'
+        ? Math.round(Math.max(0, net) * 0.205)
+        : Math.round(taxableUS * 0.22);
+      const total = seTax + incomeTax;
+      return { success: true, data: { message: `🧾 <b>YTD tax estimate (${jurisdiction.toUpperCase()})</b>\n\n• Revenue: ${fmtUsd(gross)}\n• Expenses: ${fmtUsd(exp)}\n• Net income: ${fmtUsd(net)}\n• ${jurisdiction === 'ca' ? 'CPP' : 'SE tax'}: ${fmtUsd(seTax)}\n• Income tax: ${fmtUsd(incomeTax)}\n• <b>Total: ${fmtUsd(total)}</b>`, skillUsed: 'query-finance' } };
+    }
+
+    return {
+      success: true,
+      data: {
+        message: 'I can help with a few things directly:\n\n• <b>"balance"</b> — cash on hand\n• <b>"invoices"</b> — who owes you\n• <b>"expenses"</b> — recent spending\n• <b>"tax"</b> — YTD tax estimate\n\nThe full conversational agent (record-expense, scan-receipt, planning) needs the agent-brain pipeline, which isn\'t enabled in this build yet.',
+      },
+    };
+  } catch (err) {
+    console.error('[telegram/agent] failed:', err);
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /** Escape HTML special characters for Telegram. */
@@ -293,20 +404,13 @@ function getBot(): Bot {
     try {
       const result = await callAgentBrain(tenantId, agentText, undefined, sessionAction, feedback);
       if (result.success && result.data) {
-        let reply: string;
-        if (result.data.plan?.requiresConfirmation) {
-          // Show plan with confirm/cancel buttons
-          reply = escHtml(result.data.message);
-        } else if (result.data.evaluation) {
-          // Show evaluation results
-          reply = mdToHtml(result.data.message);
-        } else {
-          reply = formatResponse(result.data);
-        }
+        const reply: string = formatResponse(result.data);
 
         // Build inline keyboard based on context
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let keyboard: any = undefined;
-        if (result.data.plan?.requiresConfirmation) {
+        const planMaybe = (result.data as { plan?: { requiresConfirmation?: boolean } }).plan;
+        if (planMaybe?.requiresConfirmation) {
           keyboard = { inline_keyboard: [[
             { text: '\u2705 Proceed', callback_data: 'session:confirm' },
             { text: '\u274C Cancel', callback_data: 'session:cancel' },
@@ -332,137 +436,48 @@ function getBot(): Bot {
     }
   });
 
-  // === Photo messages → Agent Brain with attachment ===
+  // === Photo messages → Receipt OCR (not yet wired in this build) ===
+  // Receipt OCR / document parsing relies on the agent-brain pipeline,
+  // which isn't bundled in this build. Acknowledge so the user isn't
+  // left wondering why nothing happens.
   bot.on('message:photo', async (ctx) => {
-    const tenantId = await resolveTenantId(ctx.chat.id);
-    const photos = ctx.message.photo;
-    const bestPhoto = photos[photos.length - 1];
-
-    await ctx.reply('🧾 Reading your receipt...');
-
-    try {
-      const file = await ctx.api.getFile(bestPhoto.file_id);
-      const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-
-      // Upload to blob storage first
-      const expenseApi = process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051';
-      const blobRes = await fetch(`${expenseApi}/api/v1/agentbook-expense/receipts/upload-blob`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-        body: JSON.stringify({ sourceUrl: telegramUrl }),
-      });
-      const blobData = await blobRes.json() as any;
-      const permanentUrl = blobData.data?.permanentUrl || telegramUrl;
-
-      const result = await callAgentBrain(tenantId, ctx.message.caption || '', [
-        { type: 'photo', url: permanentUrl },
-      ]);
-
-      if (result.success && result.data) {
-        await ctx.reply(formatResponse(result.data), { parse_mode: 'HTML' });
-      } else {
-        await ctx.reply('🧾 I saved the receipt but couldn\'t process it.\n\nPlease type the expense, e.g.: "Spent $45 on lunch"', { parse_mode: 'HTML' });
-      }
-    } catch (err) {
-      console.error('Photo receipt error:', err);
-      await ctx.reply('Sorry, I couldn\'t process that receipt. Try a clearer photo, or type the expense manually.');
-    }
+    await ctx.reply('🧾 I received your photo, but receipt OCR isn\'t enabled in this build yet. Please type the expense — e.g. "Spent $45 on lunch at Starbucks".');
   });
 
-  // === Document messages (PDF) → Agent Brain with attachment ===
   bot.on('message:document', async (ctx) => {
-    const tenantId = await resolveTenantId(ctx.chat.id);
-    const doc = ctx.message.document;
-    const mimeType = doc.mime_type || '';
-
-    if (!mimeType.includes('pdf') && !mimeType.includes('image')) {
-      await ctx.reply('I can process PDF receipts and images. Please send a receipt photo or PDF.');
-      return;
-    }
-
-    await ctx.reply(`📄 Processing ${doc.file_name || 'document'}...`);
-
-    try {
-      const file = await ctx.api.getFile(doc.file_id);
-      const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-
-      const expenseApi = process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051';
-      const blobRes = await fetch(`${expenseApi}/api/v1/agentbook-expense/receipts/upload-blob`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-        body: JSON.stringify({ sourceUrl: telegramUrl }),
-      });
-      const blobData = await blobRes.json() as any;
-      const permanentUrl = blobData.data?.permanentUrl || telegramUrl;
-
-      const attType = mimeType.includes('pdf') ? 'pdf' : 'photo';
-      const result = await callAgentBrain(tenantId, ctx.message.caption || '', [
-        { type: attType, url: permanentUrl },
-      ]);
-
-      if (result.success && result.data) {
-        await ctx.reply(formatResponse(result.data), { parse_mode: 'HTML' });
-      } else {
-        await ctx.reply(`📄 Saved ${doc.file_name || 'document'} but couldn't extract expense data.\n\nPlease type the expense manually.`);
-      }
-    } catch (err) {
-      console.error('Document receipt error:', err);
-      await ctx.reply('Sorry, I couldn\'t process that document. Try sending it as a photo instead.');
-    }
+    await ctx.reply('📄 I received your file, but document OCR isn\'t enabled in this build yet. Please type the expense or invoice details directly.');
   });
 
-  // === Callback queries (inline keyboard buttons) ===
   bot.on('callback_query:data', async (ctx) => {
     const cbData = ctx.callbackQuery.data;
-    const tenantId = ctx.chat?.id ? await resolveTenantId(ctx.chat.id) : '';
-    const expenseApi = process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051';
-
     try {
       const [action, expenseId] = cbData.split(':');
 
-      if (action === 'session') {
-        const sessionAction = expenseId; // 'confirm' or 'cancel'
-        const result = await callAgentBrain(tenantId, sessionAction, undefined, sessionAction);
-        await ctx.answerCallbackQuery({ text: sessionAction === 'confirm' ? 'Executing...' : 'Cancelled' });
-        if (result.success && result.data?.message) {
-          try {
-            await ctx.editMessageText(mdToHtml(result.data.message), { parse_mode: 'HTML' });
-          } catch {
-            await ctx.reply(result.data.message);
-          }
-        }
-        return;
-      }
-
-      if (action === 'confirm' && expenseId) {
-        await fetch(`${expenseApi}/api/v1/agentbook-expense/expenses/${expenseId}/confirm`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-        });
-        await ctx.answerCallbackQuery({ text: '✅ Expense confirmed!' });
-        await ctx.editMessageText('✅ Expense confirmed and posted to your books.');
-      } else if (action === 'reject' && expenseId) {
-        await fetch(`${expenseApi}/api/v1/agentbook-expense/expenses/${expenseId}/reject`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+      if (action === 'reject' && expenseId) {
+        const tenantId = ctx.chat?.id ? await resolveTenantId(ctx.chat.id) : '';
+        await db.abExpense.updateMany({
+          where: { id: expenseId, tenantId },
+          data: { status: 'rejected' },
         });
         await ctx.answerCallbackQuery({ text: '❌ Expense rejected' });
         await ctx.editMessageText('❌ Expense rejected.');
-      } else if (action === 'personal' && expenseId) {
-        await fetch(`${expenseApi}/api/v1/agentbook-expense/expenses/${expenseId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-          body: JSON.stringify({ isPersonal: true }),
+        return;
+      }
+
+      if (action === 'personal' && expenseId) {
+        const tenantId = ctx.chat?.id ? await resolveTenantId(ctx.chat.id) : '';
+        await db.abExpense.updateMany({
+          where: { id: expenseId, tenantId },
+          data: { isPersonal: true },
         });
         await ctx.answerCallbackQuery({ text: '🏠 Marked as personal' });
         await ctx.editMessageText('🏠 Marked as personal expense (excluded from business books).');
-      } else if (action === 'change_cat') {
-        // Category change — route through agent as a correction prompt
-        await ctx.answerCallbackQuery({ text: 'What category?' });
-        await ctx.reply('What category should this be? (e.g., "Travel", "Meals", "Software")');
-      } else {
-        await ctx.answerCallbackQuery({ text: `Action: ${cbData}` });
+        return;
       }
+
+      // Other callbacks (session: confirm/cancel, change_cat, expense confirm)
+      // depend on the agent-brain pipeline.
+      await ctx.answerCallbackQuery({ text: 'That action needs the agent brain — not enabled yet.' });
     } catch (err) {
       console.error('Callback error:', err);
       await ctx.answerCallbackQuery({ text: 'Error processing action' });
