@@ -65,6 +65,239 @@ function fmtUsd(cents: number): string {
   return '$' + (Math.abs(cents) / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 }
 
+function normalizeVendorName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+}
+
+async function getGeminiKey(): Promise<{ apiKey: string; modelVision: string } | null> {
+  if (process.env.GEMINI_API_KEY) {
+    return {
+      apiKey: process.env.GEMINI_API_KEY,
+      modelVision: process.env.GEMINI_MODEL_VISION || 'gemini-2.5-flash',
+    };
+  }
+  try {
+    const cfg = await db.abLLMProviderConfig.findFirst({
+      where: { enabled: true, isDefault: true, provider: 'gemini' },
+    });
+    if (cfg?.apiKey) {
+      return { apiKey: cfg.apiKey, modelVision: cfg.modelVision || cfg.modelStandard || 'gemini-2.5-flash' };
+    }
+  } catch (err) {
+    console.warn('[telegram/ocr] LLM config lookup failed:', err);
+  }
+  return null;
+}
+
+interface ReceiptOcrResult {
+  amount_cents: number;
+  vendor: string | null;
+  date: string;
+  currency: string;
+  items: string | null;
+  tax_cents: number;
+  tip_cents: number;
+  confidence: number;
+}
+
+/** Run Gemini Vision OCR on a receipt image URL. Returns null on failure. */
+async function ocrReceipt(imageUrl: string): Promise<ReceiptOcrResult | null> {
+  const cfg = await getGeminiKey();
+  if (!cfg) return null;
+
+  let imagePart: { inlineData: { mimeType: string; data: string } } | { text: string };
+  try {
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) throw new Error(`fetch ${imgRes.status}`);
+    const buf = await imgRes.arrayBuffer();
+    if (buf.byteLength > 4_000_000) {
+      imagePart = { text: `[Image too large for inline OCR. URL: ${imageUrl}]` };
+    } else {
+      const mimeType = imgRes.headers.get('content-type') || 'image/jpeg';
+      imagePart = { inlineData: { mimeType, data: Buffer.from(buf).toString('base64') } };
+    }
+  } catch (err) {
+    console.warn('[telegram/ocr] image download failed:', err);
+    return null;
+  }
+
+  const systemPrompt = `You are an expert receipt scanner. Extract data from the receipt image.
+
+INSTRUCTIONS:
+- The TOTAL or AMOUNT DUE is the most important field — usually the largest number, often at the bottom after "Total"/"Amount Due"/"Grand Total"/"Balance".
+- Vendor/store name is usually at the top.
+- Date may be MM/DD/YYYY, YYYY-MM-DD, DD/MM/YYYY, or "Mon DD YYYY".
+- amount_cents is the GRAND TOTAL in CENTS (e.g., $45.99 = 4599).
+- If the image is unreadable, set amount_cents=0 and confidence=0.
+
+Return ONLY valid JSON:
+{"amount_cents": <int>, "vendor": "<string|null>", "date": "<YYYY-MM-DD>", "currency": "USD|CAD", "items": "<string|null>", "tax_cents": <int>, "tip_cents": <int>, "confidence": <0.0-1.0>}`;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.modelVision}:generateContent?key=${cfg.apiKey}`;
+  let llmRes: Response;
+  try {
+    llmRes = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [imagePart, { text: 'Extract the receipt data.' }] }],
+        generationConfig: { maxOutputTokens: 2048, temperature: 0.1 },
+      }),
+    });
+  } catch (err) {
+    console.warn('[telegram/ocr] Gemini fetch failed:', err);
+    return null;
+  }
+
+  if (!llmRes.ok) {
+    const body = await llmRes.text().catch(() => '');
+    console.warn('[telegram/ocr] Gemini HTTP error:', llmRes.status, body.slice(0, 300));
+    return null;
+  }
+
+  let raw: string;
+  try {
+    const data = await llmRes.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+    raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  } catch {
+    return null;
+  }
+
+  try {
+    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const json = cleaned.match(/\{[\s\S]*\}/)?.[0] || cleaned;
+    const parsed = JSON.parse(json);
+    return {
+      amount_cents: parsed.amount_cents || 0,
+      vendor: parsed.vendor || null,
+      date: parsed.date || new Date().toISOString().slice(0, 10),
+      currency: parsed.currency || 'USD',
+      items: parsed.items || null,
+      tax_cents: parsed.tax_cents || 0,
+      tip_cents: parsed.tip_cents || 0,
+      confidence: parsed.confidence ?? 0,
+    };
+  } catch (err) {
+    console.warn('[telegram/ocr] Gemini parse failed:', err, raw.slice(0, 200));
+    return null;
+  }
+}
+
+/** Create an expense from OCR output. Returns the inserted expense id. */
+async function createOcrExpense(
+  tenantId: string,
+  ocr: ReceiptOcrResult,
+  receiptUrl: string,
+  source: 'telegram_photo' | 'telegram_pdf',
+): Promise<{ id: string; categoryId: string | null; vendorName: string | null }> {
+  let vendor: { id: string; defaultCategoryId: string | null } | null = null;
+  if (ocr.vendor) {
+    const normalized = normalizeVendorName(ocr.vendor);
+    if (normalized) {
+      vendor = await db.abVendor.upsert({
+        where: { tenantId_normalizedName: { tenantId, normalizedName: normalized } },
+        update: { transactionCount: { increment: 1 }, lastSeen: new Date() },
+        create: { tenantId, name: ocr.vendor, normalizedName: normalized },
+        select: { id: true, defaultCategoryId: true },
+      });
+    }
+  }
+
+  let categoryId: string | null = vendor?.defaultCategoryId ?? null;
+  if (!categoryId && vendor) {
+    const pattern = await db.abPattern.findUnique({
+      where: { tenantId_vendorPattern: { tenantId, vendorPattern: normalizeVendorName(ocr.vendor || '') } },
+    });
+    if (pattern) categoryId = pattern.categoryId;
+  }
+
+  const expenseDate = new Date(ocr.date);
+  const safeDate = isNaN(expenseDate.getTime()) ? new Date() : expenseDate;
+
+  const expense = await db.$transaction(async (tx) => {
+    let journalEntryId: string | null = null;
+    if (categoryId) {
+      const cashAccount = await tx.abAccount.findFirst({ where: { tenantId, code: '1000' } });
+      if (cashAccount) {
+        const je = await tx.abJournalEntry.create({
+          data: {
+            tenantId,
+            date: safeDate,
+            memo: `Expense: ${ocr.vendor || ocr.items || 'Receipt'}`,
+            sourceType: 'expense',
+            verified: ocr.confidence >= 0.8,
+            lines: {
+              create: [
+                { accountId: categoryId, debitCents: ocr.amount_cents, creditCents: 0, description: ocr.items || ocr.vendor || 'Expense' },
+                { accountId: cashAccount.id, debitCents: 0, creditCents: ocr.amount_cents, description: `Payment: ${ocr.vendor || ''}` },
+              ],
+            },
+          },
+        });
+        journalEntryId = je.id;
+      }
+    }
+
+    const exp = await tx.abExpense.create({
+      data: {
+        tenantId,
+        amountCents: ocr.amount_cents,
+        taxAmountCents: ocr.tax_cents,
+        tipAmountCents: ocr.tip_cents,
+        vendorId: vendor?.id,
+        categoryId,
+        date: safeDate,
+        description: ocr.items || ocr.vendor || 'Receipt',
+        receiptUrl,
+        currency: ocr.currency,
+        confidence: ocr.confidence,
+        status: ocr.confidence >= 0.6 && categoryId ? 'confirmed' : 'pending_review',
+        source,
+        journalEntryId,
+      },
+      include: { vendor: { select: { name: true } } },
+    });
+
+    await tx.abEvent.create({
+      data: {
+        tenantId,
+        eventType: 'expense.recorded',
+        actor: 'agent',
+        action: {
+          expense_id: exp.id,
+          amountCents: ocr.amount_cents,
+          vendor: ocr.vendor,
+          categoryId,
+          source,
+          confidence: ocr.confidence,
+        },
+      },
+    });
+
+    return exp;
+  });
+
+  return { id: expense.id, categoryId, vendorName: expense.vendor?.name || ocr.vendor };
+}
+
+async function persistReceiptBlob(sourceUrl: string, tenantId: string, contentType: string): Promise<string> {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return sourceUrl;
+  try {
+    const imgRes = await fetch(sourceUrl);
+    if (!imgRes.ok) return sourceUrl;
+    const ext = contentType.includes('pdf') ? 'pdf' : contentType.includes('png') ? 'png' : 'jpg';
+    const filename = `receipts/${tenantId}/${Date.now()}.${ext}`;
+    const { put } = await import('@vercel/blob');
+    const blob = await put(filename, imgRes.body as never, { access: 'public', token, contentType });
+    return blob.url;
+  } catch (err) {
+    console.warn('[telegram/blob] persist failed, using source URL:', err);
+    return sourceUrl;
+  }
+}
+
 /** Minimal in-process agent — pattern-matches common queries against the tenant's books. */
 async function callAgentBrain(
   tenantId: string,
@@ -437,15 +670,89 @@ function getBot(): Bot {
   });
 
   // === Photo messages → Receipt OCR (not yet wired in this build) ===
-  // Receipt OCR / document parsing relies on the agent-brain pipeline,
-  // which isn't bundled in this build. Acknowledge so the user isn't
-  // left wondering why nothing happens.
   bot.on('message:photo', async (ctx) => {
-    await ctx.reply('🧾 I received your photo, but receipt OCR isn\'t enabled in this build yet. Please type the expense — e.g. "Spent $45 on lunch at Starbucks".');
+    const tenantId = await resolveTenantId(ctx.chat.id);
+    const photos = ctx.message.photo;
+    const best = photos[photos.length - 1];
+    await ctx.reply('🧾 Reading your receipt…');
+
+    try {
+      const file = await ctx.api.getFile(best.file_id);
+      const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+      const permanentUrl = await persistReceiptBlob(telegramUrl, tenantId, 'image/jpeg');
+
+      const ocr = await ocrReceipt(permanentUrl);
+      if (!ocr) {
+        await ctx.reply('I saved the photo but couldn\'t run OCR on it. Either the image is unreadable or the Gemini key isn\'t configured. Type the expense, e.g. "Spent $45 on lunch at Starbucks".');
+        return;
+      }
+      if (ocr.amount_cents === 0) {
+        await ctx.reply('I read the image but couldn\'t find the total. Try a clearer photo, or type the expense (e.g. "Spent $45 on lunch").');
+        return;
+      }
+
+      const expense = await createOcrExpense(tenantId, ocr, permanentUrl, 'telegram_photo');
+      const conf = Math.round(ocr.confidence * 100);
+      const status = ocr.confidence >= 0.6 && expense.categoryId
+        ? '✅ Recorded'
+        : '⚠️ Needs review';
+      const reply = `${status}\n\n• Vendor: ${expense.vendorName || '—'}\n• Amount: ${fmtUsd(ocr.amount_cents)} ${ocr.currency}\n• Date: ${ocr.date}${ocr.tax_cents ? `\n• Tax: ${fmtUsd(ocr.tax_cents)}` : ''}${ocr.tip_cents ? `\n• Tip: ${fmtUsd(ocr.tip_cents)}` : ''}\n• Confidence: ${conf}%`;
+      await ctx.reply(reply, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '🏠 Personal', callback_data: `personal:${expense.id}` },
+            { text: '❌ Reject',   callback_data: `reject:${expense.id}` },
+          ]],
+        },
+      });
+    } catch (err) {
+      console.error('[telegram/photo] failed:', err);
+      await ctx.reply('Sorry, I couldn\'t process that receipt. Try a clearer photo, or type the expense manually.');
+    }
   });
 
   bot.on('message:document', async (ctx) => {
-    await ctx.reply('📄 I received your file, but document OCR isn\'t enabled in this build yet. Please type the expense or invoice details directly.');
+    const tenantId = await resolveTenantId(ctx.chat.id);
+    const doc = ctx.message.document;
+    const mimeType = doc.mime_type || '';
+    if (!mimeType.includes('pdf') && !mimeType.includes('image')) {
+      await ctx.reply('I can read PDF or image receipts. Please send one of those, or type the expense.');
+      return;
+    }
+    await ctx.reply(`📄 Processing ${doc.file_name || 'document'}…`);
+
+    try {
+      const file = await ctx.api.getFile(doc.file_id);
+      const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+      const permanentUrl = await persistReceiptBlob(telegramUrl, tenantId, mimeType);
+
+      const ocr = await ocrReceipt(permanentUrl);
+      if (!ocr || ocr.amount_cents === 0) {
+        await ctx.reply(`Saved ${doc.file_name || 'document'} but couldn't extract a total. Type the expense manually if you want it on the books.`);
+        return;
+      }
+
+      const expense = await createOcrExpense(
+        tenantId,
+        ocr,
+        permanentUrl,
+        mimeType.includes('pdf') ? 'telegram_pdf' : 'telegram_photo',
+      );
+      const status = ocr.confidence >= 0.6 && expense.categoryId ? '✅ Recorded' : '⚠️ Needs review';
+      await ctx.reply(`${status}\n\n• Vendor: ${expense.vendorName || '—'}\n• Amount: ${fmtUsd(ocr.amount_cents)} ${ocr.currency}\n• Date: ${ocr.date}\n• Confidence: ${Math.round(ocr.confidence * 100)}%`, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '🏠 Personal', callback_data: `personal:${expense.id}` },
+            { text: '❌ Reject',   callback_data: `reject:${expense.id}` },
+          ]],
+        },
+      });
+    } catch (err) {
+      console.error('[telegram/document] failed:', err);
+      await ctx.reply('Sorry, I couldn\'t process that document. Try sending it as a photo, or type the expense.');
+    }
   });
 
   bot.on('callback_query:data', async (ctx) => {
