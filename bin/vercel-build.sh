@@ -86,17 +86,6 @@ fi
 echo "[4/6] Syncing plugin registry..."
 npx tsx bin/sync-plugin-registry.ts
 
-# Step 4.5: Build plugin server SDK + each plugin Express backend to dist/.
-# These are externalized in next.config.js (serverExternalPackages) so they
-# are NOT bundled into Vercel function output -- they're resolved at runtime
-# from node_modules. Without this step the externalized package main fields
-# would point to .ts source files that Node cannot execute.
-echo "[4.5/6] Building plugin-server-sdk + plugin backends to dist/..."
-(cd packages/plugin-server-sdk && npm run build) || echo "  WARN: plugin-server-sdk build had errors (continuing)"
-for p in agentbook-tax agentbook-invoice agentbook-core agentbook-expense; do
-  (cd "plugins/$p/backend" && npm run build) || echo "  WARN: $p backend build had errors (continuing)"
-done
-
 # Step 5: Build Next.js app
 echo "[5/6] Building Next.js app..."
 cd apps/web-next || { echo "ERROR: Failed to cd to apps/web-next"; exit 1; }
