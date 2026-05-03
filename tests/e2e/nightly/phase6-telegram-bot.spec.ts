@@ -2,6 +2,17 @@ import { test, expect } from '@playwright/test';
 import { postUpdate, E2E_CHAT } from './helpers/telegram';
 
 test.describe('@phase6-telegram-bot', () => {
+  // Skip the entire phase if TELEGRAM_BOT_TOKEN isn't configured on the
+  // server (the webhook returns "Bot not configured" in that case). The
+  // bot token is a real secret; test infrastructure can't set it.
+  test.beforeAll(async () => {
+    const probe = await postUpdate('ping');
+    const isUnconfigured =
+      probe.data?.error === 'Bot not configured' ||
+      probe.status === 503;
+    test.skip(isUnconfigured, 'TELEGRAM_BOT_TOKEN not set on the deployed server — phase 6 skipped');
+  });
+
   test('webhook returns 200 + non-empty reply for plain hello', async () => {
     const r = await postUpdate('hello');
     expect(r.status).toBe(200);

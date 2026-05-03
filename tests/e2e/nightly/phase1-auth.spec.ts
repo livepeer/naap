@@ -37,11 +37,11 @@ test.describe('@phase1-auth', () => {
 
   test('logout clears the session', async ({ page }) => {
     await loginAsE2eUser(page);
-    await page.goto('/dashboard');
+    await page.goto('/agentbook');
     // Logout button or link — exact selector depends on the current shell.
     await page.click('button:has-text("Logout"), a:has-text("Logout")').catch(() => {});
-    // After logout, /dashboard should redirect to /login.
-    await page.goto('/dashboard');
+    // After logout, a protected route should redirect to /login.
+    await page.goto('/agentbook');
     await expect(page).toHaveURL(/\/login/, { timeout: 5_000 });
   });
 
@@ -52,8 +52,8 @@ test.describe('@phase1-auth', () => {
 
   test('refresh after login keeps session', async ({ page }) => {
     await loginAsE2eUser(page);
-    await page.goto('/dashboard');
+    await page.goto('/agentbook');
     await page.reload();
-    expect(page.url()).toMatch(/\/dashboard/);
+    expect(page.url()).toMatch(/\/agentbook/);
   });
 });
