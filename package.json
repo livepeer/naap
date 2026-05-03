@@ -23,6 +23,7 @@
     "db:setup": "./bin/db-setup.sh",
     "db:seed": "./bin/db-seed.sh",
     "seed:e2e": "tsx scripts/seed-e2e-user.ts",
+    "e2e:nightly": "playwright test --config=tests/e2e/nightly/playwright.config.ts",
     "db:reset": "./bin/db-reset.sh",
     "db:migrate": "./bin/db-migrate.sh",
     "db:cleanup-moved-plugins": "npx tsx bin/cleanup-moved-plugins.ts",
