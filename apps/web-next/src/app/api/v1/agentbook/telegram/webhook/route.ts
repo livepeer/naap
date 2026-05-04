@@ -861,6 +861,8 @@ function getBot(): Bot {
       }
 
       if (action === 'change_cat') {
+        // Telegram caps callback_data at 64 bytes — UUID:UUID alone is 77.
+        // Stash the active expense in AbUserMemory and reference by code only.
         const expenseId = await resolveExpenseId(tenantId, parts[1]);
         if (!expenseId) {
           await ctx.answerCallbackQuery({ text: 'No recent expense to categorize' });
@@ -876,12 +878,29 @@ function getBot(): Bot {
           await ctx.answerCallbackQuery({ text: 'No expense categories — seed your chart of accounts first' });
           return;
         }
+        // Remember which expense this Telegram chat is recategorizing, so the
+        // cat:<code> callback below has enough context.
+        const memoryKey = 'telegram:pending_recategorize';
+        const memoryValue = JSON.stringify({ expenseId, setAt: Date.now() });
+        await db.abUserMemory.upsert({
+          where: { tenantId_key: { tenantId, key: memoryKey } },
+          update: { value: memoryValue, lastUsed: new Date() },
+          create: {
+            tenantId,
+            key: memoryKey,
+            value: memoryValue,
+            type: 'pending_action',
+            confidence: 1,
+          },
+        });
+
         const rows: { text: string; callback_data: string }[][] = [];
         for (let i = 0; i < categories.length; i += 2) {
           rows.push(
             categories.slice(i, i + 2).map((c) => ({
               text: c.name,
-              callback_data: `cat:${expenseId}:${c.id}`,
+              // Account code (e.g. "5800") fits well inside the 64-byte cap.
+              callback_data: `cat:${c.code}`,
             })),
           );
         }
@@ -891,12 +910,37 @@ function getBot(): Bot {
       }
 
       if (action === 'cat') {
-        const expenseId = parts[1];
-        const categoryId = parts[2];
-        if (!expenseId || !categoryId) {
+        const code = parts[1];
+        if (!code) {
           await ctx.answerCallbackQuery({ text: 'Bad callback data' });
           return;
         }
+        // Recover the expense id from the memory we wrote above.
+        const memoryKey = 'telegram:pending_recategorize';
+        const memory = await db.abUserMemory.findUnique({
+          where: { tenantId_key: { tenantId, key: memoryKey } },
+        });
+        let expenseId: string | undefined;
+        if (memory) {
+          try {
+            const parsed = JSON.parse(memory.value) as { expenseId?: string };
+            expenseId = parsed.expenseId;
+          } catch {
+            // bad JSON, treat as missing
+          }
+        }
+        if (!expenseId) {
+          await ctx.answerCallbackQuery({ text: 'No expense in flight — re-record then tap Category' });
+          return;
+        }
+        const account = await db.abAccount.findUnique({
+          where: { tenantId_code: { tenantId, code } },
+        });
+        if (!account) {
+          await ctx.answerCallbackQuery({ text: `Category ${code} not found` });
+          return;
+        }
+        const categoryId = account.id;
         const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
         if (!expense) {
           await ctx.answerCallbackQuery({ text: 'Expense not found' });
@@ -917,12 +961,11 @@ function getBot(): Bot {
             await db.abVendor.update({ where: { id: vendor.id }, data: { defaultCategoryId: categoryId } });
           }
         }
-        const cat = await db.abAccount.findUnique({ where: { id: categoryId } });
-        await ctx.answerCallbackQuery({ text: `✅ Categorized as ${cat?.name || ''}` });
+        await ctx.answerCallbackQuery({ text: `✅ Categorized as ${account.name}` });
         try {
-          await ctx.editMessageText(`✅ Categorized as <b>${cat?.name || categoryId}</b>. The bot will remember this for similar expenses from the same vendor.`, { parse_mode: 'HTML' });
+          await ctx.editMessageText(`✅ Categorized as <b>${account.name}</b>. The bot will remember this for similar expenses from the same vendor.`, { parse_mode: 'HTML' });
         } catch {
-          await ctx.reply(`✅ Categorized as ${cat?.name || categoryId}.`);
+          await ctx.reply(`✅ Categorized as ${account.name}.`);
         }
         return;
       }
