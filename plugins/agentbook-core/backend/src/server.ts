@@ -2217,7 +2217,7 @@ app.post('/api/v1/agentbook-core/personality/auto-adapt', async (req, res) => {
 // AGENT BRAIN — Skills, Memory, and Message Processing
 // =====================================================
 
-const BUILT_IN_SKILLS = [
+export const BUILT_IN_SKILLS = [
   {
     name: 'record-expense', description: 'Record a business or personal expense', category: 'bookkeeping',
     triggerPatterns: ['\\$\\d', 'spent ', 'paid ', 'bought ', 'purchased '],
