@@ -15,6 +15,7 @@ import { Bot } from 'grammy';
 import { prisma as db } from '@naap/database';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { callGemini, classifyAndExecuteV1 } from '@agentbook-core/server';
+import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
 
 // Dev fallback: hardcoded chat ID → tenant mapping. The tenantId here MUST
 // match the tenant the user logs into the web UI as (the AgentBook tenant
@@ -394,284 +395,6 @@ function formatExpenseSummary(e: ActiveExpense, leadLine: string): string {
   lines.push(`• Type: ${e.isPersonal ? '🏠 Personal' : '💼 Business'}`);
   lines.push(`• Status: ${e.status === 'confirmed' ? '✅ Confirmed' : e.status === 'rejected' ? '❌ Rejected' : '⚠️ Needs review'}`);
   return lines.join('\n');
-}
-
-interface FollowupIntent {
-  action: 'business' | 'personal' | 'category' | 'confirm' | 'reject' | 'unrelated';
-  categoryName?: string;
-  reason?: string;
-}
-
-/**
- * Use Gemini to interpret a short follow-up message against the active
- * expense — handles loose phrasing the regex layer doesn't catch
- * ("it is business expense", "yeah for the company", "actually this was
- * for fuel"). Returns the user's intent + (optionally) the category name
- * they meant, or "unrelated" if the message is about something else.
- */
-async function classifyFollowupWithGemini(
-  text: string,
-  active: ActiveExpense,
-  expenseAccountNames: string[],
-): Promise<FollowupIntent | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-
-  const model = process.env.GEMINI_MODEL_FAST || 'gemini-2.0-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-  const systemPrompt = `You are a friendly bookkeeper interpreting a short reply from a freelancer
-about an expense they just uploaded. Decide what they want to do.
-
-Active expense:
-  Vendor: ${active.vendorName || '(none)'}
-  Amount: ${(active.amountCents / 100).toFixed(2)} ${active.currency}
-  Date: ${active.date.toISOString().slice(0, 10)}
-  Currently: ${active.isPersonal ? 'personal' : 'business'}, category=${active.categoryName || '(uncategorized)'}, status=${active.status}
-
-Available expense categories: ${expenseAccountNames.join(', ')}
-
-Possible actions and rules:
-  business    — user wants this booked as a business expense
-                ("it's business", "for the company", "work-related", "deductible")
-  personal    — user wants this excluded from business books
-                ("it's personal", "for me", "private", "not for work")
-  category    — user wants a specific category. Set categoryName to the closest
-                match from the available list above. ("should be Fuel",
-                "categorize as Travel", "actually this was for gas").
-  confirm     — user is happy with the current state ("yes", "looks right",
-                "ok", "sgtm", "approve", "yeah good")
-  reject      — user wants the expense thrown out ("no", "wrong", "delete",
-                "that's not right", "didn't happen")
-  unrelated   — the reply is about something else entirely (e.g. asking a
-                different question)
-
-Reply with ONLY a JSON object: {"action": "<one of above>", "categoryName": "<exact category name or null>", "reason": "<one short sentence>"}`;
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ role: 'user', parts: [{ text: `User said: "${text}"` }] }],
-        generationConfig: { maxOutputTokens: 200, temperature: 0.1 },
-      }),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const json = cleaned.match(/\{[\s\S]*\}/)?.[0] || cleaned;
-    const parsed = JSON.parse(json) as FollowupIntent;
-    if (!parsed.action) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-async function applyCategoryToActiveExpense(
-  tenantId: string,
-  active: ActiveExpense,
-  matched: { id: string; name: string },
-): Promise<void> {
-  await db.abExpense.update({
-    where: { id: active.id },
-    data: { categoryId: matched.id, confidence: 1 },
-  });
-  if (active.vendorName) {
-    const vendor = await db.abVendor.findFirst({ where: { tenantId, name: active.vendorName } });
-    if (vendor) {
-      await db.abPattern.upsert({
-        where: { tenantId_vendorPattern: { tenantId, vendorPattern: vendor.normalizedName } },
-        update: {
-          categoryId: matched.id,
-          confidence: 0.95,
-          source: 'user_corrected',
-          usageCount: { increment: 1 },
-          lastUsed: new Date(),
-        },
-        create: {
-          tenantId,
-          vendorPattern: vendor.normalizedName,
-          categoryId: matched.id,
-          confidence: 0.95,
-          source: 'user_corrected',
-        },
-      });
-      await db.abVendor.update({
-        where: { id: vendor.id },
-        data: { defaultCategoryId: matched.id },
-      });
-    }
-  }
-}
-
-/**
- * Detect a natural-language follow-up against the active expense.
- * First does cheap regex keyword detection, then falls back to Gemini
- * for ambiguous phrasings ("it is business expense", "yeah for the
- * company", "actually that was gas").
- */
-async function tryActiveExpenseFollowup(
-  tenantId: string,
-  text: string,
-  ctx: { reply: (text: string, opts?: { parse_mode?: 'HTML' | 'Markdown' }) => Promise<unknown> },
-): Promise<boolean> {
-  const active = await getActiveExpense(tenantId);
-  if (!active) return false;
-
-  const lower = text.toLowerCase().trim();
-  const isShort = lower.length < 80;
-  if (!isShort) return false;
-
-  const BIZ_KEYWORDS = /\b(business|work|work[\- ]related|company|client|biz|professional|deductib|writeoff|write[\- ]off|deduct)\b/i;
-  const PERSONAL_KEYWORDS = /\b(personal|myself|home|family|private|leisure|not (?:for )?work|not business)\b/i;
-
-  // Layer 1 — cheap keyword detection. Treat hits where exactly one
-  // axis appears.
-  const businessHit = BIZ_KEYWORDS.test(lower) && !PERSONAL_KEYWORDS.test(lower);
-  const personalHit = PERSONAL_KEYWORDS.test(lower) && !BIZ_KEYWORDS.test(lower);
-
-  if (businessHit && !active.isPersonal) {
-    await ctx.reply(
-      formatExpenseSummary(active, `💼 ${active.vendorName ? escHtml(active.vendorName) : 'That'} ${fmtUsd(active.amountCents)} — already on the business books. Anything else to tweak?`),
-      { parse_mode: 'HTML' },
-    );
-    return true;
-  }
-  if (businessHit && active.isPersonal) {
-    await db.abExpense.update({ where: { id: active.id }, data: { isPersonal: false } });
-    const updated = { ...active, isPersonal: false };
-    await ctx.reply(
-      formatExpenseSummary(updated, `💼 Got it — moved that ${active.vendorName ? escHtml(active.vendorName) + ' ' : ''}${fmtUsd(active.amountCents)} expense onto the business books.`),
-      { parse_mode: 'HTML' },
-    );
-    return true;
-  }
-  if (personalHit && !active.isPersonal) {
-    await db.abExpense.update({ where: { id: active.id }, data: { isPersonal: true } });
-    const updated = { ...active, isPersonal: true };
-    await ctx.reply(
-      formatExpenseSummary(updated, `🏠 No problem — pulled that one off the business books and marked it personal.`),
-      { parse_mode: 'HTML' },
-    );
-    return true;
-  }
-
-  // Layer 2 — explicit category-change phrasing
-  const catMatch = lower.match(/^(?:should be|change category to|change to|category|cat|categor[iy]ze (?:as|to|under)?|put it in|put in|file under|book it as|actually(?: it's| this was|,)?)\s*:?\s*(.+)$/i);
-  if (catMatch) {
-    const term = catMatch[1].trim().replace(/[.!?]+$/, '');
-    const accounts = await db.abAccount.findMany({
-      where: { tenantId, accountType: 'expense', isActive: true },
-      select: { id: true, name: true, code: true },
-    });
-    const lowerTerm = term.toLowerCase();
-    const matched =
-      accounts.find((a) => a.name.toLowerCase() === lowerTerm) ||
-      accounts.find((a) => a.name.toLowerCase().includes(lowerTerm)) ||
-      accounts.find((a) => lowerTerm.includes(a.name.toLowerCase()));
-    if (!matched) {
-      const list = accounts.slice(0, 10).map((a) => `• ${a.name}`).join('\n');
-      await ctx.reply(`Hmm, I don't have a "${term}" category on file. The closest matches I have:\n${list}\n\nTap 📁 Different category for the picker, or tell me one of those names.`);
-      return true;
-    }
-    await applyCategoryToActiveExpense(tenantId, active, matched);
-    const updated = { ...active, categoryName: matched.name };
-    await ctx.reply(
-      formatExpenseSummary(
-        updated,
-        `📒 Booked under <b>${escHtml(matched.name)}</b>. Next time ${active.vendorName ? escHtml(active.vendorName) : 'this vendor'} shows up I'll file it there automatically.`,
-      ),
-      { parse_mode: 'HTML' },
-    );
-    return true;
-  }
-
-  // Layer 3 — Gemini fallback for ambiguous wording. Only call if the
-  // message looks expense-relevant (mentions a category-ish keyword
-  // or business/personal axis), otherwise let the agent brain handle it.
-  const expenseRelevant =
-    BIZ_KEYWORDS.test(lower) || PERSONAL_KEYWORDS.test(lower) ||
-    /\b(category|categori[sz]e|file under|fuel|gas|meals|travel|office|supplies|software|rent|utilities)\b/i.test(lower) ||
-    /\b(yes|yep|yeah|correct|right|ok|okay|sgtm|approve|confirm|good|looks good)\b/i.test(lower) ||
-    /\b(no|nope|wrong|incorrect|delete|cancel|reject)\b/i.test(lower);
-
-  if (!expenseRelevant) return false;
-
-  const accounts = await db.abAccount.findMany({
-    where: { tenantId, accountType: 'expense', isActive: true },
-    select: { id: true, name: true, code: true },
-  });
-  const intent = await classifyFollowupWithGemini(
-    text,
-    active,
-    accounts.map((a) => a.name),
-  );
-  if (!intent || intent.action === 'unrelated') return false;
-
-  if (intent.action === 'business') {
-    if (active.isPersonal) {
-      await db.abExpense.update({ where: { id: active.id }, data: { isPersonal: false } });
-    }
-    const updated = { ...active, isPersonal: false };
-    await ctx.reply(
-      formatExpenseSummary(updated, `💼 Got it — that ${fmtUsd(active.amountCents)} ${active.vendorName ? 'at ' + escHtml(active.vendorName) + ' ' : ''}is on the business books.`),
-      { parse_mode: 'HTML' },
-    );
-    return true;
-  }
-
-  if (intent.action === 'personal') {
-    if (!active.isPersonal) {
-      await db.abExpense.update({ where: { id: active.id }, data: { isPersonal: true } });
-    }
-    const updated = { ...active, isPersonal: true };
-    await ctx.reply(
-      formatExpenseSummary(updated, `🏠 No problem — that one's personal, pulled it off the business books.`),
-      { parse_mode: 'HTML' },
-    );
-    return true;
-  }
-
-  if (intent.action === 'category' && intent.categoryName) {
-    const matched =
-      accounts.find((a) => a.name === intent.categoryName) ||
-      accounts.find((a) => a.name.toLowerCase() === intent.categoryName!.toLowerCase());
-    if (!matched) return false;
-    await applyCategoryToActiveExpense(tenantId, active, matched);
-    const updated = { ...active, categoryName: matched.name };
-    await ctx.reply(
-      formatExpenseSummary(
-        updated,
-        `📒 Booked under <b>${escHtml(matched.name)}</b>. Next time ${active.vendorName ? escHtml(active.vendorName) : 'this vendor'} shows up I'll file it there automatically.`,
-      ),
-      { parse_mode: 'HTML' },
-    );
-    return true;
-  }
-
-  if (intent.action === 'confirm') {
-    if (active.status !== 'confirmed') {
-      await db.abExpense.update({ where: { id: active.id }, data: { status: 'confirmed' } });
-    }
-    const updated = { ...active, status: 'confirmed' };
-    await ctx.reply(
-      formatExpenseSummary(updated, `✅ All set — ${active.vendorName ? escHtml(active.vendorName) + ' ' : ''}${fmtUsd(active.amountCents)} is locked in.`),
-      { parse_mode: 'HTML' },
-    );
-    return true;
-  }
-
-  if (intent.action === 'reject') {
-    await db.abExpense.update({ where: { id: active.id }, data: { status: 'rejected' } });
-    await ctx.reply(`❌ Rejected — that one won't appear on the books.`);
-    return true;
-  }
-
-  return false;
 }
 
 async function persistReceiptBlob(sourceUrl: string, tenantId: string, contentType: string): Promise<string> {
@@ -1063,17 +786,36 @@ function getBot(): Bot {
     const cmd = text.split(' ')[0].toLowerCase();
     const agentText = slashMap[cmd] || text;
 
-    // Natural-language follow-ups against the active expense always run
-    // first — when the user just uploaded a receipt and replies with
-    // "it's business expense" / "personal" / "should be Fuel", we want to
-    // apply that to the active expense, not route through the agent brain
-    // (which would re-trigger record-expense and book a duplicate).
+    // Run the bot's intent → plan → review → execute → evaluate loop.
+    // The loop handles confirm / reject / business / personal / categorize /
+    // the four queries / help directly. record_expense and unrelated bubble
+    // up via evaluation.delegatedToBrain so the agent brain takes over.
     if (!sessionAction) {
       try {
-        const handled = await tryActiveExpenseFollowup(tenantId, text, ctx);
-        if (handled) return;
+        const active = await getActiveExpense(tenantId);
+        const categories = await db.abAccount.findMany({
+          where: { tenantId, accountType: 'expense', isActive: true },
+          select: { id: true, name: true, code: true },
+        });
+        const botCtx: BotContext = {
+          tenantId,
+          active: active as BotActive | null,
+          categories,
+        };
+        const loop = await runAgentLoop(text, botCtx);
+        if (loop.evaluation.reply) {
+          try {
+            await ctx.reply(loop.evaluation.reply, {
+              parse_mode: loop.evaluation.parseMode,
+            });
+          } catch {
+            await ctx.reply(loop.evaluation.reply);
+          }
+        }
+        if (!loop.evaluation.delegatedToBrain) return;
+        // Fall through to agent brain for record_expense / queries / unrelated.
       } catch (err) {
-        console.warn('[telegram/followup] failed:', err);
+        console.warn('[telegram/agent-loop] failed:', err);
       }
     }
 
