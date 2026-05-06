@@ -1,6 +1,10 @@
 /**
- * CSRF Token Utilities
+ * CSRF Token Utilities — server-only module
  * Double-submit cookie pattern with HMAC binding to session.
+ *
+ * Client helpers (getCsrfToken, csrfFetch, withCsrf, clearCsrfToken)
+ * live in ./csrf-client.ts to avoid pulling Node-only modules into
+ * the client bundle.
  */
 
 import * as crypto from 'crypto';
@@ -8,7 +12,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { errors } from './response';
 
 const CSRF_PEPPER = process.env.CSRF_PEPPER || process.env.NEXTAUTH_SECRET || '';
-const CSRF_TOKEN_LIFETIME = 60 * 60 * 1000; // 1 hour
 
 /**
  * Server-side CSRF validation using double-submit cookie pattern.
@@ -24,7 +27,6 @@ export function validateCSRF(
 ): NextResponse | null {
   if (options?.exempt) return null;
 
-  // In development, be lenient
   if (process.env.NODE_ENV === 'development') {
     return null;
   }
@@ -44,7 +46,6 @@ export function validateCSRF(
     return errors.forbidden('CSRF token required');
   }
 
-  // Timing-safe comparison of header value vs cookie value
   try {
     const headerBuf = Buffer.from(headerToken, 'utf8');
     const cookieBuf = Buffer.from(cookieToken, 'utf8');
@@ -93,63 +94,4 @@ export function createSessionCSRFToken(sessionId: string): string {
   const payload = `${sessionId}:${Date.now()}`;
   const sig = crypto.createHmac('sha256', CSRF_PEPPER).update(payload).digest('hex');
   return `${payload}:${sig}`;
-}
-
-// Client-side utilities below — kept for backwards compatibility with existing imports
-
-let cachedToken: string | null = null;
-let tokenExpiry: number = 0;
-
-export async function getCsrfToken(): Promise<string> {
-  if (cachedToken && Date.now() < tokenExpiry) {
-    return cachedToken;
-  }
-
-  try {
-    const response = await fetch('/api/v1/auth/csrf', {
-      method: 'GET',
-      credentials: 'include',
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      cachedToken = data.token || data.data?.token;
-      tokenExpiry = Date.now() + CSRF_TOKEN_LIFETIME;
-      return cachedToken!;
-    }
-  } catch (error) {
-    console.warn('Failed to fetch CSRF token:', error);
-  }
-
-  cachedToken = generateCsrfToken();
-  tokenExpiry = Date.now() + CSRF_TOKEN_LIFETIME;
-  return cachedToken;
-}
-
-export function clearCsrfToken(): void {
-  cachedToken = null;
-  tokenExpiry = 0;
-}
-
-export async function withCsrf(
-  headers: HeadersInit = {}
-): Promise<HeadersInit> {
-  const token = await getCsrfToken();
-  return {
-    ...headers,
-    'X-CSRF-Token': token,
-  };
-}
-
-export async function csrfFetch(
-  url: string,
-  options: RequestInit = {}
-): Promise<Response> {
-  const csrfHeaders = await withCsrf(options.headers || {});
-  
-  return fetch(url, {
-    ...options,
-    headers: csrfHeaders,
-    credentials: 'include',
-  });
 }

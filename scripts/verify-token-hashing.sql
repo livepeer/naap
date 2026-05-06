@@ -1,5 +1,8 @@
--- Verify that no session tokens are stored in plaintext
--- (tokenHash should be populated for all rows; token should be NULL after cutover)
+-- Verify token hashing rollout progress.
+-- During dual-write phase, both token and tokenHash are populated.
+-- The token column remains non-nullable in the schema; it will only
+-- become nullable in a future migration once all tokenHash backfills
+-- are confirmed and the plaintext column is ready to be dropped.
 
 -- Check for sessions with tokenHash but also a non-null token (pre-cutover, expected)
 SELECT 'Sessions with both token and tokenHash (pre-cutover):' AS check,
