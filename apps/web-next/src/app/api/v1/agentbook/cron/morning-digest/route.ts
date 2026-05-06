@@ -344,8 +344,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const name = user?.displayName?.split(' ')[0] || 'there';
 
       const message = composeMessage(name, digest, ai);
-      const keyboard = ai.pending.length > 0
-        ? [[{ text: `👀 Review ${ai.pending.length} pending`, callback_data: 'review_drafts' }]]
+      // Review button covers BOTH queues — AI suggestions AND uncategorized
+      // draft expenses. The unified review batch handler walks through both.
+      const reviewCount = ai.pending.length + digest.pendingReviewCount;
+      const keyboard = reviewCount > 0
+        ? [[{ text: `👀 Review ${reviewCount} item${reviewCount === 1 ? '' : 's'}`, callback_data: 'review_drafts' }]]
         : undefined;
       const tgSent = await sendTelegram(tenant.userId, message, keyboard);
       if (!tgSent) await sendEmail(tenant.userId, message);

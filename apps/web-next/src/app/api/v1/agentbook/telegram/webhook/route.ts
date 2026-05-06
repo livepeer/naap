@@ -505,25 +505,68 @@ function buildDraftReceiptReply(
 }
 
 /**
- * Render the auto-categorizer's medium-confidence batch as a series of
- * Telegram messages, each with [✅ Yes] [📁 Different] buttons. Called
- * from the digest's "Review pending" button + the "review" text intent.
+ * Unified review batch: walk the user through everything that needs
+ * attention. Two queues, presented in this priority order:
+ *
+ *   1. AI-suggested categorizations (from the daily auto-categorizer's
+ *      medium-confidence pile) — show with [✅ Yes] [📁 Different]
+ *      buttons because we already have a guess.
+ *   2. Draft expenses that aren't even categorized yet (status =
+ *      pending_review, categoryId = null) — show with [📁 Pick category]
+ *      [🏠 Personal] [❌ Reject] so the user can sort them quickly.
+ *
+ * The two lists deliberately use different buttons so the flow is
+ * unambiguous; both update the books exactly the same way as the
+ * normal photo-handler buttons.
  */
 interface ReplyableCtx {
   reply: (text: string, opts?: { parse_mode?: 'HTML'; reply_markup?: { inline_keyboard: { text: string; callback_data: string }[][] } }) => Promise<unknown>;
 }
 
 async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Promise<number> {
-  const items = await getPendingSuggestions(tenantId);
-  if (items.length === 0) {
-    await ctx.reply('🎉 Nothing in the review queue — all caught up.');
+  const aiItems = await getPendingSuggestions(tenantId);
+
+  const drafts = await db.abExpense.findMany({
+    where: {
+      tenantId,
+      status: 'pending_review',
+      categoryId: null,
+      isPersonal: false,
+    },
+    include: { vendor: { select: { name: true } } },
+    orderBy: { date: 'desc' },
+    take: 15,
+  });
+
+  // The two queues can overlap (an AI suggestion is also a pending_review
+  // draft until the user accepts/changes). Don't double-show.
+  const aiIds = new Set(aiItems.map((i) => i.expenseId));
+  const draftsOnly = drafts.filter((d) => !aiIds.has(d.id));
+
+  const total = aiItems.length + draftsOnly.length;
+  if (total === 0) {
+    await ctx.reply('🎉 All caught up — nothing in the review queue.');
     return 0;
   }
-  await ctx.reply(`📂 ${items.length} expense${items.length === 1 ? '' : 's'} need a quick check. Tap ✅ if I got it right, 📁 to pick a different category.`);
-  for (const it of items) {
+
+  // Header sets expectation about what's coming.
+  const sections: string[] = [];
+  if (aiItems.length > 0) {
+    sections.push(`<b>${aiItems.length}</b> with my best guess`);
+  }
+  if (draftsOnly.length > 0) {
+    sections.push(`<b>${draftsOnly.length}</b> draft${draftsOnly.length === 1 ? '' : 's'} that need a category`);
+  }
+  await ctx.reply(
+    `📂 Walking you through <b>${total}</b> item${total === 1 ? '' : 's'} in the review queue (${sections.join(' + ')}). Tap a button or just tell me what to do.`,
+    { parse_mode: 'HTML' },
+  );
+
+  // 1) AI-suggested first — these are quickest because we have a guess.
+  for (const it of aiItems) {
     const conf = Math.round(it.confidence * 100);
     const date = new Date(it.date).toISOString().slice(0, 10);
-    const text = `<b>${escHtml(it.vendorName || 'Expense')}</b> — <b>${fmtUsd(it.amountCents)}</b> (${date})\n`
+    const text = `<b>${escHtml(it.vendorName || 'Expense')}</b> — <b>${fmtUsd(it.amountCents)}</b> · ${date}\n`
       + `I think this is <b>${escHtml(it.suggestedCategoryName)}</b> (~${conf}% sure).`
       + (it.reason ? `\n<i>${escHtml(it.reason)}</i>` : '');
     await ctx.reply(text, {
@@ -536,7 +579,29 @@ async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Prom
       },
     });
   }
-  return items.length;
+
+  // 2) Plain drafts — no guess yet, ask the user to pick.
+  for (const d of draftsOnly) {
+    const date = d.date.toISOString().slice(0, 10);
+    const text = `<b>${escHtml(d.vendor?.name || d.description || 'Expense')}</b> — <b>${fmtUsd(d.amountCents)}</b> · ${date}\n`
+      + `<i>Draft, no category yet.</i>`;
+    await ctx.reply(text, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '📁 Pick category', callback_data: `change_cat:${d.id}` },
+            { text: '🏠 Personal', callback_data: `personal:${d.id}` },
+          ],
+          [
+            { text: '❌ Reject', callback_data: `reject:${d.id}` },
+          ],
+        ],
+      },
+    });
+  }
+
+  return total;
 }
 
 /**
@@ -1042,9 +1107,22 @@ function getBot(): Bot {
 
     const lower = text.toLowerCase().trim();
 
-    // "review" / "review pending" → walk through the auto-categorizer's
-    // medium-confidence batch.
-    if (/^review( pending)?\b/i.test(lower)) {
+    // Anything that looks like a review request — walk through the
+    // unified review queue. Catches all the phrasings users actually
+    // type ("give me expenses for review", "show me drafts", "what
+    // needs my attention", "let me approve the pending ones", etc.).
+    const startsLikeReview =
+      /^(review|let me review|let's review|let me see|let me check|let me approve|show me|show|give me|walk me through|go through|check|what(?:'s| is| are| do)|anything|got)\b/i
+        .test(lower);
+    const mentionsPending =
+      /\b(review|pending|draft|to (?:review|approve|confirm|categori[sz]e)|need(?:s)? (?:a )?(?:review|category|approval|attention|confirmation)|approve|attention|expenses? (?:for|to|that need|needing)|drafts?|uncategori[sz]ed)\b/i
+        .test(lower);
+    if (
+      /^review\b/i.test(lower)
+      || /^show (?:me )?pending\b/i.test(lower)
+      || /^pending\b/i.test(lower)
+      || (startsLikeReview && mentionsPending)
+    ) {
       await sendPendingReviewBatch(tenantId, ctx);
       return;
     }
