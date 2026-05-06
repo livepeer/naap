@@ -16,9 +16,11 @@ import { prisma as db } from '@naap/database';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { callGemini, classifyAndExecuteV1 } from '@agentbook-core/server';
 
-// Dev fallback: hardcoded chat ID → tenant mapping
+// Dev fallback: hardcoded chat ID → tenant mapping. The tenantId here MUST
+// match the tenant the user logs into the web UI as (the AgentBook tenant
+// is the User.id), otherwise bot-recorded expenses won't show up there.
 const CHAT_TO_TENANT_FALLBACK: Record<string, string> = {
-  '5336658682': '2e2348b6-a64c-44ad-907e-4ac120ff06f2', // Qiang → Maya
+  '5336658682': '020e55c5-da0e-4b9c-91cb-55b7f9c6527e', // Qiang → Maya web user (maya@agentbook.test)
   '555555555':  'b9a80acd-fa14-4209-83a9-03231513fa8f', // Nightly e2e bot tests → e2e@agentbook.test
 };
 
