@@ -510,15 +510,22 @@ export async function refreshSession(token: string): Promise<{ expiresAt: Date }
 
   let session = await prisma.session.findUnique({
     where: { tokenHash: hash },
+    include: { user: true },
   });
 
   if (!session) {
     session = await prisma.session.findUnique({
       where: { token },
+      include: { user: true },
     });
   }
 
   if (!session) return null;
+
+  if (session.user.sessionVersion !== (session.versionAtCreation ?? 0)) {
+    await prisma.session.delete({ where: { id: session.id } });
+    return null;
+  }
 
   if (new Date(session.expiresAt) < new Date()) {
     await prisma.session.delete({ where: { id: session.id } });

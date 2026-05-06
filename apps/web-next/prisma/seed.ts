@@ -36,12 +36,12 @@ const prisma = new PrismaClient();
 /**
  * Hash a password using PBKDF2 with random salt.
  * @param password - Plaintext password to hash
- * @returns Salt:hash string suitable for storage
+ * @returns Versioned envelope: pbkdf2-sha256-600k:salt:hash
  */
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-  return `${salt}:${hash}`;
+  const hash = crypto.pbkdf2Sync(password, salt, 600_000, 64, 'sha256').toString('hex');
+  return `pbkdf2-sha256-600k:${salt}:${hash}`;
 }
 
 /**
