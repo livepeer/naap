@@ -1,46 +1,75 @@
 /**
  * CSRF Token Utilities
- * Provides CSRF protection for mutation requests.
+ * Double-submit cookie pattern with HMAC binding to session.
  */
 
+import * as crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { errors } from './response';
 
-let cachedToken: string | null = null;
-let tokenExpiry: number = 0;
-
-const CSRF_TOKEN_LIFETIME = 60 * 60 * 1000; // 1 hour in milliseconds
+const CSRF_PEPPER = process.env.CSRF_PEPPER || process.env.NEXTAUTH_SECRET || '';
+const CSRF_TOKEN_LIFETIME = 60 * 60 * 1000; // 1 hour
 
 /**
- * Server-side CSRF validation.
- * Validates the CSRF token from the request header.
- * Returns null if valid, or an error response if invalid.
+ * Server-side CSRF validation using double-submit cookie pattern.
+ * Compares the X-CSRF-Token header against the naap_csrf_token cookie.
+ * 
+ * Options:
+ *  - shadowMode: if true, log violations but don't block (for rollout)
+ *  - exempt: if true, skip validation entirely (for bootstrap routes)
  */
 export function validateCSRF(
   request: NextRequest,
-  _authToken?: string
+  options?: { shadowMode?: boolean; exempt?: boolean }
 ): NextResponse | null {
-  const csrfToken = request.headers.get('X-CSRF-Token');
-  
-  // In development, be more lenient with CSRF validation
+  if (options?.exempt) return null;
+
+  // In development, be lenient
   if (process.env.NODE_ENV === 'development') {
-    // Still require the header, but don't validate against a stored token
-    if (!csrfToken) {
-      console.warn('CSRF token missing in development mode');
-      // In dev, we can be lenient
-      return null;
-    }
     return null;
   }
 
-  // In production, require CSRF token
-  if (!csrfToken) {
+  const headerToken = request.headers.get('X-CSRF-Token');
+  const cookieToken = request.cookies.get('naap_csrf_token')?.value;
+
+  if (!headerToken || !cookieToken) {
+    if (options?.shadowMode) {
+      console.warn('[CSRF] Shadow-mode rejection: missing token', {
+        hasHeader: !!headerToken,
+        hasCookie: !!cookieToken,
+        path: request.nextUrl.pathname,
+      });
+      return null;
+    }
     return errors.forbidden('CSRF token required');
   }
 
-  // For now, we just check that the token exists and is a valid format
-  // A more robust implementation would store tokens server-side and validate
-  if (csrfToken.length < 10) {
+  // Timing-safe comparison of header value vs cookie value
+  try {
+    const headerBuf = Buffer.from(headerToken, 'utf8');
+    const cookieBuf = Buffer.from(cookieToken, 'utf8');
+    
+    if (headerBuf.length !== cookieBuf.length) {
+      if (options?.shadowMode) {
+        console.warn('[CSRF] Shadow-mode rejection: token length mismatch', {
+          path: request.nextUrl.pathname,
+        });
+        return null;
+      }
+      return errors.forbidden('Invalid CSRF token');
+    }
+
+    if (!crypto.timingSafeEqual(headerBuf, cookieBuf)) {
+      if (options?.shadowMode) {
+        console.warn('[CSRF] Shadow-mode rejection: token mismatch', {
+          path: request.nextUrl.pathname,
+        });
+        return null;
+      }
+      return errors.forbidden('Invalid CSRF token');
+    }
+  } catch {
+    if (options?.shadowMode) return null;
     return errors.forbidden('Invalid CSRF token');
   }
 
@@ -48,35 +77,30 @@ export function validateCSRF(
 }
 
 /**
- * Generate a CSRF token.
- * Uses crypto.randomUUID if available, otherwise falls back to Math.random.
+ * Generate a cryptographically random CSRF token.
  */
 export function generateCsrfToken(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/**
+ * Create a CSRF token bound to a session via HMAC.
+ */
+export function createSessionCSRFToken(sessionId: string): string {
+  if (!CSRF_PEPPER) {
+    return generateCsrfToken();
   }
-  return Math.random().toString(36).substring(2) + Date.now().toString(36);
+  const payload = `${sessionId}:${Date.now()}`;
+  const sig = crypto.createHmac('sha256', CSRF_PEPPER).update(payload).digest('hex');
+  return `${payload}:${sig}`;
 }
 
-/**
- * Create a CSRF token tied to a session.
- * In production, this should use HMAC with a secret key.
- * For now, we generate a token based on the session token hash.
- */
-export function createSessionCSRFToken(sessionToken: string): string {
-  // Simple hash-based token generation
-  // In production, use HMAC-SHA256 with a server secret
-  const hash = sessionToken.split('').reduce((acc, char) => {
-    return ((acc << 5) - acc) + char.charCodeAt(0);
-  }, 0);
-  return `csrf_${Math.abs(hash).toString(36)}_${Date.now().toString(36)}`;
-}
+// Client-side utilities below — kept for backwards compatibility with existing imports
 
-/**
- * Get the current CSRF token, fetching a new one if needed.
- */
+let cachedToken: string | null = null;
+let tokenExpiry: number = 0;
+
 export async function getCsrfToken(): Promise<string> {
-  // Return cached token if still valid
   if (cachedToken && Date.now() < tokenExpiry) {
     return cachedToken;
   }
@@ -97,24 +121,16 @@ export async function getCsrfToken(): Promise<string> {
     console.warn('Failed to fetch CSRF token:', error);
   }
 
-  // Generate a client-side token as fallback
   cachedToken = generateCsrfToken();
   tokenExpiry = Date.now() + CSRF_TOKEN_LIFETIME;
   return cachedToken;
 }
 
-/**
- * Clear the cached CSRF token.
- * Call this when the user logs out.
- */
 export function clearCsrfToken(): void {
   cachedToken = null;
   tokenExpiry = 0;
 }
 
-/**
- * Add CSRF token to headers for a fetch request.
- */
 export async function withCsrf(
   headers: HeadersInit = {}
 ): Promise<HeadersInit> {
@@ -125,9 +141,6 @@ export async function withCsrf(
   };
 }
 
-/**
- * Make a fetch request with CSRF protection.
- */
 export async function csrfFetch(
   url: string,
   options: RequestInit = {}

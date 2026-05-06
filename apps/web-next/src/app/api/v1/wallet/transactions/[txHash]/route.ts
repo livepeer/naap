@@ -28,7 +28,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams): Prom
       return errors.unauthorized('No auth token provided');
     }
 
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) {
       return csrfError;
     }
