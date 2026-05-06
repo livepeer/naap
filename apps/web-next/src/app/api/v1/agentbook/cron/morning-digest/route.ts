@@ -1,67 +1,233 @@
 /**
- * Morning Digest Cron
+ * Morning Digest Cron — runs hourly, fires per-tenant at 7am local.
  *
- * Vercel Cron schedule: hourly at minute 0 ("0 * * * *").
- * Iterates active tenants and sends a forward-looking summary at 7am
- * local time. Telegram if configured, else email via Resend, else no-op.
+ * Sends an actionable summary so the user opens Telegram in the morning
+ * and sees: cash on hand, what came in / went out yesterday, what's due
+ * this week, anything that needs review, and any anomalies. Resend
+ * email is the fallback when no Telegram is wired.
+ *
+ * Reads everything via direct Prisma — does NOT self-fetch over HTTP
+ * (removed in earlier refactor along with AGENTBOOK_CORE_URL).
  */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 
-const CORE_BASE = process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050';
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
-interface OverviewData {
-  cashToday: number;
-  projection: { days: { date: string; cents: number }[] } | null;
-  nextMoments: { label: string; daysOut: number }[];
-  attention: { id: string; title: string; amountCents?: number }[];
+interface DigestData {
+  cashTodayCents: number;
+  yesterday: {
+    paymentsInCents: number;
+    expensesOutCents: number;
+    netCents: number;
+    paymentCount: number;
+    expenseCount: number;
+  };
+  pendingReviewCount: number;
+  attention: { kind: string; title: string; amountCents?: number }[];
+  upcomingThisWeek: { kind: string; label: string; daysOut: number; amountCents: number }[];
+  anomalyCount: number;
+  taxDaysUntilQ: number | null;
 }
 
-async function fetchOverview(tenantId: string): Promise<OverviewData | null> {
-  try {
-    const r = await fetch(`${CORE_BASE}/api/v1/agentbook-core/dashboard/overview`, {
-      headers: { 'x-tenant-id': tenantId },
-    });
-    if (!r.ok) return null;
-    const j = await r.json();
-    return j?.data ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchSummary(tenantId: string, overdueCount: number, overdueAmt: number, taxDaysOut: number | null): Promise<string | null> {
-  try {
-    const params = new URLSearchParams({
-      overdueCount: String(overdueCount),
-      overdueAmountCents: String(overdueAmt),
-      ...(taxDaysOut !== null ? { taxDaysOut: String(taxDaysOut) } : {}),
-    });
-    const r = await fetch(`${CORE_BASE}/api/v1/agentbook-core/dashboard/agent-summary?${params}`, {
-      headers: { 'x-tenant-id': tenantId },
-    });
-    if (!r.ok) return null;
-    const j = await r.json();
-    return j?.data?.summary || null;
-  } catch {
-    return null;
-  }
-}
-
-function fmtMoney(cents: number): string {
+function fmt$(cents: number): string {
   return '$' + Math.round(cents / 100).toLocaleString('en-US');
 }
 
-function composeMessage(name: string, overview: OverviewData, summary: string | null): string {
-  const projectedEnd = overview.projection?.days.at(-1)?.cents ?? overview.cashToday;
-  const endLabel = overview.projection?.days.at(-1)?.date
-    ? new Date(overview.projection.days.at(-1)!.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    : '';
-  return [
-    `☀️ Good morning, ${name}. Cash ${fmtMoney(overview.cashToday)} today, projected ${fmtMoney(projectedEnd)} by ${endLabel}.`,
-    summary ? `*Heads up:* ${summary}` : null,
-    '/open to see the full dashboard.',
-  ].filter(Boolean).join('\n');
+async function buildDigest(tenantId: string): Promise<DigestData> {
+  const now = new Date();
+  const yStart = new Date(now); yStart.setDate(yStart.getDate() - 1); yStart.setHours(0, 0, 0, 0);
+  const yEnd = new Date(yStart); yEnd.setHours(23, 59, 59, 999);
+  const weekEnd = new Date(now); weekEnd.setDate(weekEnd.getDate() + 7);
+
+  // Cash today (asset accounts journal-line balance)
+  const assetAccounts = await db.abAccount.findMany({
+    where: { tenantId, accountType: 'asset', isActive: true },
+    select: { id: true, journalLines: { select: { debitCents: true, creditCents: true } } },
+  });
+  const cashTodayCents = assetAccounts.reduce(
+    (sum, a) => sum + a.journalLines.reduce((s, l) => s + l.debitCents - l.creditCents, 0),
+    0,
+  );
+
+  // Yesterday's flow
+  const [yPayments, yExpenses] = await Promise.all([
+    db.abPayment.findMany({
+      where: { tenantId, date: { gte: yStart, lte: yEnd } },
+      select: { amountCents: true },
+    }),
+    db.abExpense.findMany({
+      where: { tenantId, date: { gte: yStart, lte: yEnd }, isPersonal: false },
+      select: { amountCents: true },
+    }),
+  ]);
+  const paymentsInCents = yPayments.reduce((s, p) => s + p.amountCents, 0);
+  const expensesOutCents = yExpenses.reduce((s, e) => s + e.amountCents, 0);
+
+  // Pending review count
+  const pendingReviewCount = await db.abExpense.count({
+    where: { tenantId, status: 'pending_review' },
+  });
+
+  // Overdue invoices (= attention)
+  const overdueInvoices = await db.abInvoice.findMany({
+    where: { tenantId, status: { in: ['sent', 'viewed', 'overdue'] }, dueDate: { lt: now } },
+    include: { client: { select: { name: true } } },
+    orderBy: { dueDate: 'asc' },
+    take: 5,
+  });
+  const attention = overdueInvoices.map((inv) => {
+    const days = Math.max(1, Math.round((now.getTime() - inv.dueDate.getTime()) / 86_400_000));
+    return {
+      kind: 'overdue',
+      title: `${inv.client?.name || 'Client'} · ${inv.number} · ${days}d overdue`,
+      amountCents: inv.amountCents,
+    };
+  });
+
+  // Upcoming invoice income + recurring outflows in next 7 days
+  const upcomingInvoices = await db.abInvoice.findMany({
+    where: {
+      tenantId,
+      status: { in: ['sent', 'viewed'] },
+      dueDate: { gte: now, lte: weekEnd },
+    },
+    include: { client: { select: { name: true } } },
+    orderBy: { dueDate: 'asc' },
+    take: 5,
+  });
+  const recurringRules = await db.abRecurringRule.findMany({
+    where: { tenantId, active: true, nextExpected: { gte: now, lte: weekEnd } },
+    take: 5,
+  });
+
+  const upcomingThisWeek = [
+    ...upcomingInvoices.map((inv) => ({
+      kind: 'income',
+      label: `${inv.client?.name || 'Client'} ${inv.number}`,
+      daysOut: Math.max(0, Math.round((inv.dueDate.getTime() - now.getTime()) / 86_400_000)),
+      amountCents: inv.amountCents,
+    })),
+    ...recurringRules.map((r) => ({
+      kind: 'recurring_out',
+      label: `recurring expense`,
+      daysOut: Math.max(0, Math.round((r.nextExpected.getTime() - now.getTime()) / 86_400_000)),
+      amountCents: r.amountCents,
+    })),
+  ].sort((a, b) => a.daysOut - b.daysOut);
+
+  // Anomaly count from advisor/insights logic — single-vendor 3x avg
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 86_400_000);
+  const recentExpenses = await db.abExpense.findMany({
+    where: { tenantId, date: { gte: ninetyDaysAgo, lte: now } },
+    select: { amountCents: true, categoryId: true, date: true },
+  });
+  const catAvg: Record<string, { total: number; count: number }> = {};
+  for (const e of recentExpenses) {
+    if (!e.categoryId) continue;
+    if (!catAvg[e.categoryId]) catAvg[e.categoryId] = { total: 0, count: 0 };
+    catAvg[e.categoryId].total += e.amountCents;
+    catAvg[e.categoryId].count++;
+  }
+  const yesterdayExpensesFull = await db.abExpense.findMany({
+    where: { tenantId, date: { gte: yStart, lte: yEnd }, isPersonal: false },
+    select: { amountCents: true, categoryId: true },
+  });
+  let anomalyCount = 0;
+  for (const e of yesterdayExpensesFull) {
+    if (e.categoryId && catAvg[e.categoryId] && catAvg[e.categoryId].count >= 3) {
+      const avg = catAvg[e.categoryId].total / catAvg[e.categoryId].count;
+      if (e.amountCents > avg * 3) anomalyCount++;
+    }
+  }
+
+  // Tax-deadline countdown (US: Apr 15 / Jun 15 / Sep 15 / Jan 15; CA: 15th of Mar/Jun/Sep/Dec)
+  const tenantConfig = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+  const jurisdiction = tenantConfig?.jurisdiction || 'us';
+  const usDeadlines = [
+    new Date(now.getFullYear(), 3, 15), new Date(now.getFullYear(), 5, 15),
+    new Date(now.getFullYear(), 8, 15), new Date(now.getFullYear() + 1, 0, 15),
+  ];
+  const caDeadlines = [
+    new Date(now.getFullYear(), 2, 15), new Date(now.getFullYear(), 5, 15),
+    new Date(now.getFullYear(), 8, 15), new Date(now.getFullYear(), 11, 15),
+  ];
+  const deadlines = jurisdiction === 'ca' ? caDeadlines : usDeadlines;
+  const nextDeadline = deadlines.find((d) => d > now);
+  const taxDaysUntilQ = nextDeadline
+    ? Math.round((nextDeadline.getTime() - now.getTime()) / 86_400_000)
+    : null;
+
+  return {
+    cashTodayCents,
+    yesterday: {
+      paymentsInCents,
+      expensesOutCents,
+      netCents: paymentsInCents - expensesOutCents,
+      paymentCount: yPayments.length,
+      expenseCount: yExpenses.length,
+    },
+    pendingReviewCount,
+    attention,
+    upcomingThisWeek,
+    anomalyCount,
+    taxDaysUntilQ,
+  };
+}
+
+function composeMessage(name: string, d: DigestData): string {
+  const lines: string[] = [];
+  lines.push(`☀️ <b>Morning, ${escapeHtml(name)}</b>`);
+  lines.push('');
+  lines.push(`💰 Cash on hand: <b>${fmt$(d.cashTodayCents)}</b>`);
+
+  if (d.yesterday.paymentCount > 0 || d.yesterday.expenseCount > 0) {
+    const sign = d.yesterday.netCents >= 0 ? '+' : '';
+    lines.push(
+      `📊 Yesterday: ${sign}${fmt$(d.yesterday.netCents)} (${d.yesterday.paymentCount} payment${d.yesterday.paymentCount === 1 ? '' : 's'} in / ${d.yesterday.expenseCount} expense${d.yesterday.expenseCount === 1 ? '' : 's'} out)`,
+    );
+  }
+
+  if (d.pendingReviewCount > 0) {
+    lines.push(`⚠️  <b>${d.pendingReviewCount}</b> draft expense${d.pendingReviewCount === 1 ? '' : 's'} waiting for review`);
+  }
+
+  if (d.attention.length > 0) {
+    lines.push('');
+    lines.push(`🚨 <b>Overdue invoices</b>`);
+    for (const a of d.attention.slice(0, 3)) {
+      lines.push(`  • ${escapeHtml(a.title)}${a.amountCents ? ' — ' + fmt$(a.amountCents) : ''}`);
+    }
+    if (d.attention.length > 3) lines.push(`  … and ${d.attention.length - 3} more`);
+  }
+
+  if (d.upcomingThisWeek.length > 0) {
+    lines.push('');
+    lines.push(`📅 <b>This week</b>`);
+    for (const u of d.upcomingThisWeek.slice(0, 4)) {
+      const arrow = u.kind === 'income' ? '↗' : '↘';
+      lines.push(`  ${arrow} ${escapeHtml(u.label)} — ${fmt$(u.amountCents)} in ${u.daysOut}d`);
+    }
+  }
+
+  if (d.anomalyCount > 0) {
+    lines.push('');
+    lines.push(`📈 ${d.anomalyCount} unusual expense${d.anomalyCount === 1 ? '' : 's'} yesterday — type "expenses" to review`);
+  }
+
+  if (d.taxDaysUntilQ !== null && d.taxDaysUntilQ <= 21) {
+    lines.push('');
+    lines.push(`📋 <b>Quarterly tax due in ${d.taxDaysUntilQ} days</b> — type "tax" for the estimate`);
+  }
+
+  return lines.join('\n');
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 async function sendTelegram(tenantId: string, message: string): Promise<boolean> {
@@ -73,24 +239,27 @@ async function sendTelegram(tenantId: string, message: string): Promise<boolean>
     await fetch(`https://api.telegram.org/bot${bot.botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'Markdown' }),
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }),
     }).catch(() => null);
   }
   return true;
 }
 
-async function sendEmail(userId: string, message: string): Promise<boolean> {
+async function sendEmail(userId: string, htmlMessage: string): Promise<boolean> {
   if (!process.env.RESEND_API_KEY) return false;
   const user = await db.user.findUnique({ where: { id: userId } });
   if (!user?.email) return false;
+  // Strip HTML tags for the plaintext fallback.
+  const text = htmlMessage.replace(/<[^>]+>/g, '');
   await fetch('https://api.resend.com/emails', {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from: process.env.RESEND_FROM || 'AgentBook <noreply@agentbook.app>',
       to: user.email,
       subject: 'Your AgentBook morning summary',
-      text: message,
+      html: htmlMessage.replace(/\n/g, '<br>'),
+      text,
     }),
   }).catch(() => null);
   return true;
@@ -102,31 +271,51 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const tenants = await db.abTenantConfig.findMany({ where: { dailyDigestEnabled: true } });
+  // Auto-enable digest for tenants who have a Telegram bot connected but
+  // haven't explicitly opted in — better default for daily-driver users.
+  const tenantsWithBot = await db.abTelegramBot.findMany({
+    where: { enabled: true },
+    select: { tenantId: true },
+  });
+  const botTenantIds = new Set(tenantsWithBot.map((b) => b.tenantId));
+
+  const tenants = await db.abTenantConfig.findMany({
+    where: {
+      OR: [
+        { dailyDigestEnabled: true },
+        { userId: { in: Array.from(botTenantIds) } },
+      ],
+    },
+  });
+
   const now = new Date();
+  const targetParam = request.nextUrl.searchParams.get('hour');
+  const targetHour = targetParam ? parseInt(targetParam, 10) : 7;
+
   let sent = 0;
   let skipped = 0;
   let errors = 0;
 
   for (const tenant of tenants) {
     try {
-      const fmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tenant.timezone || 'America/New_York' });
-      const localHour = parseInt(fmt.format(now), 10);
-      if (localHour !== 7) { skipped++; continue; }
+      const fmtH = new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        hour12: false,
+        timeZone: tenant.timezone || 'America/New_York',
+      });
+      const localHour = parseInt(fmtH.format(now), 10);
+      // Allow on-demand testing via ?hour=now to bypass the time gate.
+      const bypass = targetParam === 'now';
+      if (!bypass && localHour !== targetHour) {
+        skipped++;
+        continue;
+      }
 
-      const overview = await fetchOverview(tenant.userId);
-      if (!overview) { errors++; continue; }
-
-      const overdueItems = overview.attention.filter(a => a.id.startsWith('overdue:'));
-      const overdueAmt = overdueItems.reduce((s, a) => s + (a.amountCents || 0), 0);
-      const taxMoment = overview.nextMoments.find(m => m.label.startsWith('📋'));
-      const taxDaysOut = taxMoment ? taxMoment.daysOut : null;
-
-      const summary = await fetchSummary(tenant.userId, overdueItems.length, overdueAmt, taxDaysOut);
+      const digest = await buildDigest(tenant.userId);
       const user = await db.user.findUnique({ where: { id: tenant.userId } });
-      const name = user?.displayName || 'there';
+      const name = user?.displayName?.split(' ')[0] || 'there';
 
-      const message = composeMessage(name, overview, summary);
+      const message = composeMessage(name, digest);
       const tgSent = await sendTelegram(tenant.userId, message);
       if (!tgSent) await sendEmail(tenant.userId, message);
       sent++;
@@ -136,5 +325,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  return NextResponse.json({ ok: true, sent, skipped, errors, timestamp: new Date().toISOString() });
+  return NextResponse.json({
+    ok: true,
+    sent,
+    skipped,
+    errors,
+    timestamp: new Date().toISOString(),
+  });
 }
