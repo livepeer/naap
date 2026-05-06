@@ -518,6 +518,90 @@ function currencyMismatchNote(
   return `Note: receipt is in ${receiptCurrency.toUpperCase()} but your books run in ${tenantCurrency.toUpperCase()}. I've stored the original amount; bank reconciliation will need the converted figure.`;
 }
 
+/**
+ * Anomaly detection: flag a freshly-created expense that's > 3x the
+ * tenant's 90-day average for the same category. A great accountant
+ * notices these out loud, not in a quarterly report. (Gap 16)
+ */
+async function buildAnomalyNote(tenantId: string, categoryId: string | null, amountCents: number): Promise<string | null> {
+  if (!categoryId) return null;
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000);
+  const peers = await db.abExpense.findMany({
+    where: {
+      tenantId,
+      categoryId,
+      isPersonal: false,
+      date: { gte: ninetyDaysAgo },
+      status: { in: ['confirmed', 'pending_review'] },
+      NOT: { amountCents },
+    },
+    select: { amountCents: true },
+    take: 100,
+  });
+  if (peers.length < 3) return null;
+  const avg = peers.reduce((s, e) => s + e.amountCents, 0) / peers.length;
+  if (avg <= 0) return null;
+  const ratio = amountCents / avg;
+  if (ratio < 3) return null;
+  return `📈 This is ~${ratio.toFixed(1)}× your typical spend in this category (avg ≈ ${fmtUsd(Math.round(avg))}). Take a second look before confirming.`;
+}
+
+/**
+ * Recurring-pattern detection: when this vendor has 3+ recent charges
+ * within 10% of each other and there's no AbRecurringRule yet, suggest
+ * one. Surfacing at the moment of recording makes the user say yes
+ * before they forget. (Gap 18)
+ */
+async function buildRecurringSuggestionNote(tenantId: string, vendorId: string | null): Promise<string | null> {
+  if (!vendorId) return null;
+  const existing = await db.abRecurringRule.findFirst({
+    where: { tenantId, vendorId, active: true },
+  });
+  if (existing) return null;
+  const sixMonthsAgo = new Date(Date.now() - 180 * 86_400_000);
+  const peers = await db.abExpense.findMany({
+    where: {
+      tenantId,
+      vendorId,
+      isPersonal: false,
+      date: { gte: sixMonthsAgo },
+      status: 'confirmed',
+    },
+    select: { amountCents: true, date: true },
+    orderBy: { date: 'asc' },
+  });
+  if (peers.length < 3) return null;
+  const avg = peers.reduce((s, e) => s + e.amountCents, 0) / peers.length;
+  if (avg <= 0) return null;
+  const allClose = peers.every((p) => Math.abs(p.amountCents - avg) / avg < 0.1);
+  if (!allClose) return null;
+  return `🔁 I've seen ${peers.length} similar charges from this vendor over the last 6 months. Want me to set up a recurring expense rule? (Reply "set up recurring" to do it.)`;
+}
+
+/**
+ * Bank-reconciliation prompt: if there's a pending AbBankTransaction
+ * within the same date/amount window, this receipt is probably for it.
+ * On confirm we'd ideally link them; for now we flag it so the user
+ * knows we noticed. (Gap 17)
+ */
+async function buildBankMatchNote(tenantId: string, amountCents: number, date: Date): Promise<string | null> {
+  const window = 2 * 86_400_000;
+  const lo = Math.round(amountCents * 0.95);
+  const hi = Math.round(amountCents * 1.05);
+  const match = await db.abBankTransaction.findFirst({
+    where: {
+      tenantId,
+      matchStatus: 'pending',
+      amount: { gte: lo, lte: hi },
+      date: { gte: new Date(date.getTime() - window), lte: new Date(date.getTime() + window) },
+    },
+    select: { date: true, name: true, merchantName: true },
+  });
+  if (!match) return null;
+  const label = match.merchantName || match.name;
+  return `🔗 This matches a pending bank charge from ${match.date.toISOString().slice(0, 10)}${label ? ` (${escHtml(label)})` : ''} — I'll link them on confirm.`;
+}
+
 async function persistReceiptBlob(sourceUrl: string, tenantId: string, contentType: string): Promise<string> {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   if (!token) return sourceUrl;
@@ -1010,8 +1094,24 @@ function getBot(): Bot {
         where: { userId: tenantId },
         select: { currency: true },
       });
-      const fxNote = currencyMismatchNote(ocr.currency, tenantConfig?.currency || null);
-      const draftReply = buildDraftReceiptReply(active, ocr, expense) + (fxNote ? `\n\n💱 ${fxNote}` : '');
+      const expenseRow = await db.abExpense.findUnique({
+        where: { id: expense.id },
+        select: { vendorId: true, date: true },
+      });
+      const [fxNote, anomalyNote, recurringNote, bankMatchNote] = await Promise.all([
+        Promise.resolve(currencyMismatchNote(ocr.currency, tenantConfig?.currency || null)),
+        buildAnomalyNote(tenantId, expense.categoryId, active.amountCents),
+        buildRecurringSuggestionNote(tenantId, expenseRow?.vendorId ?? null),
+        buildBankMatchNote(tenantId, active.amountCents, expenseRow?.date ?? active.date),
+      ]);
+      const insightLines: string[] = [];
+      if (fxNote) insightLines.push(`💱 ${fxNote}`);
+      if (anomalyNote) insightLines.push(anomalyNote);
+      if (bankMatchNote) insightLines.push(bankMatchNote);
+      if (recurringNote) insightLines.push(recurringNote);
+      const draftReply = buildDraftReceiptReply(active, ocr, expense)
+        + (insightLines.length ? '\n\n' + insightLines.join('\n') : '');
+
       await ctx.reply(draftReply, {
         parse_mode: 'HTML',
         reply_markup: {
@@ -1072,8 +1172,24 @@ function getBot(): Bot {
         where: { userId: tenantId },
         select: { currency: true },
       });
-      const fxNote = currencyMismatchNote(ocr.currency, tenantConfig?.currency || null);
-      const draftReply = buildDraftReceiptReply(active, ocr, expense) + (fxNote ? `\n\n💱 ${fxNote}` : '');
+      const expenseRow = await db.abExpense.findUnique({
+        where: { id: expense.id },
+        select: { vendorId: true, date: true },
+      });
+      const [fxNote, anomalyNote, recurringNote, bankMatchNote] = await Promise.all([
+        Promise.resolve(currencyMismatchNote(ocr.currency, tenantConfig?.currency || null)),
+        buildAnomalyNote(tenantId, expense.categoryId, active.amountCents),
+        buildRecurringSuggestionNote(tenantId, expenseRow?.vendorId ?? null),
+        buildBankMatchNote(tenantId, active.amountCents, expenseRow?.date ?? active.date),
+      ]);
+      const insightLines: string[] = [];
+      if (fxNote) insightLines.push(`💱 ${fxNote}`);
+      if (anomalyNote) insightLines.push(anomalyNote);
+      if (bankMatchNote) insightLines.push(bankMatchNote);
+      if (recurringNote) insightLines.push(recurringNote);
+      const draftReply = buildDraftReceiptReply(active, ocr, expense)
+        + (insightLines.length ? '\n\n' + insightLines.join('\n') : '');
+
       await ctx.reply(draftReply, {
         parse_mode: 'HTML',
         reply_markup: {
