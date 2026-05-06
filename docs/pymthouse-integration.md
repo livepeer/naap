@@ -42,14 +42,14 @@ NaaP server                                              PymtHouse
 - **Confidential M2M** (`m2m_…`) credentials are **`PYMTHOUSE_M2M_CLIENT_ID`** + **`PYMTHOUSE_M2M_CLIENT_SECRET`**. A single OIDC client cannot be both public (device flow) and confidential; PymtHouse provisions two clients per developer app when you enable **Backend device helper** in Auth & Scopes.
 - **End-user scope** is only **`sign:job`** on the token request.
 - The M2M client must allow **`users:read`**, **`users:write`**, **`users:token`**, and **`sign:job`** in its allowed scopes (defaults for the backend helper).
-- Tokens are **not** persisted by NaaP — callers re-mint on demand.
+- Short-lived Builder-minted user JWTs are **not** surfaced as NaaP developer API keys; NaaP exchanges them server-side for opaque **`pmth_…`** signer sessions (~90 days).
 
 ### NaaP endpoints
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/v1/auth/providers/pymthouse/start` | First-time link from the **Create API Key** UI. Returns `{ access_token, token_type, expires_in, scope, login_session_id, auth_url: null, poll_after_ms: 0 }`. |
-| `POST` | `/api/v1/billing/pymthouse/token` | Mint-on-demand refresh. Returns `{ access_token, token_type, expires_in, scope }`. Auth: NaaP session + CSRF. Rate limited per user. Use this from any webpage that needs a fresh PymtHouse JWT for the logged-in user. |
+| `POST` | `/api/v1/auth/providers/pymthouse/start` | First-time link from the **Create API Key** UI. Returns `{ access_token, token_type, expires_in, scope, login_session_id, auth_url: null, poll_after_ms: 0 }` where `access_token` is an opaque **`pmth_…`** signer session (~90 days). |
+| `POST` | `/api/v1/billing/pymthouse/token` | Mint-on-demand signer session. Returns `{ access_token, token_type, expires_in, scope }` where `access_token` is an opaque **`pmth_…`** token (~90 days). Auth: NaaP session + CSRF. Rate limited per user. Internally mints a short-lived JWT then RFC 8693 token-exchanges with the M2M client. |
 | `GET` | `/api/v1/billing/pymthouse/usage` | Session BFF over PymtHouse **Usage API** (see below). Auth: NaaP session cookie / bearer. `Cache-Control: no-store`. |
 
 ### Usage API (BFF)
@@ -103,7 +103,7 @@ Legacy **`naap/link-user`**, **`naap-service`** seed-only flows, and **`gateway`
 - `PYMTHOUSE_PUBLIC_CLIENT_ID` is the public **`app_...`** id; `PYMTHOUSE_M2M_CLIENT_ID` is the confidential **`m2m_...`** id.
 - `PYMTHOUSE_M2M_CLIENT_SECRET` matches the M2M client’s secret.
 - NaaP logs show `[billing-auth:pymthouse] Linked user …` (no browser popup).
-- Token endpoint returns a short-lived `sign:job` JWT (`expires_in` ≈ 900s); NaaP does **not** persist it.
+- Provider start and billing token routes return an opaque **`pmth_…`** signer session (`expires_in` ≈ 90 days); the short-lived subject JWT is used only server-side during exchange.
 
 ## Device login (RFC 8628) — Option B (NaaP-side approval)
 
@@ -115,4 +115,4 @@ Requires: **`PYMTHOUSE_ISSUER_URL`** (must match the `iss` query param, e.g. `ht
 
 ## Database
 
-`BillingProviderOAuthSession` is still created for audit purposes on each link but the JWT itself is never stored: `accessToken` is always `null` for PymtHouse, `redeemedAt` is set immediately, and the row expires when the JWT does. `pkceCodeVerifier` is always `null` for PymtHouse (no browser OAuth). Run `npx prisma db push` or migrate from `packages/database` after pulling schema changes.
+`BillingProviderOAuthSession` is still created for audit purposes on each link but the opaque API key itself is never stored in this row: `accessToken` is always `null` for PymtHouse, `redeemedAt` is set immediately, and the row `expiresAt` follows the returned signer session TTL (~90 days). `pkceCodeVerifier` is always `null` for PymtHouse (no browser OAuth). Run `npx prisma db push` or migrate from `packages/database` after pulling schema changes.
