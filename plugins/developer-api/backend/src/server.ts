@@ -88,6 +88,36 @@ let deriveKeyLookupId: (rawKey: string) => string = (_key: string) => crypto.ran
 let getKeyPrefix: (lookupId: string) => string = (id: string) => `naap_${id}...`;
 let hashApiKey: (key: string) => string = (key: string) => crypto.scryptSync(key, 'naap-api-key-v1', 32).toString('hex');
 
+const PYMTHOUSE_PROVIDER_SLUG = 'pymthouse';
+
+/** Matches PymtHouse `gateway-token-exchange.ts` opaque signer session TTL (~90 days). */
+const PYMTHOUSE_SIGNER_SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+function computePymthouseExpiry(input: Date | string): Date {
+  const createdAt = input instanceof Date ? input : new Date(input);
+  return new Date(createdAt.getTime() + PYMTHOUSE_SIGNER_SESSION_TTL_MS);
+}
+
+function isLikelyOidcJwt(rawToken: string): boolean {
+  const t = rawToken.trim();
+  return t.startsWith('eyJ') && t.split('.').length >= 3;
+}
+
+function decodeJwtExp(rawToken: string): Date | null {
+  try {
+    const parts = rawToken.split('.');
+    if (parts.length < 2) return null;
+    const payloadB64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = payloadB64.padEnd(Math.ceil(payloadB64.length / 4) * 4, '=');
+    const payloadJson = Buffer.from(padded, 'base64').toString('utf8');
+    const payload = JSON.parse(payloadJson) as { exp?: number };
+    if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) return null;
+    return new Date(Math.floor(payload.exp * 1000));
+  } catch {
+    return null;
+  }
+}
+
 function getRequestUserId(req: express.Request): string {
   const user = (req as any).user;
   if (!user?.id) {
@@ -633,6 +663,23 @@ app.get('/api/v1/developer/keys', async (req, res) => {
     const userId = getRequestUserId(req);
 
     if (prisma) {
+      const expiryCutoff = new Date(Date.now() - PYMTHOUSE_SIGNER_SESSION_TTL_MS);
+      await prisma.devApiKey.deleteMany({
+        where: {
+          userId,
+          billingProvider: { slug: PYMTHOUSE_PROVIDER_SLUG },
+          OR: [
+            {
+              status: 'ACTIVE',
+              createdAt: { lte: expiryCutoff },
+            },
+            {
+              status: 'EXPIRED',
+            },
+          ],
+        },
+      });
+
       const keys = await prisma.devApiKey.findMany({
         where: { userId },
         orderBy: { createdAt: 'desc' },
@@ -653,12 +700,39 @@ app.get('/api/v1/developer/keys', async (req, res) => {
         keyPrefix: k.keyPrefix,
         status: k.status,
         createdAt: k.createdAt.toISOString(),
+        expiresAt:
+          k.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
+            ? computePymthouseExpiry(k.createdAt).toISOString()
+            : null,
         lastUsedAt: k.lastUsedAt?.toISOString() || null,
       }));
       return res.json({ keys: formatted, total: formatted.length });
     }
 
-    const keys = inMemoryApiKeys.filter((k: any) => k.userId === userId);
+    const nowMs = Date.now();
+    for (let i = inMemoryApiKeys.length - 1; i >= 0; i -= 1) {
+      const key = inMemoryApiKeys[i];
+      const shouldRemove =
+        key.userId === userId &&
+        key.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG &&
+        (
+          String(key.status || '').toUpperCase() === 'EXPIRED' ||
+          (
+            String(key.status || '').toUpperCase() === 'ACTIVE' &&
+            computePymthouseExpiry(key.createdAt).getTime() <= nowMs
+          )
+        );
+      if (shouldRemove) {
+        inMemoryApiKeys.splice(i, 1);
+      }
+    }
+    const keys = inMemoryApiKeys.filter((k: any) => k.userId === userId).map((k: any) => ({
+      ...k,
+      expiresAt:
+        k.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
+          ? computePymthouseExpiry(k.createdAt).toISOString()
+          : null,
+    }));
     res.json({ keys, total: keys.length });
   } catch (error) {
     console.error('Error fetching keys:', error);
@@ -685,6 +759,16 @@ app.get('/api/v1/developer/keys/:id', async (req, res) => {
         },
       });
       if (!key) return res.status(404).json({ error: 'API key not found' });
+      if (key.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG) {
+        const expiredByAge =
+          key.status === 'ACTIVE' &&
+          computePymthouseExpiry(key.createdAt).getTime() <= Date.now();
+        const alreadyExpired = key.status === 'EXPIRED';
+        if (expiredByAge || alreadyExpired) {
+          await prisma.devApiKey.delete({ where: { id: key.id } });
+          return res.status(404).json({ error: 'API key not found' });
+        }
+      }
       return res.json({
         id: key.id,
         project: key.project,
@@ -694,13 +778,36 @@ app.get('/api/v1/developer/keys/:id', async (req, res) => {
         keyPrefix: key.keyPrefix,
         status: key.status,
         createdAt: key.createdAt.toISOString(),
+        expiresAt:
+          key.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
+            ? computePymthouseExpiry(key.createdAt).toISOString()
+            : null,
         lastUsedAt: key.lastUsedAt?.toISOString() || null,
       });
     }
 
     const key = inMemoryApiKeys.find((k: any) => k.id === req.params.id && k.userId === userId);
     if (!key) return res.status(404).json({ error: 'API key not found' });
-    res.json(key);
+    if (key.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG) {
+      const expiredByAge =
+        String(key.status || '').toUpperCase() === 'ACTIVE' &&
+        computePymthouseExpiry(key.createdAt).getTime() <= Date.now();
+      const alreadyExpired = String(key.status || '').toUpperCase() === 'EXPIRED';
+      if (expiredByAge || alreadyExpired) {
+        const keyIndex = inMemoryApiKeys.findIndex((k: any) => k.id === key.id);
+        if (keyIndex >= 0) {
+          inMemoryApiKeys.splice(keyIndex, 1);
+        }
+        return res.status(404).json({ error: 'API key not found' });
+      }
+    }
+    res.json({
+      ...key,
+      expiresAt:
+        key.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
+          ? computePymthouseExpiry(key.createdAt).toISOString()
+          : null,
+    });
   } catch (error) {
     console.error('Error fetching key:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -725,7 +832,7 @@ app.post('/api/v1/developer/keys', async (req, res) => {
     if (prisma) {
       const provider = await prisma.billingProvider.findUnique({
         where: { id: billingProviderId },
-        select: { id: true, enabled: true },
+        select: { id: true, enabled: true, slug: true },
       });
       if (!provider || !provider.enabled) {
         return res.status(400).json({ error: 'Invalid or disabled billing provider' });
@@ -755,6 +862,17 @@ app.post('/api/v1/developer/keys', async (req, res) => {
 
       const resolvedLabel = label && typeof label === 'string' && label.trim() ? label.trim() : null;
       const keyHash = hashApiKey(rawApiKey);
+      const pymthouseTokenExpiry =
+        provider.slug === PYMTHOUSE_PROVIDER_SLUG && isLikelyOidcJwt(rawApiKey)
+          ? decodeJwtExp(rawApiKey)
+          : null;
+      if (
+        provider.slug === PYMTHOUSE_PROVIDER_SLUG &&
+        pymthouseTokenExpiry &&
+        pymthouseTokenExpiry.getTime() <= Date.now()
+      ) {
+        return res.status(400).json({ error: 'PymtHouse token is already expired. Please create a new key.' });
+      }
 
       const newKey = await prisma.devApiKey.create({
         data: {
@@ -785,9 +903,16 @@ app.post('/api/v1/developer/keys', async (req, res) => {
           label: newKey.label,
           status: newKey.status,
           createdAt: newKey.createdAt.toISOString(),
+          expiresAt:
+            newKey.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
+              ? computePymthouseExpiry(newKey.createdAt).toISOString()
+              : null,
         },
         rawApiKey,
-        warning: 'Store this key securely. It will not be shown again.',
+        warning:
+          provider.slug === PYMTHOUSE_PROVIDER_SLUG
+            ? 'Store this key securely. It expires after about 90 days and will not be shown again.'
+            : 'Store this key securely. It will not be shown again.',
       });
     }
 
@@ -810,9 +935,18 @@ app.post('/api/v1/developer/keys', async (req, res) => {
     inMemoryApiKeys.push(newKey);
 
     res.status(201).json({
-      key: newKey,
+      key: {
+        ...newKey,
+        expiresAt:
+          newKey.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
+            ? computePymthouseExpiry(newKey.createdAt).toISOString()
+            : null,
+      },
       rawApiKey,
-      warning: 'Store this key securely. It will not be shown again.',
+      warning:
+        newKey.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
+          ? 'Store this key securely. It expires after about 90 days and will not be shown again.'
+          : 'Store this key securely. It will not be shown again.',
     });
   } catch (error) {
     console.error('Error creating key:', error);

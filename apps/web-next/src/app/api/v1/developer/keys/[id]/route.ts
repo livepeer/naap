@@ -10,6 +10,16 @@ import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
 
+import {
+  PYMTHOUSE_SIGNER_SESSION_TTL_MS,
+} from '@/lib/pymthouse-oidc';
+
+const PYMTHOUSE_PROVIDER_SLUG = 'pymthouse';
+
+function computePymthouseExpiry(createdAt: Date): Date {
+  return new Date(createdAt.getTime() + PYMTHOUSE_SIGNER_SESSION_TTL_MS);
+}
+
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
@@ -33,13 +43,41 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
         id,
         userId: user.id, // Ensure user owns this key
       },
+      include: {
+        billingProvider: {
+          select: {
+            slug: true,
+          },
+        },
+      },
     });
 
     if (!apiKey) {
       return errors.notFound('API key');
     }
 
-    return success({ key: apiKey });
+    if (apiKey.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG) {
+      const expiredByAge =
+        apiKey.status === 'ACTIVE' &&
+        computePymthouseExpiry(apiKey.createdAt).getTime() <= Date.now();
+      const alreadyExpired = apiKey.status === 'EXPIRED';
+      if (expiredByAge || alreadyExpired) {
+        await prisma.devApiKey.delete({
+          where: { id: apiKey.id },
+        });
+        return errors.notFound('API key');
+      }
+    }
+
+    return success({
+      key: {
+        ...apiKey,
+        expiresAt:
+          apiKey.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
+            ? computePymthouseExpiry(apiKey.createdAt).toISOString()
+            : null,
+      },
+    });
   } catch (err) {
     console.error('API key detail error:', err);
     return errors.internal('Failed to get API key');

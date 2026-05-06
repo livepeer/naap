@@ -6,7 +6,6 @@ import {
   buildMeScopeUsagePayload,
   getUtcCalendarMonthIsoBounds,
   parseUsageDateParam,
-  pickByUserRowForExternalId,
   isSystemAdmin,
 } from '@/lib/pymthouse-usage-helpers';
 
@@ -18,15 +17,45 @@ describe('pymthouse-usage-helpers', () => {
     expect(parseUsageDateParam(null)).toBeNull();
   });
 
-  it('pickByUserRowForExternalId finds matching externalUserId', () => {
-    const row = pickByUserRowForExternalId(
-      [
-        { endUserId: 'a', externalUserId: 'x', requestCount: 1, feeWei: '1' },
-        { endUserId: 'b', externalUserId: 'y', requestCount: 2, feeWei: '2' },
-      ],
+  it('buildMeScopeUsagePayload uses matching bucket for currentUser', () => {
+    const body = buildMeScopeUsagePayload(
+      {
+        clientId: 'app',
+        period: { start: null, end: null },
+        totals: { requestCount: 0, totalFeeWei: '0' },
+        byUser: [
+          { endUserId: 'a', externalUserId: 'x', requestCount: 1, feeWei: '1' },
+          { endUserId: 'b', externalUserId: 'y', requestCount: 2, feeWei: '2' },
+        ],
+      },
       'y',
     );
-    expect(row?.requestCount).toBe(2);
+    expect(body.currentUser).toMatchObject({
+      externalUserId: 'y',
+      requestCount: 2,
+      feeWei: '2',
+    });
+  });
+
+  it('buildMeScopeUsagePayload aggregates duplicate externalUserId buckets (SDK)', () => {
+    const body = buildMeScopeUsagePayload(
+      {
+        clientId: 'app',
+        period: { start: null, end: null },
+        totals: { requestCount: 0, totalFeeWei: '0' },
+        byUser: [
+          { endUserId: 'app-user-id', externalUserId: 'naap-user-id', requestCount: 19, feeWei: '1123447749974' },
+          { endUserId: 'end-user-id', externalUserId: 'naap-user-id', requestCount: 43, feeWei: '2540996510612' },
+          { endUserId: 'naap-user-id', externalUserId: 'naap-user-id', requestCount: 10, feeWei: '591680839970' },
+        ],
+      },
+      'naap-user-id',
+    );
+    expect(body.currentUser).toMatchObject({
+      externalUserId: 'naap-user-id',
+      requestCount: 72,
+      feeWei: '4256125100556',
+    });
   });
 
   it('buildMeScopeUsagePayload zeros when no row', () => {
