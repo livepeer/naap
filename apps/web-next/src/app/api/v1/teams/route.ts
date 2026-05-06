@@ -39,7 +39,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Validate CSRF token
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) {
       return csrfError;
     }

@@ -16,7 +16,11 @@ import { PrismaClient } from '../packages/database/src/generated/client/index.js
 
 const SHELL_URL = process.env.SHELL_URL || 'http://localhost:3000';
 const DEV_EMAIL = 'developer@livepeer.org';
-const DEV_PASSWORD = 'livepeer';
+const DEV_PASSWORD = process.env.AUTH_PASSWORD;
+if (!DEV_PASSWORD) {
+  console.error('AUTH_PASSWORD env var is required. See apps/web-next/.env.local.example');
+  process.exit(1);
+}
 
 const PLUGIN_NAME = 'daydream-video';
 const PLUGIN_VERSION = '1.0.3';
@@ -300,7 +304,7 @@ async function main() {
   }
 
   console.log();
-  console.log(`  To test: log in as ${DEV_EMAIL} (password: livepeer)`);
+  console.log(`  To test: log in as ${DEV_EMAIL}`);
   console.log('  Navigate to /daydream in the NaaP UI');
   console.log();
 }

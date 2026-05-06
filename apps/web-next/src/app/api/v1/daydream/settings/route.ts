@@ -9,6 +9,7 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import { encryptField } from '@naap/crypto';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return errors.unauthorized('No auth token provided');
     }
 
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) {
       return csrfError;
     }
@@ -64,17 +65,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const body = await request.json();
     const { apiKey, defaultPrompt, defaultSeed, negativePrompt } = body;
 
+    const encryptedApiKey = apiKey
+      ? encryptField(apiKey, `DaydreamSettings:${user.id}:apiKey`)
+      : undefined;
+
     const settings = await prisma.daydreamSettings.upsert({
       where: { userId: user.id },
       update: {
-        ...(apiKey !== undefined && { apiKey }),
+        ...(encryptedApiKey !== undefined && { apiKey: encryptedApiKey }),
         ...(defaultPrompt !== undefined && { defaultPrompt }),
         ...(defaultSeed !== undefined && { defaultSeed }),
         ...(negativePrompt !== undefined && { negativePrompt }),
       },
       create: {
         userId: user.id,
-        apiKey,
+        apiKey: encryptedApiKey ?? null,
         defaultPrompt: defaultPrompt || 'superman',
         defaultSeed: defaultSeed || 42,
         negativePrompt: negativePrompt || 'blurry, low quality, flat, 2d',

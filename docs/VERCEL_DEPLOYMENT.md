@@ -84,18 +84,57 @@ pointing to the correct Neon branch.
    Example (the compute endpoint hostname differs per branch):
    ```
    # Production (Neon main branch)
-   DATABASE_URL=postgresql://neondb_owner:***@ep-frosty-pine-aiybl1uq-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require
-   DATABASE_URL_UNPOOLED=postgresql://neondb_owner:***@ep-frosty-pine-aiybl1uq.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require
+   DATABASE_URL=postgresql://<db-user>:<password>@<your-neon-endpoint>-pooler.<region>.aws.neon.tech/neondb?sslmode=require
+   DATABASE_URL_UNPOOLED=postgresql://<db-user>:<password>@<your-neon-endpoint>.<region>.aws.neon.tech/neondb?sslmode=require
 
    # Preview (Neon preview branch — different compute endpoint)
-   DATABASE_URL=postgresql://neondb_owner:***@ep-<preview-endpoint>-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require
-   DATABASE_URL_UNPOOLED=postgresql://neondb_owner:***@ep-<preview-endpoint>.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require
+   DATABASE_URL=postgresql://<db-user>:<password>@<preview-endpoint>-pooler.<region>.aws.neon.tech/neondb?sslmode=require
+   DATABASE_URL_UNPOOLED=postgresql://<db-user>:<password>@<preview-endpoint>.<region>.aws.neon.tech/neondb?sslmode=require
    ```
 
 4. **GitHub Secrets** (for the preview branch reset workflow):
    - `NEON_API_KEY` — Neon API key ([create one here](https://neon.tech/docs/manage/api-keys))
    - `NEON_PROJECT_ID` — Your Neon project ID (visible in project settings)
    - `NEON_PREVIEW_BRANCH_ID` — The branch ID of the `preview` branch (format: `br-xxx-xxx-xxxxxxxx`, visible in Neon Console → Branches)
+
+### Least-Privilege Database Roles
+
+NaaP uses a **two-role pattern** to enforce least-privilege access to the Neon database:
+
+| Role | Purpose | Connection Type | Env Variable |
+|------|---------|-----------------|--------------|
+| `naap_app` | Runtime application queries (SELECT, INSERT, UPDATE, DELETE) | Pooled (PgBouncer) | `DATABASE_URL` |
+| `naap_migrator` | Schema migrations only (full DDL) | Direct (unpooled) | `DATABASE_URL_UNPOOLED` |
+
+The `naap_app` role **cannot** create/drop tables, alter schemas, or perform DDL — it can
+only execute DML against existing tables. The `naap_migrator` role has full DDL privileges
+and is used exclusively by `prisma migrate deploy` during builds.
+
+#### Connection String Format
+
+```
+# DATABASE_URL — pooled, uses naap_app (runtime)
+postgresql://naap_app:<APP_PASSWORD>@<neon-endpoint>-pooler.<region>.aws.neon.tech/neondb?sslmode=require
+
+# DATABASE_URL_UNPOOLED — direct, uses naap_migrator (migrations only)
+postgresql://naap_migrator:<MIGRATOR_PASSWORD>@<neon-endpoint>.<region>.aws.neon.tech/neondb?sslmode=require
+```
+
+> **Never** commit real passwords or hostnames. Use Vercel environment variables scoped to
+> Production / Preview as appropriate.
+
+#### Setting Up the Roles
+
+Run `scripts/neon-roles.sql` in the Neon SQL Editor as `neondb_owner`. The script:
+1. Creates both roles with LOGIN
+2. Grants CONNECT on the database
+3. Grants USAGE on all application schemas
+4. Grants DML (SELECT/INSERT/UPDATE/DELETE) on all tables to `naap_app`
+5. Sets default privileges so new tables are automatically accessible
+6. Grants full DDL to `naap_migrator`
+
+After creating the roles, generate strong passwords and update Vercel env vars.
+Test on a Neon dev branch before promoting to production.
 
 #### How It Works
 

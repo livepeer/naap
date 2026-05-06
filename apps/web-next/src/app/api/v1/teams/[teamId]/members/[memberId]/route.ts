@@ -24,7 +24,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams): Promis
     }
 
     // Validate CSRF token
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) {
       return csrfError;
     }
@@ -62,7 +62,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams): Pro
     }
 
     // Validate CSRF token
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) {
       return csrfError;
     }

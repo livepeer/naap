@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logout } from '@/lib/api/auth';
 import { successNoContent, getAuthToken } from '@/lib/api/response';
+import { validateCSRF } from '@/lib/api/csrf';
 
 /**
  * Clear all auth-related cookies consistently.
@@ -31,6 +32,9 @@ function clearAuthCookies(response: NextResponse): void {
 }
 
 async function handleLogout(request: NextRequest): Promise<NextResponse> {
+  const csrfError = validateCSRF(request, { shadowMode: true });
+  if (csrfError) return csrfError;
+
   const response = successNoContent();
   
   // Always clear cookies first, regardless of what happens with server-side logout

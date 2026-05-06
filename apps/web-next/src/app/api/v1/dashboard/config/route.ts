@@ -58,7 +58,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       return errors.unauthorized('No auth token provided');
     }
 
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) {
       return csrfError;
     }

@@ -65,7 +65,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     }
 
     // Validate CSRF token
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) {
       return csrfError;
     }

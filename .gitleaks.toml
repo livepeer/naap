@@ -1,0 +1,17 @@
+title = "NaaP gitleaks config"
+
+[allowlist]
+  # Example files and test fixtures
+  paths = [
+    '''apps/web-next/.env.local.example''',
+    '''\.test\.ts$''',
+    '''\.spec\.ts$''',
+    '''__tests__''',
+  ]
+  
+  # Known test/dummy values
+  regexes = [
+    '''test-secret-at-least-32-characters-long''',
+    '''AKIAIOSFODNN7EXAMPLE''',
+    '''changeme-local-dev''',
+  ]

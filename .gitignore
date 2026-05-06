@@ -49,8 +49,8 @@ logs/
 
 # Environment files (all levels)
 **/.env
-**/.env.local
-**/.env.*.local
+**/.env.*
+!**/.env.*.example
 
 # Prisma generated clients
 **/generated/
@@ -99,4 +99,4 @@ packages/types/src/*.js
 packages/types/src/*.d.ts
 packages/types/src/*.d.ts.map
 apps/workflows/*/tsconfig.tsbuildinfo
-.env*.local
+# (covered by **/.env.* above)
