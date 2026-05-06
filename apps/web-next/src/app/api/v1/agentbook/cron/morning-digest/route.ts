@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
+import { autoCategorizeForTenant, type AutoCategoryResult } from '@/lib/agentbook-auto-categorize';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -178,7 +179,7 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
   };
 }
 
-function composeMessage(name: string, d: DigestData): string {
+function composeMessage(name: string, d: DigestData, ai: AutoCategoryResult): string {
   const lines: string[] = [];
   lines.push(`☀️ <b>Morning, ${escapeHtml(name)}</b>`);
   lines.push('');
@@ -193,6 +194,19 @@ function composeMessage(name: string, d: DigestData): string {
 
   if (d.pendingReviewCount > 0) {
     lines.push(`⚠️  <b>${d.pendingReviewCount}</b> draft expense${d.pendingReviewCount === 1 ? '' : 's'} waiting for review`);
+  }
+
+  // Auto-categorizer summary (gap: daily routine + batched review).
+  if (ai.appliedCount > 0 || ai.pending.length > 0) {
+    lines.push('');
+    if (ai.appliedCount > 0) {
+      lines.push(`📁 Auto-categorized <b>${ai.appliedCount}</b> uncategorized expense${ai.appliedCount === 1 ? '' : 's'} overnight (high-confidence picks).`);
+    }
+    if (ai.pending.length > 0) {
+      lines.push(
+        `🤔 <b>${ai.pending.length}</b> need${ai.pending.length === 1 ? 's' : ''} a quick check — tap <b>Review pending</b> below or type <code>review</code>.`,
+      );
+    }
   }
 
   if (d.attention.length > 0) {
@@ -230,16 +244,26 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-async function sendTelegram(tenantId: string, message: string): Promise<boolean> {
+async function sendTelegram(
+  tenantId: string,
+  message: string,
+  inlineKeyboard?: { text: string; callback_data: string }[][],
+): Promise<boolean> {
   const bot = await db.abTelegramBot.findFirst({ where: { tenantId, enabled: true } });
   if (!bot) return false;
   const chats = Array.isArray(bot.chatIds) ? (bot.chatIds as string[]) : [];
   if (chats.length === 0) return false;
+  const replyMarkup = inlineKeyboard ? { inline_keyboard: inlineKeyboard } : undefined;
   for (const chatId of chats) {
     await fetch(`https://api.telegram.org/bot${bot.botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }),
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'HTML',
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+      }),
     }).catch(() => null);
   }
   return true;
@@ -311,12 +335,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         continue;
       }
 
+      // Run the daily auto-categorizer first so its results show up in
+      // today's digest. The helper short-circuits if it already ran today.
+      const ai = await autoCategorizeForTenant(tenant.userId);
+
       const digest = await buildDigest(tenant.userId);
       const user = await db.user.findUnique({ where: { id: tenant.userId } });
       const name = user?.displayName?.split(' ')[0] || 'there';
 
-      const message = composeMessage(name, digest);
-      const tgSent = await sendTelegram(tenant.userId, message);
+      const message = composeMessage(name, digest, ai);
+      const keyboard = ai.pending.length > 0
+        ? [[{ text: `👀 Review ${ai.pending.length} pending`, callback_data: 'review_drafts' }]]
+        : undefined;
+      const tgSent = await sendTelegram(tenant.userId, message, keyboard);
       if (!tgSent) await sendEmail(tenant.userId, message);
       sent++;
     } catch (err) {

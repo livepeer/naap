@@ -16,6 +16,7 @@ import { prisma as db } from '@naap/database';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { callGemini, classifyAndExecuteV1 } from '@agentbook-core/server';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
+import { autoCategorizeForTenant, getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
 
 // Dev fallback: hardcoded chat ID → tenant mapping. The tenantId here MUST
 // match the tenant the user logs into the web UI as (the AgentBook tenant
@@ -501,6 +502,41 @@ function buildDraftReceiptReply(
   }
 
   return formatExpenseSummary(active, lead) + '\n' + extras.join('\n');
+}
+
+/**
+ * Render the auto-categorizer's medium-confidence batch as a series of
+ * Telegram messages, each with [✅ Yes] [📁 Different] buttons. Called
+ * from the digest's "Review pending" button + the "review" text intent.
+ */
+interface ReplyableCtx {
+  reply: (text: string, opts?: { parse_mode?: 'HTML'; reply_markup?: { inline_keyboard: { text: string; callback_data: string }[][] } }) => Promise<unknown>;
+}
+
+async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Promise<number> {
+  const items = await getPendingSuggestions(tenantId);
+  if (items.length === 0) {
+    await ctx.reply('🎉 Nothing in the review queue — all caught up.');
+    return 0;
+  }
+  await ctx.reply(`📂 ${items.length} expense${items.length === 1 ? '' : 's'} need a quick check. Tap ✅ if I got it right, 📁 to pick a different category.`);
+  for (const it of items) {
+    const conf = Math.round(it.confidence * 100);
+    const date = new Date(it.date).toISOString().slice(0, 10);
+    const text = `<b>${escHtml(it.vendorName || 'Expense')}</b> — <b>${fmtUsd(it.amountCents)}</b> (${date})\n`
+      + `I think this is <b>${escHtml(it.suggestedCategoryName)}</b> (~${conf}% sure).`
+      + (it.reason ? `\n<i>${escHtml(it.reason)}</i>` : '');
+    await ctx.reply(text, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '✅ Yes — book it', callback_data: `aiok:${it.expenseId}` },
+          { text: '📁 Different', callback_data: `aichg:${it.expenseId}` },
+        ]],
+      },
+    });
+  }
+  return items.length;
 }
 
 /**
@@ -1005,6 +1041,34 @@ function getBot(): Bot {
     }
 
     const lower = text.toLowerCase().trim();
+
+    // "review" / "review pending" → walk through the auto-categorizer's
+    // medium-confidence batch.
+    if (/^review( pending)?\b/i.test(lower)) {
+      await sendPendingReviewBatch(tenantId, ctx);
+      return;
+    }
+
+    // "categorize" / "auto-categorize now" → run the auto-categorizer
+    // on demand instead of waiting for the morning cron.
+    if (/^(auto[\- ]?)?categori[sz]e( now| my expenses)?$/i.test(lower)) {
+      const result = await autoCategorizeForTenant(tenantId, { force: true });
+      const lines: string[] = [];
+      if (result.appliedCount > 0) {
+        lines.push(`📁 Auto-categorized <b>${result.appliedCount}</b> expense${result.appliedCount === 1 ? '' : 's'}.`);
+      }
+      if (result.pending.length > 0) {
+        lines.push(`🤔 <b>${result.pending.length}</b> need${result.pending.length === 1 ? 's' : ''} a quick check — type <code>review</code> to walk through them.`);
+      }
+      if (result.skippedCount > 0 && result.appliedCount === 0 && result.pending.length === 0) {
+        lines.push(`Nothing I can categorize automatically. ${result.skippedCount} expense${result.skippedCount === 1 ? '' : 's'} need manual category.`);
+      }
+      if (lines.length === 0) {
+        lines.push('🎉 All expenses already categorized — nothing to do.');
+      }
+      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+      return;
+    }
 
     // Detect feedback/corrections FIRST (takes precedence over session cancel)
     let feedback: string | undefined;
@@ -1610,6 +1674,118 @@ function getBot(): Bot {
             await ctx.reply(result.data.message);
           }
         }
+        return;
+      }
+
+      if (action === 'review_drafts') {
+        await ctx.answerCallbackQuery({ text: 'Loading review batch…' });
+        await sendPendingReviewBatch(tenantId, ctx);
+        return;
+      }
+
+      // Accept the AI's category suggestion for an expense.
+      // Format: aiok:<expenseId>
+      if (action === 'aiok') {
+        const expenseId = parts[1];
+        if (!expenseId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const pending = await getPendingSuggestions(tenantId);
+        const suggestion = pending.find((p) => p.expenseId === expenseId);
+        if (!suggestion) {
+          await ctx.answerCallbackQuery({ text: 'No longer pending' });
+          await ctx.editMessageText('✅ Already handled.');
+          return;
+        }
+        // Apply the category + learn the vendor pattern
+        const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
+        if (!expense) {
+          await ctx.answerCallbackQuery({ text: 'Expense not found' });
+          return;
+        }
+        await db.abExpense.update({
+          where: { id: expenseId },
+          data: { categoryId: suggestion.suggestedCategoryId, confidence: 0.95 },
+        });
+        if (expense.vendorId) {
+          const vendor = await db.abVendor.findUnique({ where: { id: expense.vendorId } });
+          if (vendor) {
+            await db.abPattern.upsert({
+              where: { tenantId_vendorPattern: { tenantId, vendorPattern: vendor.normalizedName } },
+              update: {
+                categoryId: suggestion.suggestedCategoryId,
+                confidence: 0.95,
+                source: 'user_corrected',
+                usageCount: { increment: 1 },
+                lastUsed: new Date(),
+              },
+              create: {
+                tenantId,
+                vendorPattern: vendor.normalizedName,
+                categoryId: suggestion.suggestedCategoryId,
+                confidence: 0.95,
+                source: 'user_corrected',
+              },
+            });
+            await db.abVendor.update({ where: { id: vendor.id }, data: { defaultCategoryId: suggestion.suggestedCategoryId } });
+          }
+        }
+        const remaining = await dropPendingSuggestion(tenantId, expenseId);
+        await ctx.answerCallbackQuery({ text: `✅ Booked under ${suggestion.suggestedCategoryName}` });
+        try {
+          await ctx.editMessageText(
+            `✅ <b>${escHtml(suggestion.vendorName || 'Expense')}</b> ${fmtUsd(suggestion.amountCents)} → <b>${escHtml(suggestion.suggestedCategoryName)}</b>${remaining > 0 ? `\n\n${remaining} left to review.` : '\n\nAll caught up. 🎉'}`,
+            { parse_mode: 'HTML' },
+          );
+        } catch {
+          await ctx.reply(`✅ Booked under ${suggestion.suggestedCategoryName}.`);
+        }
+        return;
+      }
+
+      // Override the AI's suggestion: open the same category picker as
+      // the regular Change Category flow, but pre-set this expense as
+      // active so the cat:<code> callback writes to it.
+      if (action === 'aichg') {
+        const expenseId = parts[1];
+        if (!expenseId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        await setActiveExpense(tenantId, expenseId);
+        const categories = await db.abAccount.findMany({
+          where: { tenantId, accountType: 'expense', isActive: true },
+          orderBy: { code: 'asc' },
+          select: { id: true, name: true, code: true },
+          take: 12,
+        });
+        if (categories.length === 0) {
+          await ctx.answerCallbackQuery({ text: 'No expense categories' });
+          return;
+        }
+        await db.abUserMemory.upsert({
+          where: { tenantId_key: { tenantId, key: 'telegram:pending_recategorize' } },
+          update: { value: JSON.stringify({ expenseId, setAt: Date.now() }), lastUsed: new Date() },
+          create: {
+            tenantId,
+            key: 'telegram:pending_recategorize',
+            value: JSON.stringify({ expenseId, setAt: Date.now() }),
+            type: 'pending_action',
+            confidence: 1,
+          },
+        });
+        const rows: { text: string; callback_data: string }[][] = [];
+        for (let i = 0; i < categories.length; i += 2) {
+          rows.push(
+            categories.slice(i, i + 2).map((c) => ({
+              text: c.name,
+              callback_data: `cat:${c.code}`,
+            })),
+          );
+        }
+        await ctx.answerCallbackQuery({ text: 'Pick the right one' });
+        await ctx.reply('📁 Pick a category:', { reply_markup: { inline_keyboard: rows } });
         return;
       }
 
