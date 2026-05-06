@@ -526,20 +526,20 @@ interface ReplyableCtx {
 async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Promise<number> {
   const aiItems = await getPendingSuggestions(tenantId);
 
+  // Pull EVERY pending_review draft for this tenant — both the ones with
+  // a category already auto-applied (just need confirmation) and the
+  // ones without a category yet (need a pick + confirmation). The
+  // confirmation-gate change (gap 1) means every receipt sits here
+  // until the user explicitly approves it.
   const drafts = await db.abExpense.findMany({
-    where: {
-      tenantId,
-      status: 'pending_review',
-      categoryId: null,
-      isPersonal: false,
-    },
+    where: { tenantId, status: 'pending_review' },
     include: { vendor: { select: { name: true } } },
     orderBy: { date: 'desc' },
-    take: 15,
+    take: 25,
   });
 
-  // The two queues can overlap (an AI suggestion is also a pending_review
-  // draft until the user accepts/changes). Don't double-show.
+  // The two queues can overlap (an AI suggestion is itself a
+  // pending_review draft). Don't double-show.
   const aiIds = new Set(aiItems.map((i) => i.expenseId));
   const draftsOnly = drafts.filter((d) => !aiIds.has(d.id));
 
@@ -549,20 +549,33 @@ async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Prom
     return 0;
   }
 
+  // Resolve category names for any drafts that already have a category
+  // assigned, so the user sees what auto-applied.
+  const draftCatIds = [
+    ...new Set(draftsOnly.map((d) => d.categoryId).filter((id): id is string => Boolean(id))),
+  ];
+  const draftCatRows = draftCatIds.length > 0
+    ? await db.abAccount.findMany({
+        where: { id: { in: draftCatIds } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const draftCatNameById = new Map(draftCatRows.map((c) => [c.id, c.name]));
+
   // Header sets expectation about what's coming.
   const sections: string[] = [];
-  if (aiItems.length > 0) {
-    sections.push(`<b>${aiItems.length}</b> with my best guess`);
-  }
-  if (draftsOnly.length > 0) {
-    sections.push(`<b>${draftsOnly.length}</b> draft${draftsOnly.length === 1 ? '' : 's'} that need a category`);
-  }
+  if (aiItems.length > 0) sections.push(`<b>${aiItems.length}</b> AI-suggested`);
+  const withCat = draftsOnly.filter((d) => d.categoryId).length;
+  const noCat = draftsOnly.length - withCat;
+  if (withCat > 0) sections.push(`<b>${withCat}</b> awaiting confirmation`);
+  if (noCat > 0) sections.push(`<b>${noCat}</b> needing a category`);
+
   await ctx.reply(
     `📂 Walking you through <b>${total}</b> item${total === 1 ? '' : 's'} in the review queue (${sections.join(' + ')}). Tap a button or just tell me what to do.`,
     { parse_mode: 'HTML' },
   );
 
-  // 1) AI-suggested first — these are quickest because we have a guess.
+  // 1) AI-suggested first — quickest because we already have a guess.
   for (const it of aiItems) {
     const conf = Math.round(it.confidence * 100);
     const date = new Date(it.date).toISOString().slice(0, 10);
@@ -580,25 +593,49 @@ async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Prom
     });
   }
 
-  // 2) Plain drafts — no guess yet, ask the user to pick.
+  // 2) Plain drafts — split UX by whether a category is already attached.
   for (const d of draftsOnly) {
     const date = d.date.toISOString().slice(0, 10);
-    const text = `<b>${escHtml(d.vendor?.name || d.description || 'Expense')}</b> — <b>${fmtUsd(d.amountCents)}</b> · ${date}\n`
-      + `<i>Draft, no category yet.</i>`;
-    await ctx.reply(text, {
-      parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: '📁 Pick category', callback_data: `change_cat:${d.id}` },
-            { text: '🏠 Personal', callback_data: `personal:${d.id}` },
+    const vendor = d.vendor?.name || d.description || 'Expense';
+    if (d.categoryId) {
+      const catName = draftCatNameById.get(d.categoryId) || 'category';
+      const text =
+        `<b>${escHtml(vendor)}</b> — <b>${fmtUsd(d.amountCents)}</b> · ${date}\n`
+        + `Auto-categorized as <b>${escHtml(catName)}</b>. Confirm to put it on the books.`;
+      await ctx.reply(text, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '✅ Confirm — book it', callback_data: `confirm:${d.id}` },
+              { text: '📁 Change category', callback_data: `change_cat:${d.id}` },
+            ],
+            [
+              { text: d.isPersonal ? '💼 Make business' : '🏠 Make personal', callback_data: `${d.isPersonal ? 'business' : 'personal'}:${d.id}` },
+              { text: '❌ Reject', callback_data: `reject:${d.id}` },
+            ],
           ],
-          [
-            { text: '❌ Reject', callback_data: `reject:${d.id}` },
+        },
+      });
+    } else {
+      const text =
+        `<b>${escHtml(vendor)}</b> — <b>${fmtUsd(d.amountCents)}</b> · ${date}\n`
+        + `<i>Draft, no category yet.</i>`;
+      await ctx.reply(text, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '📁 Pick category', callback_data: `change_cat:${d.id}` },
+              { text: '🏠 Personal', callback_data: `personal:${d.id}` },
+            ],
+            [
+              { text: '❌ Reject', callback_data: `reject:${d.id}` },
+            ],
           ],
-        ],
-      },
-    });
+        },
+      });
+    }
   }
 
   return total;
