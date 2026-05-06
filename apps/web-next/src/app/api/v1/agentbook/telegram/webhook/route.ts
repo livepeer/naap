@@ -504,6 +504,47 @@ function buildDraftReceiptReply(
 }
 
 /**
+ * Transcribe a voice note via Gemini's audio-input support. Returns
+ * the verbatim text or null if the API isn't configured / fails.
+ */
+async function transcribeVoiceWithGemini(audioUrl: string, mimeType: string): Promise<string | null> {
+  const cfg = await getGeminiKey();
+  if (!cfg) return null;
+  let audioPart: { inlineData: { mimeType: string; data: string } };
+  try {
+    const audioRes = await fetch(audioUrl);
+    if (!audioRes.ok) return null;
+    const buf = await audioRes.arrayBuffer();
+    if (buf.byteLength > 18_000_000) return null;
+    audioPart = {
+      inlineData: { mimeType, data: Buffer.from(buf).toString('base64') },
+    };
+  } catch {
+    return null;
+  }
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.modelVision}:generateContent?key=${cfg.apiKey}`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: 'Transcribe this voice note exactly as spoken. Return ONLY the spoken words, no preamble, no commentary.' }],
+        },
+        contents: [{ role: 'user', parts: [audioPart, { text: 'Transcribe.' }] }],
+        generationConfig: { maxOutputTokens: 500, temperature: 0.0 },
+      }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    return text.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Surface a currency-mismatch warning when the receipt was issued in a
  * different currency than the tenant's books. Real conversion is left
  * for a future Plaid/FX integration; today we just call attention to it
@@ -1059,7 +1100,71 @@ function getBot(): Bot {
     }
   });
 
-  // === Photo messages → Receipt OCR (not yet wired in this build) ===
+  // === Voice notes → Gemini transcription → same intent flow as text ===
+  bot.on('message:voice', async (ctx) => {
+    const tenantId = await resolveTenantId(ctx.chat.id);
+    await ctx.reply('🎙️ One sec — listening to your note…');
+
+    let text: string | null = null;
+    try {
+      const file = await ctx.api.getFile(ctx.message.voice.file_id);
+      const url = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+      const mime = ctx.message.voice.mime_type || 'audio/ogg';
+      text = await transcribeVoiceWithGemini(url, mime);
+    } catch (err) {
+      console.error('[telegram/voice] failed:', err);
+    }
+
+    if (!text) {
+      await ctx.reply('Couldn\'t transcribe that — try again or type the message out.');
+      return;
+    }
+
+    await ctx.reply(`📝 I heard: "<i>${escHtml(text)}</i>"`, { parse_mode: 'HTML' });
+
+    // Route the transcribed text through the same intent → plan → execute
+    // flow as a typed message. Run the agent loop first, then fall back to
+    // the agent brain if the loop delegates.
+    try {
+      const active = await getActiveExpense(tenantId);
+      const categories = await db.abAccount.findMany({
+        where: { tenantId, accountType: 'expense', isActive: true },
+        select: { id: true, name: true, code: true },
+      });
+      const botCtx: BotContext = {
+        tenantId,
+        active: active as BotActive | null,
+        categories,
+      };
+      const loop = await runAgentLoop(text, botCtx);
+      if (loop.evaluation.reply) {
+        try {
+          await ctx.reply(loop.evaluation.reply, { parse_mode: loop.evaluation.parseMode });
+        } catch {
+          await ctx.reply(loop.evaluation.reply);
+        }
+      }
+      if (!loop.evaluation.delegatedToBrain) return;
+
+      // Delegated → agent brain
+      const result = await callAgentBrain(tenantId, text, undefined, undefined, undefined);
+      if (result.success && result.data) {
+        const reply: string = formatResponse(result.data);
+        try {
+          await ctx.reply(reply, { parse_mode: 'HTML' });
+        } catch {
+          await ctx.reply(result.data.message || reply);
+        }
+      } else {
+        await ctx.reply('Got the note but I\'m not sure what to do with it. Try saying it differently?');
+      }
+    } catch (err) {
+      console.error('[telegram/voice/process] failed:', err);
+      await ctx.reply('Heard the note but couldn\'t act on it. Try typing the same thing.');
+    }
+  });
+
+  // === Photo messages → Receipt OCR ===
   bot.on('message:photo', async (ctx) => {
     const tenantId = await resolveTenantId(ctx.chat.id);
     const photos = ctx.message.photo;
