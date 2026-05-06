@@ -1,10 +1,9 @@
 /**
  * POST /api/v1/billing/pymthouse/token
  *
- * Mint a fresh short-lived `sign:job` JWT for the currently logged-in NaaP
- * user. Safe to call on every request — PymtHouse's user upsert is idempotent
- * and the returned JWT lives ~15 min. Callers should re-mint instead of
- * persisting the token.
+ * Mint a fresh opaque `pmth_…` signer session for the currently logged-in NaaP user.
+ * Internally: upsert user, mint short-lived `sign:job` JWT, RFC 8693 token exchange
+ * with the M2M client. Safe to call on every request when callers need a new session.
  *
  * Response shape (RFC 6749-ish):
  *   { access_token, token_type: "Bearer", expires_in, scope }
@@ -17,7 +16,7 @@ import { validateCSRF } from '@/lib/api/csrf';
 import { PYMTHOUSE_NOT_CONFIGURED_MESSAGE } from '@/lib/pymthouse-env';
 import {
   isPymthouseConfigured,
-  issuePymthouseUserAccessToken,
+  mintPymthouseSignerSessionForNaapUser,
 } from '@/lib/pymthouse-oidc';
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -67,25 +66,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     try {
-      const minted = await issuePymthouseUserAccessToken(authUser.id, {
+      const session = await mintPymthouseSignerSessionForNaapUser(authUser.id, {
         email: authUser.email ?? undefined,
       });
 
       const response = success({
-        access_token: minted.accessToken,
-        token_type: minted.tokenType,
-        expires_in: minted.expiresIn,
-        scope: minted.scope,
+        access_token: session.accessToken,
+        token_type: session.tokenType,
+        expires_in: session.expiresIn,
+        scope: session.scope,
       });
       response.headers.set('Cache-Control', 'no-store');
       return response;
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      console.error('[billing-auth:pymthouse] Token mint error:', msg);
-      return errors.badRequest(`PymtHouse token mint failed: ${msg}`);
+      console.error('[billing-auth:pymthouse] Signer session error:', msg);
+      return errors.badRequest(`PymtHouse signer session failed: ${msg}`);
     }
   } catch (err) {
     console.error('[billing-auth:pymthouse] Unexpected token error:', err);
-    return errors.internal('Failed to mint PymtHouse token');
+    return errors.internal('Failed to issue PymtHouse signer session');
   }
 }

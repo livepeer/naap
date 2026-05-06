@@ -3,14 +3,13 @@
  * Start a brokered billing-provider authentication session.
  *
  * - daydream: browser-redirect OAuth (unchanged).
- * - pymthouse: server-to-server Basic-auth Builder API (no browser popup).
- *   NaaP upserts the user on PymtHouse and returns a fresh short-lived
- *   `sign:job` JWT as `access_token` in the response. The frontend receives
- *   `access_token` directly and skips popup/polling.
+ * - pymthouse: server-to-server Builder API + RFC 8693 token exchange (no browser popup).
+ *   NaaP upserts the user, mints a short-lived internal `sign:job` JWT, exchanges it
+ *   with the confidential M2M client for a long-lived opaque `pmth_…` signer session,
+ *   and returns that token as `access_token`. The frontend skips popup/polling.
  *
- *   The JWT is intentionally short-lived (~15 min) and is NOT persisted.
- *   For subsequent requests, callers should re-mint via
- *   POST /api/v1/billing/pymthouse/token.
+ *   The short-lived JWT is never exposed as the developer API key. Callers may
+ *   re-mint a fresh signer session via POST /api/v1/billing/pymthouse/token.
  */
 
 import * as crypto from 'crypto';
@@ -22,8 +21,8 @@ import { resolveBillingOAuthAppUrl } from '@/lib/billing-oauth-origin';
 import { PYMTHOUSE_NOT_CONFIGURED_MESSAGE } from '@/lib/pymthouse-env';
 import {
   isPymthouseConfigured,
-  issuePymthouseUserAccessToken,
-  type PymthouseUserAccessToken,
+  mintPymthouseSignerSessionForNaapUser,
+  type PymthouseSignerSessionToken,
 } from '@/lib/pymthouse-oidc';
 
 const DAYDREAM_AUTH_URL =
@@ -67,13 +66,13 @@ async function buildDaydreamAuthUrl(
 }
 
 /**
- * PymtHouse: pure server-to-server Basic-auth flow. Upserts the user and mints
- * a fresh short-lived `sign:job` JWT — no browser redirect, no persistence.
+ * PymtHouse: server-to-server Builder mint + issuer token exchange for a durable
+ * opaque signer session — no browser redirect.
  */
 async function executePymthouseUserLink(
   naapUserId: string | null,
   userEmail?: string | null,
-): Promise<PymthouseUserAccessToken | null> {
+): Promise<PymthouseSignerSessionToken | null> {
   if (!isPymthouseConfigured()) {
     return null;
   }
@@ -82,7 +81,7 @@ async function executePymthouseUserLink(
     throw new Error('User must be logged in to link a PymtHouse billing provider');
   }
 
-  return issuePymthouseUserAccessToken(naapUserId, {
+  return mintPymthouseSignerSessionForNaapUser(naapUserId, {
     email: userEmail ?? undefined,
   });
 }
@@ -109,12 +108,9 @@ export async function POST(
 
     const loginSessionId = crypto.randomBytes(32).toString('hex');
 
-    // ── PymtHouse: Basic-auth Builder API (docs/builder-api.md) ──────────────
-    // NaaP client Basic-auths to PymtHouse → upsert user → POST .../token { scope: sign:job }.
-    // The JWT is short-lived (~15 min) and is NOT persisted; callers re-mint on demand
-    // via POST /api/v1/billing/pymthouse/token.
+    // ── PymtHouse: Builder mint + RFC 8693 exchange (opaque pmth session) ───
     if (providerSlug === 'pymthouse') {
-      let token: PymthouseUserAccessToken | null;
+      let token: PymthouseSignerSessionToken | null;
       try {
         token = await executePymthouseUserLink(
           naapUserId,
@@ -126,7 +122,7 @@ export async function POST(
         return errors.badRequest(
           `PymtHouse user linking failed: ${msg}. ` +
             'Ensure PYMTHOUSE_ISSUER_URL (…/api/v1/oidc), PYMTHOUSE_PUBLIC_CLIENT_ID (app_…), PYMTHOUSE_M2M_CLIENT_ID, and PYMTHOUSE_M2M_CLIENT_SECRET are set, ' +
-            'and the confidential client on PymtHouse allows users:read, users:write, and users:token.',
+            'and the confidential client on PymtHouse allows users:read, users:write, users:token, and sign:job.',
         );
       }
 

@@ -127,7 +127,55 @@ interface ApiKey {
   keyPrefix: string;
   label: string | null;
   createdAt: string;
+  expiresAt?: string | null;
   lastUsedAt: string | null;
+}
+
+/** Matches PymtHouse gateway signer session TTL (~90 days from key creation). */
+const PYMTHOUSE_SIGNER_SESSION_MS = 90 * 24 * 60 * 60 * 1000;
+
+function computePymthouseExpiresAtFromCreated(
+  createdAt: string | undefined | null,
+): string | null {
+  if (!createdAt) return null;
+  const ms = new Date(createdAt).getTime();
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms + PYMTHOUSE_SIGNER_SESSION_MS).toISOString();
+}
+
+/** PymtHouse expiry is always derived from `createdAt` so the list matches the Created column. */
+function resolveApiKeyExpiresAt(key: ApiKey): string | null {
+  if (key.billingProvider?.slug === 'pymthouse') {
+    return computePymthouseExpiresAtFromCreated(key.createdAt);
+  }
+  return key.expiresAt ?? null;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function formatExpiryDaysRemaining(expiresIso: string, nowMs: number = Date.now()): string {
+  const expMs = new Date(expiresIso).getTime();
+  if (!Number.isFinite(expMs)) return '—';
+  const diff = expMs - nowMs;
+  if (diff <= 0) return 'Expired';
+  const fullDays = Math.floor(diff / MS_PER_DAY);
+  if (fullDays >= 1) {
+    return `${fullDays} day${fullDays === 1 ? '' : 's'}`;
+  }
+  return '< 1 day';
+}
+
+function formatExpiryExactForTitle(expiresIso: string): string {
+  return new Date(expiresIso).toLocaleString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  });
 }
 
 interface BillingProviderInfo {
@@ -223,12 +271,13 @@ const DOCS_BILLING_PROVIDERS: DocsBillingProvider[] = [
     signerUrl: 'https://pymthouse.com/api/signer',
     apiKeyHref: '/developer/keys',
     signerNote:
-      'The PymtHouse signer validates your JWT on every ticket — your private key never leaves your machine.',
+      'The PymtHouse signer validates your scoped signer session token on every ticket — your private key never leaves your machine.',
     authNote: (
       <>
-        Pass the JWT obtained from the PymtHouse API Keys tab as a Bearer token in the{' '}
+        Pass the signer session token from the API Keys tab as a Bearer token in the{' '}
         <code className="text-slate-300">Authorization</code> header.{' '}
-        Tokens are short-lived; refresh via the Usage & Billing tab or the PymtHouse API.
+        Tokens are generated through a short-lived authorization exchange and expire after about 90 days;
+        create a new key from this tab when needed.
       </>
     ),
   },
@@ -310,6 +359,8 @@ export const DeveloperView: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createStep, setCreateStep] = useState<'form' | 'oauth' | 'success'>('form');
   const [createdRawKey, setCreatedRawKey] = useState('');
+  const [createdKeyExpiresAt, setCreatedKeyExpiresAt] = useState<string | null>(null);
+  const [createdKeyWarning, setCreatedKeyWarning] = useState('');
   const [createError, setCreateError] = useState('');
   const [creating, setCreating] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
@@ -354,7 +405,7 @@ export const DeveloperView: React.FC = () => {
   }, []);
 
   const revokedCount = useMemo(
-    () => apiKeys.filter(k => (k.status || '').toUpperCase() === 'REVOKED').length,
+    () => apiKeys.filter((k) => (k.status || '').toUpperCase() === 'REVOKED').length,
     [apiKeys]
   );
 
@@ -377,10 +428,15 @@ export const DeveloperView: React.FC = () => {
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
   }, [billingProviders, apiKeys]);
 
+  const selectedBillingProvider = useMemo(
+    () => billingProviders?.find((provider) => provider.id === selectedBillingProviderId) || null,
+    [billingProviders, selectedBillingProviderId]
+  );
+
   const displayedKeys = useMemo(() => {
     const filteredByRevoked = showRevoked
       ? apiKeys
-      : apiKeys.filter(k => (k.status || '').toUpperCase() !== 'REVOKED');
+      : apiKeys.filter((k) => (k.status || '').toUpperCase() !== 'REVOKED');
     const filteredByProject = projectFilterId === '__all__'
       ? filteredByRevoked
       : filteredByRevoked.filter(k => k.project?.id === projectFilterId);
@@ -685,6 +741,8 @@ result = [...result].sort((a, b) => {
   const openCreateModal = useCallback(() => {
     setCreateStep('form');
     setCreatedRawKey('');
+    setCreatedKeyExpiresAt(null);
+    setCreatedKeyWarning('');
     setCreateError('');
     setCreating(false);
     setKeyCopied(false);
@@ -748,8 +806,8 @@ result = [...result].sort((a, b) => {
       const authUrl = startData.data?.auth_url || startData.auth_url;
       const loginSessionId = startData.data?.login_session_id || startData.login_session_id;
 
-      // Server-to-server providers (e.g. PymtHouse) return a short-lived JWT as
-      // `access_token` directly. Browser-redirect providers (e.g. Daydream)
+      // Server-to-server providers (e.g. PymtHouse) return an opaque signer session
+      // token as `access_token` directly. Browser-redirect providers (e.g. Daydream)
       // return `auth_url` for popup + polling and deliver the credential later.
       let providerApiKey: string | null = directAccessToken || null;
 
@@ -844,6 +902,16 @@ result = [...result].sort((a, b) => {
       }
 
       setCreatedRawKey(providerApiKey);
+      const keyCreatedAt =
+        typeof payload.key?.createdAt === 'string' ? payload.key.createdAt : null;
+      const expiresFromApi =
+        typeof payload.key?.expiresAt === 'string' ? payload.key.expiresAt : null;
+      const resolvedExpires =
+        providerSlug === 'pymthouse'
+          ? expiresFromApi || computePymthouseExpiresAtFromCreated(keyCreatedAt)
+          : expiresFromApi;
+      setCreatedKeyExpiresAt(resolvedExpires);
+      setCreatedKeyWarning(payload.warning || 'Store this key securely. It will not be shown again.');
       setCreateStep('success');
     } catch (err) {
       if (pollAbortControllerRef.current?.signal.aborted) {
@@ -1175,6 +1243,12 @@ result = [...result].sort((a, b) => {
                           <th className="pb-3 font-medium">Provider</th>
                           <th className="pb-3 font-medium">Secret Key</th>
                           <th className="pb-3 font-medium">Created</th>
+                          <th
+                            className="pb-3 font-medium"
+                            title="Days until the key expires; hover a row for the exact time."
+                          >
+                            Expires
+                          </th>
                           <th className="pb-3 font-medium text-right">Status</th>
                         </tr>
                       </thead>
@@ -1208,6 +1282,30 @@ result = [...result].sort((a, b) => {
                               <span className="text-sm text-text-secondary">
                                 {new Date(key.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                               </span>
+                            </td>
+                            <td className="py-3 pr-4">
+                              {(() => {
+                                const expires = resolveApiKeyExpiresAt(key);
+                                if (!expires) {
+                                  return (
+                                    <span className="text-sm text-text-secondary">—</span>
+                                  );
+                                }
+                                const label = formatExpiryDaysRemaining(expires);
+                                const exact = formatExpiryExactForTitle(expires);
+                                const title =
+                                  label === 'Expired'
+                                    ? `Expired: ${exact}`
+                                    : `Expires: ${exact}`;
+                                return (
+                                  <span
+                                    className="text-sm text-text-secondary cursor-help border-b border-dotted border-white/20"
+                                    title={title}
+                                  >
+                                    {label}
+                                  </span>
+                                );
+                              })()}
                             </td>
                             <td className="py-3">
                               <div className="flex items-center justify-end gap-2">
@@ -1622,6 +1720,12 @@ result = [...result].sort((a, b) => {
                   ))}
                 </select>
               )}
+              {selectedBillingProvider?.slug === 'pymthouse' && (
+                <p className="text-xs text-amber-300 mt-2">
+                  PymtHouse keys are scoped signer session tokens. They are generated through a short-lived user
+                  authorization exchange and expire after about 90 days.
+                </p>
+              )}
             </div>
             {createError && (
               <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-300">
@@ -1660,7 +1764,28 @@ result = [...result].sort((a, b) => {
               <Shield size={20} className="text-emerald-400 flex-shrink-0" />
               <div className="text-sm">
                 <p className="text-emerald-200 font-medium">Store this key securely</p>
-                <p className="text-text-secondary mt-0.5">This is the only time your API key will be shown. Copy it now and store it in a safe place.</p>
+                <p className="text-text-secondary mt-0.5">
+                  {createdKeyWarning || 'This is the only time your API key will be shown. Copy it now and store it in a safe place.'}
+                </p>
+                {createdKeyExpiresAt && (
+                  <p className="text-amber-200 mt-1">
+                    {createdRawKey.startsWith('pmth_')
+                      ? `Valid until ${new Date(createdKeyExpiresAt).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })} (about 90 days from when this key was created).`
+                      : `Expires at ${new Date(createdKeyExpiresAt).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}.`}
+                  </p>
+                )}
               </div>
             </div>
             <div>

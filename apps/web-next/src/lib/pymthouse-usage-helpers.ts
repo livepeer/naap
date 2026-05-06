@@ -1,4 +1,7 @@
-import type { UsageApiResponse, UsageByUserRow } from '@pymthouse/builder-api';
+import {
+  summarizeUsageForExternalUser,
+  type UsageApiResponse,
+} from '@pymthouse/builder-api';
 
 /** ISO bounds for the current calendar month in UTC (billing-friendly window). */
 export function getUtcCalendarMonthIsoBounds(now: Date = new Date()): {
@@ -25,14 +28,6 @@ export function parseUsageDateParam(raw: string | null): string | null {
   return trimmed;
 }
 
-export function pickByUserRowForExternalId(
-  byUser: UsageByUserRow[] | undefined,
-  externalUserId: string,
-): UsageByUserRow | undefined {
-  if (!byUser?.length) return undefined;
-  return byUser.find((row) => row.externalUserId === externalUserId);
-}
-
 export function buildMeScopeUsagePayload(
   usage: UsageApiResponse,
   externalUserId: string,
@@ -45,14 +40,14 @@ export function buildMeScopeUsagePayload(
     feeWei: string;
   };
 } {
-  const row = pickByUserRowForExternalId(usage.byUser, externalUserId);
+  const summary = summarizeUsageForExternalUser(usage, externalUserId);
   return {
     clientId: usage.clientId,
     period: usage.period,
     currentUser: {
-      externalUserId,
-      requestCount: row?.requestCount ?? 0,
-      feeWei: row?.feeWei ?? '0',
+      externalUserId: summary.externalUserId,
+      requestCount: summary.requestCount,
+      feeWei: summary.feeWei,
     },
   };
 }

@@ -11,10 +11,15 @@
 
 import 'server-only';
 
-import { PmtHouseError, toPmtHouseError } from '@pymthouse/builder-api';
+import {
+  PmtHouseError,
+  toPmtHouseError,
+  type TokenExchangeResponse,
+} from '@pymthouse/builder-api';
 
 import { getPmtHouseServerClient } from '@/lib/pymthouse-client';
 import {
+  getPymthouseIssuerUrl,
   getPymthousePublicClientId,
   isPymthouseConfigured,
   PYMTHOUSE_NOT_CONFIGURED_MESSAGE,
@@ -25,6 +30,12 @@ export const PYMTHOUSE_USER_TOKEN_SCOPE = 'sign:job';
 
 /** RFC 6749 `token_type` value returned alongside PymtHouse JWTs. */
 export const PYMTHOUSE_TOKEN_TYPE = 'Bearer';
+
+/** Matches PymtHouse `gateway-token-exchange.ts` signer session TTL. */
+export const PYMTHOUSE_SIGNER_SESSION_EXPIRES_IN_SEC = 90 * 24 * 60 * 60;
+
+export const PYMTHOUSE_SIGNER_SESSION_TTL_MS =
+  PYMTHOUSE_SIGNER_SESSION_EXPIRES_IN_SEC * 1000;
 
 export interface PymthouseUserAccessToken {
   accessToken: string;
@@ -88,6 +99,106 @@ export async function issuePymthouseUserAccessToken(
   }
 }
 
+export interface PymthouseSignerSessionToken {
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
+  scope: string;
+}
+
+function mapSignerSessionResponse(
+  res: TokenExchangeResponse,
+): PymthouseSignerSessionToken {
+  const accessToken =
+    typeof res.access_token === 'string' ? res.access_token.trim() : '';
+  if (!accessToken) {
+    throw new Error('PymtHouse signer session exchange returned no access_token');
+  }
+  if (accessToken.startsWith('eyJ')) {
+    throw new Error(
+      'PymtHouse signer session exchange returned a JWT; expected opaque signer session token',
+    );
+  }
+
+  const tokenType =
+    typeof res.token_type === 'string' && res.token_type.trim()
+      ? res.token_type.trim()
+      : PYMTHOUSE_TOKEN_TYPE;
+  const expiresIn =
+    typeof res.expires_in === 'number' &&
+    Number.isFinite(res.expires_in) &&
+    res.expires_in > 0
+      ? Math.floor(res.expires_in)
+      : PYMTHOUSE_SIGNER_SESSION_EXPIRES_IN_SEC;
+  const scope =
+    typeof res.scope === 'string' && res.scope.trim()
+      ? res.scope.trim()
+      : PYMTHOUSE_USER_TOKEN_SCOPE;
+
+  return {
+    accessToken,
+    tokenType,
+    expiresIn,
+    scope,
+  };
+}
+
+/**
+ * RFC 8693 token exchange at the PymtHouse issuer: swap a short-lived Builder-minted
+ * user JWT for a long-lived opaque `pmth_…` signer session token using the SDK.
+ */
+export async function exchangePymthouseUserTokenForSignerSession(
+  shortLivedUserJwt: string,
+): Promise<PymthouseSignerSessionToken> {
+  const issuer = getPymthouseIssuerUrl();
+  if (!issuer || !isPymthouseConfigured()) {
+    throw new Error(PYMTHOUSE_NOT_CONFIGURED_MESSAGE);
+  }
+
+  const client = getPmtHouseServerClient();
+  try {
+    const json = await client.exchangeForSignerSession({
+      userJwt: shortLivedUserJwt,
+      resource: issuer,
+    });
+    return mapSignerSessionResponse(json);
+  } catch (e) {
+    const err = toPmtHouseError(e, 'PymtHouse signer session exchange failed');
+    throw new Error(err.message);
+  }
+}
+
+/**
+ * Upsert NaaP user on PymtHouse, then mint + exchange via the Builder API SDK
+ * (`mintUserSignerSessionToken`) for the durable opaque token.
+ */
+export async function mintPymthouseSignerSessionForNaapUser(
+  naapUserId: string,
+  opts?: { email?: string },
+): Promise<PymthouseSignerSessionToken> {
+  const issuer = getPymthouseIssuerUrl();
+  if (!issuer || !isPymthouseConfigured()) {
+    throw new Error(PYMTHOUSE_NOT_CONFIGURED_MESSAGE);
+  }
+
+  const client = getPmtHouseServerClient();
+  try {
+    await client.upsertAppUser({
+      externalUserId: naapUserId,
+      email: opts?.email,
+      status: 'active',
+    });
+    const json = await client.mintUserSignerSessionToken({
+      externalUserId: naapUserId,
+      scope: PYMTHOUSE_USER_TOKEN_SCOPE,
+      resource: issuer,
+    });
+    return mapSignerSessionResponse(json);
+  } catch (e) {
+    const err = toPmtHouseError(e, 'PymtHouse signer session mint failed');
+    throw new Error(err.message);
+  }
+}
 export type PymthouseDeviceApproveResult =
   | { ok: true }
   | { ok: false; status: number; message: string };
