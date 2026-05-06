@@ -698,6 +698,128 @@ function currencyMismatchNote(
 }
 
 /**
+ * Render the duplicate-detection reply: tell the user this looks like an
+ * existing expense and offer three paths — attach the new receipt to
+ * the existing record (most common case for "I already booked this"),
+ * keep both as separate expenses (real same-day repeats), or reject.
+ */
+async function sendDuplicateReply(
+  ctx: ReplyableCtx,
+  draftId: string,
+  active: ActiveExpense,
+  dup: DuplicateCandidate,
+): Promise<void> {
+  const newDate = active.date.toISOString().slice(0, 10);
+  const dupDate = dup.date.toISOString().slice(0, 10);
+  const sameDate = newDate === dupDate;
+  const sameAmount = active.amountCents === dup.amountCents;
+
+  const lines: string[] = [];
+  lines.push(`🪄 <b>Looks like a duplicate.</b>`);
+  lines.push('');
+  lines.push(
+    `I already have <b>${escHtml(dup.vendorName || active.vendorName || 'an expense')}</b> for <b>${fmtUsd(dup.amountCents)}</b> on ${dupDate}${dup.status === 'confirmed' ? ' (booked)' : ' (draft)'}${dup.hasReceipt ? ', with a receipt' : ', no receipt yet'}.`,
+  );
+  if (!sameDate || !sameAmount) {
+    const diffs: string[] = [];
+    if (!sameDate) diffs.push(`new one is dated ${newDate}`);
+    if (!sameAmount) diffs.push(`new amount is ${fmtUsd(active.amountCents)}`);
+    lines.push(`<i>(small differences — ${diffs.join(', ')})</i>`);
+  }
+  lines.push('');
+  if (dup.hasReceipt) {
+    lines.push(`Pick whether to attach this receipt to the existing record (replaces the old one), keep both as separate expenses, or reject this draft.`);
+  } else {
+    lines.push(`Want to attach the new receipt to that existing record, or keep both as separate expenses?`);
+  }
+
+  await ctx.reply(lines.join('\n'), {
+    parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '🔗 Attach receipt to existing', callback_data: `attach:${draftId}:${dup.id}` },
+        ],
+        [
+          { text: '✅ Keep both — book it anyway', callback_data: `keepboth:${draftId}` },
+          { text: '❌ Reject draft', callback_data: `reject:${draftId}` },
+        ],
+      ],
+    },
+  });
+}
+
+/**
+ * High-confidence duplicate detection — only fires when vendor + amount
+ * + date are all close enough to be suspicious. Conservative on purpose
+ * (don't pester the user about real same-day repeats):
+ *
+ *   • vendor: normalizedName must match EXACTLY (no fuzzy)
+ *   • amount: within ±50¢ (covers tax-rounding edge cases)
+ *   • date: within ±2 days (bank date can lag receipt date)
+ *   • not the new draft itself
+ *   • the candidate is currently a non-rejected expense
+ *
+ * Returns the closest match or null. Used to let the user attach the
+ * fresh receipt to the existing record instead of double-booking.
+ */
+interface DuplicateCandidate {
+  id: string;
+  vendorName: string | null;
+  amountCents: number;
+  date: Date;
+  status: string;
+  hasReceipt: boolean;
+}
+
+async function findPotentialDuplicate(
+  tenantId: string,
+  newExpenseId: string,
+  vendorId: string | null,
+  amountCents: number,
+  date: Date,
+): Promise<DuplicateCandidate | null> {
+  if (!vendorId) return null;
+  const dayWindow = 2 * 86_400_000;
+  const dollarWindow = 50;
+  const candidates = await db.abExpense.findMany({
+    where: {
+      tenantId,
+      vendorId,
+      id: { not: newExpenseId },
+      status: { notIn: ['rejected'] },
+      date: {
+        gte: new Date(date.getTime() - dayWindow),
+        lte: new Date(date.getTime() + dayWindow),
+      },
+      amountCents: {
+        gte: amountCents - dollarWindow,
+        lte: amountCents + dollarWindow,
+      },
+    },
+    include: { vendor: { select: { name: true } } },
+    orderBy: { date: 'desc' },
+    take: 5,
+  });
+  if (candidates.length === 0) return null;
+  // Pick the closest by combined date + amount distance.
+  candidates.sort((a, b) => {
+    const distA = Math.abs(a.amountCents - amountCents) + Math.abs(a.date.getTime() - date.getTime()) / 86_400_000;
+    const distB = Math.abs(b.amountCents - amountCents) + Math.abs(b.date.getTime() - date.getTime()) / 86_400_000;
+    return distA - distB;
+  });
+  const best = candidates[0];
+  return {
+    id: best.id,
+    vendorName: best.vendor?.name || null,
+    amountCents: best.amountCents,
+    date: best.date,
+    status: best.status,
+    hasReceipt: !!best.receiptUrl,
+  };
+}
+
+/**
  * Anomaly detection: flag a freshly-created expense that's > 3x the
  * tenant's 90-day average for the same category. A great accountant
  * notices these out loud, not in a quarterly report. (Gap 16)
@@ -1382,6 +1504,22 @@ function getBot(): Bot {
         where: { id: expense.id },
         select: { vendorId: true, date: true },
       });
+
+      // Duplicate check FIRST — if this looks like a dup, give the user
+      // a one-tap path to attach the receipt to the existing record
+      // instead of double-booking.
+      const dup = await findPotentialDuplicate(
+        tenantId,
+        expense.id,
+        expenseRow?.vendorId ?? null,
+        active.amountCents,
+        expenseRow?.date ?? active.date,
+      );
+      if (dup) {
+        await sendDuplicateReply(ctx, expense.id, active, dup);
+        return;
+      }
+
       const [fxNote, anomalyNote, recurringNote, bankMatchNote] = await Promise.all([
         Promise.resolve(currencyMismatchNote(ocr.currency, tenantConfig?.currency || null)),
         buildAnomalyNote(tenantId, expense.categoryId, active.amountCents),
@@ -1460,6 +1598,19 @@ function getBot(): Bot {
         where: { id: expense.id },
         select: { vendorId: true, date: true },
       });
+
+      const dup = await findPotentialDuplicate(
+        tenantId,
+        expense.id,
+        expenseRow?.vendorId ?? null,
+        active.amountCents,
+        expenseRow?.date ?? active.date,
+      );
+      if (dup) {
+        await sendDuplicateReply(ctx, expense.id, active, dup);
+        return;
+      }
+
       const [fxNote, anomalyNote, recurringNote, bankMatchNote] = await Promise.all([
         Promise.resolve(currencyMismatchNote(ocr.currency, tenantConfig?.currency || null)),
         buildAnomalyNote(tenantId, expense.categoryId, active.amountCents),
@@ -1795,6 +1946,106 @@ function getBot(): Bot {
       if (action === 'review_drafts') {
         await ctx.answerCallbackQuery({ text: 'Loading review batch…' });
         await sendPendingReviewBatch(tenantId, ctx);
+        return;
+      }
+
+      // attach:<draftId>:<existingId> — move receiptUrl from the new
+      // draft onto the existing expense, then delete the draft. The user
+      // gets receipt documentation on what's already booked without
+      // double-recording the expense.
+      if (action === 'attach') {
+        const draftId = parts[1];
+        const existingId = parts[2];
+        if (!draftId || !existingId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const draft = await db.abExpense.findFirst({
+          where: { id: draftId, tenantId },
+          select: { id: true, receiptUrl: true },
+        });
+        const existing = await db.abExpense.findFirst({
+          where: { id: existingId, tenantId },
+          include: { vendor: { select: { name: true } } },
+        });
+        if (!draft || !existing) {
+          await ctx.answerCallbackQuery({ text: 'Records not found' });
+          return;
+        }
+        if (draft.receiptUrl) {
+          await db.abExpense.update({
+            where: { id: existingId },
+            data: { receiptUrl: draft.receiptUrl },
+          });
+        }
+        await db.abExpense.delete({ where: { id: draftId } });
+        await db.abEvent.create({
+          data: {
+            tenantId,
+            eventType: 'expense.receipt_attached',
+            actor: 'user',
+            action: {
+              existingExpenseId: existingId,
+              droppedDraftId: draftId,
+              hadReceiptBefore: !!existing.receiptUrl,
+            },
+          },
+        });
+        await db.abUserMemory.deleteMany({
+          where: { tenantId, key: 'telegram:active_expense' },
+        });
+        await ctx.answerCallbackQuery({ text: '🔗 Receipt attached' });
+        const vendor = existing.vendor?.name || 'expense';
+        const date = existing.date.toISOString().slice(0, 10);
+        const reply =
+          `🔗 Receipt attached to <b>${escHtml(vendor)}</b> ${fmtUsd(existing.amountCents)} (${date}). Draft dropped — no double-booking.`;
+        try {
+          await ctx.editMessageText(reply, { parse_mode: 'HTML' });
+        } catch {
+          await ctx.reply(reply, { parse_mode: 'HTML' });
+        }
+        return;
+      }
+
+      // keepboth:<draftId> — user confirms it's a real separate expense.
+      // Show the standard draft confirmation flow now that the dup
+      // warning is dismissed.
+      if (action === 'keepboth') {
+        const draftId = parts[1];
+        if (!draftId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        await setActiveExpense(tenantId, draftId);
+        const updated = await getActiveExpense(tenantId);
+        await ctx.answerCallbackQuery({ text: 'Treating as separate' });
+        if (!updated) {
+          await ctx.reply('Couldn\'t find the draft.');
+          return;
+        }
+        const reply = formatExpenseSummary(
+          updated,
+          `📒 OK, keeping it as a separate expense. Confirm to book, or change anything you need.`,
+        );
+        try {
+          await ctx.editMessageText(reply, {
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '✅ Confirm — book it', callback_data: `confirm:${draftId}` },
+                  { text: '📁 Change category', callback_data: `change_cat:${draftId}` },
+                ],
+                [
+                  { text: updated.isPersonal ? '💼 Make business' : '🏠 Make personal', callback_data: `${updated.isPersonal ? 'business' : 'personal'}:${draftId}` },
+                  { text: '❌ Reject', callback_data: `reject:${draftId}` },
+                ],
+              ],
+            },
+          });
+        } catch {
+          await ctx.reply(reply, { parse_mode: 'HTML' });
+        }
         return;
       }
 
