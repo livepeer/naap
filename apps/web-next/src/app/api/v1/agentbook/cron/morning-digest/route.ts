@@ -13,6 +13,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { autoCategorizeForTenant, type AutoCategoryResult } from '@/lib/agentbook-auto-categorize';
+import { getDigestPrefs, type DigestPrefs } from '@/lib/agentbook-digest-prefs';
+import { buildTipContext, generateTaxTip, generateCashFlowTip } from '@/lib/agentbook-digest-tips';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -179,25 +181,35 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
   };
 }
 
-function composeMessage(name: string, d: DigestData, ai: AutoCategoryResult): string {
+function composeMessage(
+  name: string,
+  d: DigestData,
+  ai: AutoCategoryResult,
+  prefs: DigestPrefs,
+  tips: { tax?: string | null; cashFlow?: string | null },
+): string {
+  const concise = prefs.tone === 'concise';
+  const sec = prefs.sections;
   const lines: string[] = [];
   lines.push(`☀️ <b>Morning, ${escapeHtml(name)}</b>`);
   lines.push('');
-  lines.push(`💰 Cash on hand: <b>${fmt$(d.cashTodayCents)}</b>`);
 
-  if (d.yesterday.paymentCount > 0 || d.yesterday.expenseCount > 0) {
+  if (sec.cashOnHand) {
+    lines.push(`💰 Cash on hand: <b>${fmt$(d.cashTodayCents)}</b>`);
+  }
+
+  if (sec.yesterday && (d.yesterday.paymentCount > 0 || d.yesterday.expenseCount > 0)) {
     const sign = d.yesterday.netCents >= 0 ? '+' : '';
     lines.push(
       `📊 Yesterday: ${sign}${fmt$(d.yesterday.netCents)} (${d.yesterday.paymentCount} payment${d.yesterday.paymentCount === 1 ? '' : 's'} in / ${d.yesterday.expenseCount} expense${d.yesterday.expenseCount === 1 ? '' : 's'} out)`,
     );
   }
 
-  if (d.pendingReviewCount > 0) {
+  if (sec.pendingReview && d.pendingReviewCount > 0) {
     lines.push(`⚠️  <b>${d.pendingReviewCount}</b> draft expense${d.pendingReviewCount === 1 ? '' : 's'} waiting for review`);
   }
 
-  // Auto-categorizer summary (gap: daily routine + batched review).
-  if (ai.appliedCount > 0 || ai.pending.length > 0) {
+  if (sec.autoCategorize && (ai.appliedCount > 0 || ai.pending.length > 0)) {
     lines.push('');
     if (ai.appliedCount > 0) {
       lines.push(`📁 Auto-categorized <b>${ai.appliedCount}</b> uncategorized expense${ai.appliedCount === 1 ? '' : 's'} overnight (high-confidence picks).`);
@@ -209,32 +221,52 @@ function composeMessage(name: string, d: DigestData, ai: AutoCategoryResult): st
     }
   }
 
-  if (d.attention.length > 0) {
+  if (sec.overdue && d.attention.length > 0) {
     lines.push('');
     lines.push(`🚨 <b>Overdue invoices</b>`);
-    for (const a of d.attention.slice(0, 3)) {
+    const limit = concise ? 2 : 3;
+    for (const a of d.attention.slice(0, limit)) {
       lines.push(`  • ${escapeHtml(a.title)}${a.amountCents ? ' — ' + fmt$(a.amountCents) : ''}`);
     }
-    if (d.attention.length > 3) lines.push(`  … and ${d.attention.length - 3} more`);
+    if (d.attention.length > limit) lines.push(`  … and ${d.attention.length - limit} more`);
   }
 
-  if (d.upcomingThisWeek.length > 0) {
+  if (sec.thisWeek && d.upcomingThisWeek.length > 0) {
     lines.push('');
     lines.push(`📅 <b>This week</b>`);
-    for (const u of d.upcomingThisWeek.slice(0, 4)) {
+    const limit = concise ? 3 : 4;
+    for (const u of d.upcomingThisWeek.slice(0, limit)) {
       const arrow = u.kind === 'income' ? '↗' : '↘';
       lines.push(`  ${arrow} ${escapeHtml(u.label)} — ${fmt$(u.amountCents)} in ${u.daysOut}d`);
     }
   }
 
-  if (d.anomalyCount > 0) {
+  if (sec.anomalies && d.anomalyCount > 0) {
     lines.push('');
     lines.push(`📈 ${d.anomalyCount} unusual expense${d.anomalyCount === 1 ? '' : 's'} yesterday — type "expenses" to review`);
   }
 
-  if (d.taxDaysUntilQ !== null && d.taxDaysUntilQ <= 21) {
+  if (sec.taxDeadline && d.taxDaysUntilQ !== null && d.taxDaysUntilQ <= 21) {
     lines.push('');
     lines.push(`📋 <b>Quarterly tax due in ${d.taxDaysUntilQ} days</b> — type "tax" for the estimate`);
+  }
+
+  if (sec.taxTips && tips.tax) {
+    lines.push('');
+    lines.push(`💡 <b>Tax tip:</b> ${escapeHtml(tips.tax)}`);
+  }
+
+  if (sec.cashFlowTips && tips.cashFlow) {
+    lines.push('');
+    lines.push(`🌊 <b>Cash flow:</b> ${escapeHtml(tips.cashFlow)}`);
+  }
+
+  if (!prefs.setupComplete) {
+    lines.push('');
+    lines.push(`<i>Want to customize what you see and when? Type <code>setup briefing</code>.</i>`);
+  } else {
+    lines.push('');
+    lines.push(`<i>Reply to tune this — "shorter", "skip tax tips", "move to 8am" all work. Or "setup briefing" to start over.</i>`);
   }
 
   return lines.join('\n');
@@ -322,18 +354,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   for (const tenant of tenants) {
     try {
+      // Read the tenant's customized prefs (time, sections, tone).
+      // Default time is 7am if they haven't run setup yet.
+      const prefs = await getDigestPrefs(tenant.userId);
+
       const fmtH = new Intl.DateTimeFormat('en-US', {
         hour: 'numeric',
         hour12: false,
         timeZone: tenant.timezone || 'America/New_York',
       });
+      const fmtM = new Intl.DateTimeFormat('en-US', {
+        minute: 'numeric',
+        timeZone: tenant.timezone || 'America/New_York',
+      });
       const localHour = parseInt(fmtH.format(now), 10);
+      const localMinute = parseInt(fmtM.format(now), 10);
       // Allow on-demand testing via ?hour=now to bypass the time gate.
       const bypass = targetParam === 'now';
-      if (!bypass && localHour !== targetHour) {
+      // Honor the tenant's preferred hour. Cron fires hourly, so we
+      // match on hour and tolerate any minute within that hour.
+      const targetHourForTenant = targetParam ? targetHour : prefs.hour;
+      if (!bypass && localHour !== targetHourForTenant) {
         skipped++;
         continue;
       }
+      void localMinute; // currently unused — reserved for future minute-precision firing
 
       // Run the daily auto-categorizer first so its results show up in
       // today's digest. The helper short-circuits if it already ran today.
@@ -343,13 +388,33 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const user = await db.user.findUnique({ where: { id: tenant.userId } });
       const name = user?.displayName?.split(' ')[0] || 'there';
 
-      const message = composeMessage(name, digest, ai);
+      // Generate contextual tax + cash flow tips if the tenant wants them.
+      let taxTip: string | null = null;
+      let cashFlowTip: string | null = null;
+      if (prefs.sections.taxTips || prefs.sections.cashFlowTips) {
+        const ctx = await buildTipContext(tenant.userId);
+        if (prefs.sections.taxTips) {
+          const t = await generateTaxTip(ctx);
+          taxTip = t?.text ?? null;
+        }
+        if (prefs.sections.cashFlowTips) {
+          const t = await generateCashFlowTip(ctx);
+          cashFlowTip = t?.text ?? null;
+        }
+      }
+
+      const message = composeMessage(name, digest, ai, prefs, { tax: taxTip, cashFlow: cashFlowTip });
       // Review button covers BOTH queues — AI suggestions AND uncategorized
       // draft expenses. The unified review batch handler walks through both.
       const reviewCount = ai.pending.length + digest.pendingReviewCount;
-      const keyboard = reviewCount > 0
-        ? [[{ text: `👀 Review ${reviewCount} item${reviewCount === 1 ? '' : 's'}`, callback_data: 'review_drafts' }]]
-        : undefined;
+      const buttons: { text: string; callback_data: string }[][] = [];
+      if (reviewCount > 0) {
+        buttons.push([{ text: `👀 Review ${reviewCount} item${reviewCount === 1 ? '' : 's'}`, callback_data: 'review_drafts' }]);
+      }
+      if (!prefs.setupComplete) {
+        buttons.push([{ text: '⚙️ Set up briefing', callback_data: 'setup_briefing' }]);
+      }
+      const keyboard = buttons.length > 0 ? buttons : undefined;
       const tgSent = await sendTelegram(tenant.userId, message, keyboard);
       if (!tgSent) await sendEmail(tenant.userId, message);
       sent++;

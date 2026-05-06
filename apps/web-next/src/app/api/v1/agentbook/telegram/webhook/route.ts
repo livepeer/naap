@@ -17,6 +17,20 @@ import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { callGemini, classifyAndExecuteV1 } from '@agentbook-core/server';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
 import { autoCategorizeForTenant, getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
+import {
+  getDigestPrefs,
+  setDigestPrefs,
+  getSetupState,
+  setSetupState,
+  clearSetupState,
+  parseTimeString,
+  applyFeedbackToPrefs,
+  formatPrefsSummary,
+  formatTime,
+  DEFAULT_PREFS,
+  type DigestPrefs,
+  type SetupState,
+} from '@/lib/agentbook-digest-prefs';
 
 // Dev fallback: hardcoded chat ID → tenant mapping. The tenantId here MUST
 // match the tenant the user logs into the web UI as (the AgentBook tenant
@@ -698,6 +712,167 @@ function currencyMismatchNote(
 }
 
 /**
+ * ── Daily-briefing setup dialog ────────────────────────────────────────
+ *
+ * Multi-turn flow stored in AbUserMemory[telegram:digest_setup_state]:
+ *   step 'time'     — ask preferred time of day
+ *   step 'sections' — ask what to include
+ *   step 'preview'  — show a sample digest, ask for tweaks
+ *   step 'tuning'   — apply free-form feedback, loop until "good"
+ *
+ * Bridge functions live in lib/agentbook-digest-prefs.ts.
+ */
+
+async function beginSetup(tenantId: string, ctx: ReplyableCtx): Promise<void> {
+  const existing = await getDigestPrefs(tenantId);
+  const draft: DigestPrefs = { ...existing, setupComplete: false };
+  await setSetupState(tenantId, { step: 'time', draft, startedAt: Date.now() });
+  await ctx.reply(
+    `⚙️ <b>Let's set up your daily briefing.</b>\n\nWhat time would you like it? Say something like "7am", "morning", or "8:30".\n\n<i>(Say "cancel" any time to stop.)</i>`,
+    { parse_mode: 'HTML' },
+  );
+}
+
+async function handleSetupTurn(
+  tenantId: string,
+  text: string,
+  state: SetupState,
+  ctx: ReplyableCtx,
+): Promise<void> {
+  const lower = text.toLowerCase().trim();
+  if (/^(cancel|stop|abort|never mind|nvm|quit)\b/.test(lower)) {
+    await clearSetupState(tenantId);
+    await ctx.reply('Cancelled. Your briefing prefs are unchanged.');
+    return;
+  }
+
+  if (state.step === 'time') {
+    const t = parseTimeString(text);
+    if (!t) {
+      await ctx.reply('I didn\'t catch a time there. Try "7am", "morning", "8:30", or just a number 0–23.');
+      return;
+    }
+    state.draft.hour = t.hour;
+    state.draft.minute = t.minute;
+    state.step = 'sections';
+    await setSetupState(tenantId, state);
+    const sectionList = [
+      'cash on hand',
+      'yesterday\'s flow',
+      'pending review',
+      'overdue invoices',
+      'this week schedule',
+      'anomaly alerts',
+      'tax deadline countdown',
+      'tax planning tips',
+      'cash-flow tips',
+      'auto-categorizer summary',
+    ];
+    await ctx.reply(
+      `Got it — <b>${formatTime(t.hour, t.minute)}</b>.\n\nWhat should I include? Reply <b>all</b> for everything, or list what to keep/skip:\n\n${sectionList.map((s) => `• ${s}`).join('\n')}\n\n<i>e.g. "all", "skip anomalies", "no tips", "everything but auto-categorizer".</i>`,
+      { parse_mode: 'HTML' },
+    );
+    return;
+  }
+
+  if (state.step === 'sections') {
+    if (/^(all|everything|all of (it|them))\b/.test(lower)) {
+      state.draft.sections = { ...DEFAULT_PREFS.sections };
+    } else if (/^(none|nothing)\b/.test(lower)) {
+      state.draft.sections = {
+        cashOnHand: false, yesterday: false, pendingReview: false,
+        overdue: false, thisWeek: false, anomalies: false,
+        taxDeadline: false, taxTips: false, cashFlowTips: false,
+        autoCategorize: false,
+      };
+    } else {
+      // Use the same delta-from-feedback logic to interpret the list.
+      const result = await applyFeedbackToPrefs(state.draft, text);
+      state.draft = result.updated;
+    }
+    state.step = 'preview';
+    await setSetupState(tenantId, state);
+    await ctx.reply(
+      `Preview of your briefing:\n\n${formatPrefsSummary(state.draft)}\n\nWant to <b>see a sample</b>, <b>tweak</b> something, or save? Reply "preview", anything to tweak, or "good" to lock it in.`,
+      { parse_mode: 'HTML' },
+    );
+    return;
+  }
+
+  if (state.step === 'preview' || state.step === 'tuning') {
+    if (/^(preview|sample|show me|see it)\b/.test(lower)) {
+      // Force-fire the digest cron with the draft prefs by saving them
+      // temporarily — easier than threading a "preview prefs" through.
+      // We save+test+restore in one shot.
+      const saved = state.draft;
+      await setDigestPrefs(tenantId, { ...saved, setupComplete: false });
+      const url = `${getSelfBaseUrl()}/api/v1/agentbook/cron/morning-digest?hour=now`;
+      try {
+        await fetch(url, {
+          headers: process.env.CRON_SECRET ? { Authorization: `Bearer ${process.env.CRON_SECRET}` } : {},
+        });
+      } catch {
+        // Even if the cron self-call fails, the user just hasn't seen
+        // the preview — they can keep tuning.
+      }
+      state.step = 'tuning';
+      await setSetupState(tenantId, state);
+      await ctx.reply(
+        '☝️ Sample sent above. Reply with feedback to tune ("shorter", "skip cash flow tips", "move to 8am") or "good" to lock it in.',
+      );
+      return;
+    }
+
+    if (/^(good|great|perfect|done|save|looks good|that('?s| is) it|sgtm|👍|✅)\b/.test(lower)) {
+      const finalPrefs: DigestPrefs = { ...state.draft, setupComplete: true };
+      await setDigestPrefs(tenantId, finalPrefs);
+      await clearSetupState(tenantId);
+      await ctx.reply(
+        `✅ <b>Locked in.</b> Your briefing will arrive at ${formatTime(finalPrefs.hour, finalPrefs.minute)} every morning.\n\nReply to any future briefing with "shorter", "skip X", "move to Y" — I'll keep tuning.`,
+        { parse_mode: 'HTML' },
+      );
+      return;
+    }
+
+    // Anything else → treat as tuning feedback.
+    const result = await applyFeedbackToPrefs(state.draft, text);
+    state.draft = result.updated;
+    state.step = 'tuning';
+    await setSetupState(tenantId, state);
+    if (result.explanations.length > 0) {
+      await ctx.reply(
+        `🔧 ${result.explanations.join(' ')}\n\nUpdated:\n${formatPrefsSummary(state.draft)}\n\nReply again to keep tuning, or "good" to lock it in.`,
+        { parse_mode: 'HTML' },
+      );
+    } else {
+      await ctx.reply(
+        'I didn\'t catch a tweak there. Try "shorter", "skip cash flow tips", "move to 8am", "preview", or "good".',
+      );
+    }
+    return;
+  }
+}
+
+/**
+ * Used to detect post-digest free-form replies as feedback (vs. unrelated
+ * conversation). Looks for the vocabulary the digest uses — section
+ * names, time changes, tone words.
+ */
+function isPlausibleDigestFeedback(lower: string): boolean {
+  if (/^(shorter|longer|brief|concise|detail|verbose|terse)\b/.test(lower)) return true;
+  if (/^(skip|drop|hide|don'?t (?:show|include)|no more|less|remove)\b/.test(lower)) return true;
+  if (/^(add|include|show|with|more)\b/.test(lower)) return true;
+  if (/^(move (?:it|the briefing) to|change.*to|send.*at)\b/.test(lower)) return true;
+  if (/^briefing\s+(time|prefs|settings)\b/.test(lower)) return true;
+  return false;
+}
+
+function getSelfBaseUrl(): string {
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return process.env.NEXTAUTH_URL || 'https://a3book.brainliber.com';
+}
+
+/**
  * Render the duplicate-detection reply: tell the user this looks like an
  * existing expense and offer three paths — attach the new receipt to
  * the existing record (most common case for "I already booked this"),
@@ -1265,6 +1440,44 @@ function getBot(): Bot {
     }
 
     const lower = text.toLowerCase().trim();
+
+    // ── Daily-briefing setup + feedback dialog ──────────────────────────
+    // If the user is mid-setup, EVERY text goes through the setup flow
+    // until they save or cancel.
+    {
+      const ongoingSetup = await getSetupState(tenantId);
+      if (ongoingSetup) {
+        await handleSetupTurn(tenantId, text, ongoingSetup, ctx);
+        return;
+      }
+      // Triggers for starting setup.
+      if (
+        /^(set ?up|configure|customi[sz]e|tune|change)\b.*\b(briefing|digest|morning|daily)\b/i.test(lower)
+        || /^(briefing|digest)\s+(setup|prefs|preferences|settings)\b/i.test(lower)
+        || lower === 'setup briefing'
+        || lower === 'set up briefing'
+      ) {
+        await beginSetup(tenantId, ctx);
+        return;
+      }
+      // After-the-fact tuning: feedback on a previously-saved briefing.
+      const prefs = await getDigestPrefs(tenantId);
+      if (prefs.setupComplete && isPlausibleDigestFeedback(lower)) {
+        const result = await applyFeedbackToPrefs(prefs, text);
+        if (result.satisfied) {
+          await ctx.reply('👍 Saved. Tomorrow\'s briefing will look the same as today\'s.');
+          return;
+        }
+        if (result.explanations.length > 0) {
+          await setDigestPrefs(tenantId, result.updated);
+          await ctx.reply(
+            `🔧 Got it — ${result.explanations.join(' ')}\n\nNext briefing: <b>${formatTime(result.updated.hour, result.updated.minute)}</b>, <b>${result.updated.tone}</b> tone. Reply again to keep tuning, or "good" to lock it in.`,
+            { parse_mode: 'HTML' },
+          );
+          return;
+        }
+      }
+    }
 
     // Anything that looks like a review request — walk through the
     // unified review queue. Catches all the phrasings users actually
@@ -1946,6 +2159,12 @@ function getBot(): Bot {
       if (action === 'review_drafts') {
         await ctx.answerCallbackQuery({ text: 'Loading review batch…' });
         await sendPendingReviewBatch(tenantId, ctx);
+        return;
+      }
+
+      if (action === 'setup_briefing') {
+        await ctx.answerCallbackQuery({ text: 'Starting setup…' });
+        await beginSetup(tenantId, ctx);
         return;
       }
 
