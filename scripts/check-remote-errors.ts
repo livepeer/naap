@@ -1,11 +1,16 @@
 import { PrismaClient } from '../packages/database/src/generated/client';
 
+if (!process.env.DATABASE_URL) {
+  console.error('DATABASE_URL is required. Set it in your environment or .env.local');
+  process.exit(1);
+}
+
 const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: "postgresql://neondb_owner:npg_Jq8oXhTnUDW0@ep-frosty-pine-aiybl1uq.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require"
-    }
-  }
+      url: process.env.DATABASE_URL,
+    },
+  },
 });
 
 async function main() {

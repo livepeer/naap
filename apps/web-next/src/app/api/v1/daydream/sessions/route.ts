@@ -9,6 +9,7 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken, parsePagination } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import { decryptField } from '@naap/crypto';
 
 const DAYDREAM_API_BASE = 'https://api.daydream.live/v1';
 
@@ -25,15 +26,15 @@ async function getApiKey(userId: string): Promise<string> {
     where: { userId },
   });
 
-  const apiKey = settings?.apiKey;
-  if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
+  const storedKey = settings?.apiKey;
+  if (!storedKey || typeof storedKey !== 'string' || storedKey.trim().length === 0) {
     throw new Error(
       'Daydream API key is not configured. ' +
       'Please configure your API key in Daydream settings or link your account via a billing provider.'
     );
   }
 
-  return apiKey;
+  return decryptField(storedKey, `DaydreamSettings:${userId}:apiKey`);
 }
 
 async function createDaydreamStream(apiKey: string, params: Record<string, unknown>) {
@@ -97,7 +98,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return errors.unauthorized('No auth token provided');
     }
 
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) {
       return csrfError;
     }

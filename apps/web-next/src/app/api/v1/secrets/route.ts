@@ -2,21 +2,30 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import * as crypto from 'crypto';
 
-// Encryption utilities
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+function getEncryptionKey(): string {
+  const key = process.env.ENCRYPTION_KEY;
+  if (!key) {
+    throw new Error(
+      'ENCRYPTION_KEY environment variable is required. ' +
+      'Set it in your .env.local or Vercel project settings.'
+    );
+  }
+  return key;
+}
 
 function encrypt(text: string): { encryptedValue: string; iv: string } {
+  const masterKey = getEncryptionKey();
+  const salt = crypto.randomBytes(32);
   const iv = crypto.randomBytes(16);
-  const key = Buffer.from(ENCRYPTION_KEY.slice(0, 32).padEnd(32, '0'));
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  
-  const authTag = cipher.getAuthTag();
-  
+  const derivedKey = crypto.scryptSync(masterKey, salt, 32, { N: 16384, r: 8, p: 1 });
+
+  const cipher = crypto.createCipheriv('aes-256-gcm', derivedKey, iv);
+  const ct = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  const encryptedValue = `v1:gcm:scrypt:${salt.toString('hex')}:${iv.toString('hex')}:${ct.toString('hex')}:${tag.toString('hex')}`;
   return {
-    encryptedValue: encrypted + ':' + authTag.toString('hex'),
+    encryptedValue,
     iv: iv.toString('hex'),
   };
 }
