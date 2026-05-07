@@ -39,6 +39,7 @@ function formatOAuthError(errorCode: string, pymthErr: string | null): string {
     invalid_state: 'Authentication session expired. Please try again.',
     access_denied: 'Access was denied. Please try again.',
     oauth_failed: 'Authentication failed. Please try again.',
+    account_suspended: 'Your account has been suspended. Please contact an administrator.',
     pymthouse_device_invalid:
       'Device sign-in link was invalid or PymtHouse is misconfigured. Check PYMTHOUSE_ISSUER_URL, optional PMTHOUSE_BASE_URL for marketplace links, and that PYMTHOUSE_PUBLIC_CLIENT_ID is the public app_… id.',
   };

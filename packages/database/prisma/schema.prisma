@@ -41,6 +41,8 @@ model User {
   avatarUrl             String?
   bio                   String?
   lockedUntil           DateTime?
+  suspendedAt           DateTime?
+  suspendedReason       String?
   sessionVersion        Int       @default(0)
   passwordResetRequired Boolean   @default(false)
   createdAt             DateTime  @default(now())
