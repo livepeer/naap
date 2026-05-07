@@ -1860,8 +1860,17 @@ model AbInvoice {
   clientId        String
   client          AbClient @relation(fields: [clientId], references: [id])
   number          String                        // auto-incrementing: INV-2026-0001
-  amountCents     Int
-  currency        String   @default("USD")      // USD | CAD | GBP | AUD | EUR
+  amountCents     Int                           // amount in `currency` (tenant booking currency)
+  currency        String   @default("USD")      // USD | CAD | GBP | AUD | EUR (booking currency)
+  // Multi-currency (PR 13). When the invoice was *quoted* in a different
+  // currency than the tenant books in, we keep the original side-by-side.
+  // amountCents/currency are still the canonical "books" values; the
+  // `original*` fields are presentation + audit only.
+  originalCurrency    String?                   // ISO 4217 (3-letter) when ≠ currency
+  originalAmountCents Int?                      // amount in originalCurrency
+  fxRate              Float?                    // rate used to convert original→booking at draft time
+  fxRateSource        String?                   // 'ecb' | 'cached' | 'manual'
+  fxRateDate          DateTime?                 // calendar date the rate is for
   issuedDate      DateTime
   dueDate         DateTime
   status          String   @default("draft")    // draft | sent | viewed | paid | overdue | void
@@ -2476,5 +2485,23 @@ model AbLearningEvent {
   createdAt     DateTime @default(now())
 
   @@index([tenantId, agentId, createdAt])
+  @@schema("plugin_agentbook_core")
+}
+
+/// FX rate cache (PR 13). One row per (from, to, calendar-day). The
+/// frankfurter.app fetcher upserts here; readers prefer today's row, then
+/// fall back to the most recent prior row when the network is down.
+/// Rates are global (no tenant scope) so all tenants share the cache.
+model AbFxRate {
+  id        String   @id @default(uuid())
+  fromCcy   String                                    // ISO 4217 — 'EUR'
+  toCcy     String                                    // ISO 4217 — 'USD'
+  rate      Float                                     // 1 unit fromCcy = `rate` units toCcy
+  date      DateTime                                  // UTC midnight of the calendar day
+  source    String                                    // 'ecb' | 'manual' (frankfurter pulls ECB)
+  createdAt DateTime @default(now())
+
+  @@unique([fromCcy, toCcy, date])
+  @@index([fromCcy, toCcy, date])
   @@schema("plugin_agentbook_core")
 }

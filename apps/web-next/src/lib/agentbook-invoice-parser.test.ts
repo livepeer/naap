@@ -101,4 +101,39 @@ describe('parseInvoiceWithRegex', () => {
     // Either null or a sensible parse — never a crash.
     expect(result === null || typeof result === 'object').toBe(true);
   });
+
+  // ── Multi-currency (PR 13) ──────────────────────────────────────────
+  // We recognise €/£/¥ and the explicit ISO-4217 prefix forms, and set
+  // `currencyHint` accordingly. Amount is captured in the currency's
+  // minor unit (cents for USD/EUR/GBP/CAD; whole-yen for JPY).
+
+  it('recognises EUR via € symbol', () => {
+    const r = parseInvoiceWithRegex('invoice Beta €500 for design');
+    expect(r).not.toBeNull();
+    expect(r?.currencyHint).toBe('EUR');
+    expect(r?.amountCents).toBe(50000);
+    expect(r?.clientNameHint).toBe('Beta');
+  });
+
+  it('recognises GBP via £ symbol', () => {
+    const r = parseInvoiceWithRegex('invoice Beta £1,200 for retainer');
+    expect(r).not.toBeNull();
+    expect(r?.currencyHint).toBe('GBP');
+    expect(r?.amountCents).toBe(120000);
+  });
+
+  it('recognises JPY via ¥ symbol (no minor unit, but stored *100 for uniformity)', () => {
+    const r = parseInvoiceWithRegex('invoice Beta ¥50000 for translation');
+    expect(r).not.toBeNull();
+    expect(r?.currencyHint).toBe('JPY');
+    // We still store amountCents as integer * 100 so downstream math is uniform.
+    expect(r?.amountCents).toBe(5_000_000);
+  });
+
+  it('keeps USD when $ is used (no regression)', () => {
+    const r = parseInvoiceWithRegex('invoice Beta $500 for design');
+    expect(r).not.toBeNull();
+    expect(r?.currencyHint).toBe('USD');
+    expect(r?.amountCents).toBe(50000);
+  });
 });

@@ -19,8 +19,14 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-function formatCurrency(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+function formatCurrency(n: number, currency = 'USD') {
+  // Intl will throw on a bad code; fall back to en-US/USD without crashing
+  // the page.
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(n);
+  } catch {
+    return `${currency} ${n.toFixed(2)}`;
+  }
 }
 
 const TERMS_OPTIONS = [
@@ -29,7 +35,12 @@ const TERMS_OPTIONS = [
   { value: 'due-on-receipt', label: 'Due on Receipt', days: 0 },
 ];
 
+// Currencies the invoice form lets the user pick. Tenant booking currency
+// is the default; non-tenant choices trigger an FX preview.
+const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'CAD', 'JPY'] as const;
+
 const API = '/api/v1/agentbook-invoice';
+const CORE_API = '/api/v1/agentbook-core';
 
 export const NewInvoicePage: React.FC = () => {
   const navigate = useNavigate();
@@ -46,12 +57,55 @@ export const NewInvoicePage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  // Multi-currency (PR 13)
+  const [tenantCurrency, setTenantCurrency] = useState<string>('USD');
+  const [currency, setCurrency] = useState<string>('USD');
+  const [fxRate, setFxRate] = useState<number | null>(null);
+  const [fxLoading, setFxLoading] = useState(false);
+
   // Load existing clients
   useEffect(() => {
     fetch(`${API}/clients`).then(r => r.json()).then(d => {
       if (d.success) setClients(d.data || []);
     }).catch(() => {});
   }, []);
+
+  // Load tenant booking currency (defaults the selector).
+  useEffect(() => {
+    fetch(`${CORE_API}/tenant-config`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.data?.currency) {
+          setTenantCurrency(d.data.currency);
+          setCurrency(d.data.currency);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Whenever the user picks a non-tenant currency, fetch a preview rate.
+  useEffect(() => {
+    if (!currency || currency === tenantCurrency) {
+      setFxRate(null);
+      return;
+    }
+    let cancelled = false;
+    setFxLoading(true);
+    fetch(`${CORE_API}/fx/rate?from=${currency}&to=${tenantCurrency}`)
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return;
+        if (d.success && typeof d.data?.rate === 'number') setFxRate(d.data.rate);
+        else setFxRate(null);
+      })
+      .catch(() => {
+        if (!cancelled) setFxRate(null);
+      })
+      .finally(() => {
+        if (!cancelled) setFxLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [currency, tenantCurrency]);
 
   const addLineItem = () => {
     setLineItems((prev) => [...prev, { id: uid(), description: '', quantity: 1, rate: 0 }]);
@@ -108,7 +162,22 @@ export const NewInvoicePage: React.FC = () => {
       const dueDate = new Date(issuedDate);
       dueDate.setDate(dueDate.getDate() + termsDays);
 
-      // 3. Create invoice — amounts in CENTS
+      // 3. Compute booked-currency line items.
+      //    If the user picked a non-tenant currency we apply the previewed
+      //    rate to convert each rate into the tenant booking currency
+      //    before posting. The original-currency block goes alongside.
+      const isForeign = currency !== tenantCurrency;
+      const rateMultiplier = isForeign && fxRate ? fxRate : 1;
+      const bookedLines = validLines.map(({ description: desc, quantity, rate }) => ({
+        description: desc,
+        quantity,
+        rateCents: Math.round(rate * 100 * rateMultiplier),
+      }));
+      const originalTotalCents = isForeign
+        ? validLines.reduce((sum, li) => sum + Math.round(li.quantity * li.rate * 100), 0)
+        : null;
+
+      // 4. Create invoice — amounts in CENTS
       const res = await fetch(`${API}/invoices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -117,11 +186,17 @@ export const NewInvoicePage: React.FC = () => {
           issuedDate: invoiceDate,
           dueDate: dueDate.toISOString().slice(0, 10),
           status,
-          lines: validLines.map(({ description: desc, quantity, rate }) => ({
-            description: desc,
-            quantity,
-            rateCents: Math.round(rate * 100),
-          })),
+          currency: tenantCurrency,
+          lines: bookedLines,
+          ...(isForeign && fxRate && originalTotalCents != null
+            ? {
+                originalCurrency: currency,
+                originalAmountCents: originalTotalCents,
+                fxRate,
+                fxRateSource: 'ecb',
+                fxRateDate: new Date().toISOString(),
+              }
+            : {}),
         }),
       });
 
@@ -252,6 +327,39 @@ export const NewInvoicePage: React.FC = () => {
               />
             </div>
           </div>
+          {/* Currency selector — multi-currency (PR 13) */}
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1 text-foreground">
+                Currency
+              </label>
+              <select
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className={fieldClass}
+                data-testid="invoice-currency-select"
+              >
+                {CURRENCY_OPTIONS.map((c) => (
+                  <option key={c} value={c}>{c}{c === tenantCurrency ? ' (default)' : ''}</option>
+                ))}
+              </select>
+            </div>
+            {currency !== tenantCurrency && (
+              <div className="sm:col-span-2 flex items-end text-xs text-muted-foreground">
+                {fxLoading ? (
+                  <span>Looking up rate…</span>
+                ) : fxRate ? (
+                  <span data-testid="invoice-fx-preview">
+                    Will be booked in <b>{tenantCurrency}</b> at
+                    {' '}
+                    <b>1 {currency} ≈ {fxRate.toFixed(4)} {tenantCurrency}</b>.
+                  </span>
+                ) : (
+                  <span className="text-destructive">No rate available — invoice will be booked in {currency}.</span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Line items */}
@@ -314,7 +422,7 @@ export const NewInvoicePage: React.FC = () => {
                 </div>
                 <div className="sm:col-span-2 flex items-center justify-end">
                   <span className="font-semibold text-sm text-foreground">
-                    {formatCurrency(li.quantity * li.rate)}
+                    {formatCurrency(li.quantity * li.rate, currency)}
                   </span>
                 </div>
                 <div className="sm:col-span-1 flex items-center justify-end">
@@ -348,7 +456,7 @@ export const NewInvoicePage: React.FC = () => {
               Total
             </span>
             <span className="text-2xl font-bold text-foreground">
-              {formatCurrency(total)}
+              {formatCurrency(total, currency)}
             </span>
           </div>
 

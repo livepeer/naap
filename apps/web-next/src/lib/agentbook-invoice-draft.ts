@@ -13,6 +13,7 @@
 
 import 'server-only';
 import { prisma as db } from '@naap/database';
+import { convertCents } from './agentbook-fx';
 
 export interface CreateDraftInput {
   tenantId: string;
@@ -37,6 +38,12 @@ export interface CreateDraftResult {
   dueDate: string;
   issuedDate: string;
   currency: string;
+  // Multi-currency (PR 13). Set only when the invoice was quoted in a
+  // currency different from the tenant's booking currency.
+  originalCurrency?: string;
+  originalAmountCents?: number;
+  fxRate?: number;
+  fxRateSource?: string;
 }
 
 const NET_30_MS = 30 * 24 * 60 * 60 * 1000;
@@ -66,15 +73,57 @@ export async function createInvoiceDraft(input: CreateDraftInput): Promise<Creat
     where: { userId: input.tenantId },
     select: { currency: true },
   });
-  const currency = input.parsed.currencyHint || tenantConfig?.currency || 'USD';
+  const tenantCurrency = tenantConfig?.currency || 'USD';
+  const quotedCurrency = input.parsed.currencyHint || tenantCurrency;
 
-  const lineItems = input.parsed.lines.map((l) => ({
+  const quotedLineItems = input.parsed.lines.map((l) => ({
     description: l.description || '',
     quantity: l.quantity || 1,
     rateCents: l.rateCents,
     amountCents: Math.round((l.quantity || 1) * l.rateCents),
   }));
-  const totalAmountCents = lineItems.reduce((sum, l) => sum + l.amountCents, 0);
+  const quotedTotalCents = quotedLineItems.reduce((sum, l) => sum + l.amountCents, 0);
+
+  // Multi-currency (PR 13). When quoted ≠ tenant booking currency, run
+  // line-level conversion at issued-date so the booked amounts foot to
+  // the converted total exactly. If the rate isn't available we still
+  // book in the tenant currency (with the quoted amount as-is, no FX
+  // metadata) — better than failing the draft outright. The user sees
+  // a slightly off total but can edit before sending.
+  const currency = tenantCurrency;
+  let fx:
+    | { rate: number; source: string; date: Date; originalAmountCents: number; bookedLineItems: typeof quotedLineItems; bookedTotalCents: number }
+    | null = null;
+  if (quotedCurrency !== tenantCurrency) {
+    const conv = await convertCents(quotedTotalCents, quotedCurrency, tenantCurrency, issuedDate);
+    if (conv) {
+      // Rate the converter chose for the total — re-apply line-by-line
+      // and round once at the end so cents foot.
+      const rate = conv.rate.rate;
+      const bookedLineItems = quotedLineItems.map((l) => ({
+        ...l,
+        rateCents: Math.round(l.rateCents * rate),
+        amountCents: Math.round(l.amountCents * rate),
+      }));
+      // Use the convertCents-rounded total to avoid drift from per-line rounding.
+      fx = {
+        rate,
+        source: conv.rate.source,
+        date: conv.rate.date,
+        originalAmountCents: quotedTotalCents,
+        bookedLineItems,
+        bookedTotalCents: conv.amountCents,
+      };
+    }
+  }
+  const lineItems = fx ? fx.bookedLineItems : quotedLineItems;
+  const totalAmountCents = fx ? fx.bookedTotalCents : quotedTotalCents;
+  // The fields we actually persist for the originalCurrency block.
+  const originalCurrency = fx ? quotedCurrency : null;
+  const originalAmountCents = fx ? fx.originalAmountCents : null;
+  const fxRate = fx ? fx.rate : null;
+  const fxRateSource = fx ? fx.source : null;
+  const fxRateDate = fx ? fx.date : null;
 
   let lastErr: unknown;
   for (let attempt = 0; attempt < MAX_NUMBER_RETRIES; attempt++) {
@@ -99,6 +148,11 @@ export async function createInvoiceDraft(input: CreateDraftInput): Promise<Creat
             number: invoiceNumber,
             amountCents: totalAmountCents,
             currency,
+            originalCurrency,
+            originalAmountCents,
+            fxRate,
+            fxRateSource,
+            fxRateDate,
             issuedDate,
             dueDate,
             status: 'draft',
@@ -122,6 +176,14 @@ export async function createInvoiceDraft(input: CreateDraftInput): Promise<Creat
             amountCents: totalAmountCents,
             lineCount: lineItems.length,
             source,
+            ...(fx
+              ? {
+                  originalCurrency,
+                  originalAmountCents,
+                  fxRate,
+                  fxRateSource,
+                }
+              : {}),
           },
         },
       });
@@ -141,6 +203,14 @@ export async function createInvoiceDraft(input: CreateDraftInput): Promise<Creat
         dueDate: dueDate.toISOString(),
         issuedDate: issuedDate.toISOString(),
         currency,
+        ...(fx
+          ? {
+              originalCurrency: quotedCurrency,
+              originalAmountCents: quotedTotalCents,
+              fxRate: fx.rate,
+              fxRateSource: fx.source,
+            }
+          : {}),
       };
     } catch (err) {
       lastErr = err;

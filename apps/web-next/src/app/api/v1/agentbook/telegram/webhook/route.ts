@@ -1301,6 +1301,12 @@ interface DraftCreated {
   dueDate: string;
   issuedDate: string;
   lines: Array<{ description: string; rateCents: number; quantity: number; amountCents: number }>;
+  // Multi-currency (PR 13). Set when the invoice was quoted in a foreign
+  // currency and the bot converted into the tenant's booking currency.
+  originalCurrency?: string;
+  originalAmountCents?: number;
+  fxRate?: number;
+  fxRateSource?: string;
 }
 
 interface AmbiguousClient {
@@ -1330,7 +1336,16 @@ function buildDraftPreviewText(d: DraftCreated): string {
   const lines: string[] = [];
   const total = fmtMoney(d.totalCents, d.currency);
   lines.push(`📒 <b>Draft ready</b> — ${escHtml(d.invoiceNumber)}.`);
-  lines.push(`Net-30, due <b>${shortDate(d.dueDate)}</b>, <b>${total}</b> to <b>${escHtml(d.clientName)}</b>.`);
+  // Multi-currency: surface both quoted and booked amounts so the user
+  // sees what we actually persisted.
+  if (d.originalCurrency && d.originalAmountCents != null && d.originalCurrency !== d.currency) {
+    const original = fmtMoney(d.originalAmountCents, d.originalCurrency);
+    lines.push(
+      `Net-30, due <b>${shortDate(d.dueDate)}</b>, <b>${original}</b> (~<b>${total}</b> ${d.currency}) to <b>${escHtml(d.clientName)}</b>.`,
+    );
+  } else {
+    lines.push(`Net-30, due <b>${shortDate(d.dueDate)}</b>, <b>${total}</b> to <b>${escHtml(d.clientName)}</b>.`);
+  }
   if (d.lines.length > 1) {
     lines.push('');
     lines.push('<i>Line items:</i>');

@@ -224,11 +224,19 @@ app.put('/api/v1/agentbook-invoice/clients/:id', async (req: Request, res: Respo
 // INVOICE ROUTES
 // ============================================
 
-// POST /invoices — create invoice with line items + journal entry
+// POST /invoices — create invoice with line items + journal entry.
+// Multi-currency (PR 13): when the invoice was *quoted* in a foreign
+// currency, the caller passes the optional original* block alongside
+// the already-booked `lines` (in tenant currency). We persist the
+// originalCurrency/originalAmountCents/fxRate/fxRateSource side-by-side
+// for auditability.
 app.post('/api/v1/agentbook-invoice/invoices', async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId;
-    const { clientId, issuedDate, dueDate, lines, status, currency } = req.body;
+    const {
+      clientId, issuedDate, dueDate, lines, status, currency,
+      originalCurrency, originalAmountCents, fxRate, fxRateSource, fxRateDate,
+    } = req.body;
 
     if (!clientId || !lines || !Array.isArray(lines) || lines.length === 0) {
       return res.status(400).json({ success: false, error: 'clientId and at least one line item are required' });
@@ -310,6 +318,14 @@ app.post('/api/v1/agentbook-invoice/invoices', async (req: Request, res: Respons
         },
       });
 
+      // Validate the (optional) original-currency block. We accept it only
+      // when *all* required fields look sensible — no half-set rows.
+      const fxValid =
+        typeof originalCurrency === 'string' && /^[A-Z]{3}$/.test(originalCurrency) &&
+        typeof originalAmountCents === 'number' && Number.isFinite(originalAmountCents) && originalAmountCents > 0 &&
+        typeof fxRate === 'number' && Number.isFinite(fxRate) && fxRate > 0 &&
+        typeof fxRateSource === 'string';
+
       // Create invoice with lines
       const inv = await tx.abInvoice.create({
         data: {
@@ -318,6 +334,15 @@ app.post('/api/v1/agentbook-invoice/invoices', async (req: Request, res: Respons
           number: invoiceNumber,
           amountCents: totalAmountCents,
           currency: currency || 'USD',
+          ...(fxValid
+            ? {
+                originalCurrency,
+                originalAmountCents,
+                fxRate,
+                fxRateSource,
+                fxRateDate: fxRateDate ? new Date(fxRateDate) : new Date(),
+              }
+            : {}),
           issuedDate: new Date(issuedDate || Date.now()),
           dueDate: new Date(dueDate || Date.now()),
           status: status || 'draft',

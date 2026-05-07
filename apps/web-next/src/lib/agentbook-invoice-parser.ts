@@ -40,24 +40,44 @@ function dollarsToCents(raw: string, kSuffix: boolean): number {
 }
 
 /**
+ * Map a single non-ASCII currency symbol to its ISO 4217 code. `$` is
+ * handled out-of-band as USD (the historical default).
+ */
+const SYMBOL_TO_ISO: Record<string, string> = {
+  '€': 'EUR',
+  '£': 'GBP',
+  '¥': 'JPY',
+  '₣': 'CHF',
+};
+
+/**
  * Parse one of:
  *   • "$5K consulting"
  *   • "$1,000 hosting"
  *   • "$5000 for July consulting"
  *   • "5K consulting"
+ *   • "€500 for design"
+ *   • "£1,200 retainer"
+ *   • "¥50000 translation"
  *
- * Returns null if no usable amount.
+ * Returns null if no usable amount. The detected currency (if any) is
+ * exposed via the parent `currencyHint` field — segments themselves do
+ * not carry per-line currency.
  */
-function parseSegment(seg: string): ParsedInvoiceLine | null {
+function parseSegment(seg: string): { line: ParsedInvoiceLine; currencyHint?: string } | null {
   const trimmed = seg.trim().replace(/^(?:and|,)\s*/i, '');
-  // amount + optional K suffix + optional "for" + description
-  const m = trimmed.match(/^\$?\s*([\d,]+(?:\.\d+)?)\s*(K|k)?\s+(?:for\s+)?(.+?)$/);
+  // amount + optional K suffix + optional "for" + description.
+  // Currency prefix is one of: $ (USD default), €, £, ¥, ₣ (CHF), or
+  // bare digits (no prefix → tenant default).
+  const m = trimmed.match(/^([$€£¥₣])?\s*([\d,]+(?:\.\d+)?)\s*(K|k)?\s+(?:for\s+)?(.+?)$/);
   if (!m) return null;
-  const cents = dollarsToCents(m[1], !!m[2]);
+  const symbol = m[1];
+  const cents = dollarsToCents(m[2], !!m[3]);
   if (cents <= 0) return null;
-  const description = m[3].trim().replace(/[.!?]+$/, '');
+  const description = m[4].trim().replace(/[.!?]+$/, '');
   if (!description) return null;
-  return { description, rateCents: cents, quantity: 1 };
+  const currencyHint = symbol && symbol !== '$' ? SYMBOL_TO_ISO[symbol] : undefined;
+  return { line: { description, rateCents: cents, quantity: 1 }, currencyHint };
 }
 
 /**
@@ -71,9 +91,10 @@ export function parseInvoiceWithRegex(text: string): ParsedInvoiceDraft | null {
   const stripped = text.replace(/^(?:please\s+)?(?:can you\s+)?(?:invoice|bill|send(?:\s+\w+)?\s+invoice(?:\s+for)?|create(?:\s+an?)?\s+invoice(?:\s+for)?)\s+/i, '').trim();
 
   // The client name runs from the start of `stripped` up to the first
-  // dollar amount (or the word "for" before an amount). It can include
-  // ampersands, apostrophes, hyphens, spaces.
-  const clientMatch = stripped.match(/^([A-Z][\w&'\- .]*?)(?=\s+\$|\s+\d|\s+for\s+\$|\s+for\s+\d|$)/);
+  // currency amount (or the word "for" before an amount). It can include
+  // ampersands, apostrophes, hyphens, spaces. We stop on $/€/£/¥/₣ as
+  // well as bare digits.
+  const clientMatch = stripped.match(/^([A-Z][\w&'\- .]*?)(?=\s+[$€£¥₣]|\s+\d|\s+for\s+[$€£¥₣]|\s+for\s+\d|$)/);
   if (!clientMatch) return null;
   const clientNameHint = clientMatch[1].trim().replace(/\s+/g, ' ');
   if (!clientNameHint || clientNameHint.length < 2) return null;
@@ -84,13 +105,16 @@ export function parseInvoiceWithRegex(text: string): ParsedInvoiceDraft | null {
   if (!tail) return null;
 
   // Split on commas/and only when they look like line-item boundaries —
-  // i.e. followed by whitespace + an optional `$` + a digit. That keeps
-  // thousand-separator commas inside `$2,500` intact.
-  const segments = tail.split(/\s*(?:,|\band\b)\s+(?=\$?\d)/i).filter(Boolean);
+  // i.e. followed by whitespace + an optional currency symbol + a digit.
+  // That keeps thousand-separator commas inside `$2,500` intact.
+  const segments = tail.split(/\s*(?:,|\band\b)\s+(?=[$€£¥₣]?\d)/i).filter(Boolean);
   const lines: ParsedInvoiceLine[] = [];
+  let detectedCurrency: string | undefined;
   for (const seg of segments) {
-    const line = parseSegment(seg);
-    if (line) lines.push(line);
+    const parsed = parseSegment(seg);
+    if (!parsed) continue;
+    lines.push(parsed.line);
+    if (parsed.currencyHint && !detectedCurrency) detectedCurrency = parsed.currencyHint;
   }
 
   if (lines.length === 0) return null;
@@ -104,7 +128,7 @@ export function parseInvoiceWithRegex(text: string): ParsedInvoiceDraft | null {
     lines,
     description,
     dueDateHint: 'net-30',
-    currencyHint: 'USD',
+    currencyHint: detectedCurrency || 'USD',
     confidence: lines.length === 1 ? 0.85 : 0.8,
   };
 }
@@ -158,7 +182,10 @@ RULES
    • amount_cents is the TOTAL across all lines (sum of rate_cents * quantity).
    • If the user said "$5K", that's $5,000 → 500_000 cents. "$5,000.50" → 500_050.
    • due_date: ISO date if explicit ("July 20" → 2026-07-20). Otherwise "net-30".
-   • currency: USD default.
+   • currency: derive from the symbol used. "$" → "USD" (default). "€" → "EUR".
+     "£" → "GBP". "¥" → "JPY" (note: JPY has no minor unit, but still
+     return rate_cents = whole-yen × 100 so downstream math is uniform).
+     "CHF" / "₣" → "CHF". "C$" → "CAD". "A$" → "AUD".
    • Confidence: 0.9+ if explicit client + amount + description; 0.7 if vague; below 0.5 = not actually an invoice request.
 
 OUTPUT
