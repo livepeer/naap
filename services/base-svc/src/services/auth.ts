@@ -342,6 +342,7 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
       }
 
       if (user.suspendedAt) {
+        await recordLoginAttempt(email, false, user.id, ipAddress);
         const err = new Error('Account suspended') as Error & { code?: string; reason?: string | null };
         err.code = 'ACCOUNT_SUSPENDED';
         err.reason = (user as any).suspendedReason;

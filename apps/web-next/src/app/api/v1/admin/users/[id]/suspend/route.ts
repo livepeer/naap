@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { validateSession, revokeAllSessions } from '@/lib/api/auth';
+import { validateSession } from '@/lib/api/auth';
 import { validateCSRF } from '@/lib/api/csrf';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 
@@ -28,15 +28,23 @@ export async function POST(
     }
 
     const { id: targetUserId } = await params;
-    const body = await request.json();
-    const { action, reason } = body;
+
+    let body: { action?: unknown; reason?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return errors.badRequest('Invalid JSON body');
+    }
+
+    const action = body?.action;
+    const reason = typeof body?.reason === 'string' ? body.reason : undefined;
 
     if (action !== 'suspend' && action !== 'activate') {
       return errors.badRequest('action must be "suspend" or "activate"');
     }
 
     if (targetUserId === sessionUser.id) {
-      return errors.badRequest('Cannot suspend yourself');
+      return errors.badRequest(`Cannot ${action} yourself`);
     }
 
     const targetUser = await prisma.user.findUnique({
@@ -47,24 +55,26 @@ export async function POST(
     if (!targetUser) return errors.notFound('User');
 
     if (targetUser.roles.some(ur => ur.role.name === 'system:root')) {
-      return errors.forbidden('Cannot suspend system:root user');
+      return errors.forbidden(`Cannot ${action} system:root user`);
     }
 
     if (action === 'suspend') {
-      await prisma.user.update({
-        where: { id: targetUserId },
-        data: {
-          suspendedAt: new Date(),
-          suspendedReason: reason || null,
-        },
-      });
-
-      await revokeAllSessions(targetUserId);
+      const suspendedAt = new Date();
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: targetUserId },
+          data: {
+            suspendedAt,
+            suspendedReason: reason || null,
+            sessionVersion: { increment: 1 },
+          },
+        }),
+      ]);
 
       return success({
         id: targetUserId,
         suspended: true,
-        suspendedAt: new Date().toISOString(),
+        suspendedAt: suspendedAt.toISOString(),
         reason: reason || null,
       });
     }

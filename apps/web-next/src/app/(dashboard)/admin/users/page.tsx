@@ -27,6 +27,7 @@ import {
 import { Button, Input, Select, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
+import { getCsrfToken } from '@/lib/api/csrf-client';
 
 interface SystemRole {
   id: string;
@@ -366,10 +367,11 @@ export default function AdminUsersPage() {
             setActionLoading(true);
             setError(null);
             try {
+              const csrfToken = await getCsrfToken();
               const res = await fetch(`/api/v1/admin/users/${modal.user.id}/role`, {
                 method: 'PATCH',
                 credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                 body: JSON.stringify({ roles: roleNames }),
               });
               const data = await res.json();
@@ -398,10 +400,11 @@ export default function AdminUsersPage() {
             setActionLoading(true);
             setError(null);
             try {
+              const csrfToken = await getCsrfToken();
               const res = await fetch(`/api/v1/admin/users/${modal.user.id}/suspend`, {
                 method: 'POST',
                 credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                 body: JSON.stringify({
                   action: modal.type === 'suspend' ? 'suspend' : 'activate',
                   reason,
@@ -426,6 +429,42 @@ export default function AdminUsersPage() {
   );
 }
 
+function useDialogA11y(onClose: () => void) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    const prev = document.activeElement as HTMLElement | null;
+    const focusable = dialog.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    focusable[0]?.focus();
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab' || !dialog) return;
+      const elems = dialog.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (elems.length === 0) return;
+      const first = elems[0];
+      const last = elems[elems.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      prev?.focus();
+    };
+  }, [onClose]);
+
+  return dialogRef;
+}
+
 function RoleChangeModal({
   user,
   allRoles,
@@ -440,6 +479,7 @@ function RoleChangeModal({
   onSubmit: (roles: string[]) => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set(user.roles));
+  const dialogRef = useDialogA11y(onClose);
 
   const toggle = (roleName: string) => {
     setSelected(prev => {
@@ -453,13 +493,19 @@ function RoleChangeModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-card border border-border rounded-lg shadow-xl w-full max-w-md p-6">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="role-dialog-title"
+        className="relative bg-card border border-border rounded-lg shadow-xl w-full max-w-md p-6"
+      >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold flex items-center gap-2">
+          <h2 id="role-dialog-title" className="text-base font-semibold flex items-center gap-2">
             <ShieldCheck className="w-5 h-5" />
             Change Roles
           </h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <button onClick={onClose} aria-label="Close dialog" className="text-muted-foreground hover:text-foreground">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -522,17 +568,24 @@ function SuspendModal({
 }) {
   const [reason, setReason] = useState('');
   const isSuspend = action === 'suspend';
+  const dialogRef = useDialogA11y(onClose);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-card border border-border rounded-lg shadow-xl w-full max-w-md p-6">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="suspend-dialog-title"
+        className="relative bg-card border border-border rounded-lg shadow-xl w-full max-w-md p-6"
+      >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold flex items-center gap-2">
+          <h2 id="suspend-dialog-title" className="text-base font-semibold flex items-center gap-2">
             {isSuspend ? <Ban className="w-5 h-5 text-destructive" /> : <Play className="w-5 h-5 text-green-500" />}
             {isSuspend ? 'Suspend User' : 'Activate User'}
           </h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <button onClick={onClose} aria-label="Close dialog" className="text-muted-foreground hover:text-foreground">
             <X className="w-5 h-5" />
           </button>
         </div>

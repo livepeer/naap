@@ -81,7 +81,7 @@ export async function PATCH(
 
     return success({
       id: targetUserId,
-      roles: updated!.roles.map(ur => ur.role.name),
+      roles: updated?.roles.map(ur => ur.role.name) ?? [],
     });
   } catch (err) {
     console.error('Error changing user roles:', err);
