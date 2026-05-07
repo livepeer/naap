@@ -19,6 +19,8 @@ interface Invoice {
   amount: number;
   due_date: string;
   status: 'draft' | 'sent' | 'overdue' | 'paid' | 'void';
+  // Origin of the invoice — set on drafts created via the Telegram bot.
+  source?: 'web' | 'telegram' | 'api' | null;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon: React.ReactNode }> = {
@@ -168,7 +170,7 @@ export const InvoiceListPage: React.FC = () => {
               >
                 {/* Left: invoice info */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="font-semibold text-sm text-foreground">
                       {inv.invoice_number}
                     </span>
@@ -176,6 +178,11 @@ export const InvoiceListPage: React.FC = () => {
                       {cfg.icon}
                       {cfg.label}
                     </span>
+                    {inv.source === 'telegram' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700">
+                        via Telegram
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm truncate text-muted-foreground">
                     {inv.client_name}

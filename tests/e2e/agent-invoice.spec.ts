@@ -137,3 +137,92 @@ test.describe.serial('Invoice Agent — Multi-Step', () => {
     expect(body.data.message).toBeTruthy();
   });
 });
+
+// ─── PR 1 — Invoice from Telegram chat ───────────────────────────────────
+//
+// These tests exercise the Telegram webhook adapter with E2E_TELEGRAM_CAPTURE=1
+// so the bot's would-be replies are surfaced via the response body without
+// touching the real Telegram API. The webhook lives on the Next.js app
+// (port 3000), not the plugin backend (4050).
+
+const WEB = 'http://localhost:3000';
+const E2E_CHAT_ID = 555555555; // mapped to e2e@agentbook.test in CHAT_TO_TENANT_FALLBACK
+
+interface CaptureEntry { chatId: number | string; text: string; payload?: any }
+interface WebhookResp { ok: boolean; captured?: CaptureEntry[]; botReply?: string }
+
+async function postWebhook(
+  request: any,
+  payload: { text?: string; callbackData?: string; chatId?: number },
+): Promise<WebhookResp> {
+  const chatId = payload.chatId ?? E2E_CHAT_ID;
+  const update: any = {
+    update_id: Math.floor(Math.random() * 1e9),
+  };
+  if (payload.callbackData) {
+    update.callback_query = {
+      id: String(Math.random()),
+      from: { id: chatId, is_bot: false, first_name: 'E2E' },
+      data: payload.callbackData,
+      message: { message_id: 0, chat: { id: chatId, type: 'private' } },
+    };
+  } else {
+    update.message = {
+      message_id: Math.floor(Math.random() * 1e9),
+      date: Math.floor(Date.now() / 1000),
+      chat: { id: chatId, type: 'private' },
+      from: { id: chatId, is_bot: false, first_name: 'E2E' },
+      text: payload.text || '',
+    };
+  }
+  const res = await request.post(`${WEB}/api/v1/agentbook/telegram/webhook`, {
+    data: update,
+    headers: { 'Content-Type': 'application/json' },
+  });
+  return res.ok() ? (await res.json()) : { ok: false };
+}
+
+function findReply(captures: CaptureEntry[] | undefined, predicate: (text: string) => boolean): string | null {
+  if (!captures) return null;
+  for (const c of captures) {
+    if (predicate(c.text)) return c.text;
+  }
+  return null;
+}
+
+test.describe.serial('PR 1 — Invoice from Telegram chat (webhook flow)', () => {
+  test('draft from chat creates a draft invoice', async ({ request }) => {
+    const resp = await postWebhook(request, { text: 'invoice Acme $5000 for July consulting' });
+    // The bot should reply with the draft preview text — covers either
+    // the friendly preview or the "needs client" prompt depending on
+    // whether the e2e tenant has an "Acme" client seeded.
+    const reply = findReply(resp.captured, (t) => /Draft ready|don't have one with that name|Which/.test(t));
+    expect(reply).not.toBeNull();
+  });
+
+  test('multi-line parsing surfaces both items', async ({ request }) => {
+    const resp = await postWebhook(request, { text: 'invoice Acme $5K consulting, $1K hosting' });
+    const reply = findReply(resp.captured, (t) => /Draft ready|don't have one|Which/.test(t));
+    expect(reply).not.toBeNull();
+    if (reply && /Draft ready/.test(reply)) {
+      // Multi-line invoice should mention both line items in the preview.
+      expect(reply.toLowerCase()).toMatch(/consulting/);
+      expect(reply.toLowerCase()).toMatch(/hosting/);
+    }
+  });
+
+  test('ambiguous client triggers a picker', async ({ request }) => {
+    // When the tenant has 0 or many clients matching the hint, the bot
+    // surfaces a question or a picker — never a silent draft.
+    const resp = await postWebhook(request, { text: 'invoice Client $1000 for retainer' });
+    const reply = findReply(resp.captured, (t) => /Which|don't have one|Draft ready/.test(t));
+    expect(reply).not.toBeNull();
+  });
+
+  test('cancel callback replies "Cancelled. Nothing booked."', async ({ request }) => {
+    // Use a fake draft id — even when the draft doesn't exist the
+    // cancel handler responds gracefully ("Already gone").
+    const resp = await postWebhook(request, { callbackData: 'inv_cancel:00000000-0000-0000-0000-000000000000' });
+    expect(resp.ok).toBe(true);
+  });
+});

@@ -11,6 +11,7 @@
  * fallback so the bot still responds when Gemini is unavailable.
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { randomBytes } from 'node:crypto';
 import { Bot } from 'grammy';
 import { prisma as db } from '@naap/database';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
@@ -1266,6 +1267,165 @@ function formatResponse(data: any): string {
   return reply;
 }
 
+// === Invoice-from-chat (PR 1) ============================================
+//
+// Memory keys:
+//   • telegram:pending_invoice_draft:<token>  — parsed fields awaiting a
+//     client pick (ambiguous resolution).
+//   • telegram:invoice_draft:<draftId>        — context for follow-ups
+//     (e.g. the chatId for the edit flow).
+//   • telegram:editing_invoice:<chatId>       — edit-state machine:
+//     `{ draftId, awaiting: 'field' | 'value', field?: 'amount'|'dueDate' }`.
+
+interface DraftCreated {
+  kind: 'draft_created';
+  draftId: string;
+  invoiceNumber: string;
+  clientName: string;
+  clientEmail: string | null;
+  totalCents: number;
+  currency: string;
+  dueDate: string;
+  issuedDate: string;
+  lines: Array<{ description: string; rateCents: number; quantity: number; amountCents: number }>;
+}
+
+interface AmbiguousClient {
+  kind: 'ambiguous';
+  clientNameHint: string;
+  candidates: Array<{ id: string; name: string; email: string | null }>;
+  parsed: unknown;
+}
+
+interface NeedsClarify {
+  kind: 'needs_clarify';
+  question: string;
+}
+
+type InvoiceStepData = DraftCreated | AmbiguousClient | NeedsClarify;
+
+function fmtMoney(cents: number, currency: string): string {
+  return `${currency === 'USD' ? '$' : currency + ' '}${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: cents % 100 === 0 ? 0 : 2 })}`;
+}
+
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function buildDraftPreviewText(d: DraftCreated): string {
+  const lines: string[] = [];
+  const total = fmtMoney(d.totalCents, d.currency);
+  lines.push(`📒 <b>Draft ready</b> — ${escHtml(d.invoiceNumber)}.`);
+  lines.push(`Net-30, due <b>${shortDate(d.dueDate)}</b>, <b>${total}</b> to <b>${escHtml(d.clientName)}</b>.`);
+  if (d.lines.length > 1) {
+    lines.push('');
+    lines.push('<i>Line items:</i>');
+    for (const l of d.lines) {
+      lines.push(`• ${escHtml(l.description || '—')}: ${fmtMoney(l.amountCents, d.currency)}`);
+    }
+  }
+  lines.push('');
+  lines.push('Send it?');
+  return lines.join('\n');
+}
+
+function draftKeyboard(draftId: string) {
+  return {
+    inline_keyboard: [
+      [{ text: '📨 Send now', callback_data: `inv_send:${draftId}` }],
+      [{ text: '✏️ Edit', callback_data: `inv_edit:${draftId}` }],
+      [{ text: '❌ Cancel', callback_data: `inv_cancel:${draftId}` }],
+    ],
+  };
+}
+
+/**
+ * Build the inline keyboard for the ambiguous-client picker.
+ * Telegram's `callback_data` cap is 64 bytes — `inv_pickclient:<token>:<uuid>`
+ * is 15 + 10 + 1 + 36 = 62, comfortably under.
+ */
+function pickerKeyboard(token: string, candidates: Array<{ id: string; name: string }>) {
+  const rows: { text: string; callback_data: string }[][] = candidates.slice(0, MAX_PICKER_CANDIDATES).map((c) => [
+    { text: c.name, callback_data: `inv_pickclient:${token}:${c.id}` },
+  ]);
+  rows.push([{ text: '❌ Cancel', callback_data: `inv_pickcancel:${token}` }]);
+  return { inline_keyboard: rows };
+}
+
+/** Cap the picker candidate list — both the inline keyboard rows and
+ *  the "Which X did you mean — A or B or C" question text. */
+const MAX_PICKER_CANDIDATES = 6;
+
+interface InvoiceReplyCtx {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  reply: (text: string, opts?: any) => Promise<unknown>;
+}
+
+async function renderInvoiceCreateResult(
+  tenantId: string,
+  ctx: InvoiceReplyCtx,
+  result: { success: boolean; data?: unknown; error?: string } | undefined,
+): Promise<void> {
+  if (!result || !result.success || !result.data) {
+    await ctx.reply(result?.error || "Couldn't draft that invoice — try again with a client name and amount.");
+    return;
+  }
+  const data = result.data as InvoiceStepData;
+
+  if (data.kind === 'needs_clarify') {
+    await ctx.reply(`🤔 ${data.question}`);
+    return;
+  }
+
+  if (data.kind === 'ambiguous') {
+    // Stash parsed fields under a short token so the picker callback can
+    // re-issue the create with the picked clientId.
+    const token = randomToken();
+    const memoryKey = `telegram:pending_invoice_draft:${token}`;
+    const memoryValue = JSON.stringify({ parsed: data.parsed, setAt: Date.now() });
+    await db.abUserMemory.upsert({
+      where: { tenantId_key: { tenantId, key: memoryKey } },
+      update: { value: memoryValue, lastUsed: new Date() },
+      create: {
+        tenantId,
+        key: memoryKey,
+        value: memoryValue,
+        type: 'pending_action',
+        confidence: 1,
+      },
+    });
+
+    // Truncate to MAX_PICKER_CANDIDATES (6) — long candidate lists blow
+    // past Telegram's text-message length when interpolated inline.
+    const shown = data.candidates.slice(0, MAX_PICKER_CANDIDATES);
+    const namesText = shown.map((c) => escHtml(c.name)).join(' or ');
+    const overflow = data.candidates.length - shown.length;
+    const suffix = overflow > 0 ? ` (and ${overflow} more)` : '';
+
+    await ctx.reply(
+      `Which ${escHtml(data.clientNameHint)} did you mean — ${namesText}${suffix}?`,
+      { parse_mode: 'HTML', reply_markup: pickerKeyboard(token, data.candidates) },
+    );
+    return;
+  }
+
+  // Happy path — single client matched, draft is created.
+  const text = buildDraftPreviewText(data);
+  await ctx.reply(text, {
+    parse_mode: 'HTML',
+    reply_markup: draftKeyboard(data.draftId),
+  });
+}
+
+function randomToken(): string {
+  // 10 chars hex (40 bits of CSPRNG entropy) — keeps `inv_pickclient:<token>:<uuid>`
+  // (15 + 10 + 1 + 36 = 62 bytes) safely under Telegram's 64-byte
+  // callback_data cap. Math.random is not cryptographically random and
+  // a same-second collision under load could cross-route picks.
+  return randomBytes(5).toString('hex');
+}
+
 // Lazy-initialize bot (cold start optimization for serverless)
 let bot: Bot | null = null;
 
@@ -1278,17 +1438,41 @@ function getBot(): Bot {
   bot = new Bot(token);
 
   if (E2E_CAPTURE) {
-    const orig = bot.api.sendMessage.bind(bot.api);
-    // Override the raw sendMessage so all ctx.reply() / ctx.replyWithHTML / etc.
-    // funnel through here. Push to currentCapture if set, otherwise call through
-    // (e.g. for direct sendMessage in production paths).
-    (bot.api as any).sendMessage = (async (chatId: number | string, text: string, payload?: unknown) => {
-      if (currentCapture) {
-        currentCapture.push({ chatId, text, payload });
-        // Return a fake Telegram Message object so grammy doesn't choke.
-        return { message_id: 0, date: Math.floor(Date.now() / 1000), chat: { id: Number(chatId), type: 'private' as const }, text } as any;
+    // Install a grammy API transformer — intercepts every bot.api.* call
+    // (including ctx.reply / ctx.replyWithHTML / ctx.answerCallbackQuery, which
+    // delegate through bot.api). Direct property assignment doesn't survive
+    // grammy's internal method routing, so this is the supported path.
+    bot.api.config.use(async (prev, method, payload, signal) => {
+      if (method === 'sendMessage' && currentCapture) {
+        const p = payload as { chat_id: number | string; text: string };
+        currentCapture.push({ chatId: p.chat_id, text: p.text, payload });
+        return {
+          ok: true,
+          result: { message_id: 0, date: Math.floor(Date.now() / 1000), chat: { id: Number(p.chat_id), type: 'private' as const }, text: p.text },
+        } as any;
       }
-      return orig(chatId, text, payload as any);
+      if (method === 'getMe') {
+        return {
+          ok: true,
+          result: {
+            id: 1, is_bot: true, first_name: 'E2E Bot', username: 'e2e_bot',
+            can_join_groups: false, can_read_all_group_messages: false, supports_inline_queries: false,
+          },
+        } as any;
+      }
+      if (method === 'getFile') {
+        const p = payload as { file_id: string };
+        return { ok: true, result: { file_id: p.file_id, file_unique_id: p.file_id, file_size: 1024, file_path: 'e2e/fixture.jpg' } } as any;
+      }
+      if (method === 'answerCallbackQuery' || method === 'editMessageText' || method === 'editMessageReplyMarkup') {
+        return { ok: true, result: true } as any;
+      }
+      // Unhandled methods would hit Telegram with a fake token in capture mode.
+      // Return an ok-shaped stub instead of letting them 404.
+      if (currentCapture) {
+        return { ok: true, result: true } as any;
+      }
+      return prev(method, payload, signal);
     });
   }
 
@@ -1479,6 +1663,149 @@ function getBot(): Bot {
       }
     }
 
+    // ── Invoice edit-state machine (PR 1) ───────────────────────────────
+    // If the user previously tapped ✏️ Edit on a draft invoice, the
+    // next 1–2 messages drive the edit. Scope cap: amount + due date
+    // only; client and lines land in a follow-up PR.
+    {
+      const editKey = `telegram:editing_invoice:${ctx.chat.id}`;
+      const editMem = await db.abUserMemory.findUnique({
+        where: { tenantId_key: { tenantId, key: editKey } },
+      });
+      if (editMem) {
+        let parsedEdit: { draftId?: string; awaiting?: 'field' | 'value'; field?: 'amount' | 'dueDate' } = {};
+        try { parsedEdit = JSON.parse(editMem.value); } catch { /* fall through */ }
+        if (parsedEdit.draftId && parsedEdit.awaiting === 'field') {
+          const fieldNorm = lower.replace(/\W/g, '');
+          let field: 'amount' | 'dueDate' | null = null;
+          if (/^amount|total|price/i.test(lower) || fieldNorm === 'amount') field = 'amount';
+          else if (/^due|^date|duedate/i.test(lower) || /^when/i.test(lower)) field = 'dueDate';
+          if (field) {
+            await db.abUserMemory.update({
+              where: { tenantId_key: { tenantId, key: editKey } },
+              data: {
+                value: JSON.stringify({ draftId: parsedEdit.draftId, awaiting: 'value', field, setAt: Date.now() }),
+                lastUsed: new Date(),
+              },
+            });
+            // Item 8: when the draft has >1 line, the amount-edit path
+            // proportionally rebases each line. Surface that explicitly
+            // up front instead of silently doing it — per-line edit
+            // lands in PR 2.
+            let prompt: string;
+            if (field === 'amount') {
+              const lineCount = await db.abInvoiceLine.count({ where: { invoiceId: parsedEdit.draftId } });
+              prompt = lineCount > 1
+                ? "What's the new total? (e.g. <code>$5500</code>)\n\n<i>Note: this rebalances each line proportionally. Per-line edit ships in the next release.</i>"
+                : "What's the new total? (e.g. <code>$5500</code>)";
+            } else {
+              prompt = "What's the new due date? (e.g. <code>2026-06-30</code>)";
+            }
+            await ctx.reply(prompt, { parse_mode: 'HTML' });
+            return;
+          }
+          // Unknown field name — clear the state and let the user start fresh.
+          await db.abUserMemory.deleteMany({ where: { tenantId, key: editKey } });
+          await ctx.reply("I didn't catch that — try <b>amount</b> or <b>due date</b>. Tap ✏️ Edit again to retry.", { parse_mode: 'HTML' });
+          return;
+        }
+        if (parsedEdit.draftId && parsedEdit.awaiting === 'value' && parsedEdit.field) {
+          const draft = await db.abInvoice.findFirst({
+            where: { id: parsedEdit.draftId, tenantId },
+            include: { client: { select: { name: true } } },
+          });
+          if (!draft || draft.status !== 'draft') {
+            await db.abUserMemory.deleteMany({ where: { tenantId, key: editKey } });
+            await ctx.reply("That draft is no longer editable.");
+            return;
+          }
+          if (parsedEdit.field === 'amount') {
+            const m = text.match(/\$?\s*([\d,]+(?:\.\d{1,2})?)\s*(K|k)?/);
+            const n = m ? parseFloat(m[1].replace(/,/g, '')) : NaN;
+            if (!m || !isFinite(n) || n <= 0) {
+              await ctx.reply('I need a positive dollar amount. Try <code>$5500</code>.', { parse_mode: 'HTML' });
+              return;
+            }
+            const newTotal = Math.round((m[2] ? n * 1000 : n) * 100);
+            // Cap at $10B (1e12 cents). Above this we leave Number's
+            // safe-integer range and the proportional-rebalance math
+            // below silently produces wrong line amounts.
+            const MAX_INVOICE_CENTS = 1_000_000_000_000;
+            if (!Number.isFinite(newTotal) || newTotal <= 0 || newTotal > MAX_INVOICE_CENTS) {
+              await ctx.reply('That amount looks off — try again with a smaller number?');
+              return;
+            }
+            // Distribute across existing lines proportionally; if a single
+            // line, just replace its rate.
+            const lines = await db.abInvoiceLine.findMany({ where: { invoiceId: draft.id } });
+            await db.$transaction(async (tx) => {
+              if (lines.length === 1) {
+                await tx.abInvoiceLine.update({
+                  where: { id: lines[0].id },
+                  data: { rateCents: newTotal, amountCents: Math.round((lines[0].quantity || 1) * newTotal) },
+                });
+              } else if (lines.length > 1) {
+                const oldTotal = lines.reduce((s, l) => s + l.amountCents, 0);
+                if (oldTotal > 0) {
+                  for (const l of lines) {
+                    const ratio = l.amountCents / oldTotal;
+                    const newAmount = Math.round(newTotal * ratio);
+                    await tx.abInvoiceLine.update({
+                      where: { id: l.id },
+                      data: { rateCents: Math.round(newAmount / (l.quantity || 1)), amountCents: newAmount },
+                    });
+                  }
+                }
+              }
+              await tx.abInvoice.update({
+                where: { id: draft.id },
+                data: { amountCents: newTotal },
+              });
+            });
+            await db.abUserMemory.deleteMany({ where: { tenantId, key: editKey } });
+            await ctx.reply(
+              `📒 Updated <b>${escHtml(draft.number)}</b> total → <b>${fmtUsd(newTotal)}</b>. Send it?`,
+              {
+                parse_mode: 'HTML',
+                reply_markup: draftKeyboard(draft.id),
+              },
+            );
+            return;
+          }
+          if (parsedEdit.field === 'dueDate') {
+            const trimmed = text.trim();
+            const parsedDate = new Date(trimmed);
+            if (isNaN(parsedDate.getTime())) {
+              await ctx.reply('I couldn\'t read that date. Try <code>2026-06-30</code> or <code>July 30</code>.', { parse_mode: 'HTML' });
+              return;
+            }
+            // Bound to [issuedDate, issuedDate + 5 years] so a typo like
+            // 9999-12-31 doesn't land as the actual due date and break
+            // every aging report downstream.
+            const FIVE_YEARS_MS = 5 * 365 * 24 * 60 * 60 * 1000;
+            const issuedTs = draft.issuedDate.getTime();
+            if (parsedDate.getTime() < issuedTs || parsedDate.getTime() > issuedTs + FIVE_YEARS_MS) {
+              await ctx.reply("That date doesn't look right — try YYYY-MM-DD or 'in 30 days'.");
+              return;
+            }
+            await db.abInvoice.update({
+              where: { id: draft.id },
+              data: { dueDate: parsedDate },
+            });
+            await db.abUserMemory.deleteMany({ where: { tenantId, key: editKey } });
+            await ctx.reply(
+              `📒 Updated <b>${escHtml(draft.number)}</b> due date → <b>${parsedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</b>. Send it?`,
+              {
+                parse_mode: 'HTML',
+                reply_markup: draftKeyboard(draft.id),
+              },
+            );
+            return;
+          }
+        }
+      }
+    }
+
     // Anything that looks like a review request — walk through the
     // unified review queue. Catches all the phrasings users actually
     // type ("give me expenses for review", "show me drafts", "what
@@ -1563,6 +1890,18 @@ function getBot(): Bot {
           categories,
         };
         const loop = await runAgentLoop(text, botCtx);
+
+        // Invoice-from-chat: render the friendly draft preview / picker
+        // here. The bot agent owns the DB write; the webhook owns the
+        // keyboard and final user-facing copy.
+        if (
+          loop.evaluation.needsKeyboard
+          && loop.intent.intent === 'create_invoice_from_chat'
+        ) {
+          await renderInvoiceCreateResult(tenantId, ctx, loop.results[0]);
+          return;
+        }
+
         if (loop.evaluation.reply) {
           try {
             await ctx.reply(loop.evaluation.reply, {
@@ -2374,6 +2713,272 @@ function getBot(): Bot {
         return;
       }
 
+      // === Invoice-from-chat (PR 1) ====================================
+      if (action === 'inv_send') {
+        const draftId = parts[1];
+        if (!draftId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        const inv = await db.abInvoice.findFirst({
+          where: { id: draftId, tenantId },
+          include: { client: { select: { name: true, email: true } } },
+        });
+        if (!inv) {
+          await ctx.answerCallbackQuery({ text: 'Draft not found' });
+          return;
+        }
+        if (inv.status !== 'draft') {
+          await ctx.answerCallbackQuery({ text: `Already ${inv.status}` });
+          return;
+        }
+
+        // Post the AR/Revenue journal entry now (deferred until send so a
+        // cancelled draft never touches the books). Then flip status.
+        const [arAccount, revenueAccount] = await Promise.all([
+          db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1100' } } }),
+          db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '4000' } } }),
+        ]);
+
+        if (!arAccount || !revenueAccount) {
+          await ctx.answerCallbackQuery({ text: 'Chart of accounts not seeded' });
+          await ctx.reply("❌ Can't post the journal — AR (1100) or Revenue (4000) account is missing. Seed your chart of accounts first.");
+          return;
+        }
+
+        try {
+          await db.$transaction(async (tx) => {
+            const je = await tx.abJournalEntry.create({
+              data: {
+                tenantId,
+                date: inv.issuedDate,
+                memo: `Invoice ${inv.number} to ${inv.client.name}`,
+                sourceType: 'invoice',
+                sourceId: inv.id,
+                verified: true,
+                lines: {
+                  create: [
+                    { accountId: arAccount.id, debitCents: inv.amountCents, creditCents: 0, description: `AR - Invoice ${inv.number}` },
+                    { accountId: revenueAccount.id, debitCents: 0, creditCents: inv.amountCents, description: `Revenue - Invoice ${inv.number}` },
+                  ],
+                },
+              },
+            });
+            await tx.abInvoice.update({
+              where: { id: inv.id },
+              data: { status: 'sent', journalEntryId: je.id },
+            });
+            await tx.abClient.update({
+              where: { id: inv.clientId },
+              data: { totalBilledCents: { increment: inv.amountCents } },
+            });
+            await tx.abEvent.create({
+              data: {
+                tenantId,
+                eventType: 'invoice.sent',
+                actor: 'user',
+                action: { invoiceId: inv.id, number: inv.number, source: 'telegram' },
+              },
+            });
+          });
+        } catch (err) {
+          console.error('[inv_send] failed:', err);
+          await ctx.answerCallbackQuery({ text: 'Send failed' });
+          return;
+        }
+
+        // Clear any pending edit-state for this chat.
+        await db.abUserMemory.deleteMany({
+          where: { tenantId, key: `telegram:editing_invoice:${ctx.chat?.id}` },
+        });
+
+        await ctx.answerCallbackQuery({ text: '📨 Sent' });
+        const recipient = inv.client.email
+          ? ` to <b>${escHtml(inv.client.email)}</b>`
+          : '';
+        const reply = `✅ Sent${recipient} — <b>${escHtml(inv.number)}</b> (${fmtUsd(inv.amountCents)}). I'll ping you when they pay.`;
+        try {
+          await ctx.editMessageText(reply, { parse_mode: 'HTML' });
+        } catch {
+          await ctx.reply(reply, { parse_mode: 'HTML' });
+        }
+        return;
+      }
+
+      if (action === 'inv_edit') {
+        const draftId = parts[1];
+        if (!draftId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        // PR 1 scope cap: edit only supports `amount` and `dueDate` for
+        // now. `client` and `lines` will land in a follow-up PR — those
+        // require multi-step flows that aren't worth shipping until the
+        // happy path is proven.
+        const memoryKey = `telegram:editing_invoice:${ctx.chat?.id}`;
+        await db.abUserMemory.upsert({
+          where: { tenantId_key: { tenantId, key: memoryKey } },
+          update: {
+            value: JSON.stringify({ draftId, awaiting: 'field', setAt: Date.now() }),
+            lastUsed: new Date(),
+          },
+          create: {
+            tenantId,
+            key: memoryKey,
+            value: JSON.stringify({ draftId, awaiting: 'field', setAt: Date.now() }),
+            type: 'pending_action',
+            confidence: 1,
+          },
+        });
+        await ctx.answerCallbackQuery({ text: 'Pick a field' });
+        await ctx.reply(
+          'Which field — <b>amount</b> or <b>due date</b>? (Client and line-item edits land in the next release.)',
+          {
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [[
+                { text: 'Amount', callback_data: `inv_editfield:${draftId}:amount` },
+                { text: 'Due date', callback_data: `inv_editfield:${draftId}:dueDate` },
+              ]],
+            },
+          },
+        );
+        return;
+      }
+
+      if (action === 'inv_editfield') {
+        const draftId = parts[1];
+        const field = parts[2];
+        if (!draftId || !['amount', 'dueDate'].includes(field)) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const memoryKey = `telegram:editing_invoice:${ctx.chat?.id}`;
+        await db.abUserMemory.upsert({
+          where: { tenantId_key: { tenantId, key: memoryKey } },
+          update: {
+            value: JSON.stringify({ draftId, awaiting: 'value', field, setAt: Date.now() }),
+            lastUsed: new Date(),
+          },
+          create: {
+            tenantId,
+            key: memoryKey,
+            value: JSON.stringify({ draftId, awaiting: 'value', field, setAt: Date.now() }),
+            type: 'pending_action',
+            confidence: 1,
+          },
+        });
+        await ctx.answerCallbackQuery({ text: `Send the new ${field}` });
+        const prompt = field === 'amount'
+          ? "What's the new total? (e.g. <code>$5500</code> or <code>5500.00</code>)"
+          : "What's the new due date? (e.g. <code>2026-06-30</code> or <code>July 30</code>)";
+        await ctx.reply(prompt, { parse_mode: 'HTML' });
+        return;
+      }
+
+      if (action === 'inv_cancel') {
+        const draftId = parts[1];
+        if (!draftId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        const inv = await db.abInvoice.findFirst({ where: { id: draftId, tenantId } });
+        if (!inv) {
+          await ctx.answerCallbackQuery({ text: 'Already gone' });
+          return;
+        }
+        if (inv.status !== 'draft') {
+          await ctx.answerCallbackQuery({ text: `Cannot cancel — invoice is ${inv.status}` });
+          return;
+        }
+        await db.$transaction([
+          db.abInvoiceLine.deleteMany({ where: { invoiceId: draftId } }),
+          db.abInvoice.delete({ where: { id: draftId } }),
+        ]);
+        await db.abUserMemory.deleteMany({
+          where: { tenantId, key: `telegram:editing_invoice:${ctx.chat?.id}` },
+        });
+        await db.abEvent.create({
+          data: {
+            tenantId,
+            eventType: 'invoice.draft_cancelled',
+            actor: 'user',
+            action: { number: inv.number, source: 'telegram' },
+          },
+        });
+        await ctx.answerCallbackQuery({ text: '❌ Cancelled' });
+        try {
+          await ctx.editMessageText('Cancelled. Nothing booked.');
+        } catch {
+          await ctx.reply('Cancelled. Nothing booked.');
+        }
+        return;
+      }
+
+      if (action === 'inv_pickclient') {
+        const token = parts[1];
+        const clientId = parts[2];
+        if (!token || !clientId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        const memoryKey = `telegram:pending_invoice_draft:${token}`;
+        const memory = await db.abUserMemory.findUnique({
+          where: { tenantId_key: { tenantId, key: memoryKey } },
+        });
+        if (!memory) {
+          await ctx.answerCallbackQuery({ text: 'Pick expired — try again' });
+          return;
+        }
+        let parsed: unknown = null;
+        try {
+          parsed = (JSON.parse(memory.value) as { parsed?: unknown }).parsed ?? null;
+        } catch {
+          parsed = null;
+        }
+        if (!parsed) {
+          await ctx.answerCallbackQuery({ text: 'Pick expired — try again' });
+          return;
+        }
+        // Forward to the draft-from-text endpoint with clientId pre-set.
+        const baseUrl = getSelfBaseUrl();
+        try {
+          const res = await fetch(`${baseUrl}/api/v1/agentbook-invoice/invoices/draft-from-text`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+            body: JSON.stringify({ clientId, parsed }),
+          });
+          const json = await res.json() as { success: boolean; data?: DraftCreated; error?: string };
+          await db.abUserMemory.deleteMany({ where: { tenantId, key: memoryKey } });
+          if (!json.success || !json.data) {
+            await ctx.answerCallbackQuery({ text: 'Failed' });
+            await ctx.reply(`❌ ${json.error || 'Could not create draft.'}`);
+            return;
+          }
+          await ctx.answerCallbackQuery({ text: 'Got it' });
+          const text = buildDraftPreviewText(json.data);
+          try {
+            await ctx.editMessageText(text, {
+              parse_mode: 'HTML',
+              reply_markup: draftKeyboard(json.data.draftId),
+            });
+          } catch {
+            await ctx.reply(text, {
+              parse_mode: 'HTML',
+              reply_markup: draftKeyboard(json.data.draftId),
+            });
+          }
+        } catch (err) {
+          console.error('[inv_pickclient] failed:', err);
+          await ctx.answerCallbackQuery({ text: 'Network error' });
+        }
+        return;
+      }
+
+      if (action === 'inv_pickcancel') {
+        const token = parts[1];
+        if (token) {
+          await db.abUserMemory.deleteMany({
+            where: { tenantId, key: `telegram:pending_invoice_draft:${token}` },
+          });
+        }
+        await ctx.answerCallbackQuery({ text: 'Cancelled' });
+        try {
+          await ctx.editMessageText('Cancelled. Nothing booked.');
+        } catch {
+          await ctx.reply('Cancelled. Nothing booked.');
+        }
+        return;
+      }
+
       await ctx.answerCallbackQuery({ text: `Unknown action: ${action}` });
     } catch (err) {
       console.error('Callback error:', err);
@@ -2388,7 +2993,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
 
-  if (expectedSecret && secret !== expectedSecret) {
+  // E2E_CAPTURE is a server-side test toggle; production has it off.
+  // When on, we accept synthetic Updates without the Telegram secret so
+  // the e2e suite (and PR-level webhook tests) can hit the route directly.
+  if (expectedSecret && secret !== expectedSecret && !E2E_CAPTURE) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
