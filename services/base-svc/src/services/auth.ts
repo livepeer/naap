@@ -16,6 +16,9 @@ function sanitizeForLog(value: unknown): string {
 function hmacToken(plaintext: string): string {
   const pepper = process.env.SESSION_TOKEN_PEPPER;
   if (!pepper) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('SESSION_TOKEN_PEPPER is required in production');
+    }
     return crypto.createHash('sha256').update(plaintext).digest('hex');
   }
   return crypto.createHmac('sha256', pepper).update(plaintext).digest('hex');
@@ -62,14 +65,16 @@ async function verifyPassword(password: string, storedHash: string): Promise<{ v
 
   if (!salt || !hash) return { valid: false, needsRehash: false };
   const verifyHash = crypto.pbkdf2Sync(password, salt, iterations, 64, digest).toString('hex');
-  if (hash.length !== verifyHash.length) return { valid: false, needsRehash: false };
 
-  const valid = crypto.timingSafeEqual(
-    Buffer.from(hash, 'hex'),
-    Buffer.from(verifyHash, 'hex')
-  );
-
-  return { valid, needsRehash: valid && needsRehash };
+  try {
+    const storedBuf = Buffer.from(hash, 'hex');
+    const verifyBuf = Buffer.from(verifyHash, 'hex');
+    if (storedBuf.length !== verifyBuf.length) return { valid: false, needsRehash: false };
+    const valid = crypto.timingSafeEqual(storedBuf, verifyBuf);
+    return { valid, needsRehash: valid && needsRehash };
+  } catch {
+    return { valid: false, needsRehash: false };
+  }
 }
 
 function generateToken(): string {
@@ -229,12 +234,18 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
     const token = generateToken();
     const expiresAt = new Date(Date.now() + SESSION_DURATION_HOURS * 60 * 60 * 1000);
 
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { sessionVersion: true },
+    });
+
     await prisma.session.create({
       data: {
         userId,
         token,
         tokenHash: hmacToken(token),
         expiresAt,
+        versionAtCreation: user?.sessionVersion ?? 0,
       },
     });
 
@@ -402,6 +413,11 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
         return null;
       }
 
+      if (session.user.sessionVersion !== (session.versionAtCreation ?? 0)) {
+        await prisma.session.delete({ where: { id: session.id } });
+        return null;
+      }
+
       const updateData: Record<string, unknown> = { lastUsedAt: new Date() };
       if (!session.tokenHash) {
         updateData.tokenHash = hash;
@@ -439,6 +455,11 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
         return null;
       }
 
+      if (session.user.sessionVersion !== (session.versionAtCreation ?? 0)) {
+        await prisma.session.delete({ where: { id: session.id } });
+        return null;
+      }
+
       const updateData: Record<string, unknown> = { lastUsedAt: new Date() };
       if (!session.tokenHash) {
         updateData.tokenHash = hash;
@@ -462,15 +483,22 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
 
       let session = await prisma.session.findUnique({
         where: { tokenHash: hash },
+        include: { user: true },
       });
 
       if (!session) {
         session = await prisma.session.findUnique({
           where: { token },
+          include: { user: true },
         });
       }
 
       if (!session) return null;
+
+      if (session.user.sessionVersion !== (session.versionAtCreation ?? 0)) {
+        await prisma.session.delete({ where: { id: session.id } });
+        return null;
+      }
 
       if (new Date(session.expiresAt) < new Date()) {
         await prisma.session.delete({ where: { id: session.id } });
