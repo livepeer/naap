@@ -26,6 +26,7 @@
     "routes": [
       "/agentbook/invoices",
       "/agentbook/invoices/*",
+      "/agentbook/invoices/recurring",
       "/agentbook/clients",
       "/agentbook/clients/*",
       "/agentbook/estimates",

@@ -69,3 +69,45 @@ export async function PUT(
     );
   }
 }
+
+/**
+ * Hard-delete a recurring schedule. Prior generated invoices stay on the
+ * books — only the schedule (and its future generation) goes away. Tenant-
+ * scoped via `resolveAgentbookTenant`.
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  try {
+    const tenantId = await resolveAgentbookTenant(request);
+    const { id } = await params;
+
+    const existing = await db.abRecurringInvoice.findFirst({ where: { id, tenantId } });
+    if (!existing) {
+      return NextResponse.json(
+        { success: false, error: 'Recurring invoice not found' },
+        { status: 404 },
+      );
+    }
+
+    await db.abRecurringInvoice.delete({ where: { id } });
+
+    await db.abEvent.create({
+      data: {
+        tenantId,
+        eventType: 'recurring_invoice.deleted',
+        actor: 'agent',
+        action: { recurringId: id, clientId: existing.clientId, frequency: existing.frequency },
+      },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error('[agentbook-invoice/recurring-invoices/:id DELETE] failed:', err);
+    return NextResponse.json(
+      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
+  }
+}

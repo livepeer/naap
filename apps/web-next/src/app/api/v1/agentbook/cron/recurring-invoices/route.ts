@@ -75,6 +75,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             amountCents: item.totalCents, currency: item.currency,
             issuedDate: now, dueDate,
             status: item.autoSend ? 'sent' : 'draft',
+            source: 'recurring',
             journalEntryId: je.id, recurringId: item.id,
             lines: { create: lines },
           },

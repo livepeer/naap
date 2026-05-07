@@ -1799,6 +1799,90 @@ export function renderTaxPackageStepResult(data: TaxPackageData): { html: string
   };
 }
 
+// ─── Recurring invoice setup (PR 6) ────────────────────────────────────
+//
+// Callback prefixes (≤64 bytes each):
+//   • rec_confirm:<recurringId>  → ack the schedule (status stays 'active')
+//   • rec_pause:<recurringId>    → PUT status='paused'
+//   • rec_cancel:<recurringId>   → DELETE the schedule (hard delete)
+//
+// The bot creates the schedule synchronously inside `executeStep`; the
+// confirm callback is just a friendly acknowledgement so users feel they
+// approved the action. Pause and cancel mutate the row.
+
+interface RecurringCreatedData {
+  kind: 'recurring_created';
+  recurringId: string;
+  cadence: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annual';
+  amountCents: number;
+  clientName: string;
+  firstRun: string;
+  description: string;
+  autoSend: boolean;
+}
+
+interface RecurringNeedsClarify {
+  kind: 'needs_clarify';
+  question: string;
+}
+
+type RecurringStepData = RecurringCreatedData | RecurringNeedsClarify;
+
+function cadenceAdverb(c: RecurringCreatedData['cadence']): string {
+  switch (c) {
+    case 'weekly': return 'week';
+    case 'biweekly': return 'two weeks';
+    case 'monthly': return 'month';
+    case 'quarterly': return 'quarter';
+    case 'annual': return 'year';
+  }
+}
+
+export function renderRecurringStepResult(
+  data: RecurringStepData,
+): { html: string; keyboard?: unknown } {
+  if (data.kind === 'needs_clarify') {
+    return { html: `🤔 ${escHtml(data.question)}` };
+  }
+  const periodLabel = cadenceAdverb(data.cadence);
+  const amountLabel = `$${(data.amountCents / 100).toLocaleString('en-US', {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: data.amountCents % 100 === 0 ? 0 : 2,
+  })}`;
+  const firstRun = shortDate(data.firstRun);
+  const html =
+    `📒 Got it — recurring invoice will be issued automatically every ${periodLabel} starting <b>${firstRun}</b>, <b>${amountLabel}</b> to <b>${escHtml(data.clientName)}</b>.`;
+  return {
+    html,
+    keyboard: {
+      inline_keyboard: [
+        [
+          { text: '✅ Confirm', callback_data: `rec_confirm:${data.recurringId}` },
+          { text: '⏸ Pause', callback_data: `rec_pause:${data.recurringId}` },
+          { text: '❌ Cancel', callback_data: `rec_cancel:${data.recurringId}` },
+        ],
+      ],
+    },
+  };
+}
+
+async function renderRecurringReply(
+  ctx: InvoiceReplyCtx,
+  result: { success: boolean; data?: unknown; error?: string } | undefined,
+): Promise<void> {
+  if (!result || !result.success || !result.data) {
+    await ctx.reply(result?.error || "Couldn't set up the recurring invoice — try again with cadence + client + amount.");
+    return;
+  }
+  const data = result.data as RecurringStepData;
+  const { html, keyboard } = renderRecurringStepResult(data);
+  await ctx.reply(html, {
+    parse_mode: 'HTML',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    reply_markup: keyboard as any,
+  });
+}
+
 async function renderTaxPackageReply(
   ctx: InvoiceReplyCtx,
   result: { success: boolean; data?: unknown; error?: string } | undefined,
@@ -2385,6 +2469,13 @@ function getBot(): Bot {
           // here; if cold-start latency becomes a problem, the dispatcher
           // can send a pre-execute "building" hint via the bot loop hook.
           await renderTaxPackageReply(ctx, loop.results[0]);
+          return;
+        }
+        if (
+          loop.evaluation.needsKeyboard
+          && loop.intent.intent === 'setup_recurring_invoice'
+        ) {
+          await renderRecurringReply(ctx, loop.results[0]);
           return;
         }
 
@@ -3663,6 +3754,111 @@ function getBot(): Bot {
       // mlg_edit:<entryId> — start a mileage-edit follow-up. The next
       // text message from this chat ID is captured by the
       // `telegram:editing_mileage:<chatId>` memory key (PR 4).
+      // ─── Recurring-invoice callbacks (PR 6) ─────────────────────────
+      if (action === 'rec_confirm') {
+        const recurringId = parts[1];
+        if (!recurringId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const existing = await db.abRecurringInvoice.findFirst({
+          where: { id: recurringId, tenantId },
+        });
+        if (!existing) {
+          await ctx.answerCallbackQuery({ text: 'Schedule not found' });
+          return;
+        }
+        // Schedule is already 'active' on creation — this is just a
+        // friendly acknowledgement. Bump status if a previous pause set
+        // it elsewhere.
+        if (existing.status !== 'active') {
+          await db.abRecurringInvoice.update({
+            where: { id: recurringId },
+            data: { status: 'active' },
+          });
+        }
+        await ctx.answerCallbackQuery({ text: '✅ Active' });
+        try {
+          await ctx.editMessageText('✅ Recurring schedule active', {
+            parse_mode: 'HTML',
+          });
+        } catch {
+          await ctx.reply('✅ Recurring schedule active');
+        }
+        return;
+      }
+
+      if (action === 'rec_pause') {
+        const recurringId = parts[1];
+        if (!recurringId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const existing = await db.abRecurringInvoice.findFirst({
+          where: { id: recurringId, tenantId },
+        });
+        if (!existing) {
+          await ctx.answerCallbackQuery({ text: 'Schedule not found' });
+          return;
+        }
+        await db.abRecurringInvoice.update({
+          where: { id: recurringId },
+          data: { status: 'paused' },
+        });
+        await db.abEvent.create({
+          data: {
+            tenantId,
+            eventType: 'recurring_invoice.paused',
+            actor: 'user',
+            action: { recurringId, source: 'telegram' },
+          },
+        });
+        await ctx.answerCallbackQuery({ text: '⏸ Paused' });
+        try {
+          await ctx.editMessageText('⏸ Paused. Use Telegram to unpause anytime.', {
+            parse_mode: 'HTML',
+          });
+        } catch {
+          await ctx.reply('⏸ Paused. Use Telegram to unpause anytime.');
+        }
+        return;
+      }
+
+      if (action === 'rec_cancel') {
+        const recurringId = parts[1];
+        if (!recurringId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const existing = await db.abRecurringInvoice.findFirst({
+          where: { id: recurringId, tenantId },
+        });
+        if (!existing) {
+          await ctx.answerCallbackQuery({ text: 'Already gone' });
+          return;
+        }
+        // Hard delete — prior generated invoices stay on the books, but
+        // the schedule won't fire again. Documented choice over soft-
+        // cancel: cancel here means "I never want this — wipe it"; pause
+        // is the soft-stop option.
+        await db.abRecurringInvoice.delete({ where: { id: recurringId } });
+        await db.abEvent.create({
+          data: {
+            tenantId,
+            eventType: 'recurring_invoice.deleted',
+            actor: 'user',
+            action: { recurringId, source: 'telegram' },
+          },
+        });
+        await ctx.answerCallbackQuery({ text: '❌ Cancelled' });
+        try {
+          await ctx.editMessageText('❌ Recurring schedule cancelled.');
+        } catch {
+          await ctx.reply('❌ Recurring schedule cancelled.');
+        }
+        return;
+      }
+
       if (action === 'mlg_edit') {
         const entryId = parts[1];
         if (!entryId) {

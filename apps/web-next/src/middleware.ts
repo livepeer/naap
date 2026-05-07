@@ -13,6 +13,7 @@ const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/agentbook/receipts': 'agentbookExpense',
   '/agentbook/vendors': 'agentbookExpense',
   '/agentbook/bank': 'agentbookExpense',
+  '/agentbook/invoices/recurring': 'agentbookInvoice',
   '/agentbook/invoices': 'agentbookInvoice',
   '/agentbook/clients': 'agentbookInvoice',
   '/agentbook/estimates': 'agentbookInvoice',

@@ -7,6 +7,7 @@ import { ClientsPage } from './pages/Clients';
 import { EstimatesPage } from './pages/Estimates';
 import { TimerPage } from './pages/Timer';
 import { ProjectsPage } from './pages/Projects';
+import { RecurringInvoicesPage } from './pages/RecurringInvoices';
 import './globals.css';
 
 const AgentbookInvoiceApp: React.FC = () => (
@@ -14,6 +15,7 @@ const AgentbookInvoiceApp: React.FC = () => (
     <Routes>
       <Route path="/" element={<InvoiceListPage />} />
       <Route path="/new" element={<NewInvoicePage />} />
+      <Route path="/recurring" element={<RecurringInvoicesPage />} />
       <Route path="/clients" element={<ClientsPage />} />
       <Route path="/estimates" element={<EstimatesPage />} />
       <Route path="/timer" element={<TimerPage />} />
@@ -29,6 +31,7 @@ const plugin = createPlugin({
   routes: [
     '/agentbook/invoices',
     '/agentbook/invoices/*',
+    '/agentbook/invoices/recurring',
     '/agentbook/clients',
     '/agentbook/clients/*',
     '/agentbook/estimates',

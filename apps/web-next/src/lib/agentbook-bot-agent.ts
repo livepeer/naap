@@ -23,6 +23,7 @@ import 'server-only';
 import { prisma as db } from '@naap/database';
 import { parseInvoiceFromText } from './agentbook-invoice-parser';
 import { createInvoiceDraft } from './agentbook-invoice-draft';
+import { parseRecurringFromText } from './agentbook-recurring-parser';
 import { parseDateHint, aggregateByDay, type TimeEntryRow } from './agentbook-time-aggregator';
 import { resolveClientByHint } from './agentbook-client-resolver';
 import { getMileageRate } from './agentbook-mileage-rates';
@@ -51,6 +52,7 @@ export type IntentName =
   | 'invoice_from_timer' // build an invoice from accumulated unbilled hours
   | 'record_mileage'    // "drove 47 miles to TechCorp" → mileage entry + JE (PR 4)
   | 'generate_tax_package' // "give me my 2025 tax package" → render PDF/CSV/ZIP (PR 5)
+  | 'setup_recurring_invoice' // "every month invoice TechCorp $5K consulting" → schedule (PR 6)
   | 'clarify'           // bot is unsure — ask the user a question first
   | 'unrelated';        // none of the above — let agent brain reply
 
@@ -74,6 +76,10 @@ export interface IntentSlots {
   // Tax-package slots (PR 5):
   taxYear?: number;            // calendar year, defaults to last year if absent
   jurisdiction?: 'us' | 'ca';  // tenant jurisdiction (resolved at execute time)
+  // Recurring-invoice slots (PR 6):
+  cadence?: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annual';
+  dayOfMonth?: number;         // 1-31, optional
+  autoSend?: boolean;          // auto-send invoice on generation, default false
 }
 
 export interface BotIntent {
@@ -265,6 +271,24 @@ INTENT CHOICES (pick exactly one)
                      ("give me my 2025 tax package",
                       "year-end package for 2024",
                       "send me my annual tax report")
+   setup_recurring_invoice — user wants to set up a recurring invoice
+                     schedule (auto-issued every week/month/quarter/year).
+                     Triggers: "every month invoice X $Y", "set up
+                     monthly $Y subscription for X", "schedule a
+                     quarterly invoice for X $Y", "create a recurring
+                     invoice for X $Y". DO NOT pick this for a one-off
+                     "invoice X $Y" — only when the user signals a
+                     repeating cadence ("every", "each", "monthly",
+                     "weekly", "quarterly", "biweekly", "annually",
+                     "recurring"). SET slots.cadence to one of: weekly /
+                     biweekly / monthly / quarterly / annual. SET
+                     slots.amountCents to the per-period total in cents.
+                     SET slots.clientNameHint to the raw client name.
+                     SET slots.description to the work description if
+                     present. SET slots.dayOfMonth if "on the Nth".
+                     ("every month invoice TechCorp $5K consulting on the 1st",
+                      "set up monthly $1K subscription for Acme",
+                      "schedule a quarterly invoice for Beta $3K")
    query_balance   — user is asking about cash on hand
                      ("how much do I have", "balance", "cash")
    query_invoices  — user is asking about outstanding invoices
@@ -313,7 +337,7 @@ RULES
 
 OUTPUT
 Respond with ONLY a JSON object — no preamble, no code fences:
-{"intent": "<name>", "slots": {"categoryName": "Fuel", "amountCents": 4523, "vendor": "Shell", "description": "...", "filter": "...", "clarifyingQuestion": "...", "candidateIntents": ["...", "..."], "miles": 47, "unit": "mi", "purpose": "TechCorp meeting", "clientNameHint": "TechCorp", "taxYear": 2025}, "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
+{"intent": "<name>", "slots": {"categoryName": "Fuel", "amountCents": 4523, "vendor": "Shell", "description": "...", "filter": "...", "clarifyingQuestion": "...", "candidateIntents": ["...", "..."], "miles": 47, "unit": "mi", "purpose": "TechCorp meeting", "clientNameHint": "TechCorp", "taxYear": 2025, "cadence": "monthly", "dayOfMonth": 1}, "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
 
   let raw: string;
   try {
@@ -539,6 +563,26 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
     };
   }
 
+  // Recurring invoice setup (PR 6). Must run BEFORE the generic
+  // create_invoice_from_chat trigger below — phrases like "every month
+  // invoice TechCorp" otherwise get parsed as one-off invoices.
+  // Two trigger shapes:
+  //   • "every|each|monthly|weekly|… ... invoice ..."
+  //   • "set up|schedule|create [a/an] weekly|biweekly|monthly|… invoice"
+  const recurringTrigger =
+    /\b(?:every|each|monthly|weekly|quarterly|biweekly|bi-weekly|annually|annual|yearly|recurring)\b.*\binvoice\b/i;
+  const recurringSetupTrigger =
+    /^(?:please\s+|can you\s+)?(?:set\s+up|schedule|create)\s+(?:an?\s+)?(?:weekly|biweekly|bi-weekly|monthly|quarterly|annual|yearly|recurring)\s+(?:recurring\s+)?invoice/i;
+  if (recurringTrigger.test(text) || recurringSetupTrigger.test(text)) {
+    return {
+      intent: 'setup_recurring_invoice',
+      slots: { description: text },
+      confidence: 0.85,
+      reason: 'recurring/cadence + invoice trigger',
+      source: 'regex',
+    };
+  }
+
   // Invoice creation — "invoice Acme $5K for July consulting", "bill X
   // $1000 for Y", "send Acme an invoice". Beats record_expense, since
   // "invoice" is more specific than the spent/paid/bought verbs.
@@ -714,6 +758,25 @@ export function planSteps(intent: BotIntent, _ctx: BotContext): PlanStep[] {
         skill: 'tax.generate_package',
         args: {
           year: intent.slots.taxYear,
+        },
+        dependsOn: [],
+      }];
+    case 'setup_recurring_invoice':
+      return [{
+        id,
+        skill: 'invoice.setup_recurring',
+        args: {
+          // Pass the raw user text — the executor parses cadence + amount
+          // + client via the same Gemini-first/regex parser the LLM
+          // classifier already used to fill slots, so we don't lose the
+          // original phrasing on regex-source classifications.
+          text: intent.slots.description || '',
+          cadence: intent.slots.cadence,
+          amountCents: intent.slots.amountCents,
+          clientNameHint: intent.slots.clientNameHint,
+          dayOfMonth: intent.slots.dayOfMonth,
+          autoSend: intent.slots.autoSend,
+          description: intent.slots.description,
         },
         dependsOn: [],
       }];
@@ -1681,6 +1744,184 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         };
       }
 
+      // ─── Recurring invoice setup (PR 6) ──────────────────────────
+      case 'invoice.setup_recurring': {
+        // Resolve cadence + amount + client. Slot values from the LLM
+        // classifier come through first; if any are missing we fall
+        // back to parsing the raw text ourselves.
+        const rawText = (step.args.text as string | undefined) || '';
+        const slotCadence = step.args.cadence as
+          | 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annual'
+          | undefined;
+        const slotAmount = step.args.amountCents as number | undefined;
+        const slotClient = step.args.clientNameHint as string | undefined;
+        const slotDayOfMonth = step.args.dayOfMonth as number | undefined;
+        const slotDescription = step.args.description as string | undefined;
+        const autoSend = (step.args.autoSend as boolean | undefined) ?? false;
+
+        let cadence = slotCadence;
+        let amountCents = slotAmount;
+        let clientNameHint = slotClient;
+        let dayOfMonth = slotDayOfMonth;
+        let description = slotDescription;
+
+        // If any slot is missing, run the dedicated recurring parser
+        // against the original text. The Gemini-first parser handles
+        // both shapes ("every month..." and "schedule a monthly...").
+        if (!cadence || !amountCents || !clientNameHint) {
+          const parsed = await parseRecurringFromText(rawText);
+          if (parsed) {
+            cadence = cadence || parsed.cadence;
+            amountCents = amountCents || parsed.amountCents;
+            clientNameHint = clientNameHint || parsed.clientNameHint;
+            dayOfMonth = dayOfMonth ?? parsed.dayOfMonth;
+            description = description || parsed.description;
+          }
+        }
+
+        if (!cadence) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: "How often should I issue this invoice — weekly, biweekly, monthly, quarterly, or annual?",
+            },
+          };
+        }
+        if (!amountCents || amountCents <= 0) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: "How much should each invoice be? Try \"every month invoice Acme $5K for consulting\".",
+            },
+          };
+        }
+        if (!clientNameHint) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: "Which client should I bill? Try \"every month invoice Acme $5K for consulting\".",
+            },
+          };
+        }
+
+        // Resolve client. Same exact-then-substring helper as the
+        // one-off invoice path — must match exactly one client; ambiguous
+        // matches re-prompt the user.
+        const resolution = await resolveClientByHint(ctx.tenantId, clientNameHint);
+        const candidates = resolution.candidates;
+        if (candidates.length === 0) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: `I don't have a client named "${clientNameHint}" on file. Add them first, then try again.`,
+            },
+          };
+        }
+        if (candidates.length > 1) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: `Which "${clientNameHint}" did you mean — ${candidates.slice(0, 6).map((c) => c.name).join(' or ')}?`,
+            },
+          };
+        }
+        const client = candidates[0];
+
+        // Compute the next-due date. dayOfMonth (when present) anchors
+        // monthly/quarterly/annual cadences to a specific calendar day.
+        const now = new Date();
+        const nextDue = new Date(now);
+        if (dayOfMonth && (cadence === 'monthly' || cadence === 'quarterly' || cadence === 'annual')) {
+          // Set to the requested day of *this* month if still upcoming;
+          // otherwise next month for monthly, +3 months for quarterly,
+          // +1 year for annual. Clamp dayOfMonth to the month's last day
+          // to avoid JS Date's silent rollover (e.g., setDate(31) in Feb).
+          const daysInThisMonth = new Date(nextDue.getFullYear(), nextDue.getMonth() + 1, 0).getDate();
+          nextDue.setDate(Math.min(dayOfMonth, daysInThisMonth));
+          if (nextDue <= now) {
+            switch (cadence) {
+              case 'monthly': nextDue.setMonth(nextDue.getMonth() + 1); break;
+              case 'quarterly': nextDue.setMonth(nextDue.getMonth() + 3); break;
+              case 'annual': nextDue.setFullYear(nextDue.getFullYear() + 1); break;
+            }
+          }
+        } else {
+          // No day-of-month anchor — fire on the next cadence boundary
+          // starting from today.
+          switch (cadence) {
+            case 'weekly': nextDue.setDate(nextDue.getDate() + 7); break;
+            case 'biweekly': nextDue.setDate(nextDue.getDate() + 14); break;
+            case 'monthly': nextDue.setMonth(nextDue.getMonth() + 1); break;
+            case 'quarterly': nextDue.setMonth(nextDue.getMonth() + 3); break;
+            case 'annual': nextDue.setFullYear(nextDue.getFullYear() + 1); break;
+          }
+        }
+
+        // Build the template line(s). Single line for now — matches the
+        // simple "$5K consulting" / "$1K subscription" cases. Multi-line
+        // shapes ("$5K consulting and $1K hosting recurring") can be
+        // added later without changing the schedule schema.
+        const lineDescription = (description || 'Recurring invoice').trim().slice(0, 500);
+        const templateLines = [
+          { description: lineDescription, quantity: 1, rateCents: amountCents },
+        ];
+
+        const recurring = await db.abRecurringInvoice.create({
+          data: {
+            tenantId: ctx.tenantId,
+            clientId: client.id,
+            frequency: cadence,
+            nextDue,
+            templateLines: templateLines as never,
+            totalCents: amountCents,
+            daysToPay: 30,
+            autoSend,
+            currency: 'USD',
+            status: 'active',
+          },
+        });
+
+        await db.abEvent.create({
+          data: {
+            tenantId: ctx.tenantId,
+            eventType: 'recurring_invoice.created',
+            actor: 'agent',
+            action: {
+              recurringId: recurring.id,
+              clientId: client.id,
+              frequency: cadence,
+              totalCents: amountCents,
+              source: 'telegram',
+            },
+          },
+        });
+
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'recurring_created',
+            recurringId: recurring.id,
+            cadence,
+            amountCents,
+            clientName: client.name,
+            firstRun: nextDue.toISOString(),
+            description: lineDescription,
+            autoSend,
+          },
+        };
+      }
+
       // ─── Tax package (PR 5) ───────────────────────────────────────
       case 'tax.generate_package': {
         const yearArg = step.args.year as number | undefined;
@@ -1909,15 +2150,17 @@ export function evaluate(
   }
 
   // Timer + invoice-from-timer (PR 2) + record_mileage (PR 4) +
-  // generate_tax_package (PR 5): same handoff pattern as
-  // create_invoice_from_chat — the webhook renders rich, keyboarded replies.
+  // generate_tax_package (PR 5) + setup_recurring_invoice (PR 6):
+  // same handoff pattern as create_invoice_from_chat — the webhook
+  // renders rich, keyboarded replies.
   if (
     intent.intent === 'start_timer' ||
     intent.intent === 'stop_timer' ||
     intent.intent === 'timer_status' ||
     intent.intent === 'invoice_from_timer' ||
     intent.intent === 'record_mileage' ||
-    intent.intent === 'generate_tax_package'
+    intent.intent === 'generate_tax_package' ||
+    intent.intent === 'setup_recurring_invoice'
   ) {
     const r = results[0];
     if (!r?.success) {
