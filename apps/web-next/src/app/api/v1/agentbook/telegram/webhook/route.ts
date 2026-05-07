@@ -19,6 +19,7 @@ import { callGemini, classifyAndExecuteV1 } from '@agentbook-core/server';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
 import { parseDateHint } from '@/lib/agentbook-time-aggregator';
 import { autoCategorizeForTenant, getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
+import { updateMileageEntry } from '@/lib/agentbook-mileage-service';
 import {
   getDigestPrefs,
   setDigestPrefs,
@@ -1689,6 +1690,58 @@ async function renderInvoiceFromTimerResult(
   await ctx.reply(text, { parse_mode: 'HTML', reply_markup: draftKeyboard(data.draftId) });
 }
 
+// ─── Mileage (PR 4) ────────────────────────────────────────────────────
+interface MileageRecordedData {
+  kind: 'recorded';
+  entryId: string;
+  miles: number;
+  unit: 'mi' | 'km';
+  purpose: string;
+  clientName: string | null;
+  clientNameHint: string | null;
+  jurisdiction: 'us' | 'ca';
+  ratePerUnitCents: number;
+  deductibleAmountCents: number;
+  rateReason: string;
+  journalPosted: boolean;
+}
+
+async function renderMileageStepResult(
+  _tenantId: string,
+  ctx: InvoiceReplyCtx,
+  result: { success: boolean; data?: unknown; error?: string } | undefined,
+): Promise<void> {
+  if (!result || !result.success || !result.data) {
+    await ctx.reply(result?.error || "Couldn't record that trip — try again.");
+    return;
+  }
+  const data = result.data as MileageRecordedData;
+  const target = data.clientName
+    ? escHtml(data.clientName)
+    : data.clientNameHint
+      ? escHtml(data.clientNameHint)
+      : escHtml(data.purpose || 'this trip');
+  const dollars = (data.deductibleAmountCents / 100).toLocaleString(
+    data.jurisdiction === 'ca' ? 'en-CA' : 'en-US',
+    { style: 'currency', currency: data.jurisdiction === 'ca' ? 'CAD' : 'USD' },
+  );
+  const rateLabel = data.jurisdiction === 'ca' ? 'CRA rate' : 'IRS std rate';
+  const lines: string[] = [
+    `📒 ${data.miles} ${data.unit} to ${target} = <b>${dollars}</b> deductible (${rateLabel}). On the books.`,
+  ];
+  if (!data.journalPosted) {
+    lines.push("(Couldn't find a Vehicle Expense / Owner's Equity account in your chart — saved the entry but skipped the journal. Seed the chart of accounts and edit me to repost.)");
+  }
+  await ctx.reply(lines.join('\n'), {
+    parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [[
+        { text: '✏️ Edit miles', callback_data: `mlg_edit:${data.entryId}` },
+      ]],
+    },
+  });
+}
+
 // Lazy-initialize bot (cold start optimization for serverless)
 let bot: Bot | null = null;
 
@@ -2069,6 +2122,61 @@ function getBot(): Bot {
       }
     }
 
+    // ── Mileage edit follow-up (PR 4) ─────────────────────────────────
+    // If the user tapped ✏️ Edit miles on a recorded trip, the next
+    // numeric reply patches the entry (which reverses + reposts the JE).
+    {
+      const mileageEditKey = `telegram:editing_mileage:${ctx.chat.id}`;
+      const mlgMem = await db.abUserMemory.findUnique({
+        where: { tenantId_key: { tenantId, key: mileageEditKey } },
+      });
+      if (mlgMem) {
+        let parsedMlg: { entryId?: string; setAt?: number } = {};
+        try { parsedMlg = JSON.parse(mlgMem.value); } catch { /* fall through */ }
+        if (parsedMlg.entryId) {
+          // Accept "47", "47 miles", "47 mi", "47.5 km".
+          const m = text.match(/^\s*(\d+(?:\.\d+)?)\s*(mi|miles|km|kilometers|kilometres)?\s*$/i);
+          if (!m) {
+            await ctx.reply('I need a positive number (e.g. <code>47</code>). Tap ✏️ Edit miles again to retry.', { parse_mode: 'HTML' });
+            await db.abUserMemory.deleteMany({ where: { tenantId, key: mileageEditKey } });
+            return;
+          }
+          const newMiles = parseFloat(m[1]);
+          if (!isFinite(newMiles) || newMiles <= 0) {
+            await ctx.reply('Distance has to be positive. Tap ✏️ Edit miles to try again.');
+            await db.abUserMemory.deleteMany({ where: { tenantId, key: mileageEditKey } });
+            return;
+          }
+          // Call the shared mileage service in-process. The previous
+          // implementation re-entered the PATCH route via fetch with an
+          // `x-tenant-id` header — that's a tenant-spoof vector since
+          // the route is internet-reachable and the header is the
+          // highest-priority tenant resolver. In-process call uses the
+          // tenant we already authenticated from the chat-ID mapping.
+          try {
+            const result = await updateMileageEntry(tenantId, parsedMlg.entryId, {
+              miles: newMiles,
+            });
+            if (!result.ok) {
+              await ctx.reply(`Couldn't update that trip — ${result.error}.`);
+            } else {
+              const data = result.entry;
+              const dollars = (data.deductibleAmountCents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+              await ctx.reply(
+                `🔧 Updated to ${data.miles} ${data.unit} = <b>${dollars}</b>. Reposted the journal entry.`,
+                { parse_mode: 'HTML' },
+              );
+            }
+          } catch (err) {
+            console.warn('[mileage edit] patch failed:', err);
+            await ctx.reply("Couldn't update that trip — try again in a sec.");
+          }
+          await db.abUserMemory.deleteMany({ where: { tenantId, key: mileageEditKey } });
+          return;
+        }
+      }
+    }
+
     // Anything that looks like a review request — walk through the
     // unified review queue. Catches all the phrasings users actually
     // type ("give me expenses for review", "show me drafts", "what
@@ -2182,6 +2290,13 @@ function getBot(): Bot {
           && loop.intent.intent === 'invoice_from_timer'
         ) {
           await renderInvoiceFromTimerResult(tenantId, ctx, loop.results[0]);
+          return;
+        }
+        if (
+          loop.evaluation.needsKeyboard
+          && loop.intent.intent === 'record_mileage'
+        ) {
+          await renderMileageStepResult(tenantId, ctx, loop.results[0]);
           return;
         }
 
@@ -3454,6 +3569,41 @@ function getBot(): Bot {
         } catch {
           await ctx.reply('Cancelled. Nothing booked.');
         }
+        return;
+      }
+
+      // mlg_edit:<entryId> — start a mileage-edit follow-up. The next
+      // text message from this chat ID is captured by the
+      // `telegram:editing_mileage:<chatId>` memory key (PR 4).
+      if (action === 'mlg_edit') {
+        const entryId = parts[1];
+        if (!entryId) {
+          await ctx.answerCallbackQuery({ text: 'No entry on file' });
+          return;
+        }
+        const exists = await db.abMileageEntry.findFirst({
+          where: { id: entryId, tenantId },
+          select: { id: true },
+        });
+        if (!exists) {
+          await ctx.answerCallbackQuery({ text: 'Entry not found' });
+          return;
+        }
+        const memoryKey = `telegram:editing_mileage:${ctx.chat?.id ?? ''}`;
+        const memoryValue = JSON.stringify({ entryId, setAt: Date.now() });
+        await db.abUserMemory.upsert({
+          where: { tenantId_key: { tenantId, key: memoryKey } },
+          update: { value: memoryValue, lastUsed: new Date() },
+          create: {
+            tenantId,
+            key: memoryKey,
+            value: memoryValue,
+            type: 'pending_action',
+            confidence: 1,
+          },
+        });
+        await ctx.answerCallbackQuery({ text: '✏️ Send the new distance' });
+        await ctx.reply('How many miles? (e.g. <code>47</code>)', { parse_mode: 'HTML' });
         return;
       }
 

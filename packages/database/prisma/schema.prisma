@@ -1786,6 +1786,26 @@ model AbStripeWebhookEvent {
   @@schema("plugin_agentbook_expense")
 }
 
+model AbMileageEntry {
+  id                    String   @id @default(uuid())
+  tenantId              String
+  date                  DateTime
+  miles                 Float                           // miles OR km — see `unit`
+  unit                  String   @default("mi")        // 'mi' | 'km'
+  purpose               String
+  clientId              String?
+  jurisdiction          String                           // 'us' | 'ca' — snapshot at booking time
+  ratePerUnitCents      Int                              // snapshot: 67 for US 2025; varies by CA tier
+  deductibleAmountCents Int                              // miles × ratePerUnitCents (rounded)
+  journalEntryId        String?                          // linked journal entry for reversal
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([tenantId, date])
+  @@index([tenantId, clientId])
+  @@schema("plugin_agentbook_expense")
+}
+
 // ============================================
 // PLUGIN: AGENTBOOK INVOICE
 // ============================================

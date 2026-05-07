@@ -31,7 +31,9 @@
       "/agentbook/vendors",
       "/agentbook/vendors/*",
       "/agentbook/bank",
-      "/agentbook/bank/*"
+      "/agentbook/bank/*",
+      "/agentbook/mileage",
+      "/agentbook/mileage/*"
     ],
     "navigation": {
       "label": "Expenses",

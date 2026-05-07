@@ -25,6 +25,8 @@ import { parseInvoiceFromText } from './agentbook-invoice-parser';
 import { createInvoiceDraft } from './agentbook-invoice-draft';
 import { parseDateHint, aggregateByDay, type TimeEntryRow } from './agentbook-time-aggregator';
 import { resolveClientByHint } from './agentbook-client-resolver';
+import { getMileageRate } from './agentbook-mileage-rates';
+import { resolveVehicleAccounts } from './agentbook-account-resolver';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -47,6 +49,7 @@ export type IntentName =
   | 'stop_timer'        // /timer stop — close out the running entry
   | 'timer_status'      // /timer status — what's running + today's total
   | 'invoice_from_timer' // build an invoice from accumulated unbilled hours
+  | 'record_mileage'    // "drove 47 miles to TechCorp" → mileage entry + JE (PR 4)
   | 'clarify'           // bot is unsure — ask the user a question first
   | 'unrelated';        // none of the above — let agent brain reply
 
@@ -63,6 +66,10 @@ export interface IntentSlots {
   clientNameHint?: string;     // raw client text: "TechCorp", "Acme"
   taskDescription?: string;    // what the user is working on
   dateHint?: string;           // "this week" / "last week" / "this month" / "last month"
+  // Mileage-flow slots (PR 4):
+  miles?: number;              // distance value the user spoke (mi or km)
+  unit?: 'mi' | 'km';          // which unit the value refers to
+  purpose?: string;            // free-form trip purpose ("TechCorp meeting")
 }
 
 export interface BotIntent {
@@ -228,6 +235,22 @@ INTENT CHOICES (pick exactly one)
                      ("invoice TechCorp from timer this week",
                       "bill Acme from my hours last month",
                       "create an invoice for TechCorp from tracked time")
+   record_mileage  — user drove some distance for business and wants it
+                     booked at the standard mileage rate.
+                     Triggers contain a verb like "drove" / "drive" /
+                     "driven" + a number + a unit (mi/miles/km/kilometres).
+                     SET slots.miles to the numeric distance,
+                     slots.unit to "mi" or "km" (default "mi" if absent),
+                     slots.purpose to whatever follows the unit (the
+                     client / destination / reason), and
+                     slots.clientNameHint to a client name if mentioned.
+                     If the message says "1.5 hours driving" or similar
+                     time-based driving phrase WITHOUT a distance, choose
+                     clarify and set clarifyingQuestion to "How many
+                     miles?".
+                     ("drove 47 miles to TechCorp",
+                      "drove 23 km client meeting",
+                      "47 mi from office to airport")
    query_balance   — user is asking about cash on hand
                      ("how much do I have", "balance", "cash")
    query_invoices  — user is asking about outstanding invoices
@@ -276,7 +299,7 @@ RULES
 
 OUTPUT
 Respond with ONLY a JSON object — no preamble, no code fences:
-{"intent": "<name>", "slots": {"categoryName": "Fuel", "amountCents": 4523, "vendor": "Shell", "description": "...", "filter": "...", "clarifyingQuestion": "...", "candidateIntents": ["...", "..."]}, "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
+{"intent": "<name>", "slots": {"categoryName": "Fuel", "amountCents": 4523, "vendor": "Shell", "description": "...", "filter": "...", "clarifyingQuestion": "...", "candidateIntents": ["...", "..."], "miles": 47, "unit": "mi", "purpose": "TechCorp meeting", "clientNameHint": "TechCorp"}, "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
 
   let raw: string;
   try {
@@ -411,6 +434,72 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
       slots: { clientNameHint, dateHint },
       confidence: 0.9,
       reason: 'invoice…from timer trigger phrase',
+      source: 'regex',
+    };
+  }
+
+  // Mileage (PR 4): "drove 47 miles to TechCorp", "drove 23 km client
+  // meeting", "47 mi from office to airport". Must beat the generic
+  // record_expense path because the number after "drove" looks like an
+  // amount; we own this trigger phrase.
+  const mileageMatch =
+    text.match(/\b(?:drove|driven|drive)\s+(\d+(?:\.\d+)?)\s*(mi|miles|km|kilometers|kilometres)?\b\s*(?:to|for|on|at|—|-)?\s*(.*)$/i)
+    || text.match(/^(\d+(?:\.\d+)?)\s*(mi|miles|km|kilometers|kilometres)\s+(?:to|for|on|from|at|—|-)\s+(.+)$/i);
+  if (mileageMatch) {
+    const miles = parseFloat(mileageMatch[1]);
+    if (isFinite(miles) && miles > 0) {
+      const rawUnitRaw = mileageMatch[2];
+      const unitGiven = !!rawUnitRaw;
+      const rawUnit = (rawUnitRaw || 'mi').toLowerCase();
+      const unit: 'mi' | 'km' = /km|kilom/i.test(rawUnit) ? 'km' : 'mi';
+
+      // Ambiguous-driving guard: when no unit was given AND the value
+      // looks like hours (≤ 24) AND the text mentions "hour|hr", the
+      // user almost certainly said "drove for 2 hours" — not 2 miles.
+      // Re-route to clarify rather than booking 2 miles silently.
+      if (!unitGiven && miles <= 24 && /\b(?:hour|hours|hr|hrs)\b/i.test(text)) {
+        return {
+          intent: 'clarify',
+          slots: { clarifyingQuestion: 'How many miles?' },
+          confidence: 0.85,
+          reason: 'ambiguous "drove N hours" without distance unit',
+          source: 'regex',
+        };
+      }
+
+      // Purpose extraction post-processing: trim trailing punctuation,
+      // strip leading prepositions ("to TechCorp" → "TechCorp"; "from
+      // office" → "office"), and default to "Business travel" if the
+      // user only said "drove 47 miles." with no destination.
+      let purposeRaw = (mileageMatch[3] || '').trim().replace(/[.!?]+$/, '');
+      purposeRaw = purposeRaw.replace(/^(?:to|for|on|at|from|—|-)\s+/i, '').trim();
+      const purpose = purposeRaw || 'Business travel';
+
+      // Lift a capitalised word/phrase as the client hint when present.
+      let clientNameHint: string | undefined;
+      const capMatch = purposeRaw.match(/\b([A-Z][\w&'\-.]*(?:\s+[A-Z][\w&'\-.]*)*)\b/);
+      if (capMatch) clientNameHint = capMatch[1];
+      return {
+        intent: 'record_mileage',
+        slots: {
+          miles,
+          unit,
+          purpose,
+          clientNameHint,
+        },
+        confidence: 0.9,
+        reason: 'drove + number + unit',
+        source: 'regex',
+      };
+    }
+  }
+  // Time-based driving (no distance): "log 1.5 hours driving for client work".
+  if (/\b(?:hours?|hrs?)\s+(?:of\s+)?driv/i.test(text)) {
+    return {
+      intent: 'clarify',
+      slots: { clarifyingQuestion: 'How many miles?' },
+      confidence: 0.85,
+      reason: 'time-based driving needs distance',
       source: 'regex',
     };
   }
@@ -572,6 +661,18 @@ export function planSteps(intent: BotIntent, _ctx: BotContext): PlanStep[] {
         },
         dependsOn: [],
       }];
+    case 'record_mileage':
+      return [{
+        id,
+        skill: 'mileage.record',
+        args: {
+          miles: intent.slots.miles,
+          unit: intent.slots.unit,
+          purpose: intent.slots.purpose,
+          clientNameHint: intent.slots.clientNameHint,
+        },
+        dependsOn: [],
+      }];
     case 'query_balance':
       return [{ id, skill: 'query.balance', args: {}, dependsOn: [] }];
     case 'query_invoices':
@@ -634,6 +735,12 @@ export function reviewPlan(steps: PlanStep[], ctx: BotContext): ReviewResult {
       const amt = step.args.amountCents as number | undefined;
       if (!amt || amt <= 0) {
         blockers.push('I need a positive dollar amount. Try "fix it to $45".');
+      }
+    }
+    if (step.skill === 'mileage.record') {
+      const m = step.args.miles as number | undefined;
+      if (!m || m <= 0) {
+        blockers.push('I need a positive distance. Try "drove 47 miles to TechCorp".');
       }
     }
   }
@@ -1383,6 +1490,153 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         };
       }
 
+      // ─── Mileage (PR 4) ──────────────────────────────────────────
+      case 'mileage.record': {
+        const miles = step.args.miles as number | undefined;
+        const unitArg = step.args.unit as 'mi' | 'km' | undefined;
+        const purposeRaw = (step.args.purpose as string | undefined) || 'Business travel';
+        const clientNameHint = step.args.clientNameHint as string | undefined;
+        if (!miles || miles <= 0) {
+          return { stepId: step.id, success: false, error: 'miles must be positive' };
+        }
+
+        // Snapshot the tenant's jurisdiction at booking time. CRA tier
+        // selection rolls forward from the YTD-before-this-trip total.
+        const cfg = await db.abTenantConfig.findUnique({
+          where: { userId: ctx.tenantId },
+          select: { jurisdiction: true },
+        });
+        const jurisdiction: 'us' | 'ca' = cfg?.jurisdiction === 'ca' ? 'ca' : 'us';
+        const date = new Date();
+        const year = date.getUTCFullYear();
+        const unit: 'mi' | 'km' = unitArg || (jurisdiction === 'ca' ? 'km' : 'mi');
+
+        let ytd = 0;
+        if (jurisdiction === 'ca') {
+          // YTD-before-this-trip: filter on `date < trip-date` (not the
+          // year-end boundary) so a backdated trip doesn't accidentally
+          // see future km in its tier picker.
+          const start = new Date(Date.UTC(year, 0, 1));
+          const rows = await db.abMileageEntry.findMany({
+            where: { tenantId: ctx.tenantId, unit, date: { gte: start, lt: date } },
+            select: { miles: true },
+          });
+          ytd = rows.reduce((s, r) => s + r.miles, 0);
+        }
+        const rate = getMileageRate(jurisdiction, year, ytd);
+        const deductibleAmountCents = Math.round(miles * rate.ratePerUnitCents);
+
+        // Bind to a client when the hint resolves to exactly one match;
+        // ambiguous picker is out-of-scope for the MVP record path.
+        let clientId: string | null = null;
+        let clientName: string | null = null;
+        if (clientNameHint) {
+          const resolution = await resolveClientByHint(ctx.tenantId, clientNameHint);
+          if (resolution.candidates.length === 1) {
+            clientId = resolution.candidates[0].id;
+            clientName = resolution.candidates[0].name;
+          }
+        }
+
+        // Resolve accounts for the JE (best-effort — if the chart
+        // isn't seeded we still save the entry). Shared helper so the
+        // route, the PATCH service, and the bot all use the same lookup.
+        const accounts = await resolveVehicleAccounts(ctx.tenantId);
+
+        // Cap purpose at 500 chars to match the route validation —
+        // the bot is a write path too, so the constraint applies here.
+        const purpose = (purposeRaw.trim() || 'Business travel').slice(0, 500);
+
+        const created = await db.$transaction(async (tx) => {
+          let journalEntryId: string | null = null;
+          if (accounts && deductibleAmountCents > 0) {
+            const memo = `Mileage: ${miles} ${unit} — ${purpose}`;
+            const je = await tx.abJournalEntry.create({
+              data: {
+                tenantId: ctx.tenantId,
+                date,
+                memo,
+                sourceType: 'mileage',
+                verified: true,
+                lines: {
+                  create: [
+                    {
+                      accountId: accounts.vehicleAccountId,
+                      debitCents: deductibleAmountCents,
+                      creditCents: 0,
+                      description: `Mileage @ ${rate.ratePerUnitCents}¢/${rate.unit}`,
+                    },
+                    {
+                      accountId: accounts.equityAccountId,
+                      debitCents: 0,
+                      creditCents: deductibleAmountCents,
+                      description: 'Personal vehicle, no cash outlay',
+                    },
+                  ],
+                },
+              },
+            });
+            journalEntryId = je.id;
+          }
+          const entry = await tx.abMileageEntry.create({
+            data: {
+              tenantId: ctx.tenantId,
+              date,
+              miles,
+              unit,
+              purpose,
+              clientId,
+              jurisdiction,
+              ratePerUnitCents: rate.ratePerUnitCents,
+              deductibleAmountCents,
+              journalEntryId,
+            },
+          });
+          if (journalEntryId) {
+            await tx.abJournalEntry.update({
+              where: { id: journalEntryId },
+              data: { sourceId: entry.id },
+            });
+          }
+          await tx.abEvent.create({
+            data: {
+              tenantId: ctx.tenantId,
+              eventType: 'mileage.recorded',
+              actor: 'agent',
+              action: {
+                mileageEntryId: entry.id,
+                miles,
+                unit,
+                jurisdiction,
+                ratePerUnitCents: rate.ratePerUnitCents,
+                deductibleAmountCents,
+                source: 'telegram',
+              },
+            },
+          });
+          return entry;
+        });
+
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'recorded',
+            entryId: created.id,
+            miles,
+            unit,
+            purpose,
+            clientName,
+            clientNameHint: clientNameHint || null,
+            jurisdiction,
+            ratePerUnitCents: rate.ratePerUnitCents,
+            deductibleAmountCents,
+            rateReason: rate.reason,
+            journalPosted: !!created.journalEntryId,
+          },
+        };
+      }
+
       case 'meta.help': {
         return { stepId: step.id, success: true };
       }
@@ -1569,13 +1823,15 @@ export function evaluate(
     };
   }
 
-  // Timer + invoice-from-timer (PR 2): same handoff pattern as
-  // create_invoice_from_chat — the webhook renders rich, keyboarded replies.
+  // Timer + invoice-from-timer (PR 2) + record_mileage (PR 4): same
+  // handoff pattern as create_invoice_from_chat — the webhook renders
+  // rich, keyboarded replies.
   if (
     intent.intent === 'start_timer' ||
     intent.intent === 'stop_timer' ||
     intent.intent === 'timer_status' ||
-    intent.intent === 'invoice_from_timer'
+    intent.intent === 'invoice_from_timer' ||
+    intent.intent === 'record_mileage'
   ) {
     const r = results[0];
     if (!r?.success) {
