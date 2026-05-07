@@ -33,6 +33,7 @@ import { parseDateHint, aggregateByDay, type TimeEntryRow } from './agentbook-ti
 import { resolveClientByHint } from './agentbook-client-resolver';
 import { getMileageRate } from './agentbook-mileage-rates';
 import { resolveVehicleAccounts } from './agentbook-account-resolver';
+import { lookupPerDiem, CONUS_DEFAULT_MIE_CENTS } from './agentbook-perdiem-rates';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ export type IntentName =
   | 'convert_estimate'  // "convert estimate EST-… to invoice" → AbInvoice (PR 7)
   | 'set_budget'        // "max $200 on meals each month" → AbBudget upsert (PR 8)
   | 'invite_cpa'        // "invite my CPA jane@cpa.test" → AbTenantAccess + magic link (PR 11)
+  | 'record_per_diem'   // "per-diem 3 days NYC May 5–7" → 3 AbExpense rows at GSA M&IE rate (PR 14)
   | 'clarify'           // bot is unsure — ask the user a question first
   | 'unrelated';        // none of the above — let agent brain reply
 
@@ -100,6 +102,12 @@ export interface IntentSlots {
   // CPA invite slots (PR 11):
   cpaEmail?: string;                  // extracted email (e.g. "jane@cpa.test")
   cpaRole?: 'cpa' | 'bookkeeper' | 'viewer';
+  // Per-diem slots (PR 14):
+  cityHint?: string;                  // raw city text the user mentioned ("NYC", "San Fran")
+  days?: number;                      // explicit day count when given ("per-diem 3 days NYC")
+  startDate?: string;                 // ISO YYYY-MM-DD when parseable
+  endDate?: string;                   // ISO YYYY-MM-DD when parseable
+  perDiemOption?: 'mie_only' | 'lodging_and_mie';
 }
 
 export interface BotIntent {
@@ -541,6 +549,93 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
     };
   }
 
+  // Per-diem (PR 14): "per-diem 3 days NYC", "perdiem NYC 5/5-5/7",
+  // "per diem 2 days San Francisco", "per-diem 3 days NYC May 5–7".
+  // Must run BEFORE the mileage regex because both can hit a
+  // number-then-place pattern, and BEFORE record_expense because
+  // "per-diem 3 days NYC" doesn't include a $ amount but we still
+  // own the trigger word.
+  if (/^(?:please\s+)?(?:per[- ]?diem|perdiem)\b/i.test(text)) {
+    const slots: IntentSlots = {};
+    // Strict shape first: "per-diem [N days] City [M/D[-M/D]]"
+    const strict = text.match(
+      /^(?:please\s+)?(?:per[- ]?diem|perdiem)\s+(?:(\d+)\s+days?\s+)?([\w\s.&'\-]+?)(?:\s+(\d{1,2}\/\d{1,2})(?:\s*[-–to]+\s*(\d{1,2}\/\d{1,2}))?)?\s*$/i,
+    );
+    if (strict) {
+      const daysRaw = strict[1];
+      if (daysRaw) {
+        const d = parseInt(daysRaw, 10);
+        if (isFinite(d) && d > 0 && d <= 365) slots.days = d;
+      }
+      const cityRaw = (strict[2] || '').trim().replace(/[.!?,]+$/, '');
+      if (cityRaw) slots.cityHint = cityRaw;
+      const startRaw = strict[3];
+      const endRaw = strict[4];
+      if (startRaw) {
+        const iso = mmddToIso(startRaw);
+        if (iso) slots.startDate = iso;
+      }
+      if (endRaw) {
+        const iso = mmddToIso(endRaw);
+        if (iso) slots.endDate = iso;
+      }
+    }
+    // Even when the strict regex captured a city, it may have absorbed
+    // a trailing verbal-date fragment (the city group is `[\w\s]+?`
+    // without exclusions). Strip "May 5–7" / "May 5-7" / "this week"
+    // tails from the captured cityHint so the lookup table doesn't
+    // fail on "NYC May 5-7".
+    if (slots.cityHint) {
+      let c = slots.cityHint;
+      c = c.replace(
+        /\s+(?:on\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*(\d{1,2})(?:\s*[-–to]+\s*(\d{1,2}))?\s*$/i,
+        '',
+      );
+      c = c.replace(/\s+(?:this|next|last)\s+(?:week|month)\s*$/i, '');
+      c = c.replace(/[.!?,]+$/, '').trim();
+      slots.cityHint = c || slots.cityHint;
+    }
+    if (!slots.cityHint) {
+      // Loose fallback: strip leading verb + any "N days" + trailing
+      // date-ish words ("May 5–7", "5/5-5/7", "this week"). What's left
+      // is the city hint. Days are pulled from the same pattern as a
+      // best-effort, but we don't refuse to classify if any of these
+      // sub-extractions miss.
+      let stripped = text.replace(/^(?:please\s+)?(?:per[- ]?diem|perdiem)\s+/i, '').trim();
+      const daysRe = /^(\d+)\s+days?\s+/i;
+      const daysMatch = stripped.match(daysRe);
+      if (daysMatch) {
+        const d = parseInt(daysMatch[1], 10);
+        if (isFinite(d) && d > 0 && d <= 365) slots.days = d;
+        stripped = stripped.replace(daysRe, '');
+      }
+      // Strip trailing date phrases: "M/D[-M/D]" or
+      // "Jan|Feb|Mar|... D[-D]".
+      stripped = stripped.replace(
+        /\s+(?:on\s+)?(?:(\d{1,2}\/\d{1,2})(?:\s*[-–to]+\s*\d{1,2}\/\d{1,2})?)\s*$/i,
+        (_m, iso1: string) => {
+          const isoStart = mmddToIso(iso1);
+          if (isoStart) slots.startDate = isoStart;
+          return '';
+        },
+      );
+      stripped = stripped.replace(
+        /\s+(?:on\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*\d{1,2}(?:\s*[-–to]+\s*\d{1,2})?\s*$/i,
+        '',
+      );
+      stripped = stripped.replace(/\s+(?:this|next|last)\s+(?:week|month)\s*$/i, '');
+      stripped = stripped.replace(/[.!?,]+$/, '').trim();
+      if (stripped) slots.cityHint = stripped;
+    }
+    return {
+      intent: 'record_per_diem',
+      slots,
+      confidence: 0.9,
+      reason: 'per-diem trigger phrase',
+      source: 'regex',
+    };
+  }
+
   // Mileage (PR 4): "drove 47 miles to TechCorp", "drove 23 km client
   // meeting", "47 mi from office to airport". Must beat the generic
   // record_expense path because the number after "drove" looks like an
@@ -892,6 +987,26 @@ export function parseSetBudgetFromText(text: string): ParsedBudget | null {
   return null;
 }
 
+/**
+ * Convert "5/7" / "12/31" to ISO yyyy-mm-dd, defaulting to the current
+ * calendar year. Returns null when month/day is out-of-range. Used by
+ * the per-diem regex (PR 14) — we don't accept full ISO inputs at the
+ * regex layer, but the executor accepts ISO directly when slots come
+ * from the LLM classifier.
+ */
+function mmddToIso(raw: string): string | null {
+  const m = raw.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (!m) return null;
+  const month = parseInt(m[1], 10);
+  const day = parseInt(m[2], 10);
+  if (!isFinite(month) || !isFinite(day)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const year = new Date().getUTCFullYear();
+  const mm = String(month).padStart(2, '0');
+  const dd = String(day).padStart(2, '0');
+  return `${year}-${mm}-${dd}`;
+}
+
 function parseAmount(raw: string, kSuffix: string | undefined): number | null {
   const v = parseFloat(raw.replace(/,/g, ''));
   if (!isFinite(v) || v <= 0) return null;
@@ -1065,6 +1180,19 @@ export function planSteps(intent: BotIntent, _ctx: BotContext): PlanStep[] {
         args: {
           email: intent.slots.cpaEmail,
           role: intent.slots.cpaRole || 'cpa',
+        },
+        dependsOn: [],
+      }];
+    case 'record_per_diem':
+      return [{
+        id,
+        skill: 'per_diem.record',
+        args: {
+          cityHint: intent.slots.cityHint,
+          days: intent.slots.days,
+          startDate: intent.slots.startDate,
+          endDate: intent.slots.endDate,
+          option: intent.slots.perDiemOption || 'mie_only',
         },
         dependsOn: [],
       }];
@@ -2756,6 +2884,196 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         };
       }
 
+      // ─── Per-diem (PR 14) ────────────────────────────────────────
+      // Records N daily AbExpense rows at the GSA M&IE rate (or
+      // M&IE + lodging when the option is `lodging_and_mie`). For
+      // CA tenants we short-circuit with a "not supported" message —
+      // CRA doesn't recognise GSA per-diems for non-incorporated
+      // freelancers, so we keep Maya safe.
+      case 'per_diem.record': {
+        const cityHint = (step.args.cityHint as string | undefined) || '';
+        const days = step.args.days as number | undefined;
+        const startDate = step.args.startDate as string | undefined;
+        const endDate = step.args.endDate as string | undefined;
+        const option = (step.args.option as 'mie_only' | 'lodging_and_mie' | undefined) || 'mie_only';
+
+        // CA short-circuit: per-diem is a US-IRS construct.
+        const cfg = await db.abTenantConfig.findUnique({
+          where: { userId: ctx.tenantId },
+          select: { jurisdiction: true },
+        });
+        const jurisdiction: 'us' | 'ca' = cfg?.jurisdiction === 'ca' ? 'ca' : 'us';
+        if (jurisdiction === 'ca') {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'unsupported_jurisdiction',
+              message:
+                "Per-diem isn't a CA-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)",
+            },
+          };
+        }
+
+        // Resolve date range. Precedence: explicit start+end > start+days >
+        // days only (defaults to today onward) > nothing (1 day, today).
+        const today = new Date();
+        let start: Date | null = null;
+        let end: Date | null = null;
+        if (startDate) {
+          const s = new Date(startDate + 'T00:00:00.000Z');
+          if (!isNaN(s.getTime())) start = s;
+        }
+        if (endDate) {
+          const e = new Date(endDate + 'T00:00:00.000Z');
+          if (!isNaN(e.getTime())) end = e;
+        }
+        let dayCount = days && days > 0 ? days : 0;
+        if (start && end && end >= start) {
+          // Inclusive day count (May 5–7 = 3 days)
+          const diffMs = end.getTime() - start.getTime();
+          dayCount = Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1;
+        } else if (start && dayCount > 0) {
+          end = new Date(start.getTime() + (dayCount - 1) * 24 * 60 * 60 * 1000);
+        } else if (dayCount > 0 && !start) {
+          start = today;
+          end = new Date(today.getTime() + (dayCount - 1) * 24 * 60 * 60 * 1000);
+        } else {
+          // Fallback: single day, today.
+          start = today;
+          end = today;
+          dayCount = 1;
+        }
+        if (dayCount <= 0 || dayCount > 90) {
+          return {
+            stepId: step.id,
+            success: false,
+            error: 'Per-diem trips are capped at 90 days. Tell me how many days.',
+          };
+        }
+
+        const rate = lookupPerDiem(cityHint || '');
+        if (!rate) {
+          return {
+            stepId: step.id,
+            success: false,
+            error: `Couldn't find a per-diem rate for "${cityHint}".`,
+          };
+        }
+        const cityLabel = rate.city;
+
+        // Try to find a Meals & Entertainment-ish category. If we
+        // can't, the rows still book (just without categoryId — the
+        // user can categorise later).
+        const cats = ctx.categories;
+        const mealsCat = cats.find((c) => /meal/i.test(c.name))
+          || cats.find((c) => /travel/i.test(c.name))
+          || null;
+        const lodgingCat = option === 'lodging_and_mie'
+          ? (cats.find((c) => /lodg|hotel/i.test(c.name))
+              || cats.find((c) => /travel/i.test(c.name))
+              || null)
+          : null;
+
+        // Create the rows in a single transaction.
+        const created = await db.$transaction(async (tx) => {
+          const rows: Array<{ id: string; amountCents: number; date: Date; description: string; kind: 'mie' | 'lodging' }> = [];
+          for (let i = 0; i < dayCount; i += 1) {
+            const day = new Date(start!.getTime() + i * 24 * 60 * 60 * 1000);
+            const dateLabel = day.toISOString().slice(0, 10);
+            const mieDescription = `Per-diem M&IE — ${cityLabel} ${dateLabel}`;
+            const mieRow = await tx.abExpense.create({
+              data: {
+                tenantId: ctx.tenantId,
+                amountCents: rate.mieCents,
+                date: day,
+                description: mieDescription,
+                categoryId: mealsCat?.id || null,
+                taxCategory: 'per_diem',
+                isPersonal: false,
+                isDeductible: true,
+                status: 'confirmed',
+                source: 'per_diem',
+                currency: 'USD',
+              },
+            });
+            rows.push({
+              id: mieRow.id,
+              amountCents: mieRow.amountCents,
+              date: mieRow.date,
+              description: mieRow.description || mieDescription,
+              kind: 'mie',
+            });
+            if (option === 'lodging_and_mie') {
+              const lodgingDescription = `Per-diem lodging — ${cityLabel} ${dateLabel}`;
+              const lodgingRow = await tx.abExpense.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  amountCents: rate.lodgingCents,
+                  date: day,
+                  description: lodgingDescription,
+                  categoryId: lodgingCat?.id || null,
+                  taxCategory: 'per_diem',
+                  isPersonal: false,
+                  isDeductible: true,
+                  status: 'confirmed',
+                  source: 'per_diem',
+                  currency: 'USD',
+                },
+              });
+              rows.push({
+                id: lodgingRow.id,
+                amountCents: lodgingRow.amountCents,
+                date: lodgingRow.date,
+                description: lodgingRow.description || lodgingDescription,
+                kind: 'lodging',
+              });
+            }
+          }
+          await tx.abEvent.create({
+            data: {
+              tenantId: ctx.tenantId,
+              eventType: 'per_diem.recorded',
+              actor: 'agent',
+              action: {
+                cityHint,
+                cityLabel,
+                state: rate.state,
+                days: dayCount,
+                option,
+                mieCents: rate.mieCents,
+                lodgingCents: option === 'lodging_and_mie' ? rate.lodgingCents : null,
+                rowCount: rows.length,
+                source: 'telegram',
+              },
+            },
+          });
+          return rows;
+        });
+
+        const totalCents = created.reduce((s, r) => s + r.amountCents, 0);
+        const usingFallback = rate.mieCents === CONUS_DEFAULT_MIE_CENTS && cityHint && cityLabel === 'CONUS Standard';
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'per_diem_recorded',
+            cityHint,
+            city: cityLabel,
+            state: rate.state,
+            days: dayCount,
+            option,
+            mieCents: rate.mieCents,
+            lodgingCents: option === 'lodging_and_mie' ? rate.lodgingCents : null,
+            startDate: start!.toISOString().slice(0, 10),
+            endDate: end!.toISOString().slice(0, 10),
+            entries: created,
+            totalCents,
+            usingFallbackRate: !!usingFallback,
+          },
+        };
+      }
+
       case 'meta.help': {
         return { stepId: step.id, success: true };
       }
@@ -3001,7 +3319,8 @@ export function evaluate(
     intent.intent === 'setup_recurring_invoice' ||
     intent.intent === 'create_estimate' ||
     intent.intent === 'convert_estimate' ||
-    intent.intent === 'set_budget'
+    intent.intent === 'set_budget' ||
+    intent.intent === 'record_per_diem'
   ) {
     const r = results[0];
     if (!r?.success) {

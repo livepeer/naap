@@ -8,6 +8,7 @@ import { VendorsPage } from './pages/Vendors';
 import { BankConnectionPage } from './pages/BankConnection';
 import { MileagePage } from './pages/Mileage';
 import { BudgetsPage } from './pages/Budgets';
+import { PerDiemPage } from './pages/PerDiem';
 import './globals.css';
 
 // Map URL path to internal route
@@ -17,6 +18,7 @@ function getInitialRoute(): string {
   if (path.includes('/receipts')) return '/receipts';
   if (path.includes('/vendors')) return '/vendors';
   if (path.includes('/mileage')) return '/mileage';
+  if (path.includes('/per-diem')) return '/per-diem';
   if (path.includes('/budgets')) return '/budgets';
   if (path.includes('/new')) return '/new';
   return '/';
@@ -31,6 +33,7 @@ const AgentbookExpenseApp: React.FC = () => (
       <Route path="/vendors" element={<VendorsPage />} />
       <Route path="/bank" element={<BankConnectionPage />} />
       <Route path="/mileage" element={<MileagePage />} />
+      <Route path="/per-diem" element={<PerDiemPage />} />
       <Route path="/budgets" element={<BudgetsPage />} />
       <Route path="/*" element={<ExpenseListPage />} />
     </Routes>
@@ -53,6 +56,8 @@ const plugin = createPlugin({
     '/agentbook/mileage/*',
     '/agentbook/budgets',
     '/agentbook/budgets/*',
+    '/agentbook/per-diem',
+    '/agentbook/per-diem/*',
   ],
   App: AgentbookExpenseApp,
 });

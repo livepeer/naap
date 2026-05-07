@@ -1768,6 +1768,105 @@ async function renderMileageStepResult(
   });
 }
 
+// ─── Per-diem (PR 14) ──────────────────────────────────────────────────
+interface PerDiemRecordedData {
+  kind: 'per_diem_recorded' | 'unsupported_jurisdiction';
+  city?: string;
+  state?: string;
+  days?: number;
+  option?: 'mie_only' | 'lodging_and_mie';
+  mieCents?: number;
+  lodgingCents?: number | null;
+  startDate?: string;
+  endDate?: string;
+  entries?: Array<{ id: string; amountCents: number; date: string | Date; description: string; kind: 'mie' | 'lodging' }>;
+  totalCents?: number;
+  usingFallbackRate?: boolean;
+  message?: string;
+}
+
+async function renderPerDiemStepResult(
+  tenantId: string,
+  ctx: InvoiceReplyCtx,
+  result: { success: boolean; data?: unknown; error?: string } | undefined,
+): Promise<void> {
+  if (!result || !result.success || !result.data) {
+    await ctx.reply(result?.error || "Couldn't record per-diem — try again.");
+    return;
+  }
+  const data = result.data as PerDiemRecordedData;
+  if (data.kind === 'unsupported_jurisdiction') {
+    await ctx.reply(data.message || "Per-diem isn't a CA-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)");
+    return;
+  }
+  if (data.kind !== 'per_diem_recorded') {
+    await ctx.reply('Per-diem booked.');
+    return;
+  }
+  const fmt = (cents: number) => '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  const days = data.days || 0;
+  const mie = data.mieCents || 0;
+  const total = data.totalCents || 0;
+  const cityLabel = escHtml(data.city || 'destination');
+  const dateRangeLabel = data.startDate && data.endDate && data.startDate !== data.endDate
+    ? `${data.startDate} – ${data.endDate}`
+    : (data.startDate || '');
+  const lines: string[] = [
+    `📒 ${cityLabel} per-diem ${escHtml(dateRangeLabel)}: ${days} × ${fmt(mie)} (M&IE) = <b>${fmt(total)}</b>. Use M&IE only?`,
+  ];
+  if (data.usingFallbackRate) {
+    lines.push('<i>(used CONUS standard fallback — couldn\'t find a high-cost rate for that city)</i>');
+  }
+
+  // Stash a token so the lodging-button callback can find these rows
+  // again. Same memory pattern other PR flows use.
+  const token = randomToken();
+  const memoryKey = `telegram:pending_perdiem:${token}`;
+  const ids = (data.entries || []).filter((e) => e.kind === 'mie').map((e) => e.id);
+  await db.abUserMemory.upsert({
+    where: { tenantId_key: { tenantId, key: memoryKey } },
+    update: {
+      value: JSON.stringify({
+        ids,
+        city: data.city,
+        state: data.state,
+        days,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        lodgingCents: data.lodgingCents,
+        setAt: Date.now(),
+      }),
+      lastUsed: new Date(),
+    },
+    create: {
+      tenantId,
+      key: memoryKey,
+      value: JSON.stringify({
+        ids,
+        city: data.city,
+        state: data.state,
+        days,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        lodgingCents: data.lodgingCents,
+        setAt: Date.now(),
+      }),
+      type: 'pending_action',
+      confidence: 1,
+    },
+  });
+
+  await ctx.reply(lines.join('\n'), {
+    parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [[
+        { text: '✅ M&IE only', callback_data: `pdm_mie_only:${token}` },
+        { text: '🏨 +Lodging', callback_data: `pdm_with_lodging:${token}` },
+      ]],
+    },
+  });
+}
+
 // ─── Tax package (PR 5) ────────────────────────────────────────────────
 interface TaxPackageData {
   kind: 'tax_package';
@@ -2678,6 +2777,13 @@ function getBot(): Bot {
           && loop.intent.intent === 'record_mileage'
         ) {
           await renderMileageStepResult(tenantId, ctx, loop.results[0]);
+          return;
+        }
+        if (
+          loop.evaluation.needsKeyboard
+          && loop.intent.intent === 'record_per_diem'
+        ) {
+          await renderPerDiemStepResult(tenantId, ctx, loop.results[0]);
           return;
         }
         if (
@@ -4876,6 +4982,91 @@ function getBot(): Bot {
           console.error('[bnk_match2] failed:', err);
           await ctx.answerCallbackQuery({ text: 'Error matching — try again' });
         }
+        return;
+      }
+
+      // ─── Per-diem (PR 14) ────────────────────────────────────────
+      // pdm_mie_only:<token>      → already-booked rows, just ack.
+      // pdm_with_lodging:<token>  → fetch the M&IE rows for that token
+      //                              and append a sibling lodging entry
+      //                              (one per day) at the bundled rate.
+      if (action === 'pdm_mie_only' || action === 'pdm_with_lodging') {
+        const token = parts[1];
+        if (!token) {
+          await ctx.answerCallbackQuery({ text: 'Token missing' });
+          return;
+        }
+        const memoryKey = `telegram:pending_perdiem:${token}`;
+        const stash = await db.abUserMemory.findUnique({
+          where: { tenantId_key: { tenantId, key: memoryKey } },
+        });
+        if (!stash) {
+          await ctx.answerCallbackQuery({ text: 'Per-diem session expired' });
+          return;
+        }
+        const parsed = JSON.parse(stash.value) as {
+          ids: string[];
+          city?: string;
+          state?: string;
+          days?: number;
+          startDate?: string;
+          endDate?: string;
+          lodgingCents?: number | null;
+        };
+        if (action === 'pdm_mie_only') {
+          await db.abUserMemory.deleteMany({ where: { tenantId, key: memoryKey } });
+          await ctx.answerCallbackQuery({ text: '✅ M&IE only — booked' });
+          await ctx.reply('✅ Booked M&IE only. Have a good trip.');
+          return;
+        }
+        // +Lodging: create sister entries
+        const lodgingCents = parsed.lodgingCents || 0;
+        if (!lodgingCents || !parsed.ids?.length) {
+          await ctx.answerCallbackQuery({ text: 'No lodging rate available' });
+          await ctx.reply('Couldn\'t find a lodging rate for that city — leaving M&IE only.');
+          return;
+        }
+        const mieRows = await db.abExpense.findMany({
+          where: { id: { in: parsed.ids }, tenantId },
+          select: { id: true, date: true, categoryId: true },
+        });
+        const cityLabel = parsed.city || 'destination';
+        const created = await db.$transaction(async (tx) => {
+          const out: Array<{ id: string }> = [];
+          for (const r of mieRows) {
+            const dateLabel = r.date.toISOString().slice(0, 10);
+            const row = await tx.abExpense.create({
+              data: {
+                tenantId,
+                amountCents: lodgingCents,
+                date: r.date,
+                description: `Per-diem lodging — ${cityLabel} ${dateLabel}`,
+                categoryId: r.categoryId || null,
+                taxCategory: 'per_diem',
+                isPersonal: false,
+                isDeductible: true,
+                status: 'confirmed',
+                source: 'per_diem',
+                currency: 'USD',
+              },
+            });
+            out.push({ id: row.id });
+          }
+          await tx.abEvent.create({
+            data: {
+              tenantId,
+              eventType: 'per_diem.lodging_added',
+              actor: 'agent',
+              action: { token, lodgingCents, rowCount: out.length, source: 'telegram' },
+            },
+          });
+          return out;
+        });
+        await db.abUserMemory.deleteMany({ where: { tenantId, key: memoryKey } });
+        const totalLodging = lodgingCents * created.length;
+        const fmt = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+        await ctx.answerCallbackQuery({ text: '🏨 Lodging added' });
+        await ctx.reply(`🏨 Added ${created.length} × ${fmt(lodgingCents)} lodging = <b>${fmt(totalLodging)}</b>.`, { parse_mode: 'HTML' });
         return;
       }
 
