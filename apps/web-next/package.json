@@ -36,7 +36,7 @@
     "@naap/types": "*",
     "@naap/ui": "*",
     "@naap/utils": "*",
-    "@pymthouse/builder-api": "file:../../../pymthouse-builder-api",
+    "@pymthouse/builder-api": "0.0.7",
     "@vercel/blob": "^2.2.0",
     "ably": "^2.18.0",
     "dompurify": "^3.3.0",
