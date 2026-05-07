@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import {
+  NAAP_DEVICE_LOGIN_HINT_COOKIE,
   NAAP_PMTH_DEVICE_APPROVAL_COOKIE,
   encodeDeviceApprovalCookiePayload,
   extractDeviceApprovalTupleFromTargetLink,
@@ -204,12 +205,20 @@ export function middleware(request: NextRequest) {
         res.headers.set('x-trace-id', traceId);
         return res;
       }
-      const loginHint = request.nextUrl.searchParams.get('login_hint');
+      const loginHint = request.nextUrl.searchParams.get('login_hint')?.trim() ?? '';
       const clean = new URL('/login', request.url);
       clean.searchParams.set('callbackUrl', '/oidc/device-approved');
-      if (loginHint) clean.searchParams.set('login_hint', loginHint);
       const res = NextResponse.redirect(clean);
       res.cookies.set(NAAP_PMTH_DEVICE_APPROVAL_COOKIE, cookiePayload, deviceCookieOpts);
+      if (loginHint && loginHint.length <= 2048) {
+        res.cookies.set(NAAP_DEVICE_LOGIN_HINT_COOKIE, loginHint, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 600,
+          path: '/',
+        });
+      }
       res.headers.set('x-request-id', requestId);
       res.headers.set('x-trace-id', traceId);
       return res;

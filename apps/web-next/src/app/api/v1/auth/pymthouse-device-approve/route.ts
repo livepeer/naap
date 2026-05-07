@@ -38,7 +38,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     request.cookies.get(NAAP_PMTH_DEVICE_APPROVAL_COOKIE)?.value,
   );
   if (!payload) {
-    return errors.badRequest('Missing or expired device approval cookie');
+    return withClearedDeviceCookie(
+      errors.badRequest('Missing or expired device approval cookie'),
+    );
   }
 
   const result = await approvePymthouseDeviceCode({
