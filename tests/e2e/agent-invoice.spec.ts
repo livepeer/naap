@@ -226,3 +226,59 @@ test.describe.serial('PR 1 — Invoice from Telegram chat (webhook flow)', () =>
     expect(resp.ok).toBe(true);
   });
 });
+
+// ─── PR 2 — Time tracking → invoice (webhook flow) ────────────────────────
+//
+// Same E2E_TELEGRAM_CAPTURE machinery as PR 1. We don't pre-seed a
+// running entry in the suite — `postWebhook` to /timer start kicks one
+// off, /timer stop closes it. Tests are serial so /timer stop hits the
+// entry the prior /timer start created.
+
+test.describe.serial('PR 2 — Time tracking → invoice (webhook flow)', () => {
+  test('/timer start TechCorp planning starts a timer', async ({ request }) => {
+    const resp = await postWebhook(request, { text: '/timer start TechCorp planning' });
+    // The bot should reply with the started message (covers both the
+    // bound-client and unmatched-name fallbacks). We don't assert
+    // strictly on TechCorp resolution since the e2e tenant may or may
+    // not have that client seeded.
+    const reply = findReply(resp.captured, (t) => /Timer started|Which TechCorp/.test(t));
+    expect(reply).not.toBeNull();
+  });
+
+  test('/timer status reports active timer or idle', async ({ request }) => {
+    // Either "Running for X" or "No timer running" depending on the
+    // prior tests' state — both are valid responses.
+    const resp = await postWebhook(request, { text: '/timer status' });
+    const reply = findReply(resp.captured, (t) => /Running for|No timer running/.test(t));
+    expect(reply).not.toBeNull();
+  });
+
+  test('/timer stop logs the entry or reports no timer', async ({ request }) => {
+    const resp = await postWebhook(request, { text: '/timer stop' });
+    // Either "Stopped — Xmin logged" or "No active timer." — both valid.
+    const reply = findReply(resp.captured, (t) => /Stopped|No active timer/.test(t));
+    expect(reply).not.toBeNull();
+  });
+
+  test('invoice TechCorp from timer responds (draft, no entries, or picker)', async ({ request }) => {
+    // The reply pattern depends on tenant state: an invoice draft, a
+    // "no unbilled time" message, or an ambiguous-client picker — all
+    // exercise the new dispatch path.
+    const resp = await postWebhook(request, { text: 'invoice TechCorp from timer this week' });
+    const reply = findReply(
+      resp.captured,
+      (t) => /Draft\s+\S+\s+ready|No unbilled time|Which TechCorp|don't have a client/.test(t),
+    );
+    expect(reply).not.toBeNull();
+  });
+
+  test('/timer start with ambiguous client surfaces picker text', async ({ request }) => {
+    // Use a generic name likely to either match nothing (friendly start)
+    // or match many (picker). Both replies prove the regex routed
+    // through the timer.start branch rather than the generic invoice or
+    // unrelated paths.
+    const resp = await postWebhook(request, { text: '/timer start Client work' });
+    const reply = findReply(resp.captured, (t) => /Timer started|Which/.test(t));
+    expect(reply).not.toBeNull();
+  });
+});

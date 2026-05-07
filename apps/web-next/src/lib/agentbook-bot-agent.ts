@@ -23,6 +23,8 @@ import 'server-only';
 import { prisma as db } from '@naap/database';
 import { parseInvoiceFromText } from './agentbook-invoice-parser';
 import { createInvoiceDraft } from './agentbook-invoice-draft';
+import { parseDateHint, aggregateByDay, type TimeEntryRow } from './agentbook-time-aggregator';
+import { resolveClientByHint } from './agentbook-client-resolver';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -41,6 +43,10 @@ export type IntentName =
   | 'undo_last'         // reverse / delete the most recent expense
   | 'update_amount'     // fix the amount on the active expense
   | 'create_invoice_from_chat' // user is asking the bot to draft an invoice
+  | 'start_timer'       // /timer start — begin tracking time for a client / task
+  | 'stop_timer'        // /timer stop — close out the running entry
+  | 'timer_status'      // /timer status — what's running + today's total
+  | 'invoice_from_timer' // build an invoice from accumulated unbilled hours
   | 'clarify'           // bot is unsure — ask the user a question first
   | 'unrelated';        // none of the above — let agent brain reply
 
@@ -53,6 +59,10 @@ export interface IntentSlots {
   filter?: string;        // e.g. "travel", "this month"
   clarifyingQuestion?: string;  // bot's question back to the user
   candidateIntents?: IntentName[]; // intents the bot is choosing between
+  // Timer-flow slots (PR 2):
+  clientNameHint?: string;     // raw client text: "TechCorp", "Acme"
+  taskDescription?: string;    // what the user is working on
+  dateHint?: string;           // "this week" / "last week" / "this month" / "last month"
 }
 
 export interface BotIntent {
@@ -191,9 +201,33 @@ INTENT CHOICES (pick exactly one)
                      slots.description to the FULL raw user text — the
                      downstream parser handles client name, line items,
                      amount, and due date.
+                     IMPORTANT: do NOT pick this when the user mentions
+                     "timer" or "tracked time" — that's invoice_from_timer.
                      ("invoice Acme \$5K for July consulting",
                       "bill TechCorp \$3000 for design and \$500 hosting",
                       "send Maya a \$1200 invoice for retainer")
+   start_timer     — start a new running time entry. Triggers: "/timer
+                     start <client> <task>", "start a timer for X",
+                     "track time on Y". SET slots.clientNameHint to the
+                     client (raw text; the bot resolves it) and
+                     slots.taskDescription to whatever follows.
+                     ("/timer start TechCorp planning",
+                      "start a timer for Acme — design review")
+   stop_timer      — stop the currently running timer. Triggers: "/timer
+                     stop", "stop the timer", "I'm done".
+   timer_status    — what timer is running + how much logged today.
+                     Triggers: "/timer status", "/timer", "is my timer
+                     running?".
+   invoice_from_timer — build an invoice from accumulated unbilled hours
+                     for a client. Triggers contain BOTH a client and the
+                     phrase "from timer" / "from my hours" /
+                     "from tracked time". SET slots.clientNameHint to
+                     the client and slots.dateHint to the time-window
+                     phrase if present ("this week", "last week",
+                     "this month", "last month"; default "this month").
+                     ("invoice TechCorp from timer this week",
+                      "bill Acme from my hours last month",
+                      "create an invoice for TechCorp from tracked time")
    query_balance   — user is asking about cash on hand
                      ("how much do I have", "balance", "cash")
    query_invoices  — user is asking about outstanding invoices
@@ -327,6 +361,60 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
     return { intent: 'reject', slots, confidence: 0.85, reason: 'negative + active expense', source: 'regex' };
   }
 
+  // Timer flow (PR 2). Order matters: `invoice_from_timer` must be
+  // checked BEFORE the generic invoice trigger below so "invoice X from
+  // timer this week" doesn't get parsed as a regular invoice-from-chat.
+  // Slash-commands (`/timer ...`) are exact triggers; the natural-
+  // language form is intentionally narrow to avoid stealing turns from
+  // the broader create_invoice_from_chat intent.
+  const timerStartMatch = text.match(/^\/timer\s+start\b\s*(.*)$/i);
+  if (timerStartMatch) {
+    const tail = timerStartMatch[1].trim();
+    // Heuristic: first capitalised word(s) → client; rest → task.
+    // Falls back to the whole tail as the task if no client cap appears.
+    const clientCapMatch = tail.match(/^([A-Z][\w&'\-.]*(?:\s+[A-Z][\w&'\-.]*)*)\s*(.*)$/);
+    const startSlots: IntentSlots = {};
+    if (clientCapMatch) {
+      startSlots.clientNameHint = clientCapMatch[1].trim();
+      const rest = clientCapMatch[2].trim();
+      if (rest) startSlots.taskDescription = rest;
+    } else if (tail) {
+      startSlots.taskDescription = tail;
+    }
+    return {
+      intent: 'start_timer',
+      slots: startSlots,
+      confidence: 0.95,
+      reason: '/timer start slash command',
+      source: 'regex',
+    };
+  }
+  if (/^\/timer\s+stop\b/i.test(text)) {
+    return { intent: 'stop_timer', slots, confidence: 0.95, reason: '/timer stop slash command', source: 'regex' };
+  }
+  if (/^\/timer\s+status\b/i.test(text) || /^\/timer\s*$/i.test(text)) {
+    return { intent: 'timer_status', slots, confidence: 0.95, reason: '/timer status slash command', source: 'regex' };
+  }
+  // Natural-language invoice-from-timer. Extract client (text between
+  // the verb and " from timer ") and date hint (anything after "timer").
+  const fromTimerMatch = text.match(/^(?:please\s+|can you\s+)?(?:invoice|bill|create(?:\s+an?)?\s+invoice(?:\s+for)?|send(?:\s+\w+)?\s+invoice(?:\s+for)?)\s+(.+?)\s+from\s+(?:timer|my\s+hours|my\s+tracked\s+time|tracked\s+time)\b\s*(.*)$/i);
+  if (fromTimerMatch) {
+    const clientNameHint = fromTimerMatch[1].trim().replace(/\s+/g, ' ');
+    const tail = fromTimerMatch[2].trim().toLowerCase();
+    let dateHint: string | undefined;
+    if (/last\s+week/.test(tail)) dateHint = 'last week';
+    else if (/this\s+week/.test(tail)) dateHint = 'this week';
+    else if (/last\s+month/.test(tail)) dateHint = 'last month';
+    else if (/this\s+month/.test(tail)) dateHint = 'this month';
+    return {
+      intent: 'invoice_from_timer',
+      slots: { clientNameHint, dateHint },
+      confidence: 0.9,
+      reason: 'invoice…from timer trigger phrase',
+      source: 'regex',
+    };
+  }
+
   // Invoice creation — "invoice Acme $5K for July consulting", "bill X
   // $1000 for Y", "send Acme an invoice". Beats record_expense, since
   // "invoice" is more specific than the spent/paid/bought verbs.
@@ -458,6 +546,30 @@ export function planSteps(intent: BotIntent, _ctx: BotContext): PlanStep[] {
         id,
         skill: 'invoice.create_from_chat',
         args: { text: intent.slots.description || '' },
+        dependsOn: [],
+      }];
+    case 'start_timer':
+      return [{
+        id,
+        skill: 'timer.start',
+        args: {
+          clientNameHint: intent.slots.clientNameHint,
+          taskDescription: intent.slots.taskDescription,
+        },
+        dependsOn: [],
+      }];
+    case 'stop_timer':
+      return [{ id, skill: 'timer.stop', args: {}, dependsOn: [] }];
+    case 'timer_status':
+      return [{ id, skill: 'timer.status', args: {}, dependsOn: [] }];
+    case 'invoice_from_timer':
+      return [{
+        id,
+        skill: 'invoice.from_timer',
+        args: {
+          clientNameHint: intent.slots.clientNameHint,
+          dateHint: intent.slots.dateHint,
+        },
         dependsOn: [],
       }];
     case 'query_balance':
@@ -839,15 +951,9 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           };
         }
 
-        // Resolve client by case-insensitive substring match.
-        const allClients = await db.abClient.findMany({
-          where: { tenantId: ctx.tenantId },
-          select: { id: true, name: true, email: true },
-        });
-        const hint = parsed.clientNameHint.toLowerCase();
-        const candidates = allClients.filter(
-          (c) => c.name.toLowerCase().includes(hint) || hint.includes(c.name.toLowerCase()),
-        );
+        // Resolve client via the shared exact-then-substring helper.
+        const resolution = await resolveClientByHint(ctx.tenantId, parsed.clientNameHint);
+        const candidates = resolution.candidates;
 
         if (candidates.length === 0) {
           return {
@@ -879,7 +985,7 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         // HTTP draft-from-text route.
         const draft = await createInvoiceDraft({
           tenantId: ctx.tenantId,
-          client: candidates[0],
+          client: { id: candidates[0].id, name: candidates[0].name, email: candidates[0].email },
           parsed,
         });
 
@@ -889,6 +995,390 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           data: {
             kind: 'draft_created',
             ...draft,
+          },
+        };
+      }
+
+      // ─── Timer + invoice-from-timer (PR 2) ──────────────────────────
+      case 'timer.start': {
+        const clientNameHint = step.args.clientNameHint as string | undefined;
+        const taskDescription = step.args.taskDescription as string | undefined;
+
+        // Resolve client: 0 → no client (still start, log freeform), 1 → bind, 2+ → ask the
+        // webhook to surface a picker before starting (so we never bind to
+        // the wrong client at start time).
+        let clientId: string | null = null;
+        let clientName: string | null = null;
+        if (clientNameHint && clientNameHint.trim()) {
+          const resolution = await resolveClientByHint(ctx.tenantId, clientNameHint);
+          const matches = resolution.candidates;
+          if (matches.length === 1) {
+            clientId = matches[0].id;
+            clientName = matches[0].name;
+          } else if (matches.length > 1) {
+            // Hand back to the webhook adapter to surface the picker.
+            return {
+              stepId: step.id,
+              success: true,
+              data: {
+                kind: 'needs_picker',
+                clientNameHint,
+                taskDescription: taskDescription || 'Working',
+                candidates: matches.map((c) => ({ id: c.id, name: c.name })),
+              },
+            };
+          } else {
+            // No match — start the timer anyway under freeform description
+            // so the user isn't blocked, and let them attach a client
+            // later. The webhook can warn that the name didn't resolve.
+            clientName = null;
+          }
+        }
+
+        // Auto-stop any running timer (mirrors POST /timer/start behaviour).
+        const running = await db.abTimeEntry.findFirst({
+          where: { tenantId: ctx.tenantId, endedAt: null },
+        });
+        if (running) {
+          const dur = Math.max(1, Math.round((Date.now() - running.startedAt.getTime()) / 60_000));
+          await db.abTimeEntry.update({
+            where: { id: running.id },
+            data: { endedAt: new Date(), durationMinutes: dur },
+          });
+        }
+
+        const entry = await db.abTimeEntry.create({
+          data: {
+            tenantId: ctx.tenantId,
+            clientId: clientId || undefined,
+            description: (taskDescription && taskDescription.trim()) || 'Working',
+            startedAt: new Date(),
+          },
+        });
+
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'started',
+            entryId: entry.id,
+            clientId,
+            clientName,
+            clientNameHint: clientNameHint || null,
+            taskDescription: entry.description,
+            unmatchedClientHint: clientNameHint && !clientId ? clientNameHint : null,
+          },
+        };
+      }
+
+      case 'timer.stop': {
+        const running = await db.abTimeEntry.findFirst({
+          where: { tenantId: ctx.tenantId, endedAt: null },
+          orderBy: { startedAt: 'desc' },
+        });
+        if (!running) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: { kind: 'not_running' },
+          };
+        }
+        const dur = Math.max(1, Math.round((Date.now() - running.startedAt.getTime()) / 60_000));
+        const updated = await db.abTimeEntry.update({
+          where: { id: running.id },
+          data: { endedAt: new Date(), durationMinutes: dur },
+        });
+        await db.abEvent.create({
+          data: {
+            tenantId: ctx.tenantId,
+            eventType: 'time.logged',
+            actor: 'agent',
+            action: { entryId: updated.id, minutes: dur, source: 'telegram' },
+          },
+        });
+
+        // Compute "this week" total for the friendly summary. Use the
+        // tenant timezone via parseDateHint so the week boundary lines
+        // up with the user's local Monday.
+        const tenantConfig = await db.abTenantConfig.findUnique({
+          where: { userId: ctx.tenantId },
+          select: { timezone: true },
+        });
+        const tz = tenantConfig?.timezone || 'UTC';
+        const week = parseDateHint('this week', tz);
+        const weekEntries = await db.abTimeEntry.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            startedAt: { gte: week.startDate, lt: week.endDate },
+          },
+          select: { durationMinutes: true },
+        });
+        const weekTotalMinutes = weekEntries.reduce((s, e) => s + (e.durationMinutes || 0), 0);
+
+        let clientName: string | null = null;
+        if (updated.clientId) {
+          const c = await db.abClient.findUnique({
+            where: { id: updated.clientId },
+            select: { name: true },
+          });
+          clientName = c?.name || null;
+        }
+
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'stopped',
+            entryId: updated.id,
+            minutesLogged: dur,
+            weekTotalMinutes,
+            clientName,
+            description: updated.description,
+          },
+        };
+      }
+
+      case 'timer.status': {
+        const tenantConfig = await db.abTenantConfig.findUnique({
+          where: { userId: ctx.tenantId },
+          select: { timezone: true },
+        });
+        const tz = tenantConfig?.timezone || 'UTC';
+
+        const running = await db.abTimeEntry.findFirst({
+          where: { tenantId: ctx.tenantId, endedAt: null },
+          orderBy: { startedAt: 'desc' },
+        });
+
+        // Today = [todayStart, tomorrowStart) in tenant TZ. parseDateHint
+        // does the DST-aware day-walk for us — survives spring-forward
+        // (23h day) and fall-back (25h day) without an off-by-one.
+        const today = parseDateHint('today', tz);
+
+        const todayEntries = await db.abTimeEntry.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            startedAt: { gte: today.startDate, lt: today.endDate },
+          },
+          select: { durationMinutes: true, startedAt: true, endedAt: true },
+        });
+        let todayTotalMinutes = 0;
+        for (const e of todayEntries) {
+          if (e.endedAt) {
+            todayTotalMinutes += e.durationMinutes || 0;
+          } else {
+            // Running entry — count elapsed minutes so the displayed
+            // "today's total" matches what the user expects.
+            todayTotalMinutes += Math.max(1, Math.round((Date.now() - e.startedAt.getTime()) / 60000));
+          }
+        }
+
+        if (!running) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: { kind: 'idle', todayTotalMinutes },
+          };
+        }
+
+        const elapsedMinutes = Math.max(0, Math.round((Date.now() - running.startedAt.getTime()) / 60_000));
+        let clientName: string | null = null;
+        if (running.clientId) {
+          const c = await db.abClient.findUnique({
+            where: { id: running.clientId },
+            select: { name: true },
+          });
+          clientName = c?.name || null;
+        }
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'running',
+            entryId: running.id,
+            elapsedMinutes,
+            description: running.description,
+            clientName,
+            todayTotalMinutes,
+          },
+        };
+      }
+
+      case 'invoice.from_timer': {
+        const clientNameHint = step.args.clientNameHint as string | undefined;
+        const dateHint = step.args.dateHint as string | undefined;
+        if (!clientNameHint || !clientNameHint.trim()) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: 'Which client should I invoice from your tracked time?',
+            },
+          };
+        }
+
+        // Resolve client via the shared exact-then-substring helper.
+        const resolution = await resolveClientByHint(ctx.tenantId, clientNameHint);
+        const candidates = resolution.candidates;
+        if (candidates.length === 0) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: `I don't have a client named "${clientNameHint}" on file. Add them first or pick a different name.`,
+            },
+          };
+        }
+        if (candidates.length > 1) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'ambiguous',
+              clientNameHint,
+              candidates: candidates.map((c) => ({ id: c.id, name: c.name, email: c.email })),
+              dateHint: dateHint || 'this month',
+            },
+          };
+        }
+
+        const client = { id: candidates[0].id, name: candidates[0].name, email: candidates[0].email };
+
+        // Resolve date range using the tenant timezone.
+        const tenantConfig = await db.abTenantConfig.findUnique({
+          where: { userId: ctx.tenantId },
+          select: { timezone: true },
+        });
+        const tz = tenantConfig?.timezone || 'UTC';
+        const range = parseDateHint(dateHint, tz);
+
+        const entries = await db.abTimeEntry.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            clientId: client.id,
+            billed: false,
+            billable: true,
+            startedAt: { gte: range.startDate, lt: range.endDate },
+          },
+          orderBy: { startedAt: 'asc' },
+        });
+        if (entries.length === 0) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'no_entries',
+              clientName: client.name,
+              dateHint: dateHint || 'this month',
+            },
+          };
+        }
+
+        const rows: TimeEntryRow[] = entries.map((e) => ({
+          id: e.id,
+          // Bucket by tenant-local calendar day.
+          date: (() => {
+            try {
+              return new Intl.DateTimeFormat('en-CA', {
+                timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+              }).format(e.startedAt);
+            } catch {
+              return e.startedAt.toISOString().slice(0, 10);
+            }
+          })(),
+          description: e.description || '',
+          durationMinutes: e.durationMinutes || 0,
+          hourlyRateCents: e.hourlyRateCents,
+        }));
+        const aggregated = aggregateByDay(rows);
+        const totalMinutes = entries.reduce((s, e) => s + (e.durationMinutes || 0), 0);
+
+        // Reject zero-rate invoices at the consumer: aggregated lines all at
+        // 0¢ means every input entry had `hourlyRateCents == null`. Creating
+        // a $0 draft and showing the user "Draft ready — total $0" with no
+        // explanation is worse than failing closed with a fixable message.
+        if (aggregated.length > 0 && aggregated.every((l) => l.rateCents === 0)) {
+          return {
+            stepId: step.id,
+            success: false,
+            error: `These entries don't have an hourly rate set yet — set one on ${client.name} first, then try again.`,
+          };
+        }
+
+        // Determine the "headline" rate: if every entry shares the same
+        // non-null rate, use it; otherwise mark "varied".
+        const rateSet = new Set<number>();
+        for (const e of entries) {
+          if (e.hourlyRateCents != null) rateSet.add(e.hourlyRateCents);
+        }
+        const headlineRateCents = rateSet.size === 1 ? Array.from(rateSet)[0] : null;
+
+        const draft = await createInvoiceDraft({
+          tenantId: ctx.tenantId,
+          client,
+          parsed: {
+            lines: aggregated.map((line) => ({
+              description: line.description,
+              rateCents: line.rateCents,
+              quantity: line.quantity,
+            })),
+          },
+          source: 'telegram',
+        });
+
+        // Mark the entries we just consumed as billed. Scoping by
+        // `billed=false` guards against a concurrent invoice-from-timer
+        // pass having already claimed any of these rows.
+        //
+        // Atomicity: createInvoiceDraft already committed its own transaction.
+        // If the updateMany below fails (network blip, deadlock) we'd be left
+        // with a draft AND still-unbilled entries — re-running would create
+        // a duplicate invoice. Compensate by voiding the draft so retry is
+        // safe. The void itself is best-effort: if it fails we log and let
+        // the original error propagate.
+        const entryIds = entries.map((e) => e.id);
+        try {
+          await db.abTimeEntry.updateMany({
+            where: { id: { in: entryIds }, tenantId: ctx.tenantId, billed: false },
+            data: { billed: true, invoiceId: draft.draftId },
+          });
+        } catch (err) {
+          // Status value is 'void' to match the rest of the codebase
+          // (see /invoices/[id]/void/route.ts).
+          await db.abInvoice
+            .updateMany({
+              where: { id: draft.draftId, tenantId: ctx.tenantId },
+              data: { status: 'void' },
+            })
+            .catch((voidErr) => {
+              console.error(
+                '[invoice.from_timer] failed to void draft after updateMany error',
+                { draftId: draft.draftId, voidErr },
+              );
+            });
+          throw err;
+        }
+
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'draft_created',
+            draftId: draft.draftId,
+            invoiceNumber: draft.invoiceNumber,
+            clientName: draft.clientName,
+            clientEmail: draft.clientEmail,
+            totalCents: draft.totalCents,
+            currency: draft.currency,
+            dueDate: draft.dueDate,
+            issuedDate: draft.issuedDate,
+            entryCount: entries.length,
+            totalMinutes,
+            headlineRateCents,
+            lineCount: aggregated.length,
+            entryIdsConsumed: entryIds,
           },
         };
       }
@@ -1070,6 +1560,33 @@ export function evaluate(
     // friendly preview + inline keyboard (Send/Edit/Cancel or
     // ambiguous-picker). We hand back an empty reply with
     // needsKeyboard=true so the adapter knows it owns the response.
+    return {
+      reply: '',
+      parseMode: undefined,
+      learned,
+      delegatedToBrain: false,
+      needsKeyboard: true,
+    };
+  }
+
+  // Timer + invoice-from-timer (PR 2): same handoff pattern as
+  // create_invoice_from_chat — the webhook renders rich, keyboarded replies.
+  if (
+    intent.intent === 'start_timer' ||
+    intent.intent === 'stop_timer' ||
+    intent.intent === 'timer_status' ||
+    intent.intent === 'invoice_from_timer'
+  ) {
+    const r = results[0];
+    if (!r?.success) {
+      return {
+        reply: r?.error || 'Couldn\'t reach the timer.',
+        parseMode: undefined,
+        learned,
+        delegatedToBrain: false,
+        needsKeyboard: false,
+      };
+    }
     return {
       reply: '',
       parseMode: undefined,

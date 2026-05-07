@@ -17,6 +17,7 @@ import { prisma as db } from '@naap/database';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { callGemini, classifyAndExecuteV1 } from '@agentbook-core/server';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
+import { parseDateHint } from '@/lib/agentbook-time-aggregator';
 import { autoCategorizeForTenant, getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
 import {
   getDigestPrefs,
@@ -1426,6 +1427,268 @@ function randomToken(): string {
   return randomBytes(5).toString('hex');
 }
 
+// === Timer + invoice-from-timer (PR 2) ====================================
+//
+// Memory keys:
+//   • telegram:pending_timer_start:<token>  — pending /timer start
+//     awaiting an ambiguous-client pick (mirrors PR 1's pattern).
+//   • telegram:pending_invoice_from_timer:<token>  — pending invoice-
+//     from-timer awaiting a client pick.
+//
+// Callback prefixes:
+//   • tmr_pickclient:<token>:<clientId>   pick the client for a /timer start
+//   • tmr_pickcancel:<token>              cancel a /timer start pick
+//   • tmr_pickinvoice:<token>:<clientId>  pick the client for invoice-from-timer
+//   • tmr_pickinvoicecancel:<token>       cancel an invoice-from-timer pick
+//
+// Send/Edit/Cancel for the resulting draft reuses PR 1's `inv_*` callbacks
+// — the draft lives in `AbInvoice` exactly the same way.
+
+// Telegram-flavoured "Xh Ymin" string. The frontend's Timer.tsx uses a
+// different format ("Xh Ym"), so we deliberately keep the two helpers
+// separate rather than sharing a single utility.
+function fmtMinutes(min: number): string {
+  if (!min || min <= 0) return '0min';
+  const m = Math.round(min);
+  const hours = Math.floor(m / 60);
+  const mins = m % 60;
+  if (hours === 0) return `${mins}min`;
+  if (mins === 0) return `${hours}h`;
+  return `${hours}h ${mins}min`;
+}
+
+interface TimerStartedData {
+  kind: 'started' | 'needs_picker';
+  entryId?: string;
+  clientId?: string | null;
+  clientName?: string | null;
+  clientNameHint?: string | null;
+  taskDescription?: string;
+  candidates?: Array<{ id: string; name: string }>;
+  unmatchedClientHint?: string | null;
+}
+interface TimerStoppedData {
+  kind: 'stopped' | 'not_running';
+  minutesLogged?: number;
+  weekTotalMinutes?: number;
+  clientName?: string | null;
+  description?: string;
+}
+interface TimerStatusData {
+  kind: 'running' | 'idle';
+  elapsedMinutes?: number;
+  description?: string;
+  clientName?: string | null;
+  todayTotalMinutes?: number;
+}
+
+function timerPickerKeyboard(token: string, candidates: Array<{ id: string; name: string }>) {
+  const rows: { text: string; callback_data: string }[][] = candidates
+    .slice(0, MAX_PICKER_CANDIDATES)
+    .map((c) => [{ text: c.name, callback_data: `tmr_pickclient:${token}:${c.id}` }]);
+  rows.push([{ text: '❌ Cancel', callback_data: `tmr_pickcancel:${token}` }]);
+  return { inline_keyboard: rows };
+}
+
+function timerInvoicePickerKeyboard(token: string, candidates: Array<{ id: string; name: string }>) {
+  const rows: { text: string; callback_data: string }[][] = candidates
+    .slice(0, MAX_PICKER_CANDIDATES)
+    .map((c) => [{ text: c.name, callback_data: `tmr_pickinvoice:${token}:${c.id}` }]);
+  rows.push([{ text: '❌ Cancel', callback_data: `tmr_pickinvoicecancel:${token}` }]);
+  return { inline_keyboard: rows };
+}
+
+async function renderTimerStepResult(
+  tenantId: string,
+  ctx: InvoiceReplyCtx,
+  intent: 'start_timer' | 'stop_timer' | 'timer_status',
+  result: { success: boolean; data?: unknown; error?: string } | undefined,
+): Promise<void> {
+  if (!result || !result.success || !result.data) {
+    await ctx.reply(result?.error || "Couldn't reach the timer — try again.");
+    return;
+  }
+
+  if (intent === 'start_timer') {
+    const data = result.data as TimerStartedData;
+    if (data.kind === 'needs_picker') {
+      // Stash the pending start so the picker callback can re-issue it
+      // with the chosen clientId.
+      const token = randomToken();
+      const memoryKey = `telegram:pending_timer_start:${token}`;
+      const memoryValue = JSON.stringify({
+        clientNameHint: data.clientNameHint,
+        taskDescription: data.taskDescription,
+        setAt: Date.now(),
+      });
+      await db.abUserMemory.upsert({
+        where: { tenantId_key: { tenantId, key: memoryKey } },
+        update: { value: memoryValue, lastUsed: new Date() },
+        create: {
+          tenantId,
+          key: memoryKey,
+          value: memoryValue,
+          type: 'pending_action',
+          confidence: 1,
+        },
+      });
+      const cands = data.candidates || [];
+      const namesText = cands.slice(0, MAX_PICKER_CANDIDATES).map((c) => escHtml(c.name)).join(' or ');
+      await ctx.reply(
+        `Which ${escHtml(data.clientNameHint || 'client')} did you mean — ${namesText}?`,
+        { parse_mode: 'HTML', reply_markup: timerPickerKeyboard(token, cands) },
+      );
+      return;
+    }
+    // Started.
+    const target = data.clientName ? escHtml(data.clientName) : (data.clientNameHint ? escHtml(data.clientNameHint) : 'this task');
+    let line = `⏱ Timer started for <b>${target}</b>.`;
+    if (data.taskDescription && data.taskDescription !== 'Working') {
+      line += ` Logging "${escHtml(data.taskDescription)}".`;
+    }
+    if (data.unmatchedClientHint && !data.clientId) {
+      line += ` (Heads up: I don't have a client called "${escHtml(data.unmatchedClientHint)}" on file — add them and I'll bind it.)`;
+    }
+    line += '\n\nType /timer stop when done.';
+    await ctx.reply(line, { parse_mode: 'HTML' });
+    return;
+  }
+
+  if (intent === 'stop_timer') {
+    const data = result.data as TimerStoppedData;
+    if (data.kind === 'not_running') {
+      await ctx.reply('No active timer.');
+      return;
+    }
+    const target = data.clientName ? escHtml(data.clientName) : (data.description ? escHtml(data.description) : 'this task');
+    const logged = fmtMinutes(data.minutesLogged || 0);
+    const week = fmtMinutes(data.weekTotalMinutes || 0);
+    const reply = `⏹ Stopped — <b>${logged}</b> logged for <b>${target}</b>. Total this week: <b>${week}</b>.`;
+    await ctx.reply(reply, { parse_mode: 'HTML' });
+    return;
+  }
+
+  if (intent === 'timer_status') {
+    const data = result.data as TimerStatusData;
+    const today = fmtMinutes(data.todayTotalMinutes || 0);
+    if (data.kind === 'idle') {
+      await ctx.reply(`No timer running. Today's total: <b>${today}</b>.`, { parse_mode: 'HTML' });
+      return;
+    }
+    const target = data.clientName ? escHtml(data.clientName) : 'this task';
+    const desc = data.description ? ` (${escHtml(data.description)})` : '';
+    const elapsed = fmtMinutes(data.elapsedMinutes || 0);
+    await ctx.reply(
+      `⏱ Running for <b>${target}</b>${desc} — <b>${elapsed}</b> so far. Today's total: <b>${today}</b>.`,
+      { parse_mode: 'HTML' },
+    );
+    return;
+  }
+}
+
+interface InvoiceFromTimerDraftData {
+  kind: 'draft_created';
+  draftId: string;
+  invoiceNumber: string;
+  clientName: string;
+  clientEmail: string | null;
+  totalCents: number;
+  currency: string;
+  dueDate: string;
+  issuedDate: string;
+  entryCount: number;
+  totalMinutes: number;
+  headlineRateCents: number | null;
+  lineCount: number;
+  entryIdsConsumed: string[];
+}
+interface InvoiceFromTimerAmbiguousData {
+  kind: 'ambiguous';
+  clientNameHint: string;
+  candidates: Array<{ id: string; name: string; email: string | null }>;
+  dateHint: string;
+}
+interface InvoiceFromTimerNoEntries {
+  kind: 'no_entries';
+  clientName: string;
+  dateHint: string;
+}
+interface InvoiceFromTimerNeedsClarify {
+  kind: 'needs_clarify';
+  question: string;
+}
+
+async function renderInvoiceFromTimerResult(
+  tenantId: string,
+  ctx: InvoiceReplyCtx,
+  result: { success: boolean; data?: unknown; error?: string } | undefined,
+): Promise<void> {
+  if (!result || !result.success || !result.data) {
+    await ctx.reply(result?.error || "Couldn't generate that invoice — try again.");
+    return;
+  }
+  const data = result.data as
+    | InvoiceFromTimerDraftData
+    | InvoiceFromTimerAmbiguousData
+    | InvoiceFromTimerNoEntries
+    | InvoiceFromTimerNeedsClarify;
+
+  if (data.kind === 'needs_clarify') {
+    await ctx.reply(`🤔 ${data.question}`);
+    return;
+  }
+  if (data.kind === 'no_entries') {
+    await ctx.reply(
+      `No unbilled time for <b>${escHtml(data.clientName)}</b> ${escHtml(data.dateHint)}. Track a few hours first, then ask again.`,
+      { parse_mode: 'HTML' },
+    );
+    return;
+  }
+  if (data.kind === 'ambiguous') {
+    const token = randomToken();
+    const memoryKey = `telegram:pending_invoice_from_timer:${token}`;
+    const memoryValue = JSON.stringify({
+      clientNameHint: data.clientNameHint,
+      dateHint: data.dateHint,
+      setAt: Date.now(),
+    });
+    await db.abUserMemory.upsert({
+      where: { tenantId_key: { tenantId, key: memoryKey } },
+      update: { value: memoryValue, lastUsed: new Date() },
+      create: {
+        tenantId,
+        key: memoryKey,
+        value: memoryValue,
+        type: 'pending_action',
+        confidence: 1,
+      },
+    });
+    const namesText = data.candidates.slice(0, MAX_PICKER_CANDIDATES).map((c) => escHtml(c.name)).join(' or ');
+    await ctx.reply(
+      `Which ${escHtml(data.clientNameHint)} did you mean — ${namesText}?`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: timerInvoicePickerKeyboard(token, data.candidates),
+      },
+    );
+    return;
+  }
+
+  // Happy path — draft created.
+  const totalHours = (data.totalMinutes / 60);
+  const hoursLabel = totalHours.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const rateLabel = data.headlineRateCents
+    ? `${fmtMoney(data.headlineRateCents, data.currency)}/hr`
+    : 'varied rates';
+  const total = fmtMoney(data.totalCents, data.currency);
+  const text =
+    `📒 ${data.entryCount} ${data.entryCount === 1 ? 'entry' : 'entries'} · `
+    + `<b>${hoursLabel}h</b> × ${rateLabel} = <b>${total}</b>.\n`
+    + `Draft <b>${escHtml(data.invoiceNumber)}</b> ready for <b>${escHtml(data.clientName)}</b> — net-30, due <b>${shortDate(data.dueDate)}</b>.\n\n`
+    + `Send it?`;
+  await ctx.reply(text, { parse_mode: 'HTML', reply_markup: draftKeyboard(data.draftId) });
+}
+
 // Lazy-initialize bot (cold start optimization for serverless)
 let bot: Bot | null = null;
 
@@ -1899,6 +2162,26 @@ function getBot(): Bot {
           && loop.intent.intent === 'create_invoice_from_chat'
         ) {
           await renderInvoiceCreateResult(tenantId, ctx, loop.results[0]);
+          return;
+        }
+
+        // Timer flow (PR 2): same handoff — bot writes the DB row, the
+        // webhook builds the friendly reply + (for invoice-from-timer)
+        // the Send/Edit/Cancel keyboard.
+        if (
+          loop.evaluation.needsKeyboard
+          && (loop.intent.intent === 'start_timer'
+            || loop.intent.intent === 'stop_timer'
+            || loop.intent.intent === 'timer_status')
+        ) {
+          await renderTimerStepResult(tenantId, ctx, loop.intent.intent, loop.results[0]);
+          return;
+        }
+        if (
+          loop.evaluation.needsKeyboard
+          && loop.intent.intent === 'invoice_from_timer'
+        ) {
+          await renderInvoiceFromTimerResult(tenantId, ctx, loop.results[0]);
           return;
         }
 
@@ -2968,6 +3251,201 @@ function getBot(): Bot {
         if (token) {
           await db.abUserMemory.deleteMany({
             where: { tenantId, key: `telegram:pending_invoice_draft:${token}` },
+          });
+        }
+        await ctx.answerCallbackQuery({ text: 'Cancelled' });
+        try {
+          await ctx.editMessageText('Cancelled. Nothing booked.');
+        } catch {
+          await ctx.reply('Cancelled. Nothing booked.');
+        }
+        return;
+      }
+
+      // === Timer pickers (PR 2) =========================================
+      // tmr_pickclient: bind a /timer start to the chosen client, then
+      // start the entry. Auto-stops any running timer (matches the
+      // POST /timer/start behaviour).
+      if (action === 'tmr_pickclient') {
+        const token = parts[1];
+        const clientId = parts[2];
+        if (!token || !clientId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        const memoryKey = `telegram:pending_timer_start:${token}`;
+        const memory = await db.abUserMemory.findUnique({
+          where: { tenantId_key: { tenantId, key: memoryKey } },
+        });
+        if (!memory) {
+          await ctx.answerCallbackQuery({ text: 'Pick expired — try again' });
+          return;
+        }
+        let pending: { taskDescription?: string; clientNameHint?: string } = {};
+        try {
+          pending = JSON.parse(memory.value) as { taskDescription?: string; clientNameHint?: string };
+        } catch {
+          pending = {};
+        }
+        try {
+          const client = await db.abClient.findFirst({
+            where: { id: clientId, tenantId },
+            select: { id: true, name: true },
+          });
+          if (!client) {
+            await ctx.answerCallbackQuery({ text: 'Client missing' });
+            await db.abUserMemory.deleteMany({ where: { tenantId, key: memoryKey } });
+            return;
+          }
+          // Auto-stop any running timer.
+          const running = await db.abTimeEntry.findFirst({
+            where: { tenantId, endedAt: null },
+          });
+          if (running) {
+            const dur = Math.max(1, Math.round((Date.now() - running.startedAt.getTime()) / 60_000));
+            await db.abTimeEntry.update({
+              where: { id: running.id },
+              data: { endedAt: new Date(), durationMinutes: dur },
+            });
+          }
+          await db.abTimeEntry.create({
+            data: {
+              tenantId,
+              clientId: client.id,
+              description: pending.taskDescription || 'Working',
+              startedAt: new Date(),
+            },
+          });
+          await db.abUserMemory.deleteMany({ where: { tenantId, key: memoryKey } });
+          await ctx.answerCallbackQuery({ text: '⏱ Started' });
+          const taskNote = pending.taskDescription && pending.taskDescription !== 'Working'
+            ? ` Logging "${escHtml(pending.taskDescription)}".`
+            : '';
+          const reply = `⏱ Timer started for <b>${escHtml(client.name)}</b>.${taskNote}\n\nType /timer stop when done.`;
+          try {
+            await ctx.editMessageText(reply, { parse_mode: 'HTML' });
+          } catch {
+            await ctx.reply(reply, { parse_mode: 'HTML' });
+          }
+        } catch (err) {
+          console.warn('[tmr_pickclient] failed:', err);
+          await ctx.answerCallbackQuery({ text: 'Timer start failed' });
+        }
+        return;
+      }
+
+      if (action === 'tmr_pickcancel') {
+        const token = parts[1];
+        if (token) {
+          await db.abUserMemory.deleteMany({
+            where: { tenantId, key: `telegram:pending_timer_start:${token}` },
+          });
+        }
+        await ctx.answerCallbackQuery({ text: 'Cancelled' });
+        try {
+          await ctx.editMessageText('Cancelled. No timer running.');
+        } catch {
+          await ctx.reply('Cancelled. No timer running.');
+        }
+        return;
+      }
+
+      // tmr_pickinvoice: bind an invoice-from-timer to the chosen client.
+      if (action === 'tmr_pickinvoice') {
+        const token = parts[1];
+        const clientId = parts[2];
+        if (!token || !clientId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        // Fail closed locally before invoking the HTTP route — same
+        // pattern as `tmr_pickclient` above. The route does verify
+        // ownership too, but doing the check here keeps the bot from
+        // round-tripping a foreign clientId and leaking its existence
+        // through a 403 response code.
+        const owns = await db.abClient.findFirst({
+          where: { id: clientId, tenantId },
+          select: { id: true },
+        });
+        if (!owns) {
+          await ctx.answerCallbackQuery({ text: 'Client missing' });
+          await ctx.reply("That client isn't available anymore.");
+          return;
+        }
+        const memoryKey = `telegram:pending_invoice_from_timer:${token}`;
+        const memory = await db.abUserMemory.findUnique({
+          where: { tenantId_key: { tenantId, key: memoryKey } },
+        });
+        if (!memory) {
+          await ctx.answerCallbackQuery({ text: 'Pick expired — try again' });
+          return;
+        }
+        let pending: { dateHint?: string } = {};
+        try {
+          pending = JSON.parse(memory.value) as { dateHint?: string };
+        } catch {
+          pending = {};
+        }
+        try {
+          const tenantConfig = await db.abTenantConfig.findUnique({
+            where: { userId: tenantId },
+            select: { timezone: true },
+          });
+          const tz = tenantConfig?.timezone || 'UTC';
+          const range = parseDateHint(pending.dateHint, tz);
+          const baseUrl = getSelfBaseUrl();
+          const res = await fetch(`${baseUrl}/api/v1/agentbook-invoice/invoices/from-time-entries`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+            body: JSON.stringify({
+              clientId,
+              dateRange: { startDate: range.startDate.toISOString(), endDate: range.endDate.toISOString() },
+              source: 'telegram',
+            }),
+          });
+          const json = await res.json() as {
+            success: boolean;
+            data?: {
+              invoiceId: string;
+              invoiceNumber: string;
+              clientName: string;
+              totalCents: number;
+              currency: string;
+              dueDate: string;
+              lineCount: number;
+              entryIdsConsumed: string[];
+            };
+            error?: string;
+          };
+          await db.abUserMemory.deleteMany({ where: { tenantId, key: memoryKey } });
+          if (!json.success || !json.data) {
+            await ctx.answerCallbackQuery({ text: 'Failed' });
+            await ctx.reply(`❌ ${json.error || 'Could not generate invoice.'}`);
+            return;
+          }
+          await ctx.answerCallbackQuery({ text: 'Got it' });
+          const total = fmtMoney(json.data.totalCents, json.data.currency);
+          const reply =
+            `📒 ${json.data.entryIdsConsumed.length} entries → <b>${total}</b>.\n`
+            + `Draft <b>${escHtml(json.data.invoiceNumber)}</b> ready for <b>${escHtml(json.data.clientName)}</b> — net-30, due <b>${shortDate(json.data.dueDate)}</b>.\n\n`
+            + `Send it?`;
+          try {
+            await ctx.editMessageText(reply, {
+              parse_mode: 'HTML',
+              reply_markup: draftKeyboard(json.data.invoiceId),
+            });
+          } catch {
+            await ctx.reply(reply, {
+              parse_mode: 'HTML',
+              reply_markup: draftKeyboard(json.data.invoiceId),
+            });
+          }
+        } catch (err) {
+          console.warn('[tmr_pickinvoice] failed:', err);
+          await ctx.answerCallbackQuery({ text: 'Network error' });
+        }
+        return;
+      }
+
+      if (action === 'tmr_pickinvoicecancel') {
+        const token = parts[1];
+        if (token) {
+          await db.abUserMemory.deleteMany({
+            where: { tenantId, key: `telegram:pending_invoice_from_timer:${token}` },
           });
         }
         await ctx.answerCallbackQuery({ text: 'Cancelled' });
