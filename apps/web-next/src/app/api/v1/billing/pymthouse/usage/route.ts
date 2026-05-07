@@ -94,6 +94,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ? { startDate: startParsed!, endDate: endParsed! }
       : getUtcCalendarMonthIsoBounds();
 
+    if (Date.parse(startDate) > Date.parse(endDate)) {
+      return noStore(errors.badRequest('startDate must be <= endDate'));
+    }
+
     const client = getPmtHouseServerClient();
 
     if (scopeRaw === 'me') {

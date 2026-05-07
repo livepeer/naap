@@ -22,10 +22,20 @@ import {
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_PER_USER = 30;
 
+/** In-process limiter: resets on cold start; see checkRateLimit. */
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function pruneRateLimitMap(now: number): void {
+  for (const [key, entry] of rateLimitMap) {
+    if (now >= entry.resetAt) {
+      rateLimitMap.delete(key);
+    }
+  }
+}
 
 function checkRateLimit(userId: string): boolean {
   const now = Date.now();
+  pruneRateLimitMap(now);
   const entry = rateLimitMap.get(userId);
   if (!entry || now >= entry.resetAt) {
     rateLimitMap.set(userId, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });

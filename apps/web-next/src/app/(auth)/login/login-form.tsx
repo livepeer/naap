@@ -43,22 +43,42 @@ function formatOAuthError(errorCode: string, pymthErr: string | null): string {
     pymthouse_device_invalid:
       'Device sign-in link was invalid or PymtHouse is misconfigured. Check PYMTHOUSE_ISSUER_URL, optional PMTHOUSE_BASE_URL for marketplace links, and that PYMTHOUSE_PUBLIC_CLIENT_ID is the public app_… id.',
   };
-  return errorMessages[errorCode] || decodeURIComponent(errorCode);
+  return errorMessages[errorCode] || errorCode;
 }
 
 export default function LoginForm() {
   const { login, loginWithOAuth, isLoading, isAuthenticated } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const loginHint = searchParams.get('login_hint');
+  const deviceLoginReturn =
+    searchParams.get('callbackUrl') === '/oidc/device-approved';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [vhsPlayed, setVhsPlayed] = useState(false);
 
   useEffect(() => {
-    if (loginHint) setEmail((prev) => (prev.trim() ? prev : loginHint));
-  }, [loginHint]);
+    if (!deviceLoginReturn) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch('/api/v1/auth/device-login-hint', { credentials: 'include' });
+        if (!r.ok || cancelled) return;
+        const body = (await r.json()) as {
+          success?: boolean;
+          data?: { loginHint?: string | null };
+        };
+        const hint = body.success && body.data?.loginHint ? String(body.data.loginHint).trim() : '';
+        if (!hint || cancelled) return;
+        setEmail((prev) => (prev.trim() ? prev : hint));
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceLoginReturn]);
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {

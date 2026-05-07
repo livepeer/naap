@@ -143,12 +143,15 @@ function computePymthouseExpiresAtFromCreated(
   return new Date(ms + PYMTHOUSE_SIGNER_SESSION_MS).toISOString();
 }
 
-/** PymtHouse expiry is always derived from `createdAt` so the list matches the Created column. */
+/** Prefer server `expiresAt`; for PymtHouse keys without it, derive from `createdAt`. */
 function resolveApiKeyExpiresAt(key: ApiKey): string | null {
+  if (key.expiresAt != null && String(key.expiresAt).trim() !== '') {
+    return key.expiresAt;
+  }
   if (key.billingProvider?.slug === 'pymthouse') {
     return computePymthouseExpiresAtFromCreated(key.createdAt);
   }
-  return key.expiresAt ?? null;
+  return null;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;

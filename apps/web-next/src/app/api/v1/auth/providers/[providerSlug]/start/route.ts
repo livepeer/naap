@@ -149,7 +149,7 @@ export async function POST(
 
       console.log(`[billing-auth:pymthouse] Linked user ${naapUserId?.slice(0, 8)}... session ${loginSessionId.slice(0, 8)}...`);
 
-      return success({
+      const tokenRes = success({
         auth_url: null,
         access_token: token.accessToken,
         token_type: token.tokenType,
@@ -158,6 +158,8 @@ export async function POST(
         expires_in: token.expiresIn,
         poll_after_ms: 0,
       });
+      tokenRes.headers.set('Cache-Control', 'no-store');
+      return tokenRes;
     }
 
     // ── Daydream (and any future) OAuth redirect flow ────────────────────────

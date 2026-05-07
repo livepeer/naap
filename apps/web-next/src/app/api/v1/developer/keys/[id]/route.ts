@@ -62,7 +62,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
         computePymthouseExpiry(apiKey.createdAt).getTime() <= Date.now();
       const alreadyExpired = apiKey.status === 'EXPIRED';
       if (expiredByAge || alreadyExpired) {
-        await prisma.devApiKey.delete({
+        await prisma.devApiKey.deleteMany({
           where: { id: apiKey.id },
         });
         return errors.notFound('API key');

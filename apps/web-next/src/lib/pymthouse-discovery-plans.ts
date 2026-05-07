@@ -89,16 +89,21 @@ export async function fetchPymthouseDiscoveryPlans(opts?: {
 
   const basic = Buffer.from(`${m2mId}:${m2mSecret}`, "utf8").toString("base64");
   const url = `${base}/apps/${encodeURIComponent(publicId)}/plans/discovery`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { Authorization: `Basic ${basic}` },
-    signal: opts?.signal,
-    cache: "no-store",
-  });
-  if (!res.ok) {
+  let body: PymthouseDiscoveryPlansResponse;
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { Authorization: `Basic ${basic}` },
+      signal: opts?.signal,
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      return null;
+    }
+    body = (await res.json()) as PymthouseDiscoveryPlansResponse;
+  } catch {
     return null;
   }
-  const body = (await res.json()) as PymthouseDiscoveryPlansResponse;
   if (!body || !Array.isArray(body.plans)) {
     return null;
   }

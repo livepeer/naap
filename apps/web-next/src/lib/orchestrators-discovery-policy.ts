@@ -60,14 +60,14 @@ function swapRatioFromNoSwapPct(noSwapRatio: number | null | undefined): number 
 }
 
 function passesFilters(row: DashboardOrchestrator, policy: DiscoveryPolicy): boolean {
-  const f = policy.filters;
-  if (!f) return true;
-
   if (policy.slaMinScore !== undefined) {
     if (row.slaScore === null) return false;
     const minPct = policy.slaMinScore * 100;
     if (row.slaScore < minPct) return false;
   }
+
+  const f = policy.filters;
+  if (!f) return true;
 
   if (f.maxSwapRatio !== undefined) {
     const sr = swapRatioFromNoSwapPct(row.noSwapRatio);

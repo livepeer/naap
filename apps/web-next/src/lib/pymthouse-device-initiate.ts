@@ -10,6 +10,9 @@ import { getPymthousePublicClientId } from '@/lib/pymthouse-env';
 
 export const NAAP_PMTH_DEVICE_APPROVAL_COOKIE = 'naap_pmth_device_approval';
 
+/** HttpOnly cookie: OIDC `login_hint` for device-flow login prefill (not echoed in `/login` query). */
+export const NAAP_DEVICE_LOGIN_HINT_COOKIE = 'naap_device_login_hint';
+
 function stripTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, '');
 }
@@ -160,7 +163,8 @@ export function tryParseDeviceApprovalCookie(
     const publicClientId =
       typeof parsed.publicClientId === 'string' ? parsed.publicClientId.trim() : '';
     const exp = typeof parsed.exp === 'number' ? parsed.exp : 0;
-    if (!userCode || !publicClientId || !USER_CODE_RE.test(userCode)) return null;
+    if (!userCode || !publicClientId || !publicClientId.startsWith('app_')) return null;
+    if (!USER_CODE_RE.test(userCode)) return null;
     if (Date.now() > exp) return null;
     return { userCode, publicClientId, exp };
   } catch {
