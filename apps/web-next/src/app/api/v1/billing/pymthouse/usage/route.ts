@@ -17,6 +17,7 @@ import {
 } from '@/lib/pymthouse-env';
 import {
   buildMeScopeUsagePayload,
+  getUsageRecordUserIdsForExternalUser,
   getUtcCalendarMonthIsoBounds,
   isSystemAdmin,
   parseUsageDateParam,
@@ -97,12 +98,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (scopeRaw === 'me') {
       try {
-        const usage = await client.getUsage({
+        const usageByUser = await client.getUsage({
           startDate,
           endDate,
           groupBy: 'user',
         });
-        const body = buildMeScopeUsagePayload(usage, sessionUser.id);
+        const userIds = getUsageRecordUserIdsForExternalUser(usageByUser, sessionUser.id);
+        const usagePipelineModels = await Promise.all(
+          userIds.map((userId) => client.getUsage({
+            startDate,
+            endDate,
+            groupBy: 'pipeline_model',
+            userId,
+          })),
+        );
+        const body = buildMeScopeUsagePayload(
+          usageByUser,
+          sessionUser.id,
+          usagePipelineModels,
+        );
         return noStore(success(body));
       } catch (e) {
         return noStore(mapUpstreamUsageFailure(e));

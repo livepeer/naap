@@ -49,18 +49,39 @@ describe('GET /api/v1/billing/pymthouse/usage', () => {
 
     vi.clearAllMocks();
     validateSession.mockResolvedValue(authUser());
-    getUsage.mockResolvedValue({
-      clientId: 'app_pub1',
-      period: { start: '2025-01-01T00:00:00.000Z', end: '2025-01-31T23:59:59.999Z' },
-      totals: { requestCount: 10, totalFeeWei: '100' },
-      byUser: [
-        {
-          endUserId: 'ph-internal',
-          externalUserId: 'user-naap-1',
-          requestCount: 3,
-          feeWei: '42',
-        },
-      ],
+    getUsage.mockImplementation(async (input: { groupBy?: string }) => {
+      const base = {
+        clientId: 'app_pub1',
+        period: { start: '2025-01-01T00:00:00.000Z', end: '2025-01-31T23:59:59.999Z' },
+        totals: { requestCount: 10, totalFeeWei: '100' },
+      };
+      if (input.groupBy === 'pipeline_model') {
+        return {
+          ...base,
+          byPipelineModel: [
+            {
+              pipeline: 'transcode',
+              modelId: 'model-a',
+              requestCount: 2,
+              networkFeeWei: '20',
+              networkFeeUsdMicros: '0',
+              ownerChargeUsdMicros: '0',
+              endUserBillableUsdMicros: '0',
+            },
+          ],
+        };
+      }
+      return {
+        ...base,
+        byUser: [
+          {
+            endUserId: 'ph-internal',
+            externalUserId: 'user-naap-1',
+            requestCount: 3,
+            feeWei: '42',
+          },
+        ],
+      };
     });
   });
 
@@ -71,15 +92,22 @@ describe('GET /api/v1/billing/pymthouse/usage', () => {
     process.env.PYMTHOUSE_M2M_CLIENT_SECRET = env.PYMTHOUSE_M2M_CLIENT_SECRET;
   });
 
-  it('scope=me forces groupBy user and returns only the current user row', async () => {
+  it('scope=me fetches user and pipeline_model usage and returns currentUser with pipelineModels', async () => {
     const req = new NextRequest('http://localhost/api/v1/billing/pymthouse/usage?scope=me', {
       headers: { cookie: 'naap_auth_token=tok' },
     });
     const res = await GET(req);
     expect(res.status).toBe(200);
+    expect(getUsage).toHaveBeenCalledTimes(2);
     expect(getUsage).toHaveBeenCalledWith(
       expect.objectContaining({
         groupBy: 'user',
+      }),
+    );
+    expect(getUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groupBy: 'pipeline_model',
+        userId: 'ph-internal',
       }),
     );
     const json = await res.json();
@@ -87,6 +115,17 @@ describe('GET /api/v1/billing/pymthouse/usage', () => {
     expect(json.data.currentUser.externalUserId).toBe('user-naap-1');
     expect(json.data.currentUser.requestCount).toBe(3);
     expect(json.data.currentUser.feeWei).toBe('42');
+    expect(json.data.currentUser.pipelineModels).toEqual([
+      {
+        pipeline: 'transcode',
+        modelId: 'model-a',
+        requestCount: 2,
+        networkFeeWei: '20',
+        networkFeeUsdMicros: '0',
+        ownerChargeUsdMicros: '0',
+        endUserBillableUsdMicros: '0',
+      },
+    ]);
     expect(json.data.totals).toBeUndefined();
   });
 
