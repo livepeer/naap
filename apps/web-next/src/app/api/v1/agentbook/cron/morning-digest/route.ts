@@ -37,8 +37,19 @@ interface DigestData {
   taxDaysUntilQ: number | null;
   bankReview: {
     count: number;
-    items: { id: string; amountCents: number; merchantName: string | null; date: Date }[];
+    items: BankReviewItem[];
   };
+}
+
+interface BankReviewItem {
+  id: string;
+  amountCents: number;
+  merchantName: string | null;
+  date: Date;
+  /** -1 inflow (incoming credit) / +1 outflow (debit). Used to pick the picker callback. */
+  direction: 'inflow' | 'outflow';
+  /** Best-guess match the matcher already stored on the row (PR 3). */
+  guess: { kind: 'invoice' | 'expense'; targetId: string; label: string; amountCents: number } | null;
 }
 
 function fmt$(cents: number): string {
@@ -170,19 +181,62 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
     : null;
 
   // Bank reconciliation: transactions in the 0.55–0.85 score band that
-  // the matcher couldn't auto-apply. Surfaced as "N need review" so
-  // Maya can confirm in the morning. Interactive [Match] / [Not this]
-  // buttons land in PR 9 (daily reconciliation diff) — for now we just
-  // tell the user how many there are.
-  const bankReviewItems = await db.abBankTransaction.findMany({
+  // the matcher couldn't auto-apply. PR 9 surfaces them as interactive
+  // per-line messages — we hydrate each row with the best-guess match
+  // (whichever id the matcher pre-stored on `matchedInvoiceId` /
+  // `matchedExpenseId`) so the [✅ Match] button has a target.
+  const bankReviewRaw = await db.abBankTransaction.findMany({
     where: { tenantId, matchStatus: 'exception' },
     orderBy: { date: 'desc' },
     take: 3,
-    select: { id: true, amount: true, merchantName: true, name: true, date: true },
+    select: {
+      id: true,
+      amount: true,
+      merchantName: true,
+      name: true,
+      date: true,
+      matchedInvoiceId: true,
+      matchedExpenseId: true,
+    },
   });
   const bankReviewCount = await db.abBankTransaction.count({
     where: { tenantId, matchStatus: 'exception' },
   });
+
+  // Hydrate the best-guess match label for each row. Done in a small N+1
+  // (max 3 rows) — cheaper than a join given the polymorphic target.
+  const bankReviewItems: BankReviewItem[] = await Promise.all(
+    bankReviewRaw.map(async (b): Promise<BankReviewItem> => {
+      const direction: 'inflow' | 'outflow' = b.amount < 0 ? 'inflow' : 'outflow';
+      let guess: BankReviewItem['guess'] = null;
+      if (b.matchedInvoiceId) {
+        const inv = await db.abInvoice.findFirst({
+          where: { id: b.matchedInvoiceId, tenantId },
+          select: { id: true, number: true, amountCents: true },
+        });
+        if (inv) {
+          guess = { kind: 'invoice', targetId: inv.id, label: inv.number, amountCents: inv.amountCents };
+        }
+      } else if (b.matchedExpenseId) {
+        const exp = await db.abExpense.findFirst({
+          where: { id: b.matchedExpenseId, tenantId },
+          select: { id: true, description: true, amountCents: true, vendor: { select: { name: true } } },
+        });
+        if (exp) {
+          const lbl = exp.vendor?.name || exp.description || 'expense';
+          guess = { kind: 'expense', targetId: exp.id, label: lbl, amountCents: exp.amountCents };
+        }
+      }
+      return {
+        id: b.id,
+        amountCents: Math.abs(b.amount),
+        merchantName: b.merchantName || b.name,
+        date: b.date,
+        direction,
+        guess,
+      };
+    }),
+  );
 
   return {
     cashTodayCents,
@@ -200,12 +254,7 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
     taxDaysUntilQ,
     bankReview: {
       count: bankReviewCount,
-      items: bankReviewItems.map((b) => ({
-        id: b.id,
-        amountCents: Math.abs(b.amount),
-        merchantName: b.merchantName || b.name,
-        date: b.date,
-      })),
+      items: bankReviewItems,
     },
   };
 }
@@ -281,6 +330,10 @@ function composeMessage(
     lines.push(
       `🏦 <b>Bank reconciliation</b> — ${d.bankReview.count} transaction${d.bankReview.count === 1 ? '' : 's'} need${d.bankReview.count === 1 ? 's' : ''} review`,
     );
+    // PR 9: the actual per-line interactive messages (with [✅ Match] /
+    // [❌ Not this] buttons) are sent as follow-ups by the cron — see
+    // `sendBankReviewMessages`. The summary stays in this digest so the
+    // user sees the count even when Telegram is the channel.
     const limit = concise ? 2 : 3;
     for (const b of d.bankReview.items.slice(0, limit)) {
       const dayLabel = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(
@@ -292,6 +345,7 @@ function composeMessage(
     if (d.bankReview.count > limit) {
       lines.push(`  … and ${d.bankReview.count - limit} more`);
     }
+    lines.push(`  <i>↓ I'll send each one below — tap ✅ to match.</i>`);
   }
 
   if (sec.taxDeadline && d.taxDaysUntilQ !== null && d.taxDaysUntilQ <= 21) {
@@ -383,6 +437,78 @@ async function sendTelegram(
     }).catch(() => null);
   }
   return true;
+}
+
+/**
+ * Send one Telegram message per bank-review item with [✅ Match] /
+ * [❌ Not this] / [Pick another] buttons. Each row is its own message
+ * because Telegram inline keyboards bind to a single message.
+ *
+ * Callback layout (≤64 bytes — Telegram's hard cap):
+ *   bnk_match:<txnId>             → confirm the bot's stored best guess
+ *   bnk_skip:<txnId>              → mark ignored
+ *   bnk_pickinvoice:<txnId>       → open the invoice picker (inflow)
+ *   bnk_pickexpense:<txnId>       → open the expense picker (outflow)
+ */
+async function sendBankReviewMessages(
+  tenantId: string,
+  items: BankReviewItem[],
+): Promise<void> {
+  const bot = await db.abTelegramBot.findFirst({ where: { tenantId, enabled: true } });
+  if (!bot) return;
+  const chats = Array.isArray(bot.chatIds) ? (bot.chatIds as string[]) : [];
+  if (chats.length === 0) return;
+
+  for (const item of items) {
+    const dayLabel = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).format(
+      new Date(item.date),
+    );
+    const merchant = item.merchantName || 'unknown';
+    const directionWord = item.direction === 'inflow' ? 'from' : 'to';
+    let text: string;
+    if (item.guess) {
+      const guessLabel = escapeHtml(item.guess.label);
+      const guessAmount = fmt$(item.guess.amountCents);
+      text =
+        `💰 ${fmt$(item.amountCents)} ${directionWord} ${escapeHtml(merchant)} on ${dayLabel}` +
+        ` — possible match: <b>${guessLabel}</b> (${guessAmount}). Match it?`;
+    } else {
+      text = `💰 ${fmt$(item.amountCents)} ${directionWord} ${escapeHtml(merchant)} on ${dayLabel} — no obvious match. Pick one?`;
+    }
+
+    // Picker callback depends on direction: inflow ⇒ invoice picker,
+    // outflow ⇒ expense picker. The match/skip ones are direction-agnostic.
+    const pickerCb =
+      item.direction === 'inflow'
+        ? `bnk_pickinvoice:${item.id}`
+        : `bnk_pickexpense:${item.id}`;
+    const buttons: { text: string; callback_data: string }[][] = [];
+    if (item.guess) {
+      buttons.push([
+        { text: '✅ Match', callback_data: `bnk_match:${item.id}` },
+        { text: '❌ Not this', callback_data: `bnk_skip:${item.id}` },
+      ]);
+      buttons.push([{ text: '🔍 Pick another', callback_data: pickerCb }]);
+    } else {
+      buttons.push([
+        { text: '🔍 Pick a match', callback_data: pickerCb },
+        { text: '❌ Skip', callback_data: `bnk_skip:${item.id}` },
+      ]);
+    }
+
+    for (const chatId of chats) {
+      await fetch(`https://api.telegram.org/bot${bot.botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: buttons },
+        }),
+      }).catch(() => null);
+    }
+  }
 }
 
 async function sendEmail(userId: string, htmlMessage: string): Promise<boolean> {
@@ -511,6 +637,43 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const keyboard = buttons.length > 0 ? buttons : undefined;
       const tgSent = await sendTelegram(tenant.userId, message, keyboard);
       if (!tgSent) await sendEmail(tenant.userId, message);
+
+      // PR 9: per-line interactive bank-reconciliation messages. Capped
+      // at 3/tenant/day (already enforced by `take: 3` on the query) so
+      // the inbox doesn't get spammed. Skipped entirely if Telegram
+      // wasn't reachable — the email fallback is text-only and these
+      // need callbacks.
+      //
+      // Idempotency: cron fires hourly and the `?hour=now` debug bypass
+      // exists, so the same tenant can land here twice in a UTC day. We
+      // gate on an AbEvent stamped with today's UTC date — present means
+      // we've already sent today, skip. Per-call `take: 3` only covers
+      // *this* call's list; without this gate a retry resends the same
+      // 3 items (or different 3 items) and double-spams the inbox.
+      if (tgSent && digest.bankReview.items.length > 0) {
+        const todayUTC = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        const dayStart = new Date(`${todayUTC}T00:00:00.000Z`);
+        const dayEnd = new Date(`${todayUTC}T23:59:59.999Z`);
+        const alreadySent = await db.abEvent.findFirst({
+          where: {
+            tenantId: tenant.userId,
+            eventType: 'bank.digest_sent_today',
+            createdAt: { gte: dayStart, lte: dayEnd },
+          },
+          select: { id: true },
+        });
+        if (!alreadySent) {
+          await sendBankReviewMessages(tenant.userId, digest.bankReview.items);
+          await db.abEvent.create({
+            data: {
+              tenantId: tenant.userId,
+              eventType: 'bank.digest_sent_today',
+              actor: 'system',
+              action: { dateUTC: todayUTC, count: digest.bankReview.items.length },
+            },
+          });
+        }
+      }
       sent++;
     } catch (err) {
       console.error('[morning-digest] tenant error', tenant.userId, err);

@@ -34,6 +34,15 @@ import {
   type DigestPrefs,
   type SetupState,
 } from '@/lib/agentbook-digest-prefs';
+import {
+  scoreInvoiceMatch,
+  scoreExpenseMatch,
+} from '@/lib/agentbook-payment-matcher';
+import {
+  applyInvoiceMatch,
+  applyExpenseMatch,
+  BankMatchError,
+} from '@/lib/agentbook-bank-match';
 
 // Dev fallback: hardcoded chat ID → tenant mapping. The tenantId here MUST
 // match the tenant the user logs into the web UI as (the AgentBook tenant
@@ -4304,6 +4313,375 @@ function getBot(): Bot {
           await ctx.editMessageText('💡 Skipped — your budget thanks you.');
         } catch {
           await ctx.reply('💡 Skipped — your budget thanks you.');
+        }
+        return;
+      }
+
+      // ─── PR 9: Bank reconciliation diff ────────────────────────────────
+      // bnk_match:<txnId>          → confirm the bot's stored best guess
+      // bnk_skip:<txnId>           → mark ignored
+      // bnk_pickinvoice:<txnId>    → invoice picker (top 5 candidates)
+      // bnk_pickexpense:<txnId>    → expense picker (top 5 candidates)
+      // bnk_m2:<token>             → match against the picked target
+      if (action === 'bnk_match') {
+        const txnId = parts[1];
+        if (!txnId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const txn = await db.abBankTransaction.findFirst({
+          where: { id: txnId, tenantId },
+        });
+        if (!txn) {
+          await ctx.answerCallbackQuery({ text: 'Transaction not found' });
+          return;
+        }
+        // Pull the best-guess target the matcher (PR 3) pre-stored on
+        // this row. If nothing was guessed, ask the user to use the picker.
+        const targetType: 'invoice' | 'expense' | null = txn.matchedInvoiceId
+          ? 'invoice'
+          : txn.matchedExpenseId
+          ? 'expense'
+          : null;
+        const targetId = txn.matchedInvoiceId || txn.matchedExpenseId;
+        if (!targetType || !targetId) {
+          // Toast is short and easy to miss — also send a reply so the
+          // user has the explicit guidance in their chat history.
+          await ctx.answerCallbackQuery({ text: 'No guess on file — use Pick another' });
+          await ctx.reply(
+            'No guess on file for this transaction. Tap <b>🔍 Pick another</b> on the digest message to choose a match manually.',
+            { parse_mode: 'HTML' },
+          );
+          return;
+        }
+
+        // Delegate to the shared helper so the HTTP path, bnk_match, and
+        // bnk_m2 cannot drift. See `agentbook-bank-match.ts`.
+        try {
+          if (targetType === 'invoice') {
+            const result = await applyInvoiceMatch({
+              tenantId,
+              txnId,
+              invoiceId: targetId,
+              source: 'telegram_button',
+            });
+            await ctx.answerCallbackQuery({ text: '✅ Matched & paid' });
+            const replyText = `✅ Marked ${fmtUsd(result.paymentAmountCents)} to <b>${escHtml(result.invoiceNumber)}</b> — paid.`;
+            try {
+              await ctx.editMessageText(replyText, { parse_mode: 'HTML' });
+            } catch {
+              await ctx.reply(replyText, { parse_mode: 'HTML' });
+            }
+            return;
+          }
+
+          // expense
+          await applyExpenseMatch({
+            tenantId,
+            txnId,
+            expenseId: targetId,
+            source: 'telegram_button',
+          });
+          await ctx.answerCallbackQuery({ text: '✅ Matched' });
+          // Re-fetch description for the reply text — applyExpenseMatch
+          // doesn't return it because the HTTP path doesn't need it.
+          const expense = await db.abExpense.findFirst({
+            where: { id: targetId, tenantId },
+            select: { description: true },
+          });
+          const expReply = `✅ Linked ${fmtUsd(Math.abs(txn.amount))} to expense <b>${escHtml(expense?.description || 'expense')}</b>.`;
+          try {
+            await ctx.editMessageText(expReply, { parse_mode: 'HTML' });
+          } catch {
+            await ctx.reply(expReply, { parse_mode: 'HTML' });
+          }
+        } catch (err) {
+          if (err instanceof BankMatchError) {
+            const toast =
+              err.code === 'invoice_not_found' ? 'Invoice missing' :
+              err.code === 'expense_not_found' ? 'Expense missing' :
+              err.code === 'coa_missing' ? 'Chart of accounts missing' :
+              'Transaction not found';
+            await ctx.answerCallbackQuery({ text: toast });
+            return;
+          }
+          console.error('[bnk_match] failed:', err);
+          await ctx.answerCallbackQuery({ text: 'Error matching — try again' });
+        }
+        return;
+      }
+
+      if (action === 'bnk_skip') {
+        const txnId = parts[1];
+        if (!txnId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const txn = await db.abBankTransaction.findFirst({
+          where: { id: txnId, tenantId },
+        });
+        if (!txn) {
+          await ctx.answerCallbackQuery({ text: 'Transaction not found' });
+          return;
+        }
+        await db.$transaction([
+          db.abBankTransaction.update({
+            where: { id: txn.id },
+            data: { matchStatus: 'ignored' },
+          }),
+          db.abEvent.create({
+            data: {
+              tenantId,
+              eventType: 'bank.txn_skipped',
+              actor: 'user',
+              action: { transactionId: txn.id, source: 'telegram_button' },
+            },
+          }),
+        ]);
+        await ctx.answerCallbackQuery({ text: '🟡 Skipped' });
+        const skipReply = `🟡 Skipped — I'll leave it pending.`;
+        try {
+          await ctx.editMessageText(skipReply);
+        } catch {
+          await ctx.reply(skipReply);
+        }
+        return;
+      }
+
+      if (action === 'bnk_pickinvoice' || action === 'bnk_pickexpense') {
+        const txnId = parts[1];
+        if (!txnId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const txn = await db.abBankTransaction.findFirst({
+          where: { id: txnId, tenantId },
+        });
+        if (!txn) {
+          await ctx.answerCallbackQuery({ text: 'Transaction not found' });
+          return;
+        }
+
+        // Pull a *wider* window of candidates than the auto-matcher uses
+        // (±5% / ±7d vs ±0.5% / ±3d) so the user has runners-up to choose
+        // from when our best guess is wrong, then re-rank with the same
+        // scorer the auto path uses (`scoreInvoiceMatch` / `scoreExpenseMatch`)
+        // and slice the top 5. This way a user-picked match is consistent
+        // with what the auto-matcher would have done — not a different,
+        // unscored ordering.
+        const ONE_DAY_MS = 86_400_000;
+        const PICKER_DATE_WINDOW_DAYS = 7;
+        const PICKER_AMOUNT_PCT = 0.05;
+        const windowMs = PICKER_DATE_WINDOW_DAYS * ONE_DAY_MS;
+        const windowStart = new Date(txn.date.getTime() - windowMs);
+        const windowEnd = new Date(txn.date.getTime() + windowMs);
+        const tol = Math.max(100, Math.round(Math.abs(txn.amount) * PICKER_AMOUNT_PCT));
+
+        const matchableTxn = {
+          id: txn.id,
+          amountCents: txn.amount,
+          date: txn.date,
+          name: txn.name,
+          merchantName: txn.merchantName,
+        };
+
+        // Telegram callback_data caps at 64 bytes. With two UUIDs the
+        // naive `bnk_m2:<txnId>:<targetId>` would be 84 bytes, so we
+        // store a {txnId, targetType, targetId} mapping in AbUserMemory
+        // keyed by a short random token and use `bnk_m2:<token>` (≈18 B).
+        const candidates: { label: string; targetType: 'invoice' | 'expense'; targetId: string; score: number }[] = [];
+        if (action === 'bnk_pickinvoice') {
+          const txnAbs = Math.abs(txn.amount);
+          const invs = await db.abInvoice.findMany({
+            where: {
+              tenantId,
+              status: { in: ['sent', 'viewed', 'overdue'] },
+              amountCents: { gte: txnAbs - tol, lte: txnAbs + tol },
+              issuedDate: { gte: windowStart, lte: windowEnd },
+            },
+            include: { client: { select: { name: true } } },
+            take: 25,
+          });
+          for (const inv of invs) {
+            const score = scoreInvoiceMatch(matchableTxn, {
+              id: inv.id,
+              amountCents: inv.amountCents,
+              issuedDate: inv.issuedDate,
+              dueDate: inv.dueDate,
+              status: inv.status,
+              clientName: inv.client?.name || null,
+            });
+            // The wider picker window can surface candidates the strict
+            // scorer rejects outright (date/amount gates). Keep them at
+            // score 0 so the user still sees them — they sort last, but
+            // are still tappable.
+            const label = `${inv.number} ${inv.client?.name || ''}`.trim().slice(0, 40);
+            candidates.push({ label, targetType: 'invoice', targetId: inv.id, score });
+          }
+        } else {
+          const exps = await db.abExpense.findMany({
+            where: {
+              tenantId,
+              amountCents: { gte: txn.amount - tol, lte: txn.amount + tol },
+              date: { gte: windowStart, lte: windowEnd },
+              isPersonal: false,
+            },
+            include: { vendor: { select: { name: true } } },
+            take: 25,
+          });
+          for (const exp of exps) {
+            const score = scoreExpenseMatch(matchableTxn, {
+              id: exp.id,
+              amountCents: exp.amountCents,
+              date: exp.date,
+              description: exp.description,
+              vendorName: exp.vendor?.name || null,
+            });
+            const label = `${exp.vendor?.name || exp.description || 'expense'} ${fmtUsd(exp.amountCents)}`.slice(0, 40);
+            candidates.push({ label, targetType: 'expense', targetId: exp.id, score });
+          }
+        }
+
+        // Sort by score desc, then slice top 5. Stable on equal scores
+        // (Array.prototype.sort is stable in V8/modern engines), so the
+        // DB-natural order acts as a tiebreaker.
+        candidates.sort((a, b) => b.score - a.score);
+        const top = candidates.slice(0, 5);
+
+        if (top.length === 0) {
+          await ctx.answerCallbackQuery({ text: 'No candidates found' });
+          await ctx.reply(
+            `No likely ${action === 'bnk_pickinvoice' ? 'invoices' : 'expenses'} match. ` +
+              `Tap ❌ Skip if you want to ignore this transaction.`,
+          );
+          return;
+        }
+
+        const rows: { text: string; callback_data: string }[][] = [];
+        for (const c of top) {
+          const token = randomBytes(5).toString('hex');
+          // Embedding txnId in the value means we can find-and-delete all
+          // sibling tokens for the same txn when one is consumed (M4).
+          const value = JSON.stringify({ txnId, targetType: c.targetType, targetId: c.targetId });
+          await db.abUserMemory.upsert({
+            where: { tenantId_key: { tenantId, key: `telegram:bnk_pick:${token}` } },
+            update: { value, lastUsed: new Date() },
+            create: {
+              tenantId,
+              key: `telegram:bnk_pick:${token}`,
+              value,
+              type: 'pending_action',
+              confidence: 1,
+            },
+          });
+          rows.push([{ text: c.label, callback_data: `bnk_m2:${token}` }]);
+        }
+
+        rows.push([{ text: '❌ Cancel', callback_data: `bnk_skip:${txnId}` }]);
+        await ctx.answerCallbackQuery({ text: 'Pick a match' });
+        await ctx.reply(`Pick the ${action === 'bnk_pickinvoice' ? 'invoice' : 'expense'} this matches:`, {
+          reply_markup: { inline_keyboard: rows },
+        });
+        return;
+      }
+
+      if (action === 'bnk_m2') {
+        const token = parts[1];
+        if (!token) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const memo = await db.abUserMemory.findUnique({
+          where: { tenantId_key: { tenantId, key: `telegram:bnk_pick:${token}` } },
+        });
+        // TTL: any picker token older than 24h is considered stale. The
+        // user should refresh the digest in that case rather than acting
+        // on possibly-stale data.
+        const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+        if (!memo || Date.now() - memo.updatedAt.getTime() > TOKEN_TTL_MS) {
+          await ctx.answerCallbackQuery({ text: 'Pick expired — open digest again' });
+          if (memo) {
+            // Stale row — clean it up so it doesn't accumulate.
+            await db.abUserMemory.delete({ where: { id: memo.id } }).catch(() => null);
+          }
+          return;
+        }
+        let parsed: { txnId: string; targetType: 'invoice' | 'expense'; targetId: string };
+        try {
+          parsed = JSON.parse(memo.value);
+        } catch {
+          await ctx.answerCallbackQuery({ text: 'Bad pick token' });
+          return;
+        }
+        const { txnId, targetType, targetId } = parsed;
+        const txn = await db.abBankTransaction.findFirst({
+          where: { id: txnId, tenantId },
+        });
+        if (!txn) {
+          await ctx.answerCallbackQuery({ text: 'Transaction not found' });
+          return;
+        }
+        try {
+          if (targetType === 'invoice') {
+            const result = await applyInvoiceMatch({
+              tenantId,
+              txnId,
+              invoiceId: targetId,
+              source: 'telegram_picker',
+            });
+            // Cleanup: delete the consumed token AND any sibling pick
+            // tokens for the same txnId. Without this, the user would see
+            // stale "pick another" buttons that refer to a txn already
+            // matched. We match siblings via JSON substring on the value
+            // column — adequate for our use case (<25 rows per txn).
+            await db.abUserMemory.deleteMany({
+              where: {
+                tenantId,
+                key: { startsWith: 'telegram:bnk_pick:' },
+                value: { contains: `"txnId":"${txnId}"` },
+              },
+            });
+            await ctx.answerCallbackQuery({ text: '✅ Matched & paid' });
+            await ctx.reply(`✅ Marked ${fmtUsd(result.paymentAmountCents)} to <b>${escHtml(result.invoiceNumber)}</b> — paid.`, {
+              parse_mode: 'HTML',
+            });
+            return;
+          }
+          await applyExpenseMatch({
+            tenantId,
+            txnId,
+            expenseId: targetId,
+            source: 'telegram_picker',
+          });
+          // Sibling cleanup, same reason as the invoice branch.
+          await db.abUserMemory.deleteMany({
+            where: {
+              tenantId,
+              key: { startsWith: 'telegram:bnk_pick:' },
+              value: { contains: `"txnId":"${txnId}"` },
+            },
+          });
+          // Re-fetch description for reply.
+          const expense = await db.abExpense.findFirst({
+            where: { id: targetId, tenantId },
+            select: { description: true },
+          });
+          await ctx.answerCallbackQuery({ text: '✅ Linked' });
+          await ctx.reply(`✅ Linked ${fmtUsd(Math.abs(txn.amount))} to expense <b>${escHtml(expense?.description || 'expense')}</b>.`, {
+            parse_mode: 'HTML',
+          });
+        } catch (err) {
+          if (err instanceof BankMatchError) {
+            const toast =
+              err.code === 'invoice_not_found' ? 'Invoice missing' :
+              err.code === 'expense_not_found' ? 'Expense missing' :
+              err.code === 'coa_missing' ? 'Chart of accounts missing' :
+              'Transaction not found';
+            await ctx.answerCallbackQuery({ text: toast });
+            return;
+          }
+          console.error('[bnk_match2] failed:', err);
+          await ctx.answerCallbackQuery({ text: 'Error matching — try again' });
         }
         return;
       }
