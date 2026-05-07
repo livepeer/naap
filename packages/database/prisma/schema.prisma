@@ -2274,6 +2274,28 @@ model AbCPANote {
   @@schema("plugin_agentbook_core")
 }
 
+/// PR 11 — CPA collaboration: a request from the CPA pointing the
+/// tenant owner at a specific expense / invoice / mileage entry (or
+/// general question) so the owner can resolve it (upload a receipt,
+/// reclassify, etc.).
+model AbAccountantRequest {
+  id          String    @id @default(uuid())
+  tenantId    String
+  accessId    String                                       // FK to AbTenantAccess.id
+  entityType  String                                       // 'AbExpense' | 'AbInvoice' | 'AbMileageEntry' | 'general'
+  entityId    String?                                      // null for general questions
+  message     String                                       // CPA's question
+  status      String    @default("open")                   // open | resolved
+  resolvedAt  DateTime?
+  resolution  String?                                      // owner's response
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantId, status])
+  @@index([accessId])
+  @@schema("plugin_agentbook_core")
+}
+
 model AbOnboardingProgress {
   id          String   @id @default(uuid())
   tenantId    String   @unique

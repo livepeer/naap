@@ -76,6 +76,12 @@ function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
   if (typeof a !== typeof b) return false;
+  // Dates: compare by epoch millis. Two Date instances have no enumerable
+  // keys, so the plain-object branch below would incorrectly return true.
+  if (a instanceof Date || b instanceof Date) {
+    if (!(a instanceof Date) || !(b instanceof Date)) return false;
+    return a.getTime() === b.getTime();
+  }
   if (Array.isArray(a) || Array.isArray(b)) {
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
     return a.every((v, i) => deepEqual(v, b[i]));

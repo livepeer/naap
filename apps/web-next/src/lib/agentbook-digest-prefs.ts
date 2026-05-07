@@ -27,6 +27,7 @@ export interface DigestSections {
   cashFlowTips: boolean;
   autoCategorize: boolean;
   budgets: boolean;
+  cpa_requests: boolean;             // PR 11: open CPA follow-ups
 }
 
 export interface DigestPrefs {
@@ -53,6 +54,7 @@ export const DEFAULT_PREFS: DigestPrefs = {
     cashFlowTips: true,
     autoCategorize: true,
     budgets: true,
+    cpa_requests: true,                // default-on; cheap and useful
   },
   setupComplete: false,
 };
@@ -270,6 +272,7 @@ function toggleSections(
     [/\bcash[- ]?flow tips?\b/, 'cashFlowTips', 'cash-flow tips'],
     [/\b(auto[- ]?categor|categori)\b/, 'autoCategorize', 'auto-categorizer summary'],
     [/\b(budget|spending\s+caps?|cap)\b/, 'budgets', 'budget progress'],
+    [/\b(cpa|accountant)\s*(requests?|asks?|follow[\- ]?ups?)?\b/, 'cpa_requests', 'CPA follow-ups'],
     [/\ball (the )?tips?\b/, 'taxTips', 'all tips'],
   ];
   for (const [re, key, label] of map) {
@@ -379,6 +382,7 @@ export function formatPrefsSummary(p: DigestPrefs): string {
     cashFlowTips: 'cash-flow tips',
     autoCategorize: 'auto-categorizer summary',
     budgets: 'budget progress',
+    cpa_requests: 'CPA follow-ups',
   };
   for (const k of Object.keys(labels) as (keyof DigestSections)[]) {
     (p.sections[k] ? on : off).push(labels[k]);

@@ -61,6 +61,7 @@ export type IntentName =
   | 'create_estimate'   // "estimate Beta $4K for new website" → AbEstimate (PR 7)
   | 'convert_estimate'  // "convert estimate EST-… to invoice" → AbInvoice (PR 7)
   | 'set_budget'        // "max $200 on meals each month" → AbBudget upsert (PR 8)
+  | 'invite_cpa'        // "invite my CPA jane@cpa.test" → AbTenantAccess + magic link (PR 11)
   | 'clarify'           // bot is unsure — ask the user a question first
   | 'unrelated';        // none of the above — let agent brain reply
 
@@ -96,6 +97,9 @@ export interface IntentSlots {
   // Budget slots (PR 8):
   categoryNameHint?: string;          // raw category text from the user ("meals")
   budgetPeriod?: 'monthly' | 'quarterly' | 'annual';
+  // CPA invite slots (PR 11):
+  cpaEmail?: string;                  // extracted email (e.g. "jane@cpa.test")
+  cpaRole?: 'cpa' | 'bookkeeper' | 'viewer';
 }
 
 export interface BotIntent {
@@ -361,6 +365,16 @@ INTENT CHOICES (pick exactly one)
                      SET slots.amountCents.
                      ("change it to \$45", "the amount is \$54.99",
                       "actually it was 132", "fix the total to \$200")
+   invite_cpa      — user wants to give their accountant / CPA / bookkeeper
+                     read-only access to the books. Triggers: "invite my
+                     CPA jane@cpa.test", "add my accountant
+                     bob@example.com", "share access with my CPA at
+                     name@firm.com". SET slots.cpaEmail to the lowercased
+                     email and slots.cpaRole to "cpa" | "bookkeeper" |
+                     "viewer" (default "cpa").
+                     ("invite my CPA jane@cpa.test",
+                      "add my accountant bob@firm.com",
+                      "share access with my bookkeeper at p@books.com")
    clarify         — you genuinely cannot tell what the user means OR
                      they could plausibly mean two of the above. Don't
                      guess — ASK them. Set slots.clarifyingQuestion to a
@@ -610,6 +624,29 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
       slots,
       confidence: 0.92,
       reason: 'tax/year-end/annual + package/bundle/report',
+      source: 'regex',
+    };
+  }
+
+  // CPA invite (PR 11): "invite my CPA jane@cpa.test", "add my
+  // accountant jane@cpa.test", "invite cpa jane@cpa.test". Captures
+  // the email; defaults role to 'cpa'. Runs BEFORE the budget /
+  // recurring-invoice regexes because the verb "invite" is unique to
+  // this flow and we don't want a stray "$" elsewhere in the message
+  // to bleed into a budget match.
+  const inviteCpaMatch = text.match(
+    /^(?:please\s+)?(?:invite|add)\s+(?:my\s+)?(?:cpa|accountant|bookkeeper)\s+([\w.+-]+@[\w.-]+\.\w+)/i,
+  );
+  if (inviteCpaMatch) {
+    const lowerText = text.toLowerCase();
+    const role: 'cpa' | 'bookkeeper' | 'viewer' = /\bbookkeeper\b/.test(lowerText)
+      ? 'bookkeeper'
+      : 'cpa';
+    return {
+      intent: 'invite_cpa',
+      slots: { cpaEmail: inviteCpaMatch[1].toLowerCase(), cpaRole: role },
+      confidence: 0.95,
+      reason: 'invite/add + cpa/accountant + email',
       source: 'regex',
     };
   }
@@ -1018,6 +1055,16 @@ export function planSteps(intent: BotIntent, _ctx: BotContext): PlanStep[] {
           amountCents: intent.slots.amountCents,
           categoryNameHint: intent.slots.categoryNameHint,
           period: intent.slots.budgetPeriod,
+        },
+        dependsOn: [],
+      }];
+    case 'invite_cpa':
+      return [{
+        id,
+        skill: 'cpa.invite',
+        args: {
+          email: intent.slots.cpaEmail,
+          role: intent.slots.cpaRole || 'cpa',
         },
         dependsOn: [],
       }];
@@ -2626,6 +2673,89 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         };
       }
 
+      case 'cpa.invite': {
+        // Owner-side: create a 90-day magic link for a CPA. Mirrors the
+        // /agentbook-core/accountant/invite endpoint but inline so the
+        // bot doesn't need a self-call. Returns the magic URL so the
+        // evaluator can paste it into the reply.
+        const email = (step.args.email as string | undefined)?.trim().toLowerCase();
+        const role = (step.args.role as string | undefined) || 'cpa';
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: 'What\'s your CPA\'s email? Try "invite my CPA jane@cpa.test".',
+            },
+          };
+        }
+
+        // Idempotency: reuse a still-valid invitation if one exists.
+        const existing = await db.abTenantAccess.findFirst({
+          where: {
+            tenantId: ctx.tenantId,
+            email,
+            role,
+            accessToken: { not: null },
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
+        });
+        let accessToken: string;
+        let accessId: string;
+        let expiresAt: Date | null;
+        if (existing && existing.accessToken) {
+          accessToken = existing.accessToken;
+          accessId = existing.id;
+          expiresAt = existing.expiresAt;
+        } else {
+          const { generateAccessToken } = await import('./agentbook-cpa-token');
+          accessToken = generateAccessToken();
+          expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+          const created = await db.abTenantAccess.create({
+            data: {
+              tenantId: ctx.tenantId,
+              userId: `cpa-${accessToken.slice(0, 12)}`,
+              email,
+              role,
+              accessToken,
+              expiresAt,
+              invitedBy: 'telegram',
+            },
+          });
+          accessId = created.id;
+          // Mirror the HTTP route's audit trail.
+          const { audit } = await import('./agentbook-audit');
+          await audit({
+            tenantId: ctx.tenantId,
+            source: 'telegram',
+            actor: 'bot',
+            action: 'cpa.invite',
+            entityType: 'AbTenantAccess',
+            entityId: accessId,
+            after: { email, role, expiresAt: expiresAt?.toISOString() ?? null },
+          });
+        }
+        const base =
+          process.env.APP_URL ||
+          process.env.NEXT_PUBLIC_APP_URL ||
+          'https://app.agentbook.test';
+        const inviteUrl = `${base.replace(/\/$/, '')}/cpa/${accessToken}`;
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'cpa_invited',
+            accessId,
+            email,
+            role,
+            inviteUrl,
+            expiresAt,
+            reused: !!existing,
+          },
+        };
+      }
+
       case 'meta.help': {
         return { stepId: step.id, success: true };
       }
@@ -2809,6 +2939,51 @@ export function evaluate(
       learned,
       delegatedToBrain: false,
       needsKeyboard: true,
+    };
+  }
+
+  // CPA invite (PR 11): build the reply inline so the user sees the
+  // magic link directly. Owner-side flow runs on Telegram so the
+  // webhook adapter doesn't need to add keyboards here.
+  if (intent.intent === 'invite_cpa') {
+    const r = results[0];
+    const data = r?.data as
+      | {
+          kind: string;
+          email?: string;
+          inviteUrl?: string;
+          reused?: boolean;
+          question?: string;
+        }
+      | undefined;
+    if (!r?.success || !data) {
+      return {
+        reply: r?.error || 'Couldn\'t generate the invite — please try again.',
+        parseMode: undefined,
+        learned,
+        delegatedToBrain: false,
+        needsKeyboard: false,
+      };
+    }
+    if (data.kind === 'needs_clarify') {
+      return {
+        reply: `🤔 ${data.question || 'What\'s your CPA\'s email?'}`,
+        parseMode: undefined,
+        learned,
+        delegatedToBrain: false,
+        needsKeyboard: false,
+      };
+    }
+    const reusedNote = data.reused ? '\n<i>(reusing the link I sent earlier — same link, still valid)</i>' : '';
+    return {
+      reply:
+        `📒 Invited <b>${escHtml(data.email || '')}</b>. ` +
+        `Send them this magic link — read-only access, expires in 90 days:\n\n` +
+        `<code>${escHtml(data.inviteUrl || '')}</code>${reusedNote}`,
+      parseMode: 'HTML',
+      learned,
+      delegatedToBrain: false,
+      needsKeyboard: false,
     };
   }
 

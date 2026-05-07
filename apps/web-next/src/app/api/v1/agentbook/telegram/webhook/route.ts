@@ -795,7 +795,7 @@ async function handleSetupTurn(
         cashOnHand: false, yesterday: false, pendingReview: false,
         overdue: false, thisWeek: false, anomalies: false,
         taxDeadline: false, taxTips: false, cashFlowTips: false,
-        autoCategorize: false, budgets: false,
+        autoCategorize: false, budgets: false, cpa_requests: false,
       };
     } else {
       // Use the same delta-from-feedback logic to interpret the list.
@@ -3191,6 +3191,65 @@ function getBot(): Bot {
         } catch {
           await ctx.reply('❌ Expense rejected — won\'t appear on the books.');
         }
+        return;
+      }
+
+      // PR 11: CPA-request resolve / skip callbacks. The owner taps
+      // [👀 Resolve] from the cpa-notify nudge → we mark the request
+      // resolved and prompt for an optional response. [⏭ Skip] just
+      // dismisses the message.
+      if (action === 'cpa_resolve') {
+        const requestId = parts[1];
+        if (!requestId) {
+          await ctx.answerCallbackQuery({ text: 'Bad request id' });
+          return;
+        }
+        const reqRow = await db.abAccountantRequest.findFirst({
+          where: { id: requestId, tenantId },
+          select: { id: true, status: true, message: true, entityType: true, entityId: true },
+        });
+        if (!reqRow) {
+          await ctx.answerCallbackQuery({ text: 'Request not found' });
+          return;
+        }
+        if (reqRow.status !== 'open') {
+          await ctx.answerCallbackQuery({ text: 'Already resolved' });
+          return;
+        }
+        await db.abAccountantRequest.update({
+          where: { id: requestId },
+          data: { status: 'resolved', resolvedAt: new Date(), resolution: 'acknowledged via Telegram' },
+        });
+        await ctx.answerCallbackQuery({ text: '✅ Marked resolved' });
+        const hint =
+          reqRow.entityType === 'AbExpense'
+            ? 'If they need a receipt, snap a photo and send it here.'
+            : reqRow.entityType === 'AbInvoice'
+            ? 'If they need an invoice copy, type "send invoice <number>".'
+            : 'Reply here with whatever they need.';
+        try {
+          await ctx.editMessageText(
+            `✅ <b>Resolved</b> — ${escHtml(reqRow.message.slice(0, 200))}\n\n<i>${hint}</i>`,
+            { parse_mode: 'HTML' },
+          );
+        } catch {
+          await ctx.reply(`✅ Resolved. ${hint}`);
+        }
+        return;
+      }
+
+      if (action === 'cpa_skip') {
+        const requestId = parts[1];
+        await ctx.answerCallbackQuery({ text: '⏭ Skipped — still in your queue' });
+        try {
+          await ctx.editMessageText(
+            `⏭ Skipped — your CPA's request is still in your queue.\n<i>(Tap "show CPA requests" anytime.)</i>`,
+            { parse_mode: 'HTML' },
+          );
+        } catch {
+          /* ignore */
+        }
+        void requestId;
         return;
       }
 

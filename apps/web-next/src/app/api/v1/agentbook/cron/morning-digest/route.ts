@@ -39,6 +39,7 @@ interface DigestData {
     count: number;
     items: BankReviewItem[];
   };
+  cpaRequests: { id: string; message: string; entityType: string; createdAt: Date }[];
 }
 
 interface BankReviewItem {
@@ -238,6 +239,14 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
     }),
   );
 
+  // PR 11: open CPA follow-ups (capped at 5 to keep the digest tight).
+  const openCpaRequests = await db.abAccountantRequest.findMany({
+    where: { tenantId, status: 'open' },
+    select: { id: true, message: true, entityType: true, createdAt: true },
+    orderBy: { createdAt: 'desc' },
+    take: 5,
+  });
+
   return {
     cashTodayCents,
     yesterday: {
@@ -256,6 +265,7 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
       count: bankReviewCount,
       items: bankReviewItems,
     },
+    cpaRequests: openCpaRequests,
   };
 }
 
@@ -351,6 +361,18 @@ function composeMessage(
   if (sec.taxDeadline && d.taxDaysUntilQ !== null && d.taxDaysUntilQ <= 21) {
     lines.push('');
     lines.push(`📋 <b>Quarterly tax due in ${d.taxDaysUntilQ} days</b> — type "tax" for the estimate`);
+  }
+
+  // PR 11: open CPA follow-ups. Quietly skipped when there are none
+  // (the section name shouldn't ever appear empty).
+  if (sec.cpa_requests && d.cpaRequests && d.cpaRequests.length > 0) {
+    lines.push('');
+    lines.push(`📒 <b>From your CPA</b> — ${d.cpaRequests.length} open question${d.cpaRequests.length === 1 ? '' : 's'}`);
+    const limit = concise ? 2 : 4;
+    for (const r of d.cpaRequests.slice(0, limit)) {
+      lines.push(`  • ${escapeHtml(r.message.slice(0, 140))}`);
+    }
+    if (d.cpaRequests.length > limit) lines.push(`  … and ${d.cpaRequests.length - limit} more`);
   }
 
   if (sec.taxTips && tips.tax) {
