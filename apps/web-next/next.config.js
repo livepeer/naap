@@ -27,6 +27,7 @@ const nextConfig = {
     '@naap/config',
     '@naap/plugin-sdk',
     '@naap/cache',
+    '@naap/crypto',
     '@pymthouse/builder-api',
   ],
 

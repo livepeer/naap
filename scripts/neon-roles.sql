@@ -120,5 +120,5 @@ GRANT ALL PRIVILEGES ON SCHEMA plugin_orchestrator_leaderboard TO naap_migrator;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA plugin_orchestrator_leaderboard TO naap_migrator;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA plugin_orchestrator_leaderboard TO naap_migrator;
 
--- 8. Allow migrator to create new schemas (for new plugins)
-ALTER ROLE naap_migrator CREATEDB;
+-- 8. Allow migrator to create new schemas for plugins (least-privilege)
+GRANT CREATE ON DATABASE neondb TO naap_migrator;
