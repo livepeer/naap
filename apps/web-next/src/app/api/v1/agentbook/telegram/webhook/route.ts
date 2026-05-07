@@ -43,6 +43,7 @@ import {
   applyExpenseMatch,
   BankMatchError,
 } from '@/lib/agentbook-bank-match';
+import { audit } from '@/lib/agentbook-audit';
 
 // Dev fallback: hardcoded chat ID → tenant mapping. The tenantId here MUST
 // match the tenant the user logs into the web UI as (the AgentBook tenant
@@ -796,6 +797,7 @@ async function handleSetupTurn(
         overdue: false, thisWeek: false, anomalies: false,
         taxDeadline: false, taxTips: false, cashFlowTips: false,
         autoCategorize: false, budgets: false, cpa_requests: false,
+        deductions: false,
       };
     } else {
       // Use the same delta-from-feedback logic to interpret the list.
@@ -3250,6 +3252,123 @@ function getBot(): Bot {
           /* ignore */
         }
         void requestId;
+        return;
+      }
+
+      // PR 12: Smart deduction discovery callbacks.
+      //   dd_apply:<uuid>   → flip linked expense's isDeductible/taxCategory + status='applied'
+      //   dd_skip:<uuid>    → status='dismissed' for 90 days
+      //   dd_explain:<uuid> → reply with the suggestion's reasoning
+      if (action === 'dd_apply' || action === 'dd_skip' || action === 'dd_explain') {
+        const suggestionId = parts[1];
+        if (!suggestionId) {
+          await ctx.answerCallbackQuery({ text: 'Bad suggestion id' });
+          return;
+        }
+        const suggestion = await db.abDeductionSuggestion.findFirst({
+          where: { id: suggestionId, tenantId },
+        });
+        if (!suggestion) {
+          await ctx.answerCallbackQuery({ text: 'Suggestion not found' });
+          return;
+        }
+
+        if (action === 'dd_explain') {
+          await ctx.answerCallbackQuery();
+          await ctx.reply(
+            `💡 <b>Why I flagged this</b>\n\n${escHtml(suggestion.message || suggestion.description || 'No reasoning recorded.')}`,
+            { parse_mode: 'HTML' },
+          );
+          return;
+        }
+
+        if (suggestion.status === 'applied' || suggestion.status === 'dismissed') {
+          await ctx.answerCallbackQuery({ text: `Already ${suggestion.status}` });
+          return;
+        }
+
+        if (action === 'dd_apply') {
+          // Mirror the HTTP apply handler: flip the linked expense (if
+          // any) then mark the suggestion applied. Audit both writes.
+          let expenseSummary = '';
+          if (suggestion.expenseId) {
+            const before = await db.abExpense.findFirst({
+              where: { id: suggestion.expenseId, tenantId },
+              select: { id: true, isDeductible: true, taxCategory: true, description: true },
+            });
+            if (before) {
+              const after = await db.abExpense.update({
+                where: { id: before.id },
+                data: {
+                  isDeductible: suggestion.suggestedDeductible,
+                  ...(suggestion.suggestedTaxCategory ? { taxCategory: suggestion.suggestedTaxCategory } : {}),
+                },
+                select: { id: true, isDeductible: true, taxCategory: true, description: true },
+              });
+              expenseSummary = before.description ? ` "${before.description.slice(0, 60)}"` : '';
+              await audit({
+                tenantId,
+                source: 'telegram',
+                actor: 'bot',
+                action: 'expense.mark_deductible',
+                entityType: 'AbExpense',
+                entityId: before.id,
+                before: { isDeductible: before.isDeductible, taxCategory: before.taxCategory },
+                after: { isDeductible: after.isDeductible, taxCategory: after.taxCategory },
+              });
+            }
+          }
+          const updated = await db.abDeductionSuggestion.update({
+            where: { id: suggestion.id },
+            data: { status: 'applied' },
+          });
+          await audit({
+            tenantId,
+            source: 'telegram',
+            actor: 'bot',
+            action: 'deduction.apply',
+            entityType: 'AbDeductionSuggestion',
+            entityId: suggestion.id,
+            before: { status: suggestion.status },
+            after: { status: updated.status, ruleId: suggestion.ruleId, expenseId: suggestion.expenseId },
+          });
+          await ctx.answerCallbackQuery({ text: '✅ Applied' });
+          try {
+            await ctx.editMessageText(
+              `✅ <b>Applied</b>${expenseSummary} — marked as deductible${suggestion.suggestedTaxCategory ? ` (${escHtml(suggestion.suggestedTaxCategory)})` : ''}.`,
+              { parse_mode: 'HTML' },
+            );
+          } catch {
+            await ctx.reply(`✅ Applied — marked as deductible.`);
+          }
+          return;
+        }
+
+        // action === 'dd_skip'
+        const expiresAt = new Date(Date.now() + 90 * 86_400_000);
+        const updated = await db.abDeductionSuggestion.update({
+          where: { id: suggestion.id },
+          data: { status: 'dismissed', expiresAt },
+        });
+        await audit({
+          tenantId,
+          source: 'telegram',
+          actor: 'bot',
+          action: 'deduction.dismiss',
+          entityType: 'AbDeductionSuggestion',
+          entityId: suggestion.id,
+          before: { status: suggestion.status, expiresAt: suggestion.expiresAt },
+          after: { status: updated.status, expiresAt: updated.expiresAt },
+        });
+        await ctx.answerCallbackQuery({ text: 'Dismissed for 90 days.' });
+        try {
+          await ctx.editMessageText(
+            `⏭ Dismissed for 90 days. <i>I'll quiet down on this one.</i>`,
+            { parse_mode: 'HTML' },
+          );
+        } catch {
+          await ctx.reply('Dismissed for 90 days.');
+        }
         return;
       }
 

@@ -1648,6 +1648,8 @@ model AbExpense {
   isPersonal      Boolean  @default(false)
   isBillable      Boolean  @default(false)      // can be billed to a client
   clientId        String?                       // if billable, which client
+  isDeductible    Boolean  @default(false)      // PR 12: business-deductible flag (set by deduction discovery)
+  taxCategory     String?                       // PR 12: Schedule C / T2125 line snapshot (set on apply)
   status          String   @default("confirmed") // confirmed | pending_review | rejected
   source          String   @default("manual")    // manual | telegram_photo | telegram_pdf | ocr | csv_import | cc_statement | bank_sync
   journalEntryId  String?
@@ -2061,11 +2063,23 @@ model AbDeductionSuggestion {
   jurisdiction         String
   category             String
   description          String
-  estimatedSavingsCents Int
-  status               String   @default("suggested") // suggested | applied | dismissed
+  estimatedSavingsCents Int      @default(0)
+  // PR 12 — Smart deduction discovery. Existing rows still have status =
+  // 'suggested' from earlier tax-package work; the new rules engine writes
+  // 'open' instead so the two pipelines can co-exist. List/apply/dismiss
+  // endpoints accept either.
+  status               String   @default("suggested") // suggested | open | applied | dismissed
+  ruleId               String?                       // PR 12: rule that produced this suggestion
+  expenseId            String?                       // PR 12: target AbExpense.id (if rule is single-expense)
+  message              String?                       // PR 12: user-facing reasoning shown in digest / dd_explain
+  suggestedTaxCategory String?                       // PR 12: AbAccount.taxCategory to set on apply
+  suggestedDeductible  Boolean  @default(true)       // PR 12: value to write to AbExpense.isDeductible on apply
+  confidence           Float    @default(1.0)        // PR 12: 0–1; rules persist only ≥0.7
+  expiresAt            DateTime?                     // PR 12: dismiss → now+90d for dedupe lookback
   createdAt            DateTime @default(now())
 
   @@index([tenantId, status])
+  @@index([tenantId, ruleId, expenseId, status])
   @@schema("plugin_agentbook_tax")
 }
 

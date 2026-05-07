@@ -28,6 +28,7 @@ export interface DigestSections {
   autoCategorize: boolean;
   budgets: boolean;
   cpa_requests: boolean;             // PR 11: open CPA follow-ups
+  deductions: boolean;               // PR 12: smart deduction discovery hits
 }
 
 export interface DigestPrefs {
@@ -55,6 +56,7 @@ export const DEFAULT_PREFS: DigestPrefs = {
     autoCategorize: true,
     budgets: true,
     cpa_requests: true,                // default-on; cheap and useful
+    deductions: true,                  // PR 12: default-on; one bot msg / cycle worst-case
   },
   setupComplete: false,
 };
@@ -273,6 +275,7 @@ function toggleSections(
     [/\b(auto[- ]?categor|categori)\b/, 'autoCategorize', 'auto-categorizer summary'],
     [/\b(budget|spending\s+caps?|cap)\b/, 'budgets', 'budget progress'],
     [/\b(cpa|accountant)\s*(requests?|asks?|follow[\- ]?ups?)?\b/, 'cpa_requests', 'CPA follow-ups'],
+    [/\b(deduction|missed deduction|write[- ]?off)s?\b/, 'deductions', 'missed-deduction tips'],
     [/\ball (the )?tips?\b/, 'taxTips', 'all tips'],
   ];
   for (const [re, key, label] of map) {
@@ -304,7 +307,8 @@ Field domain:
    tone: "concise" | "detailed"
    sections.* (each true|false):
       cashOnHand, yesterday, pendingReview, overdue, thisWeek, anomalies,
-      taxDeadline, taxTips, cashFlowTips, autoCategorize, budgets
+      taxDeadline, taxTips, cashFlowTips, autoCategorize, budgets,
+      cpa_requests, deductions
 
 Return ONLY JSON:
 {
@@ -383,6 +387,7 @@ export function formatPrefsSummary(p: DigestPrefs): string {
     autoCategorize: 'auto-categorizer summary',
     budgets: 'budget progress',
     cpa_requests: 'CPA follow-ups',
+    deductions: 'missed deductions',
   };
   for (const k of Object.keys(labels) as (keyof DigestSections)[]) {
     (p.sections[k] ? on : off).push(labels[k]);

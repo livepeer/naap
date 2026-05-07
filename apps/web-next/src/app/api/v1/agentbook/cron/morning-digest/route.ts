@@ -40,6 +40,18 @@ interface DigestData {
     items: BankReviewItem[];
   };
   cpaRequests: { id: string; message: string; entityType: string; createdAt: Date }[];
+  // PR 12 — Smart deduction discovery. Open suggestions surfaced as a
+  // digest line + per-suggestion follow-up message with action buttons.
+  deductions: DeductionDigestItem[];
+}
+
+interface DeductionDigestItem {
+  id: string;
+  ruleId: string | null;
+  message: string | null;
+  expenseId: string | null;
+  confidence: number;
+  suggestedTaxCategory: string | null;
 }
 
 interface BankReviewItem {
@@ -247,6 +259,22 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
     take: 5,
   });
 
+  // PR 12: top open deduction suggestions, capped so the digest never
+  // grows more than 3 follow-up bot messages.
+  const openDeductionsRaw = await db.abDeductionSuggestion.findMany({
+    where: { tenantId, status: 'open' },
+    orderBy: [{ confidence: 'desc' }, { createdAt: 'desc' }],
+    take: 3,
+  });
+  const deductions: DeductionDigestItem[] = openDeductionsRaw.map((d) => ({
+    id: d.id,
+    ruleId: d.ruleId,
+    message: d.message,
+    expenseId: d.expenseId,
+    confidence: d.confidence,
+    suggestedTaxCategory: d.suggestedTaxCategory,
+  }));
+
   return {
     cashTodayCents,
     yesterday: {
@@ -266,6 +294,7 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
       items: bankReviewItems,
     },
     cpaRequests: openCpaRequests,
+    deductions,
   };
 }
 
@@ -361,6 +390,21 @@ function composeMessage(
   if (sec.taxDeadline && d.taxDaysUntilQ !== null && d.taxDaysUntilQ <= 21) {
     lines.push('');
     lines.push(`📋 <b>Quarterly tax due in ${d.taxDaysUntilQ} days</b> — type "tax" for the estimate`);
+  }
+
+  // PR 12: smart deduction discovery — show count, then send each as
+  // its own follow-up message (so the inline buttons land on the right
+  // suggestion id).
+  if (sec.deductions && d.deductions && d.deductions.length > 0) {
+    lines.push('');
+    const n = d.deductions.length;
+    lines.push(`💡 <b>${n} possible missed deduction${n === 1 ? '' : 's'}</b>`);
+    const limit = concise ? 1 : 3;
+    for (const dd of d.deductions.slice(0, limit)) {
+      const preview = (dd.message || '').slice(0, 140);
+      if (preview) lines.push(`  • ${escapeHtml(preview)}`);
+    }
+    lines.push(`  <i>↓ Tap below to apply or skip.</i>`);
   }
 
   // PR 11: open CPA follow-ups. Quietly skipped when there are none
@@ -518,6 +562,47 @@ async function sendBankReviewMessages(
       ]);
     }
 
+    for (const chatId of chats) {
+      await fetch(`https://api.telegram.org/bot${bot.botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: buttons },
+        }),
+      }).catch(() => null);
+    }
+  }
+}
+
+/**
+ * PR 12 — per-suggestion deduction follow-up message. The summary line
+ * in the digest tells the user how many; this fires one inline-keyboard
+ * message per suggestion so the [✅ Apply] button has a unique target.
+ *
+ * Callback prefixes are 47B at most: `dd_apply:<uuid>` = 9 + 36 = 45,
+ * well under Telegram's 64-byte cap on `callback_data`.
+ */
+async function sendDeductionMessages(
+  tenantId: string,
+  items: DeductionDigestItem[],
+): Promise<void> {
+  const bot = await db.abTelegramBot.findFirst({ where: { tenantId, enabled: true } });
+  if (!bot) return;
+  const chats = Array.isArray(bot.chatIds) ? (bot.chatIds as string[]) : [];
+  if (chats.length === 0) return;
+
+  for (const item of items) {
+    const text = `💡 ${escapeHtml((item.message || 'Possible missed deduction').slice(0, 600))}`;
+    const buttons: { text: string; callback_data: string }[][] = [
+      [
+        { text: '✅ Apply', callback_data: `dd_apply:${item.id}` },
+        { text: '❌ Skip', callback_data: `dd_skip:${item.id}` },
+      ],
+      [{ text: '💬 Tell me more', callback_data: `dd_explain:${item.id}` }],
+    ];
     for (const chatId of chats) {
       await fetch(`https://api.telegram.org/bot${bot.botToken}/sendMessage`, {
         method: 'POST',
@@ -692,6 +777,34 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
               eventType: 'bank.digest_sent_today',
               actor: 'system',
               action: { dateUTC: todayUTC, count: digest.bankReview.items.length },
+            },
+          });
+        }
+      }
+
+      // PR 12: per-suggestion deduction-discovery follow-ups. Same
+      // once-per-UTC-day gate as the bank-review messages so the cron
+      // doesn't double-send when it fires more than once for a tenant.
+      if (tgSent && prefs.sections.deductions && digest.deductions.length > 0) {
+        const todayUTC = new Date().toISOString().slice(0, 10);
+        const dayStart = new Date(`${todayUTC}T00:00:00.000Z`);
+        const dayEnd = new Date(`${todayUTC}T23:59:59.999Z`);
+        const alreadySent = await db.abEvent.findFirst({
+          where: {
+            tenantId: tenant.userId,
+            eventType: 'deduction.digest_sent_today',
+            createdAt: { gte: dayStart, lte: dayEnd },
+          },
+          select: { id: true },
+        });
+        if (!alreadySent) {
+          await sendDeductionMessages(tenant.userId, digest.deductions);
+          await db.abEvent.create({
+            data: {
+              tenantId: tenant.userId,
+              eventType: 'deduction.digest_sent_today',
+              actor: 'system',
+              action: { dateUTC: todayUTC, count: digest.deductions.length },
             },
           });
         }
