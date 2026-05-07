@@ -1,11 +1,17 @@
 /**
- * Budget status — current-month spending vs each budget limit.
+ * Budget status — current-period spend vs each budget limit.
+ *
+ * Delegates to the budget monitor lib so quarterly/annual budgets
+ * compute the right window (PR 8). For monthly budgets the math is
+ * identical to the previous month-only implementation but now stays
+ * tenant-timezone aware.
  */
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { getBudgetProgress } from '@/lib/agentbook-budget-monitor';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,40 +20,27 @@ export const maxDuration = 30;
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const tenantId = await resolveAgentbookTenant(request);
-    const budgets = await db.abBudget.findMany({ where: { tenantId } });
+    const budgets = await db.abBudget.findMany({
+      where: { tenantId },
+      orderBy: { categoryName: 'asc' },
+    });
+    const progress = await getBudgetProgress(tenantId);
+    const byId = new Map(progress.map((p) => [p.budgetId, p]));
 
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-
-    const result = await Promise.all(
-      budgets.map(async (budget) => {
-        const where: Record<string, unknown> = {
-          tenantId,
-          date: { gte: monthStart, lte: monthEnd },
-          isPersonal: false,
-        };
-        if (budget.categoryId) where.categoryId = budget.categoryId;
-        const agg = await db.abExpense.aggregate({
-          _sum: { amountCents: true },
-          where,
-        });
-        const spentCents = agg._sum.amountCents || 0;
-        return {
-          ...budget,
-          spentCents,
-          percent: Math.round((spentCents / Math.max(1, budget.amountCents)) * 100),
-        };
-      }),
-    );
+    const result = budgets.map((b) => {
+      const p = byId.get(b.id);
+      return {
+        ...b,
+        spentCents: p?.spentCents ?? 0,
+        percent: p?.percent ?? 0,
+      };
+    });
 
     return NextResponse.json({
       success: true,
       data: {
         budgets: result,
-        period: 'monthly',
-        monthStart: monthStart.toISOString(),
-        monthEnd: monthEnd.toISOString(),
+        period: 'mixed',
       },
     });
   } catch (err) {

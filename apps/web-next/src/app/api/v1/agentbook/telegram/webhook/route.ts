@@ -786,7 +786,7 @@ async function handleSetupTurn(
         cashOnHand: false, yesterday: false, pendingReview: false,
         overdue: false, thisWeek: false, anomalies: false,
         taxDeadline: false, taxTips: false, cashFlowTips: false,
-        autoCategorize: false,
+        autoCategorize: false, budgets: false,
       };
     } else {
       // Use the same delta-from-feedback logic to interpret the list.
@@ -1902,6 +1902,78 @@ async function renderTaxPackageReply(
   });
 }
 
+// === Budget flow (PR 8) ===================================================
+//
+// Callback prefixes (all ≤64 bytes):
+//   • bdg_ok:<budgetId>     — friendly ack of "max $X on Y monthly" — no DB
+//                             change, just confirms we got it.
+//   • bdg_book:<expenseId>  — user said "yes, book it anyway" on the
+//                             over-limit confirmation gate.
+//   • bdg_skip:<expenseId>  — user said "maybe later" — reject the draft.
+
+interface BudgetSetData {
+  kind: 'budget_set';
+  budgetId: string;
+  categoryName: string;
+  amountCents: number;
+  period: 'monthly' | 'quarterly' | 'annual' | string;
+}
+
+interface BudgetNeedsClarify {
+  kind: 'needs_clarify';
+  question: string;
+}
+
+type BudgetStepData = BudgetSetData | BudgetNeedsClarify;
+
+function periodPhrase(p: string): string {
+  switch (p) {
+    case 'monthly': return '/mo';
+    case 'quarterly': return '/qtr';
+    case 'annual': return '/yr';
+    default: return '';
+  }
+}
+
+export function renderBudgetSetResult(
+  data: BudgetStepData,
+): { html: string; keyboard?: unknown } {
+  if (data.kind === 'needs_clarify') {
+    return { html: `🤔 ${escHtml(data.question)}` };
+  }
+  const amount = `$${(data.amountCents / 100).toLocaleString('en-US', {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: data.amountCents % 100 === 0 ? 0 : 2,
+  })}`;
+  const html =
+    `🎯 Got it — max <b>${amount}${periodPhrase(data.period)}</b> on <b>${escHtml(data.categoryName)}</b>. I'll nudge you at 80% and ask before going over.`;
+  return {
+    html,
+    keyboard: {
+      inline_keyboard: [
+        [{ text: '✅ OK', callback_data: `bdg_ok:${data.budgetId}` }],
+      ],
+    },
+  };
+}
+
+async function renderBudgetSetReply(
+  ctx: InvoiceReplyCtx,
+  result: { success: boolean; data?: unknown; error?: string } | undefined,
+): Promise<void> {
+  if (!result || !result.success || !result.data) {
+    await ctx.reply(result?.error || "Couldn't set that budget — try \"max $200 on meals each month\".");
+    return;
+  }
+  const data = result.data as BudgetStepData;
+  const { html, keyboard } = renderBudgetSetResult(data);
+  await ctx.reply(html, {
+    parse_mode: 'HTML',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    reply_markup: keyboard as any,
+  });
+}
+
 // === Estimate flow (PR 7) =================================================
 //
 // Memory keys:
@@ -2615,6 +2687,13 @@ function getBot(): Bot {
           await renderEstimateConvertResult(ctx, loop.results[0]);
           return;
         }
+        if (
+          loop.evaluation.needsKeyboard
+          && loop.intent.intent === 'set_budget'
+        ) {
+          await renderBudgetSetReply(ctx, loop.results[0]);
+          return;
+        }
 
         if (loop.evaluation.reply) {
           try {
@@ -2938,6 +3017,47 @@ function getBot(): Bot {
           return;
         }
 
+        // Budget gate (PR 8): if this expense would push any monitored
+        // budget over 100%, ask the user to confirm overriding the cap.
+        // 80%-crossing alerts are sent as a follow-up note AFTER booking
+        // (no gate). Personal expenses skip the gate entirely.
+        if (!expense.isPersonal) {
+          try {
+            const { checkBudgetsForExpense } = await import('@/lib/agentbook-budget-monitor');
+            const check = await checkBudgetsForExpense({
+              tenantId,
+              categoryId: expense.categoryId,
+              expenseAmountCents: expense.amountCents,
+              expenseDate: expense.date,
+              excludeExpenseId: expense.id,
+            });
+            const overLimit = check.alerts.find((a) => a.overLimit);
+            if (overLimit) {
+              const cat = overLimit.categoryName || 'this category';
+              const after = `$${(overLimit.spentAfterCents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: overLimit.spentAfterCents % 100 === 0 ? 0 : 2 })}`;
+              const limit = `$${(overLimit.limitCents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: overLimit.limitCents % 100 === 0 ? 0 : 2 })}`;
+              const pct = Math.round((overLimit.spentAfterCents / Math.max(1, overLimit.limitCents)) * 100);
+              await ctx.answerCallbackQuery({ text: '⚠ Over budget' });
+              await ctx.reply(
+                `⚠ This would push <b>${escHtml(cat)}</b> to ${after}/${limit} (${pct}%). Book anyway?`,
+                {
+                  parse_mode: 'HTML',
+                  reply_markup: {
+                    inline_keyboard: [[
+                      { text: '✅ Yes, book', callback_data: `bdg_book:${expense.id}` },
+                      { text: '💡 Maybe later', callback_data: `bdg_skip:${expense.id}` },
+                    ]],
+                  },
+                },
+              );
+              return;
+            }
+          } catch (err) {
+            // Budget check failures should NEVER block booking — log and continue.
+            console.warn('[budget-monitor] check failed:', err);
+          }
+        }
+
         let journalEntryId = expense.journalEntryId;
         let categoryAccount: { id: string; name: string; taxCategory: string | null } | null = null;
         if (expense.categoryId) {
@@ -3011,6 +3131,37 @@ function getBot(): Bot {
           await ctx.editMessageText(reply, { parse_mode: 'HTML' });
         } catch {
           await ctx.reply(reply, { parse_mode: 'HTML' });
+        }
+
+        // Budget 80% follow-up nudge (PR 8). Now that the expense is
+        // confirmed, re-check budgets WITHOUT excluding it so the
+        // crossing detection compares pre-this-expense (excluded) to
+        // post-this-expense (included). Sent as a separate message so
+        // the booking confirmation stays clean.
+        if (!expense.isPersonal) {
+          try {
+            const { checkBudgetsForExpense } = await import('@/lib/agentbook-budget-monitor');
+            const followUp = await checkBudgetsForExpense({
+              tenantId,
+              categoryId: expense.categoryId,
+              expenseAmountCents: expense.amountCents,
+              expenseDate: expense.date,
+              excludeExpenseId: expense.id,
+            });
+            const at80 = followUp.alerts.find((a) => a.threshold === 80 && !a.overLimit);
+            if (at80) {
+              const cat = at80.categoryName || 'this category';
+              const after = `$${(at80.spentAfterCents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: at80.spentAfterCents % 100 === 0 ? 0 : 2 })}`;
+              const limit = `$${(at80.limitCents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: at80.limitCents % 100 === 0 ? 0 : 2 })}`;
+              const periodLabel = at80.period === 'annual' ? 'this year' : at80.period === 'quarterly' ? 'this quarter' : 'this month';
+              await ctx.reply(
+                `🟡 Heads up — <b>${escHtml(cat)}</b> is at 80% (${after}/${limit}) for ${periodLabel}.`,
+                { parse_mode: 'HTML' },
+              );
+            }
+          } catch (err) {
+            console.warn('[budget-monitor] follow-up failed:', err);
+          }
         }
         return;
       }
@@ -4060,6 +4211,99 @@ function getBot(): Bot {
           await ctx.editMessageText('❌ Recurring schedule cancelled.');
         } catch {
           await ctx.reply('❌ Recurring schedule cancelled.');
+        }
+        return;
+      }
+
+      // === Budget callbacks (PR 8) ====================================
+      if (action === 'bdg_ok') {
+        // Pure ack — the budget was already created in the bot loop.
+        await ctx.answerCallbackQuery({ text: '🎯 Budget saved' });
+        try {
+          // Strip the inline keyboard; leave the existing message text.
+          await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+        } catch {
+          /* original message may be gone — silent best-effort */
+        }
+        return;
+      }
+      if (action === 'bdg_book') {
+        // User chose "yes, book anyway" on the over-budget gate. Mark the
+        // pending draft as confirmed and continue. This re-uses the same
+        // confirm path as the regular `confirm` callback above so journal
+        // posting stays in one place.
+        const expenseId = parts[1];
+        if (!expenseId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
+        if (!expense) {
+          await ctx.answerCallbackQuery({ text: 'Draft not found' });
+          return;
+        }
+        if (expense.status === 'confirmed') {
+          await ctx.answerCallbackQuery({ text: 'Already booked' });
+          return;
+        }
+        let journalEntryId = expense.journalEntryId;
+        if (!journalEntryId && expense.categoryId && !expense.isPersonal) {
+          const cashAccount = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
+          if (cashAccount) {
+            const je = await db.abJournalEntry.create({
+              data: {
+                tenantId,
+                date: expense.date,
+                memo: `Expense: ${expense.description || 'Confirmed expense'}`,
+                sourceType: 'expense',
+                sourceId: expense.id,
+                verified: true,
+                lines: {
+                  create: [
+                    { accountId: expense.categoryId, debitCents: expense.amountCents, creditCents: 0, description: expense.description || 'Expense' },
+                    { accountId: cashAccount.id, debitCents: 0, creditCents: expense.amountCents, description: 'Payment' },
+                  ],
+                },
+              },
+            });
+            journalEntryId = je.id;
+          }
+        }
+        await db.abExpense.update({
+          where: { id: expenseId },
+          data: { status: 'confirmed', journalEntryId },
+        });
+        await db.abEvent.create({
+          data: {
+            tenantId,
+            eventType: 'expense.confirmed',
+            actor: 'user',
+            action: { expenseId, source: 'telegram_budget_override' },
+          },
+        });
+        await ctx.answerCallbackQuery({ text: '✅ Booked over budget' });
+        try {
+          await ctx.editMessageText('✅ Booked — and noted that you went over budget.');
+        } catch {
+          await ctx.reply('✅ Booked — and noted that you went over budget.');
+        }
+        return;
+      }
+      if (action === 'bdg_skip') {
+        const expenseId = parts[1];
+        if (!expenseId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        await db.abExpense.updateMany({
+          where: { id: expenseId, tenantId },
+          data: { status: 'rejected' },
+        });
+        await ctx.answerCallbackQuery({ text: '💡 Skipped — saved your budget' });
+        try {
+          await ctx.editMessageText('💡 Skipped — your budget thanks you.');
+        } catch {
+          await ctx.reply('💡 Skipped — your budget thanks you.');
         }
         return;
       }

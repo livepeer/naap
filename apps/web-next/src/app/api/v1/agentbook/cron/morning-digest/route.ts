@@ -15,6 +15,7 @@ import { prisma as db } from '@naap/database';
 import { autoCategorizeForTenant, type AutoCategoryResult } from '@/lib/agentbook-auto-categorize';
 import { getDigestPrefs, type DigestPrefs } from '@/lib/agentbook-digest-prefs';
 import { buildTipContext, generateTaxTip, generateCashFlowTip } from '@/lib/agentbook-digest-tips';
+import { getBudgetProgress, type BudgetProgress } from '@/lib/agentbook-budget-monitor';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -215,6 +216,7 @@ function composeMessage(
   ai: AutoCategoryResult,
   prefs: DigestPrefs,
   tips: { tax?: string | null; cashFlow?: string | null },
+  budgets?: BudgetProgress[],
 ): string {
   const concise = prefs.tone === 'concise';
   const sec = prefs.sections;
@@ -307,6 +309,27 @@ function composeMessage(
     lines.push(`🌊 <b>Cash flow:</b> ${escapeHtml(tips.cashFlow)}`);
   }
 
+  // 💡 Budgets — only surface budgets that are >=80% used. Anything
+  // green/under-budget stays out of the digest so the section doesn't
+  // become noise once a tenant accumulates a chart of caps.
+  if (sec.budgets && budgets && budgets.length > 0) {
+    const hot = budgets.filter((b) => b.percent >= 80);
+    if (hot.length > 0) {
+      lines.push('');
+      lines.push(`💡 <b>Budgets</b>`);
+      const limit = concise ? 3 : 5;
+      for (const b of hot.slice(0, limit)) {
+        const bar = renderBudgetBar(b.percent);
+        const label = b.categoryName || 'Total';
+        const periodWord = b.period === 'annual' ? 'yr' : b.period === 'quarterly' ? 'qtr' : 'mo';
+        lines.push(
+          `  ${bar} <b>${escapeHtml(label)}</b> — ${fmt$(b.spentCents)}/${fmt$(b.limitCents)}/${periodWord} (${b.percent}%)`,
+        );
+      }
+      if (hot.length > limit) lines.push(`  … and ${hot.length - limit} more`);
+    }
+  }
+
   if (!prefs.setupComplete) {
     lines.push('');
     lines.push(`<i>Want to customize what you see and when? Type <code>setup briefing</code>.</i>`);
@@ -320,6 +343,21 @@ function composeMessage(
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Tiny ASCII progress bar for budget rows. 8 cells; filled with █, empty
+ * with ░. Coloured-emoji equivalents could replace this later but the
+ * monochrome version renders cleanly across Telegram clients and email.
+ */
+function renderBudgetBar(percent: number): string {
+  const cells = 8;
+  const filled = Math.max(0, Math.min(cells, Math.round((percent / 100) * cells)));
+  const overflowing = percent >= 100;
+  // Use a different lead emoji for over-limit so the user can spot it
+  // without parsing the percentage.
+  const lead = overflowing ? '🔴' : percent >= 80 ? '🟡' : '🟢';
+  return `${lead} ${'█'.repeat(filled)}${'░'.repeat(Math.max(0, cells - filled))}`;
 }
 
 async function sendTelegram(
@@ -449,7 +487,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         }
       }
 
-      const message = composeMessage(name, digest, ai, prefs, { tax: taxTip, cashFlow: cashFlowTip });
+      // Budgets — only fetch if the tenant wants them in their digest.
+      let budgets: BudgetProgress[] = [];
+      if (prefs.sections.budgets) {
+        try {
+          budgets = await getBudgetProgress(tenant.userId);
+        } catch (err) {
+          console.warn('[morning-digest] budget fetch failed', tenant.userId, err);
+        }
+      }
+
+      const message = composeMessage(name, digest, ai, prefs, { tax: taxTip, cashFlow: cashFlowTip }, budgets);
       // Review button covers BOTH queues — AI suggestions AND uncategorized
       // draft expenses. The unified review batch handler walks through both.
       const reviewCount = ai.pending.length + digest.pendingReviewCount;

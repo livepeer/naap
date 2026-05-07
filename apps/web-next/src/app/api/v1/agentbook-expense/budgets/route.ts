@@ -49,31 +49,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ success: false, error: 'amountCents required' }, { status: 400 });
     }
 
-    const budget = await db.abBudget.upsert({
-      where: {
-        tenantId_categoryId_period: {
-          tenantId,
-          // Prisma's compound-unique input is typed as non-nullable even
-          // though the column is. Cast preserves the legacy plugin's
-          // upsert-with-null-category behaviour.
-          categoryId: (categoryId || null) as unknown as string,
-          period: period || 'monthly',
-        },
-      },
-      update: {
-        amountCents,
-        categoryName,
-        alertPercent: alertPercent || 80,
-      },
-      create: {
-        tenantId,
-        amountCents,
-        categoryId: categoryId || null,
-        categoryName: categoryName || 'Total',
-        period: period || 'monthly',
-        alertPercent: alertPercent || 80,
-      },
+    // Prisma rejects null in a compound-unique upsert; fall back to
+    // findFirst + create-or-update.
+    const resolvedPeriod = period || 'monthly';
+    const existing = await db.abBudget.findFirst({
+      where: { tenantId, categoryId: categoryId ?? null, period: resolvedPeriod },
     });
+    const budget = existing
+      ? await db.abBudget.update({
+          where: { id: existing.id },
+          data: { amountCents, categoryName, alertPercent: alertPercent || 80 },
+        })
+      : await db.abBudget.create({
+          data: {
+            tenantId,
+            amountCents,
+            categoryId: categoryId ?? null,
+            categoryName: categoryName || 'Total',
+            period: resolvedPeriod,
+            alertPercent: alertPercent || 80,
+          },
+        });
 
     return NextResponse.json({ success: true, data: budget });
   } catch (err) {

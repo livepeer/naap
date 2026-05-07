@@ -60,6 +60,7 @@ export type IntentName =
   | 'setup_recurring_invoice' // "every month invoice TechCorp $5K consulting" → schedule (PR 6)
   | 'create_estimate'   // "estimate Beta $4K for new website" → AbEstimate (PR 7)
   | 'convert_estimate'  // "convert estimate EST-… to invoice" → AbInvoice (PR 7)
+  | 'set_budget'        // "max $200 on meals each month" → AbBudget upsert (PR 8)
   | 'clarify'           // bot is unsure — ask the user a question first
   | 'unrelated';        // none of the above — let agent brain reply
 
@@ -92,6 +93,9 @@ export interface IntentSlots {
   estimateNumberHint?: string; // EST-YYYY-XXXX
   estimateIdHint?: string;     // raw uuid (rare — used by callbacks)
   useMostRecent?: boolean;     // "convert the most recent estimate to invoice"
+  // Budget slots (PR 8):
+  categoryNameHint?: string;          // raw category text from the user ("meals")
+  budgetPeriod?: 'monthly' | 'quarterly' | 'annual';
 }
 
 export interface BotIntent {
@@ -314,6 +318,18 @@ INTENT CHOICES (pick exactly one)
                      create_invoice_from_chat.
                      ("estimate Beta $4K for new website",
                       "quote Acme $10K for redesign valid 60 days")
+   set_budget      — user wants to cap spend on a category for a period.
+                     Triggers: "max $200 on meals each month", "set $500
+                     monthly travel budget", "limit office supplies to
+                     $100/mo", "cap groceries at $400 monthly". SET
+                     slots.amountCents to the limit in cents,
+                     slots.categoryNameHint to the raw category text
+                     ("meals" / "travel" / "office supplies"), and
+                     slots.budgetPeriod to "monthly" | "quarterly" |
+                     "annual" (default monthly when not specified).
+                     ("max $200 on meals each month",
+                      "set $500 monthly travel budget",
+                      "limit office supplies to $100/mo")
    convert_estimate — user wants to turn an APPROVED estimate into an
                      invoice. Triggers: "convert estimate EST-... to
                      invoice", "make EST-... an invoice", "turn the most
@@ -372,7 +388,7 @@ RULES
 
 OUTPUT
 Respond with ONLY a JSON object — no preamble, no code fences:
-{"intent": "<name>", "slots": {"categoryName": "Fuel", "amountCents": 4523, "vendor": "Shell", "description": "...", "filter": "...", "clarifyingQuestion": "...", "candidateIntents": ["...", "..."], "miles": 47, "unit": "mi", "purpose": "TechCorp meeting", "clientNameHint": "TechCorp", "taxYear": 2025, "cadence": "monthly", "dayOfMonth": 1, "validUntilHint": "60 days", "estimateNumberHint": "EST-2026-003", "useMostRecent": true}, "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
+{"intent": "<name>", "slots": {"categoryName": "Fuel", "amountCents": 4523, "vendor": "Shell", "description": "...", "filter": "...", "clarifyingQuestion": "...", "candidateIntents": ["...", "..."], "miles": 47, "unit": "mi", "purpose": "TechCorp meeting", "clientNameHint": "TechCorp", "taxYear": 2025, "cadence": "monthly", "dayOfMonth": 1, "validUntilHint": "60 days", "estimateNumberHint": "EST-2026-003", "useMostRecent": true, "categoryNameHint": "meals", "budgetPeriod": "monthly"}, "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
 
   let raw: string;
   try {
@@ -598,6 +614,30 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
     };
   }
 
+  // Set budget (PR 8). Two trigger shapes:
+  //   • "max|limit|set|cap $N on|for <category> [per|each|every month|year|quarter | monthly | annually | quarterly]"
+  //   • "set|create $N monthly|quarterly|annual <category> budget"
+  // The amount can include a "k"/"K" suffix (treated as $·1000). The
+  // period defaults to monthly when no cadence word is present. Must
+  // run BEFORE the recurring-invoice regex below — phrases like "set
+  // $500 monthly travel budget" share the "monthly" + "set" tokens but
+  // never mention "invoice", so we own the "budget" / "cap on" /
+  // "limit … to $X" surface area.
+  const budgetMatch = parseSetBudgetFromText(text);
+  if (budgetMatch) {
+    return {
+      intent: 'set_budget',
+      slots: {
+        amountCents: budgetMatch.amountCents,
+        categoryNameHint: budgetMatch.categoryNameHint,
+        budgetPeriod: budgetMatch.period,
+      },
+      confidence: 0.9,
+      reason: 'budget cap trigger phrase',
+      source: 'regex',
+    };
+  }
+
   // Recurring invoice setup (PR 6). Must run BEFORE the generic
   // create_invoice_from_chat trigger below — phrases like "every month
   // invoice TechCorp" otherwise get parsed as one-off invoices.
@@ -748,6 +788,92 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
   return { intent: 'unrelated', slots, confidence: 0.3, reason: 'no pattern matched', source: 'regex' };
 }
 
+// ─── Budget regex helper (PR 8) ──────────────────────────────────────────
+
+interface ParsedBudget {
+  amountCents: number;
+  categoryNameHint: string;
+  period: 'monthly' | 'quarterly' | 'annual';
+}
+
+/**
+ * Parse free-form budget commands. Recognised shapes:
+ *
+ *   • "max|limit|set|cap $N on|for <category> [per|each|every (month|quarter|year) | monthly | annually | quarterly]"
+ *     — leading verb + amount + on/for + category
+ *   • "max|limit|set|cap <category> to $N [per|each|every (month|quarter|year) | monthly | …]"
+ *     — leading verb + category + to + amount  ("limit office supplies to $100/mo")
+ *   • "set|create $N (monthly|quarterly|annual) <category> budget"
+ *     — explicit "<category> budget" suffix
+ *
+ * Amount supports "$200", "200", "1.5k", "1,000". Period defaults to
+ * monthly when no cadence word appears.
+ *
+ * Exported for unit-testing the regex without spinning up Gemini.
+ */
+export function parseSetBudgetFromText(text: string): ParsedBudget | null {
+  const t = text.trim();
+  if (!t) return null;
+
+  // Shape A: "max $200 on meals each month" / "max 200 on meals monthly" /
+  // "set $500 monthly travel budget"
+  const re1 = /^(?:max|limit|set|cap)\s+\$?([\d,]+(?:\.\d+)?)\s*(k)?\s+(?:on|for)\s+(.+?)(?:\s+(?:per|each|every)\s+(month|year|quarter)|\s+(monthly|annually|quarterly|yearly)|\s*$)/i;
+  const m1 = re1.exec(t);
+  if (m1) {
+    const amount = parseAmount(m1[1], m1[2]);
+    if (amount == null) return null;
+    const category = m1[3].trim().replace(/\b(?:budget|cap|limit)\b/gi, '').trim();
+    const period = mapPeriod(m1[4] || m1[5]);
+    if (!category) return null;
+    return { amountCents: amount, categoryNameHint: category, period };
+  }
+
+  // Shape B: "limit office supplies to $100/mo" / "cap groceries at $400 monthly"
+  const re2 = /^(?:max|limit|cap)\s+(.+?)\s+(?:to|at)\s+\$?([\d,]+(?:\.\d+)?)\s*(k)?\s*(?:\/\s*(mo|yr|qtr|q)|\s+(?:per|each|every)\s+(month|year|quarter)|\s+(monthly|annually|quarterly|yearly))?\s*$/i;
+  const m2 = re2.exec(t);
+  if (m2) {
+    const category = m2[1].trim();
+    const amount = parseAmount(m2[2], m2[3]);
+    if (amount == null) return null;
+    const slash = m2[4];
+    const period = slash
+      ? mapPeriod(slash === 'mo' ? 'month' : slash === 'yr' ? 'year' : 'quarter')
+      : mapPeriod(m2[5] || m2[6]);
+    return { amountCents: amount, categoryNameHint: category, period };
+  }
+
+  // Shape C: "set $500 monthly travel budget" / "create $300 quarterly meals budget"
+  const re3 = /^(?:set|create)\s+\$?([\d,]+(?:\.\d+)?)\s*(k)?\s+(monthly|quarterly|annual|annually|yearly)\s+(.+?)\s+budget\s*$/i;
+  const m3 = re3.exec(t);
+  if (m3) {
+    const amount = parseAmount(m3[1], m3[2]);
+    if (amount == null) return null;
+    const period = mapPeriod(m3[3]);
+    const category = m3[4].trim();
+    return { amountCents: amount, categoryNameHint: category, period };
+  }
+  return null;
+}
+
+function parseAmount(raw: string, kSuffix: string | undefined): number | null {
+  const v = parseFloat(raw.replace(/,/g, ''));
+  if (!isFinite(v) || v <= 0) return null;
+  const dollars = kSuffix ? v * 1000 : v;
+  return Math.round(dollars * 100);
+}
+
+function mapPeriod(
+  raw: string | undefined,
+): 'monthly' | 'quarterly' | 'annual' {
+  if (!raw) return 'monthly';
+  const r = raw.toLowerCase();
+  if (r.startsWith('quarter') || r === 'q' || r === 'qtr') return 'quarterly';
+  if (r === 'year' || r === 'yr' || r === 'annual' || r === 'annually' || r === 'yearly') {
+    return 'annual';
+  }
+  return 'monthly';
+}
+
 export async function understandIntent(text: string, ctx: BotContext): Promise<BotIntent> {
   const llm = await classifyIntentWithGemini(text, ctx);
   if (llm && llm.intent && llm.confidence >= 0.5) {
@@ -881,6 +1007,17 @@ export function planSteps(intent: BotIntent, _ctx: BotContext): PlanStep[] {
           estimateNumberHint: intent.slots.estimateNumberHint,
           estimateIdHint: intent.slots.estimateIdHint,
           useMostRecent: intent.slots.useMostRecent,
+        },
+        dependsOn: [],
+      }];
+    case 'set_budget':
+      return [{
+        id,
+        skill: 'budget.set',
+        args: {
+          amountCents: intent.slots.amountCents,
+          categoryNameHint: intent.slots.categoryNameHint,
+          period: intent.slots.budgetPeriod,
         },
         dependsOn: [],
       }];
@@ -2388,6 +2525,107 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         };
       }
 
+      case 'budget.set': {
+        // Resolve category by name (fuzzy match against AbAccount or
+        // existing expense category names) and upsert the budget.
+        const amountCents = step.args.amountCents as number | undefined;
+        const categoryNameHint = step.args.categoryNameHint as string | undefined;
+        const periodArg = (step.args.period as string | undefined) || 'monthly';
+        const period = ['monthly', 'quarterly', 'annual'].includes(periodArg) ? periodArg : 'monthly';
+
+        if (!amountCents || amountCents <= 0) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: 'How much should I cap that category at? Try "max $200 on meals each month".',
+            },
+          };
+        }
+        if (!categoryNameHint || !categoryNameHint.trim()) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: 'Which category should I cap? Try "max $200 on meals each month".',
+            },
+          };
+        }
+
+        // Fuzzy resolve against the chart of accounts. Exact-name match
+        // wins; otherwise substring; if still nothing, accept the raw
+        // hint as the budget name (so users can cap categories that
+        // aren't in the chart yet).
+        const term = categoryNameHint.trim();
+        const termLower = term.toLowerCase();
+        const accounts = await db.abAccount.findMany({
+          where: { tenantId: ctx.tenantId, accountType: 'expense', isActive: true },
+          select: { id: true, name: true },
+        });
+        const matched =
+          accounts.find((a: { name: string }) => a.name.toLowerCase() === termLower)
+          || accounts.find((a: { name: string }) => a.name.toLowerCase().includes(termLower))
+          || accounts.find((a: { name: string }) => termLower.includes(a.name.toLowerCase()));
+
+        const categoryId = matched ? matched.id : null;
+        const categoryName = matched ? matched.name : term;
+
+        // Prisma's compound-unique upsert with a nullable column rejects
+        // `null` at runtime ("Argument `categoryId` must not be null"),
+        // so fall back to findFirst + create-or-update.
+        const existing = await db.abBudget.findFirst({
+          where: {
+            tenantId: ctx.tenantId,
+            categoryId: categoryId ?? null,
+            period,
+          },
+        });
+        const budget = existing
+          ? await db.abBudget.update({
+              where: { id: existing.id },
+              data: { amountCents, categoryName, alertPercent: 80 },
+            })
+          : await db.abBudget.create({
+              data: {
+                tenantId: ctx.tenantId,
+                amountCents,
+                categoryId,
+                categoryName,
+                period,
+                alertPercent: 80,
+              },
+            });
+
+        await db.abEvent.create({
+          data: {
+            tenantId: ctx.tenantId,
+            eventType: 'budget.set',
+            actor: 'agent',
+            action: {
+              budgetId: budget.id,
+              categoryName,
+              amountCents,
+              period,
+              source: 'telegram',
+            },
+          },
+        });
+
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'budget_set',
+            budgetId: budget.id,
+            categoryName,
+            amountCents,
+            period,
+          },
+        };
+      }
+
       case 'meta.help': {
         return { stepId: step.id, success: true };
       }
@@ -2587,7 +2825,8 @@ export function evaluate(
     intent.intent === 'generate_tax_package' ||
     intent.intent === 'setup_recurring_invoice' ||
     intent.intent === 'create_estimate' ||
-    intent.intent === 'convert_estimate'
+    intent.intent === 'convert_estimate' ||
+    intent.intent === 'set_budget'
   ) {
     const r = results[0];
     if (!r?.success) {

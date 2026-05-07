@@ -26,6 +26,7 @@ export interface DigestSections {
   taxTips: boolean;
   cashFlowTips: boolean;
   autoCategorize: boolean;
+  budgets: boolean;
 }
 
 export interface DigestPrefs {
@@ -51,6 +52,7 @@ export const DEFAULT_PREFS: DigestPrefs = {
     taxTips: true,
     cashFlowTips: true,
     autoCategorize: true,
+    budgets: true,
   },
   setupComplete: false,
 };
@@ -267,6 +269,7 @@ function toggleSections(
     [/\btax tips?\b/, 'taxTips', 'tax planning tips'],
     [/\bcash[- ]?flow tips?\b/, 'cashFlowTips', 'cash-flow tips'],
     [/\b(auto[- ]?categor|categori)\b/, 'autoCategorize', 'auto-categorizer summary'],
+    [/\b(budget|spending\s+caps?|cap)\b/, 'budgets', 'budget progress'],
     [/\ball (the )?tips?\b/, 'taxTips', 'all tips'],
   ];
   for (const [re, key, label] of map) {
@@ -298,7 +301,7 @@ Field domain:
    tone: "concise" | "detailed"
    sections.* (each true|false):
       cashOnHand, yesterday, pendingReview, overdue, thisWeek, anomalies,
-      taxDeadline, taxTips, cashFlowTips, autoCategorize
+      taxDeadline, taxTips, cashFlowTips, autoCategorize, budgets
 
 Return ONLY JSON:
 {
@@ -375,6 +378,7 @@ export function formatPrefsSummary(p: DigestPrefs): string {
     taxTips: 'tax planning tips',
     cashFlowTips: 'cash-flow tips',
     autoCategorize: 'auto-categorizer summary',
+    budgets: 'budget progress',
   };
   for (const k of Object.keys(labels) as (keyof DigestSections)[]) {
     (p.sections[k] ? on : off).push(labels[k]);
