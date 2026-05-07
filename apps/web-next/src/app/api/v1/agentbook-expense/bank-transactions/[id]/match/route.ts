@@ -24,6 +24,8 @@ import {
   applyExpenseMatch,
   BankMatchError,
 } from '@/lib/agentbook-bank-match';
+import { audit } from '@/lib/agentbook-audit';
+import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -64,6 +66,20 @@ export async function POST(
         invoiceId: targetId,
         source: 'reconciliation',
       });
+      await audit({
+        tenantId,
+        source: inferSource(request),
+        actor: await inferActor(request),
+        action: 'bank.match_invoice',
+        entityType: 'AbBankTransaction',
+        entityId: id,
+        after: {
+          matchedInvoiceId: targetId,
+          invoiceNumber: result.invoiceNumber,
+          paymentAmountCents: result.paymentAmountCents,
+          invoicePaid: result.invoicePaid,
+        },
+      });
       return NextResponse.json({
         success: true,
         data: {
@@ -82,6 +98,17 @@ export async function POST(
       txnId: id,
       expenseId: targetId,
       source: 'reconciliation',
+    });
+    await audit({
+      tenantId,
+      source: inferSource(request),
+      actor: await inferActor(request),
+      action: 'bank.match_expense',
+      entityType: 'AbBankTransaction',
+      entityId: id,
+      after: {
+        matchedExpenseId: result.expenseId,
+      },
     });
     return NextResponse.json({
       success: true,

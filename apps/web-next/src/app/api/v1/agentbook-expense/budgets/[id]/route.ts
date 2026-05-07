@@ -10,6 +10,8 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { audit } from '@/lib/agentbook-audit';
+import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,12 +27,32 @@ export async function DELETE(request: NextRequest, ctx: RouteCtx): Promise<NextR
     const { id } = await ctx.params;
     if (!id) return NextResponse.json({ success: false, error: 'id required' }, { status: 400 });
 
+    // Capture the row before delete so the audit log shows what was lost.
+    const existing = await db.abBudget.findFirst({ where: { id, tenantId } });
+    if (!existing) {
+      return NextResponse.json({ success: false, error: 'not found' }, { status: 404 });
+    }
     // Tenant-scoped delete: deleteMany with both id + tenantId so a
     // mismatched tenant returns count=0 instead of 500'ing on missing row.
     const r = await db.abBudget.deleteMany({ where: { id, tenantId } });
     if (r.count === 0) {
       return NextResponse.json({ success: false, error: 'not found' }, { status: 404 });
     }
+    await audit({
+      tenantId,
+      source: inferSource(request),
+      actor: await inferActor(request),
+      action: 'budget.delete',
+      entityType: 'AbBudget',
+      entityId: id,
+      before: {
+        amountCents: existing.amountCents,
+        categoryId: existing.categoryId,
+        categoryName: existing.categoryName,
+        period: existing.period,
+        alertPercent: existing.alertPercent,
+      },
+    });
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('[agentbook-expense/budgets/:id DELETE] failed:', err);
@@ -71,6 +93,24 @@ export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResp
       return NextResponse.json({ success: false, error: 'not found' }, { status: 404 });
     }
     const updated = await db.abBudget.update({ where: { id }, data });
+    await audit({
+      tenantId,
+      source: inferSource(request),
+      actor: await inferActor(request),
+      action: 'budget.update',
+      entityType: 'AbBudget',
+      entityId: id,
+      before: {
+        amountCents: existing.amountCents,
+        categoryName: existing.categoryName,
+        alertPercent: existing.alertPercent,
+      },
+      after: {
+        amountCents: updated.amountCents,
+        categoryName: updated.categoryName,
+        alertPercent: updated.alertPercent,
+      },
+    });
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {
     console.error('[agentbook-expense/budgets/:id PUT] failed:', err);

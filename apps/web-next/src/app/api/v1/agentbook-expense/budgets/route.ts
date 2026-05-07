@@ -9,6 +9,8 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { audit } from '@/lib/agentbook-audit';
+import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -70,6 +72,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             alertPercent: alertPercent || 80,
           },
         });
+
+    if (existing) {
+      await audit({
+        tenantId,
+        source: inferSource(request),
+        actor: await inferActor(request),
+        action: 'budget.update',
+        entityType: 'AbBudget',
+        entityId: budget.id,
+        before: {
+          amountCents: existing.amountCents,
+          categoryName: existing.categoryName,
+          alertPercent: existing.alertPercent,
+        },
+        after: {
+          amountCents: budget.amountCents,
+          categoryName: budget.categoryName,
+          alertPercent: budget.alertPercent,
+        },
+      });
+    } else {
+      await audit({
+        tenantId,
+        source: inferSource(request),
+        actor: await inferActor(request),
+        action: 'budget.create',
+        entityType: 'AbBudget',
+        entityId: budget.id,
+        after: {
+          amountCents: budget.amountCents,
+          categoryId: budget.categoryId,
+          categoryName: budget.categoryName,
+          period: budget.period,
+          alertPercent: budget.alertPercent,
+        },
+      });
+    }
 
     return NextResponse.json({ success: true, data: budget });
   } catch (err) {

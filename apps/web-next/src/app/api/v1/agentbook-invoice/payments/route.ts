@@ -7,6 +7,8 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { audit } from '@/lib/agentbook-audit';
+import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -153,6 +155,36 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
       return pmt;
     });
+
+    // PR 10 — audit the payment + the invoice status flip if it became paid.
+    await audit({
+      tenantId,
+      source: inferSource(request),
+      actor: await inferActor(request),
+      action: 'payment.create',
+      entityType: 'AbPayment',
+      entityId: payment.id,
+      after: {
+        invoiceId,
+        invoiceNumber: invoice.number,
+        amountCents,
+        method: payment.method,
+        feesCents: fees,
+        fullyPaid,
+      },
+    });
+    if (fullyPaid) {
+      await audit({
+        tenantId,
+        source: inferSource(request),
+        actor: await inferActor(request),
+        action: 'invoice.mark_paid',
+        entityType: 'AbInvoice',
+        entityId: invoiceId,
+        before: { status: invoice.status },
+        after: { status: 'paid', number: invoice.number, paymentId: payment.id },
+      });
+    }
 
     return NextResponse.json({ success: true, data: payment }, { status: 201 });
   } catch (err) {

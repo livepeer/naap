@@ -12,6 +12,8 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { audit } from '@/lib/agentbook-audit';
+import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -156,6 +158,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
 
       return exp;
+    });
+
+    await audit({
+      tenantId,
+      source: inferSource(request),
+      actor: await inferActor(request),
+      action: 'expense.create',
+      entityType: 'AbExpense',
+      entityId: expense.id,
+      after: {
+        amountCents,
+        vendorId: expense.vendorId,
+        vendorName: vendor || null,
+        categoryId: resolvedCategoryId,
+        date: expense.date,
+        description: expense.description,
+        isPersonal: expense.isPersonal,
+        hasReceipt: !!receiptUrl,
+      },
     });
 
     return NextResponse.json(

@@ -13,6 +13,8 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { audit } from '@/lib/agentbook-audit';
+import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -191,6 +193,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         });
 
         return inv;
+      });
+      // PR 10 — structured audit row alongside the loose AbEvent.
+      await audit({
+        tenantId,
+        source: inferSource(request),
+        actor: await inferActor(request),
+        action: 'invoice.create',
+        entityType: 'AbInvoice',
+        entityId: invoice.id,
+        after: {
+          number: invoice.number,
+          clientId,
+          amountCents: totalAmountCents,
+          currency: invoice.currency,
+          status: invoice.status,
+          issuedDate: invoice.issuedDate,
+          dueDate: invoice.dueDate,
+          lineCount: lineItems.length,
+        },
       });
       return NextResponse.json({ success: true, data: invoice }, { status: 201 });
     } catch (err: unknown) {

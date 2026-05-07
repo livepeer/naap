@@ -20,6 +20,8 @@ import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { parseInvoiceFromText, type ParsedInvoiceDraft } from '@/lib/agentbook-invoice-parser';
 import { createInvoiceDraft } from '@/lib/agentbook-invoice-draft';
+import { audit } from '@/lib/agentbook-audit';
+import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -69,6 +71,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
       }
       const data = await createInvoiceDraft({ tenantId, client, parsed });
+      await audit({
+        tenantId,
+        source: inferSource(request),
+        actor: await inferActor(request),
+        action: 'invoice.create',
+        entityType: 'AbInvoice',
+        entityId: data.draftId,
+        after: {
+          number: data.invoiceNumber,
+          clientId: client.id,
+          clientName: client.name,
+          amountCents: data.totalCents,
+          currency: data.currency,
+          status: 'draft',
+          source: 'draft-from-text',
+        },
+      });
       return NextResponse.json({ success: true, data });
     }
 
@@ -101,6 +120,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const data = await createInvoiceDraft({ tenantId, client: candidates[0], parsed });
+    await audit({
+      tenantId,
+      source: inferSource(request),
+      actor: await inferActor(request),
+      action: 'invoice.create',
+      entityType: 'AbInvoice',
+      entityId: data.draftId,
+      after: {
+        number: data.invoiceNumber,
+        clientId: candidates[0].id,
+        clientName: candidates[0].name,
+        amountCents: data.totalCents,
+        currency: data.currency,
+        status: 'draft',
+        source: 'draft-from-text',
+      },
+    });
     return NextResponse.json({ success: true, data });
   } catch (err) {
     // Don't leak Prisma / internal errors to the wire — the messages can

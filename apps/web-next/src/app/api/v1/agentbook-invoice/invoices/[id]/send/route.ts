@@ -9,6 +9,8 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { audit } from '@/lib/agentbook-audit';
+import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -47,6 +49,17 @@ export async function POST(
         },
       });
       return inv;
+    });
+
+    await audit({
+      tenantId,
+      source: inferSource(request),
+      actor: await inferActor(request),
+      action: 'invoice.send',
+      entityType: 'AbInvoice',
+      entityId: id,
+      before: { status: invoice.status },
+      after: { status: updated.status, number: invoice.number },
     });
 
     return NextResponse.json({ success: true, data: updated });

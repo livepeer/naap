@@ -27,6 +27,7 @@ const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/agentbook/analytics': 'agentbookTax',
   '/agentbook/whatif': 'agentbookTax',
   '/agentbook/agents': 'agentbookCore',
+  '/agentbook/activity': 'agentbookCore',
   // AgentBook core — catch-all for /agentbook, /agentbook/ledger, /agentbook/accounts, etc.
   '/agentbook': 'agentbookCore',
 };

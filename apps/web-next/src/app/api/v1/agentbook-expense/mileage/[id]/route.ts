@@ -16,6 +16,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { updateMileageEntry } from '@/lib/agentbook-mileage-service';
+import { audit } from '@/lib/agentbook-audit';
+import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -117,6 +119,22 @@ export async function DELETE(
           },
         },
       });
+    });
+
+    await audit({
+      tenantId,
+      source: inferSource(request),
+      actor: await inferActor(request),
+      action: 'mileage.delete',
+      entityType: 'AbMileageEntry',
+      entityId: id,
+      before: {
+        miles: existing.miles,
+        deductibleAmountCents: existing.deductibleAmountCents,
+        purpose: existing.purpose,
+        clientId: existing.clientId,
+        date: existing.date,
+      },
     });
 
     return NextResponse.json({ success: true, data: { id } });

@@ -16,6 +16,8 @@ import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { createInvoiceDraft } from '@/lib/agentbook-invoice-draft';
 import { formatEstimateNumber } from '@/lib/agentbook-estimate-parser';
+import { audit } from '@/lib/agentbook-audit';
+import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -145,6 +147,37 @@ export async function POST(request: NextRequest, { params }: RouteContext): Prom
     const inv = await db.abInvoice.findFirst({
       where: { id: draft.draftId, tenantId },
       include: { lines: true, client: true },
+    });
+
+    // PR 10 — record both the estimate state change AND the invoice
+    // create. Two rows make the activity-log filter "everything that
+    // happened to estimate X" trivially complete.
+    await audit({
+      tenantId,
+      source: inferSource(request),
+      actor: await inferActor(request),
+      action: 'estimate.convert',
+      entityType: 'AbEstimate',
+      entityId: id,
+      before: { status: existing.status, convertedInvoiceId: existing.convertedInvoiceId },
+      after: { status: 'converted', convertedInvoiceId: draft.draftId },
+    });
+    await audit({
+      tenantId,
+      source: inferSource(request),
+      actor: await inferActor(request),
+      action: 'invoice.create',
+      entityType: 'AbInvoice',
+      entityId: draft.draftId,
+      after: {
+        number: draft.invoiceNumber,
+        clientId: existing.client.id,
+        amountCents: existing.amountCents,
+        currency: draft.currency,
+        status: 'draft',
+        source: 'estimate-convert',
+        fromEstimateId: id,
+      },
     });
 
     return NextResponse.json(

@@ -1542,6 +1542,28 @@ model AbEvent {
   @@schema("plugin_agentbook_core")
 }
 
+// PR 10 — Structured audit trail (who/what/when/where, before/after diff).
+// Lives alongside AbEvent (the loose loop-event log) so we can do a
+// gradual migration: existing endpoints keep writing AbEvent rows; the
+// new audit() helper records a normalized row here for the activity log.
+model AbAuditEvent {
+  id          String   @id @default(uuid())
+  tenantId    String
+  actor       String                                    // 'user:<userId>' | 'bot' | 'cron' | 'api'
+  source      String                                    // 'web' | 'telegram' | 'cron' | 'api'
+  action      String                                    // 'invoice.create' | 'expense.delete' | 'budget.update' etc.
+  entityType  String                                    // 'AbInvoice' | 'AbExpense' | 'AbBudget' | etc.
+  entityId    String                                    // the affected row id
+  before      Json?                                     // diff: removed/changed fields BEFORE
+  after       Json?                                     // diff: added/changed fields AFTER
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entityType, entityId])
+  @@index([tenantId, action])
+  @@schema("plugin_agentbook_core")
+}
+
 // Phase 12: Autonomous Workflow Automations
 model AbAutomation {
   id          String   @id @default(uuid())
