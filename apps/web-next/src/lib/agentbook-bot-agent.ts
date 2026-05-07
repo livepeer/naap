@@ -24,6 +24,11 @@ import { prisma as db } from '@naap/database';
 import { parseInvoiceFromText } from './agentbook-invoice-parser';
 import { createInvoiceDraft } from './agentbook-invoice-draft';
 import { parseRecurringFromText } from './agentbook-recurring-parser';
+import {
+  parseCreateEstimateFromText,
+  formatEstimateNumber,
+  parseEstimateNumberSuffix,
+} from './agentbook-estimate-parser';
 import { parseDateHint, aggregateByDay, type TimeEntryRow } from './agentbook-time-aggregator';
 import { resolveClientByHint } from './agentbook-client-resolver';
 import { getMileageRate } from './agentbook-mileage-rates';
@@ -53,6 +58,8 @@ export type IntentName =
   | 'record_mileage'    // "drove 47 miles to TechCorp" → mileage entry + JE (PR 4)
   | 'generate_tax_package' // "give me my 2025 tax package" → render PDF/CSV/ZIP (PR 5)
   | 'setup_recurring_invoice' // "every month invoice TechCorp $5K consulting" → schedule (PR 6)
+  | 'create_estimate'   // "estimate Beta $4K for new website" → AbEstimate (PR 7)
+  | 'convert_estimate'  // "convert estimate EST-… to invoice" → AbInvoice (PR 7)
   | 'clarify'           // bot is unsure — ask the user a question first
   | 'unrelated';        // none of the above — let agent brain reply
 
@@ -80,6 +87,11 @@ export interface IntentSlots {
   cadence?: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annual';
   dayOfMonth?: number;         // 1-31, optional
   autoSend?: boolean;          // auto-send invoice on generation, default false
+  // Estimate slots (PR 7):
+  validUntilHint?: string;     // ISO date or phrase ("60 days")
+  estimateNumberHint?: string; // EST-YYYY-XXXX
+  estimateIdHint?: string;     // raw uuid (rare — used by callbacks)
+  useMostRecent?: boolean;     // "convert the most recent estimate to invoice"
 }
 
 export interface BotIntent {
@@ -289,6 +301,29 @@ INTENT CHOICES (pick exactly one)
                      ("every month invoice TechCorp $5K consulting on the 1st",
                       "set up monthly $1K subscription for Acme",
                       "schedule a quarterly invoice for Beta $3K")
+   create_estimate — user wants to draft an estimate / quote (NOT a real
+                     invoice yet — clients approve estimates before they
+                     get billed). Triggers: "estimate <client> $<amt> for
+                     <desc>", "quote <client> $<amt>". SET
+                     slots.clientNameHint to the client, slots.amountCents
+                     to the total, slots.description to the work, and
+                     slots.validUntilHint to a date/phrase if mentioned
+                     ("valid 60 days", "valid until 2026-06-30").
+                     IMPORTANT: do NOT pick this when the user said
+                     "invoice" or "bill" — those are PR 1's
+                     create_invoice_from_chat.
+                     ("estimate Beta $4K for new website",
+                      "quote Acme $10K for redesign valid 60 days")
+   convert_estimate — user wants to turn an APPROVED estimate into an
+                     invoice. Triggers: "convert estimate EST-... to
+                     invoice", "make EST-... an invoice", "turn the most
+                     recent estimate into an invoice". SET
+                     slots.estimateNumberHint to the EST-YYYY-XXXX
+                     number if present, OR slots.useMostRecent=true if
+                     they said "most recent" / "latest".
+                     ("convert estimate EST-2026-003 to invoice",
+                      "make EST-2026-AB12 an invoice",
+                      "turn the latest estimate into an invoice")
    query_balance   — user is asking about cash on hand
                      ("how much do I have", "balance", "cash")
    query_invoices  — user is asking about outstanding invoices
@@ -337,7 +372,7 @@ RULES
 
 OUTPUT
 Respond with ONLY a JSON object — no preamble, no code fences:
-{"intent": "<name>", "slots": {"categoryName": "Fuel", "amountCents": 4523, "vendor": "Shell", "description": "...", "filter": "...", "clarifyingQuestion": "...", "candidateIntents": ["...", "..."], "miles": 47, "unit": "mi", "purpose": "TechCorp meeting", "clientNameHint": "TechCorp", "taxYear": 2025, "cadence": "monthly", "dayOfMonth": 1}, "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
+{"intent": "<name>", "slots": {"categoryName": "Fuel", "amountCents": 4523, "vendor": "Shell", "description": "...", "filter": "...", "clarifyingQuestion": "...", "candidateIntents": ["...", "..."], "miles": 47, "unit": "mi", "purpose": "TechCorp meeting", "clientNameHint": "TechCorp", "taxYear": 2025, "cadence": "monthly", "dayOfMonth": 1, "validUntilHint": "60 days", "estimateNumberHint": "EST-2026-003", "useMostRecent": true}, "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
 
   let raw: string;
   try {
@@ -583,6 +618,49 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
     };
   }
 
+  // Estimate flow (PR 7). Order matters:
+  //   1. convert_estimate — "convert estimate EST-... to invoice" / "make
+  //      EST-... an invoice" / "turn the most recent estimate into an
+  //      invoice". Must beat the generic "invoice ..." trigger below
+  //      because the verb is "convert"/"make"/"turn" not "invoice".
+  //   2. create_estimate — "estimate Beta $4K for new website". Must
+  //      beat the generic "invoice ..." trigger so the verb "estimate"
+  //      doesn't get re-routed to create_invoice_from_chat.
+  // Both run BEFORE PR 1's create_invoice_from_chat regex.
+  if (
+    /\b(?:convert|turn|make|change)\b/i.test(text)
+    && /\binvoice\b/i.test(text)
+    && (/\bEST-\d{4}-[A-Z0-9]{3,8}\b/i.test(text) || /\b(?:most\s+recent|latest|last)\s+estimate\b/i.test(text) || /\bestimate\b/i.test(text))
+  ) {
+    const numMatch = text.match(/\bEST-\d{4}-[A-Z0-9]{3,8}\b/i);
+    const slots: IntentSlots = {};
+    if (numMatch) slots.estimateNumberHint = numMatch[0].toUpperCase();
+    else if (/\b(?:most\s+recent|latest|last)\s+estimate\b/i.test(text)) slots.useMostRecent = true;
+    else {
+      // Saw "convert ... estimate ... invoice" without an id and without
+      // "most recent" — fall through to the generic invoice trigger or
+      // unrelated. Don't claim this turn.
+    }
+    if (slots.estimateNumberHint || slots.useMostRecent) {
+      return {
+        intent: 'convert_estimate',
+        slots,
+        confidence: 0.9,
+        reason: 'convert + estimate + invoice phrase',
+        source: 'regex',
+      };
+    }
+  }
+  if (/^(?:please\s+|can you\s+)?(?:estimate|quote)\s+/i.test(text)) {
+    return {
+      intent: 'create_estimate',
+      slots: { description: text },
+      confidence: 0.85,
+      reason: 'estimate/quote trigger phrase',
+      source: 'regex',
+    };
+  }
+
   // Invoice creation — "invoice Acme $5K for July consulting", "bill X
   // $1000 for Y", "send Acme an invoice". Beats record_expense, since
   // "invoice" is more specific than the spent/paid/bought verbs.
@@ -777,6 +855,32 @@ export function planSteps(intent: BotIntent, _ctx: BotContext): PlanStep[] {
           dayOfMonth: intent.slots.dayOfMonth,
           autoSend: intent.slots.autoSend,
           description: intent.slots.description,
+        },
+        dependsOn: [],
+      }];
+    case 'create_estimate':
+      return [{
+        id,
+        skill: 'estimate.create',
+        args: {
+          // Mirrors invoice.create_from_chat: the executor re-parses the
+          // raw text when slots are sparse (regex-source classifications).
+          text: intent.slots.description || '',
+          clientNameHint: intent.slots.clientNameHint,
+          amountCents: intent.slots.amountCents,
+          description: intent.slots.description,
+          validUntilHint: intent.slots.validUntilHint,
+        },
+        dependsOn: [],
+      }];
+    case 'convert_estimate':
+      return [{
+        id,
+        skill: 'estimate.convert',
+        args: {
+          estimateNumberHint: intent.slots.estimateNumberHint,
+          estimateIdHint: intent.slots.estimateIdHint,
+          useMostRecent: intent.slots.useMostRecent,
         },
         dependsOn: [],
       }];
@@ -1922,6 +2026,327 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         };
       }
 
+      // ─── Estimate flow (PR 7) ─────────────────────────────────────
+      case 'estimate.create': {
+        const rawText = (step.args.text as string | undefined) || '';
+        let clientNameHint = step.args.clientNameHint as string | undefined;
+        let amountCents = step.args.amountCents as number | undefined;
+        let description = step.args.description as string | undefined;
+        let validUntilHint = step.args.validUntilHint as string | undefined;
+
+        // If slots are missing (regex source), re-parse via the dedicated
+        // parser to fill them in. Mirrors how invoice.create_from_chat
+        // and invoice.setup_recurring handle slot recovery.
+        if (!clientNameHint || !amountCents) {
+          const parsed = await parseCreateEstimateFromText(rawText);
+          if (parsed) {
+            clientNameHint = clientNameHint || parsed.clientNameHint;
+            amountCents = amountCents || parsed.amountCents;
+            description = description && description !== rawText ? description : parsed.description;
+            validUntilHint = validUntilHint || parsed.validUntilHint;
+          }
+        }
+        // The slot-source description was the raw text — replace with the
+        // parsed snippet if we have one.
+        if (description && description === rawText) {
+          const reparsed = await parseCreateEstimateFromText(rawText);
+          if (reparsed) description = reparsed.description;
+        }
+
+        if (!clientNameHint) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: 'Which client is the estimate for? Try "estimate Beta $4K for new website".',
+            },
+          };
+        }
+        if (!amountCents || amountCents <= 0) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: "What's the estimate amount? Try \"estimate Beta $4K for new website\".",
+            },
+          };
+        }
+
+        const resolution = await resolveClientByHint(ctx.tenantId, clientNameHint);
+        const candidates = resolution.candidates;
+        if (candidates.length === 0) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: `I don't have a client named "${clientNameHint}" on file. Add them first, then try again.`,
+            },
+          };
+        }
+        if (candidates.length > 1) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: `Which "${clientNameHint}" did you mean — ${candidates.slice(0, 6).map((c) => c.name).join(' or ')}?`,
+            },
+          };
+        }
+        const client = candidates[0];
+
+        // Resolve validUntil. ISO date wins; "60 days" / "30 days" phrases
+        // map to issued + N days; default 30 days.
+        const now = new Date();
+        let validUntil = new Date(now.getTime() + 30 * 86_400_000);
+        if (validUntilHint) {
+          const isoMatch = validUntilHint.match(/^(\d{4}-\d{2}-\d{2})$/);
+          const daysMatch = validUntilHint.match(/^(\d{1,3})\s*days?$/i);
+          if (isoMatch) {
+            const d = new Date(isoMatch[1]);
+            if (!isNaN(d.getTime())) validUntil = d;
+          } else if (daysMatch) {
+            const n = parseInt(daysMatch[1], 10);
+            if (isFinite(n) && n > 0) validUntil = new Date(now.getTime() + n * 86_400_000);
+          } else {
+            const d = new Date(validUntilHint);
+            if (!isNaN(d.getTime())) validUntil = d;
+          }
+        }
+
+        const finalDescription = (description || 'Estimate').trim().slice(0, 500);
+
+        const estimate = await db.$transaction(async (tx) => {
+          const est = await tx.abEstimate.create({
+            data: {
+              tenantId: ctx.tenantId,
+              clientId: client.id,
+              amountCents,
+              description: finalDescription,
+              validUntil,
+              status: 'pending',
+            },
+          });
+          await tx.abEvent.create({
+            data: {
+              tenantId: ctx.tenantId,
+              eventType: 'estimate.created',
+              actor: 'agent',
+              action: { estimateId: est.id, clientId: client.id, amountCents, source: 'telegram' },
+            },
+          });
+          return est;
+        });
+
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'estimate_created',
+            estimateId: estimate.id,
+            estimateNumber: formatEstimateNumber(estimate),
+            clientName: client.name,
+            amountCents,
+            description: finalDescription,
+            validUntil: validUntil.toISOString(),
+          },
+        };
+      }
+
+      case 'estimate.convert': {
+        const estimateNumberHint = step.args.estimateNumberHint as string | undefined;
+        const estimateIdHint = step.args.estimateIdHint as string | undefined;
+        const useMostRecent = step.args.useMostRecent as boolean | undefined;
+
+        // Resolve which estimate.
+        let estimate: { id: string; clientId: string; amountCents: number; description: string; status: string; convertedInvoiceId: string | null; createdAt: Date } | null = null;
+
+        if (estimateIdHint) {
+          estimate = await db.abEstimate.findFirst({
+            where: { id: estimateIdHint, tenantId: ctx.tenantId },
+          });
+        }
+
+        if (!estimate && estimateNumberHint) {
+          // Match against the formatted number — last 4 of id (uppercase
+          // hex w/o dashes) + year.
+          const parts = parseEstimateNumberSuffix(estimateNumberHint);
+          if (parts) {
+            const candidates = await db.abEstimate.findMany({
+              where: {
+                tenantId: ctx.tenantId,
+                createdAt: {
+                  gte: new Date(Date.UTC(parts.year, 0, 1)),
+                  lt: new Date(Date.UTC(parts.year + 1, 0, 1)),
+                },
+              },
+              orderBy: { createdAt: 'desc' },
+              take: 200,
+            });
+            estimate = candidates.find((e) => formatEstimateNumber(e) === `EST-${parts.year}-${parts.tail}`) || null;
+          }
+        }
+
+        if (!estimate && useMostRecent) {
+          // Prefer approved estimates first, then pending — those are the
+          // ones a "convert" makes sense against.
+          estimate = await db.abEstimate.findFirst({
+            where: { tenantId: ctx.tenantId, status: { in: ['approved', 'pending'] } },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (!estimate) {
+            // No live estimate — try most recent of any status.
+            estimate = await db.abEstimate.findFirst({
+              where: { tenantId: ctx.tenantId },
+              orderBy: { createdAt: 'desc' },
+            });
+          }
+        }
+
+        if (!estimate) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: estimateNumberHint
+                ? `I couldn't find estimate ${estimateNumberHint}.`
+                : "I couldn't find that estimate. Try \"convert estimate EST-2026-0001 to invoice\".",
+            },
+          };
+        }
+
+        // Idempotent: already converted? Surface the existing invoice.
+        if (estimate.status === 'converted' && estimate.convertedInvoiceId) {
+          const inv = await db.abInvoice.findFirst({
+            where: { id: estimate.convertedInvoiceId, tenantId: ctx.tenantId },
+            include: { client: true, lines: true },
+          });
+          if (inv) {
+            return {
+              stepId: step.id,
+              success: true,
+              data: {
+                kind: 'already_converted',
+                estimateNumber: formatEstimateNumber(estimate),
+                draftId: inv.id,
+                invoiceNumber: inv.number,
+                clientName: inv.client.name,
+                clientEmail: inv.client.email,
+                totalCents: inv.amountCents,
+                currency: inv.currency,
+                dueDate: inv.dueDate.toISOString(),
+                issuedDate: inv.issuedDate.toISOString(),
+                lines: inv.lines.map((l) => ({
+                  description: l.description,
+                  rateCents: l.rateCents,
+                  quantity: l.quantity,
+                  amountCents: l.amountCents,
+                })),
+              },
+            };
+          }
+          // Estimate flagged converted but invoice missing — fall through
+          // and create a fresh one.
+        }
+
+        if (estimate.status === 'declined' || estimate.status === 'expired') {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: `Estimate ${formatEstimateNumber(estimate)} is ${estimate.status} — can't convert it.`,
+            },
+          };
+        }
+
+        // Auto-approve pending → approved as part of convert. Friction here
+        // is bad; the user explicitly asked for the conversion.
+        if (estimate.status === 'pending') {
+          await db.$transaction(async (tx) => {
+            await tx.abEstimate.update({
+              where: { id: estimate!.id },
+              data: { status: 'approved' },
+            });
+            await tx.abEvent.create({
+              data: {
+                tenantId: ctx.tenantId,
+                eventType: 'estimate.approved',
+                actor: 'user',
+                action: { estimateId: estimate!.id, viaConvert: true, source: 'telegram' },
+              },
+            });
+          });
+        }
+
+        const client = await db.abClient.findFirst({
+          where: { id: estimate.clientId, tenantId: ctx.tenantId },
+        });
+        if (!client) {
+          return {
+            stepId: step.id,
+            success: false,
+            error: 'Estimate has no client on file',
+          };
+        }
+
+        const draft = await createInvoiceDraft({
+          tenantId: ctx.tenantId,
+          client: { id: client.id, name: client.name, email: client.email },
+          parsed: {
+            lines: [
+              { description: estimate.description, rateCents: estimate.amountCents, quantity: 1 },
+            ],
+            description: estimate.description,
+            dueDateHint: 'net-30',
+          },
+          source: 'telegram',
+        });
+
+        await db.$transaction(async (tx) => {
+          await tx.abEstimate.update({
+            where: { id: estimate!.id },
+            data: { status: 'converted', convertedInvoiceId: draft.draftId },
+          });
+          await tx.abEvent.create({
+            data: {
+              tenantId: ctx.tenantId,
+              eventType: 'estimate.converted',
+              actor: 'user',
+              action: {
+                estimateId: estimate!.id,
+                invoiceId: draft.draftId,
+                invoiceNumber: draft.invoiceNumber,
+                amountCents: estimate!.amountCents,
+                source: 'telegram',
+              },
+            },
+          });
+        });
+
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'estimate_converted',
+            estimateNumber: formatEstimateNumber(estimate),
+            draftId: draft.draftId,
+            invoiceNumber: draft.invoiceNumber,
+            clientName: draft.clientName,
+            clientEmail: draft.clientEmail,
+            totalCents: draft.totalCents,
+            currency: draft.currency,
+            dueDate: draft.dueDate,
+            issuedDate: draft.issuedDate,
+            lines: draft.lines,
+          },
+        };
+      }
+
       // ─── Tax package (PR 5) ───────────────────────────────────────
       case 'tax.generate_package': {
         const yearArg = step.args.year as number | undefined;
@@ -2160,7 +2585,9 @@ export function evaluate(
     intent.intent === 'invoice_from_timer' ||
     intent.intent === 'record_mileage' ||
     intent.intent === 'generate_tax_package' ||
-    intent.intent === 'setup_recurring_invoice'
+    intent.intent === 'setup_recurring_invoice' ||
+    intent.intent === 'create_estimate' ||
+    intent.intent === 'convert_estimate'
   ) {
     const r = results[0];
     if (!r?.success) {

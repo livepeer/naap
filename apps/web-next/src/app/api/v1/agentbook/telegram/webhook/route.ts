@@ -1902,6 +1902,129 @@ async function renderTaxPackageReply(
   });
 }
 
+// === Estimate flow (PR 7) =================================================
+//
+// Memory keys:
+//   • (none today — est_send is a stub for PR 7; future "send via email"
+//     flows would stash the estimateId here.)
+//
+// Callback prefixes:
+//   • est_send:<estimateId>     — stub "📨 Email send: coming soon"
+//   • est_edit:<estimateId>     — switches to edit prompt (PR 7+ stub)
+//   • est_cancel:<estimateId>   — delete the pending estimate
+//
+// The Send/Edit/Cancel keyboard for the converted invoice reuses PR 1's
+// `inv_*` callbacks — the new draft lives in `AbInvoice` exactly the
+// same way.
+
+interface EstimateCreatedData {
+  kind: 'estimate_created';
+  estimateId: string;
+  estimateNumber: string;
+  clientName: string;
+  amountCents: number;
+  description: string;
+  validUntil: string;
+}
+
+interface EstimateConvertedData {
+  kind: 'estimate_converted' | 'already_converted';
+  estimateNumber: string;
+  draftId: string;
+  invoiceNumber: string;
+  clientName: string;
+  clientEmail: string | null;
+  totalCents: number;
+  currency: string;
+  dueDate: string;
+  issuedDate: string;
+  lines: Array<{ description: string; rateCents: number; quantity: number; amountCents: number }>;
+}
+
+type EstimateStepData = EstimateCreatedData | EstimateConvertedData | NeedsClarify;
+
+function estimateKeyboard(estimateId: string) {
+  return {
+    inline_keyboard: [
+      [{ text: '📨 Send email', callback_data: `est_send:${estimateId}` }],
+      [{ text: '✏️ Edit', callback_data: `est_edit:${estimateId}` }],
+      [{ text: '❌ Cancel', callback_data: `est_cancel:${estimateId}` }],
+    ],
+  };
+}
+
+function buildEstimatePreviewText(d: EstimateCreatedData): string {
+  const total = fmtMoney(d.amountCents, 'USD');
+  const valid = shortDate(d.validUntil);
+  const lines: string[] = [];
+  lines.push(`📒 <b>${escHtml(d.estimateNumber)}</b> drafted, valid until <b>${valid}</b>.`);
+  lines.push(`<b>${total}</b> to <b>${escHtml(d.clientName)}</b> for ${escHtml(d.description)}.`);
+  lines.push('');
+  lines.push('Send via email?');
+  return lines.join('\n');
+}
+
+function buildConvertedInvoicePreviewText(d: EstimateConvertedData): string {
+  const total = fmtMoney(d.totalCents, d.currency);
+  const verb = d.kind === 'already_converted'
+    ? 'already converted from'
+    : 'created from';
+  const lines: string[] = [];
+  lines.push(`✅ <b>${escHtml(d.invoiceNumber)}</b> ${verb} <b>${escHtml(d.estimateNumber)}</b>.`);
+  lines.push(`Net-30, due <b>${shortDate(d.dueDate)}</b>, <b>${total}</b> to <b>${escHtml(d.clientName)}</b>.`);
+  lines.push('');
+  lines.push(d.kind === 'already_converted' ? 'Already on the books — review or send below.' : 'Send it?');
+  return lines.join('\n');
+}
+
+async function renderEstimateCreateResult(
+  ctx: InvoiceReplyCtx,
+  result: { success: boolean; data?: unknown; error?: string } | undefined,
+): Promise<void> {
+  if (!result || !result.success || !result.data) {
+    await ctx.reply(result?.error || "Couldn't draft that estimate — try \"estimate Beta $4K for new website\".");
+    return;
+  }
+  const data = result.data as EstimateStepData;
+  if (data.kind === 'needs_clarify') {
+    await ctx.reply(`🤔 ${data.question}`);
+    return;
+  }
+  if (data.kind === 'estimate_created') {
+    await ctx.reply(buildEstimatePreviewText(data), {
+      parse_mode: 'HTML',
+      reply_markup: estimateKeyboard(data.estimateId),
+    });
+    return;
+  }
+  // Defensive: an estimate_converted result reached the create renderer —
+  // route to the convert handler.
+  await renderEstimateConvertResult(ctx, result);
+}
+
+async function renderEstimateConvertResult(
+  ctx: InvoiceReplyCtx,
+  result: { success: boolean; data?: unknown; error?: string } | undefined,
+): Promise<void> {
+  if (!result || !result.success || !result.data) {
+    await ctx.reply(result?.error || "Couldn't convert that estimate — try again with the EST-… number.");
+    return;
+  }
+  const data = result.data as EstimateStepData;
+  if (data.kind === 'needs_clarify') {
+    await ctx.reply(`🤔 ${data.question}`);
+    return;
+  }
+  if (data.kind === 'estimate_converted' || data.kind === 'already_converted') {
+    await ctx.reply(buildConvertedInvoicePreviewText(data), {
+      parse_mode: 'HTML',
+      reply_markup: draftKeyboard(data.draftId),
+    });
+    return;
+  }
+  await ctx.reply("Couldn't convert that estimate.");
+}
+
 // Lazy-initialize bot (cold start optimization for serverless)
 let bot: Bot | null = null;
 
@@ -2476,6 +2599,20 @@ function getBot(): Bot {
           && loop.intent.intent === 'setup_recurring_invoice'
         ) {
           await renderRecurringReply(ctx, loop.results[0]);
+          return;
+        }
+        if (
+          loop.evaluation.needsKeyboard
+          && loop.intent.intent === 'create_estimate'
+        ) {
+          await renderEstimateCreateResult(ctx, loop.results[0]);
+          return;
+        }
+        if (
+          loop.evaluation.needsKeyboard
+          && loop.intent.intent === 'convert_estimate'
+        ) {
+          await renderEstimateConvertResult(ctx, loop.results[0]);
           return;
         }
 
@@ -3552,6 +3689,74 @@ function getBot(): Bot {
           await ctx.editMessageText('Cancelled. Nothing booked.');
         } catch {
           await ctx.reply('Cancelled. Nothing booked.');
+        }
+        return;
+      }
+
+      // === Estimate callbacks (PR 7) ====================================
+      // est_send is a stub for now — actually emailing the estimate is
+      // out-of-scope for PR 7. We just acknowledge and note "coming soon"
+      // so users see the right affordance and the bot doesn't pretend to
+      // send something it can't.
+      if (action === 'est_send') {
+        const estimateId = parts[1];
+        if (!estimateId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        const est = await db.abEstimate.findFirst({ where: { id: estimateId, tenantId } });
+        if (!est) {
+          await ctx.answerCallbackQuery({ text: 'Estimate not found' });
+          return;
+        }
+        await ctx.answerCallbackQuery({ text: 'Coming soon' });
+        await ctx.reply('📨 Email send: coming soon. For now copy the preview above and email it manually — the estimate is saved.');
+        return;
+      }
+
+      if (action === 'est_edit') {
+        const estimateId = parts[1];
+        if (!estimateId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        const est = await db.abEstimate.findFirst({ where: { id: estimateId, tenantId } });
+        if (!est) {
+          await ctx.answerCallbackQuery({ text: 'Estimate not found' });
+          return;
+        }
+        if (est.status !== 'pending') {
+          await ctx.answerCallbackQuery({ text: `Cannot edit — status=${est.status}` });
+          return;
+        }
+        // PR 7 scope cap: edit lands as a follow-up (parallels how PR 1
+        // shipped invoice-edit in a follow-up). Acknowledge and link to
+        // the web UI.
+        await ctx.answerCallbackQuery({ text: 'Edit on web' });
+        await ctx.reply('✏️ Edit on the web for now: <b>/agentbook/estimates</b>. Inline edit lands in the next release.', { parse_mode: 'HTML' });
+        return;
+      }
+
+      if (action === 'est_cancel') {
+        const estimateId = parts[1];
+        if (!estimateId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        const est = await db.abEstimate.findFirst({ where: { id: estimateId, tenantId } });
+        if (!est) {
+          await ctx.answerCallbackQuery({ text: 'Already gone' });
+          return;
+        }
+        if (est.status !== 'pending' && est.status !== 'declined' && est.status !== 'expired') {
+          await ctx.answerCallbackQuery({ text: `Cannot cancel — status=${est.status}` });
+          return;
+        }
+        await db.abEstimate.delete({ where: { id: estimateId } });
+        await db.abEvent.create({
+          data: {
+            tenantId,
+            eventType: 'estimate.deleted',
+            actor: 'user',
+            action: { estimateId, source: 'telegram', previousStatus: est.status },
+          },
+        });
+        await ctx.answerCallbackQuery({ text: '❌ Cancelled' });
+        try {
+          await ctx.editMessageText('Cancelled. Estimate deleted.');
+        } catch {
+          await ctx.reply('Cancelled. Estimate deleted.');
         }
         return;
       }
