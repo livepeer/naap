@@ -384,6 +384,13 @@ export async function login(email: string, password: string, ipAddress?: string)
     throw new Error('Invalid email or password');
   }
 
+  if (user.suspendedAt) {
+    const err = new Error('Account suspended') as Error & { code?: string; reason?: string | null };
+    err.code = 'ACCOUNT_SUSPENDED';
+    err.reason = user.suspendedReason;
+    throw err;
+  }
+
   // Verify password
   const { valid, needsRehash } = await verifyPassword(password, user.passwordHash);
   if (!valid) {
@@ -759,6 +766,14 @@ export async function handleOAuthCallback(
     });
 
     userId = user.id;
+  }
+
+  const userRecord = await prisma.user.findUnique({ where: { id: userId } });
+  if (userRecord?.suspendedAt) {
+    const err = new Error('Account suspended') as Error & { code?: string; reason?: string | null };
+    err.code = 'ACCOUNT_SUSPENDED';
+    err.reason = userRecord.suspendedReason;
+    throw err;
   }
 
   // Create session

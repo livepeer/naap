@@ -337,9 +337,15 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
       });
 
       if (!user || !user.passwordHash) {
-        // Record failed attempt even for non-existent users to prevent enumeration
         await recordLoginAttempt(email, false, undefined, ipAddress);
         throw new Error('Invalid email or password');
+      }
+
+      if (user.suspendedAt) {
+        const err = new Error('Account suspended') as Error & { code?: string; reason?: string | null };
+        err.code = 'ACCOUNT_SUSPENDED';
+        err.reason = (user as any).suspendedReason;
+        throw err;
       }
 
       // Verify password

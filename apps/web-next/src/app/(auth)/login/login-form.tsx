@@ -14,6 +14,7 @@ function formatOAuthError(errorCode: string): string {
     invalid_state: 'Authentication session expired. Please try again.',
     access_denied: 'Access was denied. Please try again.',
     oauth_failed: 'Authentication failed. Please try again.',
+    account_suspended: 'Your account has been suspended. Please contact an administrator.',
   };
   return errorMessages[errorCode] || decodeURIComponent(errorCode);
 }
