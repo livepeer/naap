@@ -200,6 +200,16 @@ interface PymthouseUsageMePayload {
     externalUserId: string;
     requestCount: number;
     feeWei: string;
+    pipelineModels: Array<{
+      pipeline: string;
+      modelId: string;
+      requestCount: number;
+      networkFeeWei: string;
+      networkFeeUsdMicros: string;
+      ownerChargeUsdMicros: string;
+      endUserBillableUsdMicros: string;
+      networkFeeEth?: string;
+    }>;
   };
 }
 
@@ -678,7 +688,20 @@ result = [...result].sort((a, b) => {
         setUsageError('Invalid usage response from server');
         return;
       }
-      setUsagePayload(data as PymthouseUsageMePayload);
+      const cu = data.currentUser as PymthouseUsageMePayload['currentUser'] & {
+        pipelineModels?: unknown;
+      };
+      const normalized: PymthouseUsageMePayload = {
+        clientId: data.clientId,
+        period: data.period,
+        currentUser: {
+          externalUserId: cu.externalUserId,
+          requestCount: cu.requestCount,
+          feeWei: cu.feeWei,
+          pipelineModels: Array.isArray(cu.pipelineModels) ? cu.pipelineModels : [],
+        },
+      };
+      setUsagePayload(normalized);
     } catch (e) {
       setUsagePayload(null);
       setUsageError(e instanceof Error ? e.message : 'Network error loading usage');
@@ -1433,6 +1456,45 @@ result = [...result].sort((a, b) => {
                         <div className="sm:col-span-2 text-xs text-text-secondary font-mono">
                           <span className="text-text-secondary">Period: </span>
                           {usagePayload.period?.start ?? '—'} → {usagePayload.period?.end ?? '—'}
+                        </div>
+                        <div className="sm:col-span-2 mt-2">
+                          <p className="text-xs uppercase tracking-wide text-text-secondary mb-2">
+                            By pipeline &amp; model
+                          </p>
+                          {usagePayload.currentUser.pipelineModels.length > 0 ? (
+                            <ul className="space-y-2 text-sm">
+                              {usagePayload.currentUser.pipelineModels.map((row) => (
+                                <li
+                                  key={`${row.pipeline}:${row.modelId}`}
+                                  className="p-3 rounded-lg border border-white/10 bg-bg-tertiary/30 font-mono"
+                                >
+                                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-text-primary">
+                                    <span>
+                                      <span className="text-text-secondary">Pipeline</span>{' '}
+                                      {row.pipeline}
+                                    </span>
+                                    <span>
+                                      <span className="text-text-secondary">Model</span> {row.modelId}
+                                    </span>
+                                    <span>
+                                      <span className="text-text-secondary">Requests</span>{' '}
+                                      {row.requestCount.toLocaleString()}
+                                    </span>
+                                  </div>
+                                  <div className="mt-2 text-xs text-text-secondary break-all">
+                                    Network fee (wei): {row.networkFeeWei}
+                                    <span className="block mt-1">
+                                      ≈ {formatFeeWeiStringToEthDisplay(row.networkFeeWei)} ETH
+                                    </span>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-xs text-text-secondary">
+                              No pipeline/model breakdown for this period.
+                            </p>
+                          )}
                         </div>
                       </div>
                     ) : (

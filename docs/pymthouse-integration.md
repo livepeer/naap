@@ -60,14 +60,14 @@ PymtHouse usage is **tenant-wide** (M2M). A NaaP session alone must not expose r
 
 | Query | Behavior |
 |-------|-----------|
-| `scope=me` (default) | Server calls upstream with `groupBy=user`, then returns only the row where `externalUserId` matches the logged-in NaaP user id (`session.user.id`). Response shape: `{ clientId, period, currentUser: { externalUserId, requestCount, feeWei } }`. App totals and other users are omitted. |
+| `scope=me` (default) | Server first calls upstream with `groupBy=user`, finds all `byUser` buckets whose `externalUserId` matches the logged-in NaaP user id (`session.user.id`), then requests `groupBy=pipeline_model` for each matching stored `endUserId`. Returns `{ clientId, period, currentUser: { externalUserId, requestCount, feeWei, pipelineModels } }` where `pipelineModels` is the merged, sorted pipeline/model list for that user (empty when none). App totals and raw `byUser` / `byPipelineModel` arrays are omitted. |
 | `scope=app` | **Requires** role `system:admin`. Passes through `groupBy` (`none` \| `user`) and internal PymtHouse `userId` (end user id) to the SDK and returns the **raw** `UsageApiResponse` from upstream. |
 
 **Dates:** Optional `startDate` and `endDate` (ISO strings, validated with `Date.parse`). Both must be set together, or both omitted. If omitted, the BFF uses the **current calendar month in UTC** (same default as the Developer plugin Usage tab).
 
 **Wei:** `totalFeeWei` / `feeWei` are decimal integer strings; format with `BigInt` in app code — never `Number()` on raw wei. The Developer plugin uses `formatFeeWeiStringToEthDisplay` from `@naap/utils`.
 
-**Identifiers:** Upstream `userId` is the internal PymtHouse **end user** id. NaaP’s `scope=me` path matches on **`externalUserId`** (NaaP user id mirrored on PymtHouse), which is why non-admins never receive the full `byUser` array.
+**Identifiers:** Upstream `userId` filters `usage_records.user_id`, which may contain legacy app-user ids, end-user ids, or the external id. NaaP’s `scope=me` path matches on **`externalUserId`** first, then uses the matching `byUser.endUserId` values for the pipeline/model calls so duplicate buckets for one external user are still included.
 
 **Env gate:** If PymtHouse M2M env is incomplete, the route returns `400` with `PYMTHOUSE_NOT_CONFIGURED_MESSAGE` from [`pymthouse-env.ts`](../apps/web-next/src/lib/pymthouse-env.ts) (SDK-free, safe to import outside `server-only` routes).
 
