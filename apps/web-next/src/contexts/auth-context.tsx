@@ -237,6 +237,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (response.status >= 500) {
           throw new Error('Unable to sign in right now. Please try again later.');
         }
+        const errorBody = await response.json().catch(() => null);
+        if (errorBody?.error?.code === 'ACCOUNT_SUSPENDED') {
+          throw new Error('Your account has been suspended. Please contact an administrator.');
+        }
         throw new Error('Invalid email or password');
       }
       const data = await response.json();
