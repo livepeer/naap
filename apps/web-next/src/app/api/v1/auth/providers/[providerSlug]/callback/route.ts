@@ -121,6 +121,18 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
     return htmlResponse('Session Expired', 'The login session has expired or was already used. Please try again from NaaP.', true);
   }
 
+  const claim = await prisma.billingProviderOAuthSession.updateMany({
+    where: {
+      loginSessionId: session.loginSessionId,
+      state,
+      status: 'pending',
+    },
+    data: { status: 'processing' },
+  });
+  if (claim.count !== 1) {
+    return htmlResponse('Session Expired', 'The login session has expired or was already used. Please try again from NaaP.', true);
+  }
+
   try {
     const apiKey = await exchangeDaydreamTokenForApiKey(token);
 
@@ -134,6 +146,12 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
     return htmlResponse('Authentication Complete', 'You can close this tab and return to NaaP.');
   } catch (err) {
     console.error(`[billing-auth:${providerSlug}] Callback error:`, err);
+    await prisma.billingProviderOAuthSession
+      .update({
+        where: { loginSessionId: session.loginSessionId },
+        data: { status: 'failed' },
+      })
+      .catch(() => null);
     return htmlResponse('Authentication Failed', err instanceof Error ? err.message : 'Failed to authenticate with Daydream.', true);
   }
 }

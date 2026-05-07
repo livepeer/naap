@@ -73,7 +73,17 @@ describe('orchestrators-discovery-policy', () => {
     expect(merged?.filters?.priceMax).toBe(40);
   });
 
-  it('applyDiscoveryPolicyToOrchestrators enforces slaMinScore and topN', () => {
+  it('applyDiscoveryPolicyToOrchestrators enforces slaMinScore without filters', () => {
+    const rows = [
+      baseRow({ address: '0xa', slaScore: 50, noSwapRatio: 99 }),
+      baseRow({ address: '0xb', slaScore: 90, noSwapRatio: 98 }),
+    ];
+    const out = applyDiscoveryPolicyToOrchestrators(rows, { slaMinScore: 0.85 });
+    expect(out).toHaveLength(1);
+    expect(out[0].address).toBe('0xb');
+  });
+
+  it('applyDiscoveryPolicyToOrchestrators enforces slaMinScore with topN and sortBy', () => {
     const rows = [
       baseRow({ address: '0xa', slaScore: 50, noSwapRatio: 99 }),
       baseRow({ address: '0xb', slaScore: 90, noSwapRatio: 98 }),

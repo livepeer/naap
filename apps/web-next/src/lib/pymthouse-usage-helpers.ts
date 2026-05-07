@@ -55,7 +55,7 @@ function combinePipelineModels(
 
   for (const response of responses) {
     for (const row of listUsageByPipelineModel(response)) {
-      const key = `${row.pipeline}:${row.modelId}`;
+      const key = JSON.stringify([row.pipeline, row.modelId]);
       const existing = byKey.get(key);
       if (!existing) {
         byKey.set(key, { ...row });
