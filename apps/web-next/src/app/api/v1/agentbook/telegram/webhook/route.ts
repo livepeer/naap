@@ -63,6 +63,7 @@ import {
   getCachedResponse,
 } from '@/lib/agentbook-idempotency';
 import { withRetry } from '@/lib/agentbook-webhook-retry';
+import { checkAndIncrement } from '@/lib/agentbook-rate-limit';
 
 // PR 18: the photo handler awaits BATCH_IDLE_MS (5s) inline so it can
 // group multi-photo forwards. Plus OCR + blob persistence for ~8 images
@@ -5919,6 +5920,81 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const captureBuf: CaptureEntry[] | null = E2E_CAPTURE ? [] : null;
     if (captureBuf) currentCapture = captureBuf;
+
+    // === PR 25: Rate limits =================================================
+    // Per-tenant ceilings on inbound bot messages (defaults: 60/min, 1000/day).
+    // A runaway client would otherwise burn down our LLM budget; rather than
+    // dropping silently we send one polite throttle reply so the user knows
+    // the bot heard them. Tenant-scoped — one tenant's limit can never affect
+    // another. Per-tenant overrides via AbTenantConfig.botRateLimitPerMin /
+    // botRateLimitPerDay (null falls back to defaults).
+    //
+    // We only gate when we successfully resolved a tenant. If tenant
+    // resolution failed (unknown chat id), we let the request pass — the
+    // downstream handler will produce its own "unknown chat" reply, and
+    // an attacker hammering an unknown chat id can't write to AbUserMemory
+    // anyway because there's no tenantId to scope against.
+    let rateLimited = false;
+    if (idemTenantId) {
+      try {
+        const cfg = await db.abTenantConfig.findUnique({
+          where: { userId: idemTenantId },
+          select: { botRateLimitPerMin: true, botRateLimitPerDay: true },
+        });
+        const rl = await checkAndIncrement(idemTenantId, 'telegram', {
+          perMinute: cfg?.botRateLimitPerMin ?? 60,
+          perDay: cfg?.botRateLimitPerDay ?? 1000,
+        });
+        if (!rl.allowed) {
+          rateLimited = true;
+          // Resolve a chat id to reply to. We have one in the update we
+          // already parsed for the idempotency block — re-extract here
+          // rather than thread it through, so this gate stays a tight
+          // self-contained block.
+          const updateAny = update as {
+            message?: { chat?: { id?: number } };
+            edited_message?: { chat?: { id?: number } };
+            callback_query?: { message?: { chat?: { id?: number } } };
+          };
+          const chatId =
+            updateAny.callback_query?.message?.chat?.id ??
+            updateAny.message?.chat?.id ??
+            updateAny.edited_message?.chat?.id;
+          const text =
+            rl.reason === 'day'
+              ? "Daily limit reached, see you tomorrow."
+              : "🛑 You're sending a lot — let me catch up. Try again in 30 seconds.";
+          if (chatId) {
+            try {
+              await b.api.sendMessage(chatId, text);
+            } catch (sendErr) {
+              // Non-fatal — log and continue; we still want to 200 to
+              // Telegram so it doesn't retry into the same wall.
+              console.warn('[telegram] throttle reply failed:', sendErr);
+            }
+          }
+        }
+      } catch (rlErr) {
+        // Don't fail-closed on a counter-table outage — better to let
+        // through one extra request than to brick the bot for everyone.
+        console.warn('[telegram] rate-limit check failed:', rlErr);
+      }
+    }
+    if (rateLimited) {
+      const responseBody: Record<string, unknown> = captureBuf
+        ? { ok: true, throttled: true, captured: captureBuf, botReply: captureBuf[0]?.text }
+        : { ok: true, throttled: true };
+      if (captureBuf) currentCapture = null;
+      // Still cache the throttled body so a Telegram retry of this exact
+      // update_id (which idempotency wouldn't catch on the very first
+      // throttle, since claimKey already succeeded above) gets a stable
+      // shape. Best-effort.
+      if (idemKey) {
+        await recordResponse(idemKey, responseBody);
+      }
+      return NextResponse.json(responseBody);
+    }
+    // === end PR 25 =========================================================
 
     // === PR 23: Retry + Dead-letter ========================================
     // Wrap handleUpdate in `withRetry`. Transient failures (LLM timeout,

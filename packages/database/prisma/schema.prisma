@@ -1428,6 +1428,8 @@ model AbTenantConfig {
   autoRemindDays          Int      @default(3)            // min days between reminders
   dailyDigestEnabled      Boolean  @default(true)         // morning digest opt-out
   dailyBackupEnabled      Boolean  @default(true)         // PR 24 daily backup opt-out
+  botRateLimitPerMin      Int?     @default(60)           // PR 25 per-tenant override; null falls back to default
+  botRateLimitPerDay      Int?     @default(1000)         // PR 25 per-tenant override; null falls back to default
   companyName             String?
   companyAddress          String?
   companyEmail            String?
