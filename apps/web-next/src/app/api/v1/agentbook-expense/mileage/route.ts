@@ -17,6 +17,7 @@ import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { getMileageRate } from '@/lib/agentbook-mileage-rates';
 import { resolveVehicleAccounts } from '@/lib/agentbook-account-resolver';
+import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -53,6 +54,9 @@ async function ytdMilesOrKm(
       tenantId,
       unit,
       date: { gte: start, lt: tripDate },
+      // Soft-deleted entries don't count toward the CRA tier — they're
+      // off the books from the user's perspective.
+      deletedAt: null,
     },
     select: { miles: true },
   });
@@ -216,14 +220,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const until = params.get('until');
     const summary = params.get('summary') === 'true';
 
-    const where: Record<string, unknown> = { tenantId };
-    if (clientId) where.clientId = clientId;
+    const includeDeleted = parseIncludeDeleted(params);
+    const baseWhere: Record<string, unknown> = { tenantId };
+    if (clientId) baseWhere.clientId = clientId;
     if (since || until) {
       const date: Record<string, Date> = {};
       if (since) date.gte = new Date(since);
       if (until) date.lt = new Date(until);
-      where.date = date;
+      baseWhere.date = date;
     }
+    const where = withSoftDelete(baseWhere, includeDeleted);
 
     const entries = await db.abMileageEntry.findMany({
       where,

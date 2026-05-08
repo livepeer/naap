@@ -11,6 +11,7 @@ import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
+import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,8 +20,9 @@ export const maxDuration = 30;
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const tenantId = await resolveAgentbookTenant(request);
+    const includeDeleted = parseIncludeDeleted(request.nextUrl.searchParams);
     const budgets = await db.abBudget.findMany({
-      where: { tenantId },
+      where: withSoftDelete({ tenantId }, includeDeleted),
       orderBy: { categoryName: 'asc' },
     });
     return NextResponse.json({ success: true, data: budgets });

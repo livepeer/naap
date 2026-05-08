@@ -28,13 +28,17 @@ export async function DELETE(request: NextRequest, ctx: RouteCtx): Promise<NextR
     if (!id) return NextResponse.json({ success: false, error: 'id required' }, { status: 400 });
 
     // Capture the row before delete so the audit log shows what was lost.
-    const existing = await db.abBudget.findFirst({ where: { id, tenantId } });
+    // Soft-delete (PR 26): only act on live rows.
+    const existing = await db.abBudget.findFirst({ where: { id, tenantId, deletedAt: null } });
     if (!existing) {
       return NextResponse.json({ success: false, error: 'not found' }, { status: 404 });
     }
-    // Tenant-scoped delete: deleteMany with both id + tenantId so a
+    // Tenant-scoped soft-delete: updateMany with both id + tenantId so a
     // mismatched tenant returns count=0 instead of 500'ing on missing row.
-    const r = await db.abBudget.deleteMany({ where: { id, tenantId } });
+    const r = await db.abBudget.updateMany({
+      where: { id, tenantId, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
     if (r.count === 0) {
       return NextResponse.json({ success: false, error: 'not found' }, { status: 404 });
     }
@@ -88,7 +92,8 @@ export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResp
       return NextResponse.json({ success: false, error: 'no editable fields' }, { status: 400 });
     }
 
-    const existing = await db.abBudget.findFirst({ where: { id, tenantId } });
+    // Soft-delete (PR 26): edits only apply to live rows.
+    const existing = await db.abBudget.findFirst({ where: { id, tenantId, deletedAt: null } });
     if (!existing) {
       return NextResponse.json({ success: false, error: 'not found' }, { status: 404 });
     }

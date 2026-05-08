@@ -243,12 +243,18 @@ export async function gatherPackageData(input: PackageInput): Promise<PackageDat
   // Confirmed expenses only — drafts and rejects don't belong on the
   // tax return. `isPersonal=false` keeps personal spending out of
   // the deduction roll-up.
+  //
+  // Soft-delete (PR 26): include rows that are live (deletedAt IS NULL)
+  // OR that were soft-deleted *after* the close of the tax year. A row
+  // deleted on Feb 3 of the following year still belonged to the books
+  // at year-end and must remain on the year's filing.
   const expenses = await db.abExpense.findMany({
     where: {
       tenantId,
       isPersonal: false,
       status: 'confirmed',
       date: { gte: start, lt: end },
+      OR: [{ deletedAt: null }, { deletedAt: { gt: end } }],
     },
     select: {
       id: true,
@@ -292,7 +298,12 @@ export async function gatherPackageData(input: PackageInput): Promise<PackageDat
   // CSV section has detail; the totals get rolled into the deduction
   // headline on the PDF.
   const mileageEntries = await db.abMileageEntry.findMany({
-    where: { tenantId, date: { gte: start, lt: end } },
+    where: {
+      tenantId,
+      date: { gte: start, lt: end },
+      // PR 26: keep rows soft-deleted after year-end on the filing.
+      OR: [{ deletedAt: null }, { deletedAt: { gt: end } }],
+    },
     select: { id: true, date: true, miles: true, unit: true, purpose: true, deductibleAmountCents: true },
     orderBy: { date: 'asc' },
   });
@@ -319,6 +330,9 @@ export async function gatherPackageData(input: PackageInput): Promise<PackageDat
     where: {
       tenantId,
       status: { in: ['sent', 'viewed', 'overdue'] },
+      // PR 26: AR snapshot also keeps invoices that were soft-deleted
+      // after year-end — they were still on the books at the cutoff.
+      OR: [{ deletedAt: null }, { deletedAt: { gt: end } }],
     },
     select: {
       amountCents: true,

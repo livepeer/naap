@@ -14,6 +14,7 @@ import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
+import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -211,15 +212,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const limit = parseInt(params.get('limit') || '50', 10);
     const offset = parseInt(params.get('offset') || '0', 10);
 
-    const where: Record<string, unknown> = { tenantId };
+    const includeDeleted = parseIncludeDeleted(params);
+    const baseWhere: Record<string, unknown> = { tenantId };
     if (startDate || endDate) {
       const date: Record<string, Date> = {};
       if (startDate) date.gte = new Date(startDate);
       if (endDate) date.lte = new Date(endDate);
-      where.date = date;
+      baseWhere.date = date;
     }
-    if (isPersonal !== null) where.isPersonal = isPersonal === 'true';
-    if (vendorId) where.vendorId = vendorId;
+    if (isPersonal !== null) baseWhere.isPersonal = isPersonal === 'true';
+    if (vendorId) baseWhere.vendorId = vendorId;
+    const where = withSoftDelete(baseWhere, includeDeleted);
 
     const [expenses, total] = await Promise.all([
       db.abExpense.findMany({

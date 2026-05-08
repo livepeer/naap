@@ -21,6 +21,8 @@ interface Invoice {
   status: 'draft' | 'sent' | 'overdue' | 'paid' | 'void';
   // Origin of the invoice — set on drafts created via the Telegram bot.
   source?: 'web' | 'telegram' | 'api' | null;
+  // PR 26: soft-delete timestamp (null when live).
+  deletedAt?: string | null;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon: React.ReactNode }> = {
@@ -47,25 +49,37 @@ export const InvoiceListPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('all');
+  // PR 26: opt-in toggle to include soft-deleted invoices in the list.
+  const [showDeleted, setShowDeleted] = useState(false);
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/v1/agentbook-invoice/invoices');
+      const qs = showDeleted ? '?includeDeleted=true' : '';
+      const res = await fetch(`/api/v1/agentbook-invoice/invoices${qs}`);
       if (!res.ok) throw new Error('Failed to fetch invoices');
       const data = await res.json();
-      setInvoices(Array.isArray(data) ? data : data.invoices ?? []);
+      setInvoices(Array.isArray(data) ? data : data.invoices ?? data.data ?? []);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showDeleted]);
 
   useEffect(() => {
     fetchInvoices();
   }, [fetchInvoices]);
+
+  // PR 26: restore a soft-deleted invoice within the 90-day window.
+  const handleRestore = async (id: string) => {
+    try {
+      const res = await fetch(`/api/v1/agentbook-core/restore/invoice/${id}`, { method: 'POST' });
+      if (!res.ok) return;
+      setInvoices(prev => prev.map(i => i.id === id ? { ...i, deletedAt: null } : i));
+    } catch { /* silent */ }
+  };
 
   const filtered = activeTab === 'all' ? invoices : invoices.filter((i) => i.status === activeTab);
 
@@ -136,6 +150,17 @@ export const InvoiceListPage: React.FC = () => {
             </button>
           );
         })}
+        {/* PR 26: Show deleted toggle */}
+        <button
+          onClick={() => setShowDeleted(v => !v)}
+          className={`ml-auto px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+            showDeleted ? 'bg-red-100 text-red-700' : 'hover:bg-gray-100'
+          }`}
+          style={!showDeleted ? { color: 'var(--text-secondary)' } : undefined}
+          title="Include soft-deleted invoices"
+        >
+          {showDeleted ? 'Hide deleted' : 'Show deleted'}
+        </button>
       </div>
 
       {/* Content */}
@@ -166,7 +191,7 @@ export const InvoiceListPage: React.FC = () => {
             return (
               <div
                 key={inv.id}
-                className="rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 border border-border bg-card transition-shadow hover:shadow-md cursor-pointer"
+                className={`rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 border border-border bg-card transition-shadow hover:shadow-md cursor-pointer ${inv.deletedAt ? 'line-through text-muted-foreground/70 opacity-70' : ''}`}
               >
                 {/* Left: invoice info */}
                 <div className="flex-1 min-w-0">
@@ -182,6 +207,13 @@ export const InvoiceListPage: React.FC = () => {
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700">
                         via Telegram
                       </span>
+                    )}
+                    {inv.deletedAt && (
+                      <button
+                        onClick={(ev) => { ev.stopPropagation(); handleRestore(inv.id); }}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium no-underline bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                        title="Restore (within 90 days of delete)"
+                      >Restore</button>
                     )}
                   </div>
                   <p className="text-sm truncate text-muted-foreground">

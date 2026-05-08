@@ -30,6 +30,7 @@ interface Expense {
   isPersonal: boolean;
   isBillable: boolean;
   journalEntryId: string | null;
+  deletedAt: string | null; // PR 26: soft-delete
 }
 
 interface CategorySummary {
@@ -158,6 +159,9 @@ export const ExpenseListPage: React.FC = () => {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [autoTagging, setAutoTagging] = useState(false);
+  // PR 26: "Show deleted" toggle adds ?includeDeleted=true to GET, marks
+  // the row strikethrough, and exposes a Restore button.
+  const [showDeleted, setShowDeleted] = useState(false);
 
   // Advisor state
   const [insights, setInsights] = useState<any[]>([]);
@@ -181,6 +185,7 @@ export const ExpenseListPage: React.FC = () => {
     }
     if (filter === 'business') qs.set('isPersonal', 'false');
     if (filter === 'personal') qs.set('isPersonal', 'true');
+    if (showDeleted) qs.set('includeDeleted', 'true');
     qs.set('limit', '200');
 
     const catQs = new URLSearchParams();
@@ -198,7 +203,18 @@ export const ExpenseListPage: React.FC = () => {
       if (expData.success) setExpenses(expData.data);
       if (catData.success) setCategorySummary(catData.data.categories);
     }).catch(console.error).finally(() => setLoading(false));
-  }, [filter, period]);
+  }, [filter, period, showDeleted]);
+
+  // PR 26: restore a soft-deleted expense within the 90-day window.
+  const handleRestore = async (id: string) => {
+    try {
+      const res = await fetch(`/api/v1/agentbook-core/restore/expense/${id}`, { method: 'POST' });
+      if (!res.ok) return;
+      // Optimistic local clear; the next refetch (e.g. toggling Show
+      // deleted) will reconcile.
+      setExpenses(prev => prev.map(e => e.id === id ? { ...e, deletedAt: null } : e));
+    } catch { /* silent */ }
+  };
 
   // Fetch advisor data when period or chart type changes
   useEffect(() => {
@@ -260,6 +276,7 @@ export const ExpenseListPage: React.FC = () => {
       const dates = getPeriodDates(period);
       const qs = new URLSearchParams();
       if (period !== 'all') { qs.set('startDate', dates.start.toISOString()); qs.set('endDate', dates.end.toISOString()); }
+      if (showDeleted) qs.set('includeDeleted', 'true');
       qs.set('limit', '200');
       const res = await fetch(`${API}/expenses?${qs}`);
       const data = await res.json();
@@ -485,6 +502,14 @@ export const ExpenseListPage: React.FC = () => {
             className="px-3 py-1.5 rounded-full text-xs bg-muted text-muted-foreground hover:bg-muted/80 flex items-center gap-1">
             <ArrowUpDown className="w-3 h-3" />{sortBy === 'date' ? 'Date' : 'Amount'}
           </button>
+          {/* PR 26: Show deleted toggle */}
+          <button onClick={() => setShowDeleted(v => !v)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              showDeleted ? 'bg-destructive/15 text-destructive border border-destructive/30' : 'bg-muted text-muted-foreground hover:bg-muted/80'
+            }`}
+            title="Include soft-deleted rows in the list">
+            {showDeleted ? 'Hide deleted' : 'Show deleted'}
+          </button>
         </div>
       </div>
 
@@ -547,13 +572,22 @@ export const ExpenseListPage: React.FC = () => {
               {sorted.map(expense => (
                 <React.Fragment key={expense.id}>
                   <tr
-                    className={`border-b border-border/50 hover:bg-muted/30 cursor-pointer transition-colors ${expense.isPersonal ? 'opacity-50' : ''}`}
+                    className={`border-b border-border/50 hover:bg-muted/30 cursor-pointer transition-colors ${expense.isPersonal ? 'opacity-50' : ''} ${expense.deletedAt ? 'line-through text-muted-foreground/70' : ''}`}
                     onClick={() => setExpandedId(expandedId === expense.id ? null : expense.id)}
                   >
                     <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{fmtDateShort(expense.date)}</td>
                     <td className="px-4 py-3">
                       <div>
-                        <p className="font-medium">{expense.vendorName || '—'}</p>
+                        <p className="font-medium">
+                          {expense.vendorName || '—'}
+                          {expense.deletedAt && (
+                            <button
+                              onClick={(ev) => { ev.stopPropagation(); handleRestore(expense.id); }}
+                              className="ml-2 px-2 py-0.5 rounded text-[10px] no-underline bg-primary/10 text-primary hover:bg-primary/20"
+                              title="Restore (within 90 days of delete)"
+                            >Restore</button>
+                          )}
+                        </p>
                         <p className="text-xs text-muted-foreground truncate max-w-[180px]">{expense.description}</p>
                       </div>
                     </td>

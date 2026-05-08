@@ -68,7 +68,9 @@ export async function DELETE(
     const tenantId = await resolveAgentbookTenant(request);
     const { id } = await params;
 
-    const existing = await db.abMileageEntry.findFirst({ where: { id, tenantId } });
+    // Soft-delete (PR 26): only act on live rows so users can't keep
+    // re-stamping deletedAt onto an already-deleted entry.
+    const existing = await db.abMileageEntry.findFirst({ where: { id, tenantId, deletedAt: null } });
     if (!existing) {
       return NextResponse.json(
         { success: false, error: 'mileage entry not found' },
@@ -77,9 +79,9 @@ export async function DELETE(
     }
 
     await db.$transaction(async (tx) => {
-      // Reverse the JE before deleting the row so the ledger stays
-      // self-consistent without us having to teach `AbJournalEntry`
-      // about a missing source.
+      // Reverse the JE before flipping deletedAt so the ledger stays
+      // self-consistent. A restore (within 90d) re-posts the JE; the
+      // restoration endpoint handles that path.
       if (existing.journalEntryId) {
         const original = await tx.abJournalEntry.findUnique({
           where: { id: existing.journalEntryId },
@@ -106,7 +108,7 @@ export async function DELETE(
           });
         }
       }
-      await tx.abMileageEntry.delete({ where: { id } });
+      await tx.abMileageEntry.update({ where: { id }, data: { deletedAt: new Date() } });
       await tx.abEvent.create({
         data: {
           tenantId,

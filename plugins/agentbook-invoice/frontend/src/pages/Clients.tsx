@@ -17,6 +17,8 @@ interface Client {
   total_paid: number;
   outstanding_balance: number;
   avg_days_to_pay: number;
+  // PR 26: soft-delete timestamp (null when live).
+  deletedAt?: string | null;
 }
 
 function formatCurrency(n: number) {
@@ -27,25 +29,37 @@ export const ClientsPage: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // PR 26: opt-in toggle to include soft-deleted clients in the list.
+  const [showDeleted, setShowDeleted] = useState(false);
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/v1/agentbook-invoice/clients');
+      const qs = showDeleted ? '?includeDeleted=true' : '';
+      const res = await fetch(`/api/v1/agentbook-invoice/clients${qs}`);
       if (!res.ok) throw new Error('Failed to fetch clients');
       const data = await res.json();
-      setClients(Array.isArray(data) ? data : data.clients ?? []);
+      setClients(Array.isArray(data) ? data : data.clients ?? data.data ?? []);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showDeleted]);
 
   useEffect(() => {
     fetchClients();
   }, [fetchClients]);
+
+  // PR 26: restore a soft-deleted client within the 90-day window.
+  const handleRestore = async (id: string) => {
+    try {
+      const res = await fetch(`/api/v1/agentbook-core/restore/client/${id}`, { method: 'POST' });
+      if (!res.ok) return;
+      setClients(prev => prev.map(c => c.id === id ? { ...c, deletedAt: null } : c));
+    } catch { /* silent */ }
+  };
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto">
@@ -59,13 +73,25 @@ export const ClientsPage: React.FC = () => {
             Manage your billing contacts
           </p>
         </div>
-        <button
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors"
-          style={{ backgroundColor: 'var(--accent-emerald, #10b981)' }}
-        >
-          <UserPlus className="w-4 h-4" />
-          Add Client
-        </button>
+        <div className="flex items-center gap-2">
+          {/* PR 26: Show deleted toggle */}
+          <button
+            onClick={() => setShowDeleted(v => !v)}
+            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              showDeleted ? 'bg-red-100 text-red-700' : 'border hover:bg-gray-50'
+            }`}
+            title="Include soft-deleted clients"
+          >
+            {showDeleted ? 'Hide deleted' : 'Show deleted'}
+          </button>
+          <button
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors"
+            style={{ backgroundColor: 'var(--accent-emerald, #10b981)' }}
+          >
+            <UserPlus className="w-4 h-4" />
+            Add Client
+          </button>
+        </div>
       </div>
 
       {/* Content */}
@@ -97,7 +123,7 @@ export const ClientsPage: React.FC = () => {
             return (
               <div
                 key={client.id}
-                className={`rounded-xl p-4 border border-border bg-card border-l-4 ${accentBorder} transition-shadow hover:shadow-md`}
+                className={`rounded-xl p-4 border border-border bg-card border-l-4 ${accentBorder} transition-shadow hover:shadow-md ${client.deletedAt ? 'line-through text-muted-foreground/70 opacity-70' : ''}`}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="min-w-0">
@@ -109,13 +135,21 @@ export const ClientsPage: React.FC = () => {
                       {client.email}
                     </p>
                   </div>
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                      isPaidUp ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                    }`}
-                  >
-                    {isPaidUp ? 'Paid Up' : 'Outstanding'}
-                  </span>
+                  {client.deletedAt ? (
+                    <button
+                      onClick={() => handleRestore(client.id)}
+                      className="px-2 py-0.5 rounded-full text-xs font-medium no-underline bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                      title="Restore (within 90 days of delete)"
+                    >Restore</button>
+                  ) : (
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        isPaidUp ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                      }`}
+                    >
+                      {isPaidUp ? 'Paid Up' : 'Outstanding'}
+                    </span>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 mt-3">

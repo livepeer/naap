@@ -11,6 +11,7 @@ import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
+import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,9 +24,10 @@ export async function GET(
   try {
     const tenantId = await resolveAgentbookTenant(request);
     const { id } = await params;
+    const includeDeleted = parseIncludeDeleted(request.nextUrl.searchParams);
 
     const expense = await db.abExpense.findFirst({
-      where: { id, tenantId },
+      where: withSoftDelete({ id, tenantId }, includeDeleted),
       include: { vendor: { select: { id: true, name: true } } },
     });
     if (!expense) {
@@ -79,7 +81,8 @@ export async function PUT(
     const tenantId = await resolveAgentbookTenant(request);
     const { id } = await params;
     const body = (await request.json().catch(() => ({}))) as UpdateExpenseBody;
-    const existing = await db.abExpense.findFirst({ where: { id, tenantId } });
+    // Soft-delete (PR 26): edits only apply to live rows.
+    const existing = await db.abExpense.findFirst({ where: { id, tenantId, deletedAt: null } });
     if (!existing) {
       return NextResponse.json({ success: false, error: 'Expense not found' }, { status: 404 });
     }
@@ -148,12 +151,14 @@ export async function DELETE(
   try {
     const tenantId = await resolveAgentbookTenant(request);
     const { id } = await params;
-    const existing = await db.abExpense.findFirst({ where: { id, tenantId } });
+    // Soft-delete (PR 26): only act on live rows; treat already-deleted as 404
+    // so callers can't keep stamping new `deletedAt` values onto the same row.
+    const existing = await db.abExpense.findFirst({ where: { id, tenantId, deletedAt: null } });
     if (!existing) {
       return NextResponse.json({ success: false, error: 'Expense not found' }, { status: 404 });
     }
 
-    await db.abExpense.delete({ where: { id } });
+    await db.abExpense.update({ where: { id }, data: { deletedAt: new Date() } });
 
     await audit({
       tenantId,

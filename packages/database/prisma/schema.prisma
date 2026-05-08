@@ -1673,6 +1673,7 @@ model AbExpense {
   status          String   @default("confirmed") // confirmed | pending_review | rejected
   source          String   @default("manual")    // manual | telegram_photo | telegram_pdf | ocr | csv_import | cc_statement | bank_sync
   journalEntryId  String?
+  deletedAt       DateTime?                       // PR 26: soft-delete; null=live, set=removed
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1681,6 +1682,7 @@ model AbExpense {
   @@index([tenantId, status])
   @@index([tenantId, isPersonal])
   @@index([tenantId, categoryId])
+  @@index([tenantId, deletedAt])
   @@schema("plugin_agentbook_expense")
 }
 
@@ -1705,6 +1707,7 @@ model AbVendor {
   defaultCategoryId   String?
   transactionCount    Int      @default(0)
   lastSeen            DateTime @default(now())
+  deletedAt           DateTime?                    // PR 26: soft-delete
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -1712,6 +1715,7 @@ model AbVendor {
 
   @@unique([tenantId, normalizedName])
   @@index([tenantId])
+  @@index([tenantId, deletedAt])
   @@schema("plugin_agentbook_expense")
 }
 
@@ -1806,11 +1810,13 @@ model AbBudget {
   amountCents   Int
   period        String   @default("monthly")
   alertPercent  Int      @default(80)
+  deletedAt     DateTime?                          // PR 26: soft-delete
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@unique([tenantId, categoryId, period])
   @@index([tenantId])
+  @@index([tenantId, deletedAt])
   @@schema("plugin_agentbook_expense")
 }
 
@@ -1842,11 +1848,13 @@ model AbMileageEntry {
   ratePerUnitCents      Int                              // snapshot: 67 for US 2025; varies by CA tier
   deductibleAmountCents Int                              // miles × ratePerUnitCents (rounded)
   journalEntryId        String?                          // linked journal entry for reversal
+  deletedAt             DateTime?                        // PR 26: soft-delete
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
   @@index([tenantId, date])
   @@index([tenantId, clientId])
+  @@index([tenantId, deletedAt])
   @@schema("plugin_agentbook_expense")
 }
 
@@ -1864,6 +1872,7 @@ model AbClient {
   avgDaysToPay    Float?
   totalBilledCents  Int    @default(0)
   totalPaidCents    Int    @default(0)
+  deletedAt       DateTime?                       // PR 26: soft-delete
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1871,6 +1880,7 @@ model AbClient {
   estimates       AbEstimate[]
 
   @@index([tenantId])
+  @@index([tenantId, deletedAt])
   @@schema("plugin_agentbook_invoice")
 }
 
@@ -1901,6 +1911,7 @@ model AbInvoice {
   paymentUrl      String?
   lastRemindedAt  DateTime?
   source          String?  @default("web")      // web | telegram | api — origin of the draft
+  deletedAt       DateTime?                     // PR 26: soft-delete
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1911,6 +1922,7 @@ model AbInvoice {
   @@unique([tenantId, number])
   @@index([tenantId, status])
   @@index([tenantId, dueDate])
+  @@index([tenantId, deletedAt])
   @@schema("plugin_agentbook_invoice")
 }
 

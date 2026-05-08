@@ -49,8 +49,9 @@ export async function updateMileageEntry(
   entryId: string,
   patch: MileagePatch,
 ): Promise<UpdateMileageResult | UpdateMileageError> {
+  // Soft-delete (PR 26): edits only apply to live rows.
   const existing = await db.abMileageEntry.findFirst({
-    where: { id: entryId, tenantId },
+    where: { id: entryId, tenantId, deletedAt: null },
   });
   if (!existing) {
     return { ok: false, status: 404, error: 'mileage entry not found' };
@@ -81,6 +82,7 @@ export async function updateMileageEntry(
         unit: existing.unit,
         date: { gte: start, lt: existing.date },
         NOT: { id: entryId },
+        deletedAt: null,
       },
       select: { miles: true },
     });
