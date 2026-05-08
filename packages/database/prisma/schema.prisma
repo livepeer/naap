@@ -2546,3 +2546,23 @@ model AbHomeOfficeConfig {
 
   @@schema("plugin_agentbook_core")
 }
+
+/// Voice transcript cache (PR 19). Telegram delivers a stable `file_id`
+/// for each voice note; if the same note is processed more than once
+/// (replay, retries, accidental double-submit) we want to skip the
+/// Gemini audio billing. Keyed by (tenantId, fileId) so cross-tenant
+/// cache hits are impossible. The transcript itself is stored verbatim
+/// — small (under a few KB), and we only retain the last ~30 days via
+/// the daily housekeeping cron.
+model AbVoiceTranscript {
+  id         String   @id @default(uuid())
+  tenantId   String
+  fileId     String                                  // Telegram file_id
+  transcript String
+  model      String                                  // 'gemini-2.5-flash' etc.
+  createdAt  DateTime @default(now())
+
+  @@unique([tenantId, fileId])
+  @@index([tenantId, createdAt])
+  @@schema("plugin_agentbook_core")
+}

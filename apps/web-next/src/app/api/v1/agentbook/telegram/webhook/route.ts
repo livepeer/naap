@@ -53,6 +53,7 @@ import {
   BATCH_IDLE_MS,
   type BatchState,
 } from '@/lib/agentbook-batch-receipts';
+import { getOrTranscribeVoice } from '@/lib/agentbook-voice-cache';
 import { audit } from '@/lib/agentbook-audit';
 
 // PR 18: the photo handler awaits BATCH_IDLE_MS (5s) inline so it can
@@ -3064,12 +3065,28 @@ function getBot(): Bot {
     const tenantId = await resolveTenantId(ctx.chat.id);
     await ctx.reply('🎙️ One sec — listening to your note…');
 
+    // PR 19: Telegram `file_id` is stable per voice note, so the same
+    // `(tenantId, file_id)` pair points to the same audio bytes forever.
+    // Cache the transcript so replays / retries / accidental double-sends
+    // skip the Gemini audio bill. Cross-tenant hits are impossible —
+    // the unique key is composite.
+    const fileId = ctx.message.voice.file_id;
+    const mime = ctx.message.voice.mime_type || 'audio/ogg';
+    const modelName = process.env.GEMINI_MODEL_VISION || 'gemini-2.5-flash';
+
     let text: string | null = null;
     try {
-      const file = await ctx.api.getFile(ctx.message.voice.file_id);
-      const url = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-      const mime = ctx.message.voice.mime_type || 'audio/ogg';
-      text = await transcribeVoiceWithGemini(url, mime);
+      const cacheResult = await getOrTranscribeVoice({
+        tenantId,
+        fileId,
+        model: modelName,
+        transcribe: async () => {
+          const file = await ctx.api.getFile(fileId);
+          const url = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+          return transcribeVoiceWithGemini(url, mime);
+        },
+      });
+      text = cacheResult.transcript;
     } catch (err) {
       console.error('[telegram/voice] failed:', err);
     }
