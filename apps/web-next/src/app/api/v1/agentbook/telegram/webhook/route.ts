@@ -2425,6 +2425,85 @@ function getBot(): Bot {
 
     const lower = text.toLowerCase().trim();
 
+    // ── Saved searches (PR 17) ──────────────────────────────────────────
+    // List the tenant's pinned searches so the user can re-run a recurring
+    // query in one tap. CRUD lives on the web; the bot is read + run only.
+    if (
+      lower === '/searches'
+      || lower === '/searches@agentbookdev_bot'
+      || lower === 'show my saved searches'
+      || lower === 'list saved searches'
+      || lower === 'show saved searches'
+      || lower === 'my saved searches'
+      || /^run\s+search\s+/i.test(text)
+    ) {
+      const baseUrl = getSelfBaseUrl();
+
+      // "run search Client Meals" → fuzzy-match name → execute.
+      const runMatch = text.match(/^run\s+search\s+(.+)$/i);
+      try {
+        const listRes = await fetch(`${baseUrl}/api/v1/agentbook-core/searches`, {
+          headers: { 'x-tenant-id': tenantId },
+        });
+        const listJson = (await listRes.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: Array<{ id: string; name: string; scope: string; pinned: boolean }>;
+        };
+        const all = Array.isArray(listJson.data) ? listJson.data : [];
+
+        if (runMatch) {
+          const needle = runMatch[1].trim().toLowerCase();
+          // Prefer exact (case-insensitive), then "contains".
+          const exact = all.find((s) => s.name.toLowerCase() === needle);
+          const fuzzy = exact ?? all.find((s) => s.name.toLowerCase().includes(needle));
+          if (!fuzzy) {
+            await ctx.reply(
+              `Couldn't find a saved search matching "${runMatch[1].trim()}". Type /searches to see what's available.`,
+            );
+            return;
+          }
+          const runRes = await fetch(
+            `${baseUrl}/api/v1/agentbook-core/searches/${fuzzy.id}/run`,
+            { headers: { 'x-tenant-id': tenantId } },
+          );
+          const runJson = (await runRes.json().catch(() => ({}))) as {
+            success?: boolean;
+            data?: { count: number; scope: string; rows?: unknown[] };
+            error?: string;
+          };
+          if (!runRes.ok || !runJson.success) {
+            await ctx.reply(`Run failed: ${runJson.error ?? 'unknown error'}`);
+            return;
+          }
+          await ctx.reply(
+            `🔎 <b>${fuzzy.name}</b>\nScope: ${runJson.data?.scope}\nMatches: ${runJson.data?.count ?? 0}`,
+            { parse_mode: 'HTML' },
+          );
+          return;
+        }
+
+        // /searches — list pinned with inline run buttons.
+        const pinned = all.filter((s) => s.pinned).slice(0, 10);
+        if (pinned.length === 0) {
+          await ctx.reply(
+            '📌 No pinned searches yet.\n\nHead to the Saved Searches page in the app to create and pin one, then come back here to re-run it in a tap.',
+          );
+          return;
+        }
+        const rows = pinned.map((s) => [
+          { text: `▶️ ${s.name}`, callback_data: `srch_run:${s.id}` },
+        ]);
+        await ctx.reply('📌 <b>Pinned searches</b>', {
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: rows },
+        });
+      } catch (err) {
+        console.error('[telegram /searches] failed:', err);
+        await ctx.reply('Sorry, I couldn\'t load your saved searches right now.');
+      }
+      return;
+    }
+
     // ── Daily-briefing setup + feedback dialog ──────────────────────────
     // If the user is mid-setup, EVERY text goes through the setup flow
     // until they save or cancel.
@@ -5266,6 +5345,50 @@ function getBot(): Bot {
         });
         await ctx.answerCallbackQuery({ text: '✏️ Send the new distance' });
         await ctx.reply('How many miles? (e.g. <code>47</code>)', { parse_mode: 'HTML' });
+        return;
+      }
+
+      // Saved-search run (PR 17). callback_data is `srch_run:<savedSearchId>`.
+      // We re-use the run endpoint so the bot and the SavedSearches page
+      // share one execution path — the only thing the bot adds is a
+      // human-friendly summary of the result.
+      if (action === 'srch_run') {
+        const id = parts[1];
+        if (!id) {
+          await ctx.answerCallbackQuery({ text: 'Missing search id' });
+          return;
+        }
+        try {
+          const baseUrl = getSelfBaseUrl();
+          const res = await fetch(
+            `${baseUrl}/api/v1/agentbook-core/searches/${id}/run`,
+            { headers: { 'x-tenant-id': tenantId } },
+          );
+          const json = (await res.json().catch(() => ({}))) as {
+            success?: boolean;
+            data?: {
+              search?: { name: string; scope: string };
+              count?: number;
+              scope?: string;
+            };
+            error?: string;
+          };
+          if (!res.ok || !json.success) {
+            await ctx.answerCallbackQuery({ text: json.error ?? 'Run failed' });
+            return;
+          }
+          const name = json.data?.search?.name ?? 'Saved search';
+          const scope = json.data?.scope ?? json.data?.search?.scope ?? 'expense';
+          const count = json.data?.count ?? 0;
+          await ctx.answerCallbackQuery({ text: `${count} match${count === 1 ? '' : 'es'}` });
+          await ctx.reply(
+            `🔎 <b>${escHtml(name)}</b>\nScope: ${escHtml(scope)}\nMatches: ${count}`,
+            { parse_mode: 'HTML' },
+          );
+        } catch (err) {
+          console.error('[telegram srch_run] failed:', err);
+          await ctx.answerCallbackQuery({ text: 'Run failed' });
+        }
         return;
       }
 

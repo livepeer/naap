@@ -2507,6 +2507,27 @@ model AbFxRate {
   @@schema("plugin_agentbook_core")
 }
 
+/// Saved searches (PR 17). Stores tenant-scoped reusable queries that the
+/// user can pin and re-run from the web page or the `/searches` Telegram
+/// command. The `query` JSON contains the SearchQuery shape consumed by
+/// `runSavedSearch`; `scope` ('expense' | 'invoice' | 'mileage' | 'all')
+/// drives which entity tables are queried. Pinned searches surface first
+/// in lists and on the bot. Each tenant is capped at 10 pinned searches
+/// to keep the Telegram inline-keyboard manageable.
+model AbSavedSearch {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  scope     String                                  // 'expense' | 'invoice' | 'mileage' | 'all'
+  query     Json                                    // { categoryFilter, vendorFilter, dateRange, amountMin, amountMax, isPersonal, etc. }
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, pinned])
+  @@schema("plugin_agentbook_core")
+}
+
 /// Home-office deduction config (PR 15). One row per tenant. Stores
 /// the square-footage ratio for the actual-expense method and a flag
 /// for the US simplified method ($5/sqft up to 300 sqft). The bot's
