@@ -55,6 +55,7 @@ import {
 } from '@/lib/agentbook-batch-receipts';
 import { getOrTranscribeVoice } from '@/lib/agentbook-voice-cache';
 import { renderCatchUpLines } from '@/lib/agentbook-catch-up';
+import { renderStatusLines, type StatusSnapshot } from '@/lib/agentbook-status';
 import { audit } from '@/lib/agentbook-audit';
 import {
   claimKey,
@@ -2546,6 +2547,64 @@ function getBot(): Bot {
           });
         } catch (err) {
           console.warn('[telegram catch-me-up] last-interaction upsert failed:', err);
+        }
+        return;
+      }
+    }
+
+    // ── /status (PR 22) ─────────────────────────────────────────────────
+    // One-glance reachability snapshot — bot, DB, last bank sync, last
+    // digest, open CPA requests, recent errors. Read-only; calls the
+    // web /agentbook-core/status endpoint so the Telegram and web
+    // surfaces share a single source of truth.
+    {
+      const isStatus = (
+        lower === '/status'
+        || lower === '/status@agentbookdev_bot'
+        || lower === 'status'
+        || /^how\s+(?:are\s+)?(?:you|things)\s+doing\??$/.test(lower)
+      );
+      if (isStatus) {
+        const baseUrl = getSelfBaseUrl();
+        try {
+          const res = await fetch(`${baseUrl}/api/v1/agentbook-core/status`, {
+            headers: { 'x-tenant-id': tenantId },
+          });
+          const json = (await res.json().catch(() => ({}))) as {
+            success?: boolean;
+            data?: StatusSnapshot;
+            error?: string;
+          };
+          if (!res.ok || !json.success || !json.data) {
+            await ctx.reply(`Sorry, I couldn't pull status just now.${json.error ? `\n${json.error}` : ''}`);
+            return;
+          }
+          // Re-hydrate Date objects — JSON transport stringifies them.
+          const data: StatusSnapshot = {
+            ...json.data,
+            bankSync: {
+              ...json.data.bankSync,
+              lastSyncedAt: json.data.bankSync.lastSyncedAt
+                ? new Date(json.data.bankSync.lastSyncedAt as unknown as string)
+                : null,
+            },
+            morningDigest: {
+              lastSentAt: json.data.morningDigest.lastSentAt
+                ? new Date(json.data.morningDigest.lastSentAt as unknown as string)
+                : null,
+            },
+            recentErrors: (json.data.recentErrors || []).map((e) => ({
+              ...e,
+              when: new Date(e.when as unknown as string),
+            })),
+          };
+          const lines = renderStatusLines(data);
+          await ctx.reply(`📡 <b>Status</b>\n\n${lines.join('\n')}`, {
+            parse_mode: 'HTML',
+          });
+        } catch (err) {
+          console.error('[telegram /status] failed:', err);
+          await ctx.reply("Sorry, I couldn't pull status just now.");
         }
         return;
       }
