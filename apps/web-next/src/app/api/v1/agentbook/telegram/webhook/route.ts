@@ -43,6 +43,10 @@ import {
   applyExpenseMatch,
   BankMatchError,
 } from '@/lib/agentbook-bank-match';
+import {
+  parseManageReceiptCommand,
+  pickBestExpenseMatch,
+} from '@/lib/agentbook-receipt-match';
 import { audit } from '@/lib/agentbook-audit';
 
 // Dev fallback: hardcoded chat ID → tenant mapping. The tenantId here MUST
@@ -797,7 +801,7 @@ async function handleSetupTurn(
         overdue: false, thisWeek: false, anomalies: false,
         taxDeadline: false, taxTips: false, cashFlowTips: false,
         autoCategorize: false, budgets: false, cpa_requests: false,
-        deductions: false,
+        deductions: false, receipts: false,
       };
     } else {
       // Use the same delta-from-feedback logic to interpret the list.
@@ -2714,6 +2718,92 @@ function getBot(): Bot {
       else if (/^(status|where was i)$/i.test(lower)) sessionAction = 'status';
     }
 
+    // ── PR 16: receipt-expiry intents ──────────────────────────────────
+    // "send receipt for AWS October bill" → start an upload-driven flow.
+    // "skip receipt for AWS October bill" → mark receiptStatus='skipped'.
+    //
+    // Resolved by description+vendor fuzzy match against the tenant's
+    // receipt-pending business expenses. A weak/no match falls through
+    // with a helpful prompt instead of guessing.
+    if (!sessionAction && !feedback) {
+      const parsed = parseManageReceiptCommand(text);
+      if (parsed) {
+        const candidates = await db.abExpense.findMany({
+          where: {
+            tenantId,
+            isPersonal: false,
+            receiptUrl: null,
+          },
+          orderBy: { date: 'desc' },
+          take: 50,
+          select: {
+            id: true,
+            description: true,
+            amountCents: true,
+            date: true,
+            vendor: { select: { name: true } },
+          },
+        });
+        const flat = candidates.map((c) => ({
+          id: c.id,
+          description: c.description,
+          vendor: c.vendor?.name || null,
+          amountCents: c.amountCents,
+          date: c.date,
+        }));
+        const best = pickBestExpenseMatch(parsed.target, flat);
+        if (!best) {
+          await ctx.reply(
+            `I couldn't find a receipt-pending expense matching "<b>${escHtml(parsed.target)}</b>". Try the vendor or description from your morning briefing.`,
+            { parse_mode: 'HTML' },
+          );
+          return;
+        }
+        const label = best.vendor || best.description || 'expense';
+        if (parsed.action === 'skip') {
+          await db.abExpense.update({
+            where: { id: best.id! },
+            data: { receiptStatus: 'skipped' },
+          });
+          await db.abEvent.create({
+            data: {
+              tenantId,
+              eventType: 'expense.receipt_skip',
+              actor: 'user',
+              action: { expenseId: best.id, channel: 'telegram' },
+            },
+          });
+          await ctx.reply(
+            `🗑️ Skipped — won't ask about <b>${escHtml(label)}</b> again.`,
+            { parse_mode: 'HTML' },
+          );
+          return;
+        }
+        // 'send' — multi-message flow: stash the target id, ask for the
+        // upload, the existing photo/PDF handler will pick it up via the
+        // pending-receipt memory key.
+        await db.abUserMemory.upsert({
+          where: { tenantId_key: { tenantId, key: 'telegram:pending_receipt_target' } },
+          update: {
+            value: JSON.stringify({ expenseId: best.id, setAt: Date.now() }),
+            lastUsed: new Date(),
+          },
+          create: {
+            tenantId,
+            key: 'telegram:pending_receipt_target',
+            value: JSON.stringify({ expenseId: best.id, setAt: Date.now() }),
+            type: 'pending_action',
+            confidence: 1,
+          },
+        });
+        await ctx.reply(
+          `📎 OK — send me the receipt photo or PDF for <b>${escHtml(label)}</b> and I'll attach it.`,
+          { parse_mode: 'HTML' },
+        );
+        return;
+      }
+    }
+
     // Slash command shortcuts → rewrite as natural language for the agent
     const slashMap: Record<string, string> = {
       '/balance': 'What is my cash balance?',
@@ -2954,6 +3044,44 @@ function getBot(): Bot {
       const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
       const permanentUrl = await persistReceiptBlob(telegramUrl, tenantId, 'image/jpeg');
 
+      // PR 16: if the user just said "send receipt for X", attach this
+      // upload to that expense instead of creating a new draft.
+      const pending = await db.abUserMemory.findUnique({
+        where: { tenantId_key: { tenantId, key: 'telegram:pending_receipt_target' } },
+      });
+      if (pending) {
+        try {
+          const parsed = JSON.parse(pending.value) as { expenseId?: string; setAt?: number };
+          if (parsed?.expenseId && (Date.now() - (parsed.setAt || 0) < 30 * 60 * 1000)) {
+            const target = await db.abExpense.findFirst({
+              where: { id: parsed.expenseId, tenantId },
+            });
+            if (target) {
+              await db.abExpense.update({
+                where: { id: target.id },
+                data: { receiptUrl: permanentUrl, receiptStatus: 'attached' },
+              });
+              await db.abEvent.create({
+                data: {
+                  tenantId,
+                  eventType: 'expense.receipt_attach',
+                  actor: 'user',
+                  action: { expenseId: target.id, channel: 'telegram' },
+                },
+              });
+              await db.abUserMemory.deleteMany({
+                where: { tenantId, key: 'telegram:pending_receipt_target' },
+              });
+              await ctx.reply(
+                `✅ Receipt attached to <b>${escHtml(target.description || 'expense')}</b>.`,
+                { parse_mode: 'HTML' },
+              );
+              return;
+            }
+          }
+        } catch { /* fall through to normal OCR flow */ }
+      }
+
       const ocr = await ocrReceipt(permanentUrl, 'image/jpeg');
       if (!ocr) {
         await ctx.reply('I saved the photo but the OCR step came back empty — either the image is unreadable or my Gemini key isn\'t set. Type the expense in plain English ("Spent $45 on lunch at Starbucks") and I\'ll book it.');
@@ -3046,6 +3174,45 @@ function getBot(): Bot {
       const file = await ctx.api.getFile(doc.file_id);
       const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
       const permanentUrl = await persistReceiptBlob(telegramUrl, tenantId, mimeType);
+
+      // PR 16: same pending-target hand-off as the photo path. If the
+      // user just said "send receipt for X", attach this PDF/image to
+      // that expense instead of running the full OCR-to-draft flow.
+      const pending = await db.abUserMemory.findUnique({
+        where: { tenantId_key: { tenantId, key: 'telegram:pending_receipt_target' } },
+      });
+      if (pending) {
+        try {
+          const parsed = JSON.parse(pending.value) as { expenseId?: string; setAt?: number };
+          if (parsed?.expenseId && (Date.now() - (parsed.setAt || 0) < 30 * 60 * 1000)) {
+            const target = await db.abExpense.findFirst({
+              where: { id: parsed.expenseId, tenantId },
+            });
+            if (target) {
+              await db.abExpense.update({
+                where: { id: target.id },
+                data: { receiptUrl: permanentUrl, receiptStatus: 'attached' },
+              });
+              await db.abEvent.create({
+                data: {
+                  tenantId,
+                  eventType: 'expense.receipt_attach',
+                  actor: 'user',
+                  action: { expenseId: target.id, channel: 'telegram' },
+                },
+              });
+              await db.abUserMemory.deleteMany({
+                where: { tenantId, key: 'telegram:pending_receipt_target' },
+              });
+              await ctx.reply(
+                `✅ Receipt attached to <b>${escHtml(target.description || 'expense')}</b>.`,
+                { parse_mode: 'HTML' },
+              );
+              return;
+            }
+          }
+        } catch { /* fall through */ }
+      }
 
       const ocr = await ocrReceipt(permanentUrl, mimeType);
       if (!ocr || ocr.amount_cents === 0) {

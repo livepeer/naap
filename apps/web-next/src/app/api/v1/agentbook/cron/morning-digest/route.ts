@@ -43,6 +43,21 @@ interface DigestData {
   // PR 12 — Smart deduction discovery. Open suggestions surfaced as a
   // digest line + per-suggestion follow-up message with action buttons.
   deductions: DeductionDigestItem[];
+  // PR 16 — receipt-expiry warnings. Business-deductible expenses older
+  // than 14 days with no receiptUrl and not user-skipped.
+  missingReceipts: {
+    count: number;
+    items: MissingReceiptItem[];
+  };
+}
+
+interface MissingReceiptItem {
+  id: string;
+  description: string | null;
+  vendorName: string | null;
+  amountCents: number;
+  date: Date;
+  daysOld: number;
 }
 
 interface DeductionDigestItem {
@@ -275,6 +290,69 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
     suggestedTaxCategory: d.suggestedTaxCategory,
   }));
 
+  // PR 16 — Receipt-expiry warnings. Business-deductible expenses older
+  // than 14 days with no receipt attached and not user-skipped. We hard
+  // cap at 5 in the digest summary so this section never floods the user
+  // even if they haven't kept up with receipts in months.
+  const fourteenDaysAgo = new Date(now.getTime() - 14 * 86_400_000);
+  const missingReceiptRows = await db.abExpense.findMany({
+    where: {
+      tenantId,
+      isPersonal: false,
+      receiptUrl: null,
+      OR: [
+        { isDeductible: true },
+        { taxCategory: { not: null } },
+      ],
+      AND: [
+        {
+          OR: [
+            { receiptStatus: 'pending' },
+            { receiptStatus: null },
+          ],
+        },
+      ],
+      date: { lt: fourteenDaysAgo },
+    },
+    orderBy: { date: 'asc' },
+    take: 5,
+    select: {
+      id: true,
+      description: true,
+      amountCents: true,
+      date: true,
+      vendor: { select: { name: true } },
+    },
+  });
+  const missingReceiptCount = await db.abExpense.count({
+    where: {
+      tenantId,
+      isPersonal: false,
+      receiptUrl: null,
+      OR: [
+        { isDeductible: true },
+        { taxCategory: { not: null } },
+      ],
+      AND: [
+        {
+          OR: [
+            { receiptStatus: 'pending' },
+            { receiptStatus: null },
+          ],
+        },
+      ],
+      date: { lt: fourteenDaysAgo },
+    },
+  });
+  const missingReceiptItems: MissingReceiptItem[] = missingReceiptRows.map((r) => ({
+    id: r.id,
+    description: r.description,
+    vendorName: r.vendor?.name || null,
+    amountCents: r.amountCents,
+    date: r.date,
+    daysOld: Math.floor((now.getTime() - r.date.getTime()) / 86_400_000),
+  }));
+
   return {
     cashTodayCents,
     yesterday: {
@@ -295,6 +373,10 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
     },
     cpaRequests: openCpaRequests,
     deductions,
+    missingReceipts: {
+      count: missingReceiptCount,
+      items: missingReceiptItems,
+    },
   };
 }
 
@@ -390,6 +472,26 @@ function composeMessage(
   if (sec.taxDeadline && d.taxDaysUntilQ !== null && d.taxDaysUntilQ <= 21) {
     lines.push('');
     lines.push(`📋 <b>Quarterly tax due in ${d.taxDaysUntilQ} days</b> — type "tax" for the estimate`);
+  }
+
+  // PR 16: receipt-expiry warnings. Surfaces business-deductible
+  // expenses older than 14 days with no receipt attached. Capped at 5
+  // (already applied in buildDigest) so the section never grows past
+  // a glance-able list. Each row is one-liner: vendor/desc + amount +
+  // age. The user can reply "skip receipt for X" or "send receipt for X".
+  if (sec.receipts && d.missingReceipts && d.missingReceipts.count > 0) {
+    lines.push('');
+    const n = d.missingReceipts.count;
+    lines.push(`📸 <b>${n} expense${n === 1 ? '' : 's'} missing receipts</b> (older than 14 days)`);
+    const limit = concise ? 2 : 5;
+    for (const r of d.missingReceipts.items.slice(0, limit)) {
+      const label = r.vendorName || r.description || 'expense';
+      lines.push(`  • ${escapeHtml(label)} — ${fmt$(r.amountCents)} · ${r.daysOld}d ago`);
+    }
+    if (d.missingReceipts.count > limit) {
+      lines.push(`  … and ${d.missingReceipts.count - limit} more`);
+    }
+    lines.push(`  <i>Reply "send receipt for &lt;name&gt;" or "skip receipt for &lt;name&gt;".</i>`);
   }
 
   // PR 12: smart deduction discovery — show count, then send each as

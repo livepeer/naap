@@ -29,6 +29,7 @@ export interface DigestSections {
   budgets: boolean;
   cpa_requests: boolean;             // PR 11: open CPA follow-ups
   deductions: boolean;               // PR 12: smart deduction discovery hits
+  receipts: boolean;                 // PR 16: receipt-expiry warnings (>14d, no receipt)
 }
 
 export interface DigestPrefs {
@@ -57,6 +58,7 @@ export const DEFAULT_PREFS: DigestPrefs = {
     budgets: true,
     cpa_requests: true,                // default-on; cheap and useful
     deductions: true,                  // PR 12: default-on; one bot msg / cycle worst-case
+    receipts: true,                    // PR 16: default-on; only fires for >14d business expenses
   },
   setupComplete: false,
 };
@@ -276,6 +278,7 @@ function toggleSections(
     [/\b(budget|spending\s+caps?|cap)\b/, 'budgets', 'budget progress'],
     [/\b(cpa|accountant)\s*(requests?|asks?|follow[\- ]?ups?)?\b/, 'cpa_requests', 'CPA follow-ups'],
     [/\b(deduction|missed deduction|write[- ]?off)s?\b/, 'deductions', 'missed-deduction tips'],
+    [/\b(receipt|missing receipt)s?\b/, 'receipts', 'missing-receipt warnings'],
     [/\ball (the )?tips?\b/, 'taxTips', 'all tips'],
   ];
   for (const [re, key, label] of map) {
@@ -308,7 +311,7 @@ Field domain:
    sections.* (each true|false):
       cashOnHand, yesterday, pendingReview, overdue, thisWeek, anomalies,
       taxDeadline, taxTips, cashFlowTips, autoCategorize, budgets,
-      cpa_requests, deductions
+      cpa_requests, deductions, receipts
 
 Return ONLY JSON:
 {
@@ -388,6 +391,7 @@ export function formatPrefsSummary(p: DigestPrefs): string {
     budgets: 'budget progress',
     cpa_requests: 'CPA follow-ups',
     deductions: 'missed deductions',
+    receipts: 'missing-receipt warnings',
   };
   for (const k of Object.keys(labels) as (keyof DigestSections)[]) {
     (p.sections[k] ? on : off).push(labels[k]);

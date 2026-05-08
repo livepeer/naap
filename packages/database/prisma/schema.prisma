@@ -1650,6 +1650,7 @@ model AbExpense {
   clientId        String?                       // if billable, which client
   isDeductible    Boolean  @default(false)      // PR 12: business-deductible flag (set by deduction discovery)
   taxCategory     String?                       // PR 12: Schedule C / T2125 line snapshot (set on apply)
+  receiptStatus   String?  @default("pending")  // PR 16: 'pending' | 'attached' | 'skipped' — drives the receipt-expiry digest
   status          String   @default("confirmed") // confirmed | pending_review | rejected
   source          String   @default("manual")    // manual | telegram_photo | telegram_pdf | ocr | csv_import | cc_statement | bank_sync
   journalEntryId  String?

@@ -386,6 +386,18 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/reports/expense-pdf' },
   },
   {
+    // PR 16: receipt-expiry warnings.
+    // The Telegram webhook owns the multi-message flow + skip path
+    // (it needs to stash a pending-target memory key and apply the
+    // next photo/PDF upload to that expense). The skill manifest is
+    // here so the brain LLM classifier can route alternative phrasings
+    // ("I'll send the receipt for AWS") to the right handler.
+    name: 'manage_receipt_request', description: 'Send or skip a receipt for a specific expense (e.g. "send receipt for AWS October bill", "skip receipt for Stripe fee")', category: 'bookkeeping',
+    triggerPatterns: ['^send\\s+receipt\\s+for\\s+', '^skip\\s+receipt\\s+for\\s+'],
+    parameters: { target: { type: 'string', required: true, extractHint: 'expense description or vendor' } },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
