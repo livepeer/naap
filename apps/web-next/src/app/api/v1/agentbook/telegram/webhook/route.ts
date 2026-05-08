@@ -62,6 +62,7 @@ import {
   recordResponse,
   getCachedResponse,
 } from '@/lib/agentbook-idempotency';
+import { withRetry } from '@/lib/agentbook-webhook-retry';
 
 // PR 18: the photo handler awaits BATCH_IDLE_MS (5s) inline so it can
 // group multi-photo forwards. Plus OCR + blob persistence for ~8 images
@@ -5918,15 +5919,95 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const captureBuf: CaptureEntry[] | null = E2E_CAPTURE ? [] : null;
     if (captureBuf) currentCapture = captureBuf;
+
+    // === PR 23: Retry + Dead-letter ========================================
+    // Wrap handleUpdate in `withRetry`. Transient failures (LLM timeout,
+    // brief Postgres connection blip) get up to 3 attempts at 100ms /
+    // 500ms / 2000ms. Permanent failures (4xx from the LLM, malformed
+    // input) short-circuit immediately.
+    //
+    // On terminal failure we write the full Update + last error to the
+    // dead-letter table for manual replay, then still return 200 so
+    // Telegram stops re-delivering against us — its retry queue isn't
+    // smart enough to recognise that the message is poisoned.
+    let attemptsTried = 0;
+    let deadLetterWritten = false;
+    // PR 23 test hook: when E2E_CAPTURE is on and the inbound message
+    // text starts with one of the magic prefixes, inject a controlled
+    // failure so the e2e suite can exercise the retry/dead-letter
+    // paths without standing up a flaky LLM. Production has E2E_CAPTURE
+    // off, so this branch is unreachable from real Telegram traffic.
+    //
+    //   __FAIL_ONCE__   → first attempt throws transient, retry succeeds
+    //   __FAIL_ALWAYS__ → every attempt throws transient → dead-letter
+    //   __FAIL_PERM__   → throws permanent → dead-letter on first try
+    let fakeFailMode: 'once' | 'always' | 'perm' | null = null;
+    if (E2E_CAPTURE) {
+      const text = (update as { message?: { text?: string } })?.message?.text;
+      if (typeof text === 'string') {
+        if (text.startsWith('__FAIL_ONCE__')) fakeFailMode = 'once';
+        else if (text.startsWith('__FAIL_ALWAYS__')) fakeFailMode = 'always';
+        else if (text.startsWith('__FAIL_PERM__')) fakeFailMode = 'perm';
+      }
+    }
     try {
-      await b.handleUpdate(update);
+      await withRetry(
+        async () => {
+          attemptsTried++;
+          if (fakeFailMode === 'perm') {
+            throw new Error('400 fake permanent failure (e2e)');
+          }
+          if (fakeFailMode === 'always') {
+            throw new Error('connect ETIMEDOUT (e2e fake transient)');
+          }
+          if (fakeFailMode === 'once' && attemptsTried === 1) {
+            throw new Error('connect ECONNREFUSED (e2e fake first-attempt)');
+          }
+          await b.handleUpdate(update);
+        },
+        { maxAttempts: 3, backoffMs: [50, 100, 200] },
+      );
+    } catch (handlerErr) {
+      const errMsg =
+        handlerErr instanceof Error
+          ? handlerErr.message
+          : String(handlerErr);
+      console.error(
+        '[telegram] handleUpdate exhausted retries:',
+        errMsg,
+        '(attempts:',
+        attemptsTried,
+        ')',
+      );
+      try {
+        await db.abWebhookDeadLetter.create({
+          data: {
+            tenantId: idemTenantId, // may be null if tenant resolution failed
+            payload: update as never,
+            error: errMsg.slice(0, 2000), // cap pathologically long stacks
+            attempts: attemptsTried,
+          },
+        });
+        deadLetterWritten = true;
+      } catch (dlErr) {
+        // If we can't even write the dead-letter row, log loudly — but
+        // still 200 to Telegram. Losing one update is better than
+        // letting Telegram hammer us in a loop.
+        console.error('[telegram] dead-letter write failed:', dlErr);
+      }
     } finally {
       if (captureBuf) currentCapture = null;
     }
+    // === end PR 23 =========================================================
 
     const responseBody: Record<string, unknown> = captureBuf
       ? { ok: true, captured: captureBuf, botReply: captureBuf[0]?.text }
       : { ok: true };
+    if (deadLetterWritten) {
+      // Surface the dead-letter status in the JSON body for ops/tests.
+      // Telegram itself only reads the 200 status code.
+      responseBody.deadLettered = true;
+    }
 
     // Cache the body so Telegram retries (or e2e replays) get the same
     // payload. Best-effort — failure here does not affect the live reply.

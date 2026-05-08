@@ -2590,3 +2590,31 @@ model AbIdempotencyKey {
   @@index([tenantId, createdAt])
   @@schema("plugin_agentbook_core")
 }
+
+/// Dead-letter table for Telegram-webhook deliveries that failed every
+/// retry (PR 23).
+///
+/// When `withRetry` exhausts its budget — or hits a permanent error
+/// before retrying at all — the route handler writes a row here with
+/// the full Update payload and the last error. We always still 200 to
+/// Telegram so it doesn't keep retrying its own queue against us;
+/// instead, an admin can replay these rows by hand or via the daily
+/// `/agentbook/cron/dead-letter-replay` cron.
+///
+/// `tenantId` is nullable because tenant resolution itself can fail
+/// before we ever know who the message belongs to (e.g. a chat with
+/// no mapping yet). The replay path will re-resolve tenancy on the
+/// fly. `resolvedAt = null` means the row is still open.
+model AbWebhookDeadLetter {
+  id          String    @id @default(uuid())
+  tenantId    String?                                  // may be unresolved
+  payload     Json                                     // full Telegram Update
+  error       String                                   // last error message
+  attempts    Int       @default(0)
+  attemptedAt DateTime  @default(now())
+  resolvedAt  DateTime?                                // null = open
+  createdAt   DateTime  @default(now())
+
+  @@index([resolvedAt, createdAt])
+  @@schema("plugin_agentbook_core")
+}

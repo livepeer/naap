@@ -118,6 +118,7 @@
     { "path": "/api/v1/agentbook/cron/plaid-sync", "schedule": "0 6 * * *" },
     { "path": "/api/v1/agentbook/cron/deduction-discovery", "schedule": "0 12 * * 1" },
     { "path": "/api/v1/agentbook/cron/fx-rates", "schedule": "0 6 * * *" },
-    { "path": "/api/v1/agentbook/cron/home-office-quarterly", "schedule": "0 13 * * *" }
+    { "path": "/api/v1/agentbook/cron/home-office-quarterly", "schedule": "0 13 * * *" },
+    { "path": "/api/v1/agentbook/cron/dead-letter-replay", "schedule": "30 4 * * *" }
   ]
 }

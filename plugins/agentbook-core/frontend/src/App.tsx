@@ -12,6 +12,7 @@ import { AgentsPage } from './pages/Agents';
 import { TelegramSettingsPage } from './pages/TelegramSettings';
 import { ActivityPage } from './pages/Activity';
 import { HomeOfficePage } from './pages/HomeOffice';
+import { DeadLetterPage } from './pages/admin/DeadLetter';
 import './globals.css';
 
 const AgentBookCoreApp: React.FC = () => (
@@ -24,6 +25,7 @@ const AgentBookCoreApp: React.FC = () => (
       <Route path="/onboarding" element={<OnboardingPage />} />
       <Route path="/cpa" element={<CPAPortalPage />} />
       <Route path="/admin" element={<AdminConfigPage />} />
+      <Route path="/admin/dead-letter" element={<DeadLetterPage />} />
       <Route path="/agents" element={<AgentsPage />} />
       <Route path="/telegram" element={<TelegramSettingsPage />} />
       <Route path="/activity" element={<ActivityPage />} />
