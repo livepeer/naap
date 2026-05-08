@@ -56,6 +56,11 @@ import {
 import { getOrTranscribeVoice } from '@/lib/agentbook-voice-cache';
 import { renderCatchUpLines } from '@/lib/agentbook-catch-up';
 import { audit } from '@/lib/agentbook-audit';
+import {
+  claimKey,
+  recordResponse,
+  getCachedResponse,
+} from '@/lib/agentbook-idempotency';
 
 // PR 18: the photo handler awaits BATCH_IDLE_MS (5s) inline so it can
 // group multi-photo forwards. Plus OCR + blob persistence for ~8 images
@@ -5794,6 +5799,64 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await b.init();
     }
     const update = await request.json();
+
+    // === PR 21: Idempotency =================================================
+    // Telegram retries failed deliveries; without dedup, the same
+    // `update_id` could double-book an expense or re-send an invoice.
+    // We claim a key (scoped per-update or per-callback) BEFORE running
+    // any handler logic. Replay -> short-circuit with the cached body
+    // (or a generic idempotent marker if nothing was cached yet).
+    let idemKey: string | null = null;
+    let idemTenantId: string | null = null;
+    try {
+      const updateAny = update as {
+        update_id?: number;
+        message?: { chat?: { id?: number } };
+        edited_message?: { chat?: { id?: number } };
+        callback_query?: { id?: string; message?: { chat?: { id?: number } } };
+      };
+      const chatId =
+        updateAny.callback_query?.message?.chat?.id ??
+        updateAny.message?.chat?.id ??
+        updateAny.edited_message?.chat?.id;
+      if (chatId) {
+        idemTenantId = await resolveTenantId(chatId, process.env.TELEGRAM_BOT_TOKEN);
+      }
+      if (updateAny.callback_query?.id) {
+        idemKey = `tg_callback:${updateAny.callback_query.id}`;
+      } else if (typeof updateAny.update_id === 'number') {
+        idemKey = `tg_update:${updateAny.update_id}`;
+      }
+    } catch (err) {
+      // If extraction fails (malformed update), proceed without dedup
+      // — better to handle the message than to drop it on a parse glitch.
+      console.warn('[telegram] idempotency key derivation failed:', err);
+    }
+
+    if (idemKey && idemTenantId) {
+      const claimed = await claimKey(idemKey, idemTenantId).catch((err) => {
+        // Swallow real DB errors: don't block the user message on a
+        // dedup-table outage. The downside is a possible duplicate;
+        // the upside is the bot stays responsive.
+        console.warn('[telegram] claimKey failed:', err);
+        return true;
+      });
+      if (!claimed) {
+        // Replay — return the cached body if we have it, else a
+        // generic idempotent marker. Telegram only reads the 200,
+        // but tests (and ops humans) can inspect the JSON.
+        const cached = await getCachedResponse(idemKey).catch(() => null);
+        if (cached && typeof cached === 'object') {
+          return NextResponse.json({
+            ...(cached as Record<string, unknown>),
+            idempotent: true,
+          });
+        }
+        return NextResponse.json({ ok: true, idempotent: true });
+      }
+    }
+    // === end PR 21 =========================================================
+
     const captureBuf: CaptureEntry[] | null = E2E_CAPTURE ? [] : null;
     if (captureBuf) currentCapture = captureBuf;
     try {
@@ -5801,14 +5864,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     } finally {
       if (captureBuf) currentCapture = null;
     }
-    if (captureBuf) {
-      return NextResponse.json({
-        ok: true,
-        captured: captureBuf,
-        botReply: captureBuf[0]?.text,
-      });
+
+    const responseBody: Record<string, unknown> = captureBuf
+      ? { ok: true, captured: captureBuf, botReply: captureBuf[0]?.text }
+      : { ok: true };
+
+    // Cache the body so Telegram retries (or e2e replays) get the same
+    // payload. Best-effort — failure here does not affect the live reply.
+    if (idemKey) {
+      await recordResponse(idemKey, responseBody);
     }
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(responseBody);
   } catch (err) {
     console.error('Telegram webhook error:', err);
     return NextResponse.json({ ok: true }); // Always return 200 to Telegram

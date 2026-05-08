@@ -2566,3 +2566,27 @@ model AbVoiceTranscript {
   @@index([tenantId, createdAt])
   @@schema("plugin_agentbook_core")
 }
+
+/// Idempotency keys for the Telegram webhook (PR 21).
+///
+/// Telegram retries failed webhook deliveries (timeouts, 5xx). Without
+/// dedup, a retry could re-execute the same expense booking, re-create
+/// an invoice, or re-send a "got it!" reply. We claim a key BEFORE any
+/// side-effect work runs:
+///   - 'tg_update:<update_id>'        for incoming messages
+///   - 'tg_callback:<callback_query_id>' for inline-button taps
+///
+/// First request wins via the unique `key` PK + Prisma P2002 race
+/// guard. The cached `response` lets a replay return the same body the
+/// original sent (so Telegram sees a consistent reply if the original
+/// 200 got lost). Daily prune drops rows older than 24h — that's well
+/// past Telegram's retry window.
+model AbIdempotencyKey {
+  key       String   @id                              // 'tg_update:<update_id>' or 'tg_callback:<callback_query_id>'
+  tenantId  String
+  response  Json?                                     // optional cached response payload
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@schema("plugin_agentbook_core")
+}
