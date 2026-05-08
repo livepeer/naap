@@ -770,10 +770,15 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
   }
 
   // Tax package (PR 5): "give me my 2025 tax package", "year-end report
-  // for 2024", "annual bundle". The year is optional — when absent the
+  // for 2024", "annual tax bundle". The year is optional — when absent the
   // executor falls back to the previous calendar year (the typical use
   // case: filing this year for last year's books).
-  const taxPkgMatch = text.match(/\b(?:tax|year[\- ]end|annual)\s+(?:package|bundle|report)\s*(?:for)?\s*(\d{4})?/i);
+  // 'annual' alone (without 'tax') was producing a false positive on
+  // Quickbooks-style "annual report" requests; require an explicit
+  // tax/year-end qualifier OR 'annual tax'.
+  const taxPkgMatch = text.match(
+    /\b(?:tax|year[\- ]end|annual\s+tax)\s+(?:package|bundle|report|filing)\s*(?:for)?\s*(\d{4})?/i,
+  );
   if (taxPkgMatch) {
     const yearRaw = taxPkgMatch[1];
     const slots: IntentSlots = {};

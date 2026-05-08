@@ -385,6 +385,13 @@ export async function generatePackage(input: PackageInput): Promise<GenerateResu
   // Upsert the row with status='pending' so a concurrent caller never
   // creates a duplicate (the unique constraint enforces it). Subsequent
   // updates set status='ready' once the artifacts land in blob.
+  // Capture the prior URLs first so we can delete the orphan blobs
+  // after a successful overwrite. Deletion happens AFTER the new row
+  // commits — if the regen fails, the prior package stays usable.
+  const prior = await db.abTaxPackage.findUnique({
+    where: { tenantId_year_jurisdiction: { tenantId, year, jurisdiction } },
+    select: { pdfUrl: true, receiptsZipUrl: true, csvUrls: true },
+  });
   const pkg = await db.abTaxPackage.upsert({
     where: { tenantId_year_jurisdiction: { tenantId, year, jurisdiction } },
     update: { status: 'pending', errorMsg: null },
@@ -460,11 +467,6 @@ export async function generatePackage(input: PackageInput): Promise<GenerateResu
 
     const csvUrls = { pnl: pnlUp.url, mileage: mileageUp.url, deductions: dedUp.url };
 
-    // Note: when `buildReceiptsZip` returns null after a prior run had
-    // a ZIP, we set `receiptsZipUrl` back to null here. The previously
-    // uploaded ZIP becomes orphan blob storage — we accept that
-    // trade-off rather than tracking the prior URL through the upsert
-    // and calling `del()`. Storage cleanup is a future cleanup PR.
     await db.abTaxPackage.update({
       where: { id: pkg.id },
       data: {
@@ -476,6 +478,28 @@ export async function generatePackage(input: PackageInput): Promise<GenerateResu
         errorMsg: null,
       },
     });
+
+    // After the new artifacts commit, garbage-collect the orphans from
+    // any prior run for this same (tenant, year, jurisdiction). Best-
+    // effort: a delete failure is logged but not surfaced — a stale
+    // orphan in storage is preferable to tearing down the regen flow.
+    if (prior) {
+      const priorCsvs = (prior.csvUrls && typeof prior.csvUrls === 'object'
+        ? Object.values(prior.csvUrls as Record<string, string>)
+        : []) as string[];
+      const orphans = [prior.pdfUrl, prior.receiptsZipUrl, ...priorCsvs].filter(
+        (u): u is string =>
+          typeof u === 'string'
+          && !!u
+          && u !== pdfUp.url
+          && u !== receiptsZipUrl
+          && !Object.values(csvUrls).includes(u),
+      );
+      if (orphans.length > 0) {
+        const { deleteBlobs } = await import('./agentbook-blob');
+        await deleteBlobs(orphans);
+      }
+    }
 
     return {
       packageId: pkg.id,

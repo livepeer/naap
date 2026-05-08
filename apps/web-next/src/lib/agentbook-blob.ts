@@ -11,7 +11,7 @@
  */
 
 import 'server-only';
-import { put } from '@vercel/blob';
+import { put, del } from '@vercel/blob';
 
 export interface UploadResult {
   url: string;
@@ -68,4 +68,24 @@ export async function uploadBlob(
     url: result.url,
     size: buffer.length,
   };
+}
+
+/**
+ * Best-effort delete of one-or-more blob URLs. No-ops on `data:` URLs
+ * (the dev fallback) and on entries that no longer exist (404 from Vercel).
+ * Used to clean up orphans when an upsert overwrites a prior artifact.
+ *
+ * Never throws — a stale orphan in storage is preferable to a delete
+ * failure tearing down the calling flow (e.g. tax package regeneration).
+ */
+export async function deleteBlobs(urls: Array<string | null | undefined>): Promise<void> {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return; // dev fallback: nothing real to delete
+  const real = urls.filter((u): u is string => typeof u === 'string' && !!u && !u.startsWith('data:'));
+  if (real.length === 0) return;
+  try {
+    await del(real, { token });
+  } catch (err) {
+    console.warn('[agentbook-blob] del failed (non-fatal):', err);
+  }
 }

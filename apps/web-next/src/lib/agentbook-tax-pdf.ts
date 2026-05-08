@@ -69,13 +69,18 @@ const styles = StyleSheet.create({
   cellLabel: {
     flexGrow: 1,
     flexShrink: 1,
+    paddingRight: 8,
   },
   cellAmount: {
     width: 90,
+    minWidth: 90,
+    flexShrink: 0,
     textAlign: 'right',
   },
   cellSmall: {
     width: 70,
+    minWidth: 70,
+    flexShrink: 0,
     textAlign: 'right',
   },
   total: {
