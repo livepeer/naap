@@ -54,6 +54,7 @@ import {
   type BatchState,
 } from '@/lib/agentbook-batch-receipts';
 import { getOrTranscribeVoice } from '@/lib/agentbook-voice-cache';
+import { renderCatchUpLines } from '@/lib/agentbook-catch-up';
 import { audit } from '@/lib/agentbook-audit';
 
 // PR 18: the photo handler awaits BATCH_IDLE_MS (5s) inline so it can
@@ -2437,6 +2438,113 @@ function getBot(): Bot {
     }
 
     const lower = text.toLowerCase().trim();
+
+    // ── Catch-me-up (PR 20) ─────────────────────────────────────────────
+    // "catch me up" / "what changed since I last checked" — Maya's been
+    // away for a few hours/days; reply with ≤8 bullets covering cash,
+    // paid invoices, auto-categorised expenses, anything needing review,
+    // bank syncs, etc. Optional `since <hint>` overrides the window
+    // (otherwise we use AbUserMemory[telegram:last_interaction_at:<chat>],
+    // defaulting to 24h ago).
+    {
+      const isCatchUp = (
+        lower === 'catch me up'
+        || lower === '/catchup'
+        || lower === '/catchup@agentbookdev_bot'
+        || lower === 'catchup'
+        || /^catch\s+me\s+up\b/.test(lower)
+        || /^what(?:'s|\s+has)?\s+changed\s+(?:since\s+i\s+last\s+checked|since\s+(?:last|i\s+was\s+here))\b/.test(lower)
+        || /^what'?s\s+new\s+(?:since|today)\b/.test(lower)
+      );
+      if (isCatchUp) {
+        const baseUrl = getSelfBaseUrl();
+        // Optional override: "catch me up since <hint>".
+        const sinceHintMatch = lower.match(/(?:catch\s+me\s+up|what(?:'s|\s+has)?\s+changed)\s+since\s+(.+?)$/);
+        const sinceHint = sinceHintMatch ? sinceHintMatch[1].trim() : undefined;
+
+        const lastInteractionKey = `telegram:last_interaction_at:${ctx.chat.id}`;
+        let sinceAt: Date | null = null;
+
+        if (sinceHint) {
+          // Reuse parseDateHint — its hints ("today", "this week", "last
+          // week", "this month", "last month") cover the common cases.
+          // We take the *startDate* of the resolved range as the lower
+          // bound.
+          try {
+            const range = parseDateHint(sinceHint);
+            sinceAt = range.startDate;
+          } catch {
+            sinceAt = null;
+          }
+        }
+
+        if (!sinceAt) {
+          // Read the stored last-interaction stamp; fall back to 24h ago.
+          try {
+            const mem = await db.abUserMemory.findUnique({
+              where: { tenantId_key: { tenantId, key: lastInteractionKey } },
+            });
+            if (mem?.value) {
+              const t = Number(mem.value);
+              if (Number.isFinite(t) && t > 0) sinceAt = new Date(t);
+            }
+          } catch {
+            /* fall through to default */
+          }
+        }
+        if (!sinceAt) {
+          sinceAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        }
+
+        try {
+          const res = await fetch(
+            `${baseUrl}/api/v1/agentbook-core/catch-up?since=${encodeURIComponent(sinceAt.toISOString())}`,
+            { headers: { 'x-tenant-id': tenantId } },
+          );
+          const json = (await res.json().catch(() => ({}))) as {
+            success?: boolean;
+            data?: import('@/lib/agentbook-catch-up').CatchUpSummary;
+            error?: string;
+          };
+          if (!res.ok || !json.success || !json.data) {
+            await ctx.reply(`Sorry, I couldn't pull your catch-up just now.${json.error ? `\n${json.error}` : ''}`);
+            return;
+          }
+          const lines = renderCatchUpLines(json.data);
+          const sinceStr = sinceHint
+            ? `since ${sinceHint}`
+            : `since ${sinceAt.toLocaleString()}`;
+          await ctx.reply(
+            `📰 <b>Catch-up</b> — ${sinceStr}\n\n${lines.map((l) => `• ${l}`).join('\n')}`,
+            { parse_mode: 'HTML' },
+          );
+        } catch (err) {
+          console.error('[telegram catch-me-up] failed:', err);
+          await ctx.reply("Sorry, I couldn't pull your catch-up just now.");
+        }
+
+        // Update last-interaction stamp AFTER replying so the next
+        // "catch me up" only summarises future activity. Best-effort —
+        // a write failure shouldn't block the reply (already sent).
+        try {
+          const nowIso = String(Date.now());
+          await db.abUserMemory.upsert({
+            where: { tenantId_key: { tenantId, key: lastInteractionKey } },
+            update: { value: nowIso, lastUsed: new Date() },
+            create: {
+              tenantId,
+              key: lastInteractionKey,
+              value: nowIso,
+              type: 'session_marker',
+              confidence: 1,
+            },
+          });
+        } catch (err) {
+          console.warn('[telegram catch-me-up] last-interaction upsert failed:', err);
+        }
+        return;
+      }
+    }
 
     // ── Saved searches (PR 17) ──────────────────────────────────────────
     // List the tenant's pinned searches so the user can re-run a recurring

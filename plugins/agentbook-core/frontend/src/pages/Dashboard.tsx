@@ -8,6 +8,7 @@ import { ThisMonthStrip } from './dashboard/ThisMonthStrip';
 import { ActivityFeed } from './dashboard/ActivityFeed';
 import { QuickActionsBar } from './dashboard/QuickActionsBar';
 import { OnboardingHero } from './dashboard/OnboardingHero';
+import { CatchUpBanner } from './dashboard/CatchUpBanner';
 import type { AgentSummary } from './dashboard/types';
 
 const Skeleton: React.FC<{ className?: string }> = ({ className }) => (
@@ -147,6 +148,7 @@ export const DashboardPage: React.FC = () => {
   return (
     <div className="px-4 py-6 max-w-7xl mx-auto pb-32 lg:pb-6">
       {pulling && <div className="text-center text-sm text-muted-foreground mb-2">Refreshing…</div>}
+      <CatchUpBanner />
       <header className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-foreground">{greeting}</h1>
