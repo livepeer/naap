@@ -34,6 +34,7 @@ import { resolveClientByHint } from './agentbook-client-resolver';
 import { getMileageRate } from './agentbook-mileage-rates';
 import { resolveVehicleAccounts } from './agentbook-account-resolver';
 import { lookupPerDiem, CONUS_DEFAULT_MIE_CENTS } from './agentbook-perdiem-rates';
+import { computeQuarterlyDeductible, computeRatio } from './agentbook-home-office';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ export type IntentName =
   | 'set_budget'        // "max $200 on meals each month" → AbBudget upsert (PR 8)
   | 'invite_cpa'        // "invite my CPA jane@cpa.test" → AbTenantAccess + magic link (PR 11)
   | 'record_per_diem'   // "per-diem 3 days NYC May 5–7" → 3 AbExpense rows at GSA M&IE rate (PR 14)
+  | 'log_home_office'   // "Q2 home office: utilities $400, internet $90, rent $3000" → 1+ AbExpense rows for the deductible portion (PR 15)
   | 'clarify'           // bot is unsure — ask the user a question first
   | 'unrelated';        // none of the above — let agent brain reply
 
@@ -108,6 +110,14 @@ export interface IntentSlots {
   startDate?: string;                 // ISO YYYY-MM-DD when parseable
   endDate?: string;                   // ISO YYYY-MM-DD when parseable
   perDiemOption?: 'mie_only' | 'lodging_and_mie';
+  // Home-office slots (PR 15):
+  hoQuarter?: number;                  // 1-4 inferred from "Q2", "second quarter", or current month
+  hoYear?: number;                     // calendar year — defaults to "the year the quarter belongs to"
+  utilitiesCents?: number;             // $400 → 40_000
+  internetCents?: number;              // $90 → 9_000
+  rentInterestCents?: number;          // $3000 → 300_000 (rent OR mortgage interest)
+  insuranceCents?: number;             // $90 → 9_000 (renters / homeowners)
+  otherHomeOfficeCents?: number;       // catch-all for "+ $X repairs" etc
 }
 
 export interface BotIntent {
@@ -545,6 +555,63 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
       slots: { clientNameHint, dateHint },
       confidence: 0.9,
       reason: 'invoice…from timer trigger phrase',
+      source: 'regex',
+    };
+  }
+
+  // Home-office quarterly (PR 15): "Q2 home office: utilities $400,
+  // internet $90, rent $3000", "home office Q1 2026 utilities 400 …",
+  // "home-office quarter: utils 400, internet 90, mortgage 3000".
+  // Must run BEFORE the per-diem and record_expense paths because the
+  // free-form "$400" amounts in the message would otherwise route to
+  // record_expense.
+  if (/\bhome[- ]office\b/i.test(text)) {
+    const slots: IntentSlots = {};
+
+    // Quarter — "Q1".."Q4" or "first/second/third/fourth quarter".
+    const qMatch =
+      text.match(/\bQ([1-4])\b/i)
+      || text.match(/\b(first|second|third|fourth)\s+quarter\b/i);
+    if (qMatch) {
+      const raw = qMatch[1].toLowerCase();
+      const ord: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, '1': 1, '2': 2, '3': 3, '4': 4 };
+      slots.hoQuarter = ord[raw];
+    }
+    // Year — explicit "2026" / "2025"; otherwise leave undefined and
+    // let the executor infer.
+    const yMatch = text.match(/\b(20\d{2})\b/);
+    if (yMatch) slots.hoYear = parseInt(yMatch[1], 10);
+
+    // Component amounts. Each pulls the first $-amount that follows
+    // the keyword. Amounts are converted to cents (Math.round to
+    // protect against floating-point drift on $X.YY values).
+    const dollar = (s: string): number | null => {
+      const m = s.match(/\$?\s*(\d+(?:[.,]\d{1,2})?)/);
+      if (!m) return null;
+      const n = parseFloat(m[1].replace(/,/g, ''));
+      if (!isFinite(n) || n < 0) return null;
+      return Math.round(n * 100);
+    };
+
+    const grab = (re: RegExp): number | undefined => {
+      const m = text.match(re);
+      if (!m) return undefined;
+      const cents = dollar(m[1] || '');
+      return cents == null ? undefined : cents;
+    };
+
+    slots.utilitiesCents = grab(/utilit(?:y|ies)\s*[:\-=]?\s*(\$?\s*\d+(?:[.,]\d{1,2})?)/i);
+    slots.internetCents  = grab(/(?:internet|wi[- ]?fi|broadband)\s*[:\-=]?\s*(\$?\s*\d+(?:[.,]\d{1,2})?)/i);
+    slots.rentInterestCents = grab(/(?:rent|mortgage(?:\s+interest)?|mort)\s*[:\-=]?\s*(\$?\s*\d+(?:[.,]\d{1,2})?)/i);
+    slots.insuranceCents  = grab(/(?:insurance|ins)\s*[:\-=]?\s*(\$?\s*\d+(?:[.,]\d{1,2})?)/i);
+    // "other $X" / "repairs $X" / "misc $X" — light catch-all.
+    slots.otherHomeOfficeCents = grab(/(?:other|repairs?|maintenance|misc(?:\.|ellaneous)?)\s*[:\-=]?\s*(\$?\s*\d+(?:[.,]\d{1,2})?)/i);
+
+    return {
+      intent: 'log_home_office',
+      slots,
+      confidence: 0.9,
+      reason: 'home-office trigger phrase',
       source: 'regex',
     };
   }
@@ -1193,6 +1260,21 @@ export function planSteps(intent: BotIntent, _ctx: BotContext): PlanStep[] {
           startDate: intent.slots.startDate,
           endDate: intent.slots.endDate,
           option: intent.slots.perDiemOption || 'mie_only',
+        },
+        dependsOn: [],
+      }];
+    case 'log_home_office':
+      return [{
+        id,
+        skill: 'home_office.log',
+        args: {
+          year: intent.slots.hoYear,
+          quarter: intent.slots.hoQuarter,
+          utilitiesCents: intent.slots.utilitiesCents,
+          internetCents: intent.slots.internetCents,
+          rentInterestCents: intent.slots.rentInterestCents,
+          insuranceCents: intent.slots.insuranceCents,
+          otherCents: intent.slots.otherHomeOfficeCents,
         },
         dependsOn: [],
       }];
@@ -3074,6 +3156,183 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         };
       }
 
+      // ─── Home-office quarterly (PR 15) ─────────────────────────
+      // User: "Q2 home office: utilities $400, internet $90, rent
+      // $3000". Computes the deductible portion via square-footage
+      // ratio (or US simplified $5/sqft × 300 cap ÷ 4) and creates
+      // AbExpense rows tagged taxCategory='home_office' so the
+      // tax-package aggregator can pick them up.
+      case 'home_office.log': {
+        const yearArg = step.args.year as number | undefined;
+        const quarterArg = step.args.quarter as number | undefined;
+        const utilitiesCents = (step.args.utilitiesCents as number | undefined) || 0;
+        const internetCents = (step.args.internetCents as number | undefined) || 0;
+        const rentInterestCents = (step.args.rentInterestCents as number | undefined) || 0;
+        const insuranceCents = (step.args.insuranceCents as number | undefined) || 0;
+        const otherCents = (step.args.otherCents as number | undefined) || 0;
+
+        // Resolve quarter — default to the *current* calendar quarter
+        // when unspecified (matches the UX of the cron prompt).
+        const now = new Date();
+        const month = now.getUTCMonth();
+        const currentQuarter = (Math.floor(month / 3) + 1) as 1 | 2 | 3 | 4;
+        const quarter = (quarterArg && quarterArg >= 1 && quarterArg <= 4) ? quarterArg : currentQuarter;
+        const year = (yearArg && yearArg > 1900) ? yearArg : now.getUTCFullYear();
+
+        const cfg = await db.abHomeOfficeConfig.findUnique({
+          where: { tenantId: ctx.tenantId },
+        });
+        if (!cfg) {
+          return {
+            stepId: step.id,
+            success: false,
+            error: 'Set up your home-office config first (total + office sqft, or enable US simplified).',
+          };
+        }
+
+        const ratio = cfg.ratio ?? computeRatio(cfg.totalSqft, cfg.officeSqft);
+        const useSimplified = !!cfg.useUsSimplified;
+        if (!useSimplified && (!ratio || ratio <= 0)) {
+          return {
+            stepId: step.id,
+            success: false,
+            error: "I don't have a square-footage ratio yet — set total + office sqft on your home-office page first.",
+          };
+        }
+
+        const result = computeQuarterlyDeductible({
+          mode: useSimplified ? 'us_simplified' : 'actual',
+          ratio,
+          officeSqft: cfg.officeSqft || undefined,
+          utilitiesCents,
+          internetCents,
+          rentInterestCents,
+          insuranceCents,
+          otherCents,
+        });
+
+        const QUARTER_TO_MONTH: Record<number, number> = { 1: 0, 2: 3, 3: 6, 4: 9 };
+        const anchor = new Date(Date.UTC(year, QUARTER_TO_MONTH[quarter], 1));
+        const quarterLabel = `Q${quarter} ${year}`;
+
+        if (result.deductibleCents <= 0) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'home_office_recorded',
+              year,
+              quarter,
+              mode: result.mode,
+              ratio: useSimplified ? null : ratio,
+              totalQuarterCents: result.totalQuarterCents,
+              deductibleCents: 0,
+              entries: [],
+              skipped: true,
+            },
+          };
+        }
+
+        // Same per-component split logic as the HTTP route. Simplified
+        // mode books one flat row; actual mode splits across the
+        // non-zero components.
+        const componentRows: Array<{ label: string; cents: number }> = [];
+        if (useSimplified) {
+          componentRows.push({
+            label: `Home office — ${quarterLabel} (US simplified, ${cfg.officeSqft || 0} sqft)`,
+            cents: result.deductibleCents,
+          });
+        } else {
+          const components: Array<{ label: string; gross: number }> = [
+            { label: 'utilities', gross: utilitiesCents },
+            { label: 'internet', gross: internetCents },
+            { label: 'rent/mortgage interest', gross: rentInterestCents },
+            { label: 'insurance', gross: insuranceCents },
+            { label: 'other', gross: otherCents },
+          ].filter((c) => c.gross > 0);
+          const totalGross = components.reduce((s, c) => s + c.gross, 0);
+          let allocated = 0;
+          components.forEach((c, i) => {
+            let portion: number;
+            if (i === components.length - 1) {
+              portion = result.deductibleCents - allocated;
+            } else {
+              portion = Math.round((c.gross / totalGross) * result.deductibleCents);
+              allocated += portion;
+            }
+            componentRows.push({
+              label: `Home office — ${c.label} ${quarterLabel}`,
+              cents: portion,
+            });
+          });
+        }
+
+        // Best-effort category lookup — same heuristic as the route.
+        const homeOfficeCat = ctx.categories.find((c) => /home\s*office/i.test(c.name))
+          || ctx.categories.find((c) => /utilit/i.test(c.name))
+          || null;
+
+        const created = await db.$transaction(async (tx) => {
+          const rows: Array<{ id: string; amountCents: number; description: string }> = [];
+          for (const row of componentRows) {
+            if (row.cents <= 0) continue;
+            const r = await tx.abExpense.create({
+              data: {
+                tenantId: ctx.tenantId,
+                amountCents: row.cents,
+                date: anchor,
+                description: row.label,
+                categoryId: homeOfficeCat?.id || null,
+                taxCategory: 'home_office',
+                isPersonal: false,
+                isDeductible: true,
+                status: 'confirmed',
+                source: 'home_office',
+                currency: 'USD',
+              },
+            });
+            rows.push({
+              id: r.id,
+              amountCents: r.amountCents,
+              description: r.description || row.label,
+            });
+          }
+          await tx.abEvent.create({
+            data: {
+              tenantId: ctx.tenantId,
+              eventType: 'home_office.quarter_posted',
+              actor: 'agent',
+              action: {
+                year,
+                quarter,
+                mode: result.mode,
+                ratio: useSimplified ? null : ratio,
+                totalQuarterCents: result.totalQuarterCents,
+                deductibleCents: result.deductibleCents,
+                rowCount: rows.length,
+                source: 'telegram',
+              },
+            },
+          });
+          return rows;
+        });
+
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'home_office_recorded',
+            year,
+            quarter,
+            mode: result.mode,
+            ratio: useSimplified ? null : ratio,
+            totalQuarterCents: result.totalQuarterCents,
+            deductibleCents: result.deductibleCents,
+            entries: created,
+          },
+        };
+      }
+
       case 'meta.help': {
         return { stepId: step.id, success: true };
       }
@@ -3320,7 +3579,8 @@ export function evaluate(
     intent.intent === 'create_estimate' ||
     intent.intent === 'convert_estimate' ||
     intent.intent === 'set_budget' ||
-    intent.intent === 'record_per_diem'
+    intent.intent === 'record_per_diem' ||
+    intent.intent === 'log_home_office'
   ) {
     const r = results[0];
     if (!r?.success) {

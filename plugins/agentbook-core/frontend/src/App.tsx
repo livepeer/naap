@@ -11,6 +11,7 @@ import { AdminConfigPage } from './pages/AdminConfig';
 import { AgentsPage } from './pages/Agents';
 import { TelegramSettingsPage } from './pages/TelegramSettings';
 import { ActivityPage } from './pages/Activity';
+import { HomeOfficePage } from './pages/HomeOffice';
 import './globals.css';
 
 const AgentBookCoreApp: React.FC = () => (
@@ -26,6 +27,7 @@ const AgentBookCoreApp: React.FC = () => (
       <Route path="/agents" element={<AgentsPage />} />
       <Route path="/telegram" element={<TelegramSettingsPage />} />
       <Route path="/activity" element={<ActivityPage />} />
+      <Route path="/home-office" element={<HomeOfficePage />} />
       <Route path="/*" element={<DashboardPage />} />
     </Routes>
   </MemoryRouter>

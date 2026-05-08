@@ -2505,3 +2505,22 @@ model AbFxRate {
   @@index([fromCcy, toCcy, date])
   @@schema("plugin_agentbook_core")
 }
+
+/// Home-office deduction config (PR 15). One row per tenant. Stores
+/// the square-footage ratio for the actual-expense method and a flag
+/// for the US simplified method ($5/sqft up to 300 sqft). The bot's
+/// quarterly prompt computes the deductible portion using these
+/// values; we keep them under `plugin_agentbook_core` because every
+/// plugin (expense, tax) reads them.
+model AbHomeOfficeConfig {
+  id              String   @id @default(uuid())
+  tenantId        String   @unique
+  totalSqft       Int?
+  officeSqft      Int?
+  ratio           Float?                        // computed = officeSqft / totalSqft
+  useUsSimplified Boolean  @default(false)      // US: $5/sqft up to 300 sqft
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@schema("plugin_agentbook_core")
+}
