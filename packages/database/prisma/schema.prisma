@@ -1427,6 +1427,7 @@ model AbTenantConfig {
   autoRemindEnabled       Boolean  @default(false)
   autoRemindDays          Int      @default(3)            // min days between reminders
   dailyDigestEnabled      Boolean  @default(true)         // morning digest opt-out
+  dailyBackupEnabled      Boolean  @default(true)         // PR 24 daily backup opt-out
   companyName             String?
   companyAddress          String?
   companyEmail            String?
@@ -1437,6 +1438,22 @@ model AbTenantConfig {
   updatedAt               DateTime @updatedAt
 
   @@index([userId])
+  @@schema("plugin_agentbook_core")
+}
+
+/// PR 24 — Daily backup notification.
+///
+/// Each successful daily-backup cron run writes one row per tenant
+/// recording the Vercel Blob URL of the CSV bundle. Used to surface a
+/// "history" view in the UI later and to detect backup gaps for SLO.
+model AbBackup {
+  id        String   @id @default(uuid())
+  tenantId  String
+  blobUrl   String
+  sizeBytes Int
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
   @@schema("plugin_agentbook_core")
 }
 
