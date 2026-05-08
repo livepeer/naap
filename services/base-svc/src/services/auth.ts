@@ -13,19 +13,68 @@ function sanitizeForLog(value: unknown): string {
   return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f\u2028\u2029]/g, '');
 }
 
-// Simple password hashing using crypto (no external deps needed for dev)
-// In production, use bcrypt
-async function hashPassword(password: string): Promise<string> {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-  return `${salt}:${hash}`;
+function hmacToken(plaintext: string): string {
+  const pepper = process.env.SESSION_TOKEN_PEPPER;
+  if (!pepper) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('SESSION_TOKEN_PEPPER is required in production');
+    }
+    return crypto.createHash('sha256').update(plaintext).digest('hex');
+  }
+  return crypto.createHmac('sha256', pepper).update(plaintext).digest('hex');
 }
 
-async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
-  const [salt, hash] = storedHash.split(':');
-  if (!salt || !hash) return false;
-  const verifyHash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-  return hash === verifyHash;
+const HASH_VERSION_LEGACY = 'pbkdf2-sha512-10k';
+const HASH_VERSION_CURRENT = 'pbkdf2-sha256-600k';
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, salt, 600_000, 64, 'sha256').toString('hex');
+  return `${HASH_VERSION_CURRENT}:${salt}:${hash}`;
+}
+
+async function verifyPassword(password: string, storedHash: string): Promise<{ valid: boolean; needsRehash: boolean }> {
+  const parts = storedHash.split(':');
+
+  let salt: string;
+  let hash: string;
+  let iterations: number;
+  let digest: string;
+  let needsRehash = false;
+
+  if (parts.length === 3 && parts[0] === HASH_VERSION_CURRENT) {
+    salt = parts[1];
+    hash = parts[2];
+    iterations = 600_000;
+    digest = 'sha256';
+  } else if (parts.length === 3 && parts[0] === HASH_VERSION_LEGACY) {
+    salt = parts[1];
+    hash = parts[2];
+    iterations = 10_000;
+    digest = 'sha512';
+    needsRehash = true;
+  } else if (parts.length === 2) {
+    salt = parts[0];
+    hash = parts[1];
+    iterations = 10_000;
+    digest = 'sha512';
+    needsRehash = true;
+  } else {
+    return { valid: false, needsRehash: false };
+  }
+
+  if (!salt || !hash) return { valid: false, needsRehash: false };
+  const verifyHash = crypto.pbkdf2Sync(password, salt, iterations, 64, digest).toString('hex');
+
+  try {
+    const storedBuf = Buffer.from(hash, 'hex');
+    const verifyBuf = Buffer.from(verifyHash, 'hex');
+    if (storedBuf.length !== verifyBuf.length) return { valid: false, needsRehash: false };
+    const valid = crypto.timingSafeEqual(storedBuf, verifyBuf);
+    return { valid, needsRehash: valid && needsRehash };
+  } catch {
+    return { valid: false, needsRehash: false };
+  }
 }
 
 function generateToken(): string {
@@ -185,11 +234,18 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
     const token = generateToken();
     const expiresAt = new Date(Date.now() + SESSION_DURATION_HOURS * 60 * 60 * 1000);
 
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { sessionVersion: true },
+    });
+
     await prisma.session.create({
       data: {
         userId,
         token,
+        tokenHash: hmacToken(token),
         expiresAt,
+        versionAtCreation: user?.sessionVersion ?? 0,
       },
     });
 
@@ -281,13 +337,20 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
       });
 
       if (!user || !user.passwordHash) {
-        // Record failed attempt even for non-existent users to prevent enumeration
         await recordLoginAttempt(email, false, undefined, ipAddress);
         throw new Error('Invalid email or password');
       }
 
+      if (user.suspendedAt) {
+        await recordLoginAttempt(email, false, user.id, ipAddress);
+        const err = new Error('Account suspended') as Error & { code?: string; reason?: string | null };
+        err.code = 'ACCOUNT_SUSPENDED';
+        err.reason = (user as any).suspendedReason;
+        throw err;
+      }
+
       // Verify password
-      const valid = await verifyPassword(password, user.passwordHash);
+      const { valid, needsRehash } = await verifyPassword(password, user.passwordHash);
       if (!valid) {
         await recordLoginAttempt(email, false, user.id, ipAddress);
         
@@ -306,6 +369,14 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
 
       // Record successful login
       await recordLoginAttempt(email, true, user.id, ipAddress);
+
+      if (needsRehash) {
+        const newHash = await hashPassword(password);
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash: newHash },
+        }).catch(() => { /* non-critical — will retry next login */ });
+      }
 
       // Clear any previous lockout on successful login
       if (user.lockedUntil) {
@@ -328,24 +399,39 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
      * Validate a session token
      */
     async validateSession(token: string): Promise<AuthUser | null> {
-      const session = await prisma.session.findUnique({
-        where: { token },
+      const hash = hmacToken(token);
+
+      let session = await prisma.session.findUnique({
+        where: { tokenHash: hash },
         include: { user: true },
       });
 
+      if (!session) {
+        session = await prisma.session.findUnique({
+          where: { token },
+          include: { user: true },
+        });
+      }
+
       if (!session) return null;
 
-      // Check expiration
       if (new Date(session.expiresAt) < new Date()) {
-        // Delete expired session
         await prisma.session.delete({ where: { id: session.id } });
         return null;
       }
 
-      // Update last used
+      if (session.user.sessionVersion !== (session.versionAtCreation ?? 0)) {
+        await prisma.session.delete({ where: { id: session.id } });
+        return null;
+      }
+
+      const updateData: Record<string, unknown> = { lastUsedAt: new Date() };
+      if (!session.tokenHash) {
+        updateData.tokenHash = hash;
+      }
       await prisma.session.update({
         where: { id: session.id },
-        data: { lastUsedAt: new Date() },
+        data: updateData,
       });
 
       return getUserWithRoles(session.userId);
@@ -355,24 +441,39 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
      * Validate a session and return expiration info
      */
     async validateSessionWithExpiry(token: string): Promise<{ user: AuthUser; expiresAt: Date } | null> {
-      const session = await prisma.session.findUnique({
-        where: { token },
+      const hash = hmacToken(token);
+
+      let session = await prisma.session.findUnique({
+        where: { tokenHash: hash },
         include: { user: true },
       });
 
+      if (!session) {
+        session = await prisma.session.findUnique({
+          where: { token },
+          include: { user: true },
+        });
+      }
+
       if (!session) return null;
 
-      // Check expiration
       if (new Date(session.expiresAt) < new Date()) {
-        // Delete expired session
         await prisma.session.delete({ where: { id: session.id } });
         return null;
       }
 
-      // Update last used
+      if (session.user.sessionVersion !== (session.versionAtCreation ?? 0)) {
+        await prisma.session.delete({ where: { id: session.id } });
+        return null;
+      }
+
+      const updateData: Record<string, unknown> = { lastUsedAt: new Date() };
+      if (!session.tokenHash) {
+        updateData.tokenHash = hash;
+      }
       await prisma.session.update({
         where: { id: session.id },
-        data: { lastUsedAt: new Date() },
+        data: updateData,
       });
 
       const user = await getUserWithRoles(session.userId);
@@ -385,27 +486,45 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
      * Refresh a session - extend expiration time
      */
     async refreshSession(token: string): Promise<{ expiresAt: Date } | null> {
-      const session = await prisma.session.findUnique({
-        where: { token },
+      const hash = hmacToken(token);
+
+      let session = await prisma.session.findUnique({
+        where: { tokenHash: hash },
+        include: { user: true },
       });
+
+      if (!session) {
+        session = await prisma.session.findUnique({
+          where: { token },
+          include: { user: true },
+        });
+      }
 
       if (!session) return null;
 
-      // Check if current session is still valid (allow refresh even if close to expiry)
+      if (session.user.sessionVersion !== (session.versionAtCreation ?? 0)) {
+        await prisma.session.delete({ where: { id: session.id } });
+        return null;
+      }
+
       if (new Date(session.expiresAt) < new Date()) {
         await prisma.session.delete({ where: { id: session.id } });
         return null;
       }
 
-      // Extend session by SESSION_DURATION_HOURS
       const newExpiresAt = new Date(Date.now() + SESSION_DURATION_HOURS * 60 * 60 * 1000);
+
+      const updateData: Record<string, unknown> = {
+        expiresAt: newExpiresAt,
+        lastUsedAt: new Date(),
+      };
+      if (!session.tokenHash) {
+        updateData.tokenHash = hash;
+      }
 
       await prisma.session.update({
         where: { id: session.id },
-        data: { 
-          expiresAt: newExpiresAt,
-          lastUsedAt: new Date(),
-        },
+        data: updateData,
       });
 
       return { expiresAt: newExpiresAt };
@@ -415,9 +534,17 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
      * Logout - revoke session
      */
     async logout(token: string): Promise<void> {
-      await prisma.session.deleteMany({
-        where: { token },
+      const hash = hmacToken(token);
+
+      const deleted = await prisma.session.deleteMany({
+        where: { tokenHash: hash },
       });
+
+      if (deleted.count === 0) {
+        await prisma.session.deleteMany({
+          where: { token },
+        });
+      }
     },
 
     /**
@@ -637,15 +764,14 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
         data: {
           userId: user.id,
           token,
+          tokenHash: hmacToken(token),
           expiresAt,
         },
       });
 
-      // In production, send email. For now, log to console (never log token in production)
       const safeEmail = sanitizeForLog(email);
       if (process.env.NODE_ENV !== 'production') {
-        console.log(`[PASSWORD RESET] Token for ${safeEmail}: ${token}`);
-        console.log(`[PASSWORD RESET] Reset URL: /auth/reset-password?token=${token}`);
+        console.log(`[PASSWORD RESET] Reset URL sent for ${safeEmail}`);
       } else {
         console.log(`[PASSWORD RESET] Token generated for ${safeEmail}`);
       }
@@ -665,9 +791,15 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
         throw new Error('Password must be at least 8 characters');
       }
 
-      const resetToken = await prisma.passwordResetToken.findUnique({
-        where: { token },
+      const resetHash = hmacToken(token);
+      let resetToken = await prisma.passwordResetToken.findUnique({
+        where: { tokenHash: resetHash },
       });
+      if (!resetToken) {
+        resetToken = await prisma.passwordResetToken.findUnique({
+          where: { token },
+        });
+      }
 
       if (!resetToken) {
         throw new Error('Invalid or expired reset token');
@@ -682,7 +814,6 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
         throw new Error('Reset token has already been used');
       }
 
-      // Hash new password
       const passwordHash = await hashPassword(newPassword);
 
       // Update user password
@@ -734,13 +865,14 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
           userId,
           email: user.email,
           token,
+          tokenHash: hmacToken(token),
           expiresAt,
         },
       });
 
-      // In production, send email. For now, log to console
-      console.log(`[EMAIL VERIFICATION] Token for ${user.email}: ${token}`);
-      console.log(`[EMAIL VERIFICATION] Verify URL: /auth/verify-email?token=${token}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[EMAIL VERIFICATION] Verify URL sent for ${sanitizeForLog(user.email)}`);
+      }
 
       return { success: true };
     },
@@ -749,9 +881,15 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
      * Verify email with token
      */
     async verifyEmail(token: string): Promise<{ success: boolean; user: AuthUser }> {
-      const verifyToken = await prisma.emailVerificationToken.findUnique({
-        where: { token },
+      const verifyHash = hmacToken(token);
+      let verifyToken = await prisma.emailVerificationToken.findUnique({
+        where: { tokenHash: verifyHash },
       });
+      if (!verifyToken) {
+        verifyToken = await prisma.emailVerificationToken.findUnique({
+          where: { token },
+        });
+      }
 
       if (!verifyToken) {
         throw new Error('Invalid verification token');

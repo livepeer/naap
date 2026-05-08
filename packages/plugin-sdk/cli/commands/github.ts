@@ -296,7 +296,7 @@ on:
         default: false
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '20.19'
   REGISTRY_URL: \${{ secrets.NAAP_REGISTRY_URL || 'https://plugins.naap.io' }}
 
 `;

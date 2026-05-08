@@ -15,7 +15,7 @@ export async function PATCH(
   try {
     const token = getAuthToken(request);
     if (!token) return errors.unauthorized('No auth token provided');
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) return csrfError;
     const user = await validateSession(token);
     if (!user) return errors.unauthorized('Invalid or expired session');
@@ -47,7 +47,7 @@ export async function DELETE(
   try {
     const token = getAuthToken(request);
     if (!token) return errors.unauthorized('No auth token provided');
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) return csrfError;
     const user = await validateSession(token);
     if (!user) return errors.unauthorized('Invalid or expired session');

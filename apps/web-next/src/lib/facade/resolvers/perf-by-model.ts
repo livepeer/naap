@@ -1,50 +1,55 @@
 /**
- * Perf-by-model resolver — NAAP API backed.
+ * Per-pipeline model FPS map — from GET /v1/streaming/models (`avg_fps`) per OpenAPI.
  *
- * Fetches GET /v1/perf/by-model?start=...&end=... and returns
- * `${pipeline}:${model}` -> AvgFPS.
+ * OpenAPI: that endpoint is a fixed **24-hour** weighted average output FPS and only
+ * includes `live-video-to-video` rows. It does not accept `start`/`end` query params;
+ * callers may still pass a window for API compatibility, but we cache a single merged map.
+ *
+ * Legacy GET /v1/perf/by-model is not in API v1; this preserves the facade shape
+ * `${pipeline}:${model}` → avg FPS for the overview and pipeline catalog augment.
  */
 
 import { cachedFetch, TTL } from '../cache.js';
 import { naapGet } from '../naap-get.js';
 
-interface PerfByModelRow {
-  ModelID?: string;
+interface StreamingModelRow {
   Pipeline?: string;
+  Model?: string;
+  pipeline?: string;
+  model?: string;
+  avg_fps?: number;
   AvgFPS?: number;
 }
 
-export async function resolvePerfByModel(opts: {
+/** One in-process cache entry per process — upstream window is always last 24h per OpenAPI. */
+const STREAMING_MODELS_FPS_CACHE_KEY = 'facade:streaming-models:fps-by-pipeline-model';
+
+export async function resolvePerfByModel(_opts: {
   start: string;
   end: string;
 }): Promise<Record<string, number>> {
-  // Round to hour precision so nearby requests within the same hour share the
-  // same cache entry — and pass the rounded window to the upstream call so the
-  // cached response exactly matches the queried range.
-  const roundedStart = opts.start.trim().slice(0, 13);
-  const roundedEnd = opts.end.trim().slice(0, 13);
-  const cacheKey = `facade:perf-by-model:${roundedStart}:${roundedEnd}`;
+  return cachedFetch(STREAMING_MODELS_FPS_CACHE_KEY, TTL.PIPELINES, async () => {
+    const result = await naapGet<StreamingModelRow[] | null | undefined>(
+      'streaming/models',
+      undefined,
+      {
+        cache: 'no-store',
+        errorLabel: 'perf-by-model',
+      },
+    );
+    const rawRows = result ?? [];
 
-  return cachedFetch(cacheKey, TTL.PIPELINES, async () => {
-    const rawRows = await naapGet<PerfByModelRow[] | null | undefined>('perf/by-model', { start: roundedStart, end: roundedEnd }, {
-      cache: 'no-store',
-      errorLabel: 'perf-by-model',
-    });
     const rows = Array.isArray(rawRows) ? rawRows : [];
-    if (rawRows != null && !Array.isArray(rawRows)) {
-      console.warn('[facade/perf-by-model] unexpected non-array response, treating as empty');
-    }
     const out = new Map<string, number>();
 
     for (const row of rows) {
-      const pipeline = row.Pipeline?.trim();
-      const model = row.ModelID?.trim();
-      const avgFps = row.AvgFPS;
-      if (!pipeline || !model || !Number.isFinite(avgFps)) continue;
-      out.set(`${pipeline}:${model}`, avgFps as number);
+      const pipeline = (row.Pipeline ?? row.pipeline)?.trim();
+      const model = (row.Model ?? row.model)?.trim();
+      const fps = row.avg_fps ?? row.AvgFPS;
+      if (!pipeline || !model || !Number.isFinite(fps)) continue;
+      out.set(`${pipeline}:${model}`, fps as number);
     }
 
     return Object.fromEntries(out.entries());
   });
 }
-

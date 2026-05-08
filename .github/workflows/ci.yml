@@ -47,7 +47,7 @@ jobs:
 
       - name: Run paths filter
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             shell:
@@ -204,7 +204,7 @@ jobs:
         run: cd apps/web-next && npm run test:coverage
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: apps/web-next/coverage/lcov.info
           flags: shell
@@ -239,7 +239,7 @@ jobs:
         run: cd packages/plugin-sdk && npm run test:coverage
 
       - name: Upload SDK coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         if: always()
         with:
           files: packages/plugin-sdk/coverage/lcov.info
@@ -362,7 +362,7 @@ jobs:
 
       - name: Upload plugin coverage
         if: steps.check.outputs.changed == 'true' && always()
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: plugins/${{ matrix.plugin }}/frontend/coverage/lcov.info
           flags: plugin-${{ matrix.plugin }}

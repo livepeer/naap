@@ -44,11 +44,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    // Normalize to hour precision to match the resolver's own hour-bucket cache key,
-    // maximising Redis SWR hit rate when the client sends slightly different ISO strings.
-    const startHour = new Date(startMs).toISOString().slice(0, 13);
-    const endHour = new Date(endMs).toISOString().slice(0, 13);
-    const cacheKey = `perf-by-model:${startHour}:${endHour}`;
+    // Resolver uses GET /v1/streaming/models (24h weighted avg FPS, live-video only per OpenAPI).
+    // Upstream ignores start/end — single SWR key so any valid query window shares one cached payload.
+    const cacheKey = 'perf-by-model:streaming-models';
     const { data: fpsByPipelineModel, cache } = await bffStaleWhileRevalidate(
       cacheKey,
       () => getPerfByModel({ start, end }),

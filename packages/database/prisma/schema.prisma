@@ -32,17 +32,21 @@ datasource db {
 // ============================================
 
 model User {
-  id            String    @id @default(uuid())
-  email         String?   @unique
-  passwordHash  String?
-  emailVerified DateTime?
-  address       String?   @unique // Wallet address for Web3 auth
-  displayName   String?
-  avatarUrl     String?
-  bio           String?
-  lockedUntil   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                    String    @id @default(uuid())
+  email                 String?   @unique
+  passwordHash          String?
+  emailVerified         DateTime?
+  address               String?   @unique // Wallet address for Web3 auth
+  displayName           String?
+  avatarUrl             String?
+  bio                   String?
+  lockedUntil           DateTime?
+  suspendedAt           DateTime?
+  suspendedReason       String?
+  sessionVersion        Int       @default(0)
+  passwordResetRequired Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   // Core relations
   config            UserConfig?
@@ -116,16 +120,19 @@ model UserConfig {
 }
 
 model Session {
-  id         String   @id @default(uuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token      String   @unique
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  lastUsedAt DateTime @default(now())
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token             String   @unique
+  tokenHash         String?  @unique
+  expiresAt         DateTime
+  versionAtCreation Int      @default(0)
+  createdAt         DateTime @default(now())
+  lastUsedAt        DateTime @default(now())
 
   @@index([userId])
   @@index([token])
+  @@index([tokenHash])
   @@index([expiresAt])
   @@schema("public")
 }
@@ -134,6 +141,7 @@ model PasswordResetToken {
   id        String    @id @default(uuid())
   userId    String
   token     String    @unique
+  tokenHash String?   @unique
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
@@ -149,6 +157,7 @@ model EmailVerificationToken {
   userId    String
   email     String
   token     String    @unique
+  tokenHash String?   @unique
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())

@@ -26,17 +26,22 @@ import { BILLING_PROVIDERS, PrismaClient } from '@naap/database';
 import * as crypto from 'crypto';
 import * as path from 'path';
 
+if (process.env.NODE_ENV === 'production' && process.env.ALLOW_SEED !== '1') {
+  console.error('ERROR: Refusing to seed a production database without ALLOW_SEED=1');
+  process.exit(1);
+}
+
 const prisma = new PrismaClient();
 
 /**
  * Hash a password using PBKDF2 with random salt.
  * @param password - Plaintext password to hash
- * @returns Salt:hash string suitable for storage
+ * @returns Versioned envelope: pbkdf2-sha256-600k:salt:hash
  */
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-  return `${salt}:${hash}`;
+  const hash = crypto.pbkdf2Sync(password, salt, 600_000, 64, 'sha256').toString('hex');
+  return `pbkdf2-sha256-600k:${salt}:${hash}`;
 }
 
 /**
@@ -211,7 +216,9 @@ async function main() {
   // ============================================
   console.log('👥 Creating test users...');
 
-  const passwordHash = hashPassword('livepeer');
+  function generateSeedPassword(): string {
+    return crypto.randomBytes(16).toString('base64url');
+  }
 
   const testUsers = [
     { email: 'admin@livepeer.org', displayName: 'System Admin', roles: ['system:admin'] },
@@ -224,8 +231,14 @@ async function main() {
   ];
 
   const createdUsers: { id: string; email: string }[] = [];
+  const seedPasswords: Record<string, string> = {};
 
   for (const userData of testUsers) {
+    const envKey = `SEED_PASSWORD_${userData.email.split('@')[0].toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
+    const password = process.env[envKey] || generateSeedPassword();
+    seedPasswords[userData.email] = password;
+    const passwordHash = hashPassword(password);
+
     const user = await prisma.user.upsert({
       where: { email: userData.email },
       update: {
@@ -267,6 +280,12 @@ async function main() {
     }
   }
   console.log(`   ✅ Created ${testUsers.length} test users with roles`);
+
+  console.log('\n--- Seeded admin credentials (save these!) ---');
+  for (const [email, password] of Object.entries(seedPasswords)) {
+    console.log(`  ${email}: ${password}`);
+  }
+  console.log('--- End credentials ---\n');
 
   // ============================================
   // 5. Legacy Wallet Test User (backward compat)
@@ -750,25 +769,11 @@ async function main() {
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('✅ Seeding completed successfully!');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('\n📋 Test Credentials:');
-  console.log('   All users use password: livepeer');
-  console.log('');
-  console.log('   👤 System Admin:');
-  console.log('      Email:    admin@livepeer.org');
-  console.log('      Password: livepeer');
-  console.log('      Role:     system:admin');
-  console.log('');
-  console.log('   👤 Plugin Admins (same password):');
-  console.log('      capacity@livepeer.org    - capacity-planner:admin');
-  console.log('      marketplace@livepeer.org - marketplace:admin');
-  console.log('      community@livepeer.org   - community:admin');
-  console.log('      developer@livepeer.org   - developer-api:admin');
-  console.log('      publisher@livepeer.org   - plugin-publisher:admin');
-  console.log('');
-  console.log('   👤 Viewer:');
-  console.log('      Email:    viewer@livepeer.org');
-  console.log('      Password: livepeer');
-  console.log('      Role:     system:viewer');
+  console.log('\n📋 Test Credentials (unique per user — printed above):');
+  for (const userData of testUsers) {
+    const pw = seedPasswords[userData.email];
+    console.log(`   ${userData.email.padEnd(30)} ${userData.roles.join(', ').padEnd(28)} ${pw}`);
+  }
   console.log('');
   console.log('   🔗 Legacy Wallet User:');
   console.log('      Address: 0x71C7656EC7ab88b098defB751B7401B5f6d8976F');

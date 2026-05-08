@@ -28,6 +28,7 @@ const nextConfig = {
     '@naap/plugin-sdk',
     '@naap/cache',
     '@capability-explorer/backend',
+    '@naap/crypto',
   ],
 
   // Image optimization
@@ -46,6 +47,16 @@ const nextConfig = {
 
   // Webpack configuration for monorepo
   webpack: (config, { isServer }) => {
+    // Ably: webpack resolves `exports.node` → ably-node.js for the client too,
+    // which pulls `got`. Swap to the browser build for client compilation only.
+    if (!isServer) {
+      const webpack = require('webpack');
+      const ablyBrowser = path.join(__dirname, 'node_modules', 'ably', 'build', 'ably.js');
+      config.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(/ably[/\\]build[/\\]ably-node\.js$/, ablyBrowser)
+      );
+    }
+
     // Prisma: ensure engine binaries are included in the standalone bundle.
     // This is the official fix for Prisma + Next.js monorepo deployments.
     // Important: in `next dev`, the server output directories may not exist

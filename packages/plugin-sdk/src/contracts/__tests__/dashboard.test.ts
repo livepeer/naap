@@ -80,6 +80,13 @@ describe('DASHBOARD_SCHEMA', () => {
     expect(fields).toHaveProperty('orchestrators');
   });
 
+  it('exposes KPI filter arguments', () => {
+    const schema = buildSchema(DASHBOARD_SCHEMA);
+    const kpiArgs = schema.getQueryType()!.getFields().kpi.args.map((arg) => arg.name);
+
+    expect(kpiArgs).toEqual(['window', 'timeframe', 'pipeline', 'model_id']);
+  });
+
   it('has all root Query fields nullable (for partial providers)', () => {
     const schema = buildSchema(DASHBOARD_SCHEMA);
     const queryType = schema.getQueryType()!;
@@ -121,7 +128,7 @@ describe('DASHBOARD_SCHEMA', () => {
     const fields = kpiType.getFields();
 
     expect(fields).toHaveProperty('successRate');
-    expect(fields).toHaveProperty('orchestratorsOnline');
+    expect(fields).toHaveProperty('orchestratorsObserved');
     expect(fields).toHaveProperty('dailyUsageMins');
     expect(fields).toHaveProperty('dailySessionCount');
   });
@@ -188,7 +195,7 @@ describe('createDashboardProvider', () => {
     const resolvers: DashboardResolvers = {
       kpi: async () => ({
         successRate: { value: 97.3, delta: 1.2 },
-        orchestratorsOnline: { value: 142, delta: 8 },
+        orchestratorsObserved: { value: 142, delta: 8 },
         dailyUsageMins: { value: 48720, delta: 3200 },
         dailySessionCount: { value: 1843, delta: -47 },
       }),
@@ -197,7 +204,7 @@ describe('createDashboardProvider', () => {
     createDashboardProvider(mockEventBus as any, resolvers);
 
     const request: DashboardQueryRequest = {
-      query: '{ kpi { successRate { value delta } orchestratorsOnline { value delta } dailyUsageMins { value delta } dailySessionCount { value delta } } }',
+      query: '{ kpi { successRate { value delta } orchestratorsObserved { value delta } dailyUsageMins { value delta } dailySessionCount { value delta } } }',
     };
 
     const response = (await mockEventBus._invoke(
@@ -209,8 +216,50 @@ describe('createDashboardProvider', () => {
     expect(response.data!.kpi).toBeDefined();
     expect(response.data!.kpi!.successRate.value).toBe(97.3);
     expect(response.data!.kpi!.successRate.delta).toBe(1.2);
-    expect(response.data!.kpi!.orchestratorsOnline.value).toBe(142);
+    expect(response.data!.kpi!.orchestratorsObserved.value).toBe(142);
     expect(response.errors).toBeUndefined();
+  });
+
+  it('forwards KPI filter arguments to the resolver', async () => {
+    let receivedArgs:
+      | { window?: string; timeframe?: string; pipeline?: string; model_id?: string }
+      | undefined;
+    const resolvers: DashboardResolvers = {
+      kpi: async (args) => {
+        receivedArgs = args;
+        return {
+          successRate: { value: 97.3, delta: 1.2 },
+          orchestratorsObserved: { value: 142, delta: 8 },
+          dailyUsageMins: { value: 48720, delta: 3200 },
+          dailySessionCount: { value: 1843, delta: -47 },
+          dailyNetworkFeesEth: { value: 1.2, delta: 0.1 },
+          timeframeHours: 24,
+        };
+      },
+    };
+
+    createDashboardProvider(mockEventBus as any, resolvers);
+
+    const request: DashboardQueryRequest = {
+      query: `query GetKpi($timeframe: String, $pipeline: String, $model: String) {
+        kpi(timeframe: $timeframe, pipeline: $pipeline, model_id: $model) {
+          successRate { value }
+        }
+      }`,
+      variables: {
+        timeframe: '24h',
+        pipeline: 'live-video-to-video',
+        model: 'model-a',
+      },
+    };
+
+    await mockEventBus._invoke(DASHBOARD_QUERY_EVENT, request);
+
+    expect(receivedArgs).toEqual({
+      timeframe: '24h',
+      pipeline: 'live-video-to-video',
+      model_id: 'model-a',
+    });
   });
 
   it('returns null for unimplemented resolvers (not an error)', async () => {
@@ -218,7 +267,7 @@ describe('createDashboardProvider', () => {
     const resolvers: DashboardResolvers = {
       kpi: async () => ({
         successRate: { value: 97, delta: 1 },
-        orchestratorsOnline: { value: 100, delta: 0 },
+        orchestratorsObserved: { value: 100, delta: 0 },
         dailyUsageMins: { value: 1000, delta: 50 },
         dailySessionCount: { value: 500, delta: -10 },
       }),
@@ -321,7 +370,7 @@ describe('createDashboardProvider', () => {
     const resolvers: DashboardResolvers = {
       kpi: async () => ({
         successRate: { value: 99, delta: 0.5 },
-        orchestratorsOnline: { value: 150, delta: 10 },
+        orchestratorsObserved: { value: 150, delta: 10 },
         dailyUsageMins: { value: 50000, delta: 2000 },
         dailySessionCount: { value: 2000, delta: 100 },
       }),
@@ -341,7 +390,7 @@ describe('createDashboardProvider', () => {
 
     const request: DashboardQueryRequest = {
       query: `{
-        kpi { successRate { value delta } orchestratorsOnline { value delta } dailyUsageMins { value delta } dailySessionCount { value delta } }
+        kpi { successRate { value delta } orchestratorsObserved { value delta } dailyUsageMins { value delta } dailySessionCount { value delta } }
         protocol { currentRound blockProgress totalBlocks totalStakedLPT }
         gpuCapacity { totalGPUs availableCapacity }
       }`,

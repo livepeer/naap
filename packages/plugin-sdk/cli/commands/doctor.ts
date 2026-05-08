@@ -36,26 +36,28 @@ export const doctorCommand = new Command('doctor')
     // ============================================
     const nodeSpinner = ora('Checking Node.js version...').start();
     const nodeVersion = process.version;
-    const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0], 10);
-    
-    if (majorVersion >= 18) {
+    const [majorStr, minorStr] = nodeVersion.slice(1).split('.');
+    const majorVersion = parseInt(majorStr, 10);
+    const minorVersion = parseInt(minorStr, 10);
+
+    // Workspace requires Node ^20.19.0 || >=22.12.0 (matches root package.json engines
+    // and Vite 8's supported runtime matrix). Anything else will fail at install/build,
+    // so doctor reports a hard failure rather than a warning.
+    const meetsRequirement =
+      (majorVersion === 20 && minorVersion >= 19) ||
+      (majorVersion === 22 && minorVersion >= 12) ||
+      majorVersion > 22;
+
+    if (meetsRequirement) {
       nodeSpinner.succeed(`Node.js version: ${nodeVersion}`);
       results.push({ name: 'Node.js version', status: 'pass', message: nodeVersion });
-    } else if (majorVersion >= 16) {
-      nodeSpinner.warn(`Node.js version: ${nodeVersion} (recommended: 18+)`);
-      results.push({
-        name: 'Node.js version',
-        status: 'warn',
-        message: `${nodeVersion} (recommended: 18+)`,
-        suggestion: 'Consider upgrading to Node.js 18 LTS for best compatibility',
-      });
     } else {
-      nodeSpinner.fail(`Node.js version: ${nodeVersion} (required: 18+)`);
+      nodeSpinner.fail(`Node.js version: ${nodeVersion} (required: ^20.19.0 || >=22.12.0)`);
       results.push({
         name: 'Node.js version',
         status: 'fail',
-        message: `${nodeVersion} (required: 18+)`,
-        suggestion: 'Please upgrade to Node.js 18 LTS: https://nodejs.org/',
+        message: `${nodeVersion} (required: ^20.19.0 || >=22.12.0)`,
+        suggestion: 'Please upgrade to Node.js 20.19+ or 22.12+ LTS: https://nodejs.org/',
       });
     }
 
