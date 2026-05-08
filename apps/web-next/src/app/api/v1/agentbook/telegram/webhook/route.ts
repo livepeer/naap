@@ -12,7 +12,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
-import { Bot } from 'grammy';
+import { Bot, type Context as GrammyContext } from 'grammy';
 import { prisma as db } from '@naap/database';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { callGemini, classifyAndExecuteV1 } from '@agentbook-core/server';
@@ -47,7 +47,19 @@ import {
   parseManageReceiptCommand,
   pickBestExpenseMatch,
 } from '@/lib/agentbook-receipt-match';
+import {
+  addPhotoToBatch,
+  summarizeBatch,
+  BATCH_IDLE_MS,
+  type BatchState,
+} from '@/lib/agentbook-batch-receipts';
 import { audit } from '@/lib/agentbook-audit';
+
+// PR 18: the photo handler awaits BATCH_IDLE_MS (5s) inline so it can
+// group multi-photo forwards. Plus OCR + blob persistence for ~8 images
+// can take 10-20s in parallel. Bump the route's max duration so Vercel
+// doesn't kill the function mid-batch.
+export const maxDuration = 60;
 
 // Dev fallback: hardcoded chat ID → tenant mapping. The tenantId here MUST
 // match the tenant the user logs into the web UI as (the AgentBook tenant
@@ -3111,31 +3123,293 @@ function getBot(): Bot {
     }
   });
 
-  // === Photo messages → Receipt OCR ===
+  // === Photo messages → Receipt OCR (PR 18: batch-aware) ===
+  //
+  // Single-photo path is unchanged from the user's POV: we still wait
+  // up to BATCH_IDLE_MS for additional photos to arrive (5s), then
+  // fall through to the normal draft-review flow if the batch ends up
+  // being just one. Multi-photo path: OCR all in parallel, auto-book
+  // high-confidence (≥0.85) entries with a known category, and send a
+  // single summary instead of N separate review prompts.
+
+  // ─── PR 18 helpers (closed over `db`; `ctx` shape via parameters) ───
+  type PhotoCtx = GrammyContext;
+
+  /** Read the per-chat batch state from AbUserMemory, or null. */
+  async function loadBatchState(tenantId: string, chatId: string): Promise<BatchState | null> {
+    const row = await db.abUserMemory.findUnique({
+      where: { tenantId_key: { tenantId, key: `telegram:photo_batch:${chatId}` } },
+    });
+    if (!row) return null;
+    try {
+      return JSON.parse(row.value) as BatchState;
+    } catch {
+      return null;
+    }
+  }
+
+  async function saveBatchState(tenantId: string, chatId: string, state: BatchState): Promise<void> {
+    const value = JSON.stringify(state);
+    const key = `telegram:photo_batch:${chatId}`;
+    await db.abUserMemory.upsert({
+      where: { tenantId_key: { tenantId, key } },
+      update: { value, lastUsed: new Date() },
+      create: { tenantId, key, value, type: 'pending_action', confidence: 1 },
+    });
+  }
+
+  /** Atomically claim the flush. Returns true if this caller deleted the row. */
+  async function clearBatchState(tenantId: string, chatId: string): Promise<boolean> {
+    const key = `telegram:photo_batch:${chatId}`;
+    const res = await db.abUserMemory.deleteMany({ where: { tenantId, key } });
+    return res.count > 0;
+  }
+
+  function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Single-photo path — preserves the rich draft-preview UX from the
+   * pre-PR-18 handler. Called for batches of size 1 (i.e., the user
+   * sent exactly one photo within the idle window).
+   */
+  async function processSinglePhoto(
+    tenantId: string,
+    ctx: PhotoCtx,
+    item: { fileId: string; caption: string | null },
+  ): Promise<void> {
+    const file = await ctx.api.getFile(item.fileId);
+    const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+    const permanentUrl = await persistReceiptBlob(telegramUrl, tenantId, 'image/jpeg');
+
+    const ocr = await ocrReceipt(permanentUrl, 'image/jpeg');
+    if (!ocr) {
+      await ctx.reply('I saved the photo but the OCR step came back empty — either the image is unreadable or my Gemini key isn\'t set. Type the expense in plain English ("Spent $45 on lunch at Starbucks") and I\'ll book it.');
+      return;
+    }
+    if (ocr.amount_cents === 0) {
+      await ctx.reply('I read the image but couldn\'t pin down the total. Try a clearer photo, or just type it ("Spent $45 on gas at Shell"). I\'ll figure out the rest.');
+      return;
+    }
+
+    const expense = await createOcrExpense(tenantId, ocr, permanentUrl, 'telegram_photo');
+    await setActiveExpense(tenantId, expense.id);
+
+    const active = await getActiveExpense(tenantId);
+    if (!active) {
+      await ctx.reply('Saved the receipt but I lost track of it. Type "expenses" to see it.');
+      return;
+    }
+
+    const tenantConfig = await db.abTenantConfig.findUnique({
+      where: { userId: tenantId },
+      select: { currency: true },
+    });
+    const expenseRow = await db.abExpense.findUnique({
+      where: { id: expense.id },
+      select: { vendorId: true, date: true },
+    });
+
+    const dup = await findPotentialDuplicate(
+      tenantId,
+      expense.id,
+      expenseRow?.vendorId ?? null,
+      active.amountCents,
+      expenseRow?.date ?? active.date,
+    );
+    if (dup) {
+      await sendDuplicateReply(ctx, expense.id, active, dup);
+      return;
+    }
+
+    const [fxNote, anomalyNote, recurringNote, bankMatchNote] = await Promise.all([
+      Promise.resolve(currencyMismatchNote(ocr.currency, tenantConfig?.currency || null)),
+      buildAnomalyNote(tenantId, expense.categoryId, active.amountCents),
+      buildRecurringSuggestionNote(tenantId, expenseRow?.vendorId ?? null),
+      buildBankMatchNote(tenantId, active.amountCents, expenseRow?.date ?? active.date),
+    ]);
+    const insightLines: string[] = [];
+    if (fxNote) insightLines.push(`💱 ${fxNote}`);
+    if (anomalyNote) insightLines.push(anomalyNote);
+    if (bankMatchNote) insightLines.push(bankMatchNote);
+    if (recurringNote) insightLines.push(recurringNote);
+    const draftReply = buildDraftReceiptReply(active, ocr, expense)
+      + (insightLines.length ? '\n\n' + insightLines.join('\n') : '');
+
+    await ctx.reply(draftReply, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '✅ Looks right — book it', callback_data: `confirm:${expense.id}` },
+            { text: '📁 Change category', callback_data: `change_cat:${expense.id}` },
+          ],
+          [
+            { text: active.isPersonal ? '💼 Make business' : '🏠 Make personal', callback_data: `${active.isPersonal ? 'business' : 'personal'}:${expense.id}` },
+            { text: '❌ Not real', callback_data: `reject:${expense.id}` },
+          ],
+        ],
+      },
+    });
+  }
+
+  /**
+   * Multi-photo batch path. OCRs all photos in parallel; for each
+   * receipt:
+   *   • OCR confidence ≥ 0.85 AND a categoryId could be inferred →
+   *     book directly (status='confirmed', journal entry created).
+   *   • Otherwise → leave as pending_review draft, where it will show
+   *     up in the unified review queue (handled by sendPendingReviewBatch).
+   *
+   * Sends ONE summary reply, with a Review Queue button when any item
+   * needs the user's eyes.
+   */
+  async function processPhotoBatch(
+    tenantId: string,
+    ctx: PhotoCtx,
+    items: { fileId: string; caption: string | null }[],
+  ): Promise<void> {
+    const HIGH_CONF = 0.85;
+
+    // OCR all in parallel. Each task isolates its own errors so one
+    // bad image doesn't poison the batch.
+    const results = await Promise.all(items.map(async (item) => {
+      try {
+        const file = await ctx.api.getFile(item.fileId);
+        const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+        const permanentUrl = await persistReceiptBlob(telegramUrl, tenantId, 'image/jpeg');
+        const ocr = await ocrReceipt(permanentUrl, 'image/jpeg');
+        if (!ocr || ocr.amount_cents === 0) {
+          return { kind: 'failed' as const };
+        }
+        const expense = await createOcrExpense(tenantId, ocr, permanentUrl, 'telegram_photo');
+        return { kind: 'ok' as const, ocr, expense };
+      } catch (err) {
+        console.warn('[telegram/photo/batch] item failed:', err);
+        return { kind: 'failed' as const };
+      }
+    }));
+
+    let autoBooked = 0;
+    let needsReview = 0;
+    let failed = 0;
+    let totalCents = 0;
+    let lastBookedExpenseId: string | null = null;
+
+    for (const r of results) {
+      if (r.kind === 'failed') {
+        failed++;
+        continue;
+      }
+      const eligible = r.ocr.confidence >= HIGH_CONF && r.expense.categoryId;
+      if (eligible) {
+        // Book it: status=confirmed and create the journal entry.
+        // Mirrors the `confirm` callback path but without the budget
+        // gate — auto-booking is deliberately conservative (high-conf
+        // + known category), and budget alerts surface separately via
+        // proactive alerts.
+        try {
+          const exp = await db.abExpense.findFirst({ where: { id: r.expense.id, tenantId } });
+          if (exp && exp.categoryId && !exp.isPersonal) {
+            const cashAccount = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
+            if (cashAccount && !exp.journalEntryId) {
+              const je = await db.abJournalEntry.create({
+                data: {
+                  tenantId,
+                  date: exp.date,
+                  memo: `Expense: ${exp.description || 'Auto-booked from batch'}`,
+                  sourceType: 'expense',
+                  sourceId: exp.id,
+                  verified: true,
+                  lines: {
+                    create: [
+                      { accountId: exp.categoryId, debitCents: exp.amountCents, creditCents: 0, description: exp.description || 'Expense' },
+                      { accountId: cashAccount.id, debitCents: 0, creditCents: exp.amountCents, description: 'Payment' },
+                    ],
+                  },
+                },
+              });
+              await db.abExpense.update({
+                where: { id: exp.id },
+                data: { status: 'confirmed', journalEntryId: je.id },
+              });
+            } else {
+              await db.abExpense.update({
+                where: { id: exp.id },
+                data: { status: 'confirmed' },
+              });
+            }
+            await db.abEvent.create({
+              data: {
+                tenantId,
+                eventType: 'expense.auto_booked',
+                actor: 'agent',
+                action: { expenseId: exp.id, source: 'telegram_batch', confidence: r.ocr.confidence },
+              },
+            });
+          }
+          autoBooked++;
+          totalCents += r.ocr.amount_cents;
+          lastBookedExpenseId = r.expense.id;
+        } catch (err) {
+          console.warn('[telegram/photo/batch] auto-book failed, falling back to review:', err);
+          needsReview++;
+        }
+      } else {
+        needsReview++;
+      }
+    }
+
+    // Track the last booked expense as the "active" one so follow-up
+    // corrections like "no, that should be Travel" still work.
+    if (lastBookedExpenseId) {
+      await setActiveExpense(tenantId, lastBookedExpenseId);
+    }
+
+    const total = autoBooked + needsReview + failed;
+    const text = summarizeBatch({ total, autoBooked, needsReview, failed, totalCents });
+
+    if (needsReview > 0) {
+      await ctx.reply(text, {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '📂 Review now', callback_data: 'review_drafts' },
+          ]],
+        },
+      });
+    } else {
+      await ctx.reply(text);
+    }
+  }
+
   bot.on('message:photo', async (ctx) => {
     const tenantId = await resolveTenantId(ctx.chat.id);
+    const chatId = String(ctx.chat.id);
     const photos = ctx.message.photo;
     const best = photos[photos.length - 1];
-    await ctx.reply('📒 One sec — reading your receipt…');
+    const caption = ctx.message.caption || null;
+    const arrivedAt = Date.now();
 
-    try {
-      const file = await ctx.api.getFile(best.file_id);
-      const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-      const permanentUrl = await persistReceiptBlob(telegramUrl, tenantId, 'image/jpeg');
-
-      // PR 16: if the user just said "send receipt for X", attach this
-      // upload to that expense instead of creating a new draft.
-      const pending = await db.abUserMemory.findUnique({
-        where: { tenantId_key: { tenantId, key: 'telegram:pending_receipt_target' } },
-      });
-      if (pending) {
-        try {
-          const parsed = JSON.parse(pending.value) as { expenseId?: string; setAt?: number };
-          if (parsed?.expenseId && (Date.now() - (parsed.setAt || 0) < 30 * 60 * 1000)) {
-            const target = await db.abExpense.findFirst({
-              where: { id: parsed.expenseId, tenantId },
-            });
-            if (target) {
+    // PR 16: if the user just said "send receipt for X", attach this
+    // upload to that expense instead of creating a new draft. This is
+    // an explicit, single-receipt action — bypass the batch path so it
+    // resolves immediately.
+    const pending = await db.abUserMemory.findUnique({
+      where: { tenantId_key: { tenantId, key: 'telegram:pending_receipt_target' } },
+    });
+    if (pending) {
+      try {
+        const parsed = JSON.parse(pending.value) as { expenseId?: string; setAt?: number };
+        if (parsed?.expenseId && (Date.now() - (parsed.setAt || 0) < 30 * 60 * 1000)) {
+          const target = await db.abExpense.findFirst({
+            where: { id: parsed.expenseId, tenantId },
+          });
+          if (target) {
+            try {
+              const file = await ctx.api.getFile(best.file_id);
+              const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+              const permanentUrl = await persistReceiptBlob(telegramUrl, tenantId, 'image/jpeg');
               await db.abExpense.update({
                 where: { id: target.id },
                 data: { receiptUrl: permanentUrl, receiptStatus: 'attached' },
@@ -3156,83 +3430,55 @@ function getBot(): Bot {
                 { parse_mode: 'HTML' },
               );
               return;
+            } catch (err) {
+              console.warn('[telegram/photo] attach-to-pending failed, falling back:', err);
+              // fall through to batch path
             }
           }
-        } catch { /* fall through to normal OCR flow */ }
-      }
+        }
+      } catch { /* fall through to batch path */ }
+    }
 
-      const ocr = await ocrReceipt(permanentUrl, 'image/jpeg');
-      if (!ocr) {
-        await ctx.reply('I saved the photo but the OCR step came back empty — either the image is unreadable or my Gemini key isn\'t set. Type the expense in plain English ("Spent $45 on lunch at Starbucks") and I\'ll book it.');
-        return;
-      }
-      if (ocr.amount_cents === 0) {
-        await ctx.reply('I read the image but couldn\'t pin down the total. Try a clearer photo, or just type it ("Spent $45 on gas at Shell"). I\'ll figure out the rest.');
-        return;
-      }
-
-      const expense = await createOcrExpense(tenantId, ocr, permanentUrl, 'telegram_photo');
-      await setActiveExpense(tenantId, expense.id);
-
-      const active = await getActiveExpense(tenantId);
-      if (!active) {
-        await ctx.reply('Saved the receipt but I lost track of it. Type "expenses" to see it.');
-        return;
-      }
-
-      const tenantConfig = await db.abTenantConfig.findUnique({
-        where: { userId: tenantId },
-        select: { currency: true },
+    try {
+      // 1. Append this photo to the per-chat batch (AbUserMemory).
+      const beforeState = await loadBatchState(tenantId, chatId);
+      const updatedState = addPhotoToBatch(beforeState, {
+        fileId: best.file_id,
+        caption,
+        ts: arrivedAt,
       });
-      const expenseRow = await db.abExpense.findUnique({
-        where: { id: expense.id },
-        select: { vendorId: true, date: true },
-      });
+      await saveBatchState(tenantId, chatId, updatedState);
 
-      // Duplicate check FIRST — if this looks like a dup, give the user
-      // a one-tap path to attach the receipt to the existing record
-      // instead of double-booking.
-      const dup = await findPotentialDuplicate(
-        tenantId,
-        expense.id,
-        expenseRow?.vendorId ?? null,
-        active.amountCents,
-        expenseRow?.date ?? active.date,
-      );
-      if (dup) {
-        await sendDuplicateReply(ctx, expense.id, active, dup);
+      // First photo in the window → tell the user we're collecting.
+      // Subsequent photos: stay quiet so we don't spam.
+      if (!beforeState || beforeState.items.length === 0) {
+        await ctx.reply('📒 Got it — reading your receipt(s)… (you can keep sending more)');
+      }
+
+      // 2. Wait the idle window. If another photo arrives, its own
+      //    webhook will write a fresher lastAt; we abort and let the
+      //    last-arrival webhook be the one that flushes.
+      await sleep(BATCH_IDLE_MS);
+
+      const after = await loadBatchState(tenantId, chatId);
+      if (!after || after.lastAt > arrivedAt) {
+        // A newer photo's webhook will flush.
         return;
       }
 
-      const [fxNote, anomalyNote, recurringNote, bankMatchNote] = await Promise.all([
-        Promise.resolve(currencyMismatchNote(ocr.currency, tenantConfig?.currency || null)),
-        buildAnomalyNote(tenantId, expense.categoryId, active.amountCents),
-        buildRecurringSuggestionNote(tenantId, expenseRow?.vendorId ?? null),
-        buildBankMatchNote(tenantId, active.amountCents, expenseRow?.date ?? active.date),
-      ]);
-      const insightLines: string[] = [];
-      if (fxNote) insightLines.push(`💱 ${fxNote}`);
-      if (anomalyNote) insightLines.push(anomalyNote);
-      if (bankMatchNote) insightLines.push(bankMatchNote);
-      if (recurringNote) insightLines.push(recurringNote);
-      const draftReply = buildDraftReceiptReply(active, ocr, expense)
-        + (insightLines.length ? '\n\n' + insightLines.join('\n') : '');
+      // 3. Atomically claim the flush — only one webhook proceeds.
+      const claimed = await clearBatchState(tenantId, chatId);
+      if (!claimed) return;
 
-      await ctx.reply(draftReply, {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '✅ Looks right — book it', callback_data: `confirm:${expense.id}` },
-              { text: '📁 Change category', callback_data: `change_cat:${expense.id}` },
-            ],
-            [
-              { text: active.isPersonal ? '💼 Make business' : '🏠 Make personal', callback_data: `${active.isPersonal ? 'business' : 'personal'}:${expense.id}` },
-              { text: '❌ Not real', callback_data: `reject:${expense.id}` },
-            ],
-          ],
-        },
-      });
+      // 4. Process. Single-photo batches go through the original
+      //    single-receipt flow so the user still gets the rich draft
+      //    preview. Multi-photo batches get the parallel + summary
+      //    treatment.
+      if (after.items.length === 1) {
+        await processSinglePhoto(tenantId, ctx, after.items[0]);
+      } else {
+        await processPhotoBatch(tenantId, ctx, after.items);
+      }
     } catch (err) {
       console.error('[telegram/photo] failed:', err);
       await ctx.reply('Sorry — couldn\'t process that receipt. Try a clearer photo or type the expense in plain English.');
