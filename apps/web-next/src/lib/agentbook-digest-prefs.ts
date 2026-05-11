@@ -404,6 +404,9 @@ export function formatPrefsSummary(p: DigestPrefs): string {
     cpa_requests: 'CPA follow-ups',
     deductions: 'missed deductions',
     receipts: 'missing-receipt warnings',
+    highlights: 'top-of-digest highlights',
+    snapshot: 'snapshot (cash + AR + MTD)',
+    todos: 'TODO list',
   };
   for (const k of Object.keys(labels) as (keyof DigestSections)[]) {
     (p.sections[k] ? on : off).push(labels[k]);

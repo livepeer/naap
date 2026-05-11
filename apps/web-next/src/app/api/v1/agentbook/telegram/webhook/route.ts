@@ -824,6 +824,7 @@ async function handleSetupTurn(
         taxDeadline: false, taxTips: false, cashFlowTips: false,
         autoCategorize: false, budgets: false, cpa_requests: false,
         deductions: false, receipts: false,
+        highlights: false, snapshot: false, todos: false,
       };
     } else {
       // Use the same delta-from-feedback logic to interpret the list.
@@ -2303,6 +2304,17 @@ function getBot(): Bot {
     const text = ctx.message.text;
     const tenantId = await resolveTenantId(ctx.chat.id);
 
+    // Load conversation context so the bot has memory across turns —
+    // references like "the second one" / "INV-007" / "yes" resolve to
+    // entities the bot just mentioned; pending slot fills (e.g. asked
+    // "how much?") get continued; the LLM classifier sees recent turns.
+    // Written back after the bot replies via persistContextAfterReply().
+    const { getContext: loadCtx, appendTurn: appendTurnFn } = await import(
+      '@/lib/agentbook-conversation-context'
+    );
+    let convCtx = await loadCtx(tenantId, ctx.chat.id);
+    convCtx = appendTurnFn(convCtx, 'user', text);
+
     // Commands that show static help text
     if (text === '/start') {
       await ctx.reply('👋 Welcome to <b>AgentBook</b>!\n\nI\'m your AI accounting agent. Here\'s what I can do:\n\n💬 <b>Record expenses:</b> "Spent $45 on lunch at Starbucks"\n📸 <b>Snap receipts:</b> Send a photo or PDF\n❓ <b>Ask anything:</b> "How much on travel this month?"\n📊 <b>Get insights:</b> "Show me spending breakdown"\n💰 <b>Check balance:</b> "What\'s my cash balance?"\n🧾 <b>Invoicing:</b> "Invoice Acme $5000 for consulting"\n\n/help for all commands', { parse_mode: 'HTML' });
@@ -3095,8 +3107,28 @@ function getBot(): Bot {
           tenantId,
           active: active as BotActive | null,
           categories,
+          // Pass the conversation hint so the LLM classifier can resolve
+          // "the second one" / "INV-007" / "yes" against what the bot
+          // just mentioned, and so a pending-slot fill continues across
+          // turns rather than being misread as a new intent.
+          conversation: {
+            lastBotMessage: convCtx.recentTurns.filter((t) => t.role === 'bot').slice(-1)[0]?.text ?? null,
+            lastBotTopic: convCtx.lastBotTopic,
+            mentionedEntities: convCtx.mentionedEntities.map((e) => ({
+              index: e.index, kind: e.kind, label: e.label, shortCode: e.shortCode,
+            })),
+            pendingSlots: convCtx.pendingSlots
+              ? { intent: convCtx.pendingSlots.intent, filled: convCtx.pendingSlots.filled, awaiting: convCtx.pendingSlots.awaiting }
+              : null,
+          },
         };
         const loop = await runAgentLoop(text, botCtx);
+        // Persist the bot's reply into convCtx so next turn's LLM
+        // classifier sees this turn as recent context. Best-effort.
+        if (loop.evaluation.reply) {
+          const { appendTurn: at2, setContext: sc2 } = await import('@/lib/agentbook-conversation-context');
+          await sc2(tenantId, ctx.chat.id, at2(convCtx, 'bot', loop.evaluation.reply));
+        }
 
         // Invoice-from-chat: render the friendly draft preview / picker
         // here. The bot agent owns the DB write; the webhook owns the

@@ -148,10 +148,27 @@ export interface CategoryRow {
   code: string;
 }
 
+export interface ConversationHint {
+  /** What the bot said last turn (truncated). */
+  lastBotMessage?: string | null;
+  /** Short label of the last topic — 'review_queue', 'invoice_draft', etc. */
+  lastBotTopic?: string | null;
+  /** Things the bot just listed (so the LLM can resolve "the second one"). */
+  mentionedEntities?: Array<{ index: number; kind: string; label: string; shortCode?: string }>;
+  /** Multi-turn slot fill the bot is waiting on. */
+  pendingSlots?: {
+    intent: string;
+    filled: Record<string, unknown>;
+    awaiting: string;
+  } | null;
+}
+
 export interface BotContext {
   tenantId: string;
   active: ActiveExpense | null;
   categories: CategoryRow[];
+  /** Optional conversational memory. When absent, the bot behaves stateless. */
+  conversation?: ConversationHint;
 }
 
 export interface PlanStep {
@@ -222,6 +239,25 @@ async function classifyIntentWithGemini(
    Currently: ${ctx.active.isPersonal ? 'personal' : 'business'}, category=${ctx.active.categoryName || '(uncategorized)'}, status=${ctx.active.status}`
     : '(none — user has no recent receipt in flight)';
 
+  // Conversation memory: the LLM sees what the bot just said + any
+  // entities it listed + any pending slot fill. This is what lets
+  // "the second one" / "INV-007" / "yes" resolve to a concrete action.
+  const conv = ctx.conversation;
+  const convBlock = conv
+    ? [
+        conv.lastBotMessage ? `Last bot message: "${conv.lastBotMessage}"` : '',
+        conv.lastBotTopic ? `Last bot topic: ${conv.lastBotTopic}` : '',
+        conv.mentionedEntities && conv.mentionedEntities.length > 0
+          ? `Things the bot just listed (user may refer to these by number, short code, or substring):\n${conv.mentionedEntities
+              .map((e) => `   ${e.index}. [${e.kind}] ${e.label}${e.shortCode ? ` (${e.shortCode})` : ''}`)
+              .join('\n')}`
+          : '',
+        conv.pendingSlots
+          ? `The bot is waiting for the user to fill slot "${conv.pendingSlots.awaiting}" for intent "${conv.pendingSlots.intent}". Already-filled slots: ${JSON.stringify(conv.pendingSlots.filled)}.`
+          : '',
+      ].filter(Boolean).join('\n')
+    : '(no recent conversation context)';
+
   const systemPrompt = `You are an intent classifier for AgentBook, a friendly bookkeeping
 assistant on Telegram for freelancers. Read the user's message + the
 context below and identify what they want to do.
@@ -230,6 +266,9 @@ CONTEXT
 Active expense (the most recent receipt the user is looking at):
    ${activeBlock}
 Available expense categories: ${ctx.categories.map((c) => c.name).join(', ') || '(no categories — chart of accounts not seeded yet)'}
+
+Conversation memory:
+${convBlock}
 
 INTENT CHOICES (pick exactly one)
    confirm         — user agrees / approves the active expense
