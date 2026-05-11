@@ -1697,6 +1697,34 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         }
         const parsed = await parseInvoiceFromText(text);
         if (!parsed) {
+          // Partial fallback: extract whatever we can so the webhook can
+          // persist a PendingSlots state and ask a targeted follow-up.
+          const clientHint = text.match(/^(?:please\s+|can you\s+)?(?:invoice|bill)\s+([A-Z][\w &'.-]*?)(?:\s|$)/i)?.[1]?.trim();
+          const amtMatch = text.match(/\$?([\d,]+(?:\.\d+)?)\s*(K|k)?\b/);
+          const amtCents = amtMatch
+            ? Math.round(parseFloat(amtMatch[1].replace(/,/g, '')) * (amtMatch[2] ? 1000 : 1) * 100)
+            : null;
+          const partialSlots: Record<string, unknown> = {};
+          if (clientHint) partialSlots.clientNameHint = clientHint;
+          if (amtCents && amtCents > 0) partialSlots.amountCents = amtCents;
+          if (Object.keys(partialSlots).length > 0) {
+            // We caught something — surface it so the next turn can merge.
+            const askingFor = !partialSlots.amountCents ? 'amount' : 'client';
+            const question = askingFor === 'amount'
+              ? `Got <b>${clientHint}</b> — how much? You can say "$5K" or "$5,000".`
+              : `Got <b>$${(amtCents! / 100).toLocaleString()}</b> — which client?`;
+            return {
+              stepId: step.id,
+              success: true,
+              data: {
+                kind: 'needs_clarify_partial',
+                intent: 'create_invoice_from_chat',
+                partialSlots,
+                awaiting: askingFor === 'amount' ? 'amountCents' : 'clientNameHint',
+                question,
+              },
+            };
+          }
           return {
             stepId: step.id,
             success: true,

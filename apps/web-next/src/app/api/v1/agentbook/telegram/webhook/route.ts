@@ -1348,7 +1348,15 @@ interface NeedsClarify {
   question: string;
 }
 
-type InvoiceStepData = DraftCreated | AmbiguousClient | NeedsClarify;
+interface NeedsClarifyPartial {
+  kind: 'needs_clarify_partial';
+  intent: string;
+  partialSlots: Record<string, unknown>;
+  awaiting: string;
+  question: string;
+}
+
+type InvoiceStepData = DraftCreated | AmbiguousClient | NeedsClarify | NeedsClarifyPartial;
 
 function fmtMoney(cents: number, currency: string): string {
   return `${currency === 'USD' ? '$' : currency + ' '}${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: cents % 100 === 0 ? 0 : 2 })}`;
@@ -1430,6 +1438,12 @@ async function renderInvoiceCreateResult(
 
   if (data.kind === 'needs_clarify') {
     await ctx.reply(`🤔 ${data.question}`);
+    return;
+  }
+
+  if (data.kind === 'needs_clarify_partial') {
+    // Use HTML so the bold partial we already captured renders.
+    await ctx.reply(`🤔 ${data.question}`, { parse_mode: 'HTML' });
     return;
   }
 
@@ -2309,11 +2323,45 @@ function getBot(): Bot {
     // entities the bot just mentioned; pending slot fills (e.g. asked
     // "how much?") get continued; the LLM classifier sees recent turns.
     // Written back after the bot replies via persistContextAfterReply().
-    const { getContext: loadCtx, appendTurn: appendTurnFn } = await import(
+    const { getContext: loadCtx, appendTurn: appendTurnFn, setPendingSlots: setPendingFn, setContext: setCtxFn } = await import(
       '@/lib/agentbook-conversation-context'
     );
     let convCtx = await loadCtx(tenantId, ctx.chat.id);
     convCtx = appendTurnFn(convCtx, 'user', text);
+
+    // Slot-fill loop intercept: if the bot was waiting on a missing slot
+    // (e.g. asked "How much?" after the user said "invoice Acme"),
+    // merge this reply into the pending slots and synthesize a canonical
+    // text that the existing parser can consume. This makes the bot
+    // genuinely conversational instead of re-classifying every turn.
+    let effectiveText = text;
+    if (convCtx.pendingSlots) {
+      const ps = convCtx.pendingSlots;
+      const filled: Record<string, unknown> = { ...ps.filled };
+      // Extract the awaited slot from the user's free-form reply.
+      if (ps.awaiting === 'amountCents') {
+        const m = text.match(/\$?([\d,]+(?:\.\d+)?)\s*(K|k)?\b/);
+        if (m) {
+          const v = Math.round(parseFloat(m[1].replace(/,/g, '')) * (m[2] ? 1000 : 1) * 100);
+          if (v > 0) filled.amountCents = v;
+        }
+      } else if (ps.awaiting === 'clientNameHint') {
+        // Use the user's whole reply as the client name (trimmed).
+        const guess = text.trim().replace(/^(?:the\s+)?(?:client\s+)?(.+?)[.!?]*$/i, '$1');
+        if (guess && guess.length >= 2) filled.clientNameHint = guess;
+      }
+      // If we have both client + amount for an invoice intent, synthesize
+      // a canonical phrase so the existing parser path handles it cleanly.
+      if (ps.intent === 'create_invoice_from_chat' && filled.clientNameHint && filled.amountCents) {
+        const amt = filled.amountCents as number;
+        const desc = (filled.description as string | undefined) || (text.match(/for\s+(.+)$/i)?.[1]) || 'work';
+        effectiveText = `invoice ${filled.clientNameHint} $${(amt / 100).toFixed(0)} for ${desc}`;
+        // Clear pending; the regular flow will handle the synthesized text.
+        convCtx = setPendingFn(convCtx, null);
+        // Persist immediately so a crash mid-handler doesn't re-trigger.
+        await setCtxFn(tenantId, ctx.chat.id, convCtx);
+      }
+    }
 
     // Commands that show static help text
     if (text === '/start') {
@@ -3122,12 +3170,29 @@ function getBot(): Bot {
               : null,
           },
         };
-        const loop = await runAgentLoop(text, botCtx);
-        // Persist the bot's reply into convCtx so next turn's LLM
-        // classifier sees this turn as recent context. Best-effort.
-        if (loop.evaluation.reply) {
-          const { appendTurn: at2, setContext: sc2 } = await import('@/lib/agentbook-conversation-context');
-          await sc2(tenantId, ctx.chat.id, at2(convCtx, 'bot', loop.evaluation.reply));
+        const loop = await runAgentLoop(effectiveText, botCtx);
+        // Persist the bot's reply + any partial-slot state. The
+        // executor surfaces 'needs_clarify_partial' with the slots it
+        // managed to extract; we stash that on convCtx so the user's
+        // next reply re-enters via the slot-fill intercept above.
+        const replyText = loop.evaluation.reply || '';
+        const partial = (loop.results || []).map((r) => r.data).find(
+          (d): d is { kind: 'needs_clarify_partial'; intent: string; partialSlots: Record<string, unknown>; awaiting: string; question: string } =>
+            !!d && typeof d === 'object' && (d as { kind?: string }).kind === 'needs_clarify_partial',
+        );
+        const { appendTurn: at2, setContext: sc2, setPendingSlots: sps2 } = await import('@/lib/agentbook-conversation-context');
+        let next = at2(convCtx, 'bot', replyText);
+        if (partial) {
+          next = sps2(next, {
+            intent: partial.intent,
+            filled: partial.partialSlots,
+            awaiting: partial.awaiting,
+            question: partial.question,
+            askedAt: new Date().toISOString(),
+          });
+        }
+        if (replyText || partial) {
+          await sc2(tenantId, ctx.chat.id, next);
         }
 
         // Invoice-from-chat: render the friendly draft preview / picker
