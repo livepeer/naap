@@ -16,6 +16,13 @@ import { autoCategorizeForTenant, type AutoCategoryResult } from '@/lib/agentboo
 import { getDigestPrefs, type DigestPrefs } from '@/lib/agentbook-digest-prefs';
 import { buildTipContext, generateTaxTip, generateCashFlowTip } from '@/lib/agentbook-digest-tips';
 import { getBudgetProgress, type BudgetProgress } from '@/lib/agentbook-budget-monitor';
+import {
+  buildHeader,
+  buildHighlights,
+  buildSnapshot,
+  buildTodos,
+  type DigestSummary,
+} from '@/lib/agentbook-digest-builder';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,6 +30,11 @@ export const maxDuration = 60;
 
 interface DigestData {
   cashTodayCents: number;
+  cashYesterdayCents: number;       // for the cash delta in the snapshot
+  arTotalCents: number;             // outstanding AR (sent + overdue, excluding paid)
+  arInvoiceCount: number;
+  mtdSpendCents: number;            // month-to-date business expenses (confirmed)
+  taxQEstimateCents: number | null; // most-recent quarterly estimate, when available
   yesterday: {
     paymentsInCents: number;
     expensesOutCents: number;
@@ -31,7 +43,7 @@ interface DigestData {
     expenseCount: number;
   };
   pendingReviewCount: number;
-  attention: { kind: string; title: string; amountCents?: number }[];
+  attention: { kind: string; title: string; amountCents?: number; daysPastDue?: number }[];
   upcomingThisWeek: { kind: string; label: string; daysOut: number; amountCents: number }[];
   anomalyCount: number;
   taxDaysUntilQ: number | null;
@@ -132,8 +144,50 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
       kind: 'overdue',
       title: `${inv.client?.name || 'Client'} · ${inv.number} · ${days}d overdue`,
       amountCents: inv.amountCents,
+      daysPastDue: days,
     };
   });
+
+  // Outstanding AR — for the snapshot. Includes overdue + still-current
+  // sent invoices. We re-fetch instead of reusing `overdueInvoices` so
+  // the count covers everything outstanding, not just past-due.
+  const arRows = await db.abInvoice.findMany({
+    where: { tenantId, status: { in: ['sent', 'viewed', 'overdue'] } },
+    select: { amountCents: true },
+  });
+  const arTotalCents = arRows.reduce((s, r) => s + r.amountCents, 0);
+  const arInvoiceCount = arRows.length;
+
+  // Cash 24h ago — sum every journal line dated < yStart so we can show
+  // a day-over-day delta in the snapshot. Cheap because the full ledger
+  // sum was already pulled above; we just diff against the more-recent
+  // change to derive the prior balance.
+  const recentJl = await db.abJournalLine.findMany({
+    where: {
+      entry: { tenantId, date: { gte: yStart, lt: now } },
+      account: { accountType: 'asset', isActive: true },
+    },
+    select: { debitCents: true, creditCents: true },
+  });
+  const cashChange24h = recentJl.reduce((s, l) => s + l.debitCents - l.creditCents, 0);
+  const cashYesterdayCents = cashTodayCents - cashChange24h;
+
+  // Month-to-date business expense total for the snapshot's spend line.
+  const mtdStart = new Date(now);
+  mtdStart.setDate(1);
+  mtdStart.setHours(0, 0, 0, 0);
+  const mtdRows = await db.abExpense.findMany({
+    where: {
+      tenantId,
+      date: { gte: mtdStart },
+      isPersonal: false,
+      status: 'confirmed',
+      // Soft-deleted rows (PR 26) shouldn't count toward MTD spend.
+      OR: [{ deletedAt: null }, { deletedAt: { gt: now } }],
+    },
+    select: { amountCents: true },
+  });
+  const mtdSpendCents = mtdRows.reduce((s, r) => s + r.amountCents, 0);
 
   // Upcoming invoice income + recurring outflows in next 7 days
   const upcomingInvoices = await db.abInvoice.findMany({
@@ -207,6 +261,20 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
   const taxDaysUntilQ = nextDeadline
     ? Math.round((nextDeadline.getTime() - now.getTime()) / 86_400_000)
     : null;
+
+  // Most-recent quarterly tax estimate, if the tax plugin has cached one
+  // (best-effort: the table may not exist in older schemas, which is fine).
+  let taxQEstimateCents: number | null = null;
+  try {
+    const est = await db.abTaxEstimate.findFirst({
+      where: { tenantId, period: { contains: '-Q' } },
+      orderBy: { calculatedAt: 'desc' },
+      select: { totalTaxCents: true },
+    });
+    if (est?.totalTaxCents != null) taxQEstimateCents = est.totalTaxCents;
+  } catch {
+    // Table missing or schema mismatch — silently skip; it's a digest enrichment.
+  }
 
   // Bank reconciliation: transactions in the 0.55–0.85 score band that
   // the matcher couldn't auto-apply. PR 9 surfaces them as interactive
@@ -355,6 +423,11 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
 
   return {
     cashTodayCents,
+    cashYesterdayCents,
+    arTotalCents,
+    arInvoiceCount,
+    mtdSpendCents,
+    taxQEstimateCents,
     yesterday: {
       paymentsInCents,
       expensesOutCents,
@@ -387,18 +460,79 @@ function composeMessage(
   prefs: DigestPrefs,
   tips: { tax?: string | null; cashFlow?: string | null },
   budgets?: BudgetProgress[],
+  ctx: { tenantTimezone: string; now: Date } = { tenantTimezone: 'America/New_York', now: new Date() },
 ): string {
   const concise = prefs.tone === 'concise';
   const sec = prefs.sections;
   const lines: string[] = [];
-  lines.push(`☀️ <b>Morning, ${escapeHtml(name)}</b>`);
-  lines.push('');
 
-  if (sec.cashOnHand) {
+  // ─── Header (date + greeting) ─────────────────────────────────────
+  lines.push(buildHeader({ tenantTimezone: ctx.tenantTimezone, name, now: ctx.now }));
+
+  // Build the summary object once; reused by highlights / snapshot / todos.
+  const hot = (budgets || []).filter((b) => b.percent >= 80);
+  const summary: DigestSummary = {
+    snapshot: {
+      cashTodayCents: d.cashTodayCents,
+      cashYesterdayCents: d.cashYesterdayCents,
+      arTotalCents: d.arTotalCents,
+      arInvoiceCount: d.arInvoiceCount,
+      mtdSpendCents: d.mtdSpendCents,
+      mtdBudgetTotalCents: hot.length === 0 ? null
+        : (budgets || []).filter((b) => b.period === 'monthly').reduce((s, b) => s + b.limitCents, 0) || null,
+    },
+    yesterday: d.yesterday,
+    pendingReviewCount: d.pendingReviewCount,
+    attention: d.attention.map((a) => ({
+      kind: a.kind, title: a.title, amountCents: a.amountCents, daysPastDue: a.daysPastDue,
+    })),
+    upcoming: d.upcomingThisWeek.map((u) => ({
+      kind: u.kind === 'income' ? 'income' as const : 'outflow' as const,
+      label: u.label, daysOut: u.daysOut, amountCents: u.amountCents,
+    })),
+    anomalyCount: d.anomalyCount,
+    taxDaysUntilQ: d.taxDaysUntilQ,
+    taxQEstimateCents: d.taxQEstimateCents,
+    bankReview: { count: d.bankReview.count, items: d.bankReview.items.map((b) => ({ amountCents: b.amountCents, merchantName: b.merchantName })) },
+    missingReceipts: {
+      count: d.missingReceipts.count,
+      items: d.missingReceipts.items.map((r) => ({ description: r.description, vendorName: r.vendorName, amountCents: r.amountCents, daysOld: r.daysOld })),
+    },
+    cpaRequests: d.cpaRequests.map((r) => ({ id: r.id, message: r.message })),
+    deductions: d.deductions.map((dd) => ({ id: dd.id, message: dd.message })),
+    hotBudgets: hot.map((b) => ({ categoryName: b.categoryName, spentCents: b.spentCents, limitCents: b.limitCents, percent: b.percent })),
+    ai: { appliedCount: ai.appliedCount, pendingCount: ai.pending.length },
+  };
+
+  // ─── Highlights (top 3 must-knows) ────────────────────────────────
+  if (sec.highlights) {
+    const highlights = buildHighlights(summary);
+    if (highlights.length > 0) {
+      lines.push('');
+      lines.push('📌 <b>Highlights</b>');
+      for (const h of highlights) lines.push(`  • ${h}`);
+    }
+  }
+
+  // ─── Snapshot (cash + AR + MTD spend) ─────────────────────────────
+  if (sec.snapshot) {
+    const snapshotLines = buildSnapshot(summary, { tenantTimezone: ctx.tenantTimezone, now: ctx.now });
+    if (snapshotLines.length > 0) {
+      lines.push('');
+      lines.push('📊 <b>Snapshot</b>');
+      for (const l of snapshotLines) lines.push(`  ${l}`);
+    }
+  }
+
+  // The legacy `cashOnHand` and `yesterday` standalone lines are now
+  // covered by the snapshot above. Render them only when the user has
+  // explicitly disabled the snapshot but kept those toggles on.
+  if (!sec.snapshot && sec.cashOnHand) {
+    lines.push('');
     lines.push(`💰 Cash on hand: <b>${fmt$(d.cashTodayCents)}</b>`);
   }
 
-  if (sec.yesterday && (d.yesterday.paymentCount > 0 || d.yesterday.expenseCount > 0)) {
+  if (!sec.snapshot && sec.yesterday && (d.yesterday.paymentCount > 0 || d.yesterday.expenseCount > 0)) {
     const sign = d.yesterday.netCents >= 0 ? '+' : '';
     lines.push(
       `📊 Yesterday: ${sign}${fmt$(d.yesterday.netCents)} (${d.yesterday.paymentCount} payment${d.yesterday.paymentCount === 1 ? '' : 's'} in / ${d.yesterday.expenseCount} expense${d.yesterday.expenseCount === 1 ? '' : 's'} out)`,
@@ -549,6 +683,16 @@ function composeMessage(
         );
       }
       if (hot.length > limit) lines.push(`  … and ${hot.length - limit} more`);
+    }
+  }
+
+  // ─── Today's TODO (prioritized action list) ───────────────────────
+  if (sec.todos) {
+    const todos = buildTodos(summary);
+    if (todos.length > 0) {
+      lines.push('');
+      lines.push('✅ <b>Today\'s TODO</b>');
+      for (const t of todos) lines.push(`  ${t}`);
     }
   }
 
@@ -832,7 +976,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         }
       }
 
-      const message = composeMessage(name, digest, ai, prefs, { tax: taxTip, cashFlow: cashFlowTip }, budgets);
+      const message = composeMessage(
+        name,
+        digest,
+        ai,
+        prefs,
+        { tax: taxTip, cashFlow: cashFlowTip },
+        budgets,
+        { tenantTimezone: tenant.timezone || 'America/New_York', now },
+      );
       // Review button covers BOTH queues — AI suggestions AND uncategorized
       // draft expenses. The unified review batch handler walks through both.
       const reviewCount = ai.pending.length + digest.pendingReviewCount;

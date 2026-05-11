@@ -30,6 +30,9 @@ export interface DigestSections {
   cpa_requests: boolean;             // PR 11: open CPA follow-ups
   deductions: boolean;               // PR 12: smart deduction discovery hits
   receipts: boolean;                 // PR 16: receipt-expiry warnings (>14d, no receipt)
+  highlights: boolean;               // top-of-digest 1-3 must-know bullets
+  snapshot: boolean;                 // cash + AR + MTD spend quick-glance
+  todos: boolean;                    // bottom-of-digest prioritized action list
 }
 
 export interface DigestPrefs {
@@ -41,7 +44,10 @@ export interface DigestPrefs {
 }
 
 export const DEFAULT_PREFS: DigestPrefs = {
-  hour: 7,
+  // Default to 6:00 LOCAL — the digest arrives before 7am so users wake to
+  // it. The cron fires hourly on the hour; users can move it via "setup
+  // briefing" or "move to 7am"/"move to 8am" replies.
+  hour: 6,
   minute: 0,
   tone: 'detailed',
   sections: {
@@ -59,6 +65,9 @@ export const DEFAULT_PREFS: DigestPrefs = {
     cpa_requests: true,                // default-on; cheap and useful
     deductions: true,                  // PR 12: default-on; one bot msg / cycle worst-case
     receipts: true,                    // PR 16: default-on; only fires for >14d business expenses
+    highlights: true,                  // top-of-digest 1-3 must-know bullets
+    snapshot: true,                    // 3-line quick-glance state
+    todos: true,                       // bottom-of-digest prioritized action list
   },
   setupComplete: false,
 };
@@ -279,6 +288,9 @@ function toggleSections(
     [/\b(cpa|accountant)\s*(requests?|asks?|follow[\- ]?ups?)?\b/, 'cpa_requests', 'CPA follow-ups'],
     [/\b(deduction|missed deduction|write[- ]?off)s?\b/, 'deductions', 'missed-deduction tips'],
     [/\b(receipt|missing receipt)s?\b/, 'receipts', 'missing-receipt warnings'],
+    [/\b(highlight|top\s+note)s?\b/, 'highlights', 'highlights'],
+    [/\b(snapshot|quick\s*glance|at\s+a\s+glance)\b/, 'snapshot', 'snapshot'],
+    [/\b(to[- ]?dos?|action\s*list|action\s*items?)\b/, 'todos', 'TODO list'],
     [/\ball (the )?tips?\b/, 'taxTips', 'all tips'],
   ];
   for (const [re, key, label] of map) {
@@ -311,7 +323,7 @@ Field domain:
    sections.* (each true|false):
       cashOnHand, yesterday, pendingReview, overdue, thisWeek, anomalies,
       taxDeadline, taxTips, cashFlowTips, autoCategorize, budgets,
-      cpa_requests, deductions, receipts
+      cpa_requests, deductions, receipts, highlights, snapshot, todos
 
 Return ONLY JSON:
 {
