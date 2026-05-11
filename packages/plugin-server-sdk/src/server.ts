@@ -109,13 +109,7 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
     corsOrigins,
     requireAuth = true,
     publicRoutes = ['/healthz'],
-    jwtSecret = (() => {
-      const s = process.env.NEXTAUTH_SECRET || process.env.JWT_SECRET;
-      if (!s && process.env.NODE_ENV === 'production') {
-        throw new Error('NEXTAUTH_SECRET or JWT_SECRET is required in production');
-      }
-      return s || 'dev-secret';
-    })(),
+    jwtSecret,
     compression: enableCompression = true,
     helmet: enableHelmet = true,
     rateLimit: rateLimitConfig = {},
@@ -235,8 +229,15 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
   // ─── Auth Middleware ───────────────────────────────────────────────
 
   if (requireAuth) {
+    const resolvedSecret = jwtSecret ?? (() => {
+      const s = process.env.NEXTAUTH_SECRET || process.env.JWT_SECRET;
+      if (!s && process.env.NODE_ENV === 'production') {
+        throw new Error('NEXTAUTH_SECRET or JWT_SECRET is required in production');
+      }
+      return s || 'dev-secret';
+    })();
     const authMiddleware = createAuthMiddleware({
-      secret: jwtSecret,
+      secret: resolvedSecret,
       publicPaths: publicRoutes,
     });
     app.use(authMiddleware);
