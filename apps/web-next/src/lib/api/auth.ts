@@ -452,8 +452,12 @@ export async function validateSession(token: string): Promise<AuthUser | null> {
     return null;
   }
 
-  // sessionVersion check: if user bumped their version, this session is stale
   if (session.user.sessionVersion !== (session.versionAtCreation ?? 0)) {
+    await prisma.session.delete({ where: { id: session.id } });
+    return null;
+  }
+
+  if (session.user.suspendedAt) {
     await prisma.session.delete({ where: { id: session.id } });
     return null;
   }
@@ -500,6 +504,11 @@ export async function validateSessionWithExpiry(token: string): Promise<{ user: 
     return null;
   }
 
+  if (session.user.suspendedAt) {
+    await prisma.session.delete({ where: { id: session.id } });
+    return null;
+  }
+
   const updateData: Record<string, unknown> = { lastUsedAt: new Date() };
   if (!session.tokenHash) {
     updateData.tokenHash = hash;
@@ -536,6 +545,11 @@ export async function refreshSession(token: string): Promise<{ expiresAt: Date }
   if (!session) return null;
 
   if (session.user.sessionVersion !== (session.versionAtCreation ?? 0)) {
+    await prisma.session.delete({ where: { id: session.id } });
+    return null;
+  }
+
+  if (session.user.suspendedAt) {
     await prisma.session.delete({ where: { id: session.id } });
     return null;
   }

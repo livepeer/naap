@@ -109,7 +109,13 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
     corsOrigins,
     requireAuth = true,
     publicRoutes = ['/healthz'],
-    jwtSecret = process.env.NEXTAUTH_SECRET || process.env.JWT_SECRET || 'dev-secret',
+    jwtSecret = (() => {
+      const s = process.env.NEXTAUTH_SECRET || process.env.JWT_SECRET;
+      if (!s && process.env.NODE_ENV === 'production') {
+        throw new Error('NEXTAUTH_SECRET or JWT_SECRET is required in production');
+      }
+      return s || 'dev-secret';
+    })(),
     compression: enableCompression = true,
     helmet: enableHelmet = true,
     rateLimit: rateLimitConfig = {},

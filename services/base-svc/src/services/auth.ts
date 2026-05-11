@@ -425,6 +425,11 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
         return null;
       }
 
+      if (session.user.suspendedAt) {
+        await prisma.session.delete({ where: { id: session.id } });
+        return null;
+      }
+
       const updateData: Record<string, unknown> = { lastUsedAt: new Date() };
       if (!session.tokenHash) {
         updateData.tokenHash = hash;
@@ -467,6 +472,11 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
         return null;
       }
 
+      if (session.user.suspendedAt) {
+        await prisma.session.delete({ where: { id: session.id } });
+        return null;
+      }
+
       const updateData: Record<string, unknown> = { lastUsedAt: new Date() };
       if (!session.tokenHash) {
         updateData.tokenHash = hash;
@@ -503,6 +513,11 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
       if (!session) return null;
 
       if (session.user.sessionVersion !== (session.versionAtCreation ?? 0)) {
+        await prisma.session.delete({ where: { id: session.id } });
+        return null;
+      }
+
+      if (session.user.suspendedAt) {
         await prisma.session.delete({ where: { id: session.id } });
         return null;
       }
@@ -710,6 +725,14 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
         userId = user.id;
       }
 
+      const userRecord = await prisma.user.findUnique({ where: { id: userId } });
+      if (userRecord?.suspendedAt) {
+        const err = new Error('Account suspended') as Error & { code?: string; reason?: string | null };
+        err.code = 'ACCOUNT_SUSPENDED';
+        err.reason = (userRecord as any).suspendedReason;
+        throw err;
+      }
+
       // Create session
       const { token, expiresAt } = await createSession(userId);
 
@@ -816,10 +839,12 @@ export function createAuthService(prisma: PrismaClient, oauthConfig?: OAuthConfi
 
       const passwordHash = await hashPassword(newPassword);
 
-      // Update user password
       await prisma.user.update({
         where: { id: resetToken.userId },
-        data: { passwordHash },
+        data: {
+          passwordHash,
+          sessionVersion: { increment: 1 },
+        },
       });
 
       // Mark token as used

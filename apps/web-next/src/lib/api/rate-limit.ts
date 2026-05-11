@@ -36,8 +36,7 @@ export function enforceRateLimit(
   const now = Date.now();
   const windowMs = options.windowMs ?? DEFAULT_WINDOW_MS;
   const maxRequests = options.maxRequests ?? DEFAULT_MAX_REQUESTS;
-  const ip = getClientIP(request);
-  if (!ip) return null;
+  const ip = getClientIP(request) || 'unknown';
   const key = `${options.keyPrefix}:${ip}`;
 
   cleanupExpiredEntries(now);
