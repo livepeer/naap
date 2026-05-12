@@ -42,9 +42,9 @@ vi.mock('@naap/database', () => {
       findUnique: vi.fn().mockResolvedValue({
         id: 'singleton',
         capabilities: [
-          { id: 'text-to-image', name: 'Text to Image', category: 't2i', gpuCount: 10, totalCapacity: 40, orchestratorCount: 5, meanPriceUsd: 0.003, minPriceUsd: 0.001, maxPriceUsd: 0.005, avgLatencyMs: 300, bestLatencyMs: 150, description: 'Image gen', models: [], tags: ['t2i'], source: 'livepeer', version: '1.0', modelSourceUrl: '', thumbnail: null, license: null, avgFps: null, priceUnit: 'pixel', sdkSnippet: { curl: '', python: '', javascript: '' }, lastUpdated: new Date().toISOString() },
-          { id: 'llm', name: 'LLM', category: 'llm', gpuCount: 6, totalCapacity: 24, orchestratorCount: 4, meanPriceUsd: 0.0001, minPriceUsd: 0.00005, maxPriceUsd: 0.0002, avgLatencyMs: 100, bestLatencyMs: 50, description: 'Chat', models: [], tags: ['llm'], source: 'livepeer', version: '1.0', modelSourceUrl: '', thumbnail: null, license: null, avgFps: null, priceUnit: 'token', sdkSnippet: { curl: '', python: '', javascript: '' }, lastUpdated: new Date().toISOString() },
-          { id: 'image-to-video', name: 'Image to Video', category: 'i2v', gpuCount: 3, totalCapacity: 10, orchestratorCount: 2, meanPriceUsd: 0.015, minPriceUsd: 0.01, maxPriceUsd: 0.02, avgLatencyMs: 2000, bestLatencyMs: 1500, description: 'Video gen', models: [], tags: ['i2v'], source: 'livepeer', version: '1.0', modelSourceUrl: '', thumbnail: null, license: null, avgFps: null, priceUnit: 'pixel', sdkSnippet: { curl: '', python: '', javascript: '' }, lastUpdated: new Date().toISOString() },
+          { id: 'text-to-image', name: 'Text to Image', category: 't2i', gpuCount: 10, totalCapacity: 40, orchestratorCount: 5, meanPriceUsd: 0.003, minPriceUsd: 0.001, maxPriceUsd: 0.005, avgLatencyMs: 300, description: 'Image gen', models: [], tags: ['t2i'], source: 'livepeer', version: '1.0', modelSourceUrl: '', thumbnail: null, license: null, avgFps: null, priceUnit: 'pixel', sdkSnippet: { curl: '', python: '', javascript: '' }, lastUpdated: new Date().toISOString() },
+          { id: 'llm', name: 'LLM', category: 'llm', gpuCount: 6, totalCapacity: 24, orchestratorCount: 4, meanPriceUsd: 0.0001, minPriceUsd: 0.00005, maxPriceUsd: 0.0002, avgLatencyMs: 100, description: 'Chat', models: [], tags: ['llm'], source: 'livepeer', version: '1.0', modelSourceUrl: '', thumbnail: null, license: null, avgFps: null, priceUnit: 'token', sdkSnippet: { curl: '', python: '', javascript: '' }, lastUpdated: new Date().toISOString() },
+          { id: 'image-to-video', name: 'Image to Video', category: 'i2v', gpuCount: 3, totalCapacity: 10, orchestratorCount: 2, meanPriceUsd: 0.015, minPriceUsd: 0.01, maxPriceUsd: 0.02, avgLatencyMs: 2000, description: 'Video gen', models: [], tags: ['i2v'], source: 'livepeer', version: '1.0', modelSourceUrl: '', thumbnail: null, license: null, avgFps: null, priceUnit: 'pixel', sdkSnippet: { curl: '', python: '', javascript: '' }, lastUpdated: new Date().toISOString() },
         ],
         stats: null,
         categories: null,
@@ -57,7 +57,7 @@ vi.mock('@naap/database', () => {
   return { prisma: mockPrisma };
 });
 
-import { createQuery, listQueries, getQuery, updateQuery, deleteQuery, evaluateQuery, seedDemoQueries } from '../queries.js';
+import { createQuery, listQueries, getQuery, updateQuery, deleteQuery, evaluateQuery } from '../queries.js';
 import { clearCache } from '../cache.js';
 
 describe('queries CRUD', () => {
@@ -174,23 +174,3 @@ describe('query evaluation', () => {
   });
 });
 
-describe('seed demo queries', () => {
-  beforeEach(() => {
-    mockQueries.clear();
-    clearCache();
-    vi.clearAllMocks();
-  });
-
-  it('seeds 4 demo queries', async () => {
-    const result = await seedDemoQueries({ ownerUserId: 'user-1' });
-    expect(result.created).toBe(4);
-    expect(result.total).toBe(4);
-  });
-
-  it('is idempotent', async () => {
-    await seedDemoQueries({ ownerUserId: 'user-1' });
-    const result2 = await seedDemoQueries({ ownerUserId: 'user-1' });
-    expect(result2.created).toBe(0);
-    expect(result2.total).toBe(4);
-  });
-});

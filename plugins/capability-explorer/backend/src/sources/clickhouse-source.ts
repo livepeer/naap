@@ -1,7 +1,7 @@
 import type { CapabilityDataSource, SourceContext, SourceResult, PartialCapability } from './interface.js';
 import type { ClickHouseCapabilitySummary, CapabilityCategory, EnrichedModel } from '../types.js';
 import { PIPELINE_TO_CATEGORY } from '../types.js';
-import { buildCapabilitySummarySQL, fetchFromClickHouse } from '../query.js';
+import { buildCapabilitySummarySQL, buildCapabilitySummaryWithoutLatencySQL, fetchFromClickHouse } from '../query.js';
 import { generateSnippets } from '../snippets.js';
 import { getHuggingFaceUrl } from '../hf-model-map.js';
 
@@ -40,6 +40,25 @@ function humanName(capabilityName: string): string {
     .join(' ');
 }
 
+async function fetchCapabilitySummaryRows(ctx: SourceContext): Promise<ClickHouseCapabilitySummary[]> {
+  try {
+    return await fetchFromClickHouse<ClickHouseCapabilitySummary>(buildCapabilitySummarySQL(), ctx);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isLatencyAccessDenied =
+      message.includes('ACCESS_DENIED') ||
+      message.includes('Not enough privileges') ||
+      message.includes('rt_daydream__discovery_results') ||
+      message.includes('gateway_latency_summary');
+    if (!isLatencyAccessDenied) {
+      throw err;
+    }
+
+    console.warn('[capability-explorer] Latency summary unavailable; refreshing capabilities without latency data');
+    return fetchFromClickHouse<ClickHouseCapabilitySummary>(buildCapabilitySummaryWithoutLatencySQL(), ctx);
+  }
+}
+
 export class ClickHouseSource implements CapabilityDataSource {
   readonly id = 'clickhouse';
   readonly name = 'ClickHouse Network Capabilities';
@@ -48,10 +67,17 @@ export class ClickHouseSource implements CapabilityDataSource {
   async fetch(ctx: SourceContext): Promise<SourceResult> {
     const start = Date.now();
     try {
-      const [rows, ethPriceUsd] = await Promise.all([
-        fetchFromClickHouse<ClickHouseCapabilitySummary>(buildCapabilitySummarySQL(), ctx),
+      const [rowsResult, ethPriceUsd] = await Promise.allSettled([
+        fetchCapabilitySummaryRows(ctx),
         fetchEthPriceUsd(),
       ]);
+
+      if (rowsResult.status === 'rejected') {
+        throw rowsResult.reason;
+      }
+
+      const rows = rowsResult.value;
+      const resolvedEthPriceUsd = ethPriceUsd.status === 'fulfilled' ? ethPriceUsd.value : 1800;
 
       const capabilities: PartialCapability[] = rows.map((row) => {
         const pipelineType = String(row.pipeline_type || '');
@@ -67,9 +93,9 @@ export class ClickHouseSource implements CapabilityDataSource {
         const minPriceWei = row.min_price_per_pixel_wei != null ? Number(row.min_price_per_pixel_wei) : null;
         const maxPriceWei = row.max_price_per_pixel_wei != null ? Number(row.max_price_per_pixel_wei) : null;
 
-        const avgPriceUsd = avgPriceWei != null ? weiPerPixelToUsdPerMin(avgPriceWei, ethPriceUsd) : null;
-        const minPriceUsd = minPriceWei != null ? weiPerPixelToUsdPerMin(minPriceWei, ethPriceUsd) : null;
-        const maxPriceUsd = maxPriceWei != null ? weiPerPixelToUsdPerMin(maxPriceWei, ethPriceUsd) : null;
+        const avgPriceUsd = avgPriceWei != null ? weiPerPixelToUsdPerMin(avgPriceWei, resolvedEthPriceUsd) : null;
+        const minPriceUsd = minPriceWei != null ? weiPerPixelToUsdPerMin(minPriceWei, resolvedEthPriceUsd) : null;
+        const maxPriceUsd = maxPriceWei != null ? weiPerPixelToUsdPerMin(maxPriceWei, resolvedEthPriceUsd) : null;
 
         const avgLatencyMs = row.avg_latency_ms != null ? Number(row.avg_latency_ms) : null;
 
@@ -101,7 +127,6 @@ export class ClickHouseSource implements CapabilityDataSource {
             totalCapacity: freeSlots > 0 ? freeSlots : totalSlots,
             orchestratorCount: orchCount,
             avgLatencyMs,
-            bestLatencyMs: null,
             avgFps: null,
             meanPriceUsd: avgPriceUsd,
             minPriceUsd,

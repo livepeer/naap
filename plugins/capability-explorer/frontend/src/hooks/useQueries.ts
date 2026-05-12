@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { CapabilityQueryRecord, CapabilityConnection } from '../lib/types';
-import { fetchQueries, fetchQueryResults, seedQueries as apiSeedQueries } from '../lib/api';
+import { fetchQueries, fetchQueryResults } from '../lib/api';
 
 interface QueryWithResults {
   query: CapabilityQueryRecord;
@@ -12,7 +12,6 @@ export function useQueries() {
   const [queries, setQueries] = useState<QueryWithResults[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [seeding, setSeeding] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -55,17 +54,5 @@ export function useQueries() {
 
   useEffect(() => { load(); }, [load]);
 
-  const seed = useCallback(async () => {
-    setSeeding(true);
-    try {
-      await apiSeedQueries();
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to seed queries');
-    } finally {
-      setSeeding(false);
-    }
-  }, [load]);
-
-  return { queries, loading, error, seeding, seed, refresh: load };
+  return { queries, loading, error, refresh: load };
 }

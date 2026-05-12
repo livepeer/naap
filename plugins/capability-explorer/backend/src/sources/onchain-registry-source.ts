@@ -21,6 +21,10 @@ interface OrchCapabilityResponse {
   }>;
 }
 
+interface OrchCapabilitiesEnvelope {
+  capabilities?: OrchCapabilityResponse[];
+}
+
 type FetchResult =
   | { status: 'capabilities'; data: OrchCapabilityResponse[] }
   | { status: 'reachable-no-caps' }
@@ -51,8 +55,11 @@ async function fetchOrchCapabilities(serviceURI: string): Promise<FetchResult> {
     if (Array.isArray(json) && json.length > 0) {
       return { status: 'capabilities', data: json as OrchCapabilityResponse[] };
     }
-    if (json && typeof json === 'object' && Array.isArray(json.capabilities) && json.capabilities.length > 0) {
-      return { status: 'capabilities', data: json.capabilities as OrchCapabilityResponse[] };
+    if (json && typeof json === 'object') {
+      const envelope = json as OrchCapabilitiesEnvelope;
+      if (Array.isArray(envelope.capabilities) && envelope.capabilities.length > 0) {
+        return { status: 'capabilities', data: envelope.capabilities };
+      }
     }
     return { status: 'reachable-no-caps' };
   } catch {
@@ -185,7 +192,6 @@ export class OnChainRegistrySource implements CapabilityDataSource {
               orchestratorCount: orchUris.length,
               _orchestratorUris: orchUris,
               avgLatencyMs: null,
-              bestLatencyMs: null,
               avgFps: null,
               meanPriceUsd: null,
               minPriceUsd: null,

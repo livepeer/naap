@@ -69,7 +69,6 @@ describe('enrichment', () => {
         totalCapacity: 1,
         orchestratorCount: 1,
         avgLatencyMs: null,
-        bestLatencyMs: null,
         avgFps: null,
         meanPriceUsd: null,
         minPriceUsd: null,

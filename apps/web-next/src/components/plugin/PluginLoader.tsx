@@ -169,6 +169,10 @@ export function PluginLoader({
       const currentShell = shellRef.current;
       const sameOriginEndpointUrl = typeof window !== 'undefined' ? window.location.origin : '';
       const pluginEndpointUrlKey = getShellEndpointUrlKey(plugin.name);
+      const publicAppUrl =
+        process.env.NEXT_PUBLIC_BASE_URL?.trim() ||
+        process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+        sameOriginEndpointUrl;
 
       // Create base shell context for plugin
       // NOTE: Must include all services from ShellContext interface for hooks to work
@@ -195,6 +199,8 @@ export function PluginLoader({
           // Same-origin so embedded plugins use shell's API routes (avoids Failed to fetch when standalone backend isn't running)
           [pluginEndpointUrlKey]: sameOriginEndpointUrl,
           baseEndpointUrl: sameOriginEndpointUrl,
+          /** Public origin for absolute URLs in plugin UIs (e.g. API docs). Prefer NEXT_PUBLIC_BASE_URL when the app is behind a proxy. */
+          publicAppUrl,
         },
       };
 

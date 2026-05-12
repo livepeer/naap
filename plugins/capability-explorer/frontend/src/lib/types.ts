@@ -34,7 +34,6 @@ export interface EnrichedCapability {
   totalCapacity: number;
   orchestratorCount: number;
   avgLatencyMs: number | null;
-  bestLatencyMs: number | null;
   avgFps: number | null;
   meanPriceUsd: number | null;
   minPriceUsd: number | null;

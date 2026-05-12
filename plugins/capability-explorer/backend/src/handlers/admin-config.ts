@@ -21,7 +21,12 @@ export async function handleGetConfig(): Promise<ApiResponse<CapabilityExplorerC
       update: {},
       create: {
         id: 'default',
-        enabledSources: { clickhouse: true, 'onchain-registry': true, huggingface: true },
+        enabledSources: {
+          clickhouse: true,
+          'onchain-registry': true,
+          'naap-orchestrators': true,
+          huggingface: true,
+        },
       },
     });
     return { success: true, data: toRecord(config as unknown as Record<string, unknown>) };
@@ -62,6 +67,7 @@ export async function handleUpdateConfig(
         enabledSources: parsed.data.enabledSources ?? {
           clickhouse: true,
           'onchain-registry': true,
+          'naap-orchestrators': true,
           huggingface: true,
         },
         refreshIntervalHours: parsed.data.refreshIntervalHours ?? 4,

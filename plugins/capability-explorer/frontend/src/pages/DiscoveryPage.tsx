@@ -1,11 +1,11 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Database, Loader2, AlertCircle, Activity, Layers } from 'lucide-react';
+import { Search, AlertCircle, Activity, Layers } from 'lucide-react';
 import { useQueries } from '../hooks/useQueries';
 import { QueryCard } from '../components/QueryCard';
 
 export const DiscoveryPage: React.FC = () => {
-  const { queries, loading, error, seeding, seed, refresh } = useQueries();
+  const { queries, loading, error, refresh } = useQueries();
   const navigate = useNavigate();
 
   return (
@@ -33,15 +33,6 @@ export const DiscoveryPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={seed}
-            disabled={seeding}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-xs font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
-            data-testid="seed-queries-btn"
-          >
-            {seeding ? <Loader2 size={12} className="animate-spin" /> : <Database size={12} />}
-            {seeding ? 'Seeding...' : 'Seed Demo Data'}
-          </button>
           <button
             onClick={refresh}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-secondary hover:bg-bg-tertiary text-text-secondary text-xs font-medium rounded-lg border border-[var(--border-color)] transition-colors"
@@ -82,15 +73,8 @@ export const DiscoveryPage: React.FC = () => {
           </div>
           <h2 className="text-lg font-semibold text-text-primary mb-2">No Discovery Queries Yet</h2>
           <p className="text-sm text-text-secondary max-w-md mx-auto mb-4">
-            Discovery queries let you save capability filters and access results via a stable API endpoint without passing parameters each time.
+            No saved queries yet. Add your first query from the Capability Explorer plugin to create reusable, user-specific API endpoints.
           </p>
-          <button
-            onClick={seed}
-            disabled={seeding}
-            className="px-4 py-2 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-sm font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
-          >
-            {seeding ? 'Seeding...' : 'Seed Demo Data to Get Started'}
-          </button>
         </div>
       )}
 

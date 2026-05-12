@@ -11,7 +11,6 @@ export { handleGraphQL } from './handlers/graphql.js';
 export { handleListQueries } from './handlers/queries-list.js';
 export { handleCreateQuery, handleGetQuery, handleUpdateQuery, handleDeleteQuery } from './handlers/queries-crud.js';
 export { handleGetQueryResults, handleGetQueryResultsBySlug } from './handlers/queries-results.js';
-export { handleSeedQueries } from './handlers/queries-seed.js';
 
 // V2: Admin handlers
 export { handleGetConfig, handleUpdateConfig } from './handlers/admin-config.js';
@@ -29,4 +28,3 @@ export { ensureDefaultSources } from './sources/index.js';
 
 // V2: Queries
 export type { QueryScope } from './queries.js';
-export { seedDemoQueries } from './queries.js';

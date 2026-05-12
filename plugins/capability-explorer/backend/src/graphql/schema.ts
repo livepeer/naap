@@ -74,7 +74,6 @@ type EnrichedCapability {
   orchestratorCount: Int!
   "Average latency in milliseconds (from gateway measurements)"
   avgLatencyMs: Float
-  bestLatencyMs: Float
   avgFps: Float
   "Mean price in USD per minute of 1024x1024 video at 30fps"
   meanPriceUsd: Float

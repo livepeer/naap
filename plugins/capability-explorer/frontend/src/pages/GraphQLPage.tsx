@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { Play, Copy, Check, RotateCcw, ChevronDown } from 'lucide-react';
 import { queryGraphQL } from '../lib/api';
+import { getCapabilityExplorerGraphqlHttpUrl } from '../lib/publicBaseUrl';
 
 const EXAMPLE_QUERIES: { label: string; query: string }[] = [
   {
@@ -93,8 +94,10 @@ export const GraphQLPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
   const [examplesOpen, setExamplesOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const graphqlHttpUrl = getCapabilityExplorerGraphqlHttpUrl();
 
   const execute = useCallback(async () => {
     if (!query.trim()) return;
@@ -104,9 +107,9 @@ export const GraphQLPage: React.FC = () => {
     setDuration(null);
     const start = performance.now();
     try {
-      const data = await queryGraphQL(query.trim());
+      const payload = await queryGraphQL(query.trim());
       setDuration(Math.round(performance.now() - start));
-      setResult(JSON.stringify(data, null, 2));
+      setResult(JSON.stringify(payload, null, 2));
     } catch (err) {
       setDuration(Math.round(performance.now() - start));
       setError(err instanceof Error ? err.message : 'Query failed');
@@ -264,12 +267,29 @@ export const GraphQLPage: React.FC = () => {
 
       {/* Endpoint info */}
       <div className="glass-card p-4 text-xs text-text-muted space-y-1.5">
-        <p className="font-medium text-text-secondary text-sm">Endpoint</p>
-        <code className="block px-3 py-2 bg-bg-tertiary rounded-lg font-mono text-text-primary">
-          POST /api/v1/capability-explorer/graphql
+        <div className="flex items-center justify-between gap-2">
+          <p className="font-medium text-text-secondary text-sm">Endpoint</p>
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(graphqlHttpUrl).then(() => {
+                setUrlCopied(true);
+                setTimeout(() => setUrlCopied(false), 1500);
+              });
+            }}
+            className="flex items-center gap-1 p-1 text-text-muted hover:text-text-primary transition-colors"
+            title="Copy full URL"
+          >
+            {urlCopied ? <Check size={12} className="text-accent-emerald" /> : <Copy size={12} />}
+          </button>
+        </div>
+        <code className="block px-3 py-2 bg-bg-tertiary rounded-lg font-mono text-[11px] text-text-primary break-all">
+          POST {graphqlHttpUrl}
         </code>
         <p className="pt-1">
           Send <code className="px-1 py-0.5 bg-bg-tertiary rounded text-text-secondary">{'{"query": "...", "variables": {}}'}</code> as JSON body with your Bearer token.
+          Public origin comes from <code className="px-1 py-0.5 bg-bg-tertiary rounded text-text-secondary">NEXT_PUBLIC_BASE_URL</code> (or{' '}
+          <code className="px-1 py-0.5 bg-bg-tertiary rounded text-text-secondary">NEXT_PUBLIC_APP_URL</code>) when set in the shell; otherwise the current browser origin is used.
         </p>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   registerSource,
   getSources,
@@ -7,6 +7,7 @@ import {
   getEnrichmentSources,
 } from '../sources/registry.js';
 import type { CapabilityDataSource, SourceContext, SourceResult } from '../sources/interface.js';
+import { NaapOrchestratorsSource } from '../sources/naap-orchestrators-source.js';
 
 function createMockSource(overrides: Partial<CapabilityDataSource> = {}): CapabilityDataSource {
   return {
@@ -90,5 +91,81 @@ describe('CapabilityDataSource interface', () => {
     expect(result.status).toBe('error');
     expect(result.capabilities).toHaveLength(0);
     expect(result.errorMessage).toBe('Connection timeout');
+  });
+});
+
+describe('NaapOrchestratorsSource', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('maps discovery orchestrators into partial capabilities', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify([
+        {
+          address: 'https://orch-a.example',
+          score: 0.85,
+          recent_work: true,
+          capabilities: [
+            'live-video-to-video/streamdiffusion-sdxl',
+            'openai-chat-completions/Qwen3-Coder-30B-A3B-Instruct',
+          ],
+        },
+        {
+          address: 'https://orch-b.example',
+          score: 0.62,
+          recent_work: false,
+          capabilities: ['live-video-to-video/streamdiffusion-sdxl'],
+        },
+      ]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const source = new NaapOrchestratorsSource();
+    const result = await source.fetch({ authToken: 'test', requestUrl: 'http://localhost' });
+
+    expect(result.status).toBe('success');
+    expect(result.capabilities.length).toBeGreaterThanOrEqual(2);
+
+    const liveVideo = result.capabilities.find((cap) => cap.id === 'streamdiffusion-sdxl');
+    expect(liveVideo).toBeDefined();
+    expect(liveVideo?.fields.category).toBe('live-video');
+    expect(liveVideo?.fields.orchestratorCount).toBe(2);
+    expect(liveVideo?.fields.gpuCount).toBe(2);
+    expect(liveVideo?.fields.tags).toContain('naap-discovery');
+
+    const llm = result.capabilities.find((cap) => cap.id === 'Qwen3-Coder-30B-A3B-Instruct');
+    expect(llm).toBeDefined();
+    expect(llm?.fields.category).toBe('llm');
+    expect(llm?.fields.models?.[0]?.warm).toBe(true);
+  });
+
+  it('returns error for malformed discovery payload', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ invalid: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const source = new NaapOrchestratorsSource();
+    const result = await source.fetch({ authToken: 'test', requestUrl: 'http://localhost' });
+
+    expect(result.status).toBe('error');
+    expect(result.capabilities).toHaveLength(0);
+    expect(result.errorMessage).toContain('expected JSON array');
+  });
+
+  it('returns error for network failures', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network unavailable'));
+
+    const source = new NaapOrchestratorsSource();
+    const result = await source.fetch({ authToken: 'test', requestUrl: 'http://localhost' });
+
+    expect(result.status).toBe('error');
+    expect(result.capabilities).toHaveLength(0);
+    expect(result.errorMessage).toContain('network unavailable');
   });
 });

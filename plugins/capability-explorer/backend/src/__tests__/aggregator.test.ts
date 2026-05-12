@@ -19,7 +19,6 @@ function makeCap(overrides: Partial<EnrichedCapability>): EnrichedCapability {
     totalCapacity: 10,
     orchestratorCount: 3,
     avgLatencyMs: 100,
-    bestLatencyMs: 50,
     avgFps: null,
     meanPriceUsd: 0.01,
     minPriceUsd: 0.005,

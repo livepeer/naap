@@ -1726,7 +1726,15 @@ result = [...result].sort((a, b) => {
 
       {/* ===== Create Key Modal ===== */}
       <Modal isOpen={showCreateModal} onClose={closeCreateModal}
-        title={createStep === 'form' ? 'Create API Key' : createStep === 'oauth' ? 'Authenticating...' : 'API Key Created'}
+        title={
+          createStep === 'form'
+            ? 'Create API Key'
+            : createStep === 'oauth'
+              ? selectedBillingProvider?.slug === 'pymthouse'
+                ? 'Provisioning PymtHouse...'
+                : 'Authenticating...'
+              : 'API Key Created'
+        }
         description={createStep === 'form' ? 'Configure your new API key' : undefined} size="lg">
         {createStep === 'form' && (
           <div className="space-y-4">
@@ -1754,7 +1762,11 @@ result = [...result].sort((a, b) => {
             </div>
             <div>
               <label className="block text-xs font-medium text-text-primary mb-1.5">Billing Provider</label>
-              <p className="text-xs text-text-secondary mb-2">You will be redirected to authenticate with the selected provider.</p>
+              <p className="text-xs text-text-secondary mb-2">
+                {selectedBillingProvider?.slug === 'pymthouse'
+                  ? 'PymtHouse uses a server-to-server link. There is no browser redirect or interactive sign-in.'
+                  : 'You will be redirected to authenticate with the selected provider.'}
+              </p>
               {modalDataLoading ? (
                 <div className="flex items-center gap-3 p-4 bg-bg-tertiary border border-white/10 rounded-lg">
                   <Loader2 size={18} className="text-text-secondary animate-spin flex-shrink-0" />
@@ -1818,8 +1830,16 @@ result = [...result].sort((a, b) => {
           <div className="flex flex-col items-center justify-center py-6 space-y-4">
             <Loader2 size={20} className="animate-spin text-text-secondary" />
             <div className="text-center">
-              <p className="text-text-primary font-medium">Waiting for authentication...</p>
-              <p className="text-sm text-text-secondary mt-1">Complete the sign-in in the new tab that opened. This page will update automatically.</p>
+              <p className="text-text-primary font-medium">
+                {selectedBillingProvider?.slug === 'pymthouse'
+                  ? 'Creating your PymtHouse billing key...'
+                  : 'Waiting for authentication...'}
+              </p>
+              <p className="text-sm text-text-secondary mt-1">
+                {selectedBillingProvider?.slug === 'pymthouse'
+                  ? 'The server is exchanging machine credentials with PymtHouse on your behalf. This page updates automatically when the key is ready—no new tab or interactive sign-in.'
+                  : 'Complete the sign-in in the new tab that opened. This page will update automatically.'}
+              </p>
             </div>
           </div>
         )}

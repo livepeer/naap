@@ -21,6 +21,8 @@ interface ShellContext {
   };
   config?: {
     apiBaseUrl?: string;
+    /** Injected by web-next PluginLoader from NEXT_PUBLIC_BASE_URL / NEXT_PUBLIC_APP_URL */
+    publicAppUrl?: string;
     [key: string]: unknown;
   };
 }

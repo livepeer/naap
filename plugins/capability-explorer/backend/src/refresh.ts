@@ -1,4 +1,4 @@
-import { prisma } from '@naap/database';
+import { prisma, Prisma } from '@naap/database';
 import type { EnrichedCapability, EnrichedModel, CategoryInfo, ExplorerStats, CapabilityCategory } from './types.js';
 import { CATEGORY_LABELS, CATEGORY_ICONS, CAPABILITY_CATEGORIES } from './types.js';
 import type { SourceContext, PartialCapability, CapabilityDataSource } from './sources/interface.js';
@@ -10,9 +10,14 @@ export interface RefreshResult {
   totalCapabilities: number;
 }
 
+function toJsonValue(value: unknown): Prisma.InputJsonValue {
+  return value as Prisma.InputJsonValue;
+}
+
 const DEFAULT_REFRESH_INTERVALS: Record<string, number> = {
   clickhouse: 4,
   'onchain-registry': 12,
+  'naap-orchestrators': 4,
   huggingface: 4,
 };
 
@@ -164,7 +169,12 @@ export async function refreshCapabilities(ctx: SourceContext, opts?: { force?: b
     update: {},
     create: {
       id: 'default',
-      enabledSources: { clickhouse: true, 'onchain-registry': true, huggingface: true },
+      enabledSources: {
+        clickhouse: true,
+        'onchain-registry': true,
+        'naap-orchestrators': true,
+        huggingface: true,
+      },
     },
   });
 
@@ -184,7 +194,7 @@ export async function refreshCapabilities(ctx: SourceContext, opts?: { force?: b
       await prisma.capabilitySnapshot.create({
         data: {
           sourceId: source.id,
-          data: result.capabilities as unknown as Record<string, unknown>,
+          data: toJsonValue(result.capabilities),
           status: result.status,
           errorMessage: result.errorMessage ?? null,
           durationMs: result.durationMs,
@@ -215,7 +225,7 @@ export async function refreshCapabilities(ctx: SourceContext, opts?: { force?: b
       await prisma.capabilitySnapshot.create({
         data: {
           sourceId: source.id,
-          data: result.capabilities as unknown as Record<string, unknown>,
+          data: toJsonValue(result.capabilities),
           status: result.status,
           errorMessage: result.errorMessage ?? null,
           durationMs: result.durationMs,
@@ -249,7 +259,6 @@ export async function refreshCapabilities(ctx: SourceContext, opts?: { force?: b
       totalCapacity: fields.totalCapacity || 0,
       orchestratorCount: fields.orchestratorCount || 0,
       avgLatencyMs: fields.avgLatencyMs ?? null,
-      bestLatencyMs: fields.bestLatencyMs ?? null,
       avgFps: fields.avgFps ?? null,
       meanPriceUsd: fields.meanPriceUsd ?? null,
       minPriceUsd: fields.minPriceUsd ?? null,
@@ -286,17 +295,17 @@ export async function refreshCapabilities(ctx: SourceContext, opts?: { force?: b
   await prisma.capabilityMergedView.upsert({
     where: { id: 'singleton' },
     update: {
-      capabilities: capabilities as unknown as Record<string, unknown>[],
-      stats: stats as unknown as Record<string, unknown>,
-      categories: categories as unknown as Record<string, unknown>[],
+      capabilities: toJsonValue(capabilities),
+      stats: toJsonValue(stats),
+      categories: toJsonValue(categories),
       mergedAt: new Date(),
       sourceIds,
     },
     create: {
       id: 'singleton',
-      capabilities: capabilities as unknown as Record<string, unknown>[],
-      stats: stats as unknown as Record<string, unknown>,
-      categories: categories as unknown as Record<string, unknown>[],
+      capabilities: toJsonValue(capabilities),
+      stats: toJsonValue(stats),
+      categories: toJsonValue(categories),
       sourceIds,
     },
   });

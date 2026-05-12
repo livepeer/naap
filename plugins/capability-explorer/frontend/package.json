@@ -11,6 +11,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@naap/plugin-utils": "*",
     "@naap/plugin-sdk": "*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

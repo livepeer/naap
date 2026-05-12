@@ -19,7 +19,6 @@ const FIXTURE_CAPABILITIES = {
         totalCapacity: 20,
         orchestratorCount: 8,
         avgLatencyMs: 120,
-        bestLatencyMs: 45,
         avgFps: null,
         meanPriceUsd: 0.0012,
         minPriceUsd: 0.0005,
@@ -50,7 +49,6 @@ const FIXTURE_CAPABILITIES = {
         totalCapacity: 50,
         orchestratorCount: 12,
         avgLatencyMs: 200,
-        bestLatencyMs: 80,
         avgFps: null,
         meanPriceUsd: 0.0005,
         minPriceUsd: 0.0002,
@@ -81,7 +79,6 @@ const FIXTURE_CAPABILITIES = {
         totalCapacity: 5,
         orchestratorCount: 3,
         avgLatencyMs: null,
-        bestLatencyMs: null,
         avgFps: null,
         meanPriceUsd: 0.05,
         minPriceUsd: 0.03,
@@ -342,11 +339,6 @@ const FIXTURE_QUERY_RESULTS = {
   },
 };
 
-const FIXTURE_SEED_RESPONSE = {
-  success: true,
-  data: { created: 4, total: 4 },
-};
-
 async function stubDiscoveryAPIs(page: Page) {
   await stubAPIs(page);
 
@@ -360,10 +352,6 @@ async function stubDiscoveryAPIs(page: Page) {
 
   await page.route('**/api/v1/capability-explorer/queries/*/results', (route) => {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_QUERY_RESULTS) });
-  });
-
-  await page.route('**/api/v1/capability-explorer/queries/seed', (route) => {
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_SEED_RESPONSE) });
   });
 
   await page.route('**/api/v1/capability-explorer/queries/*', (route) => {
@@ -396,12 +384,6 @@ test.describe('Discovery Page', () => {
     await expect(page.getByTestId('discovery-grid')).toBeVisible();
     await expect(page.getByTestId('query-card-top-image-gen')).toBeVisible();
     await expect(page.getByTestId('query-card-budget-llm')).toBeVisible();
-  });
-
-  test('seed demo data button triggers seed API', async ({ page }) => {
-    await page.goto('/capability-explorer');
-    await page.getByTestId('tab-discovery').click();
-    await expect(page.getByTestId('seed-queries-btn')).toBeVisible();
   });
 
   test('query card shows endpoint URL', async ({ page }) => {

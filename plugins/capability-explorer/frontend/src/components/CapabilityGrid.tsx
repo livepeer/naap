@@ -44,7 +44,11 @@ export const CapabilityGrid: React.FC<CapabilityGridProps> = ({ capabilities, vi
     return (
       <div className="flex flex-col items-center justify-center py-20 text-text-muted" data-testid="empty-state">
         <p className="text-lg font-medium mb-1">No capabilities found</p>
-        <p className="text-sm">Try adjusting your filters or search query.</p>
+        <p className="text-sm text-center max-w-md">
+          Try adjusting filters or search. If nothing matches with default filters, the merged snapshot may not be loaded
+          yet — check the Sources tab, trigger a refresh when allowed, or run{' '}
+          <code className="px-1 py-0.5 bg-bg-tertiary rounded text-[11px]">npx tsx bin/seed-capability-explorer.ts</code> for demo data.
+        </p>
       </div>
     );
   }

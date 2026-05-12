@@ -32,7 +32,6 @@ graph TB
 
   subgraph userFlow [User Discovery Flow]
     QueryCRUD["POST/GET/PUT/DELETE /queries<br/>user-scoped CRUD"]
-    SeedDemo["POST /queries/seed<br/>4 demo queries"]
     DiscoveryUI["Discovery Page<br/>card-based saved queries"]
   end
 
@@ -57,7 +56,6 @@ graph TB
   WarmCache --> GQLAPI
 
   QueryCRUD --> UserQuery
-  SeedDemo --> UserQuery
   UserQuery --> QueryResults
   DiscoveryUI --> QueryCRUD
   DiscoveryUI --> QueryResults
@@ -142,7 +140,6 @@ Built-in sources:
 | PUT | `/queries/:id` | Update a query |
 | DELETE | `/queries/:id` | Delete a query |
 | GET | `/queries/:id/results` | Evaluate query (stable endpoint) |
-| POST | `/queries/seed` | Seed 4 demo queries |
 
 ### Admin
 
@@ -183,8 +180,8 @@ The plugin frontend uses a **MemoryRouter** with two tabs:
 
 - **Cron**: `vercel.json` registers `/api/v1/capability-explorer/refresh` at `0 */4 * * *`
 - **Schema**: `prisma db push` in the build pipeline creates tables automatically
-- **Seed data**: `bin/seed-capability-explorer.ts` runs during build (step 3.7) to ensure preview deployments have demo data
-- **Preview branches**: Seed data provides 5 demo capabilities and 4 demo queries
+- **Seed data**: `bin/seed-capability-explorer.ts` runs during build/startup to ensure environments have baseline capabilities and discovery queries
+- **Preview branches**: Seed data provides 5 demo capabilities and 4 baseline discovery queries
 
 ## Gateway / MCP Integration
 

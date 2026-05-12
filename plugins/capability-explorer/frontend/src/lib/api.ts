@@ -1,18 +1,39 @@
+import { authHeaders } from '@naap/plugin-utils/auth';
 import type { CapabilityConnection, EnrichedCapability, CategoryInfo, ExplorerStats, SortField, SortOrder, CapabilityCategory, CapabilityQueryRecord, DataSourceInfo, ExplorerConfig, SnapshotRecord } from './types';
 
 const BASE_URL = '/api/v1/capability-explorer';
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+function mergeInit(init?: RequestInit): RequestInit {
+  const auth = authHeaders();
+  return {
+    credentials: 'include',
     ...init,
     headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
+      ...auth,
+      ...(init?.headers as Record<string, string>),
     },
-  });
-  const json = await res.json();
-  if (!json.success) {
-    throw new Error(json.error?.message || 'API request failed');
+  };
+}
+
+async function parseJsonResponse(res: Response): Promise<unknown> {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new Error(`Expected JSON (${res.status}): ${text.slice(0, 240)}`);
+  }
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, mergeInit(init));
+  const json = (await parseJsonResponse(res)) as {
+    success?: boolean;
+    data?: T;
+    error?: { message?: string };
+  };
+  if (!res.ok || !json.success) {
+    throw new Error(json.error?.message || `API request failed (${res.status})`);
   }
   return json.data as T;
 }
@@ -50,20 +71,35 @@ export async function fetchStats(): Promise<ExplorerStats> {
   return apiFetch<ExplorerStats>('/stats');
 }
 
-export async function queryGraphQL<T = unknown>(
+/** GraphQL envelope returned by POST /graphql (matches JSON body for external callers). */
+export interface GraphQLHttpPayload {
+  data?: unknown;
+  errors?: readonly unknown[];
+}
+
+export async function queryGraphQL(
   query: string,
   variables?: Record<string, unknown>,
-): Promise<T> {
-  const res = await fetch(`${BASE_URL}/graphql`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, variables }),
-  });
-  const json = await res.json();
-  if (!json.success) {
-    throw new Error(json.error?.message || 'GraphQL request failed');
+): Promise<GraphQLHttpPayload> {
+  const res = await fetch(
+    `${BASE_URL}/graphql`,
+    mergeInit({
+      method: 'POST',
+      body: JSON.stringify({ query, variables }),
+    }),
+  );
+  const json = (await parseJsonResponse(res)) as {
+    success?: boolean;
+    data?: GraphQLHttpPayload;
+    error?: { message?: string };
+  };
+  if (!res.ok || !json.success) {
+    throw new Error(json.error?.message || `GraphQL request failed (${res.status})`);
   }
-  return json.data?.data as T;
+  if (json.data === undefined || json.data === null) {
+    throw new Error('GraphQL response missing data envelope');
+  }
+  return json.data;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,12 +147,6 @@ export async function deleteQuery(id: string): Promise<{ deleted: boolean }> {
 
 export async function fetchQueryResults(id: string): Promise<CapabilityConnection> {
   return apiFetch<CapabilityConnection>(`/queries/${encodeURIComponent(id)}/results`);
-}
-
-export async function seedQueries(): Promise<{ created: number; total: number }> {
-  return apiFetch<{ created: number; total: number }>('/queries/seed', {
-    method: 'POST',
-  });
 }
 
 // ---------------------------------------------------------------------------

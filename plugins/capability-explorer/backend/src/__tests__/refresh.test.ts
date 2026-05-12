@@ -6,7 +6,12 @@ vi.mock('@naap/database', () => {
       upsert: vi.fn().mockResolvedValue({
         id: 'default',
         refreshIntervalHours: 4,
-        enabledSources: { clickhouse: true, 'onchain-registry': true, huggingface: true },
+        enabledSources: {
+          clickhouse: true,
+          'onchain-registry': true,
+          'naap-orchestrators': true,
+          huggingface: true,
+        },
         refreshIntervals: {},
         lastRefreshAt: null,
         lastRefreshStatus: null,

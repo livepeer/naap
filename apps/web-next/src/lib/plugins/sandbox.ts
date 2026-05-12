@@ -205,7 +205,9 @@ export function createSandboxedContext(
   };
 
   // Build sandboxed context
-  const sandboxedContext: ShellContext = {
+  const loaderConfig = (realContext as ShellContext & { config?: Record<string, unknown> }).config;
+
+  const sandboxedContext = {
     auth: sandboxedAuth,
     notifications: realContext.notifications,
     navigate: sandboxedNavigate,
@@ -221,7 +223,8 @@ export function createSandboxedContext(
     // Include tenant and team context for multi-tenancy support
     tenant: realContext.tenant,
     team: realContext.team,
-  };
+    ...(loaderConfig ? { config: loaderConfig } : {}),
+  } as ShellContext;
 
   return sandboxedContext;
 }

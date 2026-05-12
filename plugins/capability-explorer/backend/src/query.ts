@@ -1,6 +1,32 @@
 import type { HandlerContext, ClickHouseJSONResponse } from './types.js';
 
 const CLICKHOUSE_GW_PATH = '/api/v1/gw/clickhouse-query/query';
+const CLICKHOUSE_TIMEOUT_MS = 15_000;
+
+function getEnv(name: string): string {
+  return process.env[name]?.trim() ?? '';
+}
+
+function getDirectClickhouseConfig(): { url: string; user: string; password: string } | null {
+  const url = getEnv('CLICKHOUSE_URL');
+  const user = getEnv('CLICKHOUSE_USER');
+  const password = getEnv('CLICKHOUSE_PASSWORD');
+
+  if (!url && !user && !password) return null;
+  if (!url || !user || !password) {
+    throw new Error('CLICKHOUSE_URL, CLICKHOUSE_USER, and CLICKHOUSE_PASSWORD must all be set for direct ClickHouse access');
+  }
+
+  return { url, user, password };
+}
+
+function resolveDirectClickhouseUrl(rawUrl: string): string {
+  return new URL('/', rawUrl).toString();
+}
+
+function buildBasicAuthHeader(user: string, password: string): string {
+  return `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
+}
 
 export function resolveClickhouseGatewayQueryUrl(requestUrl?: string): string {
   const origin =
@@ -9,6 +35,32 @@ export function resolveClickhouseGatewayQueryUrl(requestUrl?: string): string {
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined) ||
     'http://localhost:3000';
   return new URL(CLICKHOUSE_GW_PATH, origin).toString();
+}
+
+export function resolveClickhouseQueryTarget(requestUrl?: string): {
+  url: string;
+  headers: Record<string, string>;
+  mode: 'direct' | 'gateway';
+} {
+  const direct = getDirectClickhouseConfig();
+  if (direct) {
+    return {
+      url: resolveDirectClickhouseUrl(direct.url),
+      headers: {
+        'Content-Type': 'text/plain',
+        Authorization: buildBasicAuthHeader(direct.user, direct.password),
+      },
+      mode: 'direct',
+    };
+  }
+
+  return {
+    url: resolveClickhouseGatewayQueryUrl(requestUrl),
+    headers: {
+      'Content-Type': 'text/plain',
+    },
+    mode: 'gateway',
+  };
 }
 
 export function buildCapabilitySummarySQL(): string {
@@ -53,6 +105,40 @@ ORDER BY gpus DESC
 FORMAT JSON`;
 }
 
+export function buildCapabilitySummaryWithoutLatencySQL(): string {
+  return `SELECT
+    c.capability_name,
+    any(c.pipeline_type)                                      AS pipeline_type,
+    uniq(c.orch_uri)                                          AS orchestrators,
+    uniq(concat(c.orch_uri, c.gpu_id))                        AS gpus,
+    sum(c.cap)                                                AS total_slots,
+    sum(c.in_use)                                             AS used_slots,
+    sum(c.cap) - sum(c.in_use)                                AS free_slots,
+    round((sum(c.cap) - sum(c.in_use)) / sum(c.cap) * 100, 1) AS free_pct,
+    round(avg(c.price_per_unit), 2)                           AS mean_price_per_pixel_wei,
+    round(min(c.price_per_unit), 2)                           AS min_price_per_pixel_wei,
+    round(max(c.price_per_unit), 2)                           AS max_price_per_pixel_wei,
+    CAST(NULL, 'Nullable(Float64)')                            AS avg_latency_ms
+FROM (
+    SELECT
+        capability_name,
+        any(pipeline_type)    AS pipeline_type,
+        orch_uri,
+        gpu_id,
+        max(total_capacity)   AS cap,
+        max(capacity_in_use)  AS in_use,
+        max(price_per_unit)   AS price_per_unit
+    FROM semantic.network_capabilities
+    WHERE timestamp_ts >= now() - INTERVAL 4 HOUR
+      AND total_capacity < 1000
+      AND total_capacity > 0
+    GROUP BY capability_name, orch_uri, gpu_id
+) AS c
+GROUP BY c.capability_name
+ORDER BY gpus DESC
+FORMAT JSON`;
+}
+
 export function buildFiltersSQL(): string {
   return `SELECT DISTINCT capability_name
 FROM semantic.network_capabilities
@@ -67,29 +153,29 @@ export async function fetchFromClickHouse<T>(
   sql: string,
   ctx: HandlerContext,
 ): Promise<T[]> {
-  const url = resolveClickhouseGatewayQueryUrl(ctx.requestUrl);
+  const target = resolveClickhouseQueryTarget(ctx.requestUrl);
+  const headers: Record<string, string> = { ...target.headers };
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'text/plain',
-    'Authorization': `Bearer ${ctx.authToken}`,
-  };
+  if (target.mode === 'gateway') {
+    headers.Authorization = `Bearer ${ctx.authToken}`;
 
-  if (ctx.cookieHeader) {
-    headers['cookie'] = ctx.cookieHeader;
+    if (ctx.cookieHeader) {
+      headers.cookie = ctx.cookieHeader;
+    }
+
+    const bypassSecret = typeof process !== 'undefined'
+      ? process.env?.VERCEL_AUTOMATION_BYPASS_SECRET
+      : undefined;
+    if (bypassSecret) {
+      headers['x-vercel-protection-bypass'] = bypassSecret;
+    }
   }
 
-  const bypassSecret = typeof process !== 'undefined'
-    ? process.env?.VERCEL_AUTOMATION_BYPASS_SECRET
-    : undefined;
-  if (bypassSecret) {
-    headers['x-vercel-protection-bypass'] = bypassSecret;
-  }
-
-  const res = await fetch(url, {
+  const res = await fetch(target.url, {
     method: 'POST',
     headers,
     body: sql,
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(CLICKHOUSE_TIMEOUT_MS),
   });
 
   if (!res.ok) {

@@ -104,7 +104,6 @@ export interface EnrichedCapability {
   orchestratorCount: number;
 
   avgLatencyMs: number | null;
-  bestLatencyMs: number | null;
   avgFps: number | null;
 
   meanPriceUsd: number | null;
@@ -177,12 +176,6 @@ export interface ClickHouseCapabilityRow {
   avail: number;
   total_cap: number;
   price_per_unit: number;
-}
-
-export interface ClickHouseLatencyRow {
-  orchestrator_url: string;
-  avg_latency: number | null;
-  best_latency: number | null;
 }
 
 export interface ClickHouseCapabilitySummary {
