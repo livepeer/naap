@@ -1,8 +1,8 @@
 /**
  * Source Adapter: ClickHouse Query
  *
- * Wraps the existing leaderboard SQL + gateway proxy path behind the
- * SourceAdapter interface. Returns per-capability orchestrator rows with
+ * Wraps the existing leaderboard SQL + ClickHouse access (direct env or
+ * gateway proxy) behind the SourceAdapter interface. Returns per-capability orchestrator rows with
  * GPU info, latency, swap-ratio, availability, and price.
  *
  * Supports two modes:

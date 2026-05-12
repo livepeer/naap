@@ -301,7 +301,10 @@ function loadScript(url: string, timeout: number): Promise<void> {
  */
 function loadStylesheet(url: string, timeout: number): Promise<HTMLLinkElement> {
   return new Promise((resolve, reject) => {
-    const existingLink = document.querySelector(`link[href="${url}"]`);
+    // Only reuse an actual stylesheet. `preloadPluginResources` (sidebar hover)
+    // inserts `rel="preload" as="style"` with the same href — that warms the cache
+    // but does not apply CSS; treating it as "loaded" left plugins unstyled.
+    const existingLink = document.querySelector(`link[rel="stylesheet"][href="${url}"]`);
     if (existingLink) {
       resolve(existingLink as HTMLLinkElement);
       return;
