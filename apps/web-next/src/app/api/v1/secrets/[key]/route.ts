@@ -1,12 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { validateSession } from '@/lib/api/auth';
+import { errors, getAuthToken } from '@/lib/api/response';
 
-// DELETE /api/v1/secrets/[key] - Delete a secret
+async function requireAdmin(request: NextRequest) {
+  const token = getAuthToken(request);
+  if (!token) return { error: errors.unauthorized('No auth token provided') };
+  const user = await validateSession(token);
+  if (!user) return { error: errors.unauthorized('Invalid or expired session') };
+  if (!user.roles.includes('system:admin')) return { error: errors.forbidden('Admin permission required') };
+  return { user };
+}
+
+// DELETE /api/v1/secrets/[key] - Delete a secret (admin only)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+
     const { key } = await params;
 
     const secret = await prisma.secretVault.findUnique({ where: { key } });
@@ -32,12 +46,15 @@ export async function DELETE(
   }
 }
 
-// GET /api/v1/secrets/[key] - Get secret metadata (not the value)
+// GET /api/v1/secrets/[key] - Get secret metadata (admin only)
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+
     const { key } = await params;
 
     const secret = await prisma.secretVault.findUnique({
