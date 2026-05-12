@@ -46,7 +46,7 @@ describe('bffStaleWhileRevalidate — BFF SWR contract (regression guard for #30
 
     expect(a.data).toEqual(b.data);
     expect(b.data).toEqual(c.data);
-    expect(calls, 'concurrent callers must coalesce onto one upstream fetch').toBeLessThanOrEqual(1);
+    expect(calls, 'concurrent callers must coalesce onto exactly one upstream fetch').toBe(1);
   });
 
   it('propagates fetcher errors on initial MISS and leaves cache empty', async () => {
