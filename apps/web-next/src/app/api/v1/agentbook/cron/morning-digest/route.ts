@@ -96,7 +96,7 @@ function fmt$(cents: number): string {
   return '$' + Math.round(cents / 100).toLocaleString('en-US');
 }
 
-async function buildDigest(tenantId: string): Promise<DigestData> {
+export async function buildDigest(tenantId: string): Promise<DigestData> {
   const now = new Date();
   const yStart = new Date(now); yStart.setDate(yStart.getDate() - 1); yStart.setHours(0, 0, 0, 0);
   const yEnd = new Date(yStart); yEnd.setHours(23, 59, 59, 999);
@@ -453,7 +453,7 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
   };
 }
 
-function composeMessage(
+export function composeMessage(
   name: string,
   d: DigestData,
   ai: AutoCategoryResult,

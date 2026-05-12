@@ -2323,11 +2323,117 @@ function getBot(): Bot {
     // entities the bot just mentioned; pending slot fills (e.g. asked
     // "how much?") get continued; the LLM classifier sees recent turns.
     // Written back after the bot replies via persistContextAfterReply().
-    const { getContext: loadCtx, appendTurn: appendTurnFn, setPendingSlots: setPendingFn, setContext: setCtxFn } = await import(
+    const { getContext: loadCtx, appendTurn: appendTurnFn, setPendingSlots: setPendingFn, setContext: setCtxFn, setMentionedEntities: setMentionedFn } = await import(
       '@/lib/agentbook-conversation-context'
     );
     let convCtx = await loadCtx(tenantId, ctx.chat.id);
     convCtx = appendTurnFn(convCtx, 'user', text);
+
+    // ─── On-demand daily briefing ───────────────────────────────────
+    // Typing "daily briefing" / "morning report" / "show my briefing"
+    // produces the SAME insightful digest the cron sends — header,
+    // highlights, snapshot, detail sections, and Today's TODO. Without
+    // this intercept the message falls through to the proactive-alerts
+    // skill and returns the older one-liner format.
+    if (/^(?:\/briefing|show\s+(?:my\s+)?briefing|daily\s+briefing|morning\s+(?:briefing|digest|report)|today'?s\s+(?:briefing|update|report))\s*\??$/i.test(text)) {
+      try {
+        const [digestMod, prefsMod, autoCatMod, tipsMod, budgetMod] = await Promise.all([
+          import('@/app/api/v1/agentbook/cron/morning-digest/route'),
+          import('@/lib/agentbook-digest-prefs'),
+          import('@/lib/agentbook-auto-categorize'),
+          import('@/lib/agentbook-digest-tips'),
+          import('@/lib/agentbook-budget-monitor'),
+        ]);
+        const tenant = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+        const [digest, prefs, ai] = await Promise.all([
+          digestMod.buildDigest(tenantId),
+          prefsMod.getDigestPrefs(tenantId),
+          autoCatMod.autoCategorizeForTenant(tenantId).catch(() => ({ appliedCount: 0, pending: [], skippedCount: 0 })),
+        ]);
+        // Best-effort tips + budgets; failures shouldn't block the reply.
+        let taxTip: string | null = null;
+        let cashFlowTip: string | null = null;
+        let budgets: Awaited<ReturnType<typeof budgetMod.getBudgetProgress>> = [];
+        try {
+          const tipCtx = await tipsMod.buildTipContext(tenantId);
+          if (prefs.sections.taxTips) taxTip = (await tipsMod.generateTaxTip(tipCtx))?.text ?? null;
+          if (prefs.sections.cashFlowTips) cashFlowTip = (await tipsMod.generateCashFlowTip(tipCtx))?.text ?? null;
+        } catch {/* skip tips on failure */}
+        if (prefs.sections.budgets) {
+          try { budgets = await budgetMod.getBudgetProgress(tenantId); } catch {/* skip */}
+        }
+        const name = tenant?.companyName || 'there';
+        const message = digestMod.composeMessage(
+          name, digest, ai, prefs, { tax: taxTip, cashFlow: cashFlowTip }, budgets,
+          { tenantTimezone: tenant?.timezone || 'America/New_York', now: new Date() },
+        );
+        await ctx.reply(message, { parse_mode: 'HTML' });
+        // Persist convCtx with bot topic so "more details" / "tell me
+        // more" follow-ups resolve to the digest, not the active expense.
+        const next = appendTurnFn(
+          { ...convCtx, lastBotTopic: 'daily_briefing' },
+          'bot',
+          'Daily briefing rendered.',
+        );
+        await setCtxFn(tenantId, ctx.chat.id, next);
+      } catch (err) {
+        console.error('[telegram] on-demand briefing failed:', err);
+        await ctx.reply('Couldn\'t pull today\'s briefing right now. Try again in a moment.');
+      }
+      return;
+    }
+
+    // ─── Contextual "more details" / "tell me more" follow-up ─────
+    // When the user replies vaguely after a recent bot topic, resolve
+    // the reference instead of asking which entity they mean. Today's
+    // implementation routes "more details" right after a digest to
+    // re-render the digest with the detailed tone. Future topics can
+    // hook the same pattern.
+    if (
+      convCtx.lastBotTopic === 'daily_briefing'
+      && /^(?:more\s+details?|tell\s+me\s+more|details?|expand|elaborate|give\s+me\s+(?:more|details))\b/i.test(text)
+    ) {
+      try {
+        const [digestMod, prefsMod, autoCatMod, tipsMod, budgetMod] = await Promise.all([
+          import('@/app/api/v1/agentbook/cron/morning-digest/route'),
+          import('@/lib/agentbook-digest-prefs'),
+          import('@/lib/agentbook-auto-categorize'),
+          import('@/lib/agentbook-digest-tips'),
+          import('@/lib/agentbook-budget-monitor'),
+        ]);
+        const tenant = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+        const [digest, basePrefs, ai] = await Promise.all([
+          digestMod.buildDigest(tenantId),
+          prefsMod.getDigestPrefs(tenantId),
+          autoCatMod.autoCategorizeForTenant(tenantId).catch(() => ({ appliedCount: 0, pending: [], skippedCount: 0 })),
+        ]);
+        // Force detailed tone for the "more details" follow-up.
+        const prefs = { ...basePrefs, tone: 'detailed' as const };
+        let budgets: Awaited<ReturnType<typeof budgetMod.getBudgetProgress>> = [];
+        if (prefs.sections.budgets) { try { budgets = await budgetMod.getBudgetProgress(tenantId); } catch {/* */} }
+        let taxTip: string | null = null;
+        let cashFlowTip: string | null = null;
+        try {
+          const tipCtx = await tipsMod.buildTipContext(tenantId);
+          if (prefs.sections.taxTips) taxTip = (await tipsMod.generateTaxTip(tipCtx))?.text ?? null;
+          if (prefs.sections.cashFlowTips) cashFlowTip = (await tipsMod.generateCashFlowTip(tipCtx))?.text ?? null;
+        } catch {/* skip */}
+        const name = tenant?.companyName || 'there';
+        const message = digestMod.composeMessage(
+          name, digest, ai, prefs, { tax: taxTip, cashFlow: cashFlowTip }, budgets,
+          { tenantTimezone: tenant?.timezone || 'America/New_York', now: new Date() },
+        );
+        await ctx.reply(message, { parse_mode: 'HTML' });
+        await setCtxFn(tenantId, ctx.chat.id, appendTurnFn(convCtx, 'bot', 'Detailed briefing rendered.'));
+      } catch (err) {
+        console.error('[telegram] briefing follow-up failed:', err);
+        await ctx.reply('Couldn\'t expand the briefing right now.');
+      }
+      return;
+    }
+    // Suppress unused-import warning when the new helper isn't called
+    // on the current branch — it's loaded once and shared across paths.
+    void setMentionedFn;
 
     // Slot-fill loop intercept: if the bot was waiting on a missing slot
     // (e.g. asked "How much?" after the user said "invoice Acme"),
