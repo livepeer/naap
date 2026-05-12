@@ -287,7 +287,6 @@ export function toPluginPackageData(
     isCore: plugin.isCore ?? false,
     visibleToUsers: plugin.visibleToUsers === false ? false : true,
     publishStatus: 'published',
-    visibleToUsers: true,
   } as Record<string, unknown>;
 }
 

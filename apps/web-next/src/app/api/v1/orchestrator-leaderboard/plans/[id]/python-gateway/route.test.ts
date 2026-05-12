@@ -59,6 +59,7 @@ describe('GET /api/v1/orchestrator-leaderboard/plans/:id/python-gateway', () => 
         'cap-b': [{ orchUri: 'https://orch-a.test', gpuName: 'x', gpuGb: 1, avail: 1, totalCap: 1, pricePerUnit: 1, bestLatMs: null, avgLatMs: null, swapRatio: null, avgAvail: null }],
       },
       meta: { totalOrchestrators: 3, refreshIntervalMs: 60_000, cacheAgeMs: 0 },
+      cacheStatus: 'MISS',
     });
   });
 

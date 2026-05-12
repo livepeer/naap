@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { readBffSwrEnv } from '@/lib/api/bff-swr';
+import { warmOrchestratorLeaderboard } from '@/lib/orchestrator-leaderboard/warm';
+import { readLeaderboardSwrEnv } from '@/lib/orchestrator-leaderboard/swr';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -16,8 +18,8 @@ function authorized(request: NextRequest): boolean {
 }
 
 /**
- * Warms slow BFF routes so the first real user typically sees SWR HIT/STALE from Redis/memory.
- * Upstream contract: repo-root `openapi.yaml` (NAAP Analytics API v1).
+ * Warms slow BFF routes + leaderboard caches so the first real user typically
+ * sees SWR HIT/STALE from Redis/memory.
  * Vercel Cron: set `CRON_SECRET` and schedule `GET /api/internal/bff-warm`.
  * Manual: `GET /api/internal/bff-warm?secret=$BFF_WARM_SECRET`
  */
@@ -60,9 +62,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
   }
 
+  // Warm leaderboard caches (global dataset + all enabled plan results)
+  let leaderboard: {
+    datasetHydrated: boolean;
+    datasetRefreshed: boolean;
+    plansRefreshed: number;
+    plansFailed: number;
+  } | null = null;
+  try {
+    leaderboard = await warmOrchestratorLeaderboard();
+  } catch (err) {
+    console.warn('[bff-warm] Leaderboard warm failed (non-fatal):', err);
+  }
+
   return NextResponse.json({
     ok: results.every((r) => r.ok),
     results,
+    leaderboard,
     swr: readBffSwrEnv(),
+    leaderboardSwr: readLeaderboardSwrEnv(),
   });
 }

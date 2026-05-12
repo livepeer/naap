@@ -23,7 +23,6 @@ const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/publish': 'pluginPublisher',
   '/daydream': 'daydreamVideo',
   '/lightning-client': 'lightningClient',
-  '/capability-explorer': 'capabilityExplorer',
   '/orchestrator-leaderboard': 'orchestratorLeaderboard',
 };
 

@@ -1,14 +1,14 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Map, Layers, Activity, Users, Loader2, Database, AlertCircle,
+  Map, Layers, Activity, Users, Loader2, AlertCircle,
   ChevronRight, Clock, Power, PowerOff,
 } from 'lucide-react';
 import { usePlans } from '../hooks/usePlans';
 import { EndpointGuide } from '../components/EndpointGuide';
 
 export const PlansOverviewPage: React.FC = () => {
-  const { plans, loading, error, seeding, seed, refresh } = usePlans();
+  const { plans, loading, error, refresh } = usePlans();
   const navigate = useNavigate();
 
   const stats = useMemo(() => {
@@ -48,14 +48,6 @@ export const PlansOverviewPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={seed}
-            disabled={seeding}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-xs font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
-          >
-            {seeding ? <Loader2 size={12} className="animate-spin" /> : <Database size={12} />}
-            {seeding ? 'Seeding...' : 'Seed Demo Data'}
-          </button>
           <button
             onClick={refresh}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-secondary hover:bg-bg-tertiary text-text-secondary text-xs font-medium rounded-lg border border-[var(--border-color)] transition-colors"
@@ -125,16 +117,12 @@ export const PlansOverviewPage: React.FC = () => {
             <Map size={36} />
           </div>
           <h2 className="text-lg font-semibold text-text-primary mb-2">No Discovery Plans Yet</h2>
-          <p className="text-sm text-text-secondary max-w-md mx-auto mb-4">
+          <p className="text-sm text-text-secondary max-w-md mx-auto mb-2">
             Discovery plans let you pre-configure orchestrator selection criteria and expose them as webhook endpoints for your signer.
           </p>
-          <button
-            onClick={seed}
-            disabled={seeding}
-            className="px-4 py-2 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-sm font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
-          >
-            {seeding ? 'Seeding...' : 'Seed Demo Data to Get Started'}
-          </button>
+          <p className="text-sm text-text-muted max-w-md mx-auto">
+            Plans are created automatically for your workspace. Try Refresh if this list is still empty.
+          </p>
         </div>
       )}
 

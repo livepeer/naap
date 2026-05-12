@@ -737,6 +737,13 @@ sync_unified_database() {
   DATABASE_URL="$UNIFIED_DB_URL" npx tsx bin/sync-plugin-registry.ts > "$LOG_DIR/sync-plugins.log" 2>&1 && \
     log_success "Plugin registry synced (see logs/sync-plugins.log for details)" || \
     log_warn "Plugin registry sync had issues (check logs/sync-plugins.log)"
+
+  # Step 6: Seed default discovery plans (idempotent — skips existing).
+  log_info "Seeding default discovery plans..."
+  cd "$ROOT_DIR" || { log_error "Failed to cd to root"; return 1; }
+  DATABASE_URL="$UNIFIED_DB_URL" npx tsx bin/seed-discovery-plans.ts > "$LOG_DIR/seed-discovery-plans.log" 2>&1 && \
+    log_success "Discovery plans seeded" || \
+    log_warn "Discovery plan seed had issues (check logs/seed-discovery-plans.log)"
 }
 
 ###############################################################################

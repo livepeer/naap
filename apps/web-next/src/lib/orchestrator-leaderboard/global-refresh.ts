@@ -161,7 +161,7 @@ export async function refreshGlobalDataset(
     perSource: sourceStats,
   });
 
-  clearPlanCache();
+  await clearPlanCache();
 
   return {
     refreshed: true,

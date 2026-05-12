@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api", "plugin_service_gateway", "plugin_capability_explorer", "plugin_orchestrator_leaderboard"]
+  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api", "plugin_service_gateway", "plugin_orchestrator_leaderboard"]
 }
 
 // ============================================
@@ -2237,77 +2237,6 @@ model ConnectorCapabilityRanking {
   @@unique([connectorId, category, modelName])
   @@index([category, qualityRank])
   @@schema("plugin_service_gateway")
-}
-
-// ============================================
-// CAPABILITY EXPLORER
-// ============================================
-
-/// Singleton row holding the merged, enriched capability dataset.
-/// Written by the cron refresh job; read by all user queries.
-model CapabilityMergedView {
-  id           String   @id @default("singleton")
-  capabilities Json
-  stats        Json?
-  categories   Json?
-  mergedAt     DateTime @default(now())
-  sourceIds    String[]
-  updatedAt    DateTime @updatedAt
-
-  @@schema("plugin_capability_explorer")
-}
-
-/// Per-source audit log written during each refresh cycle.
-model CapabilitySnapshot {
-  id           String   @id @default(cuid())
-  sourceId     String
-  data         Json
-  status       String   @default("success")
-  errorMessage String?
-  durationMs   Int      @default(0)
-  createdAt    DateTime @default(now())
-
-  @@index([sourceId, createdAt])
-  @@schema("plugin_capability_explorer")
-}
-
-/// Admin-managed configuration for the refresh engine.
-model CapabilityExplorerConfig {
-  id                   String    @id @default("default")
-  refreshIntervalHours Int       @default(4)
-  enabledSources       Json
-  refreshIntervals     Json      @default("{}")
-  lastRefreshAt        DateTime?
-  lastRefreshStatus    String?
-  updatedAt            DateTime  @updatedAt
-
-  @@schema("plugin_capability_explorer")
-}
-
-/// User-scoped saved capability filter — mirrors DiscoveryPlan pattern.
-/// Each user creates queries that extract subsets from the global dataset.
-model CapabilityQuery {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String
-  teamId      String?
-  ownerUserId String?
-  category    String?
-  search      String?
-  minGpuCount Int?
-  maxPriceUsd Float?
-  minCapacity Int?
-  sortBy      String?
-  sortOrder   String?  @default("asc")
-  limit       Int      @default(50)
-  enabled     Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@unique([ownerUserId, slug])
-  @@index([teamId, enabled])
-  @@index([ownerUserId, enabled])
-  @@schema("plugin_capability_explorer")
 }
 
 // ============================================

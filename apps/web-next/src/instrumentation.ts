@@ -67,5 +67,18 @@ export async function register() {
         .then((n) => console.log('[naap] Background cache re-warm:', n))
         .catch((err) => console.warn('[naap] Background re-warm failed:', err));
     }, rewarmMs);
+
+    // Orchestrator leaderboard: warm global dataset + discovery plan results
+    if (process.env.LEADERBOARD_STARTUP_WARM_ENABLED !== 'false') {
+      try {
+        const { warmOrchestratorLeaderboard } = await import(
+          '@/lib/orchestrator-leaderboard/warm'
+        );
+        const leaderboardResult = await warmOrchestratorLeaderboard();
+        console.log('[naap] Leaderboard cache warmed on startup:', leaderboardResult);
+      } catch (err) {
+        console.warn('[naap] Leaderboard startup warm failed (non-fatal):', err);
+      }
+    }
   }
 }

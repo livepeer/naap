@@ -7,9 +7,15 @@
  *
  * TTL = configured interval * 2, giving a grace period for stale reads
  * before the plan evaluator falls back to direct ClickHouse queries.
+ *
+ * Redis persistence: setGlobalDataset() writes through to Redis so other
+ * serverless instances can hydrate from cache on cold start instead of
+ * hitting ClickHouse immediately. hydrateGlobalDatasetFromCache() restores
+ * the in-memory dataset from Redis during startup.
  */
 
 import type { ClickHouseLeaderboardRow } from './types';
+import { persistDatasetToCache, loadDatasetFromCache } from './swr';
 
 export interface GlobalDataset {
   capabilities: Record<string, ClickHouseLeaderboardRow[]>;
@@ -33,7 +39,8 @@ export function getGlobalDataset(): GlobalDataset | null {
 }
 
 /**
- * Full-replace the global dataset cache.
+ * Full-replace the global dataset cache. Writes through to Redis so other
+ * instances can hydrate on cold start.
  * @param newDataset - the fresh dataset to store
  * @param intervalMs - the configured refresh interval in ms (TTL = interval * 2)
  */
@@ -44,6 +51,26 @@ export function setGlobalDataset(
   dataset = newDataset;
   if (intervalMs !== undefined) {
     ttlMs = intervalMs * 2;
+  }
+  persistDatasetToCache(newDataset).catch((err) => {
+    console.warn('[leaderboard] Failed to persist global dataset to Redis (non-fatal):', err);
+  });
+}
+
+/**
+ * Restore the in-memory global dataset from Redis. Returns true if a valid
+ * (non-expired) dataset was found and hydrated.
+ */
+export async function hydrateGlobalDatasetFromCache(): Promise<boolean> {
+  try {
+    const cached = await loadDatasetFromCache<GlobalDataset>();
+    if (!cached || !cached.refreshedAt) return false;
+    if (Date.now() > cached.refreshedAt + ttlMs) return false;
+    dataset = cached;
+    return true;
+  } catch (err) {
+    console.warn('[leaderboard] Failed to hydrate global dataset from cache:', err);
+    return false;
   }
 }
 

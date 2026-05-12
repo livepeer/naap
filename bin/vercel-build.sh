@@ -99,15 +99,9 @@ else
   echo "[3/6] Skipping prisma db push (VERCEL_ENV=${VERCEL_ENV:-unset}, only runs on production/preview)"
 fi
 
-# Step 3.5: Seed plugin data (capability explorer + orchestrator leaderboard).
+# Step 3.5: Seed plugin data (orchestrator leaderboard).
 # Runs after schema push so tables exist. All seeds are idempotent.
 if [ "${VERCEL_ENV}" = "production" ] || [ "${VERCEL_ENV}" = "preview" ]; then
-  echo "[3.5/6] Seeding capability explorer..."
-  npx tsx bin/seed-capability-explorer.ts || echo "WARN: capability explorer seed had issues (non-fatal)"
-
-  echo "[3.5/6] Seeding capability-explorer ClickHouse connector..."
-  npx tsx bin/seed-capability-connector.ts || echo "WARN: capability ClickHouse connector seed had issues (non-fatal)"
-
   if [ -n "${CLICKHOUSE_QUERY_USERNAME:-}" ] && [ -n "${CLICKHOUSE_QUERY_PASSWORD:-}" ]; then
     echo "[3.5/6] Seeding gateway connector (clickhouse-query)..."
     npx tsx bin/seed-gateway-connector.ts || echo "WARN: gateway connector seed had issues (non-fatal)"

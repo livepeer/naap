@@ -2,13 +2,14 @@
  * GET /api/v1/orchestrator-leaderboard/plans/:id/results
  *
  * Returns the latest evaluated results for a discovery plan.
- * Uses lazy evaluation: if cached and fresh, returns immediately;
+ * Uses Redis-backed SWR: if cached and fresh, returns immediately;
  * otherwise evaluates the plan on demand and caches the result.
  */
 
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';
 import { success, errors } from '@/lib/api/response';
 import { getAuthToken } from '@/lib/api/response';
@@ -44,6 +45,7 @@ export async function GET(
       authToken,
       request.url,
       request.headers.get('cookie'),
+      (work) => after(work),
     );
 
     const withPlanMeta = {
@@ -58,6 +60,7 @@ export async function GET(
 
     const response = success({ data: withPlanMeta });
     response.headers.set('Cache-Control', 'private, max-age=10');
+    response.headers.set('X-Cache', results.cacheStatus);
     response.headers.set('X-Cache-Age', String(results.meta.cacheAgeMs));
     response.headers.set('X-Refresh-Interval', String(results.meta.refreshIntervalMs));
     return response;

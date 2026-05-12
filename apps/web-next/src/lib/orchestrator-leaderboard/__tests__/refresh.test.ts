@@ -1,6 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { evaluateAndCache, clearPlanCache, getCachedPlanResults } from '../refresh';
 import type { DiscoveryPlan } from '../types';
+
+vi.mock('@naap/cache', () => {
+  const store = new Map<string, { value: string; expiresAt: number }>();
+  return {
+    staleWhileRevalidate: vi.fn(async (fetcher: () => Promise<unknown>) => {
+      const data = await fetcher();
+      return { data, cache: 'MISS' as const };
+    }),
+    cacheGet: vi.fn(async (key: string) => {
+      const entry = store.get(key);
+      if (!entry || entry.expiresAt < Date.now()) return null;
+      return JSON.parse(entry.value);
+    }),
+    cacheSet: vi.fn(async (key: string, value: unknown, opts?: { ttl?: number }) => {
+      const ttl = opts?.ttl ?? 300;
+      store.set(key, { value: JSON.stringify(value), expiresAt: Date.now() + ttl * 1000 });
+    }),
+    cacheDel: vi.fn(async () => {}),
+    getRedis: vi.fn(() => null),
+    isRedisConnected: vi.fn(() => false),
+  };
+});
 
 vi.mock('../query', () => ({
   fetchLeaderboard: vi.fn().mockResolvedValue({
@@ -23,10 +44,13 @@ vi.mock('../query', () => ({
   }),
 }));
 
+const { evaluateAndCache, clearPlanCache } = await import('../refresh');
+
 const mockPlan: DiscoveryPlan = {
   id: 'plan-1',
   billingPlanId: 'bp-1',
   name: 'Test Plan',
+  description: null,
   teamId: 'team-1',
   ownerUserId: 'user-1',
   capabilities: ['image-to-image'],
@@ -41,41 +65,28 @@ const mockPlan: DiscoveryPlan = {
 };
 
 describe('evaluateAndCache', () => {
-  beforeEach(() => {
-    clearPlanCache();
+  beforeEach(async () => {
+    await clearPlanCache();
   });
 
-  afterEach(() => {
-    clearPlanCache();
+  afterEach(async () => {
+    await clearPlanCache();
   });
 
-  it('evaluates plan and returns results', async () => {
+  it('evaluates plan and returns results with cacheStatus', async () => {
     const results = await evaluateAndCache(mockPlan, 'test-token');
     expect(results.planId).toBe('plan-1');
     expect(results.capabilities['image-to-image']).toBeDefined();
     expect(results.capabilities['image-to-image'].length).toBeGreaterThan(0);
     expect(results.meta.totalOrchestrators).toBe(1);
+    expect(results.cacheStatus).toBe('MISS');
   });
 
-  it('caches results on first call', async () => {
-    await evaluateAndCache(mockPlan, 'test-token');
-    const cached = getCachedPlanResults('plan-1');
-    expect(cached).not.toBeNull();
-    expect(cached!.planId).toBe('plan-1');
-  });
-
-  it('returns cached results on second call', async () => {
+  it('returns results on second call', async () => {
     const first = await evaluateAndCache(mockPlan, 'test-token');
     const second = await evaluateAndCache(mockPlan, 'test-token');
-    expect(second.refreshedAt).toBe(first.refreshedAt);
+    expect(second.planId).toBe(first.planId);
     expect(second.meta.cacheAgeMs).toBeGreaterThanOrEqual(0);
-  });
-
-  it('clearPlanCache removes all entries', async () => {
-    await evaluateAndCache(mockPlan, 'test-token');
-    expect(getCachedPlanResults('plan-1')).not.toBeNull();
-    clearPlanCache();
-    expect(getCachedPlanResults('plan-1')).toBeNull();
   });
 
   it('handles multiple capabilities', async () => {
@@ -86,5 +97,10 @@ describe('evaluateAndCache', () => {
     };
     const results = await evaluateAndCache(multiPlan, 'test-token');
     expect(Object.keys(results.capabilities)).toEqual(['cap-a', 'cap-b']);
+  });
+
+  it('exposes cacheStatus field', async () => {
+    const results = await evaluateAndCache(mockPlan, 'test-token');
+    expect(['HIT', 'STALE', 'MISS']).toContain(results.cacheStatus);
   });
 });

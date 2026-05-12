@@ -78,24 +78,6 @@ export async function authorize(request: Request): Promise<AuthResult | null> {
     return authorizeJwt(token, request);
   }
 
-  // Path 3: CRON_SECRET auth — restricted to internal cron-only routes
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
-    const url = new URL(request.url);
-    const CRON_ALLOWED_PATHS = [
-      '/api/v1/capability-explorer/refresh',
-      '/api/v1/capability-explorer/admin/refresh',
-    ];
-    if (CRON_ALLOWED_PATHS.some((p) => url.pathname.startsWith(p))) {
-      return {
-        authenticated: true,
-        callerType: 'cron',
-        callerId: 'system:cron',
-        teamId: 'system:cron',
-      };
-    }
-  }
-
   return null;
 }
 

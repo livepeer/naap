@@ -10,6 +10,7 @@
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 
 import { authorize } from '@/lib/gateway/authorize';
 import { getAuthToken } from '@/lib/api/response';
@@ -59,6 +60,7 @@ export async function GET(
       authToken,
       request.url,
       request.headers.get('cookie'),
+      (work) => after(work),
     );
 
     const out: { address: string }[] = [];
@@ -82,6 +84,7 @@ export async function GET(
     return NextResponse.json(randomized, {
       headers: {
         'Cache-Control': 'private, max-age=10',
+        'X-Cache': results.cacheStatus,
         'X-Cache-Age': String(results.meta.cacheAgeMs),
         'X-Refresh-Interval': String(results.meta.refreshIntervalMs),
       },

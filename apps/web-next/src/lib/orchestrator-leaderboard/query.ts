@@ -3,8 +3,8 @@
  *
  * Builds the leaderboard SQL with safe parameter substitution and fetches
  * results either directly against ClickHouse (CLICKHOUSE_URL + USER +
- * PASSWORD) or through the service gateway's clickhouse-query connector,
- * matching capability-explorer behavior. Integrates with the in-memory cache
+ * PASSWORD) or through the service gateway's clickhouse-query connector.
+ * Integrates with the in-memory cache
  * to avoid redundant ClickHouse queries.
  */
 

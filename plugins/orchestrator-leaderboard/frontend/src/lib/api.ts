@@ -410,22 +410,3 @@ export async function fetchAudits(limit = 20, cursor?: string): Promise<{
     hasMore: json.pagination?.hasMore ?? false,
   };
 }
-
-export async function seedDemoPlans(): Promise<{ created: number }> {
-  const res = await fetch(`${BASE_URL}/plans/seed`, {
-    method: 'POST',
-    headers: buildHeaders(true),
-    credentials: 'include',
-    signal: AbortSignal.timeout(10_000),
-  });
-
-  if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    throw new Error(json?.error?.message || `Request failed (${res.status})`);
-  }
-
-  const json: APIResponse<{ created: number }> = await res.json();
-  if (!json.success) throw new Error(json.error?.message || 'Request failed');
-
-  return json.data;
-}

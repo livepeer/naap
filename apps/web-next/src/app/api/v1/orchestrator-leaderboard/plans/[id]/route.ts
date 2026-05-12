@@ -56,7 +56,7 @@ export async function PUT(
   const plan = await updatePlan(id, parsed.data, scopeFromAuth(auth));
   if (!plan) return errors.notFound('Plan not found');
 
-  invalidatePlanCache(id);
+  await invalidatePlanCache(id);
   return success({ plan });
 }
 
