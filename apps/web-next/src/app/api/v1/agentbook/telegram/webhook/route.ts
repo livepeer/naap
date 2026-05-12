@@ -2329,6 +2329,14 @@ function getBot(): Bot {
     let convCtx = await loadCtx(tenantId, ctx.chat.id);
     convCtx = appendTurnFn(convCtx, 'user', text);
 
+    // ─── PR 1: Unified conversation thread (foundation) ─────────────
+    // Open or fetch the active thread, append the user turn. Coexists
+    // with the legacy convCtx above — both writes are best-effort.
+    // PR 2 will retire convCtx and route every flow through the thread.
+    const threadMod = await import('@/lib/agentbook-thread');
+    let thread = await threadMod.openThread(tenantId, 'telegram', ctx.chat.id);
+    thread = await threadMod.addTurn(thread, 'user', text);
+
     // ─── On-demand daily briefing ───────────────────────────────────
     // Typing "daily briefing" / "morning report" / "show my briefing"
     // produces the SAME insightful digest the cron sends — header,
@@ -2376,6 +2384,9 @@ function getBot(): Bot {
           'Daily briefing rendered.',
         );
         await setCtxFn(tenantId, ctx.chat.id, next);
+        // PR 1: also record into the unified thread + label its topic.
+        thread = await threadMod.addTurn(thread, 'bot', 'Daily briefing rendered.', 'show_daily_briefing');
+        thread = await threadMod.setTopic(thread, 'reporting', 'daily_briefing');
       } catch (err) {
         console.error('[telegram] on-demand briefing failed:', err);
         await ctx.reply('Couldn\'t pull today\'s briefing right now. Try again in a moment.');
@@ -2425,6 +2436,7 @@ function getBot(): Bot {
         );
         await ctx.reply(message, { parse_mode: 'HTML' });
         await setCtxFn(tenantId, ctx.chat.id, appendTurnFn(convCtx, 'bot', 'Detailed briefing rendered.'));
+        thread = await threadMod.addTurn(thread, 'bot', 'Detailed briefing rendered.', 'show_daily_briefing');
       } catch (err) {
         console.error('[telegram] briefing follow-up failed:', err);
         await ctx.reply('Couldn\'t expand the briefing right now.');
@@ -3299,6 +3311,21 @@ function getBot(): Bot {
         }
         if (replyText || partial) {
           await sc2(tenantId, ctx.chat.id, next);
+        }
+
+        // PR 1: mirror the bot turn + pending slots into the unified thread.
+        // Best-effort — failures here must not affect the user-facing reply.
+        if (replyText) {
+          thread = await threadMod.addTurn(thread, 'bot', replyText, loop.intent.intent);
+        }
+        if (partial) {
+          thread = await threadMod.setPendingSlots(thread, {
+            intent: partial.intent,
+            filled: partial.partialSlots,
+            awaiting: partial.awaiting,
+            question: partial.question,
+            askedAt: new Date().toISOString(),
+          });
         }
 
         // Invoice-from-chat: render the friendly draft preview / picker

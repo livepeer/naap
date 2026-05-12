@@ -2462,6 +2462,50 @@ model AbSkillManifest {
   @@schema("plugin_agentbook_core")
 }
 
+// Conversation thread — a coherent unit of user ↔ bot dialogue.
+// One row per (tenantId, channel, chatId) at any time with status='active';
+// closure (by idle, length, explicit, or topic shift) ends the thread and
+// a fresh one opens on the next turn. See plan doc 2026-05-12.
+model AbConvThread {
+  id          String    @id @default(uuid())
+  tenantId    String
+  channel     String                              // 'telegram' | 'web' | 'api'
+  chatId      String                              // Telegram chat id or web session id (string-shaped)
+  status      String    @default("active")        // 'active' | 'closed' | 'archived'
+  startedAt   DateTime  @default(now())
+  lastActiveAt DateTime @default(now())
+  closedAt    DateTime?
+  closeReason String?                             // 'idle_timeout' | 'topic_shift' | 'explicit' | 'length_cap'
+
+  // What's in flight — the working set of entities the user is operating on.
+  // Shape: [{kind, id, label, focus: bool, addedAt}]
+  activeEntities Json    @default("[]")
+  // Currently-focused entity id — references the entry in activeEntities.
+  // What "this", "fix it", "the receipt" resolve to.
+  focusedEntityId String?
+
+  // Multi-turn slot accumulator currently being filled, if any.
+  // Same shape as PendingSlots in agentbook-conversation-context.ts.
+  pendingSlots   Json?
+  // Slot fills the user set aside via a topic switch — re-attach on return.
+  parkedFills    Json    @default("[]")
+
+  topic       String?                             // 'expense_management' | 'invoice_management' | ...
+  subtopic    String?                             // narrower label
+
+  // Recent verbatim history (capped at ~6 turns).
+  turns       Json      @default("[]")            // [{role, text, at, intent?}]
+  turnCount   Int       @default(0)               // total ever in thread (not just kept)
+  summary     String?                             // <= 800 chars compressed older turns
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantId, channel, chatId, status])
+  @@index([tenantId, status, lastActiveAt])
+  @@schema("plugin_agentbook_core")
+}
+
 model AbUserMemory {
   id          String    @id @default(uuid())
   tenantId    String
