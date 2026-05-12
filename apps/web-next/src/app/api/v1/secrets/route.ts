@@ -1,22 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { validateSession } from '@/lib/api/auth';
+import { errors, getAuthToken } from '@/lib/api/response';
 import * as crypto from 'crypto';
 
-// Encryption utilities
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+async function requireAdmin(request: NextRequest) {
+  const token = getAuthToken(request);
+  if (!token) return { error: errors.unauthorized('No auth token provided') };
+  const user = await validateSession(token);
+  if (!user) return { error: errors.unauthorized('Invalid or expired session') };
+  if (!user.roles.includes('system:admin')) return { error: errors.forbidden('Admin permission required') };
+  return { user };
+}
+
+function getEncryptionKey(): string {
+  const key = process.env.ENCRYPTION_KEY;
+  if (!key) {
+    throw new Error(
+      'ENCRYPTION_KEY environment variable is required. ' +
+      'Set it in your .env.local or Vercel project settings.'
+    );
+  }
+  return key;
+}
 
 function encrypt(text: string): { encryptedValue: string; iv: string } {
+  const masterKey = getEncryptionKey();
+  const salt = crypto.randomBytes(32);
   const iv = crypto.randomBytes(16);
-  const key = Buffer.from(ENCRYPTION_KEY.slice(0, 32).padEnd(32, '0'));
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  
-  const authTag = cipher.getAuthTag();
-  
+  const derivedKey = crypto.scryptSync(masterKey, salt, 32, { N: 16384, r: 8, p: 1 });
+
+  const cipher = crypto.createCipheriv('aes-256-gcm', derivedKey, iv);
+  const ct = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  const encryptedValue = `v1:gcm:scrypt:${salt.toString('hex')}:${iv.toString('hex')}:${ct.toString('hex')}:${tag.toString('hex')}`;
   return {
-    encryptedValue: encrypted + ':' + authTag.toString('hex'),
+    encryptedValue,
     iv: iv.toString('hex'),
   };
 }
@@ -27,9 +47,12 @@ function maskValue(key: string): string {
   return key.slice(0, 4) + '*'.repeat(Math.min(key.length - 4, 20));
 }
 
-// GET /api/v1/secrets - List all secrets (masked values)
+// GET /api/v1/secrets - List all secrets (masked values, admin only)
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+
     const { searchParams } = new URL(request.url);
     const scope = searchParams.get('scope') || 'global';
 
@@ -69,9 +92,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-// POST /api/v1/secrets - Create a new secret
+// POST /api/v1/secrets - Create a new secret (admin only)
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+
     const body = await request.json();
     const { key, value, description, scope = 'global' } = body;
 

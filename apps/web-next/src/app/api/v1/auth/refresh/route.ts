@@ -6,6 +6,7 @@
 import {NextRequest, NextResponse } from 'next/server';
 import { refreshSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
+import { validateCSRF } from '@/lib/api/csrf';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -14,6 +15,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!token) {
       return errors.unauthorized('No auth token provided');
     }
+
+    const csrfError = validateCSRF(request, { shadowMode: true });
+    if (csrfError) return csrfError;
 
     const result = await refreshSession(token);
 

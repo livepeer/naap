@@ -16,7 +16,16 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "ioredis": "^5.10.0"
+    "@ioredis/commands": "1.5.1",
+    "cluster-key-slot": "^1.1.0",
+    "debug": "^4.3.4",
+    "denque": "^2.1.0",
+    "ioredis": "^5.10.0",
+    "lodash.defaults": "^4.2.0",
+    "lodash.isarguments": "^3.1.0",
+    "redis-errors": "^1.2.0",
+    "redis-parser": "^3.0.0",
+    "standard-as-callback": "^2.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.35",

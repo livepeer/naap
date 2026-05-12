@@ -27,7 +27,7 @@ const NAAP_API_QUERY = /* GraphQL */ `
   query NaapApiData($timeframe: String) {
     kpi(timeframe: $timeframe) {
       successRate { value delta }
-      orchestratorsOnline { value delta }
+      orchestratorsObserved { value delta }
       dailyUsageMins { value delta }
       dailySessionCount { value delta }
       timeframeHours
