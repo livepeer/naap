@@ -9,6 +9,10 @@ vi.mock('@/lib/orchestrator-leaderboard/query', () => ({
   fetchLeaderboard: vi.fn(),
 }));
 
+vi.mock('@/lib/orchestrator-leaderboard/discovery-order', () => ({
+  tieredShuffleDiscoveryAddresses: (addresses: string[]) => [...addresses],
+}));
+
 import { authorize } from '@/lib/gateway/authorize';
 import { fetchLeaderboard } from '@/lib/orchestrator-leaderboard/query';
 

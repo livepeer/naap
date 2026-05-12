@@ -13,6 +13,10 @@ vi.mock('@/lib/orchestrator-leaderboard/refresh', () => ({
   evaluateAndCache: vi.fn(),
 }));
 
+vi.mock('@/lib/orchestrator-leaderboard/discovery-order', () => ({
+  tieredShuffleDiscoveryAddresses: (addresses: string[]) => [...addresses],
+}));
+
 import { authorize } from '@/lib/gateway/authorize';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
