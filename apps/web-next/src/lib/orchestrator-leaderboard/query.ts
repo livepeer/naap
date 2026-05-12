@@ -2,8 +2,10 @@
  * Orchestrator Leaderboard — SQL Builder & ClickHouse Fetch
  *
  * Builds the leaderboard SQL with safe parameter substitution and fetches
- * results through the service gateway's clickhouse-query connector.
- * Integrates with the in-memory cache to avoid redundant ClickHouse queries.
+ * results either directly against ClickHouse (CLICKHOUSE_URL + USER +
+ * PASSWORD) or through the service gateway's clickhouse-query connector,
+ * matching capability-explorer behavior. Integrates with the in-memory cache
+ * to avoid redundant ClickHouse queries.
  */
 
 import type { ClickHouseLeaderboardRow, ClickHouseJSONResponse } from './types';
@@ -14,6 +16,94 @@ const MAX_QUERY_ROWS = 1000;
 const CAPABILITY_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 const CLICKHOUSE_GW_PATH = '/api/v1/gw/clickhouse-query/query';
+
+const CLICKHOUSE_TIMEOUT_MS = 15_000;
+
+function getEnv(name: string): string {
+  return process.env[name]?.trim() ?? '';
+}
+
+function getDirectClickhouseConfig(): { url: string; user: string; password: string } | null {
+  const url = getEnv('CLICKHOUSE_URL');
+  const user = getEnv('CLICKHOUSE_USER');
+  const password = getEnv('CLICKHOUSE_PASSWORD');
+
+  if (!url && !user && !password) return null;
+  if (!url || !user || !password) {
+    throw new Error(
+      'CLICKHOUSE_URL, CLICKHOUSE_USER, and CLICKHOUSE_PASSWORD must all be set for direct ClickHouse access',
+    );
+  }
+
+  return { url, user, password };
+}
+
+function resolveDirectClickhouseUrl(rawUrl: string): string {
+  return new URL('/', rawUrl).toString();
+}
+
+function buildBasicAuthHeader(user: string, password: string): string {
+  return `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
+}
+
+/**
+ * When `CLICKHOUSE_URL`, `CLICKHOUSE_USER`, and `CLICKHOUSE_PASSWORD` are all
+ * set, returns direct ClickHouse HTTP endpoint with Basic auth. Otherwise
+ * returns the in-app gateway proxy URL (Bearer auth added by
+ * {@link buildOrchestratorClickhouseFetchParams}).
+ */
+export function resolveClickhouseQueryTarget(requestUrl?: string): {
+  url: string;
+  headers: Record<string, string>;
+  mode: 'direct' | 'gateway';
+} {
+  const direct = getDirectClickhouseConfig();
+  if (direct) {
+    return {
+      url: resolveDirectClickhouseUrl(direct.url),
+      headers: {
+        'Content-Type': 'text/plain',
+        Authorization: buildBasicAuthHeader(direct.user, direct.password),
+      },
+      mode: 'direct',
+    };
+  }
+
+  return {
+    url: resolveClickhouseGatewayQueryUrl(requestUrl),
+    headers: {
+      'Content-Type': 'text/plain',
+    },
+    mode: 'gateway',
+  };
+}
+
+/**
+ * URL and headers for a leaderboard ClickHouse POST (SQL body as text/plain).
+ * Direct mode uses env credentials only; gateway mode adds Bearer, optional
+ * cookie, and Vercel protection bypass.
+ */
+export function buildOrchestratorClickhouseFetchParams(
+  authToken: string,
+  requestUrl?: string,
+  cookieHeader?: string | null,
+): { url: string; headers: Record<string, string> } {
+  const target = resolveClickhouseQueryTarget(requestUrl);
+  const headers = { ...target.headers };
+
+  if (target.mode === 'gateway') {
+    headers.Authorization = `Bearer ${authToken}`;
+    if (cookieHeader) {
+      headers['cookie'] = cookieHeader;
+    }
+    const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    if (bypassSecret) {
+      headers['x-vercel-protection-bypass'] = bypassSecret;
+    }
+  }
+
+  return { url: target.url, headers };
+}
 
 /**
  * Base URL for server-side calls to the gateway ClickHouse proxy.
@@ -147,34 +237,24 @@ async function fetchFromClickHouse(
   requestUrl?: string,
   cookieHeader?: string | null,
 ): Promise<ClickHouseLeaderboardRow[]> {
-  const url = resolveClickhouseGatewayQueryUrl(requestUrl);
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'text/plain',
-    'Authorization': `Bearer ${authToken}`,
-  };
-
-  if (cookieHeader) {
-    headers['cookie'] = cookieHeader;
-  }
-
-  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-  if (bypassSecret) {
-    headers['x-vercel-protection-bypass'] = bypassSecret;
-  }
+  const { url, headers } = buildOrchestratorClickhouseFetchParams(
+    authToken,
+    requestUrl,
+    cookieHeader,
+  );
 
   const res = await fetch(url, {
     method: 'POST',
     headers,
     body: sql,
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(CLICKHOUSE_TIMEOUT_MS),
   });
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     if (process.env.NODE_ENV === 'development') {
       console.error(
-        '[orchestrator-leaderboard] ClickHouse gateway request failed',
+        '[orchestrator-leaderboard] ClickHouse request failed',
         JSON.stringify({ url, status: res.status, bodyPreview: text.slice(0, 400) }),
       );
     }

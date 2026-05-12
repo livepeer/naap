@@ -151,6 +151,47 @@ describe('UMD Plugin Stylesheet Lifecycle', () => {
     expect(document.head.querySelector(`link[href="${stylesUrl}"]`)).toBeNull();
     appendSpy.mockRestore();
   });
+
+  it('ignores rel=preload style hints and still injects a stylesheet', async () => {
+    const appendSpy = setupStylesheetAutoLoad();
+    const stylesUrl = 'https://cdn.naap.io/preload-then-mount.css';
+
+    const preload = document.createElement('link');
+    preload.rel = 'preload';
+    preload.as = 'style';
+    preload.href = stylesUrl;
+    preload.crossOrigin = 'anonymous';
+    document.head.appendChild(preload);
+
+    const container = document.createElement('div');
+    const plugin = {
+      name: 'preload-style-plugin',
+      bundleUrl: 'https://cdn.naap.io/preload-then-mount.js',
+      stylesUrl,
+      globalName: 'NaapPluginPreloadStyle',
+      loadedAt: new Date(),
+      module: {
+        mount: vi.fn(() => () => {}),
+      },
+    };
+
+    const cleanup = await mountUMDPlugin(plugin, container, {});
+
+    const stylesheet = document.head.querySelector(
+      `link[rel="stylesheet"][href="${stylesUrl}"]`
+    ) as HTMLLinkElement | null;
+    expect(stylesheet).not.toBeNull();
+    expect(stylesheet?.getAttribute('data-naap-plugin-stylesheet')).toBe('true');
+
+    expect(document.head.querySelectorAll(`link[href="${stylesUrl}"]`).length).toBeGreaterThanOrEqual(2);
+
+    cleanup();
+    expect(document.head.querySelector(`link[rel="stylesheet"][href="${stylesUrl}"]`)).toBeNull();
+    expect(document.head.contains(preload)).toBe(true);
+
+    appendSpy.mockRestore();
+    preload.remove();
+  });
 });
 
 describe('Plugin Cache (IndexedDB)', () => {
