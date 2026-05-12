@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { validateSession } from '@/lib/api/auth';
+import { errors, getAuthToken } from '@/lib/api/response';
 import * as crypto from 'crypto';
+
+async function requireAdmin(request: NextRequest) {
+  const token = getAuthToken(request);
+  if (!token) return { error: errors.unauthorized('No auth token provided') };
+  const user = await validateSession(token);
+  if (!user) return { error: errors.unauthorized('Invalid or expired session') };
+  if (!user.roles.includes('system:admin')) return { error: errors.forbidden('Admin permission required') };
+  return { user };
+}
 
 function getEncryptionKey(): string {
   const key = process.env.ENCRYPTION_KEY;
@@ -36,9 +47,12 @@ function maskValue(key: string): string {
   return key.slice(0, 4) + '*'.repeat(Math.min(key.length - 4, 20));
 }
 
-// GET /api/v1/secrets - List all secrets (masked values)
+// GET /api/v1/secrets - List all secrets (masked values, admin only)
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+
     const { searchParams } = new URL(request.url);
     const scope = searchParams.get('scope') || 'global';
 
@@ -78,9 +92,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-// POST /api/v1/secrets - Create a new secret
+// POST /api/v1/secrets - Create a new secret (admin only)
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+
     const body = await request.json();
     const { key, value, description, scope = 'global' } = body;
 

@@ -17,9 +17,10 @@ export async function GET() {
     dbStatus = { connected: true, latencyMs: Date.now() - start };
   } catch (err) {
     const e = err as Error & { code?: string };
+    console.error('[health] DB check failed:', e.name, e.message, e.code, '\n', e.stack);
     dbStatus = {
       connected: false,
-      error: `${e.name}: ${e.message} [code=${e.code || 'none'}]`,
+      error: 'Database connection failed',
     };
   }
 
