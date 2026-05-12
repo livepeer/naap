@@ -15,6 +15,7 @@ import { authorize } from '@/lib/gateway/authorize';
 import { getAuthToken } from '@/lib/api/response';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
+import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -75,7 +76,10 @@ export async function GET(
       }
     }
 
-    return NextResponse.json(out, {
+    const addresses = tieredShuffleDiscoveryAddresses(out.map((o) => o.address));
+    const randomized = addresses.map((address) => ({ address }));
+
+    return NextResponse.json(randomized, {
       headers: {
         'Cache-Control': 'private, max-age=10',
         'X-Cache-Age': String(results.meta.cacheAgeMs),

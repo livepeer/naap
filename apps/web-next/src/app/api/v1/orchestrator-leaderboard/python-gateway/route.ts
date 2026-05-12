@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';
 import { getAuthToken } from '@/lib/api/response';
 import { fetchLeaderboard } from '@/lib/orchestrator-leaderboard/query';
+import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
 
 const DEFAULT_CAPABILITY = 'noop';
 const DEFAULT_TOP_N = 100;
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   const authToken = getAuthToken(request) || '';
 
   try {
-    const out: { address: string }[] = [];
+    const ordered: string[] = [];
     const seen = new Set<string>();
     let cacheAgeMs = 0;
     let fromCache = true;
@@ -90,16 +91,19 @@ export async function GET(request: NextRequest): Promise<Response> {
           continue;
         }
         seen.add(address);
-        out.push({ address });
-        if (out.length >= topN) {
+        ordered.push(address);
+        if (ordered.length >= topN) {
           break;
         }
       }
 
-      if (out.length >= topN) {
+      if (ordered.length >= topN) {
         break;
       }
     }
+
+    const addresses = tieredShuffleDiscoveryAddresses(ordered);
+    const out = addresses.map((address) => ({ address }));
 
     return NextResponse.json(out, {
       headers: {
