@@ -1,0 +1,39 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "livepeer-subgraph",
+  "name": "Livepeer Subgraph (The Graph)",
+  "description": "On-chain orchestrator registry via the Livepeer Arbitrum subgraph on The Graph — ground-truth source for orchestrator identity and membership",
+  "icon": "⛓️",
+  "category": "infrastructure",
+  "connector": {
+    "slug": "livepeer-subgraph",
+    "displayName": "Livepeer Subgraph (The Graph)",
+    "description": "Queries the Livepeer Arbitrum subgraph for registered transcoders/orchestrators with staking, serviceURI, and activation status",
+    "category": "infrastructure",
+    "upstreamBaseUrl": "https://gateway.thegraph.com",
+    "allowedHosts": ["gateway.thegraph.com", "gateway-arbitrum.network.thegraph.com"],
+    "defaultTimeout": 15000,
+    "healthCheckPath": "/api/subgraphs/id/FE63YgkzcpVocxdCEyEYbvjYqEf2kb1A6daMYRxmejYC",
+    "authType": "bearer",
+    "authConfig": {},
+    "secretRefs": ["api-key"],
+    "streamingEnabled": false,
+    "tags": ["livepeer", "subgraph", "on-chain", "arbitrum", "the-graph", "registry"]
+  },
+  "endpoints": [
+    {
+      "name": "transcoders",
+      "description": "Fetch all active transcoders with serviceURI, stake, activation status",
+      "method": "POST",
+      "path": "/transcoders",
+      "upstreamPath": "/api/subgraphs/id/FE63YgkzcpVocxdCEyEYbvjYqEf2kb1A6daMYRxmejYC",
+      "upstreamContentType": "application/json",
+      "bodyTransform": "passthrough",
+      "bodyPattern": "^\\s*\\{\\s*\"query\"",
+      "timeout": 15000,
+      "cacheTtl": 300,
+      "retries": 1
+    }
+  ],
+  "envKey": "SUBGRAPH_API_KEY"
+}

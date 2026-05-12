@@ -1,0 +1,36 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "naap-discover",
+  "name": "NaaP Orchestrator Discovery",
+  "description": "Real-time orchestrator discovery API — lists active orchestrators with capabilities, scores, and liveness from the NaaP network scanner",
+  "icon": "🔍",
+  "category": "infrastructure",
+  "connector": {
+    "slug": "naap-discover",
+    "displayName": "NaaP Orchestrator Discovery",
+    "description": "Fetches live orchestrator data including capabilities, scores, and recent work status",
+    "category": "infrastructure",
+    "upstreamBaseUrl": "https://naap-api.cloudspe.com",
+    "allowedHosts": ["naap-api.cloudspe.com"],
+    "defaultTimeout": 15000,
+    "healthCheckPath": "/v1/discover/orchestrators",
+    "authType": "none",
+    "authConfig": {},
+    "secretRefs": [],
+    "streamingEnabled": false,
+    "responseWrapper": false,
+    "tags": ["livepeer", "orchestrator", "discovery", "capabilities", "liveness"]
+  },
+  "endpoints": [
+    {
+      "name": "list-orchestrators",
+      "description": "List all discovered orchestrators with capabilities, scores, and liveness",
+      "method": "GET",
+      "path": "/orchestrators",
+      "upstreamPath": "/v1/discover/orchestrators",
+      "timeout": 15000,
+      "cacheTtl": 30,
+      "retries": 1
+    }
+  ]
+}

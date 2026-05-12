@@ -4,11 +4,11 @@
  */
 
 import { Resend } from 'resend';
+import { appUrl as APP_URL } from '@/lib/env';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const EMAIL_FROM =
   process.env.EMAIL_FROM || 'NaaP Platform <onboarding@resend.dev>';
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 let _resendClient: Resend | null | undefined;
 function getResendClient(): Resend | null {

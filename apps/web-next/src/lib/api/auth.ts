@@ -7,6 +7,7 @@
 
 import * as crypto from 'crypto';
 import { prisma } from '../db';
+import { appUrl as _appUrl } from '../env';
 import {
   sendVerificationEmail as sendEmailVerification,
   sendPasswordResetEmail as sendEmailPasswordReset,
@@ -827,8 +828,7 @@ export async function requestPasswordReset(email: string): Promise<{ success: bo
     },
   });
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const resetUrl = `${appUrl}/reset-password?token=${token}`;
+  const resetUrl = `${_appUrl}/reset-password?token=${token}`;
   const result = await sendEmailPasswordReset(email, resetUrl);
 
   if (!result.success) {
@@ -939,8 +939,7 @@ export async function sendVerificationEmail(userId: string): Promise<{ success: 
     },
   });
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const verifyUrl = `${appUrl}/verify-email?token=${token}`;
+  const verifyUrl = `${_appUrl}/verify-email?token=${token}`;
   const result = await sendEmailVerification(
     user.email,
     verifyUrl,

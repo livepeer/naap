@@ -25,3 +25,4 @@ CREATE SCHEMA IF NOT EXISTS plugin_capacity;
 CREATE SCHEMA IF NOT EXISTS plugin_developer_api;
 CREATE SCHEMA IF NOT EXISTS plugin_service_gateway;
 CREATE SCHEMA IF NOT EXISTS plugin_capability_explorer;
+CREATE SCHEMA IF NOT EXISTS plugin_orchestrator_leaderboard;

@@ -121,6 +121,8 @@ export interface DiscoveredPlugin {
   isCore?: boolean;
   /** Whether this plugin is visible to non-admin users (default: true) */
   visibleToUsers?: boolean;
+  /** When true, plugin defaults to hidden (visibleToUsers: false) on first registration */
+  experimental?: boolean;
 }
 
 /**
@@ -175,6 +177,7 @@ export function discoverFromDir(rootDir: string, subDir: string): DiscoveredPlug
           typeof manifest.visibleToUsers === 'boolean'
             ? manifest.visibleToUsers
             : undefined,
+        experimental: manifest.experimental === true ? true : undefined,
       };
     })
     .sort((a, b) => a.order - b.order);
@@ -284,7 +287,8 @@ export function toPluginPackageData(
     isCore: plugin.isCore ?? false,
     visibleToUsers: plugin.visibleToUsers === false ? false : true,
     publishStatus: 'published',
-  };
+    visibleToUsers: true,
+  } as Record<string, unknown>;
 }
 
 /**

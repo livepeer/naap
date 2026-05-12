@@ -99,12 +99,24 @@ else
   echo "[3/6] Skipping prisma db push (VERCEL_ENV=${VERCEL_ENV:-unset}, only runs on production/preview)"
 fi
 
-# Step 3.5: Seed capability explorer config and demo data
+# Step 3.5: Seed plugin data (capability explorer + orchestrator leaderboard).
+# Runs after schema push so tables exist. All seeds are idempotent.
 if [ "${VERCEL_ENV}" = "production" ] || [ "${VERCEL_ENV}" = "preview" ]; then
   echo "[3.5/6] Seeding capability explorer..."
   npx tsx bin/seed-capability-explorer.ts || echo "WARN: capability explorer seed had issues (non-fatal)"
-  echo "[3.6/6] Seeding clickhouse-query connector..."
-  npx tsx bin/seed-capability-connector.ts || echo "WARN: clickhouse connector seed had issues (non-fatal)"
+
+  echo "[3.5/6] Seeding capability-explorer ClickHouse connector..."
+  npx tsx bin/seed-capability-connector.ts || echo "WARN: capability ClickHouse connector seed had issues (non-fatal)"
+
+  if [ -n "${CLICKHOUSE_QUERY_USERNAME:-}" ] && [ -n "${CLICKHOUSE_QUERY_PASSWORD:-}" ]; then
+    echo "[3.5/6] Seeding gateway connector (clickhouse-query)..."
+    npx tsx bin/seed-gateway-connector.ts || echo "WARN: gateway connector seed had issues (non-fatal)"
+  else
+    echo "[3.5/6] Skipping gateway connector seed (CLICKHOUSE_QUERY_USERNAME/PASSWORD not set)"
+  fi
+
+  echo "[3.6/6] Seeding discovery plans..."
+  npx tsx bin/seed-discovery-plans.ts || echo "WARN: discovery plan seed had issues (non-fatal)"
 fi
 
 # Step 4: Sync plugin registry in database (BEFORE build so generated files
