@@ -65,15 +65,15 @@
   "dependencies": {
     "@inquirer/ansi": "^2.0.3",
     "@inquirer/figures": "^2.0.3",
-    "@inquirer/prompts": "^8.3.0",
+    "@inquirer/prompts": "^8.4.2",
     "@inquirer/type": "^4.0.3",
     "@naap/types": "*",
-    "ajv": "^8.12.0",
+    "ajv": "^8.20.0",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
     "execa": "^8.0.0",
-    "fs-extra": "^11.2.0",
-    "graphql": "^16.13.0",
+    "fs-extra": "^11.3.5",
+    "graphql": "^16.14.0",
     "inquirer": "^9.2.0",
     "ora": "^8.0.0",
     "semver": "^7.6.0"
@@ -91,11 +91,11 @@
     "@types/semver": "^7.7.1",
     "@vitest/coverage-v8": "^4.0.18",
     "jsdom": "^24.0.0",
-    "rollup": "^4.57.1",
+    "rollup": "^4.60.3",
     "rollup-plugin-dts": "^6.1.0",
     "typescript": "~5.9.3",
-    "vite": "8.0.8",
-    "vitest": "^4.0.18"
+    "vite": "8.0.10",
+    "vitest": "^4.1.5"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",

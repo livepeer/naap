@@ -17,7 +17,7 @@
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
     "helmet": "^7.1.0",
-    "ipaddr.js": "^2.3.0",
+    "ipaddr.js": "^2.4.0",
     "morgan": "^1.10.0",
     "multer": "^2.1.1",
     "unzipper": "^0.12.3"
@@ -30,6 +30,6 @@
     "@types/node": "^20.19.35",
     "tsx": "^4.6.2",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.5"
   }
 }
