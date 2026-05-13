@@ -243,6 +243,7 @@ export interface DeveloperApiKey {
   keyHash: string;
   status: ApiKeyStatus;
   createdAt: string;
+  expiresAt?: string | null;
   lastUsedAt: string | null;
 }
 

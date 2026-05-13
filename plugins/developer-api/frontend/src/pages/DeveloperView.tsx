@@ -13,8 +13,6 @@ import {
   AlertTriangle,
   Shield,
   Loader2,
-  CreditCard,
-  Cloud,
   Globe,
   Cpu,
   Users,
@@ -22,9 +20,11 @@ import {
 ChevronUp,
   ChevronDown,
   ChevronsUpDown,
+  ExternalLink,
 } from 'lucide-react';
 import { Card, Badge, Modal } from '@naap/ui';
 import type { NetworkModel } from '@naap/plugin-sdk';
+import { formatFeeWeiStringToEthDisplay } from '@naap/utils';
 
 const PIPELINE_COLOR: Record<string, string> = {
   'text-to-image':           '#f59e0b',
@@ -127,7 +127,58 @@ interface ApiKey {
   keyPrefix: string;
   label: string | null;
   createdAt: string;
+  expiresAt?: string | null;
   lastUsedAt: string | null;
+}
+
+/** Matches PymtHouse gateway signer session TTL (~90 days from key creation). */
+const PYMTHOUSE_SIGNER_SESSION_MS = 90 * 24 * 60 * 60 * 1000;
+
+function computePymthouseExpiresAtFromCreated(
+  createdAt: string | undefined | null,
+): string | null {
+  if (!createdAt) return null;
+  const ms = new Date(createdAt).getTime();
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms + PYMTHOUSE_SIGNER_SESSION_MS).toISOString();
+}
+
+/** Prefer server `expiresAt`; for PymtHouse keys without it, derive from `createdAt`. */
+function resolveApiKeyExpiresAt(key: ApiKey): string | null {
+  if (key.expiresAt != null && String(key.expiresAt).trim() !== '') {
+    return key.expiresAt;
+  }
+  if (key.billingProvider?.slug === 'pymthouse') {
+    return computePymthouseExpiresAtFromCreated(key.createdAt);
+  }
+  return null;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function formatExpiryDaysRemaining(expiresIso: string, nowMs: number = Date.now()): string {
+  const expMs = new Date(expiresIso).getTime();
+  if (!Number.isFinite(expMs)) return '—';
+  const diff = expMs - nowMs;
+  if (diff <= 0) return 'Expired';
+  const fullDays = Math.floor(diff / MS_PER_DAY);
+  if (fullDays >= 1) {
+    return `${fullDays} day${fullDays === 1 ? '' : 's'}`;
+  }
+  return '< 1 day';
+}
+
+function formatExpiryExactForTitle(expiresIso: string): string {
+  return new Date(expiresIso).toLocaleString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  });
 }
 
 interface BillingProviderInfo {
@@ -143,6 +194,26 @@ interface ProjectInfo {
   id: string;
   name: string;
   isDefault: boolean;
+}
+
+interface PymthouseUsageMePayload {
+  clientId: string;
+  period: { start: string | null; end: string | null };
+  currentUser: {
+    externalUserId: string;
+    requestCount: number;
+    feeWei: string;
+    pipelineModels: Array<{
+      pipeline: string;
+      modelId: string;
+      requestCount: number;
+      networkFeeWei: string;
+      networkFeeUsdMicros: string;
+      ownerChargeUsdMicros: string;
+      endUserBillableUsdMicros: string;
+      networkFeeEth?: string;
+    }>;
+  };
 }
 
 async function fetchCsrfToken(): Promise<string> {
@@ -193,6 +264,103 @@ const selectClassName =
 const inputClassName =
   'w-full bg-bg-tertiary border border-white/10 rounded-lg py-2 px-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue';
 
+const PYTHON_GATEWAY_REPO_HREF = 'https://github.com/livepeer/livepeer-python-gateway';
+
+interface DocsBillingProvider {
+  id: string;
+  name: string;
+  signerUrl: string;
+  apiKeyHref: string;
+  /** Provider-specific notes shown in the signer section. */
+  signerNote: string;
+  /** Provider-specific note shown in the authentication section. */
+  authNote: React.ReactNode;
+}
+
+const DOCS_BILLING_PROVIDERS: DocsBillingProvider[] = [
+  {
+    id: 'pymthouse',
+    name: 'PymtHouse',
+    signerUrl: 'https://pymthouse.com/api/signer',
+    apiKeyHref: '/developer/keys',
+    signerNote:
+      'The PymtHouse signer validates your scoped signer session token on every ticket — your private key never leaves your machine.',
+    authNote: (
+      <>
+        Pass the signer session token from the API Keys tab as a Bearer token in the{' '}
+        <code className="text-slate-300">Authorization</code> header.{' '}
+        Tokens are generated through a short-lived authorization exchange and expire after about 90 days;
+        create a new key from this tab when needed.
+      </>
+    ),
+  },
+  {
+    id: 'daydream',
+    name: 'Daydream',
+    signerUrl: 'https://signer.daydream.live',
+    apiKeyHref: '/developer/keys',
+    signerNote:
+      'The Daydream signer co-signs Livepeer payment tickets on behalf of your account using your API key credentials.',
+    authNote: (
+      <>
+        Pass your Daydream API key as a Bearer token in the{' '}
+        <code className="text-slate-300">Authorization</code> header when calling the signer.{' '}
+        Generate a key from the API Keys tab.
+      </>
+    ),
+  },
+];
+
+function DocCodeBlock({ code, label }: { code: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* ignore */ }
+  }, [code]);
+  return (
+    <div className="relative group mt-2 mb-5">
+      {label && (
+        <span className="block text-[10px] font-mono text-text-secondary/60 mb-1 uppercase tracking-wide select-none">
+          {label}
+        </span>
+      )}
+      <div className="rounded-lg bg-black/50 border border-white/10 overflow-hidden">
+        <pre className="p-3 pr-14 text-[11.5px] leading-relaxed font-mono text-slate-300 overflow-x-auto whitespace-pre">
+          {code}
+        </pre>
+        <button
+          type="button"
+          onClick={handleCopy}
+          aria-label="Copy code"
+          className="absolute top-1/2 right-2 -translate-y-1/2 flex items-center gap-1 px-2 py-1 rounded-md border border-white/10 bg-white/5 text-text-secondary hover:text-text-primary hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100 text-[10px] font-medium shrink-0"
+          style={{ top: label ? 'calc(50% + 0.625rem)' : '50%' }}
+        >
+          {copied ? <Check size={11} /> : <Copy size={11} />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DocSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-7 first:mt-0">
+      <h3 className="text-[11px] font-semibold text-text-primary/60 uppercase tracking-widest mb-3">
+        {title}
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+function DocProse({ children }: { children: React.ReactNode }) {
+  return <p className="text-sm text-text-secondary leading-relaxed mb-3">{children}</p>;
+}
+
 export const DeveloperView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>(() => resolveTabFromPath(window.location.pathname));
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -204,6 +372,8 @@ export const DeveloperView: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createStep, setCreateStep] = useState<'form' | 'oauth' | 'success'>('form');
   const [createdRawKey, setCreatedRawKey] = useState('');
+  const [createdKeyExpiresAt, setCreatedKeyExpiresAt] = useState<string | null>(null);
+  const [createdKeyWarning, setCreatedKeyWarning] = useState('');
   const [createError, setCreateError] = useState('');
   const [creating, setCreating] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
@@ -231,6 +401,14 @@ export const DeveloperView: React.FC = () => {
   const [modelSortDir, setModelSortDir] = useState<'asc' | 'desc'>('desc');
   const [copiedCell, setCopiedCell] = useState<string | null>(null);
 
+  const [usagePayload, setUsagePayload] = useState<PymthouseUsageMePayload | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState<string | null>(null);
+  /** Billing provider slug for Usage tab (defaults to PymtHouse when present in catalog). */
+  const [usageBillingProviderSlug, setUsageBillingProviderSlug] = useState('');
+  /** Selected billing provider for the Docs tab. */
+  const [docsBillingProviderId, setDocsBillingProviderId] = useState<string>(DOCS_BILLING_PROVIDERS[0].id);
+
   const copyCell = useCallback(async (key: string, text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -240,7 +418,7 @@ export const DeveloperView: React.FC = () => {
   }, []);
 
   const revokedCount = useMemo(
-    () => apiKeys.filter(k => (k.status || '').toUpperCase() === 'REVOKED').length,
+    () => apiKeys.filter((k) => (k.status || '').toUpperCase() === 'REVOKED').length,
     [apiKeys]
   );
 
@@ -263,10 +441,15 @@ export const DeveloperView: React.FC = () => {
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
   }, [billingProviders, apiKeys]);
 
+  const selectedBillingProvider = useMemo(
+    () => billingProviders?.find((provider) => provider.id === selectedBillingProviderId) || null,
+    [billingProviders, selectedBillingProviderId]
+  );
+
   const displayedKeys = useMemo(() => {
     const filteredByRevoked = showRevoked
       ? apiKeys
-      : apiKeys.filter(k => (k.status || '').toUpperCase() !== 'REVOKED');
+      : apiKeys.filter((k) => (k.status || '').toUpperCase() !== 'REVOKED');
     const filteredByProject = projectFilterId === '__all__'
       ? filteredByRevoked
       : filteredByRevoked.filter(k => k.project?.id === projectFilterId);
@@ -466,6 +649,81 @@ result = [...result].sort((a, b) => {
     if (activeTab === 'usage' || activeTab === 'api-keys') loadBillingProviders();
   }, [activeTab, loadBillingProviders]);
 
+  useEffect(() => {
+    if (billingProviders === null || billingProviders.length === 0) return;
+    setUsageBillingProviderSlug((prev) => {
+      if (prev && billingProviders.some((p) => p.slug === prev)) return prev;
+      const pym = billingProviders.find((p) => p.slug === 'pymthouse');
+      return pym?.slug ?? billingProviders[0].slug;
+    });
+  }, [billingProviders]);
+
+  const loadPymthouseUsage = useCallback(async () => {
+    setUsageLoading(true);
+    setUsageError(null);
+    try {
+      const now = new Date();
+      const y = now.getUTCFullYear();
+      const m = now.getUTCMonth();
+      const start = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
+      const end = new Date(Date.UTC(y, m + 1, 0, 23, 59, 59, 999));
+      const params = new URLSearchParams({
+        scope: 'me',
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+      });
+      const res = await fetch(`/api/v1/billing/pymthouse/usage?${params}`, {
+        credentials: 'include',
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          (json?.error && typeof json.error === 'object' && json.error.message) ||
+          json?.message ||
+          `Failed to load usage (HTTP ${res.status})`;
+        setUsagePayload(null);
+        setUsageError(typeof msg === 'string' ? msg : 'Failed to load usage');
+        return;
+      }
+      const data = json.data ?? json;
+      if (!data?.currentUser) {
+        setUsagePayload(null);
+        setUsageError('Invalid usage response from server');
+        return;
+      }
+      const cu = data.currentUser as PymthouseUsageMePayload['currentUser'] & {
+        pipelineModels?: unknown;
+      };
+      const normalized: PymthouseUsageMePayload = {
+        clientId: data.clientId,
+        period: data.period,
+        currentUser: {
+          externalUserId: cu.externalUserId,
+          requestCount: cu.requestCount,
+          feeWei: cu.feeWei,
+          pipelineModels: Array.isArray(cu.pipelineModels) ? cu.pipelineModels : [],
+        },
+      };
+      setUsagePayload(normalized);
+    } catch (e) {
+      setUsagePayload(null);
+      setUsageError(e instanceof Error ? e.message : 'Network error loading usage');
+    } finally {
+      setUsageLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'usage') return;
+    if (usageBillingProviderSlug !== 'pymthouse') {
+      setUsageLoading(false);
+      setUsagePayload(null);
+      setUsageError(null);
+      return;
+    }
+    void loadPymthouseUsage();
+  }, [activeTab, usageBillingProviderSlug, loadPymthouseUsage]);
+
   const loadModalData = useCallback(async () => {
     setModalDataLoading(true);
     try {
@@ -509,6 +767,8 @@ result = [...result].sort((a, b) => {
   const openCreateModal = useCallback(() => {
     setCreateStep('form');
     setCreatedRawKey('');
+    setCreatedKeyExpiresAt(null);
+    setCreatedKeyWarning('');
     setCreateError('');
     setCreating(false);
     setKeyCopied(false);
@@ -568,73 +828,81 @@ result = [...result].sort((a, b) => {
         return;
       }
       const startData = await startRes.json();
+      const directAccessToken = startData.data?.access_token || startData.access_token;
       const authUrl = startData.data?.auth_url || startData.auth_url;
       const loginSessionId = startData.data?.login_session_id || startData.login_session_id;
-      if (!authUrl || !loginSessionId) {
-        setCreateError('Missing auth URL from billing provider.');
-        setCreateStep('form');
-        setCreating(false);
-        return;
-      }
 
-      window.open(authUrl, '_blank', 'noopener,noreferrer');
+      // Server-to-server providers (e.g. PymtHouse) return an opaque signer session
+      // token as `access_token` directly. Browser-redirect providers (e.g. Daydream)
+      // return `auth_url` for popup + polling and deliver the credential later.
+      let providerApiKey: string | null = directAccessToken || null;
 
-      const pollInterval = startData.data?.poll_after_ms ?? startData.poll_after_ms ?? 2000;
-      const pollTimeout = (startData.data?.expires_in ?? startData.expires_in ?? 180) * 1000;
-      const started = Date.now();
-      let providerApiKey: string | null = null;
+      if (!providerApiKey) {
+        if (!authUrl || !loginSessionId) {
+          setCreateError('Missing auth URL from billing provider.');
+          setCreateStep('form');
+          setCreating(false);
+          return;
+        }
 
-      while (Date.now() - started < pollTimeout && !abortController.signal.aborted) {
-        try {
-          await delayWithAbort(pollInterval, abortController.signal);
-        } catch {
-          break;
+        window.open(authUrl, '_blank', 'noopener,noreferrer');
+
+        const pollInterval = startData.data?.poll_after_ms ?? startData.poll_after_ms ?? 2000;
+        const pollTimeout = (startData.data?.expires_in ?? startData.expires_in ?? 180) * 1000;
+        const started = Date.now();
+
+        while (Date.now() - started < pollTimeout && !abortController.signal.aborted) {
+          try {
+            await delayWithAbort(pollInterval, abortController.signal);
+          } catch {
+            break;
+          }
+
+          if (abortController.signal.aborted) {
+            break;
+          }
+
+          try {
+            const pollRes = await fetch(
+              `/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/result?login_session_id=${encodeURIComponent(
+                loginSessionId
+              )}`,
+              { signal: abortController.signal }
+            );
+            if (!pollRes.ok) break;
+            const pollData = await pollRes.json();
+            const status = pollData.data?.status || pollData.status;
+            if (status === 'complete') {
+              providerApiKey = pollData.data?.access_token || pollData.access_token;
+              break;
+            }
+            if (status === 'redeemed') {
+              setCreateError('Authentication redeemed. Please request a new token.');
+              setCreateStep('form');
+              setCreating(false);
+              return;
+            }
+            if (status === 'expired' || status === 'denied') {
+              setCreateError(`Authentication ${status}. Please try again.`);
+              setCreateStep('form');
+              setCreating(false);
+              return;
+            }
+          } catch {
+            break;
+          }
         }
 
         if (abortController.signal.aborted) {
-          break;
+          return;
         }
 
-        try {
-          const pollRes = await fetch(
-            `/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/result?login_session_id=${encodeURIComponent(
-              loginSessionId
-            )}`,
-            { signal: abortController.signal }
-          );
-          if (!pollRes.ok) break;
-          const pollData = await pollRes.json();
-          const status = pollData.data?.status || pollData.status;
-          if (status === 'complete') {
-            providerApiKey = pollData.data?.access_token || pollData.access_token;
-            break;
-          }
-          if (status === 'redeemed') {
-            setCreateError('Authentication redeemed. Please request a new token.');
-            setCreateStep('form');
-            setCreating(false);
-            return;
-          }
-          if (status === 'expired' || status === 'denied') {
-            setCreateError(`Authentication ${status}. Please try again.`);
-            setCreateStep('form');
-            setCreating(false);
-            return;
-          }
-        } catch {
-          break;
+        if (!providerApiKey) {
+          setCreateError('Authentication timed out. Please try again.');
+          setCreateStep('form');
+          setCreating(false);
+          return;
         }
-      }
-
-      if (abortController.signal.aborted) {
-        return;
-      }
-
-      if (!providerApiKey) {
-        setCreateError('Authentication timed out. Please try again.');
-        setCreateStep('form');
-        setCreating(false);
-        return;
       }
 
       const csrfToken = await fetchCsrfToken();
@@ -660,6 +928,16 @@ result = [...result].sort((a, b) => {
       }
 
       setCreatedRawKey(providerApiKey);
+      const keyCreatedAt =
+        typeof payload.key?.createdAt === 'string' ? payload.key.createdAt : null;
+      const expiresFromApi =
+        typeof payload.key?.expiresAt === 'string' ? payload.key.expiresAt : null;
+      const resolvedExpires =
+        providerSlug === 'pymthouse'
+          ? expiresFromApi || computePymthouseExpiresAtFromCreated(keyCreatedAt)
+          : expiresFromApi;
+      setCreatedKeyExpiresAt(resolvedExpires);
+      setCreatedKeyWarning(payload.warning || 'Store this key securely. It will not be shown again.');
       setCreateStep('success');
     } catch (err) {
       if (pollAbortControllerRef.current?.signal.aborted) {
@@ -991,6 +1269,12 @@ result = [...result].sort((a, b) => {
                           <th className="pb-3 font-medium">Provider</th>
                           <th className="pb-3 font-medium">Secret Key</th>
                           <th className="pb-3 font-medium">Created</th>
+                          <th
+                            className="pb-3 font-medium"
+                            title="Days until the key expires; hover a row for the exact time."
+                          >
+                            Expires
+                          </th>
                           <th className="pb-3 font-medium text-right">Status</th>
                         </tr>
                       </thead>
@@ -1025,6 +1309,30 @@ result = [...result].sort((a, b) => {
                                 {new Date(key.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                               </span>
                             </td>
+                            <td className="py-3 pr-4">
+                              {(() => {
+                                const expires = resolveApiKeyExpiresAt(key);
+                                if (!expires) {
+                                  return (
+                                    <span className="text-sm text-text-secondary">—</span>
+                                  );
+                                }
+                                const label = formatExpiryDaysRemaining(expires);
+                                const exact = formatExpiryExactForTitle(expires);
+                                const title =
+                                  label === 'Expired'
+                                    ? `Expired: ${exact}`
+                                    : `Expires: ${exact}`;
+                                return (
+                                  <span
+                                    className="text-sm text-text-secondary cursor-help border-b border-dotted border-white/20"
+                                    title={title}
+                                  >
+                                    {label}
+                                  </span>
+                                );
+                              })()}
+                            </td>
                             <td className="py-3">
                               <div className="flex items-center justify-end gap-2">
                                 <Badge variant={key.status === 'ACTIVE' || key.status === 'active' ? 'emerald' : 'rose'}>{key.status}</Badge>
@@ -1053,83 +1361,366 @@ result = [...result].sort((a, b) => {
           )}
 
           {activeTab === 'usage' && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               <Card>
-                <div className="flex items-center gap-3 mb-3">
-                  <CreditCard size={16} className="text-accent-emerald" />
-                  <div>
-                    <h3 className="text-sm font-semibold text-text-primary">Billing Providers</h3>
-                    <p className="text-sm text-text-secondary">Available billing providers for API key creation</p>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <BarChart3 size={16} className="text-accent-blue shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold text-text-primary">Usage</h3>
+                      <p className="text-xs text-text-secondary mt-0.5">
+                        This month (UTC). Metrics reflect signed requests attributed to your account for the
+                        selected billing provider.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0 lg:justify-end">
+                    {billingProvidersError ? (
+                      <button
+                        type="button"
+                        onClick={() => void loadBillingProviders()}
+                        className="text-xs px-3 py-1.5 rounded-md border border-white/15 bg-bg-tertiary text-text-primary hover:border-accent-blue/50 transition-colors"
+                      >
+                        Retry providers
+                      </button>
+                    ) : (
+                      <>
+                        <label htmlFor="usage-billing-provider" className="text-xs text-text-secondary whitespace-nowrap">
+                          Provider
+                        </label>
+                        <select
+                          id="usage-billing-provider"
+                          value={usageBillingProviderSlug}
+                          onChange={(e) => setUsageBillingProviderSlug(e.target.value)}
+                          disabled={!billingProviders?.length}
+                          className={`${selectClassName} w-auto min-w-[11rem] max-w-[20rem] text-xs py-1.5`}
+                        >
+                          {!billingProviders?.length ? (
+                            <option value="">Loading…</option>
+                          ) : (
+                            billingProviders.map((bp) => (
+                              <option key={bp.id} value={bp.slug}>
+                                {bp.displayName}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                        {usageBillingProviderSlug === 'pymthouse' && (
+                          <button
+                            type="button"
+                            onClick={() => void loadPymthouseUsage()}
+                            className="text-xs text-text-secondary hover:text-accent-blue transition-colors shrink-0 px-1"
+                          >
+                            Refresh
+                          </button>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
-                <div className="space-y-3">
-                  {billingProvidersError ? (
-                    <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
-                      <AlertTriangle size={18} className="text-red-400 flex-shrink-0" />
-                      <div className="text-sm">
-                        <p className="text-red-200 font-medium">Failed to load billing providers</p>
-                        <button onClick={loadBillingProviders} className="text-accent-blue hover:underline mt-1">Retry</button>
+
+                {usageBillingProviderSlug === 'pymthouse' ? (
+                  <>
+                    {usageLoading ? (
+                      <div className="flex items-center justify-center gap-3 py-8 mt-4">
+                        <Loader2 size={16} className="animate-spin text-text-secondary" />
+                        <span className="text-sm text-text-secondary">Loading usage…</span>
                       </div>
-                    </div>
-                  ) : !billingProviders || billingProviders.length === 0 ? (
-                    <div className="text-center py-6 text-text-secondary">
-                      <CreditCard size={24} className="mx-auto mb-3 opacity-30" />
-                      <p>No billing providers available</p>
-                    </div>
-                  ) : billingProviders.map((bp) => (
-                    <div key={bp.id} className="flex items-center justify-between p-3 rounded-lg border bg-bg-tertiary/50 border-white/10">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-md flex items-center justify-center bg-white/5 text-text-secondary">
-                          <Cloud size={16} />
-                        </div>
-                        <div>
-                          <p className="font-medium text-text-primary">{bp.displayName}</p>
-                          <p className="text-xs text-text-secondary">{bp.description || bp.slug}</p>
+                    ) : usageError ? (
+                      <div className="flex items-start gap-3 p-4 mt-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                        <AlertTriangle size={18} className="text-red-400 flex-shrink-0 mt-0.5" />
+                        <div className="text-sm">
+                          <p className="text-red-200 font-medium">Could not load usage</p>
+                          <p className="text-text-secondary mt-1">{usageError}</p>
+                          <button
+                            type="button"
+                            onClick={() => void loadPymthouseUsage()}
+                            className="text-accent-blue hover:underline mt-2 text-xs"
+                          >
+                            Retry
+                          </button>
                         </div>
                       </div>
-                      <span className="text-xs text-text-secondary capitalize">{bp.authType}</span>
-                    </div>
-                  ))}
-                  <div className="flex items-center justify-between p-3 rounded-lg border border-dashed border-white/20 bg-bg-tertiary/30">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-md flex items-center justify-center bg-white/5 text-text-secondary">
-                        <Plus size={16} />
+                    ) : usagePayload ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                        <div className="p-4 rounded-lg border bg-bg-tertiary/50 border-white/10">
+                          <p className="text-xs uppercase tracking-wide text-text-secondary mb-1">Requests</p>
+                          <p className="text-2xl font-mono text-text-primary">
+                            {usagePayload.currentUser.requestCount.toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="p-4 rounded-lg border bg-bg-tertiary/50 border-white/10">
+                          <p className="text-xs uppercase tracking-wide text-text-secondary mb-1">Fees (wei raw)</p>
+                          <p className="text-sm font-mono text-text-primary break-all">{usagePayload.currentUser.feeWei}</p>
+                          <p className="text-xs text-text-secondary mt-2">
+                            ≈ {formatFeeWeiStringToEthDisplay(usagePayload.currentUser.feeWei)} ETH
+                          </p>
+                        </div>
+                        <div className="sm:col-span-2 text-xs text-text-secondary font-mono">
+                          <span className="text-text-secondary">Period: </span>
+                          {usagePayload.period?.start ?? '—'} → {usagePayload.period?.end ?? '—'}
+                        </div>
+                        <div className="sm:col-span-2 mt-2">
+                          <p className="text-xs uppercase tracking-wide text-text-secondary mb-2">
+                            By pipeline &amp; model
+                          </p>
+                          {usagePayload.currentUser.pipelineModels.length > 0 ? (
+                            <ul className="space-y-2 text-sm">
+                              {usagePayload.currentUser.pipelineModels.map((row) => (
+                                <li
+                                  key={`${row.pipeline}:${row.modelId}`}
+                                  className="p-3 rounded-lg border border-white/10 bg-bg-tertiary/30 font-mono"
+                                >
+                                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-text-primary">
+                                    <span>
+                                      <span className="text-text-secondary">Pipeline</span>{' '}
+                                      {row.pipeline}
+                                    </span>
+                                    <span>
+                                      <span className="text-text-secondary">Model</span> {row.modelId}
+                                    </span>
+                                    <span>
+                                      <span className="text-text-secondary">Requests</span>{' '}
+                                      {row.requestCount.toLocaleString()}
+                                    </span>
+                                  </div>
+                                  <div className="mt-2 text-xs text-text-secondary break-all">
+                                    Network fee (wei): {row.networkFeeWei}
+                                    <span className="block mt-1">
+                                      ≈ {formatFeeWeiStringToEthDisplay(row.networkFeeWei)} ETH
+                                    </span>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-xs text-text-secondary">
+                              No pipeline/model breakdown for this period.
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium text-text-primary">Add your own Billing Provider</p>
-                        <p className="text-xs text-text-secondary">Connect a custom billing provider</p>
+                    ) : (
+                      <div className="text-center py-6 mt-4 text-text-secondary">
+                        <BarChart3 size={24} className="mx-auto mb-3 opacity-30" />
+                        <p className="text-sm">No usage data for this period.</p>
                       </div>
-                    </div>
-                    <span className="text-xs text-text-secondary">Coming soon</span>
-                  </div>
-                </div>
-              </Card>
-              <Card>
-                <div className="text-center py-6">
-                  <BarChart3 size={24} className="mx-auto mb-3 text-text-secondary opacity-30" />
-                  <h3 className="text-sm font-semibold text-text-primary mb-1">Usage Dashboard</h3>
-                  <p className="text-sm text-text-secondary">Usage tracking and cost breakdown coming soon</p>
-                </div>
+                    )}
+                  </>
+                ) : usageBillingProviderSlug ? (
+                  <p className="text-sm text-text-secondary mt-4">
+                    Usage metrics for{' '}
+                    <span className="text-text-primary font-medium">
+                      {billingProviders?.find((p) => p.slug === usageBillingProviderSlug)?.displayName ??
+                        usageBillingProviderSlug}
+                    </span>{' '}
+                    are not shown here yet. Use the billing provider&apos;s tools for account usage.
+                  </p>
+                ) : billingProvidersError ? (
+                  <p className="text-sm text-text-secondary mt-4">
+                    Unable to load billing providers. Use &quot;Retry providers&quot; above to try again.
+                  </p>
+                ) : billingProviders !== null && billingProviders.length === 0 ? (
+                  <p className="text-sm text-text-secondary mt-4">No billing providers available.</p>
+                ) : (
+                  <p className="text-sm text-text-secondary mt-4">Loading billing providers…</p>
+                )}
               </Card>
             </div>
           )}
 
-          {activeTab === 'docs' && (
-            <Card>
-              <div className="prose prose-invert max-w-none">
+          {activeTab === 'docs' && (() => {
+            const bp = DOCS_BILLING_PROVIDERS.find((p) => p.id === docsBillingProviderId) ?? DOCS_BILLING_PROVIDERS[0];
+            return (
+            <div className="space-y-4">
+              {/* ── Getting Started ── */}
+              <Card>
                 <h2 className="text-sm font-semibold text-text-primary mb-3">Getting Started</h2>
-                <p className="text-text-secondary mb-3">
-                  Welcome to the NAAP Developer API. Follow these steps to integrate:
-                </p>
-                <ol className="list-decimal list-inside space-y-2 text-text-secondary">
-                  <li>Select a model from the Models tab</li>
-                  <li>Create an API key for your project</li>
-                  <li>Use the API key in your requests</li>
-                  <li>Monitor usage in the Usage & Billing tab</li>
+                <ol className="list-none space-y-2">
+                  {[
+                    'Browse available pipelines and models in the Models tab.',
+                    'Create an API key for your project in the API Keys tab.',
+                    'Use the API key in your requests to authenticate against the NAAP gateway.',
+                    'Track usage and billing in the Usage & Billing tab.',
+                  ].map((step, i) => (
+                    <li key={i} className="flex items-start gap-3 text-sm text-text-secondary">
+                      <span className="shrink-0 w-5 h-5 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[10px] font-semibold text-text-primary mt-0.5">
+                        {i + 1}
+                      </span>
+                      {step}
+                    </li>
+                  ))}
                 </ol>
-              </div>
-            </Card>
-          )}
+              </Card>
+
+              {/* ── Python SDK ── */}
+              <Card>
+                {/* Header: title + provider tabs */}
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-6">
+                  <div>
+                    <h2 className="text-sm font-semibold text-text-primary">Python SDK</h2>
+                    <p className="text-xs text-text-secondary mt-1">
+                      <a
+                        href={PYTHON_GATEWAY_REPO_HREF}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-accent-blue hover:underline"
+                      >
+                        livepeer/livepeer-python-gateway
+                        <ExternalLink size={11} aria-hidden />
+                      </a>
+                      {' '}— orchestrator discovery, Live Video-to-Video jobs, frame publishing.
+                    </p>
+                  </div>
+
+                  {/* Billing provider pill tabs */}
+                  <div className="shrink-0">
+                    <p className="text-[10px] uppercase tracking-wider text-text-secondary/60 mb-1.5 font-medium">
+                      Billing provider
+                    </p>
+                    <div className="flex items-center gap-1 p-0.5 rounded-lg bg-black/30 border border-white/10">
+                      {DOCS_BILLING_PROVIDERS.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setDocsBillingProviderId(p.id)}
+                          className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                            docsBillingProviderId === p.id
+                              ? 'bg-accent-blue text-white shadow-sm'
+                              : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
+                          }`}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Provider badge row */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/3 border border-white/8 mb-7">
+                  <span className="text-[10px] uppercase tracking-wider text-text-secondary/60 font-medium shrink-0">
+                    Signer
+                  </span>
+                  <code className="text-xs text-accent-blue font-mono">{bp.signerUrl}</code>
+                  <span className="ml-auto shrink-0">
+                    <a
+                      href={bp.apiKeyHref}
+                      className="inline-flex items-center gap-1 text-[11px] text-text-secondary hover:text-accent-blue transition-colors font-medium"
+                    >
+                      Get API key
+                      <ExternalLink size={10} aria-hidden />
+                    </a>
+                  </span>
+                </div>
+
+                <DocSection title="Install">
+                  <DocProse>
+                    Clone the repository and install example dependencies with{' '}
+                    <code className="text-slate-300">uv</code>. The{' '}
+                    <code className="text-slate-300">--extra examples</code> group pulls in{' '}
+                    <code className="text-slate-300">av</code> and other packages needed to run the scripts.
+                  </DocProse>
+                  <DocCodeBlock code={`git clone https://github.com/livepeer/livepeer-python-gateway\ncd livepeer-python-gateway\nuv sync --extra examples`} />
+                </DocSection>
+
+                <DocSection title="Authentication">
+                  <DocProse>{bp.authNote}</DocProse>
+                  <DocCodeBlock
+                    label="Authorization header"
+                    code={`Authorization: Bearer <your-api-key>`}
+                  />
+                  <DocProse>{bp.signerNote}</DocProse>
+                </DocSection>
+
+                <DocSection title="Inspect orchestrators — get_orchestrator_info.py">
+                  <DocProse>
+                    Query a single orchestrator directly without any credentials — useful for quick capability checks on a known host.
+                  </DocProse>
+                  <DocCodeBlock
+                    label="off-chain (direct)"
+                    code={`uv run examples/get_orchestrator_info.py localhost:8935`}
+                  />
+
+                  <DocProse>
+                    Run in on-chain mode with the {bp.name} signer. The signer handles payment ticket co-signing; your private key never leaves your machine.
+                  </DocProse>
+                  <DocCodeBlock
+                    label="remote signer"
+                    code={`uv run examples/get_orchestrator_info.py --signer "${bp.signerUrl}"`}
+                  />
+
+                  <DocProse>
+                    Use <code className="text-slate-300">--discovery</code> to resolve orchestrators from a discovery endpoint. Append{' '}
+                    <code className="text-slate-300">?cap=&lt;capability-id&gt;</code> to filter by pipeline — for example{' '}
+                    <code className="text-slate-300">cap=live-video-to-video</code> or{' '}
+                    <code className="text-slate-300">cap=streamdiffusion-sdxl-v2v</code>.
+                  </DocProse>
+                  <DocCodeBlock
+                    label="discovery + capability filter + signer"
+                    code={`uv run examples/get_orchestrator_info.py \\\n  --discovery "https://discovery.example.com/discover-orchestrators?cap=live-video-to-video" \\\n  --signer "${bp.signerUrl}"`}
+                  />
+
+                  <DocProse>
+                    Output as JSON or JSONL for scripting or piping into other tools.
+                  </DocProse>
+                  <DocCodeBlock
+                    label="json output"
+                    code={`uv run examples/get_orchestrator_info.py localhost:8935 --format json`}
+                  />
+                </DocSection>
+
+                <DocSection title="Publish frames — write_frames.py">
+                  <DocProse>
+                    Start a Live Video-to-Video job and push raw frames to an orchestrator. Run{' '}
+                    <code className="text-slate-300">get_orchestrator_info.py</code> first to discover a suitable
+                    orchestrator URL (filtered by capability if needed), then pass it as the first argument here.
+                  </DocProse>
+                  <DocCodeBlock
+                    label="local orchestrator (off-chain)"
+                    code={`uv run examples/write_frames.py localhost:8935`}
+                  />
+                  <DocCodeBlock
+                    label={`remote orchestrator + ${bp.name} signer`}
+                    code={`uv run examples/write_frames.py https://orchestrator.example.com:8935 \\\n  --signer "${bp.signerUrl}" \\\n  --model noop \\\n  --count 90`}
+                  />
+
+                  <DocProse>
+                    To bundle signer, discovery, and orchestrator settings into a single reusable token, encode a JSON payload as base64 and pass it via{' '}
+                    <code className="text-slate-300">--token</code>. Token fields override explicit arguments. See the{' '}
+                    <a
+                      href={`${PYTHON_GATEWAY_REPO_HREF}#token-schema-base64-encoded-json-object`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-accent-blue hover:underline"
+                    >
+                      token schema
+                      <ExternalLink size={11} aria-hidden />
+                    </a>{' '}
+                    in the README.
+                  </DocProse>
+                </DocSection>
+
+                <DocSection title="VS Code / Cursor debugging">
+                  <DocProse>
+                    From the cloned repo root, these match what you would pass as <code className="text-slate-300">args</code>{' '}
+                    when debugging <code className="text-slate-300">examples/get_orchestrator_info.py</code> or{' '}
+                    <code className="text-slate-300">examples/write_frames.py</code> (<code className="text-slate-300">cwd</code>:{' '}
+                    workspace folder). Replace discovery and orchestrator URLs as needed.
+                  </DocProse>
+                  <DocCodeBlock
+                    label="debug get_orchestrator_info.py"
+                    code={`uv run examples/get_orchestrator_info.py \\\n  --discovery "https://discovery.example.com/discover-orchestrators?cap=live-video-to-video" \\\n  --signer "${bp.signerUrl}"`}
+                  />
+                  <DocCodeBlock
+                    label="debug write_frames.py"
+                    code={`uv run examples/write_frames.py https://orchestrator.example.com:8935 \\\n  --signer "${bp.signerUrl}" \\\n  --model noop \\\n  --count 90`}
+                  />
+                </DocSection>
+              </Card>
+            </div>
+            );
+          })()}
         </motion.div>
       </AnimatePresence>
 
@@ -1194,6 +1785,12 @@ result = [...result].sort((a, b) => {
                   ))}
                 </select>
               )}
+              {selectedBillingProvider?.slug === 'pymthouse' && (
+                <p className="text-xs text-amber-300 mt-2">
+                  PymtHouse keys are scoped signer session tokens. They are generated through a short-lived user
+                  authorization exchange and expire after about 90 days.
+                </p>
+              )}
             </div>
             {createError && (
               <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-300">
@@ -1232,7 +1829,28 @@ result = [...result].sort((a, b) => {
               <Shield size={20} className="text-emerald-400 flex-shrink-0" />
               <div className="text-sm">
                 <p className="text-emerald-200 font-medium">Store this key securely</p>
-                <p className="text-text-secondary mt-0.5">This is the only time your API key will be shown. Copy it now and store it in a safe place.</p>
+                <p className="text-text-secondary mt-0.5">
+                  {createdKeyWarning || 'This is the only time your API key will be shown. Copy it now and store it in a safe place.'}
+                </p>
+                {createdKeyExpiresAt && (
+                  <p className="text-amber-200 mt-1">
+                    {createdRawKey.startsWith('pmth_')
+                      ? `Valid until ${new Date(createdKeyExpiresAt).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })} (about 90 days from when this key was created).`
+                      : `Expires at ${new Date(createdKeyExpiresAt).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}.`}
+                  </p>
+                )}
               </div>
             </div>
             <div>

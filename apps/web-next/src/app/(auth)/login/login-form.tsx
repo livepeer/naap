@@ -7,7 +7,32 @@ import { useAuth } from '@/contexts/auth-context';
 import { Loader2, ArrowLeft } from 'lucide-react';
 import { PasswordInput } from '@/components/auth/PasswordInput';
 
-function formatOAuthError(errorCode: string): string {
+/** Middleware sets `pymth_err` when error is pymthouse_device_invalid (see pymthouse-device-initiate.ts). */
+function formatPymthouseDeviceDetail(code: string | null): string | null {
+  if (!code) return null;
+  const detail: Record<string, string> = {
+    server_not_configured:
+      'NaaP is missing PYMTHOUSE_ISSUER_URL (must be the full issuer URL, e.g. http://localhost:3001/api/v1/oidc).',
+    iss_mismatch:
+      'The iss parameter does not match PYMTHOUSE_ISSUER_URL. Fix env or use the issuer URL from PymtHouse discovery.',
+    bad_target_uri: 'target_link_uri was not a valid URL.',
+    target_origin_mismatch:
+      'target_link_uri origin must match the OIDC issuer host (derive from PYMTHOUSE_ISSUER_URL), not NaaP.',
+    target_path_mismatch: 'target_link_uri path must be /oidc/device.',
+    target_has_hash: 'target_link_uri must not include a #fragment.',
+    invalid_user_code: 'user_code in the device link was missing or invalid.',
+    invalid_client_id: 'client_id in the device link must be your public app id (starts with app_).',
+    client_id_mismatch:
+      'client_id in the link does not match PYMTHOUSE_PUBLIC_CLIENT_ID on NaaP. Use the public app_… id for device flow; set PYMTHOUSE_M2M_CLIENT_ID for the confidential client.',
+  };
+  return detail[code] ?? `Device flow validation failed (${code}).`;
+}
+
+function formatOAuthError(errorCode: string, pymthErr: string | null): string {
+  if (errorCode === 'pymthouse_device_invalid') {
+    const d = formatPymthouseDeviceDetail(pymthErr);
+    if (d) return d;
+  }
   const errorMessages: Record<string, string> = {
     invalid_provider: 'Invalid authentication provider.',
     no_code: 'Authentication was cancelled or failed. Please try again.',
@@ -15,30 +40,64 @@ function formatOAuthError(errorCode: string): string {
     access_denied: 'Access was denied. Please try again.',
     oauth_failed: 'Authentication failed. Please try again.',
     account_suspended: 'Your account has been suspended. Please contact an administrator.',
+    pymthouse_device_invalid:
+      'Device sign-in link was invalid or PymtHouse is misconfigured. Check PYMTHOUSE_ISSUER_URL, optional PMTHOUSE_BASE_URL for marketplace links, and that PYMTHOUSE_PUBLIC_CLIENT_ID is the public app_… id.',
   };
-  return errorMessages[errorCode] || decodeURIComponent(errorCode);
+  return errorMessages[errorCode] || errorCode;
 }
 
 export default function LoginForm() {
   const { login, loginWithOAuth, isLoading, isAuthenticated } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const deviceLoginReturn =
+    searchParams.get('callbackUrl') === '/oidc/device-approved';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [vhsPlayed, setVhsPlayed] = useState(false);
 
   useEffect(() => {
+    if (!deviceLoginReturn) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch('/api/v1/auth/device-login-hint', { credentials: 'include' });
+        if (!r.ok || cancelled) return;
+        const body = (await r.json()) as {
+          success?: boolean;
+          data?: { loginHint?: string | null };
+        };
+        const hint = body.success && body.data?.loginHint ? String(body.data.loginHint).trim() : '';
+        if (!hint || cancelled) return;
+        setEmail((prev) => (prev.trim() ? prev : hint));
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceLoginReturn]);
+
+  useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      const raw = searchParams.get('redirect') || '/dashboard';
-      const safeRedirect = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/dashboard';
+      const raw =
+        searchParams.get('callbackUrl') ||
+        searchParams.get('redirect') ||
+        '/dashboard';
+      const safeRedirect =
+        raw.startsWith('/') && !raw.startsWith('//') ? raw : '/dashboard';
       router.replace(safeRedirect);
     }
   }, [isLoading, isAuthenticated, router, searchParams]);
 
   useEffect(() => {
     const oauthError = searchParams.get('error');
-    if (oauthError) setError(formatOAuthError(oauthError));
+    if (oauthError) {
+      const pymthErr = searchParams.get('pymth_err');
+      setError(formatOAuthError(oauthError, pymthErr));
+    }
   }, [searchParams]);
 
   const handleOAuth = useCallback(async (provider: 'google' | 'github') => {

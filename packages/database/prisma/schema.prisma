@@ -197,6 +197,8 @@ model BillingProviderOAuthSession {
   gatewayNonce      String
   gatewayInstanceId String?
   naapUserId        String?
+  /// PKCE code_verifier for OIDC billing providers (e.g. PymtHouse `naap-web`).
+  pkceCodeVerifier  String?
   status            String    @default("pending")
   accessToken       String?
   providerUserId    String?
