@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax"]
+  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing"]
 }
 
 // ============================================
@@ -58,12 +58,11 @@ model User {
   teamMemberships TeamMember[]
 
   // Platform relations
-  pluginReviews    PluginReview[]
-  feedbacks        Feedback[]
+  pluginReviews PluginReview[]
+  feedbacks     Feedback[]
 
   // Plugin relations - Community
   communityProfile CommunityProfile?
-
 
   @@schema("public")
 }
@@ -338,9 +337,9 @@ model WorkflowPlugin {
   displayName    String
   version        String
   remoteUrl      String
-  bundleUrl      String?  // CDN UMD bundle URL (e.g., /cdn/plugins/my-wallet/1.0.0/my-wallet.js)
-  stylesUrl      String?  // CDN styles URL (e.g., /cdn/plugins/my-wallet/1.0.0/my-wallet.css)
-  globalName     String?  // UMD global name (e.g., NaapPluginMyWallet)
+  bundleUrl      String? // CDN UMD bundle URL (e.g., /cdn/plugins/my-wallet/1.0.0/my-wallet.js)
+  stylesUrl      String? // CDN styles URL (e.g., /cdn/plugins/my-wallet/1.0.0/my-wallet.css)
+  globalName     String? // UMD global name (e.g., NaapPluginMyWallet)
   deploymentType String?  @default("cdn") // 'cdn' | 'container'
   routes         String[]
   enabled        Boolean  @default(true)
@@ -473,29 +472,29 @@ model PluginPackage {
 }
 
 model PluginVersion {
-  id             String               @id @default(uuid())
+  id             String        @id @default(uuid())
   packageId      String
-  package        PluginPackage        @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  package        PluginPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
   version        String
   manifest       Json
   frontendUrl    String?
   backendImage   String?
   releaseNotes   String?
-  deprecated     Boolean              @default(false)
+  deprecated     Boolean       @default(false)
   deprecationMsg String?
-  downloads      Int                  @default(0)
-  publishedAt    DateTime             @default(now())
+  downloads      Int           @default(0)
+  publishedAt    DateTime      @default(now())
 
   // CDN deployment fields (for UMD bundles)
-  bundleUrl      String?              // CDN URL for the UMD bundle
-  stylesUrl      String?              // CDN URL for styles
-  bundleHash     String?              // Content hash for cache validation
-  bundleSize     Int?                 // Bundle size in bytes
-  deploymentType String?              @default("cdn") // cdn | container
+  bundleUrl      String? // CDN URL for the UMD bundle
+  stylesUrl      String? // CDN URL for styles
+  bundleHash     String? // Content hash for cache validation
+  bundleSize     Int? // Bundle size in bytes
+  deploymentType String? @default("cdn") // cdn | container
 
-  installations  PluginInstallation[]
-  deployments    PluginDeployment[]
-  pinnedByTeams  TeamPluginInstall[]  @relation("PinnedVersion")
+  installations PluginInstallation[]
+  deployments   PluginDeployment[]
+  pinnedByTeams TeamPluginInstall[]  @relation("PinnedVersion")
 
   @@unique([packageId, version])
   @@index([packageId, publishedAt])
@@ -530,34 +529,34 @@ model PluginInstallation {
 // ============================================
 
 model PluginDeployment {
-  id              String                @id @default(uuid())
-  packageId       String                @unique
-  package         PluginPackage         @relation(fields: [packageId], references: [id], onDelete: Cascade)
-  versionId       String
-  version         PluginVersion         @relation(fields: [versionId], references: [id], onDelete: Cascade)
-  status          String                @default("pending")
-  frontendUrl     String?
-  backendUrl      String?
-  containerPort   Int?
-  databaseSchema  String?
+  id             String        @id @default(uuid())
+  packageId      String        @unique
+  package        PluginPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  versionId      String
+  version        PluginVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  status         String        @default("pending")
+  frontendUrl    String?
+  backendUrl     String?
+  containerPort  Int?
+  databaseSchema String?
 
   // CDN deployment fields
-  bundleUrl       String?               // CDN URL for UMD bundle
-  stylesUrl       String?               // CDN URL for styles
-  bundleHash      String?               // Content hash for cache busting
-  bundleSize      Int?                  // Bundle size in bytes
-  deploymentType  String                @default("cdn") // cdn | container
+  bundleUrl      String? // CDN URL for UMD bundle
+  stylesUrl      String? // CDN URL for styles
+  bundleHash     String? // Content hash for cache busting
+  bundleSize     Int? // Bundle size in bytes
+  deploymentType String  @default("cdn") // cdn | container
 
-  activeInstalls  Int                   @default(0)
+  activeInstalls  Int       @default(0)
   deployedAt      DateTime?
   lastHealthCheck DateTime?
   healthStatus    String?
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  tenantInstalls  TenantPluginInstall[]
-  teamInstalls    TeamPluginInstall[]
-  slots           PluginDeploymentSlot[]
+  tenantInstalls TenantPluginInstall[]
+  teamInstalls   TeamPluginInstall[]
+  slots          PluginDeploymentSlot[]
 
   @@index([status])
   @@index([healthStatus])
@@ -1004,8 +1003,6 @@ model CommunityUserBadge {
   @@schema("plugin_community")
 }
 
-
-
 // ============================================
 // PLATFORM - PLUGIN REVIEWS
 // ============================================
@@ -1016,9 +1013,9 @@ model PluginReview {
   package     PluginPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
   userId      String
   user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rating      Int           // 1-5 star rating
-  comment     String?       // Optional review comment
-  displayName String?       // Cached display name at time of review
+  rating      Int // 1-5 star rating
+  comment     String? // Optional review comment
+  displayName String? // Cached display name at time of review
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -1034,12 +1031,12 @@ model PluginReview {
 
 model Feedback {
   id          String   @id @default(uuid())
-  type        String   // bug, feature, general
+  type        String // bug, feature, general
   title       String
   description String
   status      String   @default("open") // open, investigating, roadmap, released, closed
-  releaseTag  String?  // e.g. "v1.2.0" – set when status = released
-  adminNote   String?  // internal admin note
+  releaseTag  String? // e.g. "v1.2.0" – set when status = released
+  adminNote   String? // internal admin note
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userEmail   String?
@@ -1073,23 +1070,23 @@ model FeedbackConfig {
 // Deployment slot for blue-green deployments
 // Each deployment has two slots (blue/green) for zero-downtime updates
 model PluginDeploymentSlot {
-  id              String           @id @default(uuid())
-  deploymentId    String
-  deployment      PluginDeployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
-  slot            String           // "blue" | "green"
-  version         String           // Version deployed to this slot
-  status          String           @default("inactive") // active, inactive, deploying, failed, draining
-  trafficPercent  Int              @default(0) // 0-100
-  frontendUrl     String?          // CDN URL for this slot's frontend bundle
-  backendUrl      String?          // Container URL for this slot's backend
-  healthStatus    String?          // healthy, unhealthy, unknown
-  lastHealthCheck DateTime?
-  healthCheckFailures Int          @default(0)
-  deployedAt      DateTime?
-  deployedBy      String?
-  metadata        Json?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id                  String           @id @default(uuid())
+  deploymentId        String
+  deployment          PluginDeployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  slot                String // "blue" | "green"
+  version             String // Version deployed to this slot
+  status              String           @default("inactive") // active, inactive, deploying, failed, draining
+  trafficPercent      Int              @default(0) // 0-100
+  frontendUrl         String? // CDN URL for this slot's frontend bundle
+  backendUrl          String? // Container URL for this slot's backend
+  healthStatus        String? // healthy, unhealthy, unknown
+  lastHealthCheck     DateTime?
+  healthCheckFailures Int              @default(0)
+  deployedAt          DateTime?
+  deployedBy          String?
+  metadata            Json?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   @@unique([deploymentId, slot])
   @@index([deploymentId])
@@ -1102,7 +1099,7 @@ model PluginDeploymentSlot {
 model DeploymentEvent {
   id             String   @id @default(uuid())
   deploymentId   String
-  type           String   // deploy_start, deploy_complete, health_check, traffic_shift, rollback, failure
+  type           String // deploy_start, deploy_complete, health_check, traffic_shift, rollback, failure
   fromSlot       String?
   toSlot         String?
   fromVersion    String?
@@ -1112,7 +1109,7 @@ model DeploymentEvent {
   error          String?
   initiatedBy    String?
   metadata       Json?
-  duration       Int?     // Duration in milliseconds
+  duration       Int? // Duration in milliseconds
   createdAt      DateTime @default(now())
 
   @@index([deploymentId])
@@ -1128,21 +1125,21 @@ model DeploymentEvent {
 
 // Time-series metrics for plugin monitoring
 model PluginMetrics {
-  id             String   @id @default(uuid())
-  deploymentId   String
-  slot           String?  // Optional slot identifier for per-slot metrics
-  timestamp      DateTime @default(now())
-  requestCount   Int      @default(0)
-  errorCount     Int      @default(0)
-  latencyP50     Float?
-  latencyP95     Float?
-  latencyP99     Float?
-  latencyAvg     Float?
-  activeUsers    Int      @default(0)
-  uniqueSessions Int      @default(0)
-  memoryUsageMb  Float?
+  id              String   @id @default(uuid())
+  deploymentId    String
+  slot            String? // Optional slot identifier for per-slot metrics
+  timestamp       DateTime @default(now())
+  requestCount    Int      @default(0)
+  errorCount      Int      @default(0)
+  latencyP50      Float?
+  latencyP95      Float?
+  latencyP99      Float?
+  latencyAvg      Float?
+  activeUsers     Int      @default(0)
+  uniqueSessions  Int      @default(0)
+  memoryUsageMb   Float?
   cpuUsagePercent Float?
-  periodSeconds  Int      @default(60) // Aggregation window
+  periodSeconds   Int      @default(60) // Aggregation window
 
   @@index([deploymentId, timestamp])
   @@index([deploymentId, slot, timestamp])
@@ -1156,8 +1153,8 @@ model PluginAlert {
   deploymentId    String
   name            String
   description     String?
-  metric          String    // error_rate, latency_p99, health_check, cpu_usage, memory_usage
-  operator        String    // gt, gte, lt, lte, eq
+  metric          String // error_rate, latency_p99, health_check, cpu_usage, memory_usage
+  operator        String // gt, gte, lt, lte, eq
   threshold       Float
   duration        Int       @default(60)
   severity        String    @default("warning") // critical, warning, info
@@ -1188,44 +1185,44 @@ model PluginAlert {
 /// Upstream service definition — one per third-party API connection.
 /// Polymorphic ownership: exactly one of teamId or ownerUserId must be set.
 model ServiceConnector {
-  id                String   @id @default(uuid())
-  teamId            String?                         // set for team-scoped connectors
-  ownerUserId       String?                         // set for personal connectors
-  slug              String                          // URL-safe identifier, unique per owner scope
-  displayName       String
-  description       String?
-  status            String   @default("draft")      // draft | published | archived
-  visibility        String   @default("private")    // private | team | public
-  version           Int      @default(1)
+  id          String  @id @default(uuid())
+  teamId      String? // set for team-scoped connectors
+  ownerUserId String? // set for personal connectors
+  slug        String // URL-safe identifier, unique per owner scope
+  displayName String
+  description String?
+  status      String  @default("draft") // draft | published | archived
+  visibility  String  @default("private") // private | team | public
+  version     Int     @default(1)
 
   // ── Upstream Config ──
-  upstreamBaseUrl   String
-  allowedHosts      String[]                        // SSRF protection allowlist
-  defaultTimeout    Int      @default(30000)         // ms
-  healthCheckPath   String?
+  upstreamBaseUrl String
+  allowedHosts    String[] // SSRF protection allowlist
+  defaultTimeout  Int      @default(30000) // ms
+  healthCheckPath String?
 
   // ── Auth Config ──
-  authType          String   @default("none")       // none | bearer | header | basic | query
-  authConfig        Json     @default("{}")          // auth-type-specific config (no secrets here)
-  secretRefs        String[]                         // references to SecretVault keys
+  authType   String   @default("none") // none | bearer | header | basic | query
+  authConfig Json     @default("{}") // auth-type-specific config (no secrets here)
+  secretRefs String[] // references to SecretVault keys
 
   // ── Response Config ──
-  responseWrapper   Boolean  @default(true)          // wrap in NaaP envelope
-  streamingEnabled  Boolean  @default(false)         // SSE passthrough
-  errorMapping      Json     @default("{}")          // status code → message mapping
+  responseWrapper  Boolean @default(true) // wrap in NaaP envelope
+  streamingEnabled Boolean @default(false) // SSE passthrough
+  errorMapping     Json    @default("{}") // status code → message mapping
 
   // ── Meta ──
-  category          String   @default("")
-  tags              String[]
-  createdBy         String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  publishedAt       DateTime?
+  category    String    @default("")
+  tags        String[]
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  publishedAt DateTime?
 
   // ── Relations ──
-  endpoints         ConnectorEndpoint[]
-  apiKeys           GatewayApiKey[]
-  healthChecks      GatewayHealthCheck[]
+  endpoints    ConnectorEndpoint[]
+  apiKeys      GatewayApiKey[]
+  healthChecks GatewayHealthCheck[]
 
   @@unique([teamId, slug])
   @@unique([ownerUserId, slug])
@@ -1238,42 +1235,42 @@ model ServiceConnector {
 /// Individual route within a connector — maps a consumer-facing
 /// endpoint to an upstream path with optional transforms and policies.
 model ConnectorEndpoint {
-  id                  String   @id @default(uuid())
-  connectorId         String
-  connector           ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  id          String           @id @default(uuid())
+  connectorId String
+  connector   ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
-  name                String
-  description         String?
-  method              String                          // GET | POST | PUT | PATCH | DELETE
-  path                String                          // consumer path, e.g. /query
-  enabled             Boolean  @default(true)
+  name        String
+  description String?
+  method      String // GET | POST | PUT | PATCH | DELETE
+  path        String // consumer path, e.g. /query
+  enabled     Boolean @default(true)
 
   // ── Upstream Mapping ──
-  upstreamMethod      String?                         // override method if different
-  upstreamPath        String                          // upstream path, e.g. /
-  upstreamContentType String   @default("application/json")
-  upstreamQueryParams Json     @default("{}")
-  upstreamStaticBody  String?                         // static body for GET-as-POST patterns
-  bodyTransform       String   @default("passthrough") // passthrough | extract:field | static | template
-  responseBodyTransform String  @default("none")       // none | envelope | raw | streaming | field-map
-  headerMapping       Json     @default("{}")
+  upstreamMethod        String? // override method if different
+  upstreamPath          String // upstream path, e.g. /
+  upstreamContentType   String  @default("application/json")
+  upstreamQueryParams   Json    @default("{}")
+  upstreamStaticBody    String? // static body for GET-as-POST patterns
+  bodyTransform         String  @default("passthrough") // passthrough | extract:field | static | template
+  responseBodyTransform String  @default("none") // none | envelope | raw | streaming | field-map
+  headerMapping         Json    @default("{}")
 
   // ── Policy ──
-  rateLimit           Int?                            // req/min override (null = use plan)
-  timeout             Int?                            // ms override (null = use connector default)
-  maxRequestSize      Int?                            // bytes
-  maxResponseSize     Int?                            // bytes
-  cacheTtl            Int?                            // seconds (null = no cache)
-  retries             Int      @default(0)
+  rateLimit       Int? // req/min override (null = use plan)
+  timeout         Int? // ms override (null = use connector default)
+  maxRequestSize  Int? // bytes
+  maxResponseSize Int? // bytes
+  cacheTtl        Int? // seconds (null = no cache)
+  retries         Int  @default(0)
 
   // ── Validation ──
-  bodyPattern         String?                         // regex the body must match
-  bodyBlacklist       String[]                        // keywords that must not appear in body
-  bodySchema          Json?                           // JSON Schema for body validation
-  requiredHeaders     String[]
+  bodyPattern     String? // regex the body must match
+  bodyBlacklist   String[] // keywords that must not appear in body
+  bodySchema      Json? // JSON Schema for body validation
+  requiredHeaders String[]
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([connectorId, method, path])
   @@index([connectorId])
@@ -1284,27 +1281,27 @@ model ConnectorEndpoint {
 /// against the gateway. Key material is never stored; only SHA-256 hash.
 /// Polymorphic ownership: exactly one of teamId or ownerUserId must be set.
 model GatewayApiKey {
-  id               String    @id @default(uuid())
-  teamId           String?                           // set for team-scoped keys
-  ownerUserId      String?                           // set for personal keys
-  connectorId      String?                           // null = access all connectors in scope
-  connector        ServiceConnector? @relation(fields: [connectorId], references: [id], onDelete: SetNull)
-  planId           String?
-  plan             GatewayPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+  id          String            @id @default(uuid())
+  teamId      String? // set for team-scoped keys
+  ownerUserId String? // set for personal keys
+  connectorId String? // null = access all connectors in scope
+  connector   ServiceConnector? @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+  planId      String?
+  plan        GatewayPlan?      @relation(fields: [planId], references: [id], onDelete: SetNull)
 
-  name             String
-  keyHash          String    @unique                 // SHA-256 of the raw key
-  keyPrefix        String                            // first 8 chars for display: gw_abc12345...
-  status           String    @default("active")      // active | revoked | expired
+  name      String
+  keyHash   String @unique // SHA-256 of the raw key
+  keyPrefix String // first 8 chars for display: gw_abc12345...
+  status    String @default("active") // active | revoked | expired
 
-  allowedEndpoints String[]                          // empty = all endpoints
-  allowedIPs       String[]                          // empty = all IPs
+  allowedEndpoints String[] // empty = all endpoints
+  allowedIPs       String[] // empty = all IPs
   expiresAt        DateTime?
   lastUsedAt       DateTime?
 
-  createdBy        String
-  createdAt        DateTime  @default(now())
-  revokedAt        DateTime?
+  createdBy String
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
 
   @@index([teamId])
   @@index([ownerUserId])
@@ -1318,25 +1315,25 @@ model GatewayApiKey {
 /// throughput and usage limits per owner scope.
 /// Polymorphic ownership: exactly one of teamId or ownerUserId must be set.
 model GatewayPlan {
-  id              String   @id @default(uuid())
-  teamId          String?                            // set for team-scoped plans
-  ownerUserId     String?                            // set for personal plans
-  name            String
-  displayName     String
+  id          String  @id @default(uuid())
+  teamId      String? // set for team-scoped plans
+  ownerUserId String? // set for personal plans
+  name        String
+  displayName String
 
-  rateLimit       Int      @default(100)             // requests per minute
-  dailyQuota      Int?                               // null = unlimited
-  monthlyQuota    Int?                               // null = unlimited
-  maxRequestSize  Int      @default(1048576)          // 1 MB
-  maxResponseSize Int      @default(4194304)          // 4 MB
+  rateLimit       Int  @default(100) // requests per minute
+  dailyQuota      Int? // null = unlimited
+  monthlyQuota    Int? // null = unlimited
+  maxRequestSize  Int  @default(1048576) // 1 MB
+  maxResponseSize Int  @default(4194304) // 4 MB
   burstLimit      Int?
 
-  allowedConnectors String[]                         // empty = all team connectors
+  allowedConnectors String[] // empty = all team connectors
 
-  apiKeys         GatewayApiKey[]
+  apiKeys GatewayApiKey[]
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([teamId, name])
   @@unique([ownerUserId, name])
@@ -1348,26 +1345,26 @@ model GatewayPlan {
 /// Per-request usage log — written asynchronously via waitUntil()
 /// after every gateway request. Used for analytics and billing.
 model GatewayUsageRecord {
-  id                String   @id @default(uuid())
-  teamId            String
-  connectorId       String
-  endpointName      String
-  apiKeyId          String?                          // null if JWT auth
-  callerType        String                           // jwt | apiKey
-  callerId          String
+  id           String  @id @default(uuid())
+  teamId       String
+  connectorId  String
+  endpointName String
+  apiKeyId     String? // null if JWT auth
+  callerType   String // jwt | apiKey
+  callerId     String
 
   method            String
   path              String
   statusCode        Int
   latencyMs         Int
   upstreamLatencyMs Int
-  requestBytes      Int      @default(0)
-  responseBytes     Int      @default(0)
-  cached            Boolean  @default(false)
+  requestBytes      Int     @default(0)
+  responseBytes     Int     @default(0)
+  cached            Boolean @default(false)
   error             String?
   region            String?
 
-  timestamp         DateTime @default(now())
+  timestamp DateTime @default(now())
 
   @@index([teamId, timestamp])
   @@index([connectorId, timestamp])
@@ -1378,16 +1375,16 @@ model GatewayUsageRecord {
 
 /// Pre-built connector template — synced from templates/*.json during deploy.
 model GatewayConnectorTemplate {
-  id            String   @id
-  name          String
-  description   String
-  icon          String   @default("")
-  category      String   @default("")
-  connector     Json
-  endpoints     Json
-  source        String   @default("builtin")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String   @id
+  name        String
+  description String
+  icon        String   @default("")
+  category    String   @default("")
+  connector   Json
+  endpoints   Json
+  source      String   @default("builtin")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@schema("plugin_service_gateway")
 }
@@ -1395,14 +1392,14 @@ model GatewayConnectorTemplate {
 /// Upstream health status — recorded periodically by cron job
 /// and on-demand via test-connectivity.
 model GatewayHealthCheck {
-  id            String   @id @default(uuid())
-  connectorId   String
-  connector     ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
-  status        String                               // up | down | degraded
-  latencyMs     Int
-  statusCode    Int?
-  error         String?
-  checkedAt     DateTime @default(now())
+  id          String           @id @default(uuid())
+  connectorId String
+  connector   ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  status      String // up | down | degraded
+  latencyMs   Int
+  statusCode  Int?
+  error       String?
+  checkedAt   DateTime         @default(now())
 
   @@index([connectorId, checkedAt])
   @@schema("plugin_service_gateway")
@@ -1414,30 +1411,30 @@ model GatewayHealthCheck {
 // Double-entry ledger, chart of accounts, journal entries, tenant config
 
 model AbTenantConfig {
-  id                      String   @id @default(uuid())
-  userId                  String   @unique
-  businessType            String   @default("freelancer")
-  jurisdiction            String   @default("us")       // us | ca | ...
-  region                  String   @default("")          // state/province code
-  currency                String   @default("USD")
-  locale                  String   @default("en-US")
-  timezone                String   @default("America/New_York")
-  fiscalYearStart         Int      @default(1)           // month 1-12
-  autoApproveLimitCents   Int      @default(50000)       // $500 default
-  autoRemindEnabled       Boolean  @default(false)
-  autoRemindDays          Int      @default(3)            // min days between reminders
-  dailyDigestEnabled      Boolean  @default(true)         // morning digest opt-out
-  dailyBackupEnabled      Boolean  @default(true)         // PR 24 daily backup opt-out
-  botRateLimitPerMin      Int?     @default(60)           // PR 25 per-tenant override; null falls back to default
-  botRateLimitPerDay      Int?     @default(1000)         // PR 25 per-tenant override; null falls back to default
-  companyName             String?
-  companyAddress          String?
-  companyEmail            String?
-  companyPhone            String?
-  logoUrl                 String?
-  brandColor              String   @default("#1a1a2e")
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  businessType          String   @default("freelancer")
+  jurisdiction          String   @default("us") // us | ca | ...
+  region                String   @default("") // state/province code
+  currency              String   @default("USD")
+  locale                String   @default("en-US")
+  timezone              String   @default("America/New_York")
+  fiscalYearStart       Int      @default(1) // month 1-12
+  autoApproveLimitCents Int      @default(50000) // $500 default
+  autoRemindEnabled     Boolean  @default(false)
+  autoRemindDays        Int      @default(3) // min days between reminders
+  dailyDigestEnabled    Boolean  @default(true) // morning digest opt-out
+  dailyBackupEnabled    Boolean  @default(true) // PR 24 daily backup opt-out
+  botRateLimitPerMin    Int?     @default(60) // PR 25 per-tenant override; null falls back to default
+  botRateLimitPerDay    Int?     @default(1000) // PR 25 per-tenant override; null falls back to default
+  companyName           String?
+  companyAddress        String?
+  companyEmail          String?
+  companyPhone          String?
+  logoUrl               String?
+  brandColor            String   @default("#1a1a2e")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   @@index([userId])
   @@schema("plugin_agentbook_core")
@@ -1460,16 +1457,16 @@ model AbBackup {
 }
 
 model AbTelegramBot {
-  id              String   @id @default(uuid())
-  tenantId        String
-  botToken        String
-  botUsername      String?
-  chatIds         Json     @default("[]")
-  webhookSecret   String?
-  webhookUrl      String?
-  enabled         Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String   @id @default(uuid())
+  tenantId      String
+  botToken      String
+  botUsername   String?
+  chatIds       Json     @default("[]")
+  webhookSecret String?
+  webhookUrl    String?
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@unique([tenantId])
   @@index([botToken])
@@ -1477,18 +1474,18 @@ model AbTelegramBot {
 }
 
 model AbAccount {
-  id            String   @id @default(uuid())
-  tenantId      String
-  code          String                          // e.g., "5010"
-  name          String                          // e.g., "Office Supplies"
-  accountType   String                          // asset | liability | equity | revenue | expense
-  parentId      String?
-  taxCategory   String?                         // Schedule C line / T2125 category
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String   @id @default(uuid())
+  tenantId    String
+  code        String // e.g., "5010"
+  name        String // e.g., "Office Supplies"
+  accountType String // asset | liability | equity | revenue | expense
+  parentId    String?
+  taxCategory String? // Schedule C line / T2125 category
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  journalLines  AbJournalLine[]
+  journalLines AbJournalLine[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1497,17 +1494,17 @@ model AbAccount {
 }
 
 model AbJournalEntry {
-  id          String   @id @default(uuid())
-  tenantId    String
-  date        DateTime
-  memo        String
-  sourceType  String                            // expense | invoice | payment | manual | adjustment
-  sourceId    String?                           // expense_id, invoice_id, etc.
-  createdBy   String   @default("agent")        // agent | human
-  verified    Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  tenantId   String
+  date       DateTime
+  memo       String
+  sourceType String // expense | invoice | payment | manual | adjustment
+  sourceId   String? // expense_id, invoice_id, etc.
+  createdBy  String   @default("agent") // agent | human
+  verified   Boolean  @default(false)
+  createdAt  DateTime @default(now())
 
-  lines       AbJournalLine[]
+  lines AbJournalLine[]
 
   @@index([tenantId, date])
   @@index([tenantId, sourceType])
@@ -1530,14 +1527,14 @@ model AbJournalLine {
 }
 
 model AbFiscalPeriod {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   tenantId  String
   year      Int
   month     Int
-  status    String   @default("open")           // open | closed
+  status    String    @default("open") // open | closed
   closedAt  DateTime?
   closedBy  String?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@unique([tenantId, year, month])
   @@index([tenantId])
@@ -1566,16 +1563,16 @@ model AbEvent {
 // gradual migration: existing endpoints keep writing AbEvent rows; the
 // new audit() helper records a normalized row here for the activity log.
 model AbAuditEvent {
-  id          String   @id @default(uuid())
-  tenantId    String
-  actor       String                                    // 'user:<userId>' | 'bot' | 'cron' | 'api'
-  source      String                                    // 'web' | 'telegram' | 'cron' | 'api'
-  action      String                                    // 'invoice.create' | 'expense.delete' | 'budget.update' etc.
-  entityType  String                                    // 'AbInvoice' | 'AbExpense' | 'AbBudget' | etc.
-  entityId    String                                    // the affected row id
-  before      Json?                                     // diff: removed/changed fields BEFORE
-  after       Json?                                     // diff: added/changed fields AFTER
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  tenantId   String
+  actor      String // 'user:<userId>' | 'bot' | 'cron' | 'api'
+  source     String // 'web' | 'telegram' | 'cron' | 'api'
+  action     String // 'invoice.create' | 'expense.delete' | 'budget.update' etc.
+  entityType String // 'AbInvoice' | 'AbExpense' | 'AbBudget' | etc.
+  entityId   String // the affected row id
+  before     Json? // diff: removed/changed fields BEFORE
+  after      Json? // diff: added/changed fields AFTER
+  createdAt  DateTime @default(now())
 
   @@index([tenantId, createdAt])
   @@index([tenantId, entityType, entityId])
@@ -1585,19 +1582,19 @@ model AbAuditEvent {
 
 // Phase 12: Autonomous Workflow Automations
 model AbAutomation {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   tenantId    String
   name        String
   description String?
-  trigger     Json                              // { type: "schedule|event|condition", config: {...} }
-  conditions  Json?                             // [{ field, operator, value }]
-  actions     Json                              // [{ type: "send_reminder|create_invoice|notify|...", config: {...} }]
-  status      String   @default("active")       // active | paused | completed | failed
+  trigger     Json // { type: "schedule|event|condition", config: {...} }
+  conditions  Json? // [{ field, operator, value }]
+  actions     Json // [{ type: "send_reminder|create_invoice|notify|...", config: {...} }]
+  status      String    @default("active") // active | paused | completed | failed
   lastRun     DateTime?
-  runCount    Int      @default(0)
-  maxRuns     Int?                              // null = unlimited
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  runCount    Int       @default(0)
+  maxRuns     Int? // null = unlimited
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([tenantId, status])
   @@schema("plugin_agentbook_core")
@@ -1605,20 +1602,20 @@ model AbAutomation {
 
 // Phase 12: Financial Digital Twin — periodic snapshots for simulation
 model AbFinancialSnapshot {
-  id                String   @id @default(uuid())
-  tenantId          String
-  snapshotDate      DateTime
-  cashBalanceCents  Int
-  totalRevenueCents Int
-  totalExpenseCents Int
-  netIncomeCents    Int
+  id                 String   @id @default(uuid())
+  tenantId           String
+  snapshotDate       DateTime
+  cashBalanceCents   Int
+  totalRevenueCents  Int
+  totalExpenseCents  Int
+  netIncomeCents     Int
   arOutstandingCents Int
-  monthlyBurnCents  Int                         // avg monthly expenses
-  runwayMonths      Float                       // cash / monthly burn
-  clientCount       Int
-  topClients        Json                        // [{name, revenueCents, percentage}]
-  categoryBreakdown Json                        // [{category, amountCents}]
-  createdAt         DateTime @default(now())
+  monthlyBurnCents   Int // avg monthly expenses
+  runwayMonths       Float // cash / monthly burn
+  clientCount        Int
+  topClients         Json // [{name, revenueCents, percentage}]
+  categoryBreakdown  Json // [{category, amountCents}]
+  createdAt          DateTime @default(now())
 
   @@index([tenantId, snapshotDate])
   @@schema("plugin_agentbook_core")
@@ -1626,18 +1623,18 @@ model AbFinancialSnapshot {
 
 // Phase 12: Conversation History for memory continuity
 model AbConversation {
-  id          String   @id @default(uuid())
-  tenantId    String
-  question    String
-  answer      String
-  queryType   String                            // pattern | llm | simulation | agent
-  channel     String   @default("web")          // web | telegram | api
-  skillUsed   String?                           // which skill handled this message
-  data        Json?
-  latencyMs   Int?
-  sessionId   String?
-  feedback    String?
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  tenantId  String
+  question  String
+  answer    String
+  queryType String // pattern | llm | simulation | agent
+  channel   String   @default("web") // web | telegram | api
+  skillUsed String? // which skill handled this message
+  data      Json?
+  latencyMs Int?
+  sessionId String?
+  feedback  String?
+  createdAt DateTime @default(now())
 
   @@index([tenantId, createdAt])
   @@schema("plugin_agentbook_core")
@@ -1648,34 +1645,34 @@ model AbConversation {
 // ============================================
 
 model AbExpense {
-  id              String   @id @default(uuid())
-  tenantId        String
-  amountCents     Int
-  taxAmountCents  Int      @default(0)          // sales tax / GST / HST amount
-  tipAmountCents  Int      @default(0)          // tip amount (meals)
-  vendorId        String?
-  vendor          AbVendor? @relation(fields: [vendorId], references: [id])
-  categoryId      String?                       // AbAccount.id from core
-  date            DateTime
-  description     String?
-  notes           String?                       // additional notes
-  receiptUrl      String?
-  paymentMethod   String   @default("unknown")  // cash | credit_card | debit | bank_transfer | unknown
-  currency        String   @default("USD")
-  tags            String?                       // comma-separated tags
-  confidence      Float?                        // 0-1 categorization confidence
-  isPersonal      Boolean  @default(false)
-  isBillable      Boolean  @default(false)      // can be billed to a client
-  clientId        String?                       // if billable, which client
-  isDeductible    Boolean  @default(false)      // PR 12: business-deductible flag (set by deduction discovery)
-  taxCategory     String?                       // PR 12: Schedule C / T2125 line snapshot (set on apply)
-  receiptStatus   String?  @default("pending")  // PR 16: 'pending' | 'attached' | 'skipped' — drives the receipt-expiry digest
-  status          String   @default("confirmed") // confirmed | pending_review | rejected
-  source          String   @default("manual")    // manual | telegram_photo | telegram_pdf | ocr | csv_import | cc_statement | bank_sync
-  journalEntryId  String?
-  deletedAt       DateTime?                       // PR 26: soft-delete; null=live, set=removed
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String    @id @default(uuid())
+  tenantId       String
+  amountCents    Int
+  taxAmountCents Int       @default(0) // sales tax / GST / HST amount
+  tipAmountCents Int       @default(0) // tip amount (meals)
+  vendorId       String?
+  vendor         AbVendor? @relation(fields: [vendorId], references: [id])
+  categoryId     String? // AbAccount.id from core
+  date           DateTime
+  description    String?
+  notes          String? // additional notes
+  receiptUrl     String?
+  paymentMethod  String    @default("unknown") // cash | credit_card | debit | bank_transfer | unknown
+  currency       String    @default("USD")
+  tags           String? // comma-separated tags
+  confidence     Float? // 0-1 categorization confidence
+  isPersonal     Boolean   @default(false)
+  isBillable     Boolean   @default(false) // can be billed to a client
+  clientId       String? // if billable, which client
+  isDeductible   Boolean   @default(false) // PR 12: business-deductible flag (set by deduction discovery)
+  taxCategory    String? // PR 12: Schedule C / T2125 line snapshot (set on apply)
+  receiptStatus  String?   @default("pending") // PR 16: 'pending' | 'attached' | 'skipped' — drives the receipt-expiry digest
+  status         String    @default("confirmed") // confirmed | pending_review | rejected
+  source         String    @default("manual") // manual | telegram_photo | telegram_pdf | ocr | csv_import | cc_statement | bank_sync
+  journalEntryId String?
+  deletedAt      DateTime? // PR 26: soft-delete; null=live, set=removed
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([tenantId, date])
   @@index([tenantId, vendorId])
@@ -1687,31 +1684,31 @@ model AbExpense {
 }
 
 model AbExpenseSplit {
-  id            String   @id @default(uuid())
-  expenseId     String
-  categoryId    String?                         // AbAccount.id — the category for this split portion
-  amountCents   Int
-  isPersonal    Boolean  @default(false)
-  description   String?
-  createdAt     DateTime @default(now())
+  id          String   @id @default(uuid())
+  expenseId   String
+  categoryId  String? // AbAccount.id — the category for this split portion
+  amountCents Int
+  isPersonal  Boolean  @default(false)
+  description String?
+  createdAt   DateTime @default(now())
 
   @@index([expenseId])
   @@schema("plugin_agentbook_expense")
 }
 
 model AbVendor {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  name                String
-  normalizedName      String
-  defaultCategoryId   String?
-  transactionCount    Int      @default(0)
-  lastSeen            DateTime @default(now())
-  deletedAt           DateTime?                    // PR 26: soft-delete
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                String    @id @default(uuid())
+  tenantId          String
+  name              String
+  normalizedName    String
+  defaultCategoryId String?
+  transactionCount  Int       @default(0)
+  lastSeen          DateTime  @default(now())
+  deletedAt         DateTime? // PR 26: soft-delete
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  expenses            AbExpense[]
+  expenses AbExpense[]
 
   @@unique([tenantId, normalizedName])
   @@index([tenantId])
@@ -1720,16 +1717,16 @@ model AbVendor {
 }
 
 model AbPattern {
-  id            String   @id @default(uuid())
-  tenantId      String
-  vendorPattern String
-  categoryId    String
-  confidence    Float    @default(0.5)
-  source        String   @default("agent_learned")  // agent_learned | user_corrected
-  usageCount    Int      @default(0)
+  id                 String   @id @default(uuid())
+  tenantId           String
+  vendorPattern      String
+  categoryId         String
+  confidence         Float    @default(0.5)
+  source             String   @default("agent_learned") // agent_learned | user_corrected
+  usageCount         Int      @default(0)
   accuracyTrailing30 Float?
-  lastUsed      DateTime @default(now())
-  createdAt     DateTime @default(now())
+  lastUsed           DateTime @default(now())
+  createdAt          DateTime @default(now())
 
   @@unique([tenantId, vendorPattern])
   @@index([tenantId])
@@ -1737,15 +1734,15 @@ model AbPattern {
 }
 
 model AbRecurringRule {
-  id          String   @id @default(uuid())
-  tenantId    String
-  vendorId    String
-  amountCents Int
-  frequency   String                            // monthly | weekly | biweekly | annual
+  id           String   @id @default(uuid())
+  tenantId     String
+  vendorId     String
+  amountCents  Int
+  frequency    String // monthly | weekly | biweekly | annual
   nextExpected DateTime
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([tenantId])
   @@index([tenantId, active])
@@ -1753,48 +1750,48 @@ model AbRecurringRule {
 }
 
 model AbBankAccount {
-  id              String   @id @default(uuid())
-  tenantId        String
-  plaidItemId     String?
-  plaidAccountId  String?  @unique
-  name            String
-  officialName    String?
-  type            String                          // checking | savings | credit
-  subtype         String?
-  mask            String?                         // last 4 digits
-  balanceCents    Int      @default(0)
-  currency        String   @default("USD")
-  institution     String?
-  connected       Boolean  @default(true)
-  lastSynced      DateTime?
-  accessTokenEnc  String?                         // AES-256-GCM-encrypted Plaid access token
-  cursorToken     String?                         // Plaid /transactions/sync cursor
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String    @id @default(uuid())
+  tenantId       String
+  plaidItemId    String?
+  plaidAccountId String?   @unique
+  name           String
+  officialName   String?
+  type           String // checking | savings | credit
+  subtype        String?
+  mask           String? // last 4 digits
+  balanceCents   Int       @default(0)
+  currency       String    @default("USD")
+  institution    String?
+  connected      Boolean   @default(true)
+  lastSynced     DateTime?
+  accessTokenEnc String? // AES-256-GCM-encrypted Plaid access token
+  cursorToken    String? // Plaid /transactions/sync cursor
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  transactions    AbBankTransaction[]
+  transactions AbBankTransaction[]
 
   @@index([tenantId])
   @@schema("plugin_agentbook_expense")
 }
 
 model AbBankTransaction {
-  id                String    @id @default(uuid())
-  tenantId          String
-  bankAccountId     String
-  bankAccount       AbBankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
-  plaidTransactionId String?  @unique
-  amount            Int                           // cents (positive = debit/outflow, negative = credit/inflow)
-  date              DateTime
-  merchantName      String?
-  name              String                        // transaction name/description
-  category          String?                       // Plaid category
-  pending           Boolean  @default(false)
-  matchedExpenseId  String?                       // matched to AbExpense
-  matchedInvoiceId  String?                       // matched to AbInvoice (for payments)
-  matchStatus       String   @default("pending")  // pending | matched | exception | ignored
-  idempotencyKey    String?  @unique              // prevent duplicate imports
-  createdAt         DateTime @default(now())
+  id                 String        @id @default(uuid())
+  tenantId           String
+  bankAccountId      String
+  bankAccount        AbBankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  plaidTransactionId String?       @unique
+  amount             Int // cents (positive = debit/outflow, negative = credit/inflow)
+  date               DateTime
+  merchantName       String?
+  name               String // transaction name/description
+  category           String? // Plaid category
+  pending            Boolean       @default(false)
+  matchedExpenseId   String? // matched to AbExpense
+  matchedInvoiceId   String? // matched to AbInvoice (for payments)
+  matchStatus        String        @default("pending") // pending | matched | exception | ignored
+  idempotencyKey     String?       @unique // prevent duplicate imports
+  createdAt          DateTime      @default(now())
 
   @@index([tenantId, date])
   @@index([tenantId, matchStatus])
@@ -1803,16 +1800,16 @@ model AbBankTransaction {
 }
 
 model AbBudget {
-  id            String   @id @default(uuid())
-  tenantId      String
-  categoryId    String?
-  categoryName  String?
-  amountCents   Int
-  period        String   @default("monthly")
-  alertPercent  Int      @default(80)
-  deletedAt     DateTime?                          // PR 26: soft-delete
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String    @id @default(uuid())
+  tenantId     String
+  categoryId   String?
+  categoryName String?
+  amountCents  Int
+  period       String    @default("monthly")
+  alertPercent Int       @default(80)
+  deletedAt    DateTime? // PR 26: soft-delete
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@unique([tenantId, categoryId, period])
   @@index([tenantId])
@@ -1821,15 +1818,15 @@ model AbBudget {
 }
 
 model AbStripeWebhookEvent {
-  id              String   @id @default(uuid())
-  tenantId        String
-  stripeEventId   String   @unique               // idempotency
-  eventType       String                          // payment_intent.succeeded, charge.refunded, etc.
-  processed       Boolean  @default(false)
-  payload         Json
-  journalEntryId  String?
-  error           String?
-  createdAt       DateTime @default(now())
+  id             String   @id @default(uuid())
+  tenantId       String
+  stripeEventId  String   @unique // idempotency
+  eventType      String // payment_intent.succeeded, charge.refunded, etc.
+  processed      Boolean  @default(false)
+  payload        Json
+  journalEntryId String?
+  error          String?
+  createdAt      DateTime @default(now())
 
   @@index([tenantId])
   @@index([stripeEventId])
@@ -1837,20 +1834,20 @@ model AbStripeWebhookEvent {
 }
 
 model AbMileageEntry {
-  id                    String   @id @default(uuid())
+  id                    String    @id @default(uuid())
   tenantId              String
   date                  DateTime
-  miles                 Float                           // miles OR km — see `unit`
-  unit                  String   @default("mi")        // 'mi' | 'km'
+  miles                 Float // miles OR km — see `unit`
+  unit                  String    @default("mi") // 'mi' | 'km'
   purpose               String
   clientId              String?
-  jurisdiction          String                           // 'us' | 'ca' — snapshot at booking time
-  ratePerUnitCents      Int                              // snapshot: 67 for US 2025; varies by CA tier
-  deductibleAmountCents Int                              // miles × ratePerUnitCents (rounded)
-  journalEntryId        String?                          // linked journal entry for reversal
-  deletedAt             DateTime?                        // PR 26: soft-delete
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  jurisdiction          String // 'us' | 'ca' — snapshot at booking time
+  ratePerUnitCents      Int // snapshot: 67 for US 2025; varies by CA tier
+  deductibleAmountCents Int // miles × ratePerUnitCents (rounded)
+  journalEntryId        String? // linked journal entry for reversal
+  deletedAt             DateTime? // PR 26: soft-delete
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@index([tenantId, date])
   @@index([tenantId, clientId])
@@ -1863,21 +1860,21 @@ model AbMileageEntry {
 // ============================================
 
 model AbClient {
-  id              String   @id @default(uuid())
-  tenantId        String
-  name            String
-  email           String?
-  address         String?
-  defaultTerms    String   @default("net-30")
-  avgDaysToPay    Float?
-  totalBilledCents  Int    @default(0)
-  totalPaidCents    Int    @default(0)
-  deletedAt       DateTime?                       // PR 26: soft-delete
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id               String    @id @default(uuid())
+  tenantId         String
+  name             String
+  email            String?
+  address          String?
+  defaultTerms     String    @default("net-30")
+  avgDaysToPay     Float?
+  totalBilledCents Int       @default(0)
+  totalPaidCents   Int       @default(0)
+  deletedAt        DateTime? // PR 26: soft-delete
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  invoices        AbInvoice[]
-  estimates       AbEstimate[]
+  invoices  AbInvoice[]
+  estimates AbEstimate[]
 
   @@index([tenantId])
   @@index([tenantId, deletedAt])
@@ -1885,39 +1882,39 @@ model AbClient {
 }
 
 model AbInvoice {
-  id              String   @id @default(uuid())
-  tenantId        String
-  clientId        String
-  client          AbClient @relation(fields: [clientId], references: [id])
-  number          String                        // auto-incrementing: INV-2026-0001
-  amountCents     Int                           // amount in `currency` (tenant booking currency)
-  currency        String   @default("USD")      // USD | CAD | GBP | AUD | EUR (booking currency)
+  id                  String    @id @default(uuid())
+  tenantId            String
+  clientId            String
+  client              AbClient  @relation(fields: [clientId], references: [id])
+  number              String // auto-incrementing: INV-2026-0001
+  amountCents         Int // amount in `currency` (tenant booking currency)
+  currency            String    @default("USD") // USD | CAD | GBP | AUD | EUR (booking currency)
   // Multi-currency (PR 13). When the invoice was *quoted* in a different
   // currency than the tenant books in, we keep the original side-by-side.
   // amountCents/currency are still the canonical "books" values; the
   // `original*` fields are presentation + audit only.
-  originalCurrency    String?                   // ISO 4217 (3-letter) when ≠ currency
-  originalAmountCents Int?                      // amount in originalCurrency
-  fxRate              Float?                    // rate used to convert original→booking at draft time
-  fxRateSource        String?                   // 'ecb' | 'cached' | 'manual'
-  fxRateDate          DateTime?                 // calendar date the rate is for
-  issuedDate      DateTime
-  dueDate         DateTime
-  status          String   @default("draft")    // draft | sent | viewed | paid | overdue | void
-  pdfUrl          String?
-  pdfHtml         String?                       // stored HTML for PDF rendering
-  journalEntryId  String?
-  recurringId     String?                       // link to AbRecurringInvoice if auto-generated
-  paymentUrl      String?
-  lastRemindedAt  DateTime?
-  source          String?  @default("web")      // web | telegram | api — origin of the draft
-  deletedAt       DateTime?                     // PR 26: soft-delete
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  originalCurrency    String? // ISO 4217 (3-letter) when ≠ currency
+  originalAmountCents Int? // amount in originalCurrency
+  fxRate              Float? // rate used to convert original→booking at draft time
+  fxRateSource        String? // 'ecb' | 'cached' | 'manual'
+  fxRateDate          DateTime? // calendar date the rate is for
+  issuedDate          DateTime
+  dueDate             DateTime
+  status              String    @default("draft") // draft | sent | viewed | paid | overdue | void
+  pdfUrl              String?
+  pdfHtml             String? // stored HTML for PDF rendering
+  journalEntryId      String?
+  recurringId         String? // link to AbRecurringInvoice if auto-generated
+  paymentUrl          String?
+  lastRemindedAt      DateTime?
+  source              String?   @default("web") // web | telegram | api — origin of the draft
+  deletedAt           DateTime? // PR 26: soft-delete
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  lines           AbInvoiceLine[]
-  payments        AbPayment[]
-  creditNotes     AbCreditNote[]
+  lines       AbInvoiceLine[]
+  payments    AbPayment[]
+  creditNotes AbCreditNote[]
 
   @@unique([tenantId, number])
   @@index([tenantId, status])
@@ -1940,17 +1937,17 @@ model AbInvoiceLine {
 }
 
 model AbPayment {
-  id               String    @id @default(uuid())
-  tenantId         String
-  invoiceId        String?
-  invoice          AbInvoice? @relation(fields: [invoiceId], references: [id])
-  amountCents      Int
-  method           String    @default("manual")   // manual | stripe | bank_transfer
-  date             DateTime
-  stripePaymentId  String?
-  feesCents        Int       @default(0)
-  journalEntryId   String?
-  createdAt        DateTime  @default(now())
+  id              String     @id @default(uuid())
+  tenantId        String
+  invoiceId       String?
+  invoice         AbInvoice? @relation(fields: [invoiceId], references: [id])
+  amountCents     Int
+  method          String     @default("manual") // manual | stripe | bank_transfer
+  date            DateTime
+  stripePaymentId String?
+  feesCents       Int        @default(0)
+  journalEntryId  String?
+  createdAt       DateTime   @default(now())
 
   @@index([tenantId, date])
   @@index([invoiceId])
@@ -1958,35 +1955,35 @@ model AbPayment {
 }
 
 model AbEstimate {
-  id              String   @id @default(uuid())
-  tenantId        String
-  clientId        String
-  client          AbClient @relation(fields: [clientId], references: [id])
-  amountCents     Int
-  description     String
-  status          String   @default("pending")  // pending | approved | declined | expired | converted
-  validUntil      DateTime
+  id                 String   @id @default(uuid())
+  tenantId           String
+  clientId           String
+  client             AbClient @relation(fields: [clientId], references: [id])
+  amountCents        Int
+  description        String
+  status             String   @default("pending") // pending | approved | declined | expired | converted
+  validUntil         DateTime
   convertedInvoiceId String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@index([tenantId, status])
   @@schema("plugin_agentbook_invoice")
 }
 
 model AbProject {
-  id            String   @id @default(uuid())
-  tenantId      String
-  clientId      String?
-  name          String
-  description   String?
-  hourlyRateCents Int?                          // null = not billable
-  status        String   @default("active")     // active | completed | archived
-  budgetHours   Float?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(uuid())
+  tenantId        String
+  clientId        String?
+  name            String
+  description     String?
+  hourlyRateCents Int? // null = not billable
+  status          String   @default("active") // active | completed | archived
+  budgetHours     Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  timeEntries   AbTimeEntry[]
+  timeEntries AbTimeEntry[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -1995,21 +1992,21 @@ model AbProject {
 }
 
 model AbTimeEntry {
-  id            String    @id @default(uuid())
-  tenantId      String
-  projectId     String?
-  project       AbProject? @relation(fields: [projectId], references: [id])
-  clientId      String?
-  description   String
-  startedAt     DateTime
-  endedAt       DateTime?
-  durationMinutes Int     @default(0)
+  id              String     @id @default(uuid())
+  tenantId        String
+  projectId       String?
+  project         AbProject? @relation(fields: [projectId], references: [id])
+  clientId        String?
+  description     String
+  startedAt       DateTime
+  endedAt         DateTime?
+  durationMinutes Int        @default(0)
   hourlyRateCents Int?
-  billable      Boolean  @default(true)
-  billed        Boolean  @default(false)
-  invoiceId     String?                         // linked when auto-invoiced
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  billable        Boolean    @default(true)
+  billed          Boolean    @default(false)
+  invoiceId       String? // linked when auto-invoiced
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
   @@index([tenantId, startedAt])
   @@index([tenantId, projectId])
@@ -2019,15 +2016,15 @@ model AbTimeEntry {
 }
 
 model AbCreditNote {
-  id              String   @id @default(uuid())
-  tenantId        String
-  invoiceId       String
-  invoice         AbInvoice @relation(fields: [invoiceId], references: [id])
-  number          String                        // CN-2026-0001
-  amountCents     Int
-  reason          String                        // reason for credit
-  journalEntryId  String?
-  createdAt       DateTime @default(now())
+  id             String    @id @default(uuid())
+  tenantId       String
+  invoiceId      String
+  invoice        AbInvoice @relation(fields: [invoiceId], references: [id])
+  number         String // CN-2026-0001
+  amountCents    Int
+  reason         String // reason for credit
+  journalEntryId String?
+  createdAt      DateTime  @default(now())
 
   @@unique([tenantId, number])
   @@index([tenantId])
@@ -2036,22 +2033,22 @@ model AbCreditNote {
 }
 
 model AbRecurringInvoice {
-  id              String   @id @default(uuid())
-  tenantId        String
-  clientId        String
-  currency        String   @default("USD")
-  frequency       String                        // weekly | biweekly | monthly | quarterly | annual
-  nextDue         DateTime
-  endDate         DateTime?                     // null = no end
-  status          String   @default("active")   // active | paused | completed
-  templateLines   Json                          // [{description, quantity, rateCents, amountCents}]
-  totalCents      Int
-  daysToPay       Int      @default(30)         // net terms
-  autoSend        Boolean  @default(false)      // auto-send on generation
-  lastGenerated   DateTime?
-  generatedCount  Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String    @id @default(uuid())
+  tenantId       String
+  clientId       String
+  currency       String    @default("USD")
+  frequency      String // weekly | biweekly | monthly | quarterly | annual
+  nextDue        DateTime
+  endDate        DateTime? // null = no end
+  status         String    @default("active") // active | paused | completed
+  templateLines  Json // [{description, quantity, rateCents, amountCents}]
+  totalCents     Int
+  daysToPay      Int       @default(30) // net terms
+  autoSend       Boolean   @default(false) // auto-send on generation
+  lastGenerated  DateTime?
+  generatedCount Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([tenantId, status])
   @@index([nextDue])
@@ -2065,13 +2062,13 @@ model AbRecurringInvoice {
 model AbTaxEstimate {
   id                String   @id @default(uuid())
   tenantId          String
-  period            String                      // "2026-Q1", "2026-annual"
+  period            String // "2026-Q1", "2026-annual"
   jurisdiction      String
   region            String
   grossRevenueCents Int
   expensesCents     Int
   netIncomeCents    Int
-  seTaxCents        Int                         // self-employment / CPP+EI
+  seTaxCents        Int // self-employment / CPP+EI
   incomeTaxCents    Int
   totalTaxCents     Int
   calculatedAt      DateTime @default(now())
@@ -2099,25 +2096,25 @@ model AbQuarterlyPayment {
 }
 
 model AbDeductionSuggestion {
-  id                   String   @id @default(uuid())
-  tenantId             String
-  jurisdiction         String
-  category             String
-  description          String
-  estimatedSavingsCents Int      @default(0)
+  id                    String    @id @default(uuid())
+  tenantId              String
+  jurisdiction          String
+  category              String
+  description           String
+  estimatedSavingsCents Int       @default(0)
   // PR 12 — Smart deduction discovery. Existing rows still have status =
   // 'suggested' from earlier tax-package work; the new rules engine writes
   // 'open' instead so the two pipelines can co-exist. List/apply/dismiss
   // endpoints accept either.
-  status               String   @default("suggested") // suggested | open | applied | dismissed
-  ruleId               String?                       // PR 12: rule that produced this suggestion
-  expenseId            String?                       // PR 12: target AbExpense.id (if rule is single-expense)
-  message              String?                       // PR 12: user-facing reasoning shown in digest / dd_explain
-  suggestedTaxCategory String?                       // PR 12: AbAccount.taxCategory to set on apply
-  suggestedDeductible  Boolean  @default(true)       // PR 12: value to write to AbExpense.isDeductible on apply
-  confidence           Float    @default(1.0)        // PR 12: 0–1; rules persist only ≥0.7
-  expiresAt            DateTime?                     // PR 12: dismiss → now+90d for dedupe lookback
-  createdAt            DateTime @default(now())
+  status                String    @default("suggested") // suggested | open | applied | dismissed
+  ruleId                String? // PR 12: rule that produced this suggestion
+  expenseId             String? // PR 12: target AbExpense.id (if rule is single-expense)
+  message               String? // PR 12: user-facing reasoning shown in digest / dd_explain
+  suggestedTaxCategory  String? // PR 12: AbAccount.taxCategory to set on apply
+  suggestedDeductible   Boolean   @default(true) // PR 12: value to write to AbExpense.isDeductible on apply
+  confidence            Float     @default(1.0) // PR 12: 0–1; rules persist only ≥0.7
+  expiresAt             DateTime? // PR 12: dismiss → now+90d for dedupe lookback
+  createdAt             DateTime  @default(now())
 
   @@index([tenantId, status])
   @@index([tenantId, ruleId, expenseId, status])
@@ -2125,28 +2122,28 @@ model AbDeductionSuggestion {
 }
 
 model AbTaxConfig {
-  id                String   @id @default(uuid())
-  tenantId          String   @unique
-  filingStatus      String   @default("single")
-  region            String
-  retirementType    String?
-  homeOfficeMethod  String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id               String   @id @default(uuid())
+  tenantId         String   @unique
+  filingStatus     String   @default("single")
+  region           String
+  retirementType   String?
+  homeOfficeMethod String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@schema("plugin_agentbook_tax")
 }
 
 model AbSalesTaxCollected {
-  id            String   @id @default(uuid())
-  tenantId      String
-  invoiceId     String?
-  jurisdiction  String
-  region        String
-  taxType       String                          // GST | HST | PST | state
-  rate          Float
-  amountCents   Int
-  createdAt     DateTime @default(now())
+  id           String   @id @default(uuid())
+  tenantId     String
+  invoiceId    String?
+  jurisdiction String
+  region       String
+  taxType      String // GST | HST | PST | state
+  rate         Float
+  amountCents  Int
+  createdAt    DateTime @default(now())
 
   @@index([tenantId, jurisdiction])
   @@schema("plugin_agentbook_tax")
@@ -2217,14 +2214,14 @@ model AbTaxSlip {
 }
 
 model AbTaxFilingPartner {
-  id            String   @id @default(uuid())
-  jurisdiction  String
-  partnerName   String
-  apiUrl        String
-  apiKey        String?
-  certId        String?
-  enabled       Boolean  @default(true)
-  createdAt     DateTime @default(now())
+  id           String   @id @default(uuid())
+  jurisdiction String
+  partnerName  String
+  apiUrl       String
+  apiKey       String?
+  certId       String?
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
 
   @@unique([jurisdiction, partnerName])
   @@schema("plugin_agentbook_tax")
@@ -2237,18 +2234,18 @@ model AbTaxFilingPartner {
 // Vercel Blob; `summary` is a denormalised JSON snapshot for fast
 // listing on the web page without re-querying the books.
 model AbTaxPackage {
-  id              String   @id @default(uuid())
-  tenantId        String
-  year            Int
-  jurisdiction    String                                  // 'us' | 'ca'
-  pdfUrl          String?                                 // Vercel Blob URL
-  receiptsZipUrl  String?                                 // Separate Blob URL for receipts ZIP
-  csvUrls         Json?                                   // { pnl, mileage, deductions } → blob URLs
-  summary         Json                                    // { expenseCount, deductionsCents, mileageDeductionCents, ... }
-  status          String   @default("pending")            // pending | ready | failed
-  errorMsg        String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id @default(uuid())
+  tenantId       String
+  year           Int
+  jurisdiction   String // 'us' | 'ca'
+  pdfUrl         String? // Vercel Blob URL
+  receiptsZipUrl String? // Separate Blob URL for receipts ZIP
+  csvUrls        Json? // { pnl, mileage, deductions } → blob URLs
+  summary        Json // { expenseCount, deductionsCents, mileageDeductionCents, ... }
+  status         String   @default("pending") // pending | ready | failed
+  errorMsg       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@unique([tenantId, year, jurisdiction])
   @@index([tenantId, year])
@@ -2256,20 +2253,20 @@ model AbTaxPackage {
 }
 
 model AbCalendarEvent {
-  id              String   @id @default(uuid())
-  tenantId        String
-  eventType       String                        // tax_deadline | filing_deadline | invoice_due | renewal | ...
-  titleKey        String                        // i18n key
-  date            DateTime
-  leadTimeDays    Int[]                          // [7, 3, 1, 0]
-  urgency         String   @default("important")
-  actionUrl       String?
-  actionLabelKey  String?
-  recurrence      String   @default("once")     // annual | quarterly | monthly | once
-  sourceSkill     String
-  sourceEntityId  String?
-  status          String   @default("upcoming") // upcoming | alerted | acted_on | missed | snoozed
-  createdAt       DateTime @default(now())
+  id             String   @id @default(uuid())
+  tenantId       String
+  eventType      String // tax_deadline | filing_deadline | invoice_due | renewal | ...
+  titleKey       String // i18n key
+  date           DateTime
+  leadTimeDays   Int[] // [7, 3, 1, 0]
+  urgency        String   @default("important")
+  actionUrl      String?
+  actionLabelKey String?
+  recurrence     String   @default("once") // annual | quarterly | monthly | once
+  sourceSkill    String
+  sourceEntityId String?
+  status         String   @default("upcoming") // upcoming | alerted | acted_on | missed | snoozed
+  createdAt      DateTime @default(now())
 
   @@index([tenantId, date])
   @@index([tenantId, status])
@@ -2296,16 +2293,16 @@ model AbEngagementLog {
 }
 
 model AbTenantAccess {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   tenantId    String
   userId      String
-  role        String   @default("viewer")        // owner | bookkeeper | viewer | cpa
+  role        String    @default("viewer") // owner | bookkeeper | viewer | cpa
   email       String
   invitedBy   String?
-  accessToken String?  @unique                   // for CPA read-only link
+  accessToken String?   @unique // for CPA read-only link
   expiresAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@unique([tenantId, userId])
   @@index([tenantId])
@@ -2314,15 +2311,15 @@ model AbTenantAccess {
 }
 
 model AbCPANote {
-  id          String   @id @default(uuid())
-  tenantId    String
-  authorId    String
-  authorRole  String   @default("cpa")
-  content     String
-  attachedTo  String?                            // journal_entry_id, expense_id, etc.
-  attachedType String?                           // journal_entry | expense | invoice | tax
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(uuid())
+  tenantId     String
+  authorId     String
+  authorRole   String   @default("cpa")
+  content      String
+  attachedTo   String? // journal_entry_id, expense_id, etc.
+  attachedType String? // journal_entry | expense | invoice | tax
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([tenantId, createdAt])
   @@index([tenantId, attachedTo])
@@ -2334,17 +2331,17 @@ model AbCPANote {
 /// general question) so the owner can resolve it (upload a receipt,
 /// reclassify, etc.).
 model AbAccountantRequest {
-  id          String    @id @default(uuid())
-  tenantId    String
-  accessId    String                                       // FK to AbTenantAccess.id
-  entityType  String                                       // 'AbExpense' | 'AbInvoice' | 'AbMileageEntry' | 'general'
-  entityId    String?                                      // null for general questions
-  message     String                                       // CPA's question
-  status      String    @default("open")                   // open | resolved
-  resolvedAt  DateTime?
-  resolution  String?                                      // owner's response
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id         String    @id @default(uuid())
+  tenantId   String
+  accessId   String // FK to AbTenantAccess.id
+  entityType String // 'AbExpense' | 'AbInvoice' | 'AbMileageEntry' | 'general'
+  entityId   String? // null for general questions
+  message    String // CPA's question
+  status     String    @default("open") // open | resolved
+  resolvedAt DateTime?
+  resolution String? // owner's response
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([tenantId, status])
   @@index([accessId])
@@ -2352,41 +2349,41 @@ model AbAccountantRequest {
 }
 
 model AbOnboardingProgress {
-  id          String   @id @default(uuid())
-  tenantId    String   @unique
-  currentStep Int      @default(0)
-  completedSteps String[] @default([])
-  businessType String?
-  jurisdiction String?
-  region       String?
-  currency     String?
-  bankConnected Boolean @default(false)
-  accountsSeeded Boolean @default(false)
-  firstExpense Boolean @default(false)
-  telegramConnected Boolean @default(false)
-  completedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String    @id @default(uuid())
+  tenantId          String    @unique
+  currentStep       Int       @default(0)
+  completedSteps    String[]  @default([])
+  businessType      String?
+  jurisdiction      String?
+  region            String?
+  currency          String?
+  bankConnected     Boolean   @default(false)
+  accountsSeeded    Boolean   @default(false)
+  firstExpense      Boolean   @default(false)
+  telegramConnected Boolean   @default(false)
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@schema("plugin_agentbook_core")
 }
 
 model AbLLMProviderConfig {
-  id          String   @id @default(uuid())
-  tenantId    String?                           // null = platform-wide default
-  name        String                            // "Google Gemini", "OpenAI GPT"
-  provider    String                            // "gemini" | "openai" | "claude" | "kimi" | "minimax"
-  apiKey      String                            // encrypted in production
-  baseUrl     String?
-  enabled     Boolean  @default(true)
-  isDefault   Boolean  @default(false)
-  modelFast   String   @default("gemini-2.0-flash")
-  modelStandard String @default("gemini-2.5-flash")
-  modelPremium String  @default("gemini-2.5-pro")
-  modelVision String?  @default("gemini-2.5-flash")
-  rateLimit   Int?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(uuid())
+  tenantId      String? // null = platform-wide default
+  name          String // "Google Gemini", "OpenAI GPT"
+  provider      String // "gemini" | "openai" | "claude" | "kimi" | "minimax"
+  apiKey        String // encrypted in production
+  baseUrl       String?
+  enabled       Boolean  @default(true)
+  isDefault     Boolean  @default(false)
+  modelFast     String   @default("gemini-2.0-flash")
+  modelStandard String   @default("gemini-2.5-flash")
+  modelPremium  String   @default("gemini-2.5-pro")
+  modelVision   String?  @default("gemini-2.5-flash")
+  rateLimit     Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([tenantId])
   @@schema("plugin_agentbook_core")
@@ -2395,11 +2392,11 @@ model AbLLMProviderConfig {
 model AbAgentConfig {
   id                    String   @id @default(uuid())
   tenantId              String
-  agentId               String                          // bookkeeper | tax-strategist | collections | insights
-  aggressiveness        Float    @default(0.5)          // 0-1
+  agentId               String // bookkeeper | tax-strategist | collections | insights
+  aggressiveness        Float    @default(0.5) // 0-1
   autoApprove           Boolean  @default(false)
-  notificationFrequency String   @default("daily")      // realtime | daily | weekly
-  modelTier             String   @default("fast")       // fast | standard | premium
+  notificationFrequency String   @default("daily") // realtime | daily | weekly
+  modelTier             String   @default("fast") // fast | standard | premium
   enabled               Boolean  @default(true)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
@@ -2410,14 +2407,14 @@ model AbAgentConfig {
 }
 
 model AbAgentSkillBinding {
-  id          String   @id @default(uuid())
-  tenantId    String
-  agentId     String
-  skillName   String
-  source      String   @default("base")       // base | jurisdiction | industry | marketplace | personalized
-  enabled     Boolean  @default(true)
-  priority    Int      @default(50)
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  tenantId  String
+  agentId   String
+  skillName String
+  source    String   @default("base") // base | jurisdiction | industry | marketplace | personalized
+  enabled   Boolean  @default(true)
+  priority  Int      @default(50)
+  createdAt DateTime @default(now())
 
   @@unique([tenantId, agentId, skillName])
   @@index([tenantId, agentId])
@@ -2425,37 +2422,37 @@ model AbAgentSkillBinding {
 }
 
 model AbAgentPersonality {
-  id                  String   @id @default(uuid())
-  tenantId            String
-  agentId             String
-  communicationStyle  String   @default("auto")
-  proactiveLevel      String   @default("balanced")
-  riskTolerance       String   @default("moderate")
-  industryContext     String?
-  customInstructions  String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  tenantId           String
+  agentId            String
+  communicationStyle String   @default("auto")
+  proactiveLevel     String   @default("balanced")
+  riskTolerance      String   @default("moderate")
+  industryContext    String?
+  customInstructions String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@unique([tenantId, agentId])
   @@schema("plugin_agentbook_core")
 }
 
 model AbSkillManifest {
-  id              String   @id @default(uuid())
-  tenantId        String?
-  name            String
-  description     String
-  category        String
-  triggerPatterns Json
-  parameters      Json
-  endpoint        Json
+  id               String   @id @default(uuid())
+  tenantId         String?
+  name             String
+  description      String
+  category         String
+  triggerPatterns  Json
+  parameters       Json
+  endpoint         Json
   responseTemplate String?
-  confirmBefore   Boolean  @default(false)
-  postActions     Json?
-  enabled         Boolean  @default(true)
-  source          String   @default("built_in")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  confirmBefore    Boolean  @default(false)
+  postActions      Json?
+  enabled          Boolean  @default(true)
+  source           String   @default("built_in")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@unique([tenantId, name])
   @@index([tenantId, enabled])
@@ -2467,39 +2464,39 @@ model AbSkillManifest {
 // closure (by idle, length, explicit, or topic shift) ends the thread and
 // a fresh one opens on the next turn. See plan doc 2026-05-12.
 model AbConvThread {
-  id          String    @id @default(uuid())
-  tenantId    String
-  channel     String                              // 'telegram' | 'web' | 'api'
-  chatId      String                              // Telegram chat id or web session id (string-shaped)
-  status      String    @default("active")        // 'active' | 'closed' | 'archived'
-  startedAt   DateTime  @default(now())
-  lastActiveAt DateTime @default(now())
-  closedAt    DateTime?
-  closeReason String?                             // 'idle_timeout' | 'topic_shift' | 'explicit' | 'length_cap'
+  id           String    @id @default(uuid())
+  tenantId     String
+  channel      String // 'telegram' | 'web' | 'api'
+  chatId       String // Telegram chat id or web session id (string-shaped)
+  status       String    @default("active") // 'active' | 'closed' | 'archived'
+  startedAt    DateTime  @default(now())
+  lastActiveAt DateTime  @default(now())
+  closedAt     DateTime?
+  closeReason  String? // 'idle_timeout' | 'topic_shift' | 'explicit' | 'length_cap'
 
   // What's in flight — the working set of entities the user is operating on.
   // Shape: [{kind, id, label, focus: bool, addedAt}]
-  activeEntities Json    @default("[]")
+  activeEntities  Json    @default("[]")
   // Currently-focused entity id — references the entry in activeEntities.
   // What "this", "fix it", "the receipt" resolve to.
   focusedEntityId String?
 
   // Multi-turn slot accumulator currently being filled, if any.
   // Same shape as PendingSlots in agentbook-conversation-context.ts.
-  pendingSlots   Json?
+  pendingSlots Json?
   // Slot fills the user set aside via a topic switch — re-attach on return.
-  parkedFills    Json    @default("[]")
+  parkedFills  Json  @default("[]")
 
-  topic       String?                             // 'expense_management' | 'invoice_management' | ...
-  subtopic    String?                             // narrower label
+  topic    String? // 'expense_management' | 'invoice_management' | ...
+  subtopic String? // narrower label
 
   // Recent verbatim history (capped at ~6 turns).
-  turns       Json      @default("[]")            // [{role, text, at, intent?}]
-  turnCount   Int       @default(0)               // total ever in thread (not just kept)
-  summary     String?                             // <= 800 chars compressed older turns
+  turns     Json    @default("[]") // [{role, text, at, intent?}]
+  turnCount Int     @default(0) // total ever in thread (not just kept)
+  summary   String? // <= 800 chars compressed older turns
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId, channel, chatId, status])
   @@index([tenantId, status, lastActiveAt])
@@ -2507,15 +2504,15 @@ model AbConvThread {
 }
 
 model AbUserMemory {
-  id          String    @id @default(uuid())
-  tenantId    String
-  key         String
-  value       String
-  type        String
-  confidence  Float     @default(0.8)
-  source      String    @default("learned")
-  usageCount  Int       @default(0)
-  lastUsed    DateTime  @default(now())
+  id             String    @id @default(uuid())
+  tenantId       String
+  key            String
+  value          String
+  type           String
+  confidence     Float     @default(0.8)
+  source         String    @default("learned")
+  usageCount     Int       @default(0)
+  lastUsed       DateTime  @default(now())
   expiresAt      DateTime?
   decayRate      Float     @default(0.1)
   lastVerified   DateTime?
@@ -2550,15 +2547,15 @@ model AbAgentSession {
 }
 
 model AbLearningEvent {
-  id            String   @id @default(uuid())
-  tenantId      String
-  agentId       String
-  eventType     String
-  skillName     String
-  before        Json
-  after         Json
-  confidence    Float
-  createdAt     DateTime @default(now())
+  id         String   @id @default(uuid())
+  tenantId   String
+  agentId    String
+  eventType  String
+  skillName  String
+  before     Json
+  after      Json
+  confidence Float
+  createdAt  DateTime @default(now())
 
   @@index([tenantId, agentId, createdAt])
   @@schema("plugin_agentbook_core")
@@ -2570,11 +2567,11 @@ model AbLearningEvent {
 /// Rates are global (no tenant scope) so all tenants share the cache.
 model AbFxRate {
   id        String   @id @default(uuid())
-  fromCcy   String                                    // ISO 4217 — 'EUR'
-  toCcy     String                                    // ISO 4217 — 'USD'
-  rate      Float                                     // 1 unit fromCcy = `rate` units toCcy
-  date      DateTime                                  // UTC midnight of the calendar day
-  source    String                                    // 'ecb' | 'manual' (frankfurter pulls ECB)
+  fromCcy   String // ISO 4217 — 'EUR'
+  toCcy     String // ISO 4217 — 'USD'
+  rate      Float // 1 unit fromCcy = `rate` units toCcy
+  date      DateTime // UTC midnight of the calendar day
+  source    String // 'ecb' | 'manual' (frankfurter pulls ECB)
   createdAt DateTime @default(now())
 
   @@unique([fromCcy, toCcy, date])
@@ -2593,8 +2590,8 @@ model AbSavedSearch {
   id        String   @id @default(uuid())
   tenantId  String
   name      String
-  scope     String                                  // 'expense' | 'invoice' | 'mileage' | 'all'
-  query     Json                                    // { categoryFilter, vendorFilter, dateRange, amountMin, amountMax, isPersonal, etc. }
+  scope     String // 'expense' | 'invoice' | 'mileage' | 'all'
+  query     Json // { categoryFilter, vendorFilter, dateRange, amountMin, amountMax, isPersonal, etc. }
   pinned    Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2614,8 +2611,8 @@ model AbHomeOfficeConfig {
   tenantId        String   @unique
   totalSqft       Int?
   officeSqft      Int?
-  ratio           Float?                        // computed = officeSqft / totalSqft
-  useUsSimplified Boolean  @default(false)      // US: $5/sqft up to 300 sqft
+  ratio           Float? // computed = officeSqft / totalSqft
+  useUsSimplified Boolean  @default(false) // US: $5/sqft up to 300 sqft
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -2632,9 +2629,9 @@ model AbHomeOfficeConfig {
 model AbVoiceTranscript {
   id         String   @id @default(uuid())
   tenantId   String
-  fileId     String                                  // Telegram file_id
+  fileId     String // Telegram file_id
   transcript String
-  model      String                                  // 'gemini-2.5-flash' etc.
+  model      String // 'gemini-2.5-flash' etc.
   createdAt  DateTime @default(now())
 
   @@unique([tenantId, fileId])
@@ -2657,9 +2654,9 @@ model AbVoiceTranscript {
 /// 200 got lost). Daily prune drops rows older than 24h — that's well
 /// past Telegram's retry window.
 model AbIdempotencyKey {
-  key       String   @id                              // 'tg_update:<update_id>' or 'tg_callback:<callback_query_id>'
+  key       String   @id // 'tg_update:<update_id>' or 'tg_callback:<callback_query_id>'
   tenantId  String
-  response  Json?                                     // optional cached response payload
+  response  Json? // optional cached response payload
   createdAt DateTime @default(now())
 
   @@index([tenantId, createdAt])
@@ -2682,14 +2679,97 @@ model AbIdempotencyKey {
 /// fly. `resolvedAt = null` means the row is still open.
 model AbWebhookDeadLetter {
   id          String    @id @default(uuid())
-  tenantId    String?                                  // may be unresolved
-  payload     Json                                     // full Telegram Update
-  error       String                                   // last error message
+  tenantId    String? // may be unresolved
+  payload     Json // full Telegram Update
+  error       String // last error message
   attempts    Int       @default(0)
   attemptedAt DateTime  @default(now())
-  resolvedAt  DateTime?                                // null = open
+  resolvedAt  DateTime? // null = open
   createdAt   DateTime  @default(now())
 
   @@index([resolvedAt, createdAt])
   @@schema("plugin_agentbook_core")
+}
+
+// ============================================
+// AGENTBOOK BILLING PLUGIN
+// Subscription plans, payments, entitlement gating.
+// See docs/superpowers/specs/2026-05-12-agentbook-billing-plugin-design.md
+// ============================================
+
+// One plan per subscription tier. Soft-archived plans (isActive=false)
+// cannot be subscribed to anew; existing subscriptions keep working.
+model BillPlan {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  name            String
+  description     String?
+  priceCents      Int
+  currency        String   @default("usd")
+  interval        String   @default("month")
+  stripeProductId String?
+  stripePriceId   String?
+  features        Json
+  quotas          Json
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  subscriptions BillSubscription[]
+
+  @@schema("plugin_agentbook_billing")
+}
+
+// One row per billing account. v1: accountId always equals a tenantId.
+// The rename sets up team billing (accountId = teamId) without a future
+// schema migration; resolveAccountId in @naap/billing is the indirection.
+model BillSubscription {
+  id                   String    @id @default(uuid())
+  accountId            String    @unique
+  planId               String
+  status               String
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
+  canceledAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  plan BillPlan @relation(fields: [planId], references: [id])
+
+  @@index([status])
+  @@schema("plugin_agentbook_billing")
+}
+
+// Per-(account, dimension, period) usage counter. Old period rows
+// pruned weekly after 90 days.
+model BillUsageCounter {
+  id          String   @id @default(uuid())
+  accountId   String
+  dimension   String
+  periodStart DateTime
+  count       Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([accountId, dimension, periodStart])
+  @@index([accountId])
+  @@schema("plugin_agentbook_billing")
+}
+
+// Append-only Stripe webhook log. stripeEventId @unique gives free
+// idempotency on Stripe's at-least-once delivery.
+model BillEvent {
+  id            String    @id @default(uuid())
+  accountId     String?
+  stripeEventId String    @unique
+  eventType     String
+  payload       Json
+  processedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([eventType, createdAt])
+  @@schema("plugin_agentbook_billing")
 }

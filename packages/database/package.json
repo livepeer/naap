@@ -30,7 +30,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset --force",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test": "vitest run"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0"
@@ -40,7 +41,8 @@
     "prisma": "^5.20.0",
     "ts-node": "^10.9.2",
     "tsx": "^4.19.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
   },
   "peerDependencies": {
     "@prisma/client": "^5.20.0"
