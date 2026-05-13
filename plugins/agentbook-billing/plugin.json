@@ -1,0 +1,24 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "agentbook-billing",
+  "displayName": "AgentBook Billing",
+  "version": "1.0.0",
+  "description": "Subscription plans, payments, and entitlement gating for AgentBook.",
+  "isCore": true,
+  "author": { "name": "A3P Team", "email": "team@a3p.io" },
+  "license": "MIT",
+  "keywords": ["billing", "stripe", "subscriptions"],
+  "category": "platform",
+  "shell": { "minVersion": "0.1.0", "maxVersion": "2.x" },
+  "frontend": {
+    "entry": "./frontend/dist/production/agentbook-billing.js",
+    "devPort": 3054,
+    "routes": ["/admin/billing", "/admin/billing/*", "/billing", "/billing/*"],
+    "navigation": {
+      "label": "Billing",
+      "icon": "CreditCard",
+      "order": 50,
+      "group": "settings"
+    }
+  }
+}
