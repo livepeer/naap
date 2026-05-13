@@ -63,6 +63,11 @@ export default function RootLayout({
             __html: `(function(){try{var t=localStorage.getItem('theme');var d=t==='light'?false:true;document.documentElement.classList.toggle('dark',d);document.documentElement.style.colorScheme=d?'dark':'light'}catch(e){}})()`,
           }}
         />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.STRIPE_PUBLISHABLE_KEY = ${JSON.stringify(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '')};`,
+          }}
+        />
       </head>
       <body className="min-h-screen bg-background font-sans antialiased">
         <Providers>
