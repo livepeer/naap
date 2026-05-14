@@ -1,25 +1,27 @@
 {
-  "name": "@agentbook-billing/frontend",
+  "name": "@naap/plugin-agentbook-billing-frontend",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build --mode production --outDir dist/production",
+    "dev": "vite --port 3054",
+    "build": "vite build --mode production",
     "test": "vitest run"
   },
   "dependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "@naap/plugin-sdk": "*",
+    "@naap/plugin-build": "*",
     "@stripe/stripe-js": "^4.0.0",
-    "@stripe/react-stripe-js": "^3.0.0"
+    "@stripe/react-stripe-js": "^3.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.0.0",
     "@testing-library/jest-dom": "^6.5.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^5.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
     "happy-dom": "^15.0.0",
     "typescript": "^5.5.0",
     "vite": "^7.0.0",
