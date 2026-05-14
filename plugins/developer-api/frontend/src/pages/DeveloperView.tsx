@@ -124,6 +124,7 @@ interface ApiKey {
   project: ApiKeyProject;
   billingProvider: { id: string; slug: string; displayName: string };
   status: string;
+  /** Fingerprint for matching: NaaP `naap_<lookup>…`, or leading chars of the billing provider secret + "…". */
   keyPrefix: string;
   label: string | null;
   createdAt: string;
@@ -152,6 +153,20 @@ function resolveApiKeyExpiresAt(key: ApiKey): string | null {
     return computePymthouseExpiresAtFromCreated(key.createdAt);
   }
   return null;
+}
+
+function formatApiKeyListName(key: ApiKey): React.ReactNode {
+  const prefix = key.keyPrefix;
+  const label = key.label?.trim();
+  if (label) {
+    return (
+      <>
+        <span className="text-sm font-medium text-text-primary">{label}</span>
+        <span className="text-sm text-text-secondary font-mono ml-1.5">· {prefix}</span>
+      </>
+    );
+  }
+  return <span className="text-sm font-medium text-text-primary font-mono">{prefix}</span>;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -1430,7 +1445,6 @@ result = [...result].sort((a, b) => {
                           <th className="pb-3 font-medium">Name</th>
                           <th className="pb-3 font-medium">Project</th>
                           <th className="pb-3 font-medium">Provider</th>
-                          <th className="pb-3 font-medium">Secret Key</th>
                           <th className="pb-3 font-medium">Created</th>
                           <th
                             className="pb-3 font-medium"
@@ -1445,7 +1459,7 @@ result = [...result].sort((a, b) => {
                         {displayedKeys.map((key) => (
                           <tr key={key.id}>
                             <td className="py-3 pr-4">
-                              <span className="text-sm font-medium text-text-primary">{key.label || key.keyPrefix}</span>
+                              {formatApiKeyListName(key)}
                             </td>
                             <td className="py-3 pr-4">
                               {key.project ? (
@@ -1463,9 +1477,6 @@ result = [...result].sort((a, b) => {
                               <span className="text-sm text-text-secondary">
                                 {key.billingProvider?.displayName || '—'}
                               </span>
-                            </td>
-                            <td className="py-3 pr-4">
-                              <span className="text-sm text-text-secondary font-mono">{key.keyPrefix}</span>
                             </td>
                             <td className="py-3 pr-4">
                               <span className="text-sm text-text-secondary">

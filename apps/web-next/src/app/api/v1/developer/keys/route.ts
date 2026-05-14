@@ -13,7 +13,7 @@ import {
   DevApiProjectResolutionError,
   resolveDevApiProjectId,
   deriveKeyLookupId,
-  getKeyPrefix,
+  formatBillingKeyPublicPrefix,
   hashApiKey,
 } from '@naap/database';
 
@@ -191,7 +191,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const keyLookupId = deriveKeyLookupId(rawApiKey);
-    const keyPrefix = getKeyPrefix(keyLookupId);
+    const keyPrefix = formatBillingKeyPublicPrefix(rawApiKey);
     const keyHash = hashApiKey(rawApiKey);
     const resolvedLabel = label && typeof label === 'string' && label.trim() ? label.trim() : null;
     const pymthouseTokenExpiry =
