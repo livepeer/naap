@@ -16,6 +16,11 @@ class CapabilityConfig:
     capacity: int = 1
     price_per_unit: int = 0
     price_scaling: int = 1_000_000
+    # PR-B of pricing-metering-design. None → adapter doesn't emit
+    # X-Livepeer-Units-Consumed header; orch falls back to seconds.
+    # Dict keys: extractor (str), fallback (float), min_units (float|None),
+    # max_units (float|None). See livepeer_adapter/metering/config.py.
+    meter: Optional[dict] = None
 
 
 @dataclass
@@ -112,6 +117,7 @@ class AdapterConfig:
                     name=c["name"], model_id=c.get("model_id", c["name"]),
                     capacity=c.get("capacity", 1), price_per_unit=c.get("price_per_unit", 0),
                     price_scaling=c.get("price_scaling", 1_000_000),
+                    meter=c.get("meter"),
                 ) for c in caps_list
             ]
             return True
@@ -153,6 +159,7 @@ def load_config() -> AdapterConfig:
                     capacity=c.get("capacity", 1),
                     price_per_unit=c.get("price_per_unit", 0),
                     price_scaling=c.get("price_scaling", 1_000_000),
+                    meter=c.get("meter"),
                 )
                 for c in caps_list
             ]

@@ -135,16 +135,36 @@ class ProxyServer:
 
         For multi-capability mode, resolves the model_id from the capability
         name in the URL path and passes it to the backend proxy.
+
+        PR-B of pricing-metering-design: after building the response,
+        invoke the configured metering extractor for this cap and set
+        X-Livepeer-Units-Consumed + X-Livepeer-Units-Kind headers so the
+        orch bills in domain units instead of seconds. When cap has no
+        `meter` config, headers stay absent — orch falls back to seconds
+        (current behavior, no regression).
         """
+        import time as _time
+        from . import metering as _metering
+
+        _start_ts = _time.monotonic()
+
         session = await self._get_session()
 
         # Extract capability/path info from URL
         extra_path = request.match_info.get("path", "")
 
-        # Resolve model_id from capability name if multi-capability
+        # Resolve model_id + meter config from capability name
         model_id = None
+        meter_cfg = None
         if extra_path:
-            model_id = self._config.get_model_for_capability(extra_path)
+            for cap in self._config.get_capabilities():
+                if cap.name == extra_path:
+                    model_id = cap.model_id
+                    meter_cfg = cap.meter
+                    break
+            if model_id is None:
+                # Fallback to legacy single-arg lookup
+                model_id = self._config.get_model_for_capability(extra_path)
 
         # Build backend URL with model_id in path for multi-model proxy
         if model_id:
@@ -189,10 +209,31 @@ class ProxyServer:
                 response_body = await resp.read()
                 # Strip charset from content_type (aiohttp doesn't allow it in content_type param)
                 ct = content_type.split(";")[0].strip() if content_type else "application/json"
+
+                # PR-B: compute metering units from request + response.
+                # Only set header when meter_cfg is non-None and extractor
+                # is known; otherwise leave header absent for orch fallback.
+                meter_headers: dict[str, str] = {}
+                if meter_cfg:
+                    try:
+                        req_dict = json.loads(body) if body else {}
+                    except Exception:
+                        req_dict = {}
+                    try:
+                        resp_dict = json.loads(response_body) if response_body else {}
+                    except Exception:
+                        resp_dict = {}
+                    elapsed = _time.monotonic() - _start_ts
+                    units, kind = _metering.compute_units(meter_cfg, req_dict, resp_dict, elapsed)
+                    if units > 0 and kind:
+                        meter_headers["X-Livepeer-Units-Consumed"] = f"{units:.6f}"
+                        meter_headers["X-Livepeer-Units-Kind"] = kind
+
                 return web.Response(
                     body=response_body,
                     status=resp.status,
                     content_type=ct,
+                    headers=meter_headers,
                 )
 
         except Exception as e:
