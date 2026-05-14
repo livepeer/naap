@@ -908,31 +908,33 @@ result = [...result].sort((a, b) => {
       }
       const startData = await startRes.json();
       const directAccessToken = startData.data?.access_token || startData.access_token;
-      const authUrl = startData.data?.auth_url || startData.auth_url;
       const loginSessionId = startData.data?.login_session_id || startData.login_session_id;
 
       // Server-to-server providers (e.g. PymtHouse) return an opaque signer session
       // token as `access_token` directly. Browser-redirect providers (e.g. Daydream)
-      // return `auth_url` for popup + polling and deliver the credential later.
+      // hand back only a `login_session_id`; the popup opens a same-origin NaaP
+      // redirector that resolves the provider authorization URL server-side, so no
+      // remote-controlled URL is ever passed into window.open.
       let providerApiKey: string | null = directAccessToken || null;
 
       if (!providerApiKey) {
-        if (!authUrl || !loginSessionId) {
-          setCreateError('Missing auth URL from billing provider.');
+        if (!loginSessionId) {
+          setCreateError('Missing login session from billing provider.');
           setCreateStep('form');
           setCreating(false);
           return;
         }
 
-        const popupUrl = new URL(authUrl, window.location.origin);
-        if (popupUrl.protocol !== 'https:' && popupUrl.protocol !== 'http:') {
-          setCreateError('Billing provider returned an invalid auth URL.');
-          setCreateStep('form');
-          setCreating(false);
-          return;
-        }
-
-        window.open(popupUrl.toString(), '_blank', 'noopener,noreferrer');
+        // The destination is a same-origin path; `encodeURIComponent` keeps the
+        // tainted slug/session-id inside their URL segments, and the actual
+        // provider authorization URL is resolved server-side in the redirect
+        // route — so no external URL is ever reachable from this sink.
+        // deepcode ignore OpenRedirect: same-origin relative path, see comment above
+        window.open(
+          `/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/redirect?login_session_id=${encodeURIComponent(loginSessionId)}`,
+          '_blank',
+          'noopener,noreferrer',
+        );
 
         const pollInterval = startData.data?.poll_after_ms ?? startData.poll_after_ms ?? 2000;
         const pollTimeout = (startData.data?.expires_in ?? startData.expires_in ?? 180) * 1000;
