@@ -17,16 +17,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
-import { resolveBillingOAuthAppUrl } from '@/lib/billing-oauth-origin';
 import { PYMTHOUSE_NOT_CONFIGURED_MESSAGE } from '@/lib/pymthouse-env';
 import {
   isPymthouseConfigured,
   mintPymthouseSignerSessionForNaapUser,
   type PymthouseSignerSessionToken,
 } from '@/lib/pymthouse-oidc';
+import { isRedirectFlowBillingProvider } from '@/lib/billing-providers';
 
-const DAYDREAM_AUTH_URL =
-  process.env.DAYDREAM_AUTH_URL || 'https://app.daydream.live/sign-in/local';
 const LOGIN_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 5;
@@ -45,24 +43,6 @@ function checkRateLimit(key: string): boolean {
   }
   entry.count++;
   return true;
-}
-
-function resolveProviderAuthUrl(providerSlug: string): string | null {
-  if (providerSlug === 'daydream') {
-    return DAYDREAM_AUTH_URL;
-  }
-  return null;
-}
-
-async function buildDaydreamAuthUrl(
-  callbackUrl: string
-): Promise<{ authUrl: string } | null> {
-  const base = resolveProviderAuthUrl('daydream');
-  if (!base) return null;
-  const state = crypto.randomBytes(16).toString('hex');
-  return {
-    authUrl: `${base}?redirect_url=${encodeURIComponent(callbackUrl)}&state=${encodeURIComponent(state)}`,
-  };
 }
 
 /**
@@ -163,21 +143,14 @@ export async function POST(
     }
 
     // ── Daydream (and any future) OAuth redirect flow ────────────────────────
-    const appUrl = resolveBillingOAuthAppUrl(request);
-    const callbackUrl = `${appUrl}/api/v1/auth/providers/${encodeURIComponent(providerSlug)}/callback`;
-
-    const built = providerSlug === 'daydream'
-      ? await buildDaydreamAuthUrl(callbackUrl)
-      : null;
-
-    if (!built) {
+    // The provider authorization URL is resolved server-side by the same-origin
+    // /api/v1/auth/providers/[slug]/redirect route, so we never hand a remote URL
+    // back to the browser to open. Here we only persist the session state.
+    if (!isRedirectFlowBillingProvider(providerSlug)) {
       return errors.badRequest(`Unsupported billing provider for OAuth: ${providerSlug}`);
     }
 
-    const state = new URL(built.authUrl).searchParams.get('state');
-    if (!state) {
-      return errors.internal('Failed to build OAuth state');
-    }
+    const state = crypto.randomBytes(16).toString('hex');
 
     await prisma.billingProviderOAuthSession.create({
       data: {
@@ -199,7 +172,6 @@ export async function POST(
     console.log(`[billing-auth:${providerSlug}] Started login session ${loginSessionId.slice(0, 8)}...`);
 
     return success({
-      auth_url: built.authUrl,
       login_session_id: loginSessionId,
       expires_in: Math.floor(LOGIN_SESSION_TTL_MS / 1000),
       poll_after_ms: 1500,
