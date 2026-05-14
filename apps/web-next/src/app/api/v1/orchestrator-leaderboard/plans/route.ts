@@ -1,6 +1,6 @@
 /**
- * GET  /api/v1/orchestrator-leaderboard/plans  — list caller's plans
- * POST /api/v1/orchestrator-leaderboard/plans  — create a discovery plan
+ * GET  /api/v1/orchestrator-leaderboard/plans  — list caller's plans + public plans
+ * POST /api/v1/orchestrator-leaderboard/plans  — create a personal discovery plan
  */
 
 export const runtime = 'nodejs';

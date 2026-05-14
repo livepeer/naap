@@ -19,6 +19,8 @@ export interface FetchCtx {
   authToken: string;
   requestUrl?: string;
   cookieHeader?: string | null;
+  /** When true, adapters resolve connector secrets via Prisma and call upstream directly. */
+  internal?: boolean;
 }
 
 export interface SourceStats {

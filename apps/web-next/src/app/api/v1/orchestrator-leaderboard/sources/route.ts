@@ -16,8 +16,8 @@ import { z } from 'zod';
 const DEFAULT_SOURCES: { kind: SourceKind; priority: number; enabled: boolean }[] = [
   { kind: 'livepeer-subgraph', priority: 1, enabled: true },
   { kind: 'clickhouse-query', priority: 2, enabled: true },
-  { kind: 'naap-discover', priority: 3, enabled: true },
-  { kind: 'naap-pricing', priority: 4, enabled: true },
+  { kind: 'naap-discover', priority: 3, enabled: false },
+  { kind: 'naap-pricing', priority: 4, enabled: false },
 ];
 
 async function ensureSeeded() {
@@ -45,10 +45,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   const user = await validateSession(token);
-  if (!user) {
+  if (!user || !user.roles.includes('system:admin')) {
     return NextResponse.json(
-      { success: false, error: { code: 'UNAUTHORIZED', message: 'Invalid session' } },
-      { status: 401 },
+      { success: false, error: { code: 'FORBIDDEN', message: 'Admin permission required' } },
+      { status: 403 },
     );
   }
 

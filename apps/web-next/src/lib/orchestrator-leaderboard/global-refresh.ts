@@ -28,8 +28,8 @@ import { clearPlanCache } from './refresh';
 const DEFAULT_SOURCES: { kind: SourceKind; priority: number; enabled: boolean }[] = [
   { kind: 'livepeer-subgraph', priority: 1, enabled: true },
   { kind: 'clickhouse-query', priority: 2, enabled: true },
-  { kind: 'naap-discover', priority: 3, enabled: true },
-  { kind: 'naap-pricing', priority: 4, enabled: true },
+  { kind: 'naap-discover', priority: 3, enabled: false },
+  { kind: 'naap-pricing', priority: 4, enabled: false },
 ];
 
 async function loadResolverConfig(): Promise<ResolverConfig> {
@@ -104,6 +104,7 @@ export async function refreshGlobalDataset(
   authToken: string,
   requestUrl?: string,
   cookieHeader?: string | null,
+  options?: { internal?: boolean },
 ): Promise<{
   refreshed: boolean;
   capabilities: number;
@@ -112,7 +113,7 @@ export async function refreshGlobalDataset(
   const t0 = Date.now();
   const cfg = await loadResolverConfig();
   const enabled = cfg.sources.filter((s) => s.enabled).sort((a, b) => a.priority - b.priority);
-  const ctx = { authToken, requestUrl, cookieHeader };
+  const ctx = { authToken, requestUrl, cookieHeader, internal: options?.internal };
 
   const perSource: Partial<Record<SourceKind, NormalizedOrch[]>> = {};
   const sourceStats: Record<string, SourceStats> = {};

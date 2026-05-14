@@ -1,5 +1,5 @@
 /**
- * GET  /api/v1/orchestrator-leaderboard/dataset/config — read config (any authed user)
+ * GET  /api/v1/orchestrator-leaderboard/dataset/config — read config (admin only)
  * PUT  /api/v1/orchestrator-leaderboard/dataset/config — update interval (admin only)
  */
 
@@ -15,7 +15,9 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
   if (!token) return errors.unauthorized();
 
   const user = await validateSession(token);
-  if (!user) return errors.unauthorized('Invalid session');
+  if (!user || !user.roles.includes('system:admin')) {
+    return errors.forbidden('Admin permission required');
+  }
 
   try {
     const config = await getConfig();

@@ -1,8 +1,8 @@
 /**
  * Build-Time Discovery Plan Seed
  *
- * Seeds demo Discovery Plans into the database so preview deployments
- * have data to test the leaderboard UI.
+ * Seeds public Discovery Plans into the database as admin defaults.
+ * These plans are visible to ALL signed-in users (visibility: 'public').
  *
  * Idempotent — skips plans whose billingPlanId already exists.
  *
@@ -17,9 +17,10 @@ import { PrismaClient } from '../packages/database/src/generated/client/index.js
 
 const SYSTEM_OWNER_ID = '00000000-0000-0000-0000-000000000001';
 
-interface DemoPlanTemplate {
+interface DefaultPlanTemplate {
   slug: string;
   name: string;
+  description: string;
   capabilities: string[];
   topN: number;
   slaWeights?: Record<string, number>;
@@ -28,10 +29,11 @@ interface DemoPlanTemplate {
   filters?: Record<string, number>;
 }
 
-const DEMO_PLAN_TEMPLATES: DemoPlanTemplate[] = [
+const DEFAULT_PLAN_TEMPLATES: DefaultPlanTemplate[] = [
   {
     slug: 'high-perf-video',
     name: 'High-Performance Video',
+    description: 'Top 10 orchestrators optimized for low-latency video generation.',
     capabilities: ['image-to-video'],
     topN: 10,
     slaWeights: { latency: 0.6, swapRate: 0.2, price: 0.2 },
@@ -42,6 +44,7 @@ const DEMO_PLAN_TEMPLATES: DemoPlanTemplate[] = [
   {
     slug: 'budget-image',
     name: 'Budget Image Generation',
+    description: 'Top 20 most cost-effective orchestrators for image generation.',
     capabilities: ['image-to-image', 'text-to-image'],
     topN: 20,
     slaWeights: { latency: 0.2, swapRate: 0.2, price: 0.6 },
@@ -51,6 +54,7 @@ const DEMO_PLAN_TEMPLATES: DemoPlanTemplate[] = [
   {
     slug: 'balanced-stream',
     name: 'Balanced Streaming',
+    description: 'Top 15 orchestrators with balanced latency, stability, and pricing for streaming.',
     capabilities: ['streamdiffusion', 'streamdiffusion-sdxl'],
     topN: 15,
     slaWeights: { latency: 0.34, swapRate: 0.33, price: 0.33 },
@@ -60,18 +64,19 @@ const DEMO_PLAN_TEMPLATES: DemoPlanTemplate[] = [
   {
     slug: 'max-avail',
     name: 'Maximum Availability',
+    description: 'All available orchestrators across common capabilities, sorted by availability.',
     capabilities: ['noop', 'streamdiffusion', 'streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v'],
     topN: 50,
     sortBy: 'avail',
   },
 ];
 
-function userPlanId(userId: string, slug: string): string {
-  return `demo-${userId.slice(0, 8)}-${slug}`;
+function defaultPlanId(slug: string): string {
+  return `naap-default-${slug}`;
 }
 
 async function main() {
-  console.log('[seed-plans] Seeding discovery plans...');
+  console.log('[seed-plans] Seeding public default discovery plans...');
 
   const prisma = new PrismaClient();
 
@@ -88,14 +93,8 @@ async function main() {
       console.log(`[seed-plans] No users found — using system owner ID`);
     }
 
-    // The plans API scopes queries by teamId (using the "personal:{userId}"
-    // convention) when the caller authenticates via JWT. Without setting
-    // teamId here, the runtime scopeWhere filter would never match these
-    // rows, making them invisible to logged-in users.
-    const teamId = `personal:${ownerUserId}`;
-
     const existingPlans = await prisma.discoveryPlan.findMany({
-      where: { ownerUserId },
+      where: { visibility: 'public' },
       select: { billingPlanId: true },
     });
     const existingIds = new Set(existingPlans.map((p) => p.billingPlanId));
@@ -103,8 +102,8 @@ async function main() {
     let created = 0;
     let skipped = 0;
 
-    for (const tpl of DEMO_PLAN_TEMPLATES) {
-      const billingPlanId = userPlanId(ownerUserId, tpl.slug);
+    for (const tpl of DEFAULT_PLAN_TEMPLATES) {
+      const billingPlanId = defaultPlanId(tpl.slug);
       if (existingIds.has(billingPlanId)) {
         skipped++;
         continue;
@@ -114,6 +113,8 @@ async function main() {
         data: {
           billingPlanId,
           name: tpl.name,
+          description: tpl.description,
+          visibility: 'public',
           capabilities: tpl.capabilities,
           topN: tpl.topN,
           slaWeights: tpl.slaWeights ?? undefined,
@@ -121,7 +122,6 @@ async function main() {
           sortBy: tpl.sortBy ?? undefined,
           filters: tpl.filters ?? undefined,
           ownerUserId,
-          teamId,
           enabled: true,
         },
       });

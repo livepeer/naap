@@ -102,12 +102,8 @@ fi
 # Step 3.5: Seed gateway connectors (clickhouse-query) if credentials are set.
 # Runs after schema push so tables exist. Idempotent — skips if already seeded.
 if [ "${VERCEL_ENV}" = "production" ] || [ "${VERCEL_ENV}" = "preview" ]; then
-  if [ -n "${CLICKHOUSE_QUERY_USERNAME:-}" ] && [ -n "${CLICKHOUSE_QUERY_PASSWORD:-}" ]; then
-    echo "[3.5/6] Seeding gateway connector (clickhouse-query)..."
-    npx tsx bin/seed-gateway-connector.ts || echo "WARN: gateway connector seed had issues (non-fatal)"
-  else
-    echo "[3.5/6] Skipping gateway connector seed (CLICKHOUSE_QUERY_USERNAME/PASSWORD not set)"
-  fi
+  echo "[3.5/6] Seeding gateway connectors (ClickHouse + Subgraph)..."
+  npx tsx bin/seed-gateway-connector.ts || echo "WARN: gateway connector seed had issues (non-fatal)"
 
   # Seed demo discovery plans so the leaderboard UI has data to display.
   echo "[3.6/6] Seeding discovery plans..."

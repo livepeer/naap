@@ -70,6 +70,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       authToken,
       request.url,
       request.headers.get('cookie'),
+      { internal: cronAuthed },
     );
     return NextResponse.json({ success: true, data: result });
   } catch (err) {

@@ -2249,6 +2249,7 @@ model DiscoveryPlan {
   billingPlanId   String   @unique
   name            String
   description     String?
+  visibility      String   @default("personal") // "personal" | "team" | "public"
   teamId          String?
   ownerUserId     String?
   capabilities    String[]
@@ -2263,6 +2264,7 @@ model DiscoveryPlan {
 
   @@index([teamId, enabled])
   @@index([ownerUserId, enabled])
+  @@index([visibility, enabled])
   @@schema("plugin_orchestrator_leaderboard")
 }
 
