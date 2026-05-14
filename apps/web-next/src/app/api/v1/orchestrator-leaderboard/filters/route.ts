@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';
 import { success } from '@/lib/api/response';
 import { getAuthToken } from '@/lib/api/response';
-import { resolveClickhouseGatewayQueryUrl } from '@/lib/orchestrator-leaderboard/query';
+import { buildOrchestratorClickhouseFetchParams } from '@/lib/orchestrator-leaderboard/query';
 
 const FILTERS_SQL = `SELECT DISTINCT capability_name
 FROM semantic.network_capabilities
@@ -38,22 +38,11 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
   }
 
   const authToken = getAuthToken(request) || '';
-  const url = resolveClickhouseGatewayQueryUrl(request.url);
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'text/plain',
-    'Authorization': `Bearer ${authToken}`,
-  };
-
-  const incomingCookie = request.headers.get('cookie');
-  if (incomingCookie) {
-    headers['cookie'] = incomingCookie;
-  }
-
-  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-  if (bypassSecret) {
-    headers['x-vercel-protection-bypass'] = bypassSecret;
-  }
+  const { url, headers } = buildOrchestratorClickhouseFetchParams(
+    authToken,
+    request.url,
+    request.headers.get('cookie'),
+  );
 
   let capabilities: string[];
   let fromFallback = false;

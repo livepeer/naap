@@ -1,14 +1,14 @@
 /**
  * Source Adapter: ClickHouse Query
  *
- * Wraps the existing leaderboard SQL + gateway proxy path behind the
- * SourceAdapter interface. Returns per-capability orchestrator rows with
+ * Wraps the existing leaderboard SQL + ClickHouse access (direct env or
+ * gateway proxy) behind the SourceAdapter interface. Returns per-capability orchestrator rows with
  * GPU info, latency, swap-ratio, availability, and price.
  */
 
 import type { SourceAdapter, FetchCtx, SourceFetchResult, NormalizedOrch } from './types';
 import type { ClickHouseLeaderboardRow, ClickHouseJSONResponse } from '../types';
-import { resolveClickhouseGatewayQueryUrl, buildLeaderboardSQL } from '../query';
+import { buildOrchestratorClickhouseFetchParams, buildLeaderboardSQL } from '../query';
 
 const MAX_QUERY_ROWS = 1000;
 
@@ -26,23 +26,20 @@ const FALLBACK_CAPABILITIES = [
   'streamdiffusion-sdxl-v2v',
 ];
 
-function buildHeaders(ctx: FetchCtx): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'text/plain',
-    Authorization: `Bearer ${ctx.authToken}`,
-  };
-  if (ctx.cookieHeader) headers['cookie'] = ctx.cookieHeader;
-  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-  if (bypassSecret) headers['x-vercel-protection-bypass'] = bypassSecret;
-  return headers;
+function buildFetchParams(ctx: FetchCtx): { url: string; headers: Record<string, string> } {
+  return buildOrchestratorClickhouseFetchParams(
+    ctx.authToken,
+    ctx.requestUrl,
+    ctx.cookieHeader,
+  );
 }
 
 async function fetchCapabilities(ctx: FetchCtx): Promise<string[]> {
-  const url = resolveClickhouseGatewayQueryUrl(ctx.requestUrl);
+  const { url, headers } = buildFetchParams(ctx);
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: buildHeaders(ctx),
+      headers,
       body: CAPABILITIES_SQL,
       signal: AbortSignal.timeout(10_000),
     });
@@ -87,8 +84,7 @@ export const clickhouseAdapter: SourceAdapter = {
   async fetchAll(ctx: FetchCtx): Promise<SourceFetchResult> {
     const t0 = Date.now();
     const capabilities = await fetchCapabilities(ctx);
-    const url = resolveClickhouseGatewayQueryUrl(ctx.requestUrl);
-    const headers = buildHeaders(ctx);
+    const { url, headers } = buildFetchParams(ctx);
 
     const allRows: NormalizedOrch[] = [];
     const rawCaps: Record<string, ClickHouseLeaderboardRow[]> = {};

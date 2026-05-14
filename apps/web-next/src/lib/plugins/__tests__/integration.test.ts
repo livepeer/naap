@@ -69,6 +69,131 @@ describe('UMD Plugin Loader', () => {
   });
 });
 
+describe('UMD Plugin Stylesheet Lifecycle', () => {
+  function setupStylesheetAutoLoad() {
+    const originalAppendChild = document.head.appendChild.bind(document.head);
+    return vi.spyOn(document.head, 'appendChild').mockImplementation((node: Node) => {
+      const result = originalAppendChild(node);
+      if (node instanceof HTMLLinkElement) {
+        setTimeout(() => {
+          node.dispatchEvent(new Event('load'));
+        }, 0);
+      }
+      return result;
+    });
+  }
+
+  it('attaches stylesheet on mount and removes it on cleanup', async () => {
+    const appendSpy = setupStylesheetAutoLoad();
+    const container = document.createElement('div');
+
+    const plugin = {
+      name: 'styled-plugin',
+      bundleUrl: 'https://cdn.naap.io/styled-plugin.js',
+      stylesUrl: 'https://cdn.naap.io/styled-plugin.css',
+      globalName: 'NaapPluginStyledPlugin',
+      loadedAt: new Date(),
+      module: {
+        mount: vi.fn(() => () => {}),
+      },
+    };
+
+    const cleanup = await mountUMDPlugin(plugin, container, {});
+
+    const activeLink = document.head.querySelector(`link[href="${plugin.stylesUrl}"]`);
+    expect(activeLink).not.toBeNull();
+    expect(plugin.module.mount).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    const removedLink = document.head.querySelector(`link[href="${plugin.stylesUrl}"]`);
+    expect(removedLink).toBeNull();
+    appendSpy.mockRestore();
+  });
+
+  it('refcounts shared stylesheets across multiple mounts', async () => {
+    const appendSpy = setupStylesheetAutoLoad();
+    const containerA = document.createElement('div');
+    const containerB = document.createElement('div');
+    const stylesUrl = 'https://cdn.naap.io/shared.css';
+
+    const pluginA = {
+      name: 'shared-a',
+      bundleUrl: 'https://cdn.naap.io/shared-a.js',
+      stylesUrl,
+      globalName: 'NaapPluginSharedA',
+      loadedAt: new Date(),
+      module: {
+        mount: vi.fn(() => () => {}),
+      },
+    };
+    const pluginB = {
+      name: 'shared-b',
+      bundleUrl: 'https://cdn.naap.io/shared-b.js',
+      stylesUrl,
+      globalName: 'NaapPluginSharedB',
+      loadedAt: new Date(),
+      module: {
+        mount: vi.fn(() => () => {}),
+      },
+    };
+
+    const cleanupA = await mountUMDPlugin(pluginA, containerA, {});
+    const cleanupB = await mountUMDPlugin(pluginB, containerB, {});
+
+    expect(document.head.querySelectorAll(`link[href="${stylesUrl}"]`)).toHaveLength(1);
+    const stylesheetAppends = appendSpy.mock.calls.filter(([node]) => node instanceof HTMLLinkElement);
+    expect(stylesheetAppends).toHaveLength(1);
+
+    cleanupA();
+    expect(document.head.querySelector(`link[href="${stylesUrl}"]`)).not.toBeNull();
+
+    cleanupB();
+    expect(document.head.querySelector(`link[href="${stylesUrl}"]`)).toBeNull();
+    appendSpy.mockRestore();
+  });
+
+  it('ignores rel=preload style hints and still injects a stylesheet', async () => {
+    const appendSpy = setupStylesheetAutoLoad();
+    const stylesUrl = 'https://cdn.naap.io/preload-then-mount.css';
+
+    const preload = document.createElement('link');
+    preload.rel = 'preload';
+    preload.as = 'style';
+    preload.href = stylesUrl;
+    preload.crossOrigin = 'anonymous';
+    document.head.appendChild(preload);
+
+    const container = document.createElement('div');
+    const plugin = {
+      name: 'preload-style-plugin',
+      bundleUrl: 'https://cdn.naap.io/preload-then-mount.js',
+      stylesUrl,
+      globalName: 'NaapPluginPreloadStyle',
+      loadedAt: new Date(),
+      module: {
+        mount: vi.fn(() => () => {}),
+      },
+    };
+
+    const cleanup = await mountUMDPlugin(plugin, container, {});
+
+    const stylesheet = document.head.querySelector(
+      `link[rel="stylesheet"][href="${stylesUrl}"]`
+    ) as HTMLLinkElement | null;
+    expect(stylesheet).not.toBeNull();
+    expect(stylesheet?.getAttribute('data-naap-plugin-stylesheet')).toBe('true');
+
+    expect(document.head.querySelectorAll(`link[href="${stylesUrl}"]`).length).toBeGreaterThanOrEqual(2);
+
+    cleanup();
+    expect(document.head.querySelector(`link[rel="stylesheet"][href="${stylesUrl}"]`)).toBeNull();
+    expect(document.head.contains(preload)).toBe(true);
+
+    appendSpy.mockRestore();
+    preload.remove();
+  });
+});
+
 describe('Plugin Cache (IndexedDB)', () => {
   // Note: These tests require jsdom with indexedDB support
   // In real tests, use a mock or fake-indexeddb

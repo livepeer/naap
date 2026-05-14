@@ -178,6 +178,12 @@ export interface LoadedUMDPlugin {
   loadedAt: Date;
 }
 
+interface ManagedStylesheetRecord {
+  refCount: number;
+  link: HTMLLinkElement | null;
+  loadingPromise: Promise<HTMLLinkElement> | null;
+}
+
 // Security: Allowed plugin CDN hosts
 const ALLOWED_CDN_HOSTS = [
   'localhost',
@@ -193,6 +199,10 @@ const umdModuleCache = new Map<string, LoadedUMDPlugin>();
 
 // Track script loading promises to avoid duplicate loads
 const loadingPromises = new Map<string, Promise<LoadedUMDPlugin>>();
+
+// Track plugin stylesheets by URL so we can mount/unmount safely without
+// leaving global CSS behind after route transitions.
+const managedStylesheets = new Map<string, ManagedStylesheetRecord>();
 
 /**
  * Validates CDN URL security
@@ -289,11 +299,14 @@ function loadScript(url: string, timeout: number): Promise<void> {
 /**
  * Loads a stylesheet
  */
-function loadStylesheet(url: string, timeout: number): Promise<void> {
+function loadStylesheet(url: string, timeout: number): Promise<HTMLLinkElement> {
   return new Promise((resolve, reject) => {
-    const existingLink = document.querySelector(`link[href="${url}"]`);
+    // Only reuse an actual stylesheet. `preloadPluginResources` (sidebar hover)
+    // inserts `rel="preload" as="style"` with the same href — that warms the cache
+    // but does not apply CSS; treating it as "loaded" left plugins unstyled.
+    const existingLink = document.querySelector(`link[rel="stylesheet"][href="${url}"]`);
     if (existingLink) {
-      resolve();
+      resolve(existingLink as HTMLLinkElement);
       return;
     }
 
@@ -302,6 +315,7 @@ function loadStylesheet(url: string, timeout: number): Promise<void> {
     link.type = 'text/css';
     link.href = url;
     link.crossOrigin = 'anonymous';
+    link.setAttribute('data-naap-plugin-stylesheet', 'true');
 
     const timeoutId = setTimeout(() => {
       link.remove();
@@ -310,7 +324,7 @@ function loadStylesheet(url: string, timeout: number): Promise<void> {
 
     link.onload = () => {
       clearTimeout(timeoutId);
-      resolve();
+      resolve(link);
     };
     link.onerror = () => {
       clearTimeout(timeoutId);
@@ -320,6 +334,79 @@ function loadStylesheet(url: string, timeout: number): Promise<void> {
 
     document.head.appendChild(link);
   });
+}
+
+async function attachPluginStylesheet(url: string, timeout: number): Promise<void> {
+  const existing = managedStylesheets.get(url);
+  if (existing) {
+    existing.refCount += 1;
+    if (existing.loadingPromise) {
+      await existing.loadingPromise;
+    }
+    return;
+  }
+
+  const record: ManagedStylesheetRecord = {
+    refCount: 1,
+    link: null,
+    loadingPromise: null,
+  };
+  managedStylesheets.set(url, record);
+
+  record.loadingPromise = loadStylesheet(url, timeout)
+    .then((link) => {
+      record.link = link;
+      return link;
+    })
+    .finally(() => {
+      record.loadingPromise = null;
+    });
+
+  try {
+    await record.loadingPromise;
+    if (typeof requestAnimationFrame === 'function') {
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    }
+  } catch (error) {
+    record.refCount -= 1;
+    if (record.refCount <= 0) {
+      managedStylesheets.delete(url);
+    }
+    throw error;
+  }
+}
+
+function detachPluginStylesheet(url: string): void {
+  const record = managedStylesheets.get(url);
+  if (!record) return;
+
+  record.refCount -= 1;
+  if (record.refCount > 0) return;
+
+  if (record.loadingPromise) {
+    record.loadingPromise
+      .then((link) => {
+        const latest = managedStylesheets.get(url);
+        if (!latest || latest.refCount > 0) {
+          return;
+        }
+        link.remove();
+        managedStylesheets.delete(url);
+      })
+      .catch(() => {
+        const latest = managedStylesheets.get(url);
+        if (!latest || latest.refCount > 0) {
+          return;
+        }
+        managedStylesheets.delete(url);
+      });
+    return;
+  }
+
+  if (record.link) {
+    record.link.remove();
+  }
+  managedStylesheets.delete(url);
 }
 
 /**
@@ -453,22 +540,6 @@ export async function loadUMDPlugin(options: UMDLoadOptions): Promise<LoadedUMDP
   (async (): Promise<void> => {
     try {
       onProgress?.(0.1);
-
-      // Load styles before the script so the first React paint has Tailwind/layout CSS.
-      // Previously styles were fire-and-forget; the bundle mounted while the link was
-      // still loading, so grids/flex collapsed and cards overlapped until a full refresh
-      // (when CSS was cached). See capacity-planner and any Tailwind-based UMD plugin.
-      if (stylesUrl) {
-        try {
-          await loadStylesheet(stylesUrl, timeout);
-          // Yield a frame so the browser finishes CSSOM construction and applies
-          // the newly loaded styles before the plugin script mounts React.
-          await new Promise<void>(r => requestAnimationFrame(() => r()));
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.warn(`[UMD Loader] Plugin styles failed to load (continuing): ${msg}`);
-        }
-      }
 
       onProgress?.(0.3);
 
@@ -663,11 +734,11 @@ function escapeHtml(unsafe: string): string {
 /**
  * Mount a UMD plugin with error handling
  */
-export function mountUMDPlugin(
+export async function mountUMDPlugin(
   plugin: LoadedUMDPlugin,
   container: HTMLElement | null,
   context: unknown
-): () => void {
+): Promise<() => void> {
   if (!container) {
     console.error(
       `[NAAP Plugin Error] Plugin "${plugin.name}" failed during mount:\n` +
@@ -678,6 +749,17 @@ export function mountUMDPlugin(
   }
 
   let cleanup: (() => void) | void;
+  let stylesheetAttached = false;
+
+  if (plugin.stylesUrl) {
+    try {
+      await attachPluginStylesheet(plugin.stylesUrl, 30000);
+      stylesheetAttached = true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[UMD Loader] Plugin styles failed to load for ${plugin.name} (continuing): ${msg}`);
+    }
+  }
 
   try {
     cleanup = plugin.module.mount(container, context);
@@ -696,6 +778,9 @@ export function mountUMDPlugin(
         <p class="text-red-400 text-xs mt-2">Check browser console for details.</p>
       </div>
     `;
+    if (stylesheetAttached && plugin.stylesUrl) {
+      detachPluginStylesheet(plugin.stylesUrl);
+    }
     throw err;
   }
 
@@ -708,6 +793,10 @@ export function mountUMDPlugin(
       }
     } catch (err) {
       console.error(`UMD Plugin ${plugin.name} unmount error:`, err);
+    } finally {
+      if (stylesheetAttached && plugin.stylesUrl) {
+        detachPluginStylesheet(plugin.stylesUrl);
+      }
     }
   };
 }

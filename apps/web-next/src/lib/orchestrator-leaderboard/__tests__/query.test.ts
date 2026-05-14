@@ -4,6 +4,8 @@ import {
   validateCapability,
   validateTopN,
   resolveClickhouseGatewayQueryUrl,
+  resolveClickhouseQueryTarget,
+  buildOrchestratorClickhouseFetchParams,
 } from '../query';
 
 describe('validateCapability', () => {
@@ -64,6 +66,99 @@ describe('validateTopN', () => {
 
   it('rejects values over 1000', () => {
     expect(() => validateTopN(1001)).toThrow();
+  });
+});
+
+describe('resolveClickhouseQueryTarget', () => {
+  const prevUrl = process.env.CLICKHOUSE_URL;
+  const prevUser = process.env.CLICKHOUSE_USER;
+  const prevPassword = process.env.CLICKHOUSE_PASSWORD;
+  const prevPublic = process.env.NEXT_PUBLIC_APP_URL;
+  const prevVercel = process.env.VERCEL_URL;
+
+  afterEach(() => {
+    if (prevUrl === undefined) delete process.env.CLICKHOUSE_URL;
+    else process.env.CLICKHOUSE_URL = prevUrl;
+    if (prevUser === undefined) delete process.env.CLICKHOUSE_USER;
+    else process.env.CLICKHOUSE_USER = prevUser;
+    if (prevPassword === undefined) delete process.env.CLICKHOUSE_PASSWORD;
+    else process.env.CLICKHOUSE_PASSWORD = prevPassword;
+    if (prevPublic === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+    else process.env.NEXT_PUBLIC_APP_URL = prevPublic;
+    if (prevVercel === undefined) delete process.env.VERCEL_URL;
+    else process.env.VERCEL_URL = prevVercel;
+  });
+
+  it('uses direct ClickHouse when all three env vars are set', () => {
+    process.env.CLICKHOUSE_URL = 'https://ch.example.com:8443/';
+    process.env.CLICKHOUSE_USER = 'u';
+    process.env.CLICKHOUSE_PASSWORD = 'p';
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.VERCEL_URL;
+
+    const t = resolveClickhouseQueryTarget();
+    expect(t.mode).toBe('direct');
+    expect(t.url).toBe('https://ch.example.com:8443/');
+    expect(t.headers['Content-Type']).toBe('text/plain');
+    expect(t.headers.Authorization).toMatch(/^Basic /);
+  });
+
+  it('throws when only some direct env vars are set', () => {
+    process.env.CLICKHOUSE_URL = 'https://ch.example.com/';
+    delete process.env.CLICKHOUSE_USER;
+    delete process.env.CLICKHOUSE_PASSWORD;
+    expect(() => resolveClickhouseQueryTarget()).toThrow(
+      'CLICKHOUSE_URL, CLICKHOUSE_USER, and CLICKHOUSE_PASSWORD must all be set',
+    );
+  });
+
+  it('falls back to gateway when direct env is unset', () => {
+    delete process.env.CLICKHOUSE_URL;
+    delete process.env.CLICKHOUSE_USER;
+    delete process.env.CLICKHOUSE_PASSWORD;
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+
+    const t = resolveClickhouseQueryTarget('http://localhost:3030/api/foo');
+    expect(t.mode).toBe('gateway');
+    expect(t.url).toBe('http://localhost:3030/api/v1/gw/clickhouse-query/query');
+    expect(t.headers).toEqual({ 'Content-Type': 'text/plain' });
+  });
+});
+
+describe('buildOrchestratorClickhouseFetchParams', () => {
+  const prevUrl = process.env.CLICKHOUSE_URL;
+  const prevUser = process.env.CLICKHOUSE_USER;
+  const prevPassword = process.env.CLICKHOUSE_PASSWORD;
+  const prevPublic = process.env.NEXT_PUBLIC_APP_URL;
+
+  afterEach(() => {
+    if (prevUrl === undefined) delete process.env.CLICKHOUSE_URL;
+    else process.env.CLICKHOUSE_URL = prevUrl;
+    if (prevUser === undefined) delete process.env.CLICKHOUSE_USER;
+    else process.env.CLICKHOUSE_USER = prevUser;
+    if (prevPassword === undefined) delete process.env.CLICKHOUSE_PASSWORD;
+    else process.env.CLICKHOUSE_PASSWORD = prevPassword;
+    if (prevPublic === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+    else process.env.NEXT_PUBLIC_APP_URL = prevPublic;
+  });
+
+  it('does not add Bearer in direct mode', () => {
+    process.env.CLICKHOUSE_URL = 'https://ch.example.com/';
+    process.env.CLICKHOUSE_USER = 'alice';
+    process.env.CLICKHOUSE_PASSWORD = 'secret';
+    const { headers } = buildOrchestratorClickhouseFetchParams('jwt-should-be-ignored');
+    expect(headers.Authorization).toMatch(/^Basic /);
+    expect(headers.Authorization).not.toContain('jwt-should-be-ignored');
+  });
+
+  it('adds Bearer in gateway mode', () => {
+    delete process.env.CLICKHOUSE_URL;
+    delete process.env.CLICKHOUSE_USER;
+    delete process.env.CLICKHOUSE_PASSWORD;
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    const { headers } = buildOrchestratorClickhouseFetchParams('the-token', undefined, 'a=b');
+    expect(headers.Authorization).toBe('Bearer the-token');
+    expect(headers.cookie).toBe('a=b');
   });
 });
 
