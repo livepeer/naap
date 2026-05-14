@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api", "plugin_service_gateway"]
+  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api", "plugin_service_gateway", "plugin_orchestrator_leaderboard"]
 }
 
 // ============================================
@@ -2235,4 +2235,76 @@ model ConnectorCapabilityRanking {
   @@unique([connectorId, category, modelName])
   @@index([category, qualityRank])
   @@schema("plugin_service_gateway")
+}
+
+// ============================================
+// ORCHESTRATOR LEADERBOARD — DISCOVERY PLANS
+// ============================================
+
+/// A persistent, parameterized discovery query whose results are auto-refreshed
+/// and served from cache. External consumers (signers, SDKs) create plans via
+/// the REST API and poll /plans/:id/results for ranked orchestrator lists.
+model DiscoveryPlan {
+  id              String   @id @default(cuid())
+  billingPlanId   String   @unique
+  name            String
+  description     String?
+  teamId          String?
+  ownerUserId     String?
+  capabilities    String[]
+  topN            Int      @default(10)
+  slaWeights      Json?
+  slaMinScore     Float?
+  sortBy          String?
+  filters         Json?
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([teamId, enabled])
+  @@index([ownerUserId, enabled])
+  @@schema("plugin_orchestrator_leaderboard")
+}
+
+/// Singleton config row for the orchestrator-leaderboard plugin.
+/// Stores admin-configurable refresh interval and last-refresh metadata.
+model LeaderboardConfig {
+  id                    String    @id @default("singleton")
+  refreshIntervalHours  Int       @default(1)
+  lastRefreshedAt       DateTime?
+  lastRefreshedBy       String?
+  updatedAt             DateTime  @updatedAt
+
+  @@schema("plugin_orchestrator_leaderboard")
+}
+
+/// Configurable data source for the orchestrator-leaderboard refresh pipeline.
+/// Admin can enable/disable each source and reorder priority (lower = higher).
+model LeaderboardSource {
+  kind      String   @id
+  enabled   Boolean  @default(true)
+  priority  Int
+  config    Json?
+  updatedAt DateTime @updatedAt
+
+  @@schema("plugin_orchestrator_leaderboard")
+}
+
+/// Durable audit log written after every global dataset refresh. Records
+/// per-source fetch stats, field-level conflict resolutions, and dropped rows.
+model LeaderboardRefreshAudit {
+  id                 String   @id @default(cuid())
+  refreshedAt        DateTime @default(now())
+  refreshedBy        String
+  durationMs         Int
+  membershipSource   String
+  totalOrchestrators Int
+  totalCapabilities  Int
+  perSource          Json
+  conflicts          Json
+  dropped            Json
+  warnings           String[]
+
+  @@index([refreshedAt])
+  @@schema("plugin_orchestrator_leaderboard")
 }

@@ -73,6 +73,14 @@ class ProxyServer:
         self._app.router.add_get("/health", self._handle_health)
         self._app.router.add_post("/inference", self._handle_inference)
         self._app.router.add_post("/inference/{model_path:.+}", self._handle_inference)
+        # Training endpoints (PR-3 of byoc-payment-fleet-2026-05).
+        # Adapter calls `/train/submit` to start a fal training job and
+        # `/train/status/{request_id}?model_id=X` to poll. The proxy routes
+        # both to whichever provider supports training (today: fal-ai).
+        self._app.router.add_post("/train/submit", self._handle_train_submit)
+        self._app.router.add_get(
+            "/train/status/{request_id}", self._handle_train_status,
+        )
         self._runner: Optional[web.AppRunner] = None
 
     @property
@@ -132,6 +140,98 @@ class ProxyServer:
             return web.json_response(
                 {"error": "Provider request failed", "detail": str(e)},
                 status=502,
+            )
+
+    # -----------------------------------------------------------------------
+    # Training (PR-3 of byoc-payment-fleet-2026-05)
+    # -----------------------------------------------------------------------
+
+    def _resolve_training_provider(self) -> InferenceProvider:
+        """Pick the provider that handles training.
+
+        Today only fal-ai exposes training methods. If the default provider
+        is fal-ai, use it; otherwise check extra_providers. If none support
+        training, return the default (it'll raise AttributeError on the
+        method call which we surface as 501).
+        """
+        # Prefer default if it's fal-ai
+        if isinstance(self._provider, FalAiProvider):
+            return self._provider
+        for prov in self._extra_providers.values():
+            if isinstance(prov, FalAiProvider):
+                return prov
+        return self._provider
+
+    async def _handle_train_submit(self, request: web.Request) -> web.Response:
+        """POST /train/submit — submit a training job to the provider.
+
+        Adapter forwards the SDK body unchanged. Body shape:
+            {"model_id": "<base-model>", "params": {...}, ...}
+
+        Returns:
+            {"request_id", "model_id", "status_url"} on success (HTTP 200/202)
+            {"error", "detail"} on failure (HTTP 502)
+        """
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, Exception):
+            return web.json_response(
+                {"error": "Invalid JSON in request body"}, status=400,
+            )
+
+        session = await self._get_session()
+        provider = self._resolve_training_provider()
+
+        if not hasattr(provider, "train_submit"):
+            return web.json_response(
+                {"error": "Provider does not support training",
+                 "provider": type(provider).__name__},
+                status=501,
+            )
+
+        try:
+            result = await provider.train_submit(body, session)
+            if "error" in result:
+                return web.json_response(result, status=502)
+            return web.json_response(result, status=202)
+        except Exception as e:
+            logger.error("Provider train_submit failed: %s", e)
+            return web.json_response(
+                {"error": "Provider training submit failed", "detail": str(e)},
+                status=502,
+            )
+
+    async def _handle_train_status(self, request: web.Request) -> web.Response:
+        """GET /train/status/{request_id}?model_id=X — poll training status.
+
+        The `model_id` query param is the FAL-side model URL (e.g.
+        `fal-ai/flux-lora-fast-training`) which the adapter received from
+        `train_submit`'s response. Required for fal's queue API addressing.
+        """
+        request_id = request.match_info["request_id"]
+        model_id = request.query.get("model_id", "")
+        if not model_id:
+            return web.json_response(
+                {"error": "model_id query param required"}, status=400,
+            )
+
+        session = await self._get_session()
+        provider = self._resolve_training_provider()
+
+        if not hasattr(provider, "train_status"):
+            return web.json_response(
+                {"error": "Provider does not support training status",
+                 "provider": type(provider).__name__},
+                status=501,
+            )
+
+        try:
+            result = await provider.train_status(model_id, request_id, session)
+            return web.json_response(result)
+        except Exception as e:
+            logger.error("Provider train_status failed: %s", e)
+            return web.json_response(
+                {"status": "FAILED", "error": str(e)}, status=502,
             )
 
     async def start(self) -> None:
