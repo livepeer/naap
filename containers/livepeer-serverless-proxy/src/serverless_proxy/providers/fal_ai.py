@@ -1,4 +1,4 @@
-"""fal.ai inference provider."""
+"""fal.ai inference + training provider."""
 
 from __future__ import annotations
 
@@ -16,8 +16,22 @@ _POLL_INTERVAL = 2
 _POLL_TIMEOUT = 300
 
 
+# Map of base model (what SDK sends as `model_id` in training body) to the
+# fal training model URL. flux-dev + flux-schnell both train via the same
+# fal-ai/flux-lora-fast-training endpoint. New base models can be added by
+# operators via runtime CAPABILITIES_JSON; this dict is the default for
+# fal-hosted training when no override is provided.
+TRAINING_MODELS = {
+    "flux-dev": "fal-ai/flux-lora-fast-training",
+    "flux-schnell": "fal-ai/flux-lora-fast-training",
+}
+
+
 class FalAiProvider(InferenceProvider):
-    """Provider that forwards inference requests to the fal.ai REST API.
+    """Provider that forwards inference + training requests to fal.ai.
+
+    Inference: synchronous /run, queue fallback on non-200.
+    Training: async via /queue submit + poll status by request_id.
 
     Supports both single-model mode (model_id set at init) and multi-model
     mode (model_id passed per-request).
@@ -128,3 +142,120 @@ class FalAiProvider(InferenceProvider):
             logger.debug("fal.ai polling: status=%s elapsed=%ds", status, elapsed)
 
         return {"error": "fal.ai job timed out", "detail": status_resp}
+
+    # -----------------------------------------------------------------------
+    # Training (PR-3 of byoc-payment-fleet-2026-05)
+    # -----------------------------------------------------------------------
+
+    async def train_submit(self, body: dict, session: aiohttp.ClientSession) -> dict:
+        """Submit a LoRA training job to fal.ai's queue.
+
+        Called by serverless-proxy's /train/submit handler when the inference-
+        adapter forwards a training request from the BYOC orch. Body shape
+        matches what the SDK sent: {"model_id": "flux-dev", "params": {...}}.
+
+        Returns the queue envelope in the shape adapter expects:
+        {"request_id", "model_id", "status_url"}.
+
+        On failure returns {"error": "...", "detail": "..."} which the
+        adapter surfaces as a backend submit failure.
+        """
+        base_model = body.get("model_id") or ""
+        fal_model = TRAINING_MODELS.get(base_model, "fal-ai/flux-lora-fast-training")
+        params = body.get("params", {})
+
+        # Translate to fal's expected body. fal-ai/flux-lora-fast-training
+        # accepts images_data_url + trigger_word + steps; pass `create_masks`
+        # through if the caller provided it.
+        queue_body: dict = {
+            "images_data_url": params.get("images_data_url", ""),
+            "trigger_word": params.get("trigger_word", "TOK"),
+            "steps": int(params.get("steps", 1000)),
+        }
+        if "create_masks" in params:
+            queue_body["create_masks"] = bool(params["create_masks"])
+
+        queue_url = f"https://queue.fal.run/{fal_model}"
+        headers = {
+            "Authorization": f"Key {self._api_key}",
+            "Content-Type": "application/json",
+        }
+
+        logger.info("fal.ai training submit: base=%s fal_model=%s", base_model, fal_model)
+
+        try:
+            async with session.post(
+                queue_url, json=queue_body, headers=headers,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status not in (200, 201):
+                    err_body = await resp.text()
+                    return {
+                        "error": f"fal.ai training submit returned {resp.status}",
+                        "detail": err_body[:500],
+                    }
+                envelope = await resp.json()
+        except asyncio.TimeoutError:
+            return {"error": "fal.ai training submit timed out"}
+        except aiohttp.ClientError as e:
+            return {"error": f"fal.ai client error: {type(e).__name__}", "detail": str(e)}
+
+        if "request_id" not in envelope:
+            return {
+                "error": "fal.ai training submit: unexpected envelope shape",
+                "detail": str(envelope)[:300],
+            }
+
+        return {
+            "request_id": envelope["request_id"],
+            "model_id": fal_model,
+            "status_url": envelope.get("status_url"),
+        }
+
+    async def train_status(self, fal_model: str, request_id: str,
+                           session: aiohttp.ClientSession) -> dict:
+        """Poll a fal training job by request_id.
+
+        Returns fal's native status shape (`{"status": "IN_PROGRESS"|"COMPLETED"|...}`)
+        directly. The adapter knows how to translate from these statuses to
+        its own job state.
+
+        On COMPLETED, fetches the full response (which includes
+        diffusers_lora_file URL) and merges it into the status dict.
+        """
+        headers = {"Authorization": f"Key {self._api_key}"}
+        status_url = f"https://queue.fal.run/{fal_model}/requests/{request_id}/status"
+
+        try:
+            async with session.get(
+                status_url, headers=headers,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    return {
+                        "status": "FAILED",
+                        "error": f"status check returned {resp.status}",
+                        "detail": text[:300],
+                    }
+                status_data = await resp.json()
+        except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            return {"status": "FAILED", "error": f"status poll error: {e}"}
+
+        if status_data.get("status") != "COMPLETED":
+            return status_data  # IN_PROGRESS, IN_QUEUE, FAILED, etc.
+
+        # On COMPLETED, fetch full response envelope (has the LoRA weights URL)
+        response_url = f"https://queue.fal.run/{fal_model}/requests/{request_id}"
+        try:
+            async with session.get(
+                response_url, headers=headers,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    return {"status": "COMPLETED", **result}
+        except (asyncio.TimeoutError, aiohttp.ClientError):
+            pass
+        # Best-effort: if we can't fetch result, return what we have
+        return status_data
