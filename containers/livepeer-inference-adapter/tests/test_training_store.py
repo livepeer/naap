@@ -188,3 +188,66 @@ def test_atomic_write_no_leftover_tmp(tmp_path):
     assert tmp_files == [], f"tmp files leaked: {tmp_files}"
     json_files = sorted(p.name for p in tmp_path.glob("*.json"))
     assert json_files == [f"j-{i}.json" for i in range(5)]
+
+
+def test_training_job_roundtrip_matches():
+    """
+    Reviewer Q3 fix (PR-7): TrainingJob.from_dict must be the exact
+    inverse of to_dict. If a future PR adds a field to to_dict but
+    forgets from_dict, every checkpoint round-trip silently drops it.
+    This test exercises the REAL production TrainingJob class (not the
+    test fake) to catch that drift.
+    """
+    from livepeer_adapter.proxy import TrainingJob
+    j = TrainingJob(job_id="rt-1", model_id="flux-dev", capability="flux-lora-training")
+    j.status = "running"
+    j.progress = 42
+    j.provider_request_id = "fal-req-abc"
+    j.error = "test-error"
+    j.callback_url = "https://example.test/cb"
+    j.result = {"diffusers_lora_file": {"url": "https://v3b/x.safetensors"}}
+
+    d = j.to_dict()
+    j2 = TrainingJob.from_dict(d)
+    d2 = j2.to_dict()
+    assert d == d2, (
+        f"round-trip mismatch — field added to to_dict but not from_dict? "
+        f"original={d!r}, after roundtrip={d2!r}"
+    )
+
+
+def test_sweep_marker_survives_second_restart(tmp_path):
+    """
+    Reviewer Q7 fix (PR-7): the failed_adapter_restart marker must be
+    durable across multiple restarts. Otherwise a job marked failed
+    on the first sweep could get re-marked or downgraded on a second
+    sweep, breaking I8.
+
+    Scenario:
+      1. Seed in-flight job on disk
+      2. Store 1 sweeps → marks as failed_adapter_restart, rewrites disk
+      3. Store 2 sweeps the rewritten disk → must keep failed_adapter_restart
+      4. Store 3 sweeps after Store 2 → still failed_adapter_restart
+    """
+    initial = {
+        "job_id": "durable-fail",
+        "status": "running",
+        "progress": 50,
+        "capability": "flux-lora-training",
+        "model_id": "flux-dev",
+        "updated_at": time.time() - 60,
+    }
+    (tmp_path / "durable-fail.json").write_text(json.dumps(initial))
+
+    for restart in range(1, 4):
+        store = TrainingJobStore(
+            checkpoint_dir=str(tmp_path),
+            job_to_dict=lambda j: j.to_dict(),
+            dict_to_job=_FakeJob.from_dict,
+        )
+        store.sweep_on_startup()
+        got = store["durable-fail"]
+        assert got.status == "failed_adapter_restart", (
+            f"restart {restart}: status drifted to {got.status!r} "
+            "(should stay failed_adapter_restart)"
+        )

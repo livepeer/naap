@@ -216,7 +216,11 @@ class ProxyServer:
         job_id = str(uuid.uuid4())
         job = TrainingJob(job_id=job_id, model_id=model_id, capability=capability)
         job.callback_url = body.pop("callback_url", None)
-        self._training_jobs[job_id] = job
+        # Use async setter so checkpoint fs write doesn't block the event
+        # loop on the request thread (review Q4 fix, PR-7). Subsequent
+        # mutations inside _run_training_job rely on the periodic
+        # snapshot loop — no per-mutation async overhead.
+        await self._training_jobs.aset(job_id, job)
         task = asyncio.create_task(self._run_training_job(job, body))
         self._training_tasks[job_id] = task
         logger.info("Training job submitted: job_id=%s model_id=%s", job_id, model_id)

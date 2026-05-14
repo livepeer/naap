@@ -68,9 +68,27 @@ class TrainingJobStore:
     # Dict-like access for backward compat with `self._training_jobs[...]`
     # ------------------------------------------------------------------
     def __setitem__(self, job_id: str, job: Any) -> None:
+        """Synchronous insertion (memory only). For checkpoint write,
+        callers in async paths SHOULD prefer `await aset(job_id, job)`
+        which offloads fs I/O to a thread. The synchronous path here
+        still works but blocks the event loop for fs latency."""
         self._jobs[job_id] = job
         # Eager persist on insertion (most important moment to checkpoint)
         self._persist_one(job_id, job)
+
+    async def aset(self, job_id: str, job: Any) -> None:
+        """Async insertion — same as __setitem__ but offloads fs write
+        to a worker thread so the event loop isn't blocked by disk
+        latency. Use this from aiohttp handlers under load.
+
+        Reviewer Q4 fix (PR-7): `__setitem__` does synchronous fs I/O,
+        which on slow disks stalls all concurrent requests on the
+        adapter. `aset` does the same logical insert but the fs write
+        is dispatched to `asyncio.to_thread`.
+        """
+        self._jobs[job_id] = job
+        if self._checkpoint_dir and self._job_to_dict:
+            await asyncio.to_thread(self._persist_one, job_id, job)
 
     def __getitem__(self, job_id: str) -> Any:
         return self._jobs[job_id]
