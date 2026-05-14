@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from typing import Optional
@@ -13,6 +14,7 @@ from aiohttp import web, ClientSession, ClientTimeout
 import json
 
 from .config import AdapterConfig, CapabilityConfig
+from .training_store import TrainingJobStore
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,26 @@ class TrainingJob:
         if self.provider_request_id: d["provider_request_id"] = self.provider_request_id
         if self.result: d["result"] = self.result
         if self.error: d["error"] = self.error
+        if self.callback_url: d["callback_url"] = self.callback_url
         return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "TrainingJob":
+        """Inverse of to_dict — used by training_store sweep on restart."""
+        j = cls(
+            job_id=d.get("job_id", ""),
+            model_id=d.get("model_id", ""),
+            capability=d.get("capability", ""),
+        )
+        j.status = d.get("status", "submitted")
+        j.progress = int(d.get("progress", 0))
+        j.provider_request_id = d.get("provider_request_id")
+        j.result = d.get("result")
+        j.error = d.get("error")
+        j.created_at = float(d.get("created_at", time.time()))
+        j.updated_at = float(d.get("updated_at", time.time()))
+        j.callback_url = d.get("callback_url")
+        return j
 
 
 
@@ -68,7 +89,21 @@ class ProxyServer:
         self._app.router.add_post("/inference/{path:.*}", self._handle_inference)
         self._runner: Optional[web.AppRunner] = None
         self._backend_healthy = False
-        self._training_jobs = {}
+        # PR-7 (byoc-payment-fleet-2026-05): opt-in filesystem-backed
+        # checkpoint store. Set TRAINING_CHECKPOINT_DIR to enable. When
+        # unset, behaves as the previous in-memory dict (backward compat).
+        # On startup, in-flight jobs from a prior process are loaded and
+        # marked failed_adapter_restart (see TrainingJobStore.sweep_on_startup).
+        checkpoint_dir = os.getenv("TRAINING_CHECKPOINT_DIR")
+        self._training_jobs = TrainingJobStore(
+            checkpoint_dir=checkpoint_dir,
+            ttl_seconds=24 * 3600,
+            snapshot_interval=5.0,
+            job_to_dict=lambda j: j.to_dict(),
+            dict_to_job=TrainingJob.from_dict,
+        )
+        if checkpoint_dir:
+            self._training_jobs.sweep_on_startup()
         self._training_tasks = {}
 
     @property
@@ -352,9 +387,13 @@ class ProxyServer:
         site = web.TCPSite(self._runner, self._config.adapter_host, self._config.adapter_port)
         await site.start()
         logger.info("Proxy server listening on %s:%d", self._config.adapter_host, self._config.adapter_port)
+        # PR-7: kick off periodic training checkpoint snapshots if persistence
+        # is enabled. No-op when TRAINING_CHECKPOINT_DIR is unset.
+        await self._training_jobs.start_snapshot_loop()
 
     async def stop(self) -> None:
         """Stop the HTTP server and clean up."""
+        await self._training_jobs.stop_snapshot_loop()
         if self._runner:
             await self._runner.cleanup()
         if self._owns_session and self._session and not self._session.closed:
