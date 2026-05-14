@@ -26,6 +26,28 @@ export function getKeyPrefix(lookupId: string): string {
   return `naap_${lookupId}...`;
 }
 
+const BILLING_KEY_PUBLIC_PREFIX_MAX = 14;
+
+/**
+ * Short, non-secret prefix derived from the billing provider secret so users can
+ * match list rows to keys they hold. NaaP-native `naap_…` keys keep the existing
+ * `naap_<lookupId>…` shape; opaque provider tokens use the first characters of the token.
+ */
+export function formatBillingKeyPublicPrefix(rawKey: string): string {
+  const t = rawKey.trim();
+  if (!t) {
+    return '—';
+  }
+  const parsed = parseApiKey(t);
+  if (parsed) {
+    return getKeyPrefix(parsed.lookupId);
+  }
+  if (t.length <= BILLING_KEY_PUBLIC_PREFIX_MAX) {
+    return t;
+  }
+  return `${t.slice(0, BILLING_KEY_PUBLIC_PREFIX_MAX)}…`;
+}
+
 /**
  * Hash an API key for storage using scrypt KDF.
  * Works for both NaaP-native and provider-issued keys.

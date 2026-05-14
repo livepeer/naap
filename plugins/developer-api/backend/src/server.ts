@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from 'dotenv';
 import { createAuthMiddleware } from '@naap/plugin-server-sdk';
+import { formatBillingKeyPublicPrefix } from '@naap/database';
 
 const backendRoot = resolve(import.meta.dirname ?? '.', '..');
 const repoRoot = resolve(backendRoot, '../../..');
@@ -55,7 +56,6 @@ async function initDatabase() {
     resolveDevApiProjectId = db.resolveDevApiProjectId;
     DevApiProjectResolutionError = db.DevApiProjectResolutionError;
     if (db.deriveKeyLookupId) deriveKeyLookupId = db.deriveKeyLookupId;
-    if (db.getKeyPrefix) getKeyPrefix = db.getKeyPrefix;
     if (db.hashApiKey) hashApiKey = db.hashApiKey;
     await prisma.$connect();
     console.log('✅ Database connected');
@@ -85,7 +85,6 @@ const inMemoryBillingProviders = [
 // ============================================
 
 let deriveKeyLookupId: (rawKey: string) => string = (_key: string) => crypto.randomBytes(8).toString('hex');
-let getKeyPrefix: (lookupId: string) => string = (id: string) => `naap_${id}...`;
 let hashApiKey: (key: string) => string = (key: string) => crypto.scryptSync(key, 'naap-api-key-v1', 32).toString('hex');
 
 const PYMTHOUSE_PROVIDER_SLUG = 'pymthouse';
@@ -827,7 +826,7 @@ app.post('/api/v1/developer/keys', async (req, res) => {
     }
 
     const keyLookupId = deriveKeyLookupId(rawApiKey);
-    const keyPrefix = getKeyPrefix(keyLookupId);
+    const keyPrefix = formatBillingKeyPublicPrefix(rawApiKey);
 
     if (prisma) {
       const provider = await prisma.billingProvider.findUnique({
