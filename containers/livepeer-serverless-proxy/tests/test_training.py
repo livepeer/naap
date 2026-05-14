@@ -281,6 +281,64 @@ class TestInferenceRegression(_ProxyAppCase):
             )
             assert resp.status == 200
 
+    async def test_inference_model_path_strips_provider_prefix(self):
+        """
+        Regression test for the extra-provider routing branch in
+        _handle_inference (server.py line ~122-126). When a model_id has
+        a provider prefix matching an extra_provider (e.g., "gemini/..."),
+        the proxy routes to that provider and strips the prefix before
+        passing to provider.inference().
+
+        Without this test, a refactor of the prefix-stripping logic
+        would pass test_inference_with_model_path (which doesn't have
+        an extra-provider in scope) but break the actual routing.
+        """
+        # Build a server with both fal-ai (default) and a stubbed extra
+        # "gemini" provider so we can verify routing differentiates.
+        from serverless_proxy.providers.gemini import GeminiProvider
+        from serverless_proxy.config import ProxyConfig
+        config = ProxyConfig(provider="fal-ai", api_key="fal-key", port=0, model_id=None)
+        fal_provider = FalAiProvider(api_key="fal-key")
+        gemini_provider = GeminiProvider(api_key="gemini-key")
+        server_with_extras = ProxyServer(
+            config=config,
+            provider=fal_provider,
+            extra_providers={"gemini": gemini_provider},
+        )
+
+        # Hand-spin a one-off aiohttp test client for this scenario
+        from aiohttp.test_utils import TestClient, TestServer
+        ts = TestServer(server_with_extras.app)
+        await ts.start_server()
+        try:
+            client = TestClient(ts)
+            await client.start_server()
+            try:
+                captured_model_id = []
+
+                async def _fake_inference(self, body, session, model_id=None):
+                    captured_model_id.append(model_id)
+                    return {"images": [{"url": "https://test/img.jpg"}]}
+
+                with patch.object(GeminiProvider, "inference", new=_fake_inference):
+                    resp = await client.post(
+                        "/inference/gemini/gemini-2.5-flash-image",
+                        json={"prompt": "test"},
+                    )
+                    assert resp.status == 200, await resp.text()
+
+                # The proxy should have routed to gemini provider AND
+                # stripped the "gemini/" prefix before calling inference().
+                assert len(captured_model_id) == 1
+                assert captured_model_id[0] == "gemini-2.5-flash-image", (
+                    f"prefix-stripping broken: got model_id={captured_model_id[0]!r}, "
+                    "expected 'gemini-2.5-flash-image' (no provider prefix)"
+                )
+            finally:
+                await client.close()
+        finally:
+            await ts.close()
+
 
 # ---------------------------------------------------------------------------
 # TRAINING_MODELS table is the SOT for base → fal model mapping

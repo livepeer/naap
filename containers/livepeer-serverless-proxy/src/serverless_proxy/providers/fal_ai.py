@@ -164,16 +164,25 @@ class FalAiProvider(InferenceProvider):
         fal_model = TRAINING_MODELS.get(base_model, "fal-ai/flux-lora-fast-training")
         params = body.get("params", {})
 
-        # Translate to fal's expected body. fal-ai/flux-lora-fast-training
-        # accepts images_data_url + trigger_word + steps; pass `create_masks`
-        # through if the caller provided it.
-        queue_body: dict = {
-            "images_data_url": params.get("images_data_url", ""),
-            "trigger_word": params.get("trigger_word", "TOK"),
-            "steps": int(params.get("steps", 1000)),
-        }
-        if "create_masks" in params:
-            queue_body["create_masks"] = bool(params["create_masks"])
+        # Forward all caller-provided params to fal, then apply defaults
+        # for the three required fields. fal-ai/flux-lora-fast-training
+        # accepts many optional inputs (learning_rate, is_style,
+        # data_archive_format, resume_from_checkpoint, etc.) — silently
+        # dropping unknown params would prevent callers from using them.
+        # Strategy: spread params first, then setdefault for required keys
+        # so callers can override defaults if needed.
+        queue_body: dict = dict(params)  # shallow copy, preserves all fields
+        queue_body.setdefault("images_data_url", "")
+        queue_body.setdefault("trigger_word", "TOK")
+        queue_body.setdefault("steps", 1000)
+        # Coerce steps to int — SDK callers sometimes pass strings
+        if isinstance(queue_body.get("steps"), str):
+            try:
+                queue_body["steps"] = int(queue_body["steps"])
+            except ValueError:
+                queue_body["steps"] = 1000  # fall back to default
+        if "create_masks" in queue_body:
+            queue_body["create_masks"] = bool(queue_body["create_masks"])
 
         queue_url = f"https://queue.fal.run/{fal_model}"
         headers = {
@@ -206,10 +215,18 @@ class FalAiProvider(InferenceProvider):
                 "detail": str(envelope)[:300],
             }
 
+        # If fal omits status_url, build the canonical URL ourselves. The
+        # adapter doesn't actually use status_url (it builds its own URL
+        # from {backend_url}/train/status/{request_id}?model_id=X), but
+        # the contract advertises this field — populate it so external
+        # callers (debug tools, logs) see a consistent response shape.
+        status_url = envelope.get("status_url") or (
+            f"https://queue.fal.run/{fal_model}/requests/{envelope['request_id']}/status"
+        )
         return {
             "request_id": envelope["request_id"],
             "model_id": fal_model,
-            "status_url": envelope.get("status_url"),
+            "status_url": status_url,
         }
 
     async def train_status(self, fal_model: str, request_id: str,
