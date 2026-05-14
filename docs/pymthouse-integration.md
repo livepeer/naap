@@ -52,6 +52,32 @@ NaaP server                                              PymtHouse
 | `POST` | `/api/v1/billing/pymthouse/token` | Mint-on-demand signer session. Returns `{ access_token, token_type, expires_in, scope }` where `access_token` is an opaque **`pmth_…`** token (~90 days). Auth: NaaP session + CSRF. Rate limited per user. Internally mints a short-lived JWT then RFC 8693 token-exchanges with the M2M client. |
 | `GET` | `/api/v1/billing/pymthouse/usage` | Session BFF over PymtHouse **Usage API** (see below). Auth: NaaP session cookie / bearer. `Cache-Control: no-store`. |
 
+### Developer API manager SDK token
+
+The Developer API manager's **Create API Key** flow returns the normal billing API key and, for providers that support python-gateway discovery (`pymthouse` and `daydream`), also creates an optional SDK token for `python-gateway --token`.
+
+That SDK token is **base64-encoded JSON**, not a JWT. It bundles two independent credentials so python-gateway can separate signing from discovery:
+
+```json
+{
+  "signer": "https://pymthouse.com/api/signer",
+  "discovery": "https://naap.example.com/api/v1/orchestrator-leaderboard/plans/{planId}/python-gateway",
+  "signer_headers": {
+    "Authorization": "Bearer pmth_..."
+  },
+  "discovery_headers": {
+    "Authorization": "Bearer gw_..."
+  }
+}
+```
+
+- `signer_headers.Authorization` uses the billing-provider signer session returned by PymtHouse (`pmth_…`). This is the same secret shown as the API key in the success dialog.
+- `discovery_headers.Authorization` uses a separate NaaP service-gateway key (`gw_…`) minted during the same dialog via `/api/v1/gw/admin/keys`. It is scoped to NaaP's discovery endpoint and should not be reused as the billing signer credential.
+- If the user selects a saved discovery plan, the token points at `/api/v1/orchestrator-leaderboard/plans/{planId}/python-gateway`; otherwise it points at `/api/v1/orchestrator-leaderboard/python-gateway` for default model-based discovery.
+- If NaaP cannot mint the `gw_…` key, the UI still shows the billing API key and explains that the user must create a gateway key manually and populate `discovery_headers`.
+
+This keeps token auth explicit: the signer remains a PymtHouse-issued billing secret, while discovery remains a NaaP-authenticated request that can use curated orchestrator-leaderboard plans.
+
 ### Usage API (BFF)
 
 Official contract: [PymtHouse Usage API](https://docs.pymthouse.com/integration/usage-api).

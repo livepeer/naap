@@ -229,6 +229,17 @@ async function fetchCsrfToken(): Promise<string> {
   return '';
 }
 
+/** Base64 (standard) for UTF-8 JSON — matches python-gateway `parse_token` expectations. */
+function utf8ToBase64Json(payload: Record<string, unknown>): string {
+  const json = JSON.stringify(payload);
+  const bytes = new TextEncoder().encode(json);
+  let binary = '';
+  bytes.forEach((b) => {
+    binary += String.fromCharCode(b);
+  });
+  return btoa(binary);
+}
+
 function delayWithAbort(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const timeoutId = window.setTimeout(() => {
@@ -311,6 +322,12 @@ const DOCS_BILLING_PROVIDERS: DocsBillingProvider[] = [
   },
 ];
 
+const PYTHON_GATEWAY_DISCOVERY_BILLING_SLUGS = new Set(['pymthouse', 'daydream']);
+
+function billingProviderSupportsPythonGatewayDiscovery(slug: string | undefined): boolean {
+  return !!slug && PYTHON_GATEWAY_DISCOVERY_BILLING_SLUGS.has(slug);
+}
+
 function DocCodeBlock({ code, label }: { code: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(async () => {
@@ -377,6 +394,9 @@ export const DeveloperView: React.FC = () => {
   const [createError, setCreateError] = useState('');
   const [creating, setCreating] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
+  /** When an SDK token is shown, the billing API key is tucked into this expandable. */
+  const [apiKeyPanelOpen, setApiKeyPanelOpen] = useState(false);
+  const [sdkTokenCopied, setSdkTokenCopied] = useState(false);
 
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [billingProviders, setBillingProviders] = useState<BillingProviderInfo[] | null>(null);
@@ -386,6 +406,13 @@ export const DeveloperView: React.FC = () => {
   const [newProjectName, setNewProjectName] = useState('');
   const [newKeyLabel, setNewKeyLabel] = useState('');
   const [selectedBillingProviderId, setSelectedBillingProviderId] = useState('');
+
+  /** NaaP orchestrator-leaderboard discovery plans (python-gateway bundle for PymtHouse + Daydream). */
+  const [discoveryPlans, setDiscoveryPlans] = useState<Array<{ id: string; name: string }>>([]);
+  const [discoveryPlansLoading, setDiscoveryPlansLoading] = useState(false);
+  const [selectedDiscoveryPlanId, setSelectedDiscoveryPlanId] = useState('');
+  const [createdPythonGatewayToken, setCreatedPythonGatewayToken] = useState('');
+  const [gatewayDiscoveryKeyMintError, setGatewayDiscoveryKeyMintError] = useState('');
 
   const [revokeKeyId, setRevokeKeyId] = useState<string | null>(null);
   const [revoking, setRevoking] = useState(false);
@@ -445,6 +472,47 @@ export const DeveloperView: React.FC = () => {
     () => billingProviders?.find((provider) => provider.id === selectedBillingProviderId) || null,
     [billingProviders, selectedBillingProviderId]
   );
+
+  useEffect(() => {
+    if (!showCreateModal || !billingProviderSupportsPythonGatewayDiscovery(selectedBillingProvider?.slug)) {
+      setDiscoveryPlans([]);
+      setSelectedDiscoveryPlanId('');
+      return;
+    }
+
+    let cancelled = false;
+    setDiscoveryPlansLoading(true);
+
+    void (async () => {
+      try {
+        const res = await fetch('/api/v1/orchestrator-leaderboard/plans', { credentials: 'include' });
+        if (!res.ok || cancelled) {
+          return;
+        }
+        const json = await res.json();
+        const raw = json.data?.plans;
+        const list = Array.isArray(raw) ? raw : [];
+        if (cancelled) {
+          return;
+        }
+        setDiscoveryPlans(
+          list.map((p: { id: string; name: string }) => ({ id: p.id, name: p.name })),
+        );
+      } catch {
+        if (!cancelled) {
+          setDiscoveryPlans([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setDiscoveryPlansLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showCreateModal, selectedBillingProvider?.slug]);
 
   const displayedKeys = useMemo(() => {
     const filteredByRevoked = showRevoked
@@ -767,15 +835,21 @@ result = [...result].sort((a, b) => {
   const openCreateModal = useCallback(() => {
     setCreateStep('form');
     setCreatedRawKey('');
+    setCreatedPythonGatewayToken('');
+    setGatewayDiscoveryKeyMintError('');
     setCreatedKeyExpiresAt(null);
     setCreatedKeyWarning('');
     setCreateError('');
     setCreating(false);
     setKeyCopied(false);
+    setApiKeyPanelOpen(false);
+    setSdkTokenCopied(false);
     setSelectedProjectId('');
     setNewProjectName('');
     setNewKeyLabel('');
     setSelectedBillingProviderId('');
+    setSelectedDiscoveryPlanId('');
+    setDiscoveryPlans([]);
     setShowCreateModal(true);
     loadModalData();
   }, [loadModalData]);
@@ -783,6 +857,11 @@ result = [...result].sort((a, b) => {
   const closeCreateModal = useCallback(() => {
     pollAbortControllerRef.current?.abort();
     setShowCreateModal(false);
+    setCreatedPythonGatewayToken('');
+    setGatewayDiscoveryKeyMintError('');
+    setApiKeyPanelOpen(false);
+    setSdkTokenCopied(false);
+    setSelectedDiscoveryPlanId('');
     if (createStep === 'success') loadData();
   }, [createStep, loadData]);
 
@@ -946,6 +1025,66 @@ result = [...result].sort((a, b) => {
           : expiresFromApi;
       setCreatedKeyExpiresAt(resolvedExpires);
       setCreatedKeyWarning(payload.warning || 'Store this key securely. It will not be shown again.');
+      setCreatedPythonGatewayToken('');
+      setGatewayDiscoveryKeyMintError('');
+      if (billingProviderSupportsPythonGatewayDiscovery(providerSlug)) {
+        const docsBp = DOCS_BILLING_PROVIDERS.find((p) => p.id === providerSlug);
+        const signerBase =
+          docsBp?.signerUrl?.replace(/\/+$/, '') ??
+          (providerSlug === 'daydream' ? 'https://signer.daydream.live' : 'https://pymthouse.com/api/signer');
+        const selectedPlanId = selectedDiscoveryPlanId.trim();
+        const discoveryPath = selectedPlanId
+          ? `/api/v1/orchestrator-leaderboard/plans/${encodeURIComponent(selectedPlanId)}/python-gateway`
+          : '/api/v1/orchestrator-leaderboard/python-gateway';
+        const discoveryUrl = `${window.location.origin}${discoveryPath}`;
+        const signerAuth = `Bearer ${providerApiKey}`;
+        const gwName = `python-gateway discovery${newKeyLabel.trim() ? ` — ${newKeyLabel.trim()}` : ''}`.slice(0, 128);
+        let discoveryAuth = '';
+        try {
+          const gwCsrf = await fetchCsrfToken();
+          const gwRes = await fetch('/api/v1/gw/admin/keys', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': gwCsrf,
+            },
+            credentials: 'include',
+            body: JSON.stringify({ name: gwName }),
+          });
+          let gwJson: { data?: { rawKey?: string }; rawKey?: string; error?: string } = {};
+          try {
+            gwJson = await gwRes.json();
+          } catch {
+            gwJson = {};
+          }
+          const gwData = gwJson.data ?? gwJson;
+          const rawGw =
+            typeof gwData?.rawKey === 'string' && gwData.rawKey.startsWith('gw_') ? gwData.rawKey : '';
+          if (gwRes.ok && rawGw) {
+            discoveryAuth = `Bearer ${rawGw}`;
+          } else {
+            const msg =
+              typeof gwJson.error === 'string' && gwJson.error.trim()
+                ? gwJson.error
+                : 'Could not create a NaaP gateway API key (gw_…) for discovery. Add one under Service Gateway → API keys and set discovery_headers yourself, or try again.';
+            setGatewayDiscoveryKeyMintError(msg);
+          }
+        } catch {
+          setGatewayDiscoveryKeyMintError(
+            'Could not create a NaaP gateway API key (gw_…) for discovery. Add one under Service Gateway → API keys and set discovery_headers yourself, or try again.',
+          );
+        }
+        if (discoveryAuth) {
+          setCreatedPythonGatewayToken(
+            utf8ToBase64Json({
+              signer: signerBase,
+              discovery: discoveryUrl,
+              signer_headers: { Authorization: signerAuth },
+              discovery_headers: { Authorization: discoveryAuth },
+            }),
+          );
+        }
+      }
       setCreateStep('success');
     } catch (err) {
       if (pollAbortControllerRef.current?.signal.aborted) {
@@ -958,7 +1097,7 @@ result = [...result].sort((a, b) => {
       pollAbortControllerRef.current = null;
       setCreating(false);
     }
-  }, [selectedProjectId, newProjectName, newKeyLabel, selectedBillingProviderId, billingProviders]);
+  }, [selectedProjectId, newProjectName, newKeyLabel, selectedBillingProviderId, billingProviders, selectedDiscoveryPlanId]);
 
   const handleCopyKey = useCallback(async () => {
     try {
@@ -967,6 +1106,15 @@ result = [...result].sort((a, b) => {
       setTimeout(() => setKeyCopied(false), 2000);
     } catch { /* fallback */ }
   }, [createdRawKey]);
+
+  const handleCopySdkToken = useCallback(async () => {
+    if (!createdPythonGatewayToken) return;
+    try {
+      await navigator.clipboard.writeText(createdPythonGatewayToken);
+      setSdkTokenCopied(true);
+      setTimeout(() => setSdkTokenCopied(false), 2000);
+    } catch { /* ignore */ }
+  }, [createdPythonGatewayToken]);
 
   const handleRevokeKey = useCallback(async () => {
     if (!revokeKeyId) return;
@@ -1734,7 +1882,15 @@ result = [...result].sort((a, b) => {
 
       {/* ===== Create Key Modal ===== */}
       <Modal isOpen={showCreateModal} onClose={closeCreateModal}
-        title={createStep === 'form' ? 'Create API Key' : createStep === 'oauth' ? 'Authenticating...' : 'API Key Created'}
+        title={
+          createStep === 'form'
+            ? 'Create API Key'
+            : createStep === 'oauth'
+              ? selectedBillingProvider?.slug === 'pymthouse'
+                ? 'Provisioning PymtHouse...'
+                : 'Authenticating...'
+              : 'API Key Created'
+        }
         description={createStep === 'form' ? 'Configure your new API key' : undefined} size="lg">
         {createStep === 'form' && (
           <div className="space-y-4">
@@ -1762,7 +1918,11 @@ result = [...result].sort((a, b) => {
             </div>
             <div>
               <label className="block text-xs font-medium text-text-primary mb-1.5">Billing Provider</label>
-              <p className="text-xs text-text-secondary mb-2">You will be redirected to authenticate with the selected provider.</p>
+              <p className="text-xs text-text-secondary mb-2">
+                {selectedBillingProvider?.slug === 'pymthouse'
+                  ? 'PymtHouse uses a server-to-server link. There is no browser redirect or interactive sign-in.'
+                  : 'You will be redirected to authenticate with the selected provider.'}
+              </p>
               {modalDataLoading ? (
                 <div className="flex items-center gap-3 p-4 bg-bg-tertiary border border-white/10 rounded-lg">
                   <Loader2 size={18} className="text-text-secondary animate-spin flex-shrink-0" />
@@ -1800,6 +1960,40 @@ result = [...result].sort((a, b) => {
                 </p>
               )}
             </div>
+            {billingProviderSupportsPythonGatewayDiscovery(selectedBillingProvider?.slug) && (
+              <div>
+                <label className="block text-xs font-medium text-text-primary mb-1.5">
+                  Discovery plan <span className="text-text-secondary font-normal">(optional)</span>
+                </label>
+                <p className="text-xs text-text-secondary mb-2">
+                  Pick a saved plan to use curated orchestration rules. Leave blank to use NaaP's default discovery response for
+                  the model requested by python-gateway. Discovery calls NaaP with a new <code className="text-slate-300">gw_…</code>{' '}
+                  gateway key; the signer still uses your billing provider secret above.
+                </p>
+                {discoveryPlansLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-text-secondary">
+                    <Loader2 size={16} className="animate-spin" /> Loading plans…
+                  </div>
+                ) : discoveryPlans.length === 0 ? (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-200">
+                    No discovery plans found. The SDK token will use NaaP's default model-based discovery response.
+                  </div>
+                ) : (
+                  <select
+                    value={selectedDiscoveryPlanId}
+                    onChange={(e) => setSelectedDiscoveryPlanId(e.target.value)}
+                    className={selectClassName}
+                  >
+                    <option value="">Select a plan…</option>
+                    {discoveryPlans.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
             {createError && (
               <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-300">
                 <AlertTriangle size={16} className="flex-shrink-0" />{createError}
@@ -1808,7 +2002,14 @@ result = [...result].sort((a, b) => {
             <div className="flex justify-end gap-3 pt-2">
               <button
                 onClick={handleCreateKey}
-                disabled={creating || modalDataLoading || billingProvidersError || !billingProviders?.length || !selectedBillingProviderId}
+                disabled={
+                  creating ||
+                  modalDataLoading ||
+                  billingProvidersError ||
+                  !billingProviders?.length ||
+                  !selectedBillingProviderId ||
+                  (billingProviderSupportsPythonGatewayDiscovery(selectedBillingProvider?.slug) && discoveryPlansLoading)
+                }
                 className="order-2 flex items-center gap-2 px-3 py-1.5 bg-accent-emerald text-white rounded-md text-xs font-medium hover:bg-accent-emerald/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Key size={16} /> Create API Key
@@ -1826,8 +2027,16 @@ result = [...result].sort((a, b) => {
           <div className="flex flex-col items-center justify-center py-6 space-y-4">
             <Loader2 size={20} className="animate-spin text-text-secondary" />
             <div className="text-center">
-              <p className="text-text-primary font-medium">Waiting for authentication...</p>
-              <p className="text-sm text-text-secondary mt-1">Complete the sign-in in the new tab that opened. This page will update automatically.</p>
+              <p className="text-text-primary font-medium">
+                {selectedBillingProvider?.slug === 'pymthouse'
+                  ? 'Creating your PymtHouse billing key...'
+                  : 'Waiting for authentication...'}
+              </p>
+              <p className="text-sm text-text-secondary mt-1">
+                {selectedBillingProvider?.slug === 'pymthouse'
+                  ? 'The server is exchanging machine credentials with PymtHouse on your behalf. This page updates automatically when the key is ready—no new tab or interactive sign-in.'
+                  : 'Complete the sign-in in the new tab that opened. This page will update automatically.'}
+              </p>
             </div>
           </div>
         )}
@@ -1861,18 +2070,85 @@ result = [...result].sort((a, b) => {
                 )}
               </div>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-text-primary mb-1.5">Your API Key</label>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 bg-bg-tertiary border border-white/10 rounded-lg py-2 px-3 font-mono text-sm text-accent-emerald break-all select-all">
-                  {createdRawKey}
-                </code>
-                <button onClick={handleCopyKey}
-                  className="flex-shrink-0 p-2 bg-bg-tertiary border border-white/10 rounded-lg hover:bg-white/5 transition-colors" title="Copy to clipboard">
-                  {keyCopied ? <Check size={18} className="text-emerald-400" /> : <Copy size={18} className="text-text-secondary" />}
-                </button>
+            {createdPythonGatewayToken ? (
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-text-primary">SDK Token (python-gateway)</label>
+                <p className="text-xs text-text-secondary">
+                  Base64 JSON for <code className="text-slate-300">python-gateway --token</code> (not a JWT).
+                  <code className="text-slate-300"> signer_headers</code> use your billing API key;{' '}
+                  <code className="text-slate-300">discovery_headers</code> use a separate NaaP{' '}
+                  <code className="text-slate-300">gw_…</code> key minted when this dialog succeeded.
+                </p>
+                <div className="flex items-start gap-2">
+                  <code className="max-h-40 flex-1 overflow-y-auto break-all rounded-lg border border-white/10 bg-bg-tertiary px-3 py-2 font-mono text-xs text-accent-emerald select-all">
+                    {createdPythonGatewayToken}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={handleCopySdkToken}
+                    className="flex-shrink-0 rounded-lg border border-white/10 bg-bg-tertiary p-2 hover:bg-white/5 transition-colors"
+                    title="Copy SDK token"
+                  >
+                    {sdkTokenCopied ? <Check size={18} className="text-emerald-400" /> : <Copy size={18} className="text-text-secondary" />}
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : null}
+            {gatewayDiscoveryKeyMintError ? (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-100">
+                <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-amber-400" aria-hidden />
+                <p>{gatewayDiscoveryKeyMintError}</p>
+              </div>
+            ) : null}
+            {createdPythonGatewayToken ? (
+              <div className="rounded-lg border border-white/10 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setApiKeyPanelOpen((open) => !open)}
+                  aria-expanded={apiKeyPanelOpen}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-xs font-medium text-text-primary hover:bg-white/5 transition-colors"
+                >
+                  <span>Your API Key (billing)</span>
+                  <ChevronDown
+                    size={16}
+                    className={`flex-shrink-0 text-text-secondary transition-transform ${apiKeyPanelOpen ? 'rotate-180' : ''}`}
+                    aria-hidden
+                  />
+                </button>
+                {apiKeyPanelOpen ? (
+                  <div className="border-t border-white/10 bg-bg-tertiary/40 px-3 py-3">
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 bg-bg-tertiary border border-white/10 rounded-lg py-2 px-3 font-mono text-sm text-accent-emerald break-all select-all">
+                        {createdRawKey}
+                      </code>
+                      <button
+                        onClick={handleCopyKey}
+                        className="flex-shrink-0 p-2 bg-bg-tertiary border border-white/10 rounded-lg hover:bg-white/5 transition-colors"
+                        title="Copy to clipboard"
+                      >
+                        {keyCopied ? <Check size={18} className="text-emerald-400" /> : <Copy size={18} className="text-text-secondary" />}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div>
+                <label className="block text-xs font-medium text-text-primary mb-1.5">Your API Key</label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 bg-bg-tertiary border border-white/10 rounded-lg py-2 px-3 font-mono text-sm text-accent-emerald break-all select-all">
+                    {createdRawKey}
+                  </code>
+                  <button
+                    onClick={handleCopyKey}
+                    className="flex-shrink-0 p-2 bg-bg-tertiary border border-white/10 rounded-lg hover:bg-white/5 transition-colors"
+                    title="Copy to clipboard"
+                  >
+                    {keyCopied ? <Check size={18} className="text-emerald-400" /> : <Copy size={18} className="text-text-secondary" />}
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="flex justify-end pt-2">
               <button onClick={closeCreateModal}
                 className="px-3 py-1.5 bg-accent-emerald text-white rounded-md text-xs font-medium hover:bg-accent-emerald/90 transition-all">Done</button>
