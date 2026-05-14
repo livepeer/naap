@@ -845,7 +845,15 @@ result = [...result].sort((a, b) => {
           return;
         }
 
-        window.open(authUrl, '_blank', 'noopener,noreferrer');
+        const popupUrl = new URL(authUrl, window.location.origin);
+        if (popupUrl.protocol !== 'https:' && popupUrl.protocol !== 'http:') {
+          setCreateError('Billing provider returned an invalid auth URL.');
+          setCreateStep('form');
+          setCreating(false);
+          return;
+        }
+
+        window.open(popupUrl.toString(), '_blank', 'noopener,noreferrer');
 
         const pollInterval = startData.data?.poll_after_ms ?? startData.poll_after_ms ?? 2000;
         const pollTimeout = (startData.data?.expires_in ?? startData.expires_in ?? 180) * 1000;
