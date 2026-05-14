@@ -13,9 +13,41 @@ import {
   DevApiProjectResolutionError,
   resolveDevApiProjectId,
   deriveKeyLookupId,
-  getKeyPrefix,
+  formatBillingKeyPublicPrefix,
   hashApiKey,
 } from '@naap/database';
+
+import {
+  PYMTHOUSE_SIGNER_SESSION_TTL_MS,
+} from '@/lib/pymthouse-oidc';
+
+const PYMTHOUSE_PROVIDER_SLUG = 'pymthouse';
+
+function computePymthouseExpiry(createdAt: Date): Date {
+  return new Date(createdAt.getTime() + PYMTHOUSE_SIGNER_SESSION_TTL_MS);
+}
+
+function isLikelyOidcJwt(rawToken: string): boolean {
+  const t = rawToken.trim();
+  return t.startsWith('eyJ') && t.split('.').length >= 3;
+}
+
+function decodeJwtExp(rawToken: string): Date | null {
+  try {
+    const parts = rawToken.split('.');
+    if (parts.length < 2) return null;
+    const payloadB64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = payloadB64.padEnd(Math.ceil(payloadB64.length / 4) * 4, '=');
+    const payloadJson = Buffer.from(padded, 'base64').toString('utf8');
+    const payload = JSON.parse(payloadJson) as { exp?: number };
+    if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) return null;
+    const expMs = Math.floor(payload.exp * 1000);
+    if (expMs <= 0) return null;
+    return new Date(expMs);
+  } catch {
+    return null;
+  }
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -28,6 +60,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!user) {
       return errors.unauthorized('Invalid or expired session');
     }
+
+    const expiryCutoff = new Date(Date.now() - PYMTHOUSE_SIGNER_SESSION_TTL_MS);
+    await prisma.devApiKey.deleteMany({
+      where: {
+        userId: user.id,
+        billingProvider: { slug: PYMTHOUSE_PROVIDER_SLUG },
+        OR: [
+          {
+            status: 'ACTIVE',
+            createdAt: { lte: expiryCutoff },
+          },
+          {
+            status: 'EXPIRED',
+          },
+        ],
+      },
+    });
 
     const searchParams = request.nextUrl.searchParams;
     const { page, pageSize, skip } = parsePagination(searchParams);
@@ -54,8 +103,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }),
     ]);
 
+    const keysWithExpiry = keys.map((key) => ({
+      ...key,
+      expiresAt:
+        key.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
+          ? computePymthouseExpiry(key.createdAt).toISOString()
+          : null,
+    }));
+
     return success(
-      { keys },
+      { keys: keysWithExpiry },
       {
         page,
         pageSize,
@@ -112,7 +169,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const provider = await prisma.billingProvider.findUnique({
       where: { id: billingProviderId },
-      select: { id: true, enabled: true },
+      select: { id: true, enabled: true, slug: true },
     });
     if (!provider || !provider.enabled) {
       return errors.badRequest('Invalid or disabled billing provider');
@@ -134,9 +191,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const keyLookupId = deriveKeyLookupId(rawApiKey);
-    const keyPrefix = getKeyPrefix(keyLookupId);
+    const keyPrefix = formatBillingKeyPublicPrefix(rawApiKey);
     const keyHash = hashApiKey(rawApiKey);
     const resolvedLabel = label && typeof label === 'string' && label.trim() ? label.trim() : null;
+    const pymthouseTokenExpiry =
+      provider.slug === PYMTHOUSE_PROVIDER_SLUG && isLikelyOidcJwt(rawApiKey)
+        ? decodeJwtExp(rawApiKey)
+        : null;
+
+    if (
+      provider.slug === PYMTHOUSE_PROVIDER_SLUG &&
+      pymthouseTokenExpiry &&
+      pymthouseTokenExpiry.getTime() <= Date.now()
+    ) {
+      return errors.badRequest('PymtHouse token is already expired. Please create a new key.');
+    }
 
     const apiKey = await prisma.devApiKey.create({
       data: {
@@ -152,9 +221,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
 
     return success({
-      key: apiKey,
+      key: {
+        ...apiKey,
+        expiresAt:
+          provider.slug === PYMTHOUSE_PROVIDER_SLUG
+            ? computePymthouseExpiry(apiKey.createdAt).toISOString()
+            : null,
+      },
       rawApiKey,
-      warning: 'Store this key securely. It will not be shown again.',
+      warning:
+        provider.slug === PYMTHOUSE_PROVIDER_SLUG
+          ? 'Store this key securely. It expires after about 90 days and will not be shown again.'
+          : 'Store this key securely. It will not be shown again.',
     });
   } catch (err) {
     console.error('Create API key error:', err);

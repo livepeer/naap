@@ -10,13 +10,15 @@ export const maxDuration = 60;
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;
   const period = params.get('period')?.trim() || '24h';
+  const pipeline = params.get('pipeline')?.trim();
+  const modelId = params.get('model_id')?.trim();
   const effectiveWindow = orchestratorUpstreamWindowFromPeriod(period);
-  const cacheKey = `orchestrators:${effectiveWindow}`;
+  const cacheKey = `orchestrators:${effectiveWindow}:${pipeline ?? ''}:${modelId ?? ''}`;
 
   try {
     const { data: result, cache } = await bffStaleWhileRevalidate(
       cacheKey,
-      () => getDashboardOrchestrators({ period }),
+      () => getDashboardOrchestrators({ period, pipeline, modelId }),
       'orchestrators'
     );
     const res = NextResponse.json(result);
