@@ -856,13 +856,18 @@ result = [...result].sort((a, b) => {
 
   const closeCreateModal = useCallback(() => {
     pollAbortControllerRef.current?.abort();
+    const stepAtClose = createStep;
     setShowCreateModal(false);
+    if (stepAtClose === 'oauth') {
+      setCreateStep('form');
+      setCreating(false);
+    }
     setCreatedPythonGatewayToken('');
     setGatewayDiscoveryKeyMintError('');
     setApiKeyPanelOpen(false);
     setSdkTokenCopied(false);
     setSelectedDiscoveryPlanId('');
-    if (createStep === 'success') loadData();
+    if (stepAtClose === 'success') loadData();
   }, [createStep, loadData]);
 
   const handleCreateKey = useCallback(async () => {
@@ -1883,7 +1888,9 @@ result = [...result].sort((a, b) => {
       </AnimatePresence>
 
       {/* ===== Create Key Modal ===== */}
-      <Modal isOpen={showCreateModal} onClose={closeCreateModal}
+      <Modal
+        isOpen={showCreateModal}
+        onClose={closeCreateModal}
         title={
           createStep === 'form'
             ? 'Create API Key'
@@ -1893,7 +1900,12 @@ result = [...result].sort((a, b) => {
                 : 'Authenticating...'
               : 'API Key Created'
         }
-        description={createStep === 'form' ? 'Configure your new API key' : undefined} size="lg">
+        description={createStep === 'form' ? 'Configure your new API key' : undefined}
+        size="lg"
+        closeOnBackdrop={createStep !== 'oauth'}
+        closeOnEscape={createStep !== 'oauth'}
+        showCloseButton={createStep !== 'oauth'}
+      >
         {createStep === 'form' && (
           <div className="space-y-4">
             <div>
@@ -2040,6 +2052,13 @@ result = [...result].sort((a, b) => {
                   : 'Complete the sign-in in the new tab that opened. This page will update automatically.'}
               </p>
             </div>
+            <button
+              type="button"
+              onClick={closeCreateModal}
+              className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors rounded-md hover:bg-white/5"
+            >
+              Cancel
+            </button>
           </div>
         )}
         {createStep === 'success' && (
