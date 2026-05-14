@@ -182,7 +182,17 @@ class FalAiProvider(InferenceProvider):
             except ValueError:
                 queue_body["steps"] = 1000  # fall back to default
         if "create_masks" in queue_body:
-            queue_body["create_masks"] = bool(queue_body["create_masks"])
+            # Same string-coercion concern as `steps` above: `bool("false")`
+            # returns True in Python, flipping caller intent. Map common
+            # string boolean forms explicitly, fall back to native bool()
+            # for actual bool/int/None inputs.
+            raw = queue_body["create_masks"]
+            if isinstance(raw, str):
+                queue_body["create_masks"] = raw.strip().lower() in {
+                    "1", "true", "yes", "on",
+                }
+            else:
+                queue_body["create_masks"] = bool(raw)
 
         queue_url = f"https://queue.fal.run/{fal_model}"
         headers = {
