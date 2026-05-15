@@ -2,15 +2,21 @@
  * Source Adapter: NaaP Orchestrator Discovery API
  *
  * Fetches from https://naap-api.cloudspe.com/v1/discover/orchestrators
- * via the gateway proxy. Returns per-capability rows with score, liveness,
- * and orchestrator URI.
+ * via the gateway proxy (user-facing) or directly (cron internal mode).
+ * Returns per-capability rows with score, liveness, and orchestrator URI.
+ *
+ * Two modes:
+ *   - Gateway mode (default): routes through /api/v1/gw/naap-discover/*
+ *   - Internal mode (ctx.internal): calls upstream directly (no auth needed)
  */
 
 import type { SourceAdapter, FetchCtx, SourceFetchResult, NormalizedOrch } from './types';
+import { resolveConnectorAuth } from './internal-resolve';
 
 const GW_PATH = '/api/v1/gw/naap-discover/orchestrators';
+const UPSTREAM_PATH = '/v1/discover/orchestrators';
 
-function resolveUrl(requestUrl?: string): string {
+function resolveGatewayUrl(requestUrl?: string): string {
   const origin =
     (requestUrl ? new URL(requestUrl).origin : undefined) ||
     process.env.NEXT_PUBLIC_APP_URL ||
@@ -19,7 +25,7 @@ function resolveUrl(requestUrl?: string): string {
   return new URL(GW_PATH, origin).toString();
 }
 
-function buildHeaders(ctx: FetchCtx): Record<string, string> {
+function buildGatewayHeaders(ctx: FetchCtx): Record<string, string> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${ctx.authToken}`,
   };
@@ -27,6 +33,18 @@ function buildHeaders(ctx: FetchCtx): Record<string, string> {
   const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
   if (bypassSecret) headers['x-vercel-protection-bypass'] = bypassSecret;
   return headers;
+}
+
+async function resolveUrlAndHeaders(ctx: FetchCtx): Promise<{ url: string; headers: Record<string, string> }> {
+  if (ctx.internal) {
+    const auth = await resolveConnectorAuth('naap-discover');
+    if (auth) {
+      return { url: `${auth.upstreamBaseUrl}${UPSTREAM_PATH}`, headers: auth.headers };
+    }
+    // Fallback: call upstream directly with no auth (public API)
+    return { url: `https://naap-api.cloudspe.com${UPSTREAM_PATH}`, headers: {} };
+  }
+  return { url: resolveGatewayUrl(ctx.requestUrl), headers: buildGatewayHeaders(ctx) };
 }
 
 interface DiscoverRow {
@@ -53,11 +71,11 @@ export const naapDiscoverAdapter: SourceAdapter = {
 
   async fetchAll(ctx: FetchCtx): Promise<SourceFetchResult> {
     const t0 = Date.now();
-    const url = resolveUrl(ctx.requestUrl);
+    const { url, headers } = await resolveUrlAndHeaders(ctx);
 
     const res = await fetch(url, {
       method: 'GET',
-      headers: buildHeaders(ctx),
+      headers,
       signal: AbortSignal.timeout(15_000),
     });
 

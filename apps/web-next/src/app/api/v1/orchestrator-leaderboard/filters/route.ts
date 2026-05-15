@@ -1,8 +1,10 @@
 /**
  * GET /api/v1/orchestrator-leaderboard/filters
  *
- * Returns available filter options (distinct capability names) by querying
- * ClickHouse for warm capabilities seen in the last hour.
+ * Returns available filter options (distinct capability names) by merging:
+ *   1. ClickHouse warm capabilities from the last hour
+ *   2. Capabilities from the global dataset (populated by cron from all sources)
+ *
  * Falls back to a known list when ClickHouse is unreachable (e.g. local dev).
  */
 
@@ -14,6 +16,7 @@ import { authorize } from '@/lib/gateway/authorize';
 import { success } from '@/lib/api/response';
 import { getAuthToken } from '@/lib/api/response';
 import { resolveClickhouseGatewayQueryUrl } from '@/lib/orchestrator-leaderboard/query';
+import { getGlobalDataset } from '@/lib/orchestrator-leaderboard/global-dataset';
 
 const FILTERS_SQL = `SELECT DISTINCT capability_name
 FROM semantic.network_capabilities
@@ -64,7 +67,7 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
     headers['x-vercel-protection-bypass'] = bypassSecret;
   }
 
-  let capabilities: string[];
+  let chCapabilities: string[];
   let fromFallback = false;
   try {
     const res = await fetch(url, {
@@ -80,13 +83,28 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
 
     const json = await res.json();
     const chData = (json.data ?? json) as { data?: Array<{ capability_name: string }> };
-    capabilities = (chData.data ?? []).map((row: { capability_name: string }) => row.capability_name);
+    chCapabilities = (chData.data ?? []).map((row: { capability_name: string }) => row.capability_name);
   } catch {
-    capabilities = FALLBACK_CAPABILITIES;
+    chCapabilities = FALLBACK_CAPABILITIES;
     fromFallback = true;
   }
 
-  const response = success({ capabilities, fromFallback });
+  // Merge capabilities from the global dataset (includes all enabled sources)
+  const globalDs = getGlobalDataset();
+  const capSet = new Set(chCapabilities);
+  if (globalDs) {
+    for (const cap of Object.keys(globalDs.capabilities)) {
+      if (cap !== '__uncategorized') capSet.add(cap);
+    }
+  }
+
+  const capabilities = Array.from(capSet).sort();
+
+  const response = success({
+    capabilities,
+    fromFallback,
+    sources: { clickhouse: chCapabilities.length, merged: capabilities.length },
+  });
   response.headers.set('Cache-Control', 'private, max-age=60');
   return response;
 }
