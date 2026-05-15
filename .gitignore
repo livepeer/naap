@@ -100,3 +100,5 @@ packages/types/src/*.d.ts
 packages/types/src/*.d.ts.map
 apps/workflows/*/tsconfig.tsbuildinfo
 # (covered by **/.env.* above)
+.pytest_cache
+__pycache__
