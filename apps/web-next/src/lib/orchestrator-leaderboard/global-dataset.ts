@@ -10,6 +10,8 @@
 import { prisma } from '@/lib/db';
 import type { ClickHouseLeaderboardRow } from './types';
 
+const BATCH_SIZE = 500;
+
 // ---------------------------------------------------------------------------
 // Read helpers
 // ---------------------------------------------------------------------------
@@ -41,7 +43,8 @@ export async function getRowsForCapability(
 
 /**
  * Get distinct capabilities that have at least one orchestrator row.
- * Used by /filters to build the capability dropdown.
+ * Falls back to knownCapabilities from LeaderboardConfig if the table
+ * is empty (e.g. before first cron run after deploy).
  */
 export async function getDatasetCapabilities(): Promise<string[]> {
   const result = await prisma.leaderboardDatasetRow.findMany({
@@ -49,7 +52,22 @@ export async function getDatasetCapabilities(): Promise<string[]> {
     distinct: ['capability'],
     orderBy: { capability: 'asc' },
   });
-  return result.map((r) => r.capability);
+
+  if (result.length > 0) {
+    return result.map((r) => r.capability);
+  }
+
+  // Fallback: read from LeaderboardConfig.knownCapabilities (populated
+  // by previous refresh runs, survives table truncation between deploys)
+  try {
+    const config = await prisma.leaderboardConfig.findUnique({
+      where: { id: 'singleton' },
+      select: { knownCapabilities: true },
+    });
+    return config?.knownCapabilities ?? [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -104,7 +122,8 @@ interface DatasetWriteInput {
 
 /**
  * Full-replace the persistent dataset. Deletes all existing rows and inserts
- * the new resolved dataset in a single transaction.
+ * the new resolved dataset in a single transaction. Uses batched inserts to
+ * stay within PostgreSQL's 65535 bind-parameter limit.
  */
 export async function writeGlobalDataset(input: DatasetWriteInput): Promise<{
   totalRows: number;
@@ -147,31 +166,39 @@ export async function writeGlobalDataset(input: DatasetWriteInput): Promise<{
     }
   }
 
-  // Skip empty orchUri rows (invalid data)
   const validRows = flatRows.filter((r) => r.orchUri.length > 0);
+  const capNames = Object.keys(capabilities).sort();
 
-  await prisma.$transaction([
-    prisma.leaderboardDatasetRow.deleteMany({}),
-    prisma.leaderboardDatasetRow.createMany({ data: validRows }),
-    prisma.leaderboardConfig.upsert({
+  // Use interactive transaction so we can batch inserts and stay within
+  // PostgreSQL's parameter limit (~65535 bind params).
+  await prisma.$transaction(async (tx) => {
+    await tx.leaderboardDatasetRow.deleteMany({});
+
+    for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
+      await tx.leaderboardDatasetRow.createMany({
+        data: validRows.slice(i, i + BATCH_SIZE),
+      });
+    }
+
+    await tx.leaderboardConfig.upsert({
       where: { id: 'singleton' },
       update: {
         lastRefreshedAt: now,
         lastRefreshedBy: refreshedBy,
-        knownCapabilities: Object.keys(capabilities).sort(),
+        knownCapabilities: capNames,
       },
       create: {
         id: 'singleton',
         lastRefreshedAt: now,
         lastRefreshedBy: refreshedBy,
-        knownCapabilities: Object.keys(capabilities).sort(),
+        knownCapabilities: capNames,
       },
-    }),
-  ]);
+    });
+  });
 
   return {
     totalRows: validRows.length,
-    totalCapabilities: Object.keys(capabilities).length,
+    totalCapabilities: capNames.length,
   };
 }
 

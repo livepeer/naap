@@ -18,22 +18,27 @@ const mockCount = vi.fn();
 const mockConfigFindUnique = vi.fn();
 const mockConfigUpsert = vi.fn();
 
-vi.mock('@/lib/db', () => ({
-  prisma: {
-    leaderboardDatasetRow: {
-      findMany: (...args: unknown[]) => mockFindMany(...args),
-      deleteMany: (...args: unknown[]) => mockDeleteMany(...args),
-      createMany: (...args: unknown[]) => mockCreateMany(...args),
-      count: (...args: unknown[]) => mockCount(...args),
-    },
-    leaderboardConfig: {
-      findUnique: (...args: unknown[]) => mockConfigFindUnique(...args),
-      upsert: (...args: unknown[]) => mockConfigUpsert(...args),
-    },
-    $transaction: vi.fn(async (ops: unknown[]) => {
-      for (const op of ops as Promise<unknown>[]) await op;
-    }),
+const mockPrisma = {
+  leaderboardDatasetRow: {
+    findMany: (...args: unknown[]) => mockFindMany(...args),
+    deleteMany: (...args: unknown[]) => mockDeleteMany(...args),
+    createMany: (...args: unknown[]) => mockCreateMany(...args),
+    count: (...args: unknown[]) => mockCount(...args),
   },
+  leaderboardConfig: {
+    findUnique: (...args: unknown[]) => mockConfigFindUnique(...args),
+    upsert: (...args: unknown[]) => mockConfigUpsert(...args),
+  },
+  $transaction: vi.fn(async (input: unknown) => {
+    if (typeof input === 'function') {
+      return (input as (tx: typeof mockPrisma) => Promise<void>)(mockPrisma);
+    }
+    for (const op of input as Promise<unknown>[]) await op;
+  }),
+};
+
+vi.mock('@/lib/db', () => ({
+  prisma: mockPrisma,
 }));
 
 // ---------------------------------------------------------------------------
