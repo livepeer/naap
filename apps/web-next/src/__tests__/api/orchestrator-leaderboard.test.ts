@@ -19,6 +19,10 @@ vi.mock('@/lib/orchestrator-leaderboard/global-dataset', () => ({
   getGlobalDataset: vi.fn().mockReturnValue(null),
 }));
 
+vi.mock('@/lib/orchestrator-leaderboard/config', () => ({
+  getKnownCapabilities: vi.fn().mockResolvedValue([]),
+}));
+
 import { authorize } from '@/lib/gateway/authorize';
 import { clearCache } from '@/lib/orchestrator-leaderboard/cache';
 
