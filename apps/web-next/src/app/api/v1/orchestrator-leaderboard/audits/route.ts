@@ -23,10 +23,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   const user = await validateSession(token);
-  if (!user) {
+  if (!user || !user.roles.includes('system:admin')) {
     return NextResponse.json(
-      { success: false, error: { code: 'UNAUTHORIZED', message: 'Invalid session' } },
-      { status: 401 },
+      { success: false, error: { code: 'FORBIDDEN', message: 'Admin permission required' } },
+      { status: 403 },
     );
   }
 

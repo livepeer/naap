@@ -3,11 +3,18 @@
  *
  * Queries The Graph for all active transcoders. This is the ground-truth
  * membership source — returns ethAddress + serviceURI + activation status.
+ *
+ * Supports two modes:
+ *   - Gateway mode (default): routes through /api/v1/gw/livepeer-subgraph/*
+ *   - Internal mode (ctx.internal): resolves connector secrets via Prisma
+ *     and calls The Graph upstream directly (for cron jobs).
  */
 
 import type { SourceAdapter, FetchCtx, SourceFetchResult, NormalizedOrch } from './types';
+import { resolveConnectorAuth } from './internal-resolve';
 
 const GW_PATH = '/api/v1/gw/livepeer-subgraph/transcoders';
+const UPSTREAM_PATH = '/api/subgraphs/id/FE63YgkzcpVocxdCEyEYbvjYqEf2kb1A6daMYRxmejYC';
 
 const TRANSCODERS_QUERY = `{
   transcoders(
@@ -25,7 +32,7 @@ const TRANSCODERS_QUERY = `{
   }
 }`;
 
-function resolveUrl(requestUrl?: string): string {
+function resolveGatewayUrl(requestUrl?: string): string {
   const origin =
     (requestUrl ? new URL(requestUrl).origin : undefined) ||
     process.env.NEXT_PUBLIC_APP_URL ||
@@ -54,16 +61,45 @@ interface SubgraphTranscoder {
   active: boolean;
 }
 
+function parseTranscoders(json: unknown): NormalizedOrch[] {
+  const raw =
+    (json as any)?.data?.data?.transcoders ??
+    (json as any)?.data?.transcoders ??
+    (json as any)?.transcoders ??
+    [];
+  const transcoders: SubgraphTranscoder[] = Array.isArray(raw) ? raw : [];
+
+  return transcoders
+    .filter((t) => t.active && t.serviceURI)
+    .map((t) => ({
+      ethAddress: t.id.toLowerCase(),
+      orchUri: t.serviceURI!,
+      activationRound: parseInt(t.activationRound || '0', 10),
+      deactivationRound: Math.min(parseInt(t.deactivationRound || '0', 10), 2_000_000_000),
+    }));
+}
+
 export const subgraphAdapter: SourceAdapter = {
   kind: 'livepeer-subgraph',
 
   async fetchAll(ctx: FetchCtx): Promise<SourceFetchResult> {
     const t0 = Date.now();
-    const url = resolveUrl(ctx.requestUrl);
+    let url: string;
+    let headers: Record<string, string>;
+
+    if (ctx.internal) {
+      const auth = await resolveConnectorAuth('livepeer-subgraph');
+      if (!auth) throw new Error('livepeer-subgraph connector not found or not published');
+      url = `${auth.upstreamBaseUrl}${UPSTREAM_PATH}`;
+      headers = auth.headers;
+    } else {
+      url = resolveGatewayUrl(ctx.requestUrl);
+      headers = buildHeaders(ctx);
+    }
 
     const res = await fetch(url, {
       method: 'POST',
-      headers: buildHeaders(ctx),
+      headers,
       body: JSON.stringify({ query: TRANSCODERS_QUERY }),
       signal: AbortSignal.timeout(15_000),
     });
@@ -74,21 +110,11 @@ export const subgraphAdapter: SourceAdapter = {
     }
 
     const json = await res.json();
-    const raw = json?.data?.data?.transcoders ?? json?.data?.transcoders ?? json?.transcoders ?? [];
-    const transcoders: SubgraphTranscoder[] = Array.isArray(raw) ? raw : [];
-
-    const rows: NormalizedOrch[] = transcoders
-      .filter((t) => t.active && t.serviceURI)
-      .map((t) => ({
-        ethAddress: t.id.toLowerCase(),
-        orchUri: t.serviceURI!,
-        activationRound: parseInt(t.activationRound || '0', 10),
-        deactivationRound: Math.min(parseInt(t.deactivationRound || '0', 10), 2_000_000_000),
-      }));
+    const rows = parseTranscoders(json);
 
     return {
       rows,
-      raw: transcoders,
+      raw: json,
       stats: { ok: true, fetched: rows.length, durationMs: Date.now() - t0 },
     };
   },

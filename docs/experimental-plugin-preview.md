@@ -76,7 +76,7 @@ When the plugin is ready for all users:
 
 `bin/preview-plugin.sh` automates the full workflow:
 
-```
+```text
 Usage: ./bin/preview-plugin.sh <plugin-name> [options]
 
 Options:
@@ -138,7 +138,7 @@ curl -X PUT $BASE_URL/api/v1/admin/plugins/core \
 
 ## How It Works Internally
 
-```
+```text
 plugin.json ("experimental": true)
   └─→ plugin-discovery.ts reads the flag
        └─→ sync-plugin-registry.ts

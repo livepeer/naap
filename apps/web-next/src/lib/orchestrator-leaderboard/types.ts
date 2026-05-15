@@ -132,11 +132,14 @@ export type UpdatePlanInput = z.infer<typeof UpdatePlanSchema>;
 // Discovery Plan — runtime types
 // ---------------------------------------------------------------------------
 
+export type PlanVisibility = 'personal' | 'team' | 'public';
+
 export interface DiscoveryPlan {
   id: string;
   billingPlanId: string;
   name: string;
   description: string | null;
+  visibility: PlanVisibility;
   teamId: string | null;
   ownerUserId: string | null;
   capabilities: string[];

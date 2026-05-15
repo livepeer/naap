@@ -2,13 +2,16 @@ import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Map, Layers, Activity, Users, Loader2, Database, AlertCircle,
-  ChevronRight, Clock, Power, PowerOff,
+  ChevronRight, Clock, Power, PowerOff, Plus,
 } from 'lucide-react';
+import { useAuthService } from '@naap/plugin-sdk';
 import { usePlans } from '../hooks/usePlans';
 import { EndpointGuide } from '../components/EndpointGuide';
 
 export const PlansOverviewPage: React.FC = () => {
   const { plans, loading, error, seeding, seed, refresh } = usePlans();
+  const auth = useAuthService();
+  const isAdmin = auth.hasRole('system:admin');
   const navigate = useNavigate();
 
   const stats = useMemo(() => {
@@ -48,14 +51,16 @@ export const PlansOverviewPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={seed}
-            disabled={seeding}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-xs font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
-          >
-            {seeding ? <Loader2 size={12} className="animate-spin" /> : <Database size={12} />}
-            {seeding ? 'Seeding...' : 'Seed Demo Data'}
-          </button>
+          {isAdmin && (
+            <button
+              onClick={seed}
+              disabled={seeding}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-xs font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
+            >
+              {seeding ? <Loader2 size={12} className="animate-spin" /> : <Database size={12} />}
+              {seeding ? 'Seeding...' : 'Seed Demo Data'}
+            </button>
+          )}
           <button
             onClick={refresh}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-secondary hover:bg-bg-tertiary text-text-secondary text-xs font-medium rounded-lg border border-[var(--border-color)] transition-colors"
@@ -128,13 +133,23 @@ export const PlansOverviewPage: React.FC = () => {
           <p className="text-sm text-text-secondary max-w-md mx-auto mb-4">
             Discovery plans let you pre-configure orchestrator selection criteria and expose them as webhook endpoints for your signer.
           </p>
-          <button
-            onClick={seed}
-            disabled={seeding}
-            className="px-4 py-2 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-sm font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
-          >
-            {seeding ? 'Seeding...' : 'Seed Demo Data to Get Started'}
-          </button>
+          {isAdmin ? (
+            <button
+              onClick={seed}
+              disabled={seeding}
+              className="px-4 py-2 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-sm font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
+            >
+              {seeding ? 'Seeding...' : 'Seed Demo Data to Get Started'}
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate('/plans/new')}
+              className="flex items-center gap-1.5 mx-auto px-4 py-2 bg-accent-blue/20 hover:bg-accent-blue/30 text-accent-blue text-sm font-medium rounded-lg border border-accent-blue/30 transition-colors"
+            >
+              <Plus size={14} />
+              Create Your First Plan
+            </button>
+          )}
         </div>
       )}
 
@@ -154,6 +169,11 @@ export const PlansOverviewPage: React.FC = () => {
                     <h3 className="text-base font-semibold text-text-primary truncate group-hover:text-accent-blue transition-colors">
                       {plan.name}
                     </h3>
+                    {(plan as any).visibility === 'public' && (
+                      <span className="px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider rounded bg-accent-blue/10 text-accent-blue border border-accent-blue/20">
+                        Default
+                      </span>
+                    )}
                     {plan.enabled ? (
                       <Power size={12} className="text-accent-emerald shrink-0" />
                     ) : (

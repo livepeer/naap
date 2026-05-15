@@ -4,11 +4,17 @@
  * Wraps the existing leaderboard SQL + gateway proxy path behind the
  * SourceAdapter interface. Returns per-capability orchestrator rows with
  * GPU info, latency, swap-ratio, availability, and price.
+ *
+ * Supports two modes:
+ *   - Gateway mode (default): routes through /api/v1/gw/clickhouse-query/*
+ *   - Internal mode (ctx.internal): resolves connector secrets via Prisma
+ *     and calls ClickHouse upstream directly (for cron jobs).
  */
 
 import type { SourceAdapter, FetchCtx, SourceFetchResult, NormalizedOrch } from './types';
 import type { ClickHouseLeaderboardRow, ClickHouseJSONResponse } from '../types';
 import { resolveClickhouseGatewayQueryUrl, buildLeaderboardSQL } from '../query';
+import { resolveConnectorAuth } from './internal-resolve';
 
 const MAX_QUERY_ROWS = 1000;
 
@@ -26,7 +32,7 @@ const FALLBACK_CAPABILITIES = [
   'streamdiffusion-sdxl-v2v',
 ];
 
-function buildHeaders(ctx: FetchCtx): Record<string, string> {
+function buildGatewayHeaders(ctx: FetchCtx): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'text/plain',
     Authorization: `Bearer ${ctx.authToken}`,
@@ -37,12 +43,27 @@ function buildHeaders(ctx: FetchCtx): Record<string, string> {
   return headers;
 }
 
+async function resolveUrlAndHeaders(ctx: FetchCtx): Promise<{ url: string; headers: Record<string, string> }> {
+  if (ctx.internal) {
+    const auth = await resolveConnectorAuth('clickhouse-query');
+    if (!auth) throw new Error('clickhouse-query connector not found or not published');
+    return {
+      url: `${auth.upstreamBaseUrl}/`,
+      headers: { ...auth.headers, 'Content-Type': 'text/plain' },
+    };
+  }
+  return {
+    url: resolveClickhouseGatewayQueryUrl(ctx.requestUrl),
+    headers: buildGatewayHeaders(ctx),
+  };
+}
+
 async function fetchCapabilities(ctx: FetchCtx): Promise<string[]> {
-  const url = resolveClickhouseGatewayQueryUrl(ctx.requestUrl);
   try {
+    const { url, headers } = await resolveUrlAndHeaders(ctx);
     const res = await fetch(url, {
       method: 'POST',
-      headers: buildHeaders(ctx),
+      headers,
       body: CAPABILITIES_SQL,
       signal: AbortSignal.timeout(10_000),
     });
@@ -87,8 +108,7 @@ export const clickhouseAdapter: SourceAdapter = {
   async fetchAll(ctx: FetchCtx): Promise<SourceFetchResult> {
     const t0 = Date.now();
     const capabilities = await fetchCapabilities(ctx);
-    const url = resolveClickhouseGatewayQueryUrl(ctx.requestUrl);
-    const headers = buildHeaders(ctx);
+    const { url, headers } = await resolveUrlAndHeaders(ctx);
 
     const allRows: NormalizedOrch[] = [];
     const rawCaps: Record<string, ClickHouseLeaderboardRow[]> = {};

@@ -10,7 +10,7 @@ import type { LeaderboardFilters, SLAWeights, LeaderboardRequest, OrchestratorRo
 const TOP_N_OPTIONS = [5, 10, 20, 50];
 
 export const LeaderboardPage: React.FC = () => {
-  const { capabilities, loading: capsLoading } = useCapabilities();
+  const { capabilities, loading: capsLoading, error: capsError } = useCapabilities();
 
   const [capability, setCapability] = useState('');
   const [topN, setTopN] = useState(10);
@@ -123,7 +123,9 @@ export const LeaderboardPage: React.FC = () => {
             </button>
           ))}
           {!capsLoading && capabilities.length === 0 && (
-            <span className="text-xs text-text-disabled">No capabilities available</span>
+            <span className={`text-xs ${capsError ? 'text-accent-rose' : 'text-text-disabled'}`}>
+              {capsError ? `Failed to load capabilities: ${capsError}` : 'No capabilities available'}
+            </span>
           )}
         </div>
       </div>
