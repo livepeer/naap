@@ -1,91 +1,184 @@
 /**
- * Orchestrator Leaderboard — Global Dataset Cache
+ * Orchestrator Leaderboard — Global Dataset (DB-Persisted)
  *
- * Single in-memory cache holding the full set of orchestrator rows across
- * all capabilities. Populated by the cron refresh endpoint (full replace);
- * read by plan evaluation (in-memory filter, no ClickHouse round-trip).
- *
- * TTL = configured interval * 2, giving a grace period for stale reads
- * before the plan evaluator falls back to direct ClickHouse queries.
+ * Reads/writes orchestrator rows from the LeaderboardDatasetRow table.
+ * Written in bulk during hourly cron refresh; read by /rank, /filters,
+ * and plan evaluation. Every serverless instance reads from the same
+ * Postgres table — no more cold-start issues.
  */
 
+import { prisma } from '@/lib/db';
 import type { ClickHouseLeaderboardRow } from './types';
 
-export interface GlobalDataset {
-  capabilities: Record<string, ClickHouseLeaderboardRow[]>;
-  refreshedAt: number;
-  refreshedBy: string;
-  totalOrchestrators: number;
-}
-
-let dataset: GlobalDataset | null = null;
-let ttlMs: number = 2 * 3_600_000; // default 2h (1h interval * 2)
+// ---------------------------------------------------------------------------
+// Read helpers
+// ---------------------------------------------------------------------------
 
 /**
- * Get the cached global dataset, or null if expired / never populated.
+ * Get all orchestrator rows for a specific capability.
+ * Primary read path for /rank and plan evaluation.
  */
-export function getGlobalDataset(): GlobalDataset | null {
-  if (!dataset) return null;
-  if (Date.now() > dataset.refreshedAt + ttlMs) {
-    return null;
-  }
-  return dataset;
-}
+export async function getRowsForCapability(
+  capability: string,
+): Promise<ClickHouseLeaderboardRow[]> {
+  const rows = await prisma.leaderboardDatasetRow.findMany({
+    where: { capability },
+  });
 
-/**
- * Full-replace the global dataset cache.
- * @param newDataset - the fresh dataset to store
- * @param intervalMs - the configured refresh interval in ms (TTL = interval * 2)
- */
-export function setGlobalDataset(
-  newDataset: GlobalDataset,
-  intervalMs?: number,
-): void {
-  dataset = newDataset;
-  if (intervalMs !== undefined) {
-    ttlMs = intervalMs * 2;
-  }
+  return rows.map((r) => ({
+    orch_uri: r.orchUri,
+    gpu_name: r.gpuName,
+    gpu_gb: r.gpuGb,
+    avail: r.avail,
+    total_cap: r.totalCap,
+    price_per_unit: r.pricePerUnit,
+    best_lat_ms: r.bestLatMs,
+    avg_lat_ms: r.avgLatMs,
+    swap_ratio: r.swapRatio,
+    avg_avail: r.avgAvail,
+  }));
 }
 
 /**
- * Check if the current global dataset is fresh relative to the given interval.
+ * Get distinct capabilities that have at least one orchestrator row.
+ * Used by /filters to build the capability dropdown.
  */
-export function isGlobalDatasetFresh(intervalMs: number): boolean {
-  if (!dataset) return false;
-  return Date.now() - dataset.refreshedAt < intervalMs;
+export async function getDatasetCapabilities(): Promise<string[]> {
+  const result = await prisma.leaderboardDatasetRow.findMany({
+    select: { capability: true },
+    distinct: ['capability'],
+    orderBy: { capability: 'asc' },
+  });
+  return result.map((r) => r.capability);
 }
 
-export function clearGlobalDataset(): void {
-  dataset = null;
-}
-
-export function getGlobalDatasetStats(): {
+/**
+ * Get dataset statistics for admin introspection.
+ */
+export async function getGlobalDatasetStats(): Promise<{
   populated: boolean;
   refreshedAt: number | null;
   refreshedBy: string | null;
   totalOrchestrators: number;
   capabilityCount: number;
-  ageMs: number | null;
-  ttlMs: number;
-} {
-  if (!dataset) {
+}> {
+  const config = await prisma.leaderboardConfig.findUnique({
+    where: { id: 'singleton' },
+    select: {
+      lastRefreshedAt: true,
+      lastRefreshedBy: true,
+      knownCapabilities: true,
+    },
+  });
+
+  if (!config?.lastRefreshedAt) {
     return {
       populated: false,
       refreshedAt: null,
       refreshedBy: null,
       totalOrchestrators: 0,
       capabilityCount: 0,
-      ageMs: null,
-      ttlMs,
     };
   }
+
+  const totalOrchestrators = await prisma.leaderboardDatasetRow.count();
+  const capabilityCount = config.knownCapabilities.length;
+
   return {
-    populated: true,
-    refreshedAt: dataset.refreshedAt,
-    refreshedBy: dataset.refreshedBy,
-    totalOrchestrators: dataset.totalOrchestrators,
-    capabilityCount: Object.keys(dataset.capabilities).length,
-    ageMs: Date.now() - dataset.refreshedAt,
-    ttlMs,
+    populated: totalOrchestrators > 0,
+    refreshedAt: config.lastRefreshedAt.getTime(),
+    refreshedBy: config.lastRefreshedBy,
+    totalOrchestrators,
+    capabilityCount,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Write helpers (used by global-refresh.ts)
+// ---------------------------------------------------------------------------
+
+interface DatasetWriteInput {
+  capabilities: Record<string, ClickHouseLeaderboardRow[]>;
+  refreshedBy: string;
+}
+
+/**
+ * Full-replace the persistent dataset. Deletes all existing rows and inserts
+ * the new resolved dataset in a single transaction.
+ */
+export async function writeGlobalDataset(input: DatasetWriteInput): Promise<{
+  totalRows: number;
+  totalCapabilities: number;
+}> {
+  const { capabilities, refreshedBy } = input;
+  const now = new Date();
+
+  const flatRows: {
+    capability: string;
+    orchUri: string;
+    gpuName: string;
+    gpuGb: number;
+    avail: number;
+    totalCap: number;
+    pricePerUnit: number;
+    bestLatMs: number | null;
+    avgLatMs: number | null;
+    swapRatio: number | null;
+    avgAvail: number | null;
+    refreshedAt: Date;
+  }[] = [];
+
+  for (const [cap, rows] of Object.entries(capabilities)) {
+    for (const row of rows) {
+      flatRows.push({
+        capability: cap,
+        orchUri: row.orch_uri || '',
+        gpuName: row.gpu_name || '',
+        gpuGb: row.gpu_gb || 0,
+        avail: row.avail || 0,
+        totalCap: row.total_cap || 0,
+        pricePerUnit: row.price_per_unit || 0,
+        bestLatMs: row.best_lat_ms ?? null,
+        avgLatMs: row.avg_lat_ms ?? null,
+        swapRatio: row.swap_ratio ?? null,
+        avgAvail: row.avg_avail ?? null,
+        refreshedAt: now,
+      });
+    }
+  }
+
+  // Skip empty orchUri rows (invalid data)
+  const validRows = flatRows.filter((r) => r.orchUri.length > 0);
+
+  await prisma.$transaction([
+    prisma.leaderboardDatasetRow.deleteMany({}),
+    prisma.leaderboardDatasetRow.createMany({ data: validRows }),
+    prisma.leaderboardConfig.upsert({
+      where: { id: 'singleton' },
+      update: {
+        lastRefreshedAt: now,
+        lastRefreshedBy: refreshedBy,
+        knownCapabilities: Object.keys(capabilities).sort(),
+      },
+      create: {
+        id: 'singleton',
+        lastRefreshedAt: now,
+        lastRefreshedBy: refreshedBy,
+        knownCapabilities: Object.keys(capabilities).sort(),
+      },
+    }),
+  ]);
+
+  return {
+    totalRows: validRows.length,
+    totalCapabilities: Object.keys(capabilities).length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Legacy compatibility (kept for plan cache invalidation signal)
+// ---------------------------------------------------------------------------
+
+export function clearGlobalDataset(): void {
+  // No-op: dataset lives in DB, plan cache is managed by refresh.ts
 }

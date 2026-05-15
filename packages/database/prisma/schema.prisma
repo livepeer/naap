@@ -2312,3 +2312,26 @@ model LeaderboardRefreshAudit {
   @@index([refreshedAt])
   @@schema("plugin_orchestrator_leaderboard")
 }
+
+/// Persisted global dataset row — one entry per (capability, orchestrator).
+/// Written in bulk during the hourly cron refresh; read by /rank, /filters,
+/// and plan evaluation. Replaces the in-memory-only global dataset cache.
+model LeaderboardDatasetRow {
+  id           String   @id @default(cuid())
+  capability   String
+  orchUri      String
+  gpuName      String   @default("")
+  gpuGb        Float    @default(0)
+  avail        Float    @default(0)
+  totalCap     Float    @default(0)
+  pricePerUnit Float    @default(0)
+  bestLatMs    Float?
+  avgLatMs     Float?
+  swapRatio    Float?
+  avgAvail     Float?
+  refreshedAt  DateTime @default(now())
+
+  @@unique([capability, orchUri])
+  @@index([capability])
+  @@schema("plugin_orchestrator_leaderboard")
+}

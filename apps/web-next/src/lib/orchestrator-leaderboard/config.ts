@@ -79,6 +79,21 @@ export async function getRefreshIntervalMs(): Promise<number> {
 }
 
 /**
+ * Get the last refresh timestamp from the DB config (for cron freshness check).
+ */
+export async function getLastRefreshedAt(): Promise<Date | null> {
+  try {
+    const row = await prisma.leaderboardConfig.findUnique({
+      where: { id: SINGLETON_ID },
+      select: { lastRefreshedAt: true },
+    });
+    return row?.lastRefreshedAt ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Record that a refresh just completed, persisting the known capability list.
  */
 export async function markRefreshed(by: string, capabilities?: string[]): Promise<void> {

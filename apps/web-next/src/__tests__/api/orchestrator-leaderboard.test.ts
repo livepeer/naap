@@ -2,7 +2,7 @@
  * Orchestrator Leaderboard API Route Tests
  *
  * Integration tests for the rank and filters endpoints with
- * mocked gateway/ClickHouse responses and auth.
+ * mocked Prisma DB responses and auth.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -12,33 +12,26 @@ vi.mock('@/lib/gateway/authorize', () => ({
 }));
 
 vi.mock('@/lib/db', () => ({
-  prisma: {},
+  prisma: {
+    leaderboardDatasetRow: {
+      findMany: vi.fn(),
+    },
+  },
 }));
 
 vi.mock('@/lib/orchestrator-leaderboard/global-dataset', () => ({
-  getGlobalDataset: vi.fn().mockReturnValue(null),
-}));
-
-vi.mock('@/lib/orchestrator-leaderboard/config', () => ({
-  getKnownCapabilities: vi.fn().mockResolvedValue([]),
+  getRowsForCapability: vi.fn(),
+  getDatasetCapabilities: vi.fn(),
 }));
 
 import { authorize } from '@/lib/gateway/authorize';
-import { clearCache } from '@/lib/orchestrator-leaderboard/cache';
+import { getRowsForCapability, getDatasetCapabilities } from '@/lib/orchestrator-leaderboard/global-dataset';
 
-const FIXTURE_CH_RESPONSE = {
-  success: true,
-  data: {
-    meta: [],
-    data: [
-      { orch_uri: 'https://orch-1.test', gpu_name: 'RTX 4090', gpu_gb: 24, avail: 3, total_cap: 4, price_per_unit: 100, best_lat_ms: 50, avg_lat_ms: 80, swap_ratio: 0.05, avg_avail: 3.2 },
-      { orch_uri: 'https://orch-2.test', gpu_name: 'A100', gpu_gb: 80, avail: 1, total_cap: 2, price_per_unit: 500, best_lat_ms: 200, avg_lat_ms: 350, swap_ratio: 0.3, avg_avail: 1.5 },
-      { orch_uri: 'https://orch-3.test', gpu_name: 'RTX 3090', gpu_gb: 24, avail: 2, total_cap: 2, price_per_unit: 80, best_lat_ms: null, avg_lat_ms: null, swap_ratio: null, avg_avail: 2.0 },
-    ],
-    rows: 3,
-    statistics: { elapsed: 0.1, rows_read: 100, bytes_read: 5000 },
-  },
-};
+const FIXTURE_ROWS = [
+  { orch_uri: 'https://orch-1.test', gpu_name: 'RTX 4090', gpu_gb: 24, avail: 3, total_cap: 4, price_per_unit: 100, best_lat_ms: 50, avg_lat_ms: 80, swap_ratio: 0.05, avg_avail: 3.2 },
+  { orch_uri: 'https://orch-2.test', gpu_name: 'A100', gpu_gb: 80, avail: 1, total_cap: 2, price_per_unit: 500, best_lat_ms: 200, avg_lat_ms: 350, swap_ratio: 0.3, avg_avail: 1.5 },
+  { orch_uri: 'https://orch-3.test', gpu_name: 'RTX 3090', gpu_gb: 24, avail: 2, total_cap: 2, price_per_unit: 80, best_lat_ms: null, avg_lat_ms: null, swap_ratio: null, avg_avail: 2.0 },
+];
 
 const FIXTURE_FILTERS_RESPONSE = {
   success: true,
@@ -69,7 +62,6 @@ function createGetRequest(): Request {
 describe('POST /api/v1/orchestrator-leaderboard/rank', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    clearCache();
 
     (authorize as any).mockResolvedValue({
       teamId: 'test-team',
@@ -77,11 +69,7 @@ describe('POST /api/v1/orchestrator-leaderboard/rank', () => {
       callerId: 'user-1',
     });
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(FIXTURE_CH_RESPONSE),
-      text: () => Promise.resolve(JSON.stringify(FIXTURE_CH_RESPONSE)),
-    });
+    (getRowsForCapability as any).mockResolvedValue(FIXTURE_ROWS);
   });
 
   it('returns ranked orchestrators for valid request', async () => {
@@ -154,29 +142,8 @@ describe('POST /api/v1/orchestrator-leaderboard/rank', () => {
     expect(json.data.every((r: any) => typeof r.slaScore === 'number')).toBe(true);
   });
 
-  it('returns empty data when all sources fail (graceful degradation)', async () => {
-    (global.fetch as any).mockResolvedValue({
-      ok: false,
-      status: 502,
-      text: () => Promise.resolve('upstream error'),
-    });
-    clearCache();
-
-    const { POST } = await import('@/app/api/v1/orchestrator-leaderboard/rank/route');
-    const req = createRequest({ capability: 'noop' }) as any;
-    const res = await POST(req);
-    const json = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(json.data).toEqual([]);
-  });
-
-  it('returns empty data when ClickHouse returns no rows', async () => {
-    (global.fetch as any).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: { data: [], rows: 0, meta: [], statistics: {} } }),
-    });
-    clearCache();
+  it('returns empty data when DB has no rows for capability', async () => {
+    (getRowsForCapability as any).mockResolvedValue([]);
 
     const { POST } = await import('@/app/api/v1/orchestrator-leaderboard/rank/route');
     const req = createRequest({ capability: 'nonexistent' }) as any;
@@ -194,32 +161,6 @@ describe('POST /api/v1/orchestrator-leaderboard/rank', () => {
     const res = await POST(req);
 
     expect(res.headers.get('Cache-Control')).toBe('private, max-age=10');
-    expect(res.headers.get('X-Cache')).toBe('MISS');
-    expect(res.headers.get('X-Cache-Age')).toBeDefined();
-    expect(res.headers.get('X-Data-Freshness')).toBeDefined();
-  });
-
-  it('serves from cache on second call with X-Cache: HIT', async () => {
-    const { POST } = await import('@/app/api/v1/orchestrator-leaderboard/rank/route');
-
-    const req1 = createRequest({ capability: 'cached-test' }) as any;
-    const res1 = await POST(req1);
-    expect(res1.headers.get('X-Cache')).toBe('MISS');
-
-    const req2 = createRequest({ capability: 'cached-test' }) as any;
-    const res2 = await POST(req2);
-    expect(res2.headers.get('X-Cache')).toBe('HIT');
-  });
-
-  it('shares cache across different filter requests for same capability', async () => {
-    const { POST } = await import('@/app/api/v1/orchestrator-leaderboard/rank/route');
-
-    const req1 = createRequest({ capability: 'shared-test', topN: 5 }) as any;
-    await POST(req1);
-
-    const req2 = createRequest({ capability: 'shared-test', topN: 10, filters: { priceMax: 200 } }) as any;
-    const res2 = await POST(req2);
-    expect(res2.headers.get('X-Cache')).toBe('HIT');
   });
 });
 
@@ -233,13 +174,15 @@ describe('GET /api/v1/orchestrator-leaderboard/filters', () => {
       callerId: 'user-1',
     });
 
+    (getDatasetCapabilities as any).mockResolvedValue(['glm-4.7-flash', 'streamdiffusion-sdxl']);
+
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(FIXTURE_FILTERS_RESPONSE),
     });
   });
 
-  it('returns list of capabilities', async () => {
+  it('returns merged capabilities from DB and ClickHouse', async () => {
     const { GET } = await import('@/app/api/v1/orchestrator-leaderboard/filters/route');
     const req = createGetRequest() as any;
     const res = await GET(req);
@@ -247,11 +190,12 @@ describe('GET /api/v1/orchestrator-leaderboard/filters', () => {
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
-    expect(json.data.capabilities).toEqual(['noop', 'streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v']);
-    expect(json.data.sources).toEqual({ clickhouse: 3, merged: 3 });
+    expect(json.data.capabilities).toContain('glm-4.7-flash');
+    expect(json.data.capabilities).toContain('streamdiffusion-sdxl');
+    expect(json.data.capabilities).toContain('noop');
   });
 
-  it('returns fallback capabilities on ClickHouse error', async () => {
+  it('returns DB capabilities when ClickHouse is unavailable', async () => {
     (global.fetch as any).mockResolvedValue({
       ok: false,
       status: 500,
@@ -261,11 +205,13 @@ describe('GET /api/v1/orchestrator-leaderboard/filters', () => {
     const { GET } = await import('@/app/api/v1/orchestrator-leaderboard/filters/route');
     const req = createGetRequest() as any;
     const res = await GET(req);
+    const json = await res.json();
 
     expect(res.status).toBe(200);
-    const json = await res.json();
     expect(json.success).toBe(true);
-    expect(json.data.fromFallback).toBe(true);
-    expect(json.data.capabilities.length).toBeGreaterThan(0);
+    expect(json.data.capabilities).toContain('glm-4.7-flash');
+    expect(json.data.capabilities).toContain('streamdiffusion-sdxl');
+    expect(json.data.sources.database).toBe(2);
+    expect(json.data.sources.clickhouse).toBe(0);
   });
 });

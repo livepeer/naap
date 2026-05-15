@@ -3,13 +3,8 @@
  *
  * Reads enabled LeaderboardSource rows from the DB, fetches data from each
  * source adapter in parallel, runs the hybrid conflict resolver, writes the
- * audit record, and replaces the in-memory global dataset. Plan caches are
- * cleared so they re-evaluate lazily.
- *
- * Downstream consumers (ranking.ts, plan evaluator, /dataset route) are
- * unchanged — the in-memory shape
- *   { capabilities: Record<string, ClickHouseLeaderboardRow[]> }
- * is preserved.
+ * resolved dataset to the LeaderboardDatasetRow table, and writes an audit
+ * record. Plan caches are cleared so they re-evaluate lazily.
  */
 
 import { prisma } from '@/lib/db';
@@ -17,8 +12,8 @@ import { Prisma } from '@naap/database';
 import type { SourceKind, NormalizedOrch, SourceStats } from './sources/types';
 import { getAdapter } from './sources';
 import { resolve, type ResolverConfig, type AuditEntry } from './resolver';
-import { setGlobalDataset } from './global-dataset';
-import { getRefreshIntervalMs, markRefreshed, getMembershipStrategy } from './config';
+import { writeGlobalDataset } from './global-dataset';
+import { getMembershipStrategy } from './config';
 import { clearPlanCache } from './refresh';
 
 // ---------------------------------------------------------------------------
@@ -142,20 +137,9 @@ export async function refreshGlobalDataset(
   const { capabilities, audit } = resolve(perSource, cfg);
 
   const totalOrchestrators = audit.totalOrchestrators;
-  const intervalMs = await getRefreshIntervalMs();
 
-  setGlobalDataset(
-    {
-      capabilities,
-      refreshedAt: Date.now(),
-      refreshedBy,
-      totalOrchestrators,
-    },
-    intervalMs,
-  );
-
-  const capabilityNames = Object.keys(capabilities).sort();
-  await markRefreshed(refreshedBy, capabilityNames);
+  // Persist the resolved dataset to the database
+  await writeGlobalDataset({ capabilities, refreshedBy });
 
   await writeAudit({
     ...audit,

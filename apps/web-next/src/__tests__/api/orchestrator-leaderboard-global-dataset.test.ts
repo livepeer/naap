@@ -1,167 +1,161 @@
 /**
  * Global Dataset + Config Unit Tests
  *
- * Tests the global dataset cache, config service, time-gated cron logic,
- * and plan evaluation reading from the global dataset.
+ * Tests the DB-backed global dataset functions, config service,
+ * and plan evaluation reading from the persistent dataset table.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Global Dataset Cache
+// Mocks
 // ---------------------------------------------------------------------------
 
-describe('global-dataset cache', () => {
+const mockFindMany = vi.fn();
+const mockDeleteMany = vi.fn();
+const mockCreateMany = vi.fn();
+const mockCount = vi.fn();
+const mockConfigFindUnique = vi.fn();
+const mockConfigUpsert = vi.fn();
+
+vi.mock('@/lib/db', () => ({
+  prisma: {
+    leaderboardDatasetRow: {
+      findMany: (...args: unknown[]) => mockFindMany(...args),
+      deleteMany: (...args: unknown[]) => mockDeleteMany(...args),
+      createMany: (...args: unknown[]) => mockCreateMany(...args),
+      count: (...args: unknown[]) => mockCount(...args),
+    },
+    leaderboardConfig: {
+      findUnique: (...args: unknown[]) => mockConfigFindUnique(...args),
+      upsert: (...args: unknown[]) => mockConfigUpsert(...args),
+    },
+    $transaction: vi.fn(async (ops: unknown[]) => {
+      for (const op of ops as Promise<unknown>[]) await op;
+    }),
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// DB-Backed Global Dataset
+// ---------------------------------------------------------------------------
+
+describe('global-dataset (DB-backed)', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
+    vi.resetModules();
+    mockFindMany.mockReset();
+    mockDeleteMany.mockReset();
+    mockCreateMany.mockReset();
+    mockCount.mockReset();
+    mockConfigFindUnique.mockReset();
+    mockConfigUpsert.mockReset();
   });
 
-  it('returns null when not populated', async () => {
-    const { getGlobalDataset, clearGlobalDataset } = await import(
+  it('getRowsForCapability returns mapped rows from DB', async () => {
+    mockFindMany.mockResolvedValue([
+      {
+        id: 'row-1',
+        capability: 'noop',
+        orchUri: 'https://orch-1.test',
+        gpuName: 'RTX 4090',
+        gpuGb: 24,
+        avail: 3,
+        totalCap: 4,
+        pricePerUnit: 100,
+        bestLatMs: 50,
+        avgLatMs: 80,
+        swapRatio: 0.05,
+        avgAvail: 3.2,
+        refreshedAt: new Date(),
+      },
+    ]);
+
+    const { getRowsForCapability } = await import(
       '@/lib/orchestrator-leaderboard/global-dataset'
     );
-    clearGlobalDataset();
-    expect(getGlobalDataset()).toBeNull();
+
+    const rows = await getRowsForCapability('noop');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].orch_uri).toBe('https://orch-1.test');
+    expect(rows[0].gpu_name).toBe('RTX 4090');
+    expect(rows[0].gpu_gb).toBe(24);
+    expect(rows[0].best_lat_ms).toBe(50);
   });
 
-  it('stores and returns dataset within TTL', async () => {
-    const { setGlobalDataset, getGlobalDataset, clearGlobalDataset } =
-      await import('@/lib/orchestrator-leaderboard/global-dataset');
-    clearGlobalDataset();
+  it('getRowsForCapability returns empty when no rows', async () => {
+    mockFindMany.mockResolvedValue([]);
 
-    const dataset = {
-      capabilities: {
-        noop: [
-          {
-            orch_uri: 'https://orch-1.test',
-            gpu_name: 'RTX 4090',
-            gpu_gb: 24,
-            avail: 3,
-            total_cap: 4,
-            price_per_unit: 100,
-            best_lat_ms: 50,
-            avg_lat_ms: 80,
-            swap_ratio: 0.05,
-            avg_avail: 3.2,
-          },
-        ],
-      },
-      refreshedAt: Date.now(),
-      refreshedBy: 'test',
-      totalOrchestrators: 1,
-    };
-
-    setGlobalDataset(dataset, 3_600_000); // 1h interval -> 2h TTL
-    expect(getGlobalDataset()).not.toBeNull();
-    expect(getGlobalDataset()!.totalOrchestrators).toBe(1);
-  });
-
-  it('returns null after TTL expires', async () => {
-    const { setGlobalDataset, getGlobalDataset, clearGlobalDataset } =
-      await import('@/lib/orchestrator-leaderboard/global-dataset');
-    clearGlobalDataset();
-
-    setGlobalDataset(
-      {
-        capabilities: {},
-        refreshedAt: Date.now(),
-        refreshedBy: 'test',
-        totalOrchestrators: 0,
-      },
-      1_000, // 1s interval -> 2s TTL
+    const { getRowsForCapability } = await import(
+      '@/lib/orchestrator-leaderboard/global-dataset'
     );
 
-    expect(getGlobalDataset()).not.toBeNull();
-
-    vi.advanceTimersByTime(3_000); // past 2s TTL
-    expect(getGlobalDataset()).toBeNull();
+    const rows = await getRowsForCapability('nonexistent');
+    expect(rows).toHaveLength(0);
   });
 
-  it('isGlobalDatasetFresh checks against given interval', async () => {
-    const {
-      setGlobalDataset,
-      isGlobalDatasetFresh,
-      clearGlobalDataset,
-    } = await import('@/lib/orchestrator-leaderboard/global-dataset');
-    clearGlobalDataset();
+  it('getDatasetCapabilities returns distinct capabilities', async () => {
+    mockFindMany.mockResolvedValue([
+      { capability: 'glm-4.7-flash' },
+      { capability: 'streamdiffusion-sdxl' },
+    ]);
 
-    setGlobalDataset(
-      {
-        capabilities: {},
-        refreshedAt: Date.now(),
-        refreshedBy: 'test',
-        totalOrchestrators: 0,
-      },
-      3_600_000,
+    const { getDatasetCapabilities } = await import(
+      '@/lib/orchestrator-leaderboard/global-dataset'
     );
 
-    expect(isGlobalDatasetFresh(3_600_000)).toBe(true);
-    vi.advanceTimersByTime(3_700_000); // past 1h interval
-    expect(isGlobalDatasetFresh(3_600_000)).toBe(false);
+    const caps = await getDatasetCapabilities();
+    expect(caps).toEqual(['glm-4.7-flash', 'streamdiffusion-sdxl']);
   });
 
-  it('full replace overwrites previous data', async () => {
-    const { setGlobalDataset, getGlobalDataset, clearGlobalDataset } =
-      await import('@/lib/orchestrator-leaderboard/global-dataset');
-    clearGlobalDataset();
+  it('getGlobalDatasetStats returns stats from config', async () => {
+    mockConfigFindUnique.mockResolvedValue({
+      lastRefreshedAt: new Date('2025-06-01T00:00:00Z'),
+      lastRefreshedBy: 'cron',
+      knownCapabilities: ['cap1', 'cap2', 'cap3'],
+    });
+    mockCount.mockResolvedValue(150);
 
-    setGlobalDataset(
-      {
-        capabilities: { cap1: [] },
-        refreshedAt: Date.now(),
-        refreshedBy: 'v1',
-        totalOrchestrators: 0,
-      },
-      3_600_000,
+    const { getGlobalDatasetStats } = await import(
+      '@/lib/orchestrator-leaderboard/global-dataset'
     );
 
-    setGlobalDataset(
-      {
-        capabilities: { cap2: [] },
-        refreshedAt: Date.now(),
-        refreshedBy: 'v2',
-        totalOrchestrators: 5,
-      },
-      3_600_000,
-    );
-
-    const ds = getGlobalDataset()!;
-    expect(ds.refreshedBy).toBe('v2');
-    expect(ds.totalOrchestrators).toBe(5);
-    expect('cap1' in ds.capabilities).toBe(false);
-    expect('cap2' in ds.capabilities).toBe(true);
+    const stats = await getGlobalDatasetStats();
+    expect(stats.populated).toBe(true);
+    expect(stats.totalOrchestrators).toBe(150);
+    expect(stats.capabilityCount).toBe(3);
+    expect(stats.refreshedBy).toBe('cron');
   });
 
-  it('getGlobalDatasetStats returns correct stats', async () => {
-    const {
-      setGlobalDataset,
-      getGlobalDatasetStats,
-      clearGlobalDataset,
-    } = await import('@/lib/orchestrator-leaderboard/global-dataset');
-    clearGlobalDataset();
+  it('getGlobalDatasetStats returns empty when never refreshed', async () => {
+    mockConfigFindUnique.mockResolvedValue(null);
 
-    let stats = getGlobalDatasetStats();
+    const { getGlobalDatasetStats } = await import(
+      '@/lib/orchestrator-leaderboard/global-dataset'
+    );
+
+    const stats = await getGlobalDatasetStats();
     expect(stats.populated).toBe(false);
     expect(stats.totalOrchestrators).toBe(0);
+  });
 
-    setGlobalDataset(
-      {
-        capabilities: { a: [], b: [] },
-        refreshedAt: Date.now(),
-        refreshedBy: 'cron',
-        totalOrchestrators: 10,
-      },
-      3_600_000,
+  it('writeGlobalDataset filters out empty orchUri rows', async () => {
+    const { writeGlobalDataset } = await import(
+      '@/lib/orchestrator-leaderboard/global-dataset'
     );
 
-    stats = getGlobalDatasetStats();
-    expect(stats.populated).toBe(true);
-    expect(stats.capabilityCount).toBe(2);
-    expect(stats.totalOrchestrators).toBe(10);
-    expect(stats.refreshedBy).toBe('cron');
+    await writeGlobalDataset({
+      capabilities: {
+        noop: [
+          { orch_uri: 'https://valid.test', gpu_name: 'RTX', gpu_gb: 24, avail: 1, total_cap: 1, price_per_unit: 50, best_lat_ms: null, avg_lat_ms: null, swap_ratio: null, avg_avail: null },
+          { orch_uri: '', gpu_name: '', gpu_gb: 0, avail: 0, total_cap: 0, price_per_unit: 0, best_lat_ms: null, avg_lat_ms: null, swap_ratio: null, avg_avail: null },
+        ],
+      },
+      refreshedBy: 'test',
+    });
+
+    const createCall = mockCreateMany.mock.calls[0][0];
+    expect(createCall.data).toHaveLength(1);
+    expect(createCall.data[0].orchUri).toBe('https://valid.test');
   });
 });
 
@@ -169,20 +163,10 @@ describe('global-dataset cache', () => {
 // Config Service
 // ---------------------------------------------------------------------------
 
-const mockUpsert = vi.fn();
-
-vi.mock('@/lib/db', () => ({
-  prisma: {
-    leaderboardConfig: {
-      upsert: (...args: unknown[]) => mockUpsert(...args),
-    },
-  },
-}));
-
 describe('config service', () => {
   beforeEach(async () => {
     vi.resetModules();
-    mockUpsert.mockReset();
+    mockConfigUpsert.mockReset();
   });
 
   it('isValidInterval accepts allowed values', async () => {
@@ -200,7 +184,7 @@ describe('config service', () => {
   });
 
   it('getConfig returns DTO from upserted row', async () => {
-    mockUpsert.mockResolvedValue({
+    mockConfigUpsert.mockResolvedValue({
       id: 'singleton',
       refreshIntervalHours: 4,
       lastRefreshedAt: new Date('2025-01-01T00:00:00Z'),
@@ -227,7 +211,7 @@ describe('config service', () => {
   });
 
   it('updateConfig upserts with valid interval', async () => {
-    mockUpsert.mockResolvedValue({
+    mockConfigUpsert.mockResolvedValue({
       id: 'singleton',
       refreshIntervalHours: 8,
       lastRefreshedAt: null,
@@ -240,7 +224,7 @@ describe('config service', () => {
     );
     const config = await updateConfig(8);
     expect(config.refreshIntervalHours).toBe(8);
-    expect(mockUpsert).toHaveBeenCalledWith(
+    expect(mockConfigUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'singleton' },
         update: { refreshIntervalHours: 8 },
@@ -250,52 +234,42 @@ describe('config service', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Plan evaluation reads from global dataset
+// Plan evaluation reads from DB dataset
 // ---------------------------------------------------------------------------
 
-describe('plan evaluation with global dataset', () => {
+describe('plan evaluation with DB dataset', () => {
   beforeEach(() => {
     vi.resetModules();
+    mockFindMany.mockReset();
   });
 
-  it('uses global dataset rows when available', async () => {
-    const globalDatasetModule = await import(
+  it('evaluatePlan uses rows from getRowsForCapability', async () => {
+    mockFindMany.mockResolvedValue([
+      {
+        id: 'r1',
+        capability: 'noop',
+        orchUri: 'https://global-orch.test',
+        gpuName: 'RTX 4090',
+        gpuGb: 24,
+        avail: 3,
+        totalCap: 4,
+        pricePerUnit: 100,
+        bestLatMs: 50,
+        avgLatMs: 80,
+        swapRatio: 0.05,
+        avgAvail: 3.2,
+        refreshedAt: new Date(),
+      },
+    ]);
+
+    const { getRowsForCapability } = await import(
       '@/lib/orchestrator-leaderboard/global-dataset'
     );
-
-    globalDatasetModule.clearGlobalDataset();
-    globalDatasetModule.setGlobalDataset(
-      {
-        capabilities: {
-          noop: [
-            {
-              orch_uri: 'https://global-orch.test',
-              gpu_name: 'RTX 4090',
-              gpu_gb: 24,
-              avail: 3,
-              total_cap: 4,
-              price_per_unit: 100,
-              best_lat_ms: 50,
-              avg_lat_ms: 80,
-              swap_ratio: 0.05,
-              avg_avail: 3.2,
-            },
-          ],
-        },
-        refreshedAt: Date.now(),
-        refreshedBy: 'test',
-        totalOrchestrators: 1,
-      },
-      3_600_000,
-    );
-
     const { evaluatePlan } = await import(
       '@/lib/orchestrator-leaderboard/ranking'
     );
 
-    const globalDs = globalDatasetModule.getGlobalDataset()!;
-    const rows = globalDs.capabilities['noop'];
-
+    const rows = await getRowsForCapability('noop');
     const result = evaluatePlan(rows, {
       filters: null,
       slaWeights: null,

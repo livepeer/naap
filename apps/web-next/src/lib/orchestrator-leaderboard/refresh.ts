@@ -4,19 +4,18 @@
  * Lazy evaluation: GET /plans/:id/results checks the in-memory plan cache;
  * if stale or missing, evaluates the plan and caches the result.
  *
- * Plan evaluation reads from the global dataset cache first (zero ClickHouse
- * calls when the global dataset is populated). Falls back to direct
- * fetchLeaderboard() if the global dataset is stale or missing.
+ * Plan evaluation reads from the persistent LeaderboardDatasetRow table
+ * (populated by cron refresh). The plan result cache is in-memory (fine
+ * for serverless — it's a computed derivative, not source of truth).
  *
  * Optional local dev loop: startLocalRefreshLoop() uses setInterval for
  * sub-minute refresh in long-running dev servers (skipped on Vercel).
  */
 
-import type { ClickHouseLeaderboardRow, DiscoveryPlan, OrchestratorRow, PlanResults } from './types';
-import { fetchLeaderboard } from './query';
+import type { DiscoveryPlan, OrchestratorRow, PlanResults } from './types';
 import { evaluatePlan } from './ranking';
 import { listEnabledPlans } from './plans';
-import { getGlobalDataset } from './global-dataset';
+import { getRowsForCapability } from './global-dataset';
 
 const REFRESH_INTERVAL_MS = Number(process.env.LEADERBOARD_REFRESH_INTERVAL_MS) || 60_000;
 const CACHE_TTL_MS = REFRESH_INTERVAL_MS * 2;
@@ -38,40 +37,16 @@ function isValid(entry: PlanCacheEntry): boolean {
 }
 
 /**
- * Get rows for a capability. Reads from the global dataset cache if
- * available; falls back to fetchLeaderboard() (direct ClickHouse query).
- */
-async function getRowsForCapability(
-  capability: string,
-  authToken: string,
-  requestUrl?: string,
-  cookieHeader?: string | null,
-): Promise<ClickHouseLeaderboardRow[]> {
-  const globalDataset = getGlobalDataset();
-  if (globalDataset && capability in globalDataset.capabilities) {
-    return globalDataset.capabilities[capability];
-  }
-  const { rows } = await fetchLeaderboard(capability, authToken, requestUrl, cookieHeader);
-  return rows;
-}
-
-/**
  * Evaluate one plan across all its capabilities, merge results.
- * Reads from the global dataset cache first (in-memory), falls back to
- * fetchLeaderboard() if the global dataset is stale or missing.
+ * Reads from the persistent DB dataset table.
  */
-async function evaluate(
-  plan: DiscoveryPlan,
-  authToken: string,
-  requestUrl?: string,
-  cookieHeader?: string | null,
-): Promise<PlanResults> {
+async function evaluate(plan: DiscoveryPlan): Promise<PlanResults> {
   const capabilities: Record<string, OrchestratorRow[]> = {};
   let totalOrchestrators = 0;
 
   for (const capability of plan.capabilities) {
     try {
-      const rows = await getRowsForCapability(capability, authToken, requestUrl, cookieHeader);
+      const rows = await getRowsForCapability(capability);
       const evaluated = evaluatePlan(rows, plan);
       capabilities[capability] = evaluated;
       totalOrchestrators += evaluated.length;
@@ -114,7 +89,7 @@ export async function evaluateAndCache(
   }
 
   if (entry && isValid(entry)) {
-    refreshSingle(plan, authToken, requestUrl, cookieHeader).catch((err) => {
+    refreshSingle(plan).catch((err) => {
       console.error(`[leaderboard] Background refresh failed for plan ${plan.id}:`, err);
     });
     return {
@@ -123,16 +98,11 @@ export async function evaluateAndCache(
     };
   }
 
-  return refreshSingle(plan, authToken, requestUrl, cookieHeader);
+  return refreshSingle(plan);
 }
 
-async function refreshSingle(
-  plan: DiscoveryPlan,
-  authToken: string,
-  requestUrl?: string,
-  cookieHeader?: string | null,
-): Promise<PlanResults> {
-  const results = await evaluate(plan, authToken, requestUrl, cookieHeader);
+async function refreshSingle(plan: DiscoveryPlan): Promise<PlanResults> {
+  const results = await evaluate(plan);
   const now = Date.now();
   planCache.set(plan.id, {
     results,
@@ -146,7 +116,7 @@ async function refreshSingle(
  * Bulk refresh all enabled plans. Called by Vercel Cron.
  */
 export async function refreshAllPlans(
-  authToken: string,
+  authToken?: string,
   requestUrl?: string,
   cookieHeader?: string | null,
 ): Promise<{ refreshed: number; failed: number }> {
@@ -156,7 +126,7 @@ export async function refreshAllPlans(
 
   for (const plan of plans) {
     try {
-      await refreshSingle(plan, authToken, requestUrl, cookieHeader);
+      await refreshSingle(plan);
       refreshed++;
     } catch (err) {
       failed++;
@@ -196,7 +166,7 @@ export function startLocalRefreshLoop(authToken: string, requestUrl?: string): v
   if (process.env.VERCEL) return;
   if (localInterval) return;
   localInterval = setInterval(() => {
-    refreshAllPlans(authToken, requestUrl).catch((err) => {
+    refreshAllPlans().catch((err) => {
       console.error('[leaderboard] Local refresh loop failed:', err);
     });
   }, REFRESH_INTERVAL_MS);

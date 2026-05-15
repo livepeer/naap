@@ -1,11 +1,9 @@
 /**
  * GET /api/v1/orchestrator-leaderboard/filters
  *
- * Returns available filter options (distinct capability names) by merging:
- *   1. ClickHouse warm capabilities from the last hour
- *   2. Capabilities from the global dataset (populated by cron from all sources)
- *
- * Falls back to a known list when ClickHouse is unreachable (e.g. local dev).
+ * Returns available filter options (distinct capability names) from the
+ * persistent LeaderboardDatasetRow table. Also merges warm capabilities
+ * from ClickHouse (last hour) for real-time coverage.
  */
 
 export const runtime = 'nodejs';
@@ -16,8 +14,7 @@ import { authorize } from '@/lib/gateway/authorize';
 import { success } from '@/lib/api/response';
 import { getAuthToken } from '@/lib/api/response';
 import { resolveClickhouseGatewayQueryUrl } from '@/lib/orchestrator-leaderboard/query';
-import { getGlobalDataset } from '@/lib/orchestrator-leaderboard/global-dataset';
-import { getKnownCapabilities } from '@/lib/orchestrator-leaderboard/config';
+import { getDatasetCapabilities } from '@/lib/orchestrator-leaderboard/global-dataset';
 
 const FILTERS_SQL = `SELECT DISTINCT capability_name
 FROM semantic.network_capabilities
@@ -25,13 +22,6 @@ WHERE timestamp_ts >= now() - INTERVAL 1 HOUR
   AND warm_bool = 1
 ORDER BY capability_name
 FORMAT JSON`;
-
-const FALLBACK_CAPABILITIES = [
-  'noop',
-  'streamdiffusion',
-  'streamdiffusion-sdxl',
-  'streamdiffusion-sdxl-v2v',
-];
 
 function isCronAuth(request: NextRequest): boolean {
   const auth = request.headers.get('authorization');
@@ -68,8 +58,8 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
     headers['x-vercel-protection-bypass'] = bypassSecret;
   }
 
-  let chCapabilities: string[];
-  let fromFallback = false;
+  // Fetch warm capabilities from ClickHouse (best-effort)
+  let chCapabilities: string[] = [];
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -78,38 +68,25 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
       signal: AbortSignal.timeout(20_000),
     });
 
-    if (!res.ok) {
-      throw new Error(`ClickHouse query failed (${res.status})`);
+    if (res.ok) {
+      const json = await res.json();
+      const chData = (json.data ?? json) as { data?: Array<{ capability_name: string }> };
+      chCapabilities = (chData.data ?? []).map((row: { capability_name: string }) => row.capability_name);
     }
-
-    const json = await res.json();
-    const chData = (json.data ?? json) as { data?: Array<{ capability_name: string }> };
-    chCapabilities = (chData.data ?? []).map((row: { capability_name: string }) => row.capability_name);
   } catch {
-    chCapabilities = FALLBACK_CAPABILITIES;
-    fromFallback = true;
+    // ClickHouse unavailable — proceed with DB capabilities only
   }
 
-  // Merge capabilities from the global dataset (in-memory, same instance)
-  // or from the DB-persisted list (survives serverless cold starts).
-  // Only include capabilities that have at least 1 orchestrator.
-  const globalDs = getGlobalDataset();
-  const capSet = new Set(chCapabilities);
-  if (globalDs) {
-    for (const [cap, rows] of Object.entries(globalDs.capabilities)) {
-      if (rows.length > 0) capSet.add(cap);
-    }
-  } else {
-    const persisted = await getKnownCapabilities();
-    for (const cap of persisted) capSet.add(cap);
-  }
+  // Read persisted capabilities from the LeaderboardDatasetRow table
+  const dbCapabilities = await getDatasetCapabilities();
 
+  // Merge both sources (DB is authoritative, ClickHouse adds real-time warm data)
+  const capSet = new Set([...dbCapabilities, ...chCapabilities]);
   const capabilities = Array.from(capSet).sort();
 
   const response = success({
     capabilities,
-    fromFallback,
-    sources: { clickhouse: chCapabilities.length, merged: capabilities.length },
+    sources: { database: dbCapabilities.length, clickhouse: chCapabilities.length, merged: capabilities.length },
   });
   response.headers.set('Cache-Control', 'private, max-age=60');
   return response;

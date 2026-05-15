@@ -10,8 +10,6 @@ export const maxDuration = 120;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { refreshAllPlans } from '@/lib/orchestrator-leaderboard/refresh';
-import { getAuthToken } from '@/lib/api/response';
-import { resolveClickhouseGatewayQueryUrl } from '@/lib/orchestrator-leaderboard/query';
 
 function authorized(request: NextRequest): boolean {
   const auth = request.headers.get('authorization');
@@ -26,10 +24,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const authToken = getAuthToken(request) || process.env.CRON_SECRET || '';
-
   try {
-    const result = await refreshAllPlans(authToken, request.url);
+    const result = await refreshAllPlans();
     return NextResponse.json({
       success: true,
       data: result,

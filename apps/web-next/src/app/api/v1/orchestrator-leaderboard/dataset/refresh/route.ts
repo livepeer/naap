@@ -14,8 +14,7 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken } from '@/lib/api/response';
-import { getRefreshIntervalMs } from '@/lib/orchestrator-leaderboard/config';
-import { isGlobalDatasetFresh } from '@/lib/orchestrator-leaderboard/global-dataset';
+import { getRefreshIntervalMs, getLastRefreshedAt } from '@/lib/orchestrator-leaderboard/config';
 import { refreshGlobalDataset } from '@/lib/orchestrator-leaderboard/global-refresh';
 
 function isCronAuth(request: NextRequest): boolean {
@@ -48,17 +47,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const intervalMs = await getRefreshIntervalMs();
 
-  // Cron path: skip if the dataset is still fresh
-  if (cronAuthed && isGlobalDatasetFresh(intervalMs)) {
-    const ageMs = Date.now() - (Date.now() - intervalMs);
-    return NextResponse.json({
-      success: true,
-      data: {
-        skipped: true,
-        reason: 'Global dataset is still fresh',
-        nextRefreshInMs: intervalMs,
-      },
-    });
+  // Cron path: skip if the dataset was refreshed recently (DB-persisted check)
+  if (cronAuthed) {
+    const lastRefreshed = await getLastRefreshedAt();
+    if (lastRefreshed && Date.now() - lastRefreshed.getTime() < intervalMs) {
+      return NextResponse.json({
+        success: true,
+        data: {
+          skipped: true,
+          reason: 'Global dataset is still fresh',
+          nextRefreshInMs: intervalMs - (Date.now() - lastRefreshed.getTime()),
+        },
+      });
+    }
   }
 
   const authToken = getAuthToken(request) || process.env.CRON_SECRET || '';

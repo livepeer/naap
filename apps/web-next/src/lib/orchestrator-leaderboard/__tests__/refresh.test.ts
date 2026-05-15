@@ -1,28 +1,33 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { evaluateAndCache, clearPlanCache, getCachedPlanResults } from '../refresh';
-import { fetchLeaderboard } from '../query';
 import type { DiscoveryPlan } from '../types';
 
-vi.mock('../query', () => ({
-  fetchLeaderboard: vi.fn().mockResolvedValue({
-    rows: [
-      {
-        orch_uri: 'https://orch-1.example.com',
-        gpu_name: 'RTX 4090',
-        gpu_gb: 24,
-        avail: 3,
-        total_cap: 4,
-        price_per_unit: 100,
-        best_lat_ms: 50,
-        avg_lat_ms: 80,
-        swap_ratio: 0.05,
-        avg_avail: 3.2,
-      },
-    ],
-    fromCache: false,
-    cachedAt: Date.now(),
-  }),
+vi.mock('@/lib/db', () => ({
+  prisma: {
+    leaderboardDatasetRow: {
+      findMany: vi.fn(),
+    },
+  },
 }));
+
+vi.mock('../global-dataset', () => ({
+  getRowsForCapability: vi.fn().mockResolvedValue([
+    {
+      orch_uri: 'https://orch-1.example.com',
+      gpu_name: 'RTX 4090',
+      gpu_gb: 24,
+      avail: 3,
+      total_cap: 4,
+      price_per_unit: 100,
+      best_lat_ms: 50,
+      avg_lat_ms: 80,
+      swap_ratio: 0.05,
+      avg_avail: 3.2,
+    },
+  ]),
+}));
+
+import { evaluateAndCache, clearPlanCache, getCachedPlanResults } from '../refresh';
+import { getRowsForCapability } from '../global-dataset';
 
 const mockPlan: DiscoveryPlan = {
   id: 'plan-1',
@@ -65,13 +70,13 @@ describe('evaluateAndCache', () => {
     expect(cached!.planId).toBe('plan-1');
   });
 
-  it('returns cached results on second call without re-fetching', async () => {
-    const mockedFetch = vi.mocked(fetchLeaderboard);
-    mockedFetch.mockClear();
+  it('returns cached results on second call without re-querying DB', async () => {
+    const mockedGetRows = vi.mocked(getRowsForCapability);
+    mockedGetRows.mockClear();
     const first = await evaluateAndCache(mockPlan, 'test-token');
-    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    expect(mockedGetRows).toHaveBeenCalledTimes(1);
     const second = await evaluateAndCache(mockPlan, 'test-token');
-    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    expect(mockedGetRows).toHaveBeenCalledTimes(1);
     expect(second.refreshedAt).toBe(first.refreshedAt);
     expect(second.meta.cacheAgeMs).toBeGreaterThanOrEqual(0);
   });
