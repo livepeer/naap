@@ -62,7 +62,12 @@ export async function PUT(request: NextRequest): Promise<NextResponse | Response
     if (membershipStrategy !== 'union' && membershipStrategy !== 'intersection') {
       return errors.badRequest('membershipStrategy must be "union" or "intersection"');
     }
-    await updateMembershipStrategy(membershipStrategy);
+    try {
+      await updateMembershipStrategy(membershipStrategy);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update membership strategy';
+      return errors.internal(message);
+    }
   }
 
   if (refreshIntervalHours !== undefined) {

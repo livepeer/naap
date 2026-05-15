@@ -144,6 +144,7 @@ const DataSourcesPanel: React.FC = () => {
   };
 
   const handleStrategyChange = async (newStrategy: 'union' | 'intersection') => {
+    const prev = strategy;
     setStrategy(newStrategy);
     setStrategySaving(true);
     try {
@@ -151,7 +152,7 @@ const DataSourcesPanel: React.FC = () => {
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to update strategy');
-      setStrategy(strategy === 'union' ? 'intersection' : 'union');
+      setStrategy(prev);
     } finally {
       setStrategySaving(false);
     }
