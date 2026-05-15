@@ -19,8 +19,11 @@ import {
 import { invalidateConnectorCache } from '@/lib/gateway/resolve';
 
 /** List all available connector templates with basic metadata. */
-export async function GET() {
-  const templates = await loadConnectorTemplates();
+export async function GET(request: NextRequest) {
+  const ctx = await getAdminContext(request);
+  const isAdmin = !isErrorResponse(ctx);
+
+  const templates = await loadConnectorTemplates(isAdmin ? undefined : { visibleOnly: true });
 
   const summaries = templates.map((t) => ({
     id: t.id,

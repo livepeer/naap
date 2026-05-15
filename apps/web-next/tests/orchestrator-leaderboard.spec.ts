@@ -16,35 +16,32 @@ import { test, expect } from '@playwright/test';
 
 const STUB_CAPABILITIES = ['image-to-image', 'text-to-image', 'image-to-video'];
 
-const STUB_RANK_RESPONSE = {
-  data: [
-    {
-      orchUri: 'https://orch-1.example.com',
-      gpuName: 'RTX 4090',
-      gpuGb: 24,
-      avail: 3,
-      totalCap: 4,
-      pricePerUnit: 0.0012,
-      bestLatMs: 120,
-      avgLatMs: 180,
-      swapRatio: 0.02,
-      avgAvail: 3.5,
-    },
-    {
-      orchUri: 'https://orch-2.example.com',
-      gpuName: 'A100',
-      gpuGb: 80,
-      avail: 1,
-      totalCap: 2,
-      pricePerUnit: 0.0025,
-      bestLatMs: 200,
-      avgLatMs: 250,
-      swapRatio: 0.05,
-      avgAvail: 1.8,
-    },
-  ],
-  meta: { cached: false },
-};
+const STUB_RANK_DATA = [
+  {
+    orchUri: 'https://orch-1.example.com',
+    gpuName: 'RTX 4090',
+    gpuGb: 24,
+    avail: 3,
+    totalCap: 4,
+    pricePerUnit: 0.0012,
+    bestLatMs: 120,
+    avgLatMs: 180,
+    swapRatio: 0.02,
+    avgAvail: 3.5,
+  },
+  {
+    orchUri: 'https://orch-2.example.com',
+    gpuName: 'A100',
+    gpuGb: 80,
+    avail: 1,
+    totalCap: 2,
+    pricePerUnit: 0.0025,
+    bestLatMs: 200,
+    avgLatMs: 250,
+    swapRatio: 0.05,
+    avgAvail: 1.8,
+  },
+];
 
 const isLiveMode = () =>
   !!(process.env.E2E_USER_EMAIL && process.env.E2E_USER_PASSWORD);
@@ -60,11 +57,20 @@ test.describe('Orchestrator Leaderboard (stub) @pre-release', () => {
 
   test.beforeEach(async ({ page }) => {
     await page.route('**/api/v1/orchestrator-leaderboard/filters', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STUB_CAPABILITIES) }),
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: { capabilities: STUB_CAPABILITIES } }),
+      }),
     );
 
     await page.route('**/api/v1/orchestrator-leaderboard/rank', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STUB_RANK_RESPONSE) }),
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'X-Cache': 'MISS', 'X-Cache-Age': '0', 'X-Data-Freshness': new Date().toISOString() },
+        body: JSON.stringify({ success: true, data: STUB_RANK_DATA }),
+      }),
     );
   });
 
@@ -121,7 +127,7 @@ test.describe('Admin Settings Panel (stub) @pre-release', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(STUB_CAPABILITIES),
+        body: JSON.stringify({ success: true, data: { capabilities: STUB_CAPABILITIES } }),
       }),
     );
 
@@ -129,7 +135,8 @@ test.describe('Admin Settings Panel (stub) @pre-release', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(STUB_RANK_RESPONSE),
+        headers: { 'X-Cache': 'MISS', 'X-Cache-Age': '0', 'X-Data-Freshness': new Date().toISOString() },
+        body: JSON.stringify({ success: true, data: STUB_RANK_DATA }),
       }),
     );
 

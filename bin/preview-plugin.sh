@@ -105,8 +105,15 @@ if is_local && [ "$ACTION" != "status" ]; then
   fi
   echo -e "${BLUE}[sync]${NC} Registering plugin in local database..."
   cd "$ROOT_DIR"
-  DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/naap}" \
-    npx tsx bin/sync-plugin-registry.ts 2>&1 | grep -E "Discovered|created|updated|Done" || true
+  SYNC_LOG=$(DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/naap}" \
+    npx tsx bin/sync-plugin-registry.ts 2>&1)
+  SYNC_RC=$?
+  echo "$SYNC_LOG" | grep -E "Discovered|created|updated|Done"
+  if [ $SYNC_RC -ne 0 ]; then
+    echo -e "${RED}Error: Plugin registry sync failed (exit $SYNC_RC)${NC}"
+    echo "$SYNC_LOG" | tail -5
+    exit 1
+  fi
   echo -e "${GREEN}[sync]${NC} Plugin registry synced"
 fi
 
@@ -162,9 +169,10 @@ show_status() {
   echo "$CURRENT" | python3 -c "
 import sys,json
 d=json.load(sys.stdin)
+target=sys.argv[1]
 found=False
 for p in d.get('data',{}).get('plugins',[]):
-    if p['name'] == '$CAMEL_NAME':
+    if p['name'] == target:
         found=True
         print(f\"  isCore:         {p.get('isCore', False)}\")
         print(f\"  visibleToUsers: {p.get('visibleToUsers', True)}\")
@@ -173,7 +181,7 @@ for p in d.get('data',{}).get('plugins',[]):
         break
 if not found:
     print('  NOT FOUND in plugin list')
-" 2>/dev/null
+" "$CAMEL_NAME" 2>/dev/null
   echo ""
 }
 
@@ -195,12 +203,11 @@ case "$ACTION" in
     if ! echo ",$HIDDEN_NAMES," | grep -q ",$CAMEL_NAME,"; then
       HIDDEN_NAMES="$HIDDEN_NAMES,$CAMEL_NAME"
     fi
-    IFS=',' read -ra TESTER_ARR <<< "$TESTERS"
     TESTERS_JSON=$(python3 -c "
-import json
-testers = [t.strip() for t in '${TESTERS}'.split(',') if t.strip()]
-print(json.dumps({'$CAMEL_NAME': testers}))
-")
+import json, sys
+testers = [t.strip() for t in sys.argv[1].split(',') if t.strip()]
+print(json.dumps({sys.argv[2]: testers}))
+" "$TESTERS" "$CAMEL_NAME")
     ;;
   hide)
     if ! echo ",$HIDDEN_NAMES," | grep -q ",$CAMEL_NAME,"; then
@@ -217,15 +224,15 @@ esac
 
 # Convert comma-separated to JSON arrays
 CORE_JSON=$(python3 -c "
-import json
-names = [n.strip() for n in '${CORE_NAMES}'.split(',') if n.strip()]
+import json, sys
+names = [n.strip() for n in sys.argv[1].split(',') if n.strip()]
 print(json.dumps(names))
-")
+" "$CORE_NAMES")
 HIDDEN_JSON=$(python3 -c "
-import json
-names = [n.strip() for n in '${HIDDEN_NAMES}'.split(',') if n.strip()]
+import json, sys
+names = [n.strip() for n in sys.argv[1].split(',') if n.strip()]
 print(json.dumps(names))
-")
+" "$HIDDEN_NAMES")
 
 PAYLOAD=$(python3 -c "
 import json

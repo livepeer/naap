@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { evaluateAndCache, clearPlanCache, getCachedPlanResults } from '../refresh';
+import { fetchLeaderboard } from '../query';
 import type { DiscoveryPlan } from '../types';
 
 vi.mock('../query', () => ({
@@ -64,9 +65,13 @@ describe('evaluateAndCache', () => {
     expect(cached!.planId).toBe('plan-1');
   });
 
-  it('returns cached results on second call', async () => {
+  it('returns cached results on second call without re-fetching', async () => {
+    const mockedFetch = vi.mocked(fetchLeaderboard);
+    mockedFetch.mockClear();
     const first = await evaluateAndCache(mockPlan, 'test-token');
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
     const second = await evaluateAndCache(mockPlan, 'test-token');
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
     expect(second.refreshedAt).toBe(first.refreshedAt);
     expect(second.meta.cacheAgeMs).toBeGreaterThanOrEqual(0);
   });
