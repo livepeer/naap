@@ -404,9 +404,11 @@ export function resolve(
     }
   }
 
-  // Remove __uncategorized if it's empty or if there are categorized capabilities
-  if (capabilities['__uncategorized']?.length === 0) {
-    delete capabilities['__uncategorized'];
+  // Remove capabilities with 0 orchestrators (invalid/stale) and __uncategorized
+  for (const cap of Object.keys(capabilities)) {
+    if (capabilities[cap].length === 0 || cap === '__uncategorized') {
+      delete capabilities[cap];
+    }
   }
 
   return {
@@ -414,7 +416,7 @@ export function resolve(
     audit: {
       membershipSource,
       totalOrchestrators,
-      totalCapabilities: Object.keys(capabilities).filter(k => k !== '__uncategorized').length,
+      totalCapabilities: Object.keys(capabilities).length,
       conflicts,
       dropped,
       warnings,

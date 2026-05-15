@@ -91,12 +91,13 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
   }
 
   // Merge capabilities from the global dataset (in-memory, same instance)
-  // or from the DB-persisted list (survives serverless cold starts)
+  // or from the DB-persisted list (survives serverless cold starts).
+  // Only include capabilities that have at least 1 orchestrator.
   const globalDs = getGlobalDataset();
   const capSet = new Set(chCapabilities);
   if (globalDs) {
-    for (const cap of Object.keys(globalDs.capabilities)) {
-      if (cap !== '__uncategorized') capSet.add(cap);
+    for (const [cap, rows] of Object.entries(globalDs.capabilities)) {
+      if (rows.length > 0) capSet.add(cap);
     }
   } else {
     const persisted = await getKnownCapabilities();

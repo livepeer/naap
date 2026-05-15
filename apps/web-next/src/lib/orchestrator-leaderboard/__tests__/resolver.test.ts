@@ -163,14 +163,14 @@ describe('resolve — capability explosion', () => {
     expect(result.capabilities['text-to-image'][0].orch_uri).toBe('https://orch-c.test');
   });
 
-  it('assigns __uncategorized when orch has no capabilities', () => {
+  it('excludes orchestrators with no capabilities (no __uncategorized)', () => {
     const perSource: Partial<Record<SourceKind, NormalizedOrch[]>> = {
       'livepeer-subgraph': [mkSubgraphOrch('0xddd', 'https://orch-d.test')],
     };
 
     const result = resolve(perSource, mkConfig());
-    expect(result.capabilities['__uncategorized']).toBeDefined();
-    expect(result.capabilities['__uncategorized']).toHaveLength(1);
+    expect(result.capabilities['__uncategorized']).toBeUndefined();
+    expect(Object.keys(result.capabilities)).toHaveLength(0);
   });
 });
 
