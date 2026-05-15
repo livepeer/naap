@@ -34,7 +34,7 @@ function mkClickhouseOrch(uri: string, cap: string): NormalizedOrch {
   };
 }
 
-describe('resolve — membership', () => {
+describe('resolve — membership (intersection mode)', () => {
   it('only includes orchs from the membership source', () => {
     const perSource: Partial<Record<SourceKind, NormalizedOrch[]>> = {
       'livepeer-subgraph': [mkSubgraphOrch('0xaaa', 'https://orch-a.test')],
@@ -44,7 +44,7 @@ describe('resolve — membership', () => {
       ],
     };
 
-    const result = resolve(perSource, mkConfig());
+    const result = resolve(perSource, mkConfig({ membershipStrategy: 'intersection' }));
     expect(result.audit.totalOrchestrators).toBe(1);
     expect(result.audit.dropped).toHaveLength(1);
     expect(result.audit.dropped[0].orchKey).toContain('orch-unknown');
@@ -63,20 +63,71 @@ describe('resolve — membership', () => {
     expect(result.audit.warnings).toContain('No sources enabled — returning empty dataset');
   });
 
-  it('uses second source as membership when first is disabled', () => {
+  it('uses second source as membership when first returns 0 rows', () => {
     const cfg = mkConfig({
+      membershipStrategy: 'intersection',
       sources: [
-        { kind: 'livepeer-subgraph', priority: 1, enabled: false },
+        { kind: 'livepeer-subgraph', priority: 1, enabled: true },
         { kind: 'clickhouse-query', priority: 2, enabled: true },
       ],
     });
     const perSource: Partial<Record<SourceKind, NormalizedOrch[]>> = {
+      'livepeer-subgraph': [],
       'clickhouse-query': [mkClickhouseOrch('https://orch-b.test', 'noop')],
     };
 
     const result = resolve(perSource, cfg);
     expect(result.audit.membershipSource).toBe('clickhouse-query');
     expect(result.audit.totalOrchestrators).toBe(1);
+  });
+});
+
+describe('resolve — membership (union mode)', () => {
+  it('includes orchs from ALL enabled sources', () => {
+    const perSource: Partial<Record<SourceKind, NormalizedOrch[]>> = {
+      'livepeer-subgraph': [mkSubgraphOrch('0xaaa', 'https://orch-a.test')],
+      'clickhouse-query': [
+        mkClickhouseOrch('https://orch-a.test', 'noop'),
+        mkClickhouseOrch('https://orch-unknown.test', 'noop'),
+      ],
+      'naap-discover': [
+        { orchUri: 'https://orch-discovery-only.test', capabilities: ['llm'], score: 0.8 },
+      ],
+    };
+
+    const result = resolve(perSource, mkConfig({ membershipStrategy: 'union' }));
+    expect(result.audit.membershipSource).toContain('union(');
+    expect(result.audit.totalOrchestrators).toBe(3);
+    expect(result.audit.dropped).toHaveLength(0);
+    expect(Object.keys(result.capabilities)).toContain('noop');
+    expect(Object.keys(result.capabilities)).toContain('llm');
+  });
+
+  it('union is the default strategy when not specified', () => {
+    const perSource: Partial<Record<SourceKind, NormalizedOrch[]>> = {
+      'livepeer-subgraph': [mkSubgraphOrch('0xaaa', 'https://orch-a.test')],
+      'clickhouse-query': [
+        mkClickhouseOrch('https://orch-a.test', 'noop'),
+        mkClickhouseOrch('https://orch-extra.test', 'noop'),
+      ],
+    };
+
+    const result = resolve(perSource, mkConfig());
+    expect(result.audit.membershipSource).toContain('union(');
+    expect(result.audit.totalOrchestrators).toBe(2);
+  });
+
+  it('cross-references eth/uri in union mode', () => {
+    const perSource: Partial<Record<SourceKind, NormalizedOrch[]>> = {
+      'livepeer-subgraph': [mkSubgraphOrch('0xfff', 'https://orch-f.test')],
+      'naap-discover': [
+        { orchUri: 'https://orch-f.test', capabilities: ['text-to-image'], score: 0.9 },
+      ],
+    };
+
+    const result = resolve(perSource, mkConfig({ membershipStrategy: 'union' }));
+    expect(result.audit.totalOrchestrators).toBe(1);
+    expect(Object.keys(result.capabilities)).toContain('text-to-image');
   });
 });
 

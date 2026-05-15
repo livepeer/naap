@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Settings, RefreshCw, Clock, Database, Layers, FileText, GripVertical, ChevronDown, ChevronRight } from 'lucide-react';
+import { Settings, RefreshCw, Clock, Database, Layers, FileText, GripVertical, ChevronDown, ChevronRight, ExternalLink, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { useAuthService } from '@naap/plugin-sdk';
 import { useDatasetConfig } from '../hooks/useDatasetConfig';
 import {
   fetchSources,
   updateSources,
+  updateMembershipStrategy,
   fetchAudits,
   type LeaderboardSourceDTO,
   type RefreshAuditDTO,
@@ -54,12 +55,28 @@ type AdminTab = 'config' | 'sources' | 'audits';
 // Data Sources Panel
 // ---------------------------------------------------------------------------
 
+const ConnectorStatusIcon: React.FC<{ status: string }> = ({ status }) => {
+  if (status === 'published') return <CheckCircle size={10} style={{ color: 'var(--accent-emerald)' }} />;
+  if (status === 'not_configured') return <XCircle size={10} style={{ color: 'var(--accent-rose)' }} />;
+  return <AlertCircle size={10} style={{ color: 'var(--accent-amber)' }} />;
+};
+
 const DataSourcesPanel: React.FC = () => {
   const [sources, setSources] = useState<LeaderboardSourceDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [strategy, setStrategy] = useState<'union' | 'intersection'>('union');
+  const [strategySaving, setStrategySaving] = useState(false);
+
+  const { config } = useDatasetConfig();
+
+  useEffect(() => {
+    if (config?.membershipStrategy) {
+      setStrategy(config.membershipStrategy);
+    }
+  }, [config?.membershipStrategy]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -126,68 +143,152 @@ const DataSourcesPanel: React.FC = () => {
     }
   };
 
+  const handleStrategyChange = async (newStrategy: 'union' | 'intersection') => {
+    const prev = strategy;
+    setStrategy(newStrategy);
+    setStrategySaving(true);
+    try {
+      await updateMembershipStrategy(newStrategy);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update strategy');
+      setStrategy(prev);
+    } finally {
+      setStrategySaving(false);
+    }
+  };
+
   if (loading) {
     return <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Loading sources…</p>;
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {error && (
         <p className="text-xs" style={{ color: 'var(--accent-rose)' }}>{error}</p>
       )}
-      <p className="text-xs" style={{ color: 'var(--text-supporting)' }}>
-        Drag to reorder priority (top = highest). Tier-1 source owns orchestrator membership.
-        {saving && <span className="ml-2 italic">Saving…</span>}
-      </p>
-      <div className="space-y-1">
-        {sources.map((src, idx) => {
-          const meta = SOURCE_LABELS[src.kind] ?? { label: src.kind, description: '' };
-          return (
-            <div
-              key={src.kind}
-              draggable
-              onDragStart={() => handleDragStart(idx)}
-              onDragOver={(e) => handleDragOver(e, idx)}
-              onDragEnd={handleDragEnd}
-              className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
-              style={{
-                background: dragIdx === idx ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
-                border: '1px solid var(--border-color)',
-                opacity: src.enabled ? 1 : 0.5,
-                cursor: 'grab',
-              }}
-            >
-              <GripVertical size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-              <span
-                className="text-xs font-bold w-5 text-center"
-                style={{ color: 'var(--text-supporting)' }}
-              >
-                {src.priority}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-                  {meta.label}
-                </p>
-                <p className="text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>
-                  {meta.description}
-                </p>
-              </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleToggle(src.kind); }}
-                className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0"
+
+      {/* Membership Strategy Toggle */}
+      <div className="rounded-lg p-3" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+        <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+          Membership Strategy
+          {strategySaving && <span className="ml-2 italic" style={{ color: 'var(--text-muted)' }}>Saving…</span>}
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => handleStrategyChange('union')}
+            className="px-3 py-1.5 text-xs font-medium rounded-full border transition-all"
+            style={
+              strategy === 'union'
+                ? { background: 'rgba(30, 153, 96, 0.15)', color: 'var(--accent-emerald)', borderColor: 'rgba(30, 153, 96, 0.3)' }
+                : { background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderColor: 'var(--border-color)' }
+            }
+          >
+            Union (all sources)
+          </button>
+          <button
+            onClick={() => handleStrategyChange('intersection')}
+            className="px-3 py-1.5 text-xs font-medium rounded-full border transition-all"
+            style={
+              strategy === 'intersection'
+                ? { background: 'rgba(30, 153, 96, 0.15)', color: 'var(--accent-emerald)', borderColor: 'rgba(30, 153, 96, 0.3)' }
+                : { background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderColor: 'var(--border-color)' }
+            }
+          >
+            Intersection (primary only)
+          </button>
+        </div>
+        <p className="text-[10px] mt-1.5" style={{ color: 'var(--text-muted)' }}>
+          {strategy === 'union'
+            ? 'Includes orchestrators from any enabled source. Recommended for AI workloads.'
+            : 'Only includes orchestrators from the highest-priority source. Legacy mode for on-chain-only.'}
+        </p>
+      </div>
+
+      {/* Sources list */}
+      <div>
+        <p className="text-xs mb-2" style={{ color: 'var(--text-supporting)' }}>
+          Drag to reorder priority. {strategy === 'intersection' && 'Top source owns orchestrator membership.'}
+          {saving && <span className="ml-2 italic">Saving…</span>}
+        </p>
+        <div className="space-y-2">
+          {sources.map((src, idx) => {
+            const meta = SOURCE_LABELS[src.kind] ?? { label: src.kind, description: '' };
+            return (
+              <div
+                key={src.kind}
+                draggable
+                onDragStart={() => handleDragStart(idx)}
+                onDragOver={(e) => handleDragOver(e, idx)}
+                onDragEnd={handleDragEnd}
+                className="rounded-lg transition-colors"
                 style={{
-                  background: src.enabled ? 'var(--accent-emerald)' : 'var(--bg-tertiary)',
+                  background: dragIdx === idx ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
                   border: '1px solid var(--border-color)',
+                  opacity: src.enabled ? 1 : 0.5,
+                  cursor: 'grab',
                 }}
               >
-                <span
-                  className="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform"
-                  style={{ transform: src.enabled ? 'translateX(16px)' : 'translateX(2px)' }}
-                />
-              </button>
-            </div>
-          );
-        })}
+                <div className="flex items-center gap-3 px-3 py-2">
+                  <GripVertical size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                  <span
+                    className="text-xs font-bold w-5 text-center"
+                    style={{ color: 'var(--text-supporting)' }}
+                  >
+                    {src.priority}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                      {meta.label}
+                    </p>
+                    <p className="text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>
+                      {meta.description}
+                    </p>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleToggle(src.kind); }}
+                    className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0"
+                    style={{
+                      background: src.enabled ? 'var(--accent-emerald)' : 'var(--bg-tertiary)',
+                      border: '1px solid var(--border-color)',
+                    }}
+                  >
+                    <span
+                      className="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform"
+                      style={{ transform: src.enabled ? 'translateX(16px)' : 'translateX(2px)' }}
+                    />
+                  </button>
+                </div>
+
+                {/* Connector details row */}
+                <div className="px-3 pb-2 flex items-center gap-3 flex-wrap" style={{ marginLeft: '2rem' }}>
+                  {src.connector && (
+                    <span className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                      <ConnectorStatusIcon status={src.connector.status} />
+                      <span>{src.connector.displayName || src.connector.slug}</span>
+                      {src.connector.upstreamBaseUrl && (
+                        <span className="flex items-center gap-0.5">
+                          <ExternalLink size={8} />
+                          <span className="truncate max-w-[180px]">{src.connector.upstreamBaseUrl}</span>
+                        </span>
+                      )}
+                    </span>
+                  )}
+                  {src.lastFetch && (
+                    <span className="text-[10px]" style={{ color: src.lastFetch.ok ? 'var(--text-supporting)' : 'var(--accent-rose)' }}>
+                      {src.lastFetch.ok
+                        ? `${src.lastFetch.fetched} rows in ${formatDuration(src.lastFetch.durationMs)}`
+                        : `Error: ${src.lastFetch.error || 'unknown'}`}
+                    </span>
+                  )}
+                  {!src.connector && (
+                    <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>No connector configured</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

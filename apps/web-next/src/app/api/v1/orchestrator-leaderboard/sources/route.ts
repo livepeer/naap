@@ -1,5 +1,5 @@
 /**
- * GET  /api/v1/orchestrator-leaderboard/sources — list all data sources
+ * GET  /api/v1/orchestrator-leaderboard/sources — list all data sources with connector details
  * PUT  /api/v1/orchestrator-leaderboard/sources — update source priority/enabled (admin only)
  */
 
@@ -16,9 +16,16 @@ import { z } from 'zod';
 const DEFAULT_SOURCES: { kind: SourceKind; priority: number; enabled: boolean }[] = [
   { kind: 'livepeer-subgraph', priority: 1, enabled: true },
   { kind: 'clickhouse-query', priority: 2, enabled: true },
-  { kind: 'naap-discover', priority: 3, enabled: false },
+  { kind: 'naap-discover', priority: 3, enabled: true },
   { kind: 'naap-pricing', priority: 4, enabled: false },
 ];
+
+const SOURCE_TO_CONNECTOR: Record<string, string> = {
+  'livepeer-subgraph': 'livepeer-subgraph',
+  'clickhouse-query': 'clickhouse-query',
+  'naap-discover': 'naap-discover',
+  'naap-pricing': 'naap-pricing',
+};
 
 async function ensureSeeded() {
   const count = await prisma.leaderboardSource.count();
@@ -58,15 +65,43 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       orderBy: { priority: 'asc' },
     });
 
+    // Fetch connector details for each source
+    const connectorSlugs = sources.map((s) => SOURCE_TO_CONNECTOR[s.kind]).filter(Boolean);
+    const connectors = await prisma.serviceConnector.findMany({
+      where: { slug: { in: connectorSlugs }, status: 'published' },
+      select: { slug: true, displayName: true, upstreamBaseUrl: true, status: true },
+    });
+    const connectorMap = new Map(connectors.map((c) => [c.slug, c]));
+
+    // Fetch latest audit for per-source stats
+    const lastAudit = await prisma.leaderboardRefreshAudit.findFirst({
+      orderBy: { refreshedAt: 'desc' },
+      select: { refreshedAt: true, durationMs: true, perSource: true },
+    });
+
+    const perSourceStats = (lastAudit?.perSource as Record<string, { ok?: boolean; fetched?: number; durationMs?: number; errorMessage?: string }>) ?? {};
+
     return NextResponse.json({
       success: true,
-      data: sources.map((s) => ({
-        kind: s.kind,
-        enabled: s.enabled,
-        priority: s.priority,
-        config: s.config,
-        updatedAt: s.updatedAt.toISOString(),
-      })),
+      data: sources.map((s) => {
+        const connSlug = SOURCE_TO_CONNECTOR[s.kind];
+        const conn = connSlug ? connectorMap.get(connSlug) : undefined;
+        const stats = perSourceStats[s.kind];
+        return {
+          kind: s.kind,
+          enabled: s.enabled,
+          priority: s.priority,
+          config: s.config,
+          updatedAt: s.updatedAt.toISOString(),
+          connector: conn
+            ? { slug: conn.slug, displayName: conn.displayName, upstreamBaseUrl: conn.upstreamBaseUrl, status: conn.status }
+            : connSlug ? { slug: connSlug, displayName: null, upstreamBaseUrl: null, status: 'not_configured' } : null,
+          lastFetch: stats
+            ? { ok: stats.ok ?? false, fetched: stats.fetched ?? 0, durationMs: stats.durationMs ?? 0, error: stats.errorMessage ?? null }
+            : null,
+        };
+      }),
+      lastRefreshedAt: lastAudit?.refreshedAt?.toISOString() ?? null,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to list sources';

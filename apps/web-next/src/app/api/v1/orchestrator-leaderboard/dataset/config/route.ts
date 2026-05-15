@@ -1,6 +1,6 @@
 /**
  * GET  /api/v1/orchestrator-leaderboard/dataset/config — read config (admin only)
- * PUT  /api/v1/orchestrator-leaderboard/dataset/config — update interval (admin only)
+ * PUT  /api/v1/orchestrator-leaderboard/dataset/config — update interval + strategy (admin only)
  */
 
 export const runtime = 'nodejs';
@@ -8,7 +8,13 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
-import { getConfig, updateConfig, isValidInterval } from '@/lib/orchestrator-leaderboard/config';
+import {
+  getConfig,
+  updateConfig,
+  isValidInterval,
+  getMembershipStrategy,
+  updateMembershipStrategy,
+} from '@/lib/orchestrator-leaderboard/config';
 
 export async function GET(request: NextRequest): Promise<NextResponse | Response> {
   const token = getAuthToken(request);
@@ -21,7 +27,8 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
 
   try {
     const config = await getConfig();
-    return success(config);
+    const membershipStrategy = await getMembershipStrategy();
+    return success({ ...config, membershipStrategy });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to read config';
     return errors.internal(message);
@@ -46,17 +53,38 @@ export async function PUT(request: NextRequest): Promise<NextResponse | Response
     return errors.badRequest('Invalid JSON body');
   }
 
-  const { refreshIntervalHours } = body as { refreshIntervalHours?: unknown };
+  const { refreshIntervalHours, membershipStrategy } = body as {
+    refreshIntervalHours?: unknown;
+    membershipStrategy?: unknown;
+  };
 
-  if (!isValidInterval(refreshIntervalHours)) {
-    return errors.badRequest('refreshIntervalHours must be one of: 1, 4, 8, 12');
+  if (membershipStrategy !== undefined) {
+    if (membershipStrategy !== 'union' && membershipStrategy !== 'intersection') {
+      return errors.badRequest('membershipStrategy must be "union" or "intersection"');
+    }
+    try {
+      await updateMembershipStrategy(membershipStrategy);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update membership strategy';
+      return errors.internal(message);
+    }
   }
 
-  try {
-    const config = await updateConfig(refreshIntervalHours);
-    return success(config);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to update config';
-    return errors.internal(message);
+  if (refreshIntervalHours !== undefined) {
+    if (!isValidInterval(refreshIntervalHours)) {
+      return errors.badRequest('refreshIntervalHours must be one of: 1, 4, 8, 12');
+    }
+    try {
+      const config = await updateConfig(refreshIntervalHours);
+      const strategy = await getMembershipStrategy();
+      return success({ ...config, membershipStrategy: strategy });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update config';
+      return errors.internal(message);
+    }
   }
+
+  const config = await getConfig();
+  const strategy = await getMembershipStrategy();
+  return success({ ...config, membershipStrategy: strategy });
 }

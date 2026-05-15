@@ -24,6 +24,7 @@ import type { SourceKind, NormalizedOrch } from './sources/types';
 export interface ResolverConfig {
   sources: { kind: SourceKind; priority: number; enabled: boolean }[];
   fieldPriority?: Partial<Record<string, SourceKind[]>>;
+  membershipStrategy?: 'union' | 'intersection';
 }
 
 export interface ConflictEntry {
@@ -40,7 +41,7 @@ export interface DroppedEntry {
 }
 
 export interface AuditEntry {
-  membershipSource: SourceKind;
+  membershipSource: string;
   totalOrchestrators: number;
   totalCapabilities: number;
   conflicts: ConflictEntry[];
@@ -160,29 +161,45 @@ export function resolve(
     sourceIndexes.set(s.kind, indexByOrch(rows));
   }
 
-  // Membership set = keys from the highest-priority source that returned data.
-  // Falls back to the next source if higher-priority ones returned 0 rows
-  // (e.g. subgraph auth failure should not wipe out the entire dataset).
-  let membershipSource = enabled[0].kind;
-  let membershipIndex = sourceIndexes.get(membershipSource)!;
-  if (membershipIndex.size === 0 && enabled.length > 1) {
-    for (const s of enabled.slice(1)) {
+  // Membership set determines which orchestrators make it into the final dataset.
+  const strategy = cfg.membershipStrategy ?? 'union';
+  let membershipSource: string;
+  const membershipKeys = new Set<OrchKey>();
+
+  if (strategy === 'union') {
+    // Union: any orch from any enabled source is included
+    for (const s of enabled) {
       const idx = sourceIndexes.get(s.kind)!;
-      if (idx.size > 0) {
-        membershipSource = s.kind;
-        membershipIndex = idx;
-        warnings.push(
-          `Primary membership source "${enabled[0].kind}" returned 0 rows — ` +
-          `falling back to "${s.kind}" (${idx.size} orchestrators)`,
-        );
-        break;
-      }
+      for (const key of idx.keys()) membershipKeys.add(key);
     }
-    if (membershipIndex.size === 0) {
+    membershipSource = `union(${enabled.map((s) => s.kind).join(',')})`;
+    if (membershipKeys.size === 0) {
       warnings.push('All sources returned 0 rows — empty dataset');
     }
+  } else {
+    // Intersection (legacy): keys from the highest-priority source that returned data.
+    // Falls back to the next source if higher-priority ones returned 0 rows.
+    membershipSource = enabled[0].kind;
+    let membershipIndex = sourceIndexes.get(enabled[0].kind)!;
+    if (membershipIndex.size === 0 && enabled.length > 1) {
+      for (const s of enabled.slice(1)) {
+        const idx = sourceIndexes.get(s.kind)!;
+        if (idx.size > 0) {
+          membershipSource = s.kind;
+          membershipIndex = idx;
+          warnings.push(
+            `Primary membership source "${enabled[0].kind}" returned 0 rows — ` +
+            `falling back to "${s.kind}" (${idx.size} orchestrators)`,
+          );
+          break;
+        }
+      }
+      if (membershipIndex.size === 0) {
+        warnings.push('All sources returned 0 rows — empty dataset');
+      }
+    }
+    for (const key of membershipIndex.keys()) membershipKeys.add(key);
   }
-  const membershipKeys = new Set(membershipIndex.keys());
 
   // Also build a cross-reference: orchUri <-> ethAddress for join
   const uriToEth = new Map<string, string>();
@@ -193,6 +210,22 @@ export function resolve(
         if (r.ethAddress && r.orchUri) {
           uriToEth.set(r.orchUri, r.ethAddress.toLowerCase());
           ethToUri.set(r.ethAddress.toLowerCase(), r.orchUri);
+        }
+      }
+    }
+  }
+
+  // Deduplicate membership keys: collapse eth:X and uri:Y referring to the
+  // same orchestrator into a single canonical key (prefer eth: if available).
+  for (const key of [...membershipKeys]) {
+    const normalized = normalizeKey(key);
+    if (normalized.startsWith('uri:')) {
+      const uri = normalized.slice(4);
+      const eth = uriToEth.get(uri);
+      if (eth) {
+        const ethKey: OrchKey = `eth:${eth}`;
+        if (membershipKeys.has(ethKey)) {
+          membershipKeys.delete(key);
         }
       }
     }
@@ -221,17 +254,19 @@ export function resolve(
     return null;
   }
 
-  // Record dropped from non-membership sources
-  for (const s of enabled) {
-    if (s.kind === membershipSource) continue;
-    const srcIndex = sourceIndexes.get(s.kind)!;
-    for (const key of srcIndex.keys()) {
-      if (!resolveOrchKey(key)) {
-        dropped.push({
-          orchKey: key,
-          source: s.kind,
-          reason: `not present in membership source (${membershipSource})`,
-        });
+  // Record dropped from non-membership sources (only relevant in intersection mode)
+  if (strategy !== 'union') {
+    for (const s of enabled) {
+      if (s.kind === membershipSource) continue;
+      const srcIndex = sourceIndexes.get(s.kind)!;
+      for (const key of srcIndex.keys()) {
+        if (!resolveOrchKey(key)) {
+          dropped.push({
+            orchKey: key,
+            source: s.kind,
+            reason: `not present in membership source (${membershipSource})`,
+          });
+        }
       }
     }
   }

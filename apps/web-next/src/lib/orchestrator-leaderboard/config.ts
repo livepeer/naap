@@ -110,3 +110,32 @@ export async function getKnownCapabilities(): Promise<string[]> {
     return [];
   }
 }
+
+/**
+ * Read the membership strategy from the DB. Defaults to "union".
+ */
+export async function getMembershipStrategy(): Promise<'union' | 'intersection'> {
+  try {
+    const row = await prisma.leaderboardConfig.findUnique({
+      where: { id: SINGLETON_ID },
+      select: { membershipStrategy: true },
+    });
+    const val = row?.membershipStrategy;
+    return val === 'intersection' ? 'intersection' : 'union';
+  } catch {
+    return 'union';
+  }
+}
+
+/**
+ * Update the membership strategy.
+ */
+export async function updateMembershipStrategy(
+  strategy: 'union' | 'intersection',
+): Promise<void> {
+  await prisma.leaderboardConfig.upsert({
+    where: { id: SINGLETON_ID },
+    update: { membershipStrategy: strategy },
+    create: { id: SINGLETON_ID, membershipStrategy: strategy },
+  });
+}
