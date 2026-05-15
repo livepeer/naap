@@ -94,7 +94,9 @@ export const naapDiscoverAdapter: SourceAdapter = {
     const rows: NormalizedOrch[] = [];
 
     for (const r of rawRows) {
-      const shortCaps = r.capabilities.map(extractCapabilityName);
+      const rawCaps = Array.isArray(r.capabilities) ? r.capabilities : [];
+      if (rawCaps.length === 0) continue;
+      const shortCaps = rawCaps.map(extractCapabilityName);
       rows.push({
         orchUri: r.address,
         capabilities: shortCaps,

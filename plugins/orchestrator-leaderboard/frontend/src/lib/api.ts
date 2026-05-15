@@ -243,6 +243,7 @@ export interface DatasetConfig {
   lastRefreshedAt: string | null;
   lastRefreshedBy: string | null;
   updatedAt: string;
+  membershipStrategy?: 'union' | 'intersection';
 }
 
 export async function fetchDatasetConfig(): Promise<DatasetConfig> {
@@ -316,12 +317,28 @@ export async function triggerDatasetRefresh(): Promise<{
 // Data Sources (admin)
 // ---------------------------------------------------------------------------
 
+export interface ConnectorInfo {
+  slug: string;
+  displayName: string | null;
+  upstreamBaseUrl: string | null;
+  status: string;
+}
+
+export interface LastFetchStats {
+  ok: boolean;
+  fetched: number;
+  durationMs: number;
+  error: string | null;
+}
+
 export interface LeaderboardSourceDTO {
   kind: string;
   enabled: boolean;
   priority: number;
   config: Record<string, unknown> | null;
   updatedAt: string;
+  connector: ConnectorInfo | null;
+  lastFetch: LastFetchStats | null;
 }
 
 export async function fetchSources(): Promise<LeaderboardSourceDTO[]> {
@@ -340,6 +357,23 @@ export async function fetchSources(): Promise<LeaderboardSourceDTO[]> {
   if (!json.success) throw new Error(json.error?.message || 'Request failed');
 
   return json.data;
+}
+
+export async function updateMembershipStrategy(
+  strategy: 'union' | 'intersection',
+): Promise<void> {
+  const res = await fetch(`${BASE_URL}/dataset/config`, {
+    method: 'PUT',
+    headers: buildHeaders(true),
+    body: JSON.stringify({ membershipStrategy: strategy }),
+    credentials: 'include',
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
 }
 
 export async function updateSources(

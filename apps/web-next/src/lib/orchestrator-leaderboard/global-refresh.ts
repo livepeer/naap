@@ -18,7 +18,7 @@ import type { SourceKind, NormalizedOrch, SourceStats } from './sources/types';
 import { getAdapter } from './sources';
 import { resolve, type ResolverConfig, type AuditEntry } from './resolver';
 import { setGlobalDataset } from './global-dataset';
-import { getRefreshIntervalMs, markRefreshed } from './config';
+import { getRefreshIntervalMs, markRefreshed, getMembershipStrategy } from './config';
 import { clearPlanCache } from './refresh';
 
 // ---------------------------------------------------------------------------
@@ -112,6 +112,7 @@ export async function refreshGlobalDataset(
 }> {
   const t0 = Date.now();
   const cfg = await loadResolverConfig();
+  cfg.membershipStrategy = await getMembershipStrategy();
   const enabled = cfg.sources.filter((s) => s.enabled).sort((a, b) => a.priority - b.priority);
   const ctx = { authToken, requestUrl, cookieHeader, internal: options?.internal };
 
