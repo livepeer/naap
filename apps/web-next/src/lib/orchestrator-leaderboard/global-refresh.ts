@@ -153,7 +153,8 @@ export async function refreshGlobalDataset(
     intervalMs,
   );
 
-  await markRefreshed(refreshedBy);
+  const capabilityNames = Object.keys(capabilities).filter(k => k !== '__uncategorized').sort();
+  await markRefreshed(refreshedBy, capabilityNames);
 
   await writeAudit({
     ...audit,

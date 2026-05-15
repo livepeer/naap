@@ -17,6 +17,7 @@ import { success } from '@/lib/api/response';
 import { getAuthToken } from '@/lib/api/response';
 import { resolveClickhouseGatewayQueryUrl } from '@/lib/orchestrator-leaderboard/query';
 import { getGlobalDataset } from '@/lib/orchestrator-leaderboard/global-dataset';
+import { getKnownCapabilities } from '@/lib/orchestrator-leaderboard/config';
 
 const FILTERS_SQL = `SELECT DISTINCT capability_name
 FROM semantic.network_capabilities
@@ -89,13 +90,17 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
     fromFallback = true;
   }
 
-  // Merge capabilities from the global dataset (includes all enabled sources)
+  // Merge capabilities from the global dataset (in-memory, same instance)
+  // or from the DB-persisted list (survives serverless cold starts)
   const globalDs = getGlobalDataset();
   const capSet = new Set(chCapabilities);
   if (globalDs) {
     for (const cap of Object.keys(globalDs.capabilities)) {
       if (cap !== '__uncategorized') capSet.add(cap);
     }
+  } else {
+    const persisted = await getKnownCapabilities();
+    for (const cap of persisted) capSet.add(cap);
   }
 
   const capabilities = Array.from(capSet).sort();

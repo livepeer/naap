@@ -79,16 +79,34 @@ export async function getRefreshIntervalMs(): Promise<number> {
 }
 
 /**
- * Record that a refresh just completed.
+ * Record that a refresh just completed, persisting the known capability list.
  */
-export async function markRefreshed(by: string): Promise<void> {
+export async function markRefreshed(by: string, capabilities?: string[]): Promise<void> {
+  const data: Record<string, unknown> = {
+    lastRefreshedAt: new Date(),
+    lastRefreshedBy: by,
+  };
+  if (capabilities) {
+    data.knownCapabilities = capabilities;
+  }
   await prisma.leaderboardConfig.upsert({
     where: { id: SINGLETON_ID },
-    update: { lastRefreshedAt: new Date(), lastRefreshedBy: by },
-    create: {
-      id: SINGLETON_ID,
-      lastRefreshedAt: new Date(),
-      lastRefreshedBy: by,
-    },
+    update: data,
+    create: { id: SINGLETON_ID, ...data },
   });
+}
+
+/**
+ * Read persisted capabilities from the DB (survives serverless cold starts).
+ */
+export async function getKnownCapabilities(): Promise<string[]> {
+  try {
+    const row = await prisma.leaderboardConfig.findUnique({
+      where: { id: SINGLETON_ID },
+      select: { knownCapabilities: true },
+    });
+    return row?.knownCapabilities ?? [];
+  } catch {
+    return [];
+  }
 }

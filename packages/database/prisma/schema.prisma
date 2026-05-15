@@ -2275,6 +2275,7 @@ model LeaderboardConfig {
   refreshIntervalHours  Int       @default(1)
   lastRefreshedAt       DateTime?
   lastRefreshedBy       String?
+  knownCapabilities     String[]  @default([])
   updatedAt             DateTime  @updatedAt
 
   @@schema("plugin_orchestrator_leaderboard")
