@@ -7,6 +7,7 @@
  */
 
 export const runtime = 'nodejs';
+export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';

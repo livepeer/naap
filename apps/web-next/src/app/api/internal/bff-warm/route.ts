@@ -50,6 +50,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     `${base}/api/v1/network/capacity`,
   ];
 
+  const authedTargets = [
+    `${base}/api/v1/orchestrator-leaderboard/filters`,
+  ];
+
+  const cronSecret = process.env.CRON_SECRET;
+
   const results: { url: string; ok: boolean; status: number }[] = [];
   for (const url of targets) {
     try {
@@ -57,6 +63,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       results.push({ url, ok: r.ok, status: r.status });
     } catch {
       results.push({ url, ok: false, status: 0 });
+    }
+  }
+
+  if (cronSecret) {
+    for (const url of authedTargets) {
+      try {
+        const r = await fetch(url, {
+          cache: 'no-store',
+          headers: { Authorization: `Bearer ${cronSecret}` },
+        });
+        results.push({ url, ok: r.ok, status: r.status });
+      } catch {
+        results.push({ url, ok: false, status: 0 });
+      }
     }
   }
 

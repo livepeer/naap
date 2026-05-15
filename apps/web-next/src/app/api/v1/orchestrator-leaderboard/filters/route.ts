@@ -7,6 +7,7 @@
  */
 
 export const runtime = 'nodejs';
+export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';
@@ -28,16 +29,24 @@ const FALLBACK_CAPABILITIES = [
   'streamdiffusion-sdxl-v2v',
 ];
 
+function isCronAuth(request: NextRequest): boolean {
+  const auth = request.headers.get('authorization');
+  return Boolean(process.env.CRON_SECRET) && auth === `Bearer ${process.env.CRON_SECRET}`;
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse | Response> {
-  const auth = await authorize(request);
-  if (!auth) {
-    return NextResponse.json(
-      { success: false, error: { code: 'UNAUTHORIZED', message: 'Missing or invalid authentication' } },
-      { status: 401 }
-    );
+  const cronAuthed = isCronAuth(request);
+  if (!cronAuthed) {
+    const auth = await authorize(request);
+    if (!auth) {
+      return NextResponse.json(
+        { success: false, error: { code: 'UNAUTHORIZED', message: 'Missing or invalid authentication' } },
+        { status: 401 }
+      );
+    }
   }
 
-  const authToken = getAuthToken(request) || '';
+  const authToken = cronAuthed ? '' : (getAuthToken(request) || '');
   const url = resolveClickhouseGatewayQueryUrl(request.url);
 
   const headers: Record<string, string> = {
@@ -62,7 +71,7 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
       method: 'POST',
       headers,
       body: FILTERS_SQL,
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(20_000),
     });
 
     if (!res.ok) {
