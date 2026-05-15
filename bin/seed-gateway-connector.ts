@@ -147,6 +147,16 @@ async function seedConnector(
 
   if (connector) {
     console.log(`[seed-gw]   Connector exists: ${connector.id}`);
+    // Sync authConfig from template (fixes misconfigured connectors)
+    const templateAuthConfig = conn.authConfig || {};
+    const currentAuthConfig = (connector.authConfig as Record<string, unknown>) || {};
+    if (JSON.stringify(currentAuthConfig) !== JSON.stringify(templateAuthConfig)) {
+      await prisma.serviceConnector.update({
+        where: { id: connector.id },
+        data: { authConfig: templateAuthConfig },
+      });
+      console.log(`[seed-gw]   Updated authConfig for ${slug}`);
+    }
   } else {
     connector = await prisma.serviceConnector.create({
       data: {
