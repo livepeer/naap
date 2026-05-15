@@ -49,9 +49,9 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
     );
   }
 
-  if (!/^[a-zA-Z0-9_-]+$/.test((body as LeaderboardRequest).capability)) {
+  if (!/^[a-zA-Z0-9._:-]+$/.test((body as LeaderboardRequest).capability)) {
     return NextResponse.json(
-      { success: false, error: { code: 'VALIDATION_ERROR', message: 'capability must contain only alphanumeric characters, hyphens, and underscores' } },
+      { success: false, error: { code: 'VALIDATION_ERROR', message: 'capability contains invalid characters' } },
       { status: 400 }
     );
   }
