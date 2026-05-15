@@ -150,7 +150,6 @@ export function resolve(
     };
   }
 
-  const membershipSource = enabled[0].kind;
   const fieldPriority = { ...DEFAULT_FIELD_PRIORITY, ...cfg.fieldPriority };
 
   // Index each source's rows by orchKey
@@ -161,8 +160,28 @@ export function resolve(
     sourceIndexes.set(s.kind, indexByOrch(rows));
   }
 
-  // Membership set = keys from the highest-priority source
-  const membershipIndex = sourceIndexes.get(membershipSource)!;
+  // Membership set = keys from the highest-priority source that returned data.
+  // Falls back to the next source if higher-priority ones returned 0 rows
+  // (e.g. subgraph auth failure should not wipe out the entire dataset).
+  let membershipSource = enabled[0].kind;
+  let membershipIndex = sourceIndexes.get(membershipSource)!;
+  if (membershipIndex.size === 0 && enabled.length > 1) {
+    for (const s of enabled.slice(1)) {
+      const idx = sourceIndexes.get(s.kind)!;
+      if (idx.size > 0) {
+        membershipSource = s.kind;
+        membershipIndex = idx;
+        warnings.push(
+          `Primary membership source "${enabled[0].kind}" returned 0 rows — ` +
+          `falling back to "${s.kind}" (${idx.size} orchestrators)`,
+        );
+        break;
+      }
+    }
+    if (membershipIndex.size === 0) {
+      warnings.push('All sources returned 0 rows — empty dataset');
+    }
+  }
   const membershipKeys = new Set(membershipIndex.keys());
 
   // Also build a cross-reference: orchUri <-> ethAddress for join

@@ -13,9 +13,9 @@
     "upstreamBaseUrl": "https://gateway.thegraph.com",
     "allowedHosts": ["gateway.thegraph.com", "gateway-arbitrum.network.thegraph.com"],
     "defaultTimeout": 15000,
-    "healthCheckPath": "/api/subgraphs/id/FE63YgkzcpVocxdCEyEYbvjYqEf2kb1A6daMYRxmejYC",
+    "healthCheckPath": null,
     "authType": "bearer",
-    "authConfig": {},
+    "authConfig": { "tokenRef": "api-key" },
     "secretRefs": ["api-key"],
     "streamingEnabled": false,
     "tags": ["livepeer", "subgraph", "on-chain", "arbitrum", "the-graph", "registry"]

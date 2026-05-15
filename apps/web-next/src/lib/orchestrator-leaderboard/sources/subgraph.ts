@@ -14,7 +14,12 @@ import type { SourceAdapter, FetchCtx, SourceFetchResult, NormalizedOrch } from 
 import { resolveConnectorAuth } from './internal-resolve';
 
 const GW_PATH = '/api/v1/gw/livepeer-subgraph/transcoders';
-const UPSTREAM_PATH = '/api/subgraphs/id/FE63YgkzcpVocxdCEyEYbvjYqEf2kb1A6daMYRxmejYC';
+const DEFAULT_SUBGRAPH_ID = 'FE63YgkzcpVocxdCEyEYbvjYqEf2kb1A6daMYRxmejYC';
+
+function getUpstreamPath(): string {
+  const id = process.env.SUBGRAPH_ID || DEFAULT_SUBGRAPH_ID;
+  return `/api/subgraphs/id/${id}`;
+}
 
 const TRANSCODERS_QUERY = `{
   transcoders(
@@ -90,7 +95,7 @@ export const subgraphAdapter: SourceAdapter = {
     if (ctx.internal) {
       const auth = await resolveConnectorAuth('livepeer-subgraph');
       if (!auth) throw new Error('livepeer-subgraph connector not found or not published');
-      url = `${auth.upstreamBaseUrl}${UPSTREAM_PATH}`;
+      url = `${auth.upstreamBaseUrl}${getUpstreamPath()}`;
       headers = auth.headers;
     } else {
       url = resolveGatewayUrl(ctx.requestUrl);
