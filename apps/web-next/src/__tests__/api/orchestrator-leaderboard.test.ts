@@ -15,6 +15,10 @@ vi.mock('@/lib/db', () => ({
   prisma: {},
 }));
 
+vi.mock('@/lib/orchestrator-leaderboard/global-dataset', () => ({
+  getGlobalDataset: vi.fn().mockReturnValue(null),
+}));
+
 import { authorize } from '@/lib/gateway/authorize';
 import { clearCache } from '@/lib/orchestrator-leaderboard/cache';
 
@@ -238,6 +242,7 @@ describe('GET /api/v1/orchestrator-leaderboard/filters', () => {
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
     expect(json.data.capabilities).toEqual(['noop', 'streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v']);
+    expect(json.data.sources).toEqual({ clickhouse: 3, merged: 3 });
   });
 
   it('returns fallback capabilities on ClickHouse error', async () => {

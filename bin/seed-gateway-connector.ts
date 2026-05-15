@@ -58,6 +58,11 @@ const CONNECTOR_SEEDS: ConnectorSeed[] = [
       'api-key': 'SUBGRAPH_API_KEY',
     },
   },
+  {
+    slug: 'naap-discover',
+    template: 'naap-discover.json',
+    secretMap: {},
+  },
 ];
 
 // ── Encryption (mirrors apps/web-next/src/lib/gateway/encryption.ts) ──
@@ -255,7 +260,7 @@ async function seedConnector(
 // ── Main ──
 
 async function main() {
-  console.log('[seed-gw] Seeding gateway connectors (ClickHouse + Subgraph)...');
+  console.log('[seed-gw] Seeding gateway connectors (ClickHouse + Subgraph + Discovery)...');
 
   const prisma = new PrismaClient();
 

@@ -28,7 +28,7 @@ import { clearPlanCache } from './refresh';
 const DEFAULT_SOURCES: { kind: SourceKind; priority: number; enabled: boolean }[] = [
   { kind: 'livepeer-subgraph', priority: 1, enabled: true },
   { kind: 'clickhouse-query', priority: 2, enabled: true },
-  { kind: 'naap-discover', priority: 3, enabled: false },
+  { kind: 'naap-discover', priority: 3, enabled: true },
   { kind: 'naap-pricing', priority: 4, enabled: false },
 ];
 
