@@ -154,7 +154,7 @@ describe('POST /api/v1/orchestrator-leaderboard/rank', () => {
     expect(json.data.every((r: any) => typeof r.slaScore === 'number')).toBe(true);
   });
 
-  it('returns 502 on gateway error', async () => {
+  it('returns empty data when all sources fail (graceful degradation)', async () => {
     (global.fetch as any).mockResolvedValue({
       ok: false,
       status: 502,
@@ -165,8 +165,10 @@ describe('POST /api/v1/orchestrator-leaderboard/rank', () => {
     const { POST } = await import('@/app/api/v1/orchestrator-leaderboard/rank/route');
     const req = createRequest({ capability: 'noop' }) as any;
     const res = await POST(req);
+    const json = await res.json();
 
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(200);
+    expect(json.data).toEqual([]);
   });
 
   it('returns empty data when ClickHouse returns no rows', async () => {
