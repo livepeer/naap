@@ -11,7 +11,7 @@ import { getCached, setCached } from './cache';
 
 const MAX_QUERY_ROWS = 1000;
 
-const CAPABILITY_PATTERN = /^[a-zA-Z0-9_-]+$/;
+const CAPABILITY_PATTERN = /^[a-zA-Z0-9._:-]+$/;
 
 const CLICKHOUSE_GW_PATH = '/api/v1/gw/clickhouse-query/query';
 
@@ -89,7 +89,7 @@ export function validateCapability(capability: string): void {
     throw new Error('capability is required and must be a string');
   }
   if (!CAPABILITY_PATTERN.test(capability)) {
-    throw new Error('capability must contain only alphanumeric characters, hyphens, and underscores');
+    throw new Error('capability contains invalid characters');
   }
   if (capability.length > 128) {
     throw new Error('capability must be 128 characters or fewer');

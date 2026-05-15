@@ -12,6 +12,10 @@ describe('validateCapability', () => {
     expect(() => validateCapability('noop')).not.toThrow();
     expect(() => validateCapability('stream_diffusion_v2')).not.toThrow();
     expect(() => validateCapability('abc-123_XYZ')).not.toThrow();
+    expect(() => validateCapability('Qwen3.6-27B')).not.toThrow();
+    expect(() => validateCapability('gemma3:4b')).not.toThrow();
+    expect(() => validateCapability('qwen2.5-coder:32b')).not.toThrow();
+    expect(() => validateCapability('nomic-embed-text:latest')).not.toThrow();
   });
 
   it('rejects empty string', () => {
@@ -30,11 +34,12 @@ describe('validateCapability', () => {
     expect(() => validateCapability("a' OR 'x'='x")).toThrow();
   });
 
-  it('rejects special characters', () => {
+  it('rejects dangerous characters', () => {
     expect(() => validateCapability('foo bar')).toThrow();
-    expect(() => validateCapability('foo.bar')).toThrow();
     expect(() => validateCapability('foo/bar')).toThrow();
     expect(() => validateCapability('foo@bar')).toThrow();
+    expect(() => validateCapability("foo'bar")).toThrow();
+    expect(() => validateCapability('foo"bar')).toThrow();
   });
 
   it('rejects overly long names', () => {
