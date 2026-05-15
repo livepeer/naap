@@ -34,23 +34,23 @@ const DEFAULT_SOURCES: { kind: SourceKind; priority: number; enabled: boolean }[
 
 async function loadResolverConfig(): Promise<ResolverConfig> {
   try {
+    // Always upsert all DEFAULT_SOURCES so new sources get created and
+    // sources that were previously disabled-by-default but are now
+    // enabled-by-default get synced. Admin can still override via the
+    // sources API (the upsert only enables, never disables).
+    await prisma.$transaction(
+      DEFAULT_SOURCES.map((s) =>
+        prisma.leaderboardSource.upsert({
+          where: { kind: s.kind },
+          update: s.enabled ? { enabled: true } : {},
+          create: { kind: s.kind, priority: s.priority, enabled: s.enabled },
+        }),
+      ),
+    );
+
     const rows = await prisma.leaderboardSource.findMany({
       orderBy: { priority: 'asc' },
     });
-
-    if (rows.length === 0) {
-      // Seed default rows on first run
-      await prisma.$transaction(
-        DEFAULT_SOURCES.map((s) =>
-          prisma.leaderboardSource.upsert({
-            where: { kind: s.kind },
-            update: {},
-            create: { kind: s.kind, priority: s.priority, enabled: s.enabled },
-          }),
-        ),
-      );
-      return { sources: DEFAULT_SOURCES };
-    }
 
     return {
       sources: rows.map((r) => ({
