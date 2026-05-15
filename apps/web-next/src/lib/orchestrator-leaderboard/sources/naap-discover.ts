@@ -37,11 +37,14 @@ function buildGatewayHeaders(ctx: FetchCtx): Record<string, string> {
 
 async function resolveUrlAndHeaders(ctx: FetchCtx): Promise<{ url: string; headers: Record<string, string> }> {
   if (ctx.internal) {
-    const auth = await resolveConnectorAuth('naap-discover');
-    if (auth) {
-      return { url: `${auth.upstreamBaseUrl}${UPSTREAM_PATH}`, headers: auth.headers };
+    try {
+      const auth = await resolveConnectorAuth('naap-discover');
+      if (auth) {
+        return { url: `${auth.upstreamBaseUrl}${UPSTREAM_PATH}`, headers: auth.headers };
+      }
+    } catch {
+      // DB unreachable or connector not configured — fall through to public API
     }
-    // Fallback: call upstream directly with no auth (public API)
     return { url: `https://naap-api.cloudspe.com${UPSTREAM_PATH}`, headers: {} };
   }
   return { url: resolveGatewayUrl(ctx.requestUrl), headers: buildGatewayHeaders(ctx) };
