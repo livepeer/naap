@@ -78,6 +78,12 @@ That SDK token is **base64-encoded JSON**, not a JWT. It bundles two independent
 
 This keeps token auth explicit: the signer remains a PymtHouse-issued billing secret, while discovery remains a NaaP-authenticated request that can use curated orchestrator-leaderboard plans.
 
+### Network Price discovery allowlist (PymtHouse → NaaP)
+
+For billing provider **`pymthouse`**, NaaP periodically syncs **`GET {PYMTHOUSE_ISSUER_URL without /oidc}/apps/{publicClientId}/discovery-allowlist`** with the same **M2M Basic** credentials as other Builder routes. The JSON **`capabilities`** array is the resolved discoverable set (live catalog minus exclusions stored on the app’s **Network Price** default plan). An empty **`capabilities`** list means **no restriction** (fail-open), matching the Builder API contract.
+
+NaaP intersects python-gateway discovery and orchestrator-leaderboard evaluation against that snapshot (`syncPymthouseDiscoveryAllowlistSnapshot` in `apps/web-next/src/lib/pymthouse-discovery-allowlist.ts`). Legacy per-plan policy rows for the UI still come from **`GET …/apps/{id}/plans`** (the deprecated **`/plans/discovery`** redirect is no longer required for server-side reads).
+
 ### Usage API (BFF)
 
 Official contract: [PymtHouse Usage API](https://docs.pymthouse.com/integration/usage-api).

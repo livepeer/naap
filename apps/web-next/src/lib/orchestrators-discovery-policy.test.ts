@@ -5,14 +5,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   applyDiscoveryPolicyToOrchestrators,
   applyPymthouseDiscoveryToOrchestrators,
-  effectiveCapabilityDiscoveryPolicy,
-  resolveMergedDiscoveryPolicyForCapability,
 } from '@/lib/orchestrators-discovery-policy';
-import type { PymthouseDiscoveryPlansResponse } from '@/lib/pymthouse-discovery-plans';
+import { mergeDiscoveryPolicies } from '@/lib/pymthouse-discovery-plans';
 import {
-  mergeDiscoveryPolicies,
-  resetPymthouseDiscoveryPlansCacheForTests,
-} from '@/lib/pymthouse-discovery-plans';
+  resetPymthouseDiscoveryAllowlistCacheForTests,
+  syncPymthouseDiscoveryAllowlistSnapshot,
+} from '@/lib/pymthouse-discovery-allowlist';
 import type { DashboardOrchestrator } from '@naap/plugin-sdk';
 
 const baseRow = (over: Partial<DashboardOrchestrator>): DashboardOrchestrator => ({
@@ -35,42 +33,7 @@ describe('orchestrators-discovery-policy', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
-    resetPymthouseDiscoveryPlansCacheForTests();
-  });
-
-  it('wildcard bundle matches concrete modelId', () => {
-    const plan = {
-      id: 'p1',
-      name: 'P',
-      status: 'active',
-      discoveryPolicy: { topN: 10 } as const,
-      capabilities: [{ pipeline: 'llm', modelId: '*', discoveryPolicy: { topN: 3 } }],
-    };
-    const eff = effectiveCapabilityDiscoveryPolicy(plan, 'llm', 'gpt-4');
-    expect(eff?.topN).toBe(3);
-  });
-
-  it('resolveMerged intersects policies across plans', () => {
-    const response: PymthouseDiscoveryPlansResponse = {
-      plans: [
-        {
-          id: 'a',
-          name: 'A',
-          status: 'active',
-          discoveryPolicy: { filters: { priceMax: 100 } },
-          capabilities: [{ pipeline: 'llm', modelId: 'm1', discoveryPolicy: null }],
-        },
-        {
-          id: 'b',
-          name: 'B',
-          status: 'active',
-          discoveryPolicy: { filters: { priceMax: 40 } },
-          capabilities: [{ pipeline: 'llm', modelId: 'm1', discoveryPolicy: null }],
-        },
-      ],
-    };
-    const merged = resolveMergedDiscoveryPolicyForCapability(response, 'llm', 'm1');
-    expect(merged?.filters?.priceMax).toBe(40);
+    resetPymthouseDiscoveryAllowlistCacheForTests();
   });
 
   it('applyDiscoveryPolicyToOrchestrators enforces slaMinScore without filters', () => {
@@ -105,31 +68,21 @@ describe('orchestrators-discovery-policy', () => {
     expect(merged?.filters?.priceMax).toBe(10);
   });
 
-  it('applyPymthouseDiscoveryToOrchestrators returns [] when no bundle matches scoped pipeline', async () => {
+  it('applyPymthouseDiscoveryToOrchestrators returns [] when allowlist blocks pipeline', async () => {
     vi.stubEnv('PYMTHOUSE_ISSUER_URL', 'http://localhost:9/api/v1/oidc');
     vi.stubEnv('PMTHOUSE_CLIENT_ID', 'pub');
     vi.stubEnv('PMTHOUSE_M2M_CLIENT_ID', 'm2m');
     vi.stubEnv('PMTHOUSE_M2M_CLIENT_SECRET', 'secret');
-    const payload: PymthouseDiscoveryPlansResponse = {
-      plans: [
-        {
-          id: 'p1',
-          name: 'P',
-          status: 'active',
-          discoveryPolicy: null,
-          capabilities: [{ pipeline: 'video', modelId: '*', discoveryPolicy: null }],
-        },
-      ],
-    };
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
         Promise.resolve({
           ok: true,
-          json: async () => payload,
+          json: async () => ({ capabilities: [{ pipeline: 'video', modelId: '*' }] }),
         } as Response),
       ),
     );
+    await syncPymthouseDiscoveryAllowlistSnapshot();
     const rows = [baseRow({ address: '0xa' })];
     const out = await applyPymthouseDiscoveryToOrchestrators(rows, {
       pipeline: 'llm',
@@ -138,37 +91,21 @@ describe('orchestrators-discovery-policy', () => {
     expect(out).toEqual([]);
   });
 
-  it('applyPymthouseDiscoveryToOrchestrators applies remote topN when bundle matches', async () => {
+  it('applyPymthouseDiscoveryToOrchestrators passes when pair is on allowlist and applies user topN', async () => {
     vi.stubEnv('PYMTHOUSE_ISSUER_URL', 'http://localhost:9/api/v1/oidc');
     vi.stubEnv('PMTHOUSE_CLIENT_ID', 'pub');
     vi.stubEnv('PMTHOUSE_M2M_CLIENT_ID', 'm2m');
     vi.stubEnv('PMTHOUSE_M2M_CLIENT_SECRET', 'secret');
-    const payload: PymthouseDiscoveryPlansResponse = {
-      plans: [
-        {
-          id: 'p1',
-          name: 'P',
-          status: 'active',
-          discoveryPolicy: null,
-          capabilities: [
-            {
-              pipeline: 'llm',
-              modelId: 'm1',
-              discoveryPolicy: { topN: 1, sortBy: 'slaScore' },
-            },
-          ],
-        },
-      ],
-    };
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
         Promise.resolve({
           ok: true,
-          json: async () => payload,
+          json: async () => ({ capabilities: [{ pipeline: 'llm', modelId: 'm1' }] }),
         } as Response),
       ),
     );
+    await syncPymthouseDiscoveryAllowlistSnapshot();
     const rows = [
       baseRow({ address: '0xa', slaScore: 60 }),
       baseRow({ address: '0xb', slaScore: 90 }),
@@ -176,8 +113,32 @@ describe('orchestrators-discovery-policy', () => {
     const out = await applyPymthouseDiscoveryToOrchestrators(rows, {
       pipeline: 'llm',
       modelId: 'm1',
+      userDiscoveryPolicy: { topN: 1, sortBy: 'slaScore' },
     });
     expect(out).toHaveLength(1);
     expect(out[0].address).toBe('0xb');
+  });
+
+  it('applyPymthouseDiscoveryToOrchestrators fail-open when fetch fails', async () => {
+    vi.stubEnv('PYMTHOUSE_ISSUER_URL', 'http://localhost:9/api/v1/oidc');
+    vi.stubEnv('PMTHOUSE_CLIENT_ID', 'pub');
+    vi.stubEnv('PMTHOUSE_M2M_CLIENT_ID', 'm2m');
+    vi.stubEnv('PMTHOUSE_M2M_CLIENT_SECRET', 'secret');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Promise.resolve({
+          ok: false,
+          json: async () => ({}),
+        } as Response),
+      ),
+    );
+    await syncPymthouseDiscoveryAllowlistSnapshot();
+    const rows = [baseRow({ address: '0xa' }), baseRow({ address: '0xb' })];
+    const out = await applyPymthouseDiscoveryToOrchestrators(rows, {
+      pipeline: 'llm',
+      modelId: 'm1',
+    });
+    expect(out).toHaveLength(2);
   });
 });

@@ -32,7 +32,9 @@ import { getRowsForCapability } from '../global-dataset';
 const mockPlan: DiscoveryPlan = {
   id: 'plan-1',
   billingPlanId: 'bp-1',
+  billingProviderSlug: 'pymthouse',
   name: 'Test Plan',
+  description: null,
   teamId: 'team-1',
   ownerUserId: 'user-1',
   capabilities: ['image-to-image'],
@@ -96,5 +98,15 @@ describe('evaluateAndCache', () => {
     };
     const results = await evaluateAndCache(multiPlan, 'test-token');
     expect(Object.keys(results.capabilities)).toEqual(['cap-a', 'cap-b']);
+  });
+
+  it('invalidatePlanCache removes all composite-key entries for a plan id', async () => {
+    const planA: DiscoveryPlan = { ...mockPlan, id: 'plan-x', capabilities: ['c1'] };
+    const planB: DiscoveryPlan = { ...mockPlan, id: 'plan-x', capabilities: ['c2'] };
+    await evaluateAndCache(planA, 'test-token');
+    await evaluateAndCache(planB, 'test-token');
+    expect(getCachedPlanResults('plan-x')).not.toBeNull();
+    invalidatePlanCache('plan-x');
+    expect(getCachedPlanResults('plan-x')).toBeNull();
   });
 });

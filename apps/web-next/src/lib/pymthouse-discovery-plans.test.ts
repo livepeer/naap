@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchPymthouseDiscoveryPlans,
   getPymthouseApiV1Base,
+  mapPymthousePlansResponse,
   mergeDiscoveryPolicies,
   resetPymthouseDiscoveryPlansCacheForTests,
 } from '@/lib/pymthouse-discovery-plans';
@@ -35,19 +36,52 @@ describe('pymthouse-discovery-plans', () => {
     vi.stubEnv('PYMTHOUSE_M2M_CLIENT_ID', 'm2m_x');
     vi.stubEnv('PMTHOUSE_M2M_CLIENT_SECRET', 'secret');
 
-    const payload = { plans: [{ id: 'p1', name: 'P', status: 'active', discoveryPolicy: null, capabilities: [] }] };
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Promise.resolve({
-          ok: true,
-          json: async () => payload,
-        } as Response),
-      ),
+    const fetchMock = vi.fn(async () =>
+      Promise.resolve({
+        ok: true,
+        json: async () => ({
+          plans: [{ id: 'p1', name: 'P', status: 'active', discoveryPolicy: null, capabilities: [] }],
+        }),
+      } as Response),
     );
+    vi.stubGlobal('fetch', fetchMock);
 
     const out = await fetchPymthouseDiscoveryPlans({ skipCache: true });
     expect(out?.plans).toHaveLength(1);
     expect(out?.plans[0].id).toBe('p1');
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/apps/app_x/plans');
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain('discovery');
+  });
+
+  it('mapPymthousePlansResponse drops network default and inactive', () => {
+    const raw = {
+      plans: [
+        {
+          id: 'net',
+          name: '__pymthouse_network_default__',
+          status: 'active',
+          isNetworkDefault: true,
+          discoveryPolicy: null,
+          capabilities: [],
+        },
+        { id: 'p1', name: 'Custom', status: 'draft', discoveryPolicy: null, capabilities: [] },
+        {
+          id: 'p2',
+          name: 'Live',
+          status: 'active',
+          isNetworkDefault: false,
+          discoveryPolicy: { topN: 3 },
+          capabilities: [{ pipeline: 'llm', modelId: 'm1', discoveryPolicy: null }],
+        },
+      ],
+    };
+    const out = mapPymthousePlansResponse(raw);
+    expect(out?.plans).toHaveLength(1);
+    expect(out?.plans[0].id).toBe('p2');
+    expect(out?.plans[0].capabilities[0]).toEqual({
+      pipeline: 'llm',
+      modelId: 'm1',
+      discoveryPolicy: null,
+    });
   });
 });

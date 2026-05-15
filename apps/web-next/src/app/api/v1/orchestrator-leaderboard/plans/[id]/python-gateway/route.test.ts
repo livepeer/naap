@@ -33,6 +33,7 @@ describe('GET /api/v1/orchestrator-leaderboard/plans/:id/python-gateway', () => 
     (getPlan as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: 'plan-1',
       billingPlanId: 'bp-1',
+      billingProviderSlug: 'daydream',
       name: 'Test',
       description: null,
       teamId: null,

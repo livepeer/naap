@@ -1,58 +1,15 @@
 /**
- * Applies PymtHouse app-scoped discovery plans to dashboard orchestrator rows.
+ * Applies PymtHouse app-level discovery allowlist to dashboard orchestrator rows.
  * Used when `pipeline` + `model_id` query params scope the request.
  */
 
 import type { DashboardOrchestrator } from '@naap/plugin-sdk';
 
-import type { DiscoveryPolicy, PymthouseDiscoveryPlansResponse } from '@/lib/pymthouse-discovery-plans';
-import { fetchPymthouseDiscoveryPlans, mergeDiscoveryPolicies } from '@/lib/pymthouse-discovery-plans';
-
-function bundleMatches(pipeline: string, modelId: string, b: { pipeline: string; modelId: string }): boolean {
-  return b.pipeline === pipeline && (b.modelId === modelId || b.modelId === '*');
-}
-
-/**
- * Merge plan default + all bundles that match `{ pipeline, modelId }` (including `modelId === "*"`).
- */
-export function effectiveCapabilityDiscoveryPolicy(
-  plan: PymthouseDiscoveryPlansResponse['plans'][0],
-  pipeline: string,
-  modelId: string,
-): DiscoveryPolicy | null {
-  const matching = plan.capabilities.filter((b) => bundleMatches(pipeline, modelId, b));
-  if (matching.length === 0) {
-    return null;
-  }
-  let acc: DiscoveryPolicy | null = plan.discoveryPolicy;
-  for (const b of matching) {
-    acc = mergeDiscoveryPolicies(acc, b.discoveryPolicy);
-  }
-  // Capability is allowed but every layer omitted policy — treat as unconstrained envelope.
-  if (acc === null) {
-    return {};
-  }
-  return acc;
-}
-
-/**
- * Intersect policies across all active plans that declare a matching capability bundle.
- */
-export function resolveMergedDiscoveryPolicyForCapability(
-  response: PymthouseDiscoveryPlansResponse,
-  pipeline: string,
-  modelId: string,
-): DiscoveryPolicy | null {
-  let acc: DiscoveryPolicy | null = null;
-  for (const plan of response.plans) {
-    const perPlan = effectiveCapabilityDiscoveryPolicy(plan, pipeline, modelId);
-    if (perPlan === null) {
-      continue;
-    }
-    acc = mergeDiscoveryPolicies(acc, perPlan);
-  }
-  return acc;
-}
+import type { DiscoveryPolicy } from '@/lib/pymthouse-discovery-plans';
+import {
+  getPymthouseDiscoveryAllowlistSnapshot,
+  isPipelineModelInAllowlist,
+} from '@/lib/pymthouse-discovery-allowlist';
 
 function swapRatioFromNoSwapPct(noSwapRatio: number | null | undefined): number | null {
   if (noSwapRatio === null || noSwapRatio === undefined) return null;
@@ -95,7 +52,7 @@ function sortValue(row: DashboardOrchestrator, sortBy: NonNullable<DiscoveryPoli
 }
 
 /**
- * Filter / sort / cap orchestrators using a merged discovery policy.
+ * Filter / sort / cap orchestrators using a user discovery policy.
  */
 export function applyDiscoveryPolicyToOrchestrators(
   rows: DashboardOrchestrator[],
@@ -126,9 +83,10 @@ export interface OrchestratorDiscoveryOpts {
 }
 
 /**
- * When `pipeline` and `modelId` are set and PymtHouse discovery env is configured,
- * fetches app policy, merges with `userDiscoveryPolicy`, and applies to `rows`.
- * If PymtHouse is unreachable or returns no data, returns `rows` unchanged (fail-open).
+ * When `pipeline` and `modelId` are set, optionally intersects with the PymtHouse Builder
+ * discovery allowlist (M2M). If the pair is not on the allowlist when restrictions exist,
+ * returns no rows. If the allowlist is empty or unreachable, does not restrict (fail-open).
+ * Applies `userDiscoveryPolicy` only (no merged PymtHouse SLA envelope from legacy plans).
  */
 export async function applyPymthouseDiscoveryToOrchestrators(
   rows: DashboardOrchestrator[],
@@ -140,16 +98,13 @@ export async function applyPymthouseDiscoveryToOrchestrators(
     return rows;
   }
 
-  const remote = await fetchPymthouseDiscoveryPlans();
-  if (!remote?.plans.length) {
-    return rows;
+  const allowlist = getPymthouseDiscoveryAllowlistSnapshot().data;
+  if (allowlist?.capabilities?.length) {
+    if (!isPipelineModelInAllowlist(allowlist, pipeline, modelId)) {
+      return [];
+    }
   }
 
-  const appPolicy = resolveMergedDiscoveryPolicyForCapability(remote, pipeline, modelId);
-  if (appPolicy === null) {
-    return [];
-  }
-
-  const merged = mergeDiscoveryPolicies(appPolicy, opts.userDiscoveryPolicy ?? null);
+  const merged = opts.userDiscoveryPolicy ?? null;
   return applyDiscoveryPolicyToOrchestrators(rows, merged);
 }

@@ -64,6 +64,7 @@ export function usePlanDetail(planId: string): UsePlanDetailResult {
           slaMinScore: found.slaMinScore,
           sortBy: found.sortBy,
           filters: found.filters,
+          billingProviderSlug: found.billingProviderSlug ?? 'pymthouse',
         });
         setDirty(false);
       } catch (err) {

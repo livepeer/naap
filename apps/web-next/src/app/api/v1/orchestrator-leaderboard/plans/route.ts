@@ -21,7 +21,8 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
     return errors.unauthorized('Missing or invalid authentication');
   }
 
-  const plans = await listPlans(scopeFromAuth(auth));
+  const billingProviderSlug = request.nextUrl.searchParams.get('billingProviderSlug');
+  const plans = await listPlans(scopeFromAuth(auth), billingProviderSlug);
   return success({ plans });
 }
 

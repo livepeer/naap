@@ -16,6 +16,8 @@ import { validateSession } from '@/lib/api/auth';
 import { getAuthToken } from '@/lib/api/response';
 import { getRefreshIntervalMs, getLastRefreshedAt } from '@/lib/orchestrator-leaderboard/config';
 import { refreshGlobalDataset } from '@/lib/orchestrator-leaderboard/global-refresh';
+import { syncPymthouseDiscoveryAllowlistSnapshot } from '@/lib/pymthouse-discovery-allowlist';
+import { clearPlanCache } from '@/lib/orchestrator-leaderboard/refresh';
 
 function isCronAuth(request: NextRequest): boolean {
   const auth = request.headers.get('authorization');
@@ -51,12 +53,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (cronAuthed) {
     const lastRefreshed = await getLastRefreshedAt();
     if (lastRefreshed && Date.now() - lastRefreshed.getTime() < intervalMs) {
+      const { revisionChanged } = await syncPymthouseDiscoveryAllowlistSnapshot();
+      if (revisionChanged) {
+        clearPlanCache();
+      }
       return NextResponse.json({
         success: true,
         data: {
           skipped: true,
           reason: 'Global dataset is still fresh',
           nextRefreshInMs: intervalMs - (Date.now() - lastRefreshed.getTime()),
+          pymthouseAllowlistRevisionChanged: revisionChanged,
         },
       });
     }

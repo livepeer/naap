@@ -64,7 +64,57 @@ export function resetPymthouseDiscoveryPlansCacheForTests(): void {
 }
 
 /**
- * GET `/api/v1/apps/{publicClientId}/plans/discovery` using M2M Basic auth.
+ * Map Builder `GET /api/v1/apps/{id}/plans` JSON to the legacy discovery-plans shape.
+ * Drops the Network Price default row (`isNetworkDefault`) and inactive plans.
+ */
+export function mapPymthousePlansResponse(raw: unknown): PymthouseDiscoveryPlansResponse | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const plansRaw = (raw as { plans?: unknown }).plans;
+  if (!Array.isArray(plansRaw)) return null;
+
+  const plans: PymthouseDiscoveryPlanRow[] = [];
+
+  for (const row of plansRaw) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    if (r.status !== "active") continue;
+    if (r.isNetworkDefault === true) continue;
+
+    const id = typeof r.id === "string" ? r.id : "";
+    const name = typeof r.name === "string" ? r.name : "";
+    const status = typeof r.status === "string" ? r.status : "active";
+    if (!id) continue;
+
+    const discoveryPolicy =
+      r.discoveryPolicy === null || r.discoveryPolicy === undefined
+        ? null
+        : (r.discoveryPolicy as DiscoveryPolicy);
+
+    const capabilities: PymthouseDiscoveryCapability[] = [];
+    const capsRaw = r.capabilities;
+    if (Array.isArray(capsRaw)) {
+      for (const c of capsRaw) {
+        if (!c || typeof c !== "object") continue;
+        const cc = c as Record<string, unknown>;
+        const pipeline = typeof cc.pipeline === "string" ? cc.pipeline : "";
+        const modelId = typeof cc.modelId === "string" ? cc.modelId : "";
+        if (!pipeline || !modelId) continue;
+        const capPolicy =
+          cc.discoveryPolicy === null || cc.discoveryPolicy === undefined
+            ? null
+            : (cc.discoveryPolicy as DiscoveryPolicy);
+        capabilities.push({ pipeline, modelId, discoveryPolicy: capPolicy });
+      }
+    }
+
+    plans.push({ id, name, status, discoveryPolicy, capabilities });
+  }
+
+  return { plans };
+}
+
+/**
+ * GET `/api/v1/apps/{publicClientId}/plans` using M2M Basic auth (canonical; replaces deprecated `/plans/discovery`).
  * Returns null if env incomplete or request fails.
  */
 export async function fetchPymthouseDiscoveryPlans(opts?: {
@@ -88,8 +138,8 @@ export async function fetchPymthouseDiscoveryPlans(opts?: {
   }
 
   const basic = Buffer.from(`${m2mId}:${m2mSecret}`, "utf8").toString("base64");
-  const url = `${base}/apps/${encodeURIComponent(publicId)}/plans/discovery`;
-  let body: PymthouseDiscoveryPlansResponse;
+  const url = `${base}/apps/${encodeURIComponent(publicId)}/plans`;
+  let body: PymthouseDiscoveryPlansResponse | null;
   try {
     const res = await fetch(url, {
       method: "GET",
@@ -100,7 +150,8 @@ export async function fetchPymthouseDiscoveryPlans(opts?: {
     if (!res.ok) {
       return null;
     }
-    body = (await res.json()) as PymthouseDiscoveryPlansResponse;
+    const json: unknown = await res.json();
+    body = mapPymthousePlansResponse(json);
   } catch {
     return null;
   }

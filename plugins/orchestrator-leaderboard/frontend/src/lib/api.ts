@@ -138,6 +138,7 @@ export type PlanSortBy = 'slaScore' | 'latency' | 'price' | 'swapRate' | 'avail'
 export interface DiscoveryPlan {
   id: string;
   billingPlanId: string;
+  billingProviderSlug: 'pymthouse' | 'daydream' | null;
   name: string;
   description: string | null;
   teamId: string | null;
@@ -166,6 +167,7 @@ export interface PlanResults {
 
 export interface PlanUpdatePayload {
   name?: string;
+  billingProviderSlug?: 'pymthouse' | 'daydream' | null;
   capabilities?: string[];
   topN?: number;
   slaWeights?: SLAWeights | null;

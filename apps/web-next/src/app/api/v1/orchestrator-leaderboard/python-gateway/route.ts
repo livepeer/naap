@@ -14,6 +14,10 @@ import { authorize } from '@/lib/gateway/authorize';
 import { getAuthToken } from '@/lib/api/response';
 import { fetchLeaderboard } from '@/lib/orchestrator-leaderboard/query';
 import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
+import {
+  getPymthouseDiscoveryAllowlistSnapshot,
+  isLeaderboardCapabilityAllowed,
+} from '@/lib/pymthouse-discovery-allowlist';
 
 const DEFAULT_CAPABILITY = 'noop';
 const DEFAULT_TOP_N = 100;
@@ -25,21 +29,24 @@ function capabilityFromCapsValue(raw: string): string {
   return slash >= 0 ? value.slice(slash + 1).trim() : value;
 }
 
-function resolveCapabilities(url: URL): string[] {
+/** Pairs full cap path (allowlist) with short leaderboard capability name (ClickHouse). */
+function resolveCapabilityPairs(url: URL): { raw: string; leaderboardCap: string }[] {
   const caps = url.searchParams
     .getAll('caps')
-    .map(capabilityFromCapsValue)
+    .map((s) => s.trim())
     .filter(Boolean);
-
   if (caps.length > 0) {
-    return [...new Set(caps)];
+    return [...new Set(caps)].map((raw) => ({
+      raw,
+      leaderboardCap: capabilityFromCapsValue(raw),
+    }));
   }
 
   const explicit =
     url.searchParams.get('capability')?.trim() ||
     url.searchParams.get('model')?.trim() ||
     DEFAULT_CAPABILITY;
-  return [explicit];
+  return [{ raw: explicit, leaderboardCap: explicit }];
 }
 
 function resolveTopN(url: URL): number {
@@ -65,7 +72,13 @@ export async function GET(request: NextRequest): Promise<Response> {
   }
 
   const url = new URL(request.url);
-  const capabilities = resolveCapabilities(url);
+  const billingProvider = url.searchParams.get('billingProvider')?.trim().toLowerCase() ?? '';
+  const allowlist =
+    billingProvider === 'pymthouse'
+      ? getPymthouseDiscoveryAllowlistSnapshot().data
+      : null;
+
+  const capabilityPairs = resolveCapabilityPairs(url);
   const topN = resolveTopN(url);
   const authToken = getAuthToken(request) || '';
 
@@ -75,9 +88,12 @@ export async function GET(request: NextRequest): Promise<Response> {
     let cacheAgeMs = 0;
     let fromCache = true;
 
-    for (const capability of capabilities) {
+    for (const { raw, leaderboardCap } of capabilityPairs) {
+      if (allowlist?.capabilities?.length && !isLeaderboardCapabilityAllowed(allowlist, raw)) {
+        continue;
+      }
       const result = await fetchLeaderboard(
-        capability,
+        leaderboardCap,
         authToken,
         request.url,
         request.headers.get('cookie'),

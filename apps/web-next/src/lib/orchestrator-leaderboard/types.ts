@@ -7,6 +7,11 @@
 
 import { z } from 'zod';
 
+export const BILLING_PROVIDER_SLUGS = ['pymthouse', 'daydream'] as const;
+export type BillingProviderSlug = (typeof BILLING_PROVIDER_SLUGS)[number];
+
+export const BillingProviderSlugSchema = z.enum(BILLING_PROVIDER_SLUGS);
+
 // ---------------------------------------------------------------------------
 // API Request
 // ---------------------------------------------------------------------------
@@ -112,6 +117,7 @@ export type PlanSortBy = (typeof PLAN_SORT_OPTIONS)[number];
 
 export const CreatePlanSchema = z.object({
   billingPlanId: z.string().min(1).max(255),
+  billingProviderSlug: BillingProviderSlugSchema.optional().default('pymthouse'),
   name: z.string().min(1).max(255),
   description: z.string().max(1000).optional(),
   capabilities: z.array(z.string().regex(CAPABILITY_RE).max(128)).min(1).max(50),
@@ -137,6 +143,7 @@ export type PlanVisibility = 'personal' | 'team' | 'public';
 export interface DiscoveryPlan {
   id: string;
   billingPlanId: string;
+  billingProviderSlug: BillingProviderSlug | null;
   name: string;
   description: string | null;
   visibility: PlanVisibility;

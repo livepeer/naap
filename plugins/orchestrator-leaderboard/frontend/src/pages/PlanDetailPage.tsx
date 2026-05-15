@@ -101,6 +101,10 @@ export const PlanDetailPage: React.FC = () => {
             )}
           </div>
           <p className="text-[12px] text-text-muted font-mono mt-1">{plan.billingPlanId}</p>
+          <p className="text-[11px] text-text-muted mt-0.5">
+            Billing provider:{' '}
+            <span className="text-text-secondary font-medium">{plan.billingProviderSlug ?? '—'}</span>
+          </p>
           <div className="flex items-center gap-4 text-[11px] text-text-muted mt-1">
             <span className="flex items-center gap-1">
               <Clock size={10} /> Created {new Date(plan.createdAt).toLocaleDateString()}
@@ -155,6 +159,28 @@ export const PlanDetailPage: React.FC = () => {
           <SlidersHorizontal size={14} className="text-accent-blue" />
           <span className="text-xs font-semibold text-accent-blue uppercase tracking-wider">Configuration</span>
           <span className="text-[10px] text-text-muted ml-2">Edit to see how results change</span>
+        </div>
+
+        <div>
+          <label className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">
+            Billing provider
+          </label>
+          <select
+            value={draft.billingProviderSlug ?? plan.billingProviderSlug ?? 'pymthouse'}
+            onChange={(e) =>
+              setDraft({
+                billingProviderSlug: e.target.value as 'pymthouse' | 'daydream',
+              })
+            }
+            className="w-full max-w-md px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-text-primary text-sm focus:ring-2 focus:ring-accent-emerald/40 focus:border-accent-emerald/40 transition-all"
+          >
+            <option value="pymthouse">pymthouse (Network Price discovery allowlist)</option>
+            <option value="daydream">daydream (no allowlist)</option>
+          </select>
+          <p className="text-[10px] text-text-muted mt-1">
+            PymtHouse plans intersect the Builder <code className="text-text-secondary">GET …/discovery-allowlist</code> resolved
+            set; Daydream does not.
+          </p>
         </div>
 
         {/* Top N + Sort By row */}

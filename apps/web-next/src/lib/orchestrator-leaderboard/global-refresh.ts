@@ -15,6 +15,7 @@ import { resolve, type ResolverConfig, type AuditEntry } from './resolver';
 import { writeGlobalDataset } from './global-dataset';
 import { getMembershipStrategy } from './config';
 import { clearPlanCache } from './refresh';
+import { syncPymthouseDiscoveryAllowlistSnapshot } from '@/lib/pymthouse-discovery-allowlist';
 
 // ---------------------------------------------------------------------------
 // Load resolver config from DB (LeaderboardSource table)
@@ -106,6 +107,11 @@ export async function refreshGlobalDataset(
   orchestrators: number;
 }> {
   const t0 = Date.now();
+  const { revisionChanged } = await syncPymthouseDiscoveryAllowlistSnapshot();
+  if (revisionChanged) {
+    clearPlanCache();
+  }
+
   const cfg = await loadResolverConfig();
   cfg.membershipStrategy = await getMembershipStrategy();
   const enabled = cfg.sources.filter((s) => s.enabled).sort((a, b) => a.priority - b.priority);

@@ -16,6 +16,10 @@ import { getAuthToken } from '@/lib/api/response';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
 import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
+import {
+  getPymthouseDiscoveryAllowlistSnapshot,
+  filterPlanCapabilitiesForAllowlist,
+} from '@/lib/pymthouse-discovery-allowlist';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -53,9 +57,25 @@ export async function GET(
 
   const authToken = getAuthToken(request) || '';
 
+  const allowlist =
+    plan.billingProviderSlug === 'pymthouse'
+      ? getPymthouseDiscoveryAllowlistSnapshot().data
+      : null;
+  const allowedCaps = filterPlanCapabilitiesForAllowlist(plan.capabilities, allowlist);
+  if (allowedCaps.length === 0) {
+    return NextResponse.json([], {
+      headers: {
+        'Cache-Control': 'private, max-age=10',
+        'X-Discovery-Allowlist': 'empty',
+      },
+    });
+  }
+
+  const planForEval = { ...plan, capabilities: allowedCaps };
+
   try {
     const results = await evaluateAndCache(
-      plan,
+      planForEval,
       authToken,
       request.url,
       request.headers.get('cookie'),
@@ -64,7 +84,7 @@ export async function GET(
     const out: { address: string }[] = [];
     const seen = new Set<string>();
 
-    for (const capability of plan.capabilities) {
+    for (const capability of allowedCaps) {
       const rows = results.capabilities[capability] ?? [];
       for (const row of rows) {
         const u = row.orchUri?.trim();

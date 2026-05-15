@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';
 import { errors } from '@/lib/api/response';
 import { createPlan, listPlans } from '@/lib/orchestrator-leaderboard/plans';
-import type { CreatePlanInput } from '@/lib/orchestrator-leaderboard/types';
+import type { CreatePlanInput, PlanSortBy } from '@/lib/orchestrator-leaderboard/types';
 
 interface DemoPlanTemplate {
   slug: string;
@@ -21,7 +21,7 @@ interface DemoPlanTemplate {
   topN: number;
   slaWeights?: { latency: number; swapRate: number; price: number };
   slaMinScore?: number;
-  sortBy?: string;
+  sortBy?: PlanSortBy;
   filters?: { maxAvgLatencyMs?: number };
 }
 
@@ -88,6 +88,7 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
 
     const input: CreatePlanInput = {
       billingPlanId,
+      billingProviderSlug: 'pymthouse',
       name: tpl.name,
       capabilities: tpl.capabilities,
       topN: tpl.topN,

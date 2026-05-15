@@ -13,6 +13,7 @@
  * Mutations on public plans require isAdmin.
  */
 
+import type { Prisma } from '@naap/database';
 import { prisma } from '@/lib/db';
 import type {
   CreatePlanInput,
@@ -48,10 +49,32 @@ function writeScopeWhere(scope: PlanScope) {
   return { OR: conditions };
 }
 
+function listPlansWhere(
+  scope: PlanScope,
+  billingProviderSlug?: string | null,
+): Prisma.DiscoveryPlanWhereInput {
+  const base = scopeWhere(scope) as Prisma.DiscoveryPlanWhereInput;
+  const slug = billingProviderSlug?.trim();
+  if (!slug) {
+    return base;
+  }
+
+  const slugPart: Prisma.DiscoveryPlanWhereInput =
+    slug === 'pymthouse'
+      ? { OR: [{ billingProviderSlug: 'pymthouse' }, { billingProviderSlug: null }] }
+      : { billingProviderSlug: slug };
+
+  if (!base || Object.keys(base).length === 0) {
+    return slugPart;
+  }
+  return { AND: [base, slugPart] };
+}
+
 function toPlan(row: Record<string, unknown>): DiscoveryPlan {
   return {
     id: row.id as string,
     billingPlanId: row.billingPlanId as string,
+    billingProviderSlug: (row.billingProviderSlug as DiscoveryPlan['billingProviderSlug']) ?? null,
     name: row.name as string,
     description: (row.description as string) ?? null,
     visibility: (row.visibility as PlanVisibility) ?? 'personal',
@@ -76,6 +99,7 @@ export async function createPlan(
   const row = await prisma.discoveryPlan.create({
     data: {
       billingPlanId: input.billingPlanId,
+      billingProviderSlug: input.billingProviderSlug,
       name: input.name,
       description: input.description ?? undefined,
       visibility: 'personal',
@@ -92,7 +116,10 @@ export async function createPlan(
   return toPlan(row as unknown as Record<string, unknown>);
 }
 
-export async function listPlans(scope: PlanScope): Promise<DiscoveryPlan[]> {
+export async function listPlans(
+  scope: PlanScope,
+  billingProviderSlug?: string | null,
+): Promise<DiscoveryPlan[]> {
   const rows = await prisma.discoveryPlan.findMany({
     where: readScopeWhere(scope),
     orderBy: { createdAt: 'desc' },
@@ -137,6 +164,7 @@ export async function updatePlan(
       ...(input.slaMinScore !== undefined && { slaMinScore: input.slaMinScore }),
       ...(input.sortBy !== undefined && { sortBy: input.sortBy }),
       ...(input.filters !== undefined && { filters: input.filters }),
+      ...(input.billingProviderSlug !== undefined && { billingProviderSlug: input.billingProviderSlug }),
     },
   });
   if (result.count === 0) return null;

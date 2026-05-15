@@ -25,6 +25,7 @@ ChevronUp,
 import { Card, Badge, Modal } from '@naap/ui';
 import type { NetworkModel } from '@naap/plugin-sdk';
 import { formatFeeWeiStringToEthDisplay } from '@naap/utils';
+import { getPymthouseSignerBaseUrl } from '../lib/pymthouse-signer-base-url';
 
 const PIPELINE_COLOR: Record<string, string> = {
   'text-to-image':           '#f59e0b',
@@ -307,7 +308,7 @@ const DOCS_BILLING_PROVIDERS: DocsBillingProvider[] = [
   {
     id: 'pymthouse',
     name: 'PymtHouse',
-    signerUrl: 'https://pymthouse.com/api/signer',
+    signerUrl: getPymthouseSignerBaseUrl(),
     apiKeyHref: '/developer/keys',
     signerNote:
       'The PymtHouse signer validates your scoped signer session token on every ticket — your private key never leaves your machine.',
@@ -500,7 +501,9 @@ export const DeveloperView: React.FC = () => {
 
     void (async () => {
       try {
-        const res = await fetch('/api/v1/orchestrator-leaderboard/plans', { credentials: 'include' });
+        const slug = selectedBillingProvider?.slug?.trim();
+        const q = slug ? `?billingProviderSlug=${encodeURIComponent(slug)}` : '';
+        const res = await fetch(`/api/v1/orchestrator-leaderboard/plans${q}`, { credentials: 'include' });
         if (!res.ok || cancelled) {
           return;
         }
@@ -527,7 +530,7 @@ export const DeveloperView: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [showCreateModal, selectedBillingProvider?.slug]);
+  }, [showCreateModal, selectedBillingProvider?.slug, selectedBillingProviderId]);
 
   const displayedKeys = useMemo(() => {
     const filteredByRevoked = showRevoked
@@ -1053,12 +1056,16 @@ result = [...result].sort((a, b) => {
         const docsBp = DOCS_BILLING_PROVIDERS.find((p) => p.id === providerSlug);
         const signerBase =
           docsBp?.signerUrl?.replace(/\/+$/, '') ??
-          (providerSlug === 'daydream' ? 'https://signer.daydream.live' : 'https://pymthouse.com/api/signer');
+          (providerSlug === 'daydream'
+            ? 'https://signer.daydream.live'
+            : getPymthouseSignerBaseUrl().replace(/\/+$/, ''));
         const selectedPlanId = selectedDiscoveryPlanId.trim();
         const discoveryPath = selectedPlanId
           ? `/api/v1/orchestrator-leaderboard/plans/${encodeURIComponent(selectedPlanId)}/python-gateway`
           : '/api/v1/orchestrator-leaderboard/python-gateway';
-        const discoveryUrl = `${window.location.origin}${discoveryPath}`;
+        const discoveryQs =
+          !selectedPlanId && providerSlug === 'pymthouse' ? '?billingProvider=pymthouse' : '';
+        const discoveryUrl = `${window.location.origin}${discoveryPath}${discoveryQs}`;
         const signerAuth = `Bearer ${providerApiKey}`;
         const gwName = `python-gateway discovery${newKeyLabel.trim() ? ` — ${newKeyLabel.trim()}` : ''}`.slice(0, 128);
         let discoveryAuth = '';
@@ -1991,9 +1998,25 @@ result = [...result].sort((a, b) => {
                   Discovery plan <span className="text-text-secondary font-normal">(optional)</span>
                 </label>
                 <p className="text-xs text-text-secondary mb-2">
-                  Pick a saved plan to use curated orchestration rules. Leave blank to use NaaP's default discovery response for
-                  the model requested by python-gateway. Discovery calls NaaP with a new <code className="text-slate-300">gw_…</code>{' '}
-                  gateway key; the signer still uses your billing provider secret above.
+                  {selectedBillingProvider?.slug === 'pymthouse' ? (
+                    <>
+                      Pick a saved <strong className="text-text-primary">PymtHouse</strong> discovery plan (or leave blank for
+                      default discovery). Results are intersected with your PymtHouse app&apos;s{' '}
+                      <strong className="text-text-primary">Network Price</strong> discovery allowlist (
+                      <code className="text-slate-300">GET …/discovery-allowlist</code>
+                      ); capabilities outside that resolved list return no orchestrators. Configure exclusions in PymtHouse{' '}
+                      <strong className="text-text-primary">Plans</strong>. Discovery uses a new{' '}
+                      <code className="text-slate-300">gw_…</code> gateway key; the signer still uses your billing provider secret
+                      above.
+                    </>
+                  ) : (
+                    <>
+                      Pick a saved plan for this billing provider. Leave blank to use NaaP&apos;s default discovery for the model
+                      requested by python-gateway. Daydream does not apply a PymtHouse-style allowlist. Discovery uses a new{' '}
+                      <code className="text-slate-300">gw_…</code> gateway key; the signer still uses your billing provider secret
+                      above.
+                    </>
+                  )}
                 </p>
                 {discoveryPlansLoading ? (
                   <div className="flex items-center gap-2 text-sm text-text-secondary">
