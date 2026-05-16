@@ -369,15 +369,36 @@ class ProxyServer:
         self._registrar = registrar
 
     async def _handle_list_capabilities(self, request: web.Request) -> web.Response:
-        """List all registered capabilities."""
+        """List all registered capabilities.
+
+        Includes hybrid-pricing display metadata when present (display_price_usd,
+        display_unit, unit_kind, pixels_per_unit) so storyboard MCP can quote
+        real USD costs via estimateCost. Also includes `meter` so the SDK can
+        surface unit-counting metadata. Fields are emitted only when non-null
+        to keep the response compact for older capabilities.
+        """
         caps = self._config.get_capabilities()
-        return web.json_response({
-            "capabilities": [
-                {"name": c.name, "model_id": c.model_id, "capacity": c.capacity,
-                 "price_per_unit": c.price_per_unit, "price_scaling": c.price_scaling}
-                for c in caps
-            ]
-        })
+        out = []
+        for c in caps:
+            entry = {
+                "name": c.name,
+                "model_id": c.model_id,
+                "capacity": c.capacity,
+                "price_per_unit": c.price_per_unit,
+                "price_scaling": c.price_scaling,
+            }
+            if c.display_price_usd is not None:
+                entry["display_price_usd"] = c.display_price_usd
+            if c.display_unit is not None:
+                entry["display_unit"] = c.display_unit
+            if c.unit_kind is not None:
+                entry["unit_kind"] = c.unit_kind
+            if c.pixels_per_unit is not None:
+                entry["pixels_per_unit"] = c.pixels_per_unit
+            if c.meter is not None:
+                entry["meter"] = c.meter
+            out.append(entry)
+        return web.json_response({"capabilities": out})
 
     async def _handle_add_capability(self, request: web.Request) -> web.Response:
         """Add or update a capability at runtime, register with orchestrator."""

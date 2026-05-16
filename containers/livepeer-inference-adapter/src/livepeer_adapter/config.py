@@ -21,6 +21,18 @@ class CapabilityConfig:
     # Dict keys: extractor (str), fallback (float), min_units (float|None),
     # max_units (float|None). See livepeer_adapter/metering/config.py.
     meter: Optional[dict] = None
+    # Hybrid-pricing display metadata (PR-C of pricing-metering-design).
+    # The orch bills wei-per-pixel via price_per_unit / price_scaling.
+    # These display_* fields surface a human-readable USD price so
+    # downstream consumers (storyboard MCP estimateCost, get_cost_report,
+    # max_cost_usd pre-flight caps, CLI cost previews) can quote a real
+    # dollar figure. Without them, every job's cost_usd_estimated is
+    # null and the aggregator reports $0 across all jobs. See
+    # storyboard-a3 lib/mcp-server/pricing/estimate.ts for the consumer.
+    display_price_usd: Optional[float] = None
+    display_unit: Optional[str] = None
+    unit_kind: Optional[str] = None
+    pixels_per_unit: Optional[int] = None
 
 
 @dataclass
@@ -118,6 +130,10 @@ class AdapterConfig:
                     capacity=c.get("capacity", 1), price_per_unit=c.get("price_per_unit", 0),
                     price_scaling=c.get("price_scaling", 1_000_000),
                     meter=c.get("meter"),
+                    display_price_usd=c.get("display_price_usd"),
+                    display_unit=c.get("display_unit"),
+                    unit_kind=c.get("unit_kind"),
+                    pixels_per_unit=c.get("pixels_per_unit"),
                 ) for c in caps_list
             ]
             return True
@@ -160,6 +176,10 @@ def load_config() -> AdapterConfig:
                     price_per_unit=c.get("price_per_unit", 0),
                     price_scaling=c.get("price_scaling", 1_000_000),
                     meter=c.get("meter"),
+                    display_price_usd=c.get("display_price_usd"),
+                    display_unit=c.get("display_unit"),
+                    unit_kind=c.get("unit_kind"),
+                    pixels_per_unit=c.get("pixels_per_unit"),
                 )
                 for c in caps_list
             ]
