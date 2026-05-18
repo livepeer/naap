@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@naap/database';
+import { invalidateAll } from '@naap/billing';
 import { getStripe } from '@/lib/billing/stripe';
 import { requireAdmin, HttpError } from '@/lib/billing/admin-auth';
 
@@ -62,5 +63,6 @@ export async function DELETE(
     }
   }
   await prisma.billPlan.update({ where: { id }, data: { isActive: false } });
+  invalidateAll();
   return NextResponse.json({ ok: true });
 }

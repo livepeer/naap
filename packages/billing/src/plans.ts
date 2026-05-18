@@ -18,6 +18,31 @@ const SYNTHETIC_FREE: Omit<CachedPlan, 'cachedAt'> = {
   cancelAtPeriodEnd: false,
 };
 
+/**
+ * Sentinel for "no plans configured anywhere in the system." Returned
+ * only when both (a) the account has no BillSubscription row and
+ * (b) there are zero active BillPlan rows in the entire database.
+ *
+ * Semantics: billing has not been opted into yet. Every feature is
+ * granted; every quota is unlimited. As soon as the admin creates the
+ * first plan (and runs invalidateAll), the gates start enforcing.
+ *
+ * Identifier `__billing_inactive__` is reserved — never use as a plan
+ * code in the DB.
+ */
+const BILLING_INACTIVE: Omit<CachedPlan, 'cachedAt'> = {
+  planId: '__billing_inactive__',
+  code: '__billing_inactive__',
+  status: 'active',
+  features: { telegram_bot: true, tax_package_generation: true, multi_user_teams: true },
+  quotas: { expenses_created: -1, ocr_scans: -1, ai_messages: -1, invoices_sent: -1, bank_connections: -1 },
+  currentPeriodStart: null,
+  currentPeriodEnd: null,
+  cancelAtPeriodEnd: false,
+};
+
+export const BILLING_INACTIVE_CODE = '__billing_inactive__';
+
 export interface CurrentPlan {
   plan: { id: string; code: string; name: string; priceCents: number; features: PlanFeatures; quotas: PlanQuotas };
   status: SubscriptionStatus;
@@ -39,18 +64,29 @@ async function loadCachedPlan(accountId: string): Promise<CachedPlan> {
   });
   if (!sub) {
     const free = await prisma.billPlan.findFirst({ where: { code: 'free', isActive: true } });
-    const entry: CachedPlan = free
-      ? {
-          planId: free.id,
-          code: free.code,
-          status: 'active',
-          features: free.features as unknown as PlanFeatures,
-          quotas: free.quotas as unknown as PlanQuotas,
-          currentPeriodStart: null,
-          currentPeriodEnd: null,
-          cancelAtPeriodEnd: false,
-          cachedAt: Date.now(),
-        }
+    if (free) {
+      const entry: CachedPlan = {
+        planId: free.id,
+        code: free.code,
+        status: 'active',
+        features: free.features as unknown as PlanFeatures,
+        quotas: free.quotas as unknown as PlanQuotas,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+        cachedAt: Date.now(),
+      };
+      planCache.set(accountId, entry);
+      return entry;
+    }
+    // No subscription AND no Free plan. Two distinct cases:
+    //   • Billing IS configured but Free was archived → synthetic Free
+    //     (most restrictive — surfaces a misconfiguration loudly)
+    //   • Billing NOT configured at all (zero plans) → grant access so
+    //     the product works while the admin sets things up
+    const activeCount = await prisma.billPlan.count({ where: { isActive: true } });
+    const entry: CachedPlan = activeCount === 0
+      ? { ...BILLING_INACTIVE, cachedAt: Date.now() }
       : { ...SYNTHETIC_FREE, cachedAt: Date.now() };
     planCache.set(accountId, entry);
     return entry;

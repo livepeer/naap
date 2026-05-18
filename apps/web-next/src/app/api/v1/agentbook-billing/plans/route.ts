@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@naap/database';
+import { invalidateAll } from '@naap/billing';
 import { getStripe } from '@/lib/billing/stripe';
 import { requireAdmin, HttpError } from '@/lib/billing/admin-auth';
 
@@ -76,6 +77,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         stripePriceId: price.id,
       },
     });
+    // Flip the "billing inactive" gate for every account; next
+    // entitlement check refreshes from DB.
+    invalidateAll();
     return NextResponse.json({ plan }, { status: 201 });
   } catch (err) {
     console.error('[billing] plan create failed:', err);

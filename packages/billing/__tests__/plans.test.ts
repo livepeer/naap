@@ -3,11 +3,15 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 const findUnique = vi.fn();
 const findFirst = vi.fn();
 const findMany = vi.fn();
+const count = vi.fn();
 
 vi.mock('@naap/database', () => ({
   prisma: {
     billSubscription: { findUnique: (...a: unknown[]) => findUnique(...a) },
-    billPlan: { findFirst: (...a: unknown[]) => findFirst(...a) },
+    billPlan: {
+      findFirst: (...a: unknown[]) => findFirst(...a),
+      count: (...a: unknown[]) => count(...a),
+    },
     billUsageCounter: { findMany: (...a: unknown[]) => findMany(...a) },
   },
 }));
@@ -30,11 +34,12 @@ beforeEach(() => {
   findUnique.mockReset();
   findFirst.mockReset();
   findMany.mockReset();
+  count.mockReset();
   _resetCacheForTests();
 });
 
 describe('getCurrentPlan', () => {
-  it('returns the Free fallback when no subscription exists', async () => {
+  it('returns the Free plan when no subscription but a Free plan is configured', async () => {
     findUnique.mockResolvedValue(null);
     findFirst.mockResolvedValue(freePlan);
     findMany.mockResolvedValue([]);
@@ -42,6 +47,27 @@ describe('getCurrentPlan', () => {
     expect(r.plan.code).toBe('free');
     expect(r.status).toBe('active');
     expect(r.usage.ocr_scans.used).toBe(0);
+  });
+
+  it('returns the billing-inactive marker when no plans exist at all', async () => {
+    findUnique.mockResolvedValue(null);
+    findFirst.mockResolvedValue(null); // no Free plan
+    count.mockResolvedValue(0);         // zero active plans anywhere
+    findMany.mockResolvedValue([]);
+    const r = await getCurrentPlan('account-1');
+    expect(r.plan.code).toBe('__billing_inactive__');
+    expect(r.plan.features.telegram_bot).toBe(true);
+    expect(r.plan.quotas.ocr_scans).toBe(-1);
+  });
+
+  it('returns synthetic Free (restrictive) when plans exist but no Free + no sub', async () => {
+    findUnique.mockResolvedValue(null);
+    findFirst.mockResolvedValue(null); // no Free plan
+    count.mockResolvedValue(2);         // but Pro + Business are configured
+    findMany.mockResolvedValue([]);
+    const r = await getCurrentPlan('account-1');
+    expect(r.plan.code).toBe('free');
+    expect(r.plan.features.telegram_bot).toBe(false);
   });
 
   it('returns the Pro plan when subscription is active', async () => {

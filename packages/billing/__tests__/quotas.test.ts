@@ -7,7 +7,10 @@ const upsert = vi.fn();
 vi.mock('@naap/database', () => ({
   prisma: {
     billSubscription: { findUnique: (...a: unknown[]) => findUnique(...a) },
-    billPlan: { findFirst: vi.fn().mockResolvedValue(null) },
+    billPlan: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      count: vi.fn().mockResolvedValue(1),
+    },
     billUsageCounter: {
       findMany: (...a: unknown[]) => findMany(...a),
       upsert: (...a: unknown[]) => upsert(...a),

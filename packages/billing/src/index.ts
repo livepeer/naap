@@ -22,3 +22,13 @@ import { planCache } from './cache.js';
 export function invalidateAccount(accountId: string): void {
   planCache.invalidate(accountId);
 }
+
+/**
+ * Plan-mutation hook — call from admin POST/DELETE /plans routes when
+ * the set of active plans changes. Every account's cache must drop so
+ * the "billing inactive → active" transition (and vice-versa) takes
+ * effect on the next entitlement check, not 24h later.
+ */
+export function invalidateAll(): void {
+  planCache.clear();
+}
