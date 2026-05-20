@@ -12,12 +12,18 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
+// API returns raw Prisma rows from /api/v1/agentbook-invoice/invoices
+// (apps/web-next/.../invoices/route.ts + the parallel Express handler in
+// plugins/agentbook-invoice/backend). Field names are camelCase; amounts
+// are stored in cents. Both backends include the client relation, so
+// `client.name` is available for display.
 interface Invoice {
   id: string;
-  invoice_number: string;
-  client_name: string;
-  amount: number;
-  due_date: string;
+  number: string;
+  client?: { name: string };
+  amountCents: number;
+  currency: string;
+  dueDate: string;
   status: 'draft' | 'sent' | 'overdue' | 'paid' | 'void';
   // Origin of the invoice — set on drafts created via the Telegram bot.
   source?: 'web' | 'telegram' | 'api' | null;
@@ -35,12 +41,16 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; i
 
 const TABS = ['all', 'draft', 'sent', 'overdue', 'paid'] as const;
 
-function formatCurrency(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+function formatCurrency(cents: number, currency = 'USD') {
+  const value = Number.isFinite(cents) ? cents / 100 : 0;
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase() || 'USD' }).format(value);
 }
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+function formatDate(d?: string | null) {
+  if (!d) return '—';
+  const parsed = new Date(d);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export const InvoiceListPage: React.FC = () => {
@@ -83,9 +93,12 @@ export const InvoiceListPage: React.FC = () => {
 
   const filtered = activeTab === 'all' ? invoices : invoices.filter((i) => i.status === activeTab);
 
-  const outstanding = invoices
+  const outstandingCents = invoices
     .filter((i) => i.status === 'sent' || i.status === 'overdue')
-    .reduce((sum, i) => sum + i.amount, 0);
+    .reduce((sum, i) => sum + (Number.isFinite(i.amountCents) ? i.amountCents : 0), 0);
+  // Use the currency of the first outstanding invoice for the banner; if
+  // a tenant mixes currencies the per-row amounts still render correctly.
+  const outstandingCurrency = invoices.find((i) => i.status === 'sent' || i.status === 'overdue')?.currency || 'USD';
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto">
@@ -122,7 +135,7 @@ export const InvoiceListPage: React.FC = () => {
             Total Outstanding
           </p>
           <p className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            {formatCurrency(outstanding)}
+            {formatCurrency(outstandingCents, outstandingCurrency)}
           </p>
         </div>
       </div>
@@ -197,7 +210,7 @@ export const InvoiceListPage: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="font-semibold text-sm text-foreground">
-                      {inv.invoice_number}
+                      {inv.number}
                     </span>
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.bg} ${cfg.text}`}>
                       {cfg.icon}
@@ -217,18 +230,18 @@ export const InvoiceListPage: React.FC = () => {
                     )}
                   </div>
                   <p className="text-sm truncate text-muted-foreground">
-                    {inv.client_name}
+                    {inv.client?.name ?? ''}
                   </p>
                 </div>
 
                 {/* Right: amount + due date */}
                 <div className="flex items-center justify-between sm:flex-col sm:items-end gap-1">
                   <span className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
-                    {formatCurrency(inv.amount)}
+                    {formatCurrency(inv.amountCents, inv.currency)}
                   </span>
                   <span className="text-xs flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
                     <Clock className="w-3 h-3" />
-                    {formatDate(inv.due_date)}
+                    {formatDate(inv.dueDate)}
                   </span>
                 </div>
               </div>
