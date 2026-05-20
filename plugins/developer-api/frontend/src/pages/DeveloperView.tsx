@@ -21,8 +21,9 @@ ChevronUp,
   ChevronDown,
   ChevronsUpDown,
   ExternalLink,
+  CircleHelp,
 } from 'lucide-react';
-import { Card, Badge, Modal } from '@naap/ui';
+import { Card, Badge, Modal, Tooltip } from '@naap/ui';
 import type { NetworkModel } from '@naap/plugin-sdk';
 import { formatFeeWeiStringToEthDisplay } from '@naap/utils';
 import { getPymthouseSignerBaseUrl } from '../lib/pymthouse-signer-base-url';
@@ -1994,29 +1995,45 @@ result = [...result].sort((a, b) => {
             </div>
             {billingProviderSupportsPythonGatewayDiscovery(selectedBillingProvider?.slug) && (
               <div>
-                <label className="block text-xs font-medium text-text-primary mb-1.5">
-                  Discovery plan <span className="text-text-secondary font-normal">(optional)</span>
-                </label>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-xs font-medium text-text-primary">
+                    Discovery plan <span className="text-text-secondary font-normal">(optional)</span>
+                  </label>
+                  <Tooltip
+                    position="right"
+                    className="whitespace-normal max-w-xs text-xs leading-relaxed"
+                    content={
+                      selectedBillingProvider?.slug === 'pymthouse' ? (
+                        <>
+                          Pick a saved PymtHouse discovery plan, or leave blank for default discovery. Results are intersected
+                          with your app&apos;s Network Price allowlist (
+                          <code className="text-slate-300">GET …/discovery-allowlist</code>
+                          ); capabilities outside that list return no orchestrators. Discovery uses a new{' '}
+                          <code className="text-slate-300">gw_…</code> gateway key; the signer still uses your billing provider
+                          secret above.
+                        </>
+                      ) : (
+                        <>
+                          Pick a saved plan or leave blank for NaaP&apos;s default discovery for the python-gateway model.
+                          No PymtHouse-style allowlist. Discovery uses a new <code className="text-slate-300">gw_…</code> gateway
+                          key; the signer still uses your billing provider secret above.
+                        </>
+                      )
+                    }
+                  >
+                    <button
+                      type="button"
+                      className="text-text-secondary hover:text-text-primary transition-colors"
+                      aria-label="Discovery plan help"
+                    >
+                      <CircleHelp size={14} />
+                    </button>
+                  </Tooltip>
+                </div>
                 <p className="text-xs text-text-secondary mb-2">
-                  {selectedBillingProvider?.slug === 'pymthouse' ? (
-                    <>
-                      Pick a saved <strong className="text-text-primary">PymtHouse</strong> discovery plan (or leave blank for
-                      default discovery). Results are intersected with your PymtHouse app&apos;s{' '}
-                      <strong className="text-text-primary">Network Price</strong> discovery allowlist (
-                      <code className="text-slate-300">GET …/discovery-allowlist</code>
-                      ); capabilities outside that resolved list return no orchestrators. Configure exclusions in PymtHouse{' '}
-                      <strong className="text-text-primary">Plans</strong>. Discovery uses a new{' '}
-                      <code className="text-slate-300">gw_…</code> gateway key; the signer still uses your billing provider secret
-                      above.
-                    </>
-                  ) : (
-                    <>
-                      Pick a saved plan for this billing provider. Leave blank to use NaaP&apos;s default discovery for the model
-                      requested by python-gateway. Daydream does not apply a PymtHouse-style allowlist. Discovery uses a new{' '}
-                      <code className="text-slate-300">gw_…</code> gateway key; the signer still uses your billing provider secret
-                      above.
-                    </>
-                  )}
+                  {selectedBillingProvider?.slug === 'pymthouse'
+                    ? 'Blank uses default discovery, filtered by your allowlist.'
+                    : 'Blank uses NaaP default discovery for the requested model.'}
                 </p>
                 {discoveryPlansLoading ? (
                   <div className="flex items-center gap-2 text-sm text-text-secondary">
@@ -2082,8 +2099,8 @@ result = [...result].sort((a, b) => {
               </p>
               <p className="text-sm text-text-secondary mt-1">
                 {selectedBillingProvider?.slug === 'pymthouse'
-                  ? 'The server is exchanging machine credentials with PymtHouse on your behalf. This page updates automatically when the key is ready—no new tab or interactive sign-in.'
-                  : 'Complete the sign-in in the new tab that opened. This page will update automatically.'}
+                  ? 'Exchanging credentials with PymtHouse. This page updates when your key is ready.'
+                  : 'Complete sign-in in the new tab. This page updates automatically.'}
               </p>
             </div>
             <button
@@ -2129,10 +2146,8 @@ result = [...result].sort((a, b) => {
               <div className="space-y-2">
                 <label className="block text-xs font-medium text-text-primary">SDK Token (python-gateway)</label>
                 <p className="text-xs text-text-secondary">
-                  Base64 JSON for <code className="text-slate-300">python-gateway --token</code> (not a JWT).
-                  <code className="text-slate-300"> signer_headers</code> use your billing API key;{' '}
-                  <code className="text-slate-300">discovery_headers</code> use a separate NaaP{' '}
-                  <code className="text-slate-300">gw_…</code> key minted when this dialog succeeded.
+                  Base64 JSON for python-gateway <code className="text-slate-300">--token</code> flag, includes signer
+                  and discovery plan configuration
                 </p>
                 <div className="flex items-start gap-2">
                   <code className="max-h-40 flex-1 overflow-y-auto break-all rounded-lg border border-white/10 bg-bg-tertiary px-3 py-2 font-mono text-xs text-accent-emerald select-all">
