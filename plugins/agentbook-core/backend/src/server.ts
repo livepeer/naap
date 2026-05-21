@@ -232,10 +232,11 @@ app.post('/api/v1/agentbook-core/telegram/resolve-chat', async (req, res) => {
     // Find bot config that has this chatId in its chatIds array, or by botToken
     let botConfig: any = null;
     if (botToken) {
+      // safe: tenant-agnostic bootstrap — webhook arrives knowing only botToken; this resolver maps it to a tenant. Auth hardening covered separately in G-002 (PR 1).
       botConfig = await db.abTelegramBot.findFirst({ where: { botToken, enabled: true } });
     }
     if (!botConfig) {
-      // Search all bots for this chatId
+      // safe: tenant-agnostic bootstrap — fallback chat-id scan when botToken is absent; webhook auth hardening covered in G-002 (PR 1).
       const allBots = await db.abTelegramBot.findMany({ where: { enabled: true } });
       botConfig = allBots.find((b: any) => {
         const ids = (b.chatIds as string[]) || [];
@@ -872,6 +873,7 @@ export async function callGemini(systemPrompt: string, userMessage: string, maxT
   let apiKey: string | null = process.env.GEMINI_API_KEY || null;
   let model = process.env.GEMINI_MODEL_FAST || 'gemini-2.0-flash';
   if (!apiKey) {
+    // safe: AbLLMProviderConfig is admin-managed platform config (tenantId nullable). Per-tenant override scoping deferred to PR 3 (G-005).
     const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
     if (!llmConfig || llmConfig.provider !== 'gemini') return null;
     apiKey = llmConfig.apiKey;
@@ -1545,6 +1547,7 @@ app.post('/api/v1/agentbook-core/cpa/generate-link', async (req, res) => {
 
 app.get('/api/v1/agentbook-core/admin/llm-configs', async (req, res) => {
   try {
+    // safe: admin-only endpoint, AbLLMProviderConfig is platform config (tenantId nullable). Per-tenant scoping deferred to PR 3 (G-005).
     const configs = await db.abLLMProviderConfig.findMany({ orderBy: { createdAt: 'asc' } });
     res.json({ success: true, data: configs });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
@@ -1583,6 +1586,7 @@ app.delete('/api/v1/agentbook-core/admin/llm-configs/:id', async (req, res) => {
 
 app.post('/api/v1/agentbook-core/admin/llm-configs/:id/test', async (req, res) => {
   try {
+    // safe: admin-only endpoint, AbLLMProviderConfig is platform config (tenantId nullable). Per-tenant scoping deferred to PR 3 (G-005).
     const config = await db.abLLMProviderConfig.findUnique({ where: { id: req.params.id } });
     if (!config) return res.status(404).json({ success: false, error: 'Config not found' });
 
@@ -3321,7 +3325,7 @@ If no skill matches well, use "general-question" with parameter "question" = the
   // Post-processing: resolve category name for newly created expenses
   if (selectedSkill.name === 'record-expense' && skillResponse?.success && skillResponse.data?.categoryId) {
     try {
-      const cat = await db.abAccount.findFirst({ where: { id: skillResponse.data.categoryId } });
+      const cat = await db.abAccount.findFirst({ where: { id: skillResponse.data.categoryId, tenantId } });
       if (cat) skillResponse.data.categoryName = cat.name;
     } catch { /* ignore */ }
   }

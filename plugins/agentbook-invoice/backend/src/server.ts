@@ -504,7 +504,7 @@ app.post('/invoices/:id/send', async (req: Request, res: Response) => {
     if (client?.email) {
       try {
         const fullInvoice = await db.abInvoice.findFirst({
-          where: { id: invoice.id },
+          where: { id: invoice.id, tenantId },
           include: { lines: true, client: true },
         });
         const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
@@ -1291,7 +1291,7 @@ app.get('/api/v1/agentbook-invoice/unbilled-summary', async (req: Request, res: 
     }
 
     const clientIds = Array.from(groups.keys()).filter(k => k !== 'no-client');
-    const clients = await db.abClient.findMany({ where: { id: { in: clientIds } } });
+    const clients = await db.abClient.findMany({ where: { id: { in: clientIds }, tenantId } });
     const nameMap = new Map(clients.map((c: any) => [c.id, c.name]));
 
     const result = Array.from(groups.entries()).map(([cid, g]) => ({
@@ -2014,6 +2014,7 @@ app.post('/api/v1/agentbook-invoice/invoices/:id/payment-link', async (req: Requ
 
 app.get('/api/v1/agentbook-invoice/invoices/:id/public', async (req: Request, res: Response) => {
   try {
+    // safe: public endpoint (no auth); the HMAC verifyInvoiceLink check below binds id+tenantId via the signed token before exposing data.
     const invoice = await db.abInvoice.findFirst({
       where: { id: req.params.id },
       include: { client: true, lines: true },

@@ -50,6 +50,7 @@ export async function submitFiling(
   }
 
   // 4. Load partner config (or use mock)
+  // safe: AbTaxFilingPartner is a platform registry of e-filing intermediaries; no tenantId field by schema design.
   const partner = await db.abTaxFilingPartner.findFirst({
     where: { jurisdiction: filing.jurisdiction, enabled: true },
   });
@@ -128,6 +129,7 @@ export async function checkFilingStatus(
   }
 
   // Poll partner for status update
+  // safe: AbTaxFilingPartner is a platform registry of e-filing intermediaries; no tenantId field by schema design.
   const partner = await db.abTaxFilingPartner.findFirst({
     where: { jurisdiction: filing.jurisdiction, enabled: true },
   });

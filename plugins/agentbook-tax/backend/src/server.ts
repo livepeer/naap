@@ -1141,7 +1141,7 @@ server.app.get('/api/v1/agentbook-tax/reports/expense-by-vendor', async (req, re
     }
 
     const vendorIds = Array.from(vendorTotals.keys());
-    const vendors = await db.abVendor.findMany({ where: { id: { in: vendorIds } } });
+    const vendors = await db.abVendor.findMany({ where: { id: { in: vendorIds }, tenantId } });
     const nameMap = new Map(vendors.map((v: any) => [v.id, v.name]));
 
     const result = Array.from(vendorTotals.entries())
