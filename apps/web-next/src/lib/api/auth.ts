@@ -12,9 +12,10 @@ import {
   sendVerificationEmail as sendEmailVerification,
   sendPasswordResetEmail as sendEmailPasswordReset,
 } from '../email';
+import { tryAcquireCooldown } from '../auth/resend-cooldown';
+import { reportError } from '../monitoring';
 
 const RESEND_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
-const resendCooldownMap = new Map<string, number>();
 
 /** Sanitize a value for safe log output (prevents log injection) */
 function sanitizeForLog(value: unknown): string {
@@ -321,14 +322,18 @@ export async function register(
 
   if (existing) {
     // Preserve a uniform external response while still helping legitimate users
-    // who may have an unverified account. Throttle resend to prevent inbox flooding.
-    const cooldownKey = `resend:${email}`;
-    const lastSent = resendCooldownMap.get(cooldownKey);
-    const now = Date.now();
-    if (!lastSent || now - lastSent >= RESEND_COOLDOWN_MS) {
-      resendCooldownMap.set(cooldownKey, now);
+    // who may have an unverified account. Throttle resend (cross-instance) to
+    // prevent inbox flooding and to absorb retries from clients/bots.
+    const acquired = await tryAcquireCooldown(email, {
+      purpose: 'verification',
+      ttlMs: RESEND_COOLDOWN_MS,
+    });
+    if (acquired) {
       resendVerificationEmail(email).catch((err) => {
-        console.error('[AUTH] Failed to handle existing-email registration:', (err as Error).message);
+        reportError(err, {
+          area: 'auth.register.existing-email',
+          tags: { kind: 'resend_failure' },
+        });
       });
     }
     return { created: false };
@@ -351,9 +356,14 @@ export async function register(
     },
   });
 
-  // Send verification email (non-blocking; don't fail registration if email fails)
+  // Send verification email (non-blocking; don't fail registration if email fails).
+  // Failures surface via reportError so they're visible in alerting instead of
+  // silently degrading signup.
   sendVerificationEmail(user.id).catch((err) => {
-    console.error('[AUTH] Failed to send verification email:', (err as Error).message);
+    reportError(err, {
+      area: 'auth.register.send-verification',
+      tags: { kind: 'send_failure' },
+    });
   });
 
   return { created: true };
