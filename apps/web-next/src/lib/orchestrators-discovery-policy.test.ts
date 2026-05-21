@@ -60,6 +60,16 @@ describe('orchestrators-discovery-policy', () => {
     expect(out[0].address).toBe('0xb');
   });
 
+  it('sortBy latency orders by slaScore not knownSessions', () => {
+    const rows = [
+      baseRow({ address: '0xa', knownSessions: 100, slaScore: 50 }),
+      baseRow({ address: '0xb', knownSessions: 1, slaScore: 90 }),
+    ];
+    const out = applyDiscoveryPolicyToOrchestrators(rows, { sortBy: 'latency', topN: 2 });
+    expect(out[0].address).toBe('0xb');
+    expect(out[1].address).toBe('0xa');
+  });
+
   it('mergeDiscoveryPolicies does not let user widen priceMax', () => {
     const merged = mergeDiscoveryPolicies(
       { filters: { priceMax: 10 } },
@@ -70,9 +80,9 @@ describe('orchestrators-discovery-policy', () => {
 
   it('applyPymthouseDiscoveryToOrchestrators returns [] when allowlist blocks pipeline', async () => {
     vi.stubEnv('PYMTHOUSE_ISSUER_URL', 'http://localhost:9/api/v1/oidc');
-    vi.stubEnv('PMTHOUSE_CLIENT_ID', 'pub');
-    vi.stubEnv('PMTHOUSE_M2M_CLIENT_ID', 'm2m');
-    vi.stubEnv('PMTHOUSE_M2M_CLIENT_SECRET', 'secret');
+    vi.stubEnv('PYMTHOUSE_PUBLIC_CLIENT_ID', 'pub');
+    vi.stubEnv('PYMTHOUSE_M2M_CLIENT_ID', 'm2m');
+    vi.stubEnv('PYMTHOUSE_M2M_CLIENT_SECRET', 'secret');
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
@@ -93,9 +103,9 @@ describe('orchestrators-discovery-policy', () => {
 
   it('applyPymthouseDiscoveryToOrchestrators passes when pair is on allowlist and applies user topN', async () => {
     vi.stubEnv('PYMTHOUSE_ISSUER_URL', 'http://localhost:9/api/v1/oidc');
-    vi.stubEnv('PMTHOUSE_CLIENT_ID', 'pub');
-    vi.stubEnv('PMTHOUSE_M2M_CLIENT_ID', 'm2m');
-    vi.stubEnv('PMTHOUSE_M2M_CLIENT_SECRET', 'secret');
+    vi.stubEnv('PYMTHOUSE_PUBLIC_CLIENT_ID', 'pub');
+    vi.stubEnv('PYMTHOUSE_M2M_CLIENT_ID', 'm2m');
+    vi.stubEnv('PYMTHOUSE_M2M_CLIENT_SECRET', 'secret');
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
@@ -119,11 +129,35 @@ describe('orchestrators-discovery-policy', () => {
     expect(out[0].address).toBe('0xb');
   });
 
-  it('applyPymthouseDiscoveryToOrchestrators fail-open when fetch fails', async () => {
+  it('applyPymthouseDiscoveryToOrchestrators denies when fetch fails without opt-in fail-open', async () => {
     vi.stubEnv('PYMTHOUSE_ISSUER_URL', 'http://localhost:9/api/v1/oidc');
-    vi.stubEnv('PMTHOUSE_CLIENT_ID', 'pub');
-    vi.stubEnv('PMTHOUSE_M2M_CLIENT_ID', 'm2m');
-    vi.stubEnv('PMTHOUSE_M2M_CLIENT_SECRET', 'secret');
+    vi.stubEnv('PYMTHOUSE_PUBLIC_CLIENT_ID', 'pub');
+    vi.stubEnv('PYMTHOUSE_M2M_CLIENT_ID', 'm2m');
+    vi.stubEnv('PYMTHOUSE_M2M_CLIENT_SECRET', 'secret');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Promise.resolve({
+          ok: false,
+          json: async () => ({}),
+        } as Response),
+      ),
+    );
+    await syncPymthouseManifestSnapshot();
+    const rows = [baseRow({ address: '0xa' }), baseRow({ address: '0xb' })];
+    const out = await applyPymthouseDiscoveryToOrchestrators(rows, {
+      pipeline: 'llm',
+      modelId: 'm1',
+    });
+    expect(out).toHaveLength(0);
+  });
+
+  it('applyPymthouseDiscoveryToOrchestrators fail-open when fetch fails with opt-in env', async () => {
+    vi.stubEnv('PYMTHOUSE_ISSUER_URL', 'http://localhost:9/api/v1/oidc');
+    vi.stubEnv('PYMTHOUSE_PUBLIC_CLIENT_ID', 'pub');
+    vi.stubEnv('PYMTHOUSE_M2M_CLIENT_ID', 'm2m');
+    vi.stubEnv('PYMTHOUSE_M2M_CLIENT_SECRET', 'secret');
+    vi.stubEnv('PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN', '1');
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>

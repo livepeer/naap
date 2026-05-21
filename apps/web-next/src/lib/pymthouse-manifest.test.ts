@@ -1,25 +1,37 @@
 /** @vitest-environment node */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   computeManifestRevision,
   filterPlanCapabilitiesForManifest,
   isLeaderboardCapabilityAllowed,
+  isMissingManifestFailOpenEnabled,
   isPipelineModelInManifest,
   parseCapabilityToPipelineModel,
 } from '@/lib/pymthouse-manifest';
 
 describe('pymthouse-manifest', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('parseCapability splits on last slash', () => {
     expect(parseCapabilityToPipelineModel('live-video-to-video/streamdiffusion-sdxl')).toEqual({
       pipeline: 'live-video-to-video',
       modelId: 'streamdiffusion-sdxl',
     });
-    expect(parseCapabilityToPipelineModel('noop')).toEqual({ pipeline: '*', modelId: 'noop' });
+    expect(parseCapabilityToPipelineModel('noop')).toEqual({ pipeline: '', modelId: 'noop' });
   });
 
-  it('isPipelineModelInManifest fail-open on empty list', () => {
+  it('isPipelineModelInManifest denies when manifest is missing or empty', () => {
+    expect(isPipelineModelInManifest({ capabilities: [] }, 'a', 'b')).toBe(false);
+    expect(isPipelineModelInManifest(null, 'a', 'b')).toBe(false);
+  });
+
+  it('isPipelineModelInManifest fail-open on empty list only when opt-in env is set', () => {
+    vi.stubEnv('PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN', '1');
+    expect(isMissingManifestFailOpenEnabled()).toBe(true);
     expect(isPipelineModelInManifest({ capabilities: [] }, 'a', 'b')).toBe(true);
     expect(isPipelineModelInManifest(null, 'a', 'b')).toBe(true);
   });
@@ -43,8 +55,8 @@ describe('pymthouse-manifest', () => {
   it('isLeaderboardCapabilityAllowed uses resolved allowlist', () => {
     const manifest = { capabilities: [{ pipeline: 'p', modelId: 'm' }] };
     expect(isLeaderboardCapabilityAllowed(manifest, 'p/m')).toBe(true);
-    // Legacy bare model: no slash → pipeline '*' matches any allowlist row with same modelId
-    expect(isLeaderboardCapabilityAllowed(manifest, 'm')).toBe(true);
+    // Bare model without slash: empty pipeline does not wildcard-match other pipelines
+    expect(isLeaderboardCapabilityAllowed(manifest, 'm')).toBe(false);
     expect(isLeaderboardCapabilityAllowed(manifest, 'other/m')).toBe(false);
   });
 

@@ -24,7 +24,7 @@ export function getExpectedPymthouseIssuer(): string | null {
   try {
     return stripTrailingSlashes(new URL(raw).href);
   } catch {
-    return stripTrailingSlashes(raw);
+    return null;
   }
 }
 

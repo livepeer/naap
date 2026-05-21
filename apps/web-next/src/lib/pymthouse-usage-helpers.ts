@@ -21,6 +21,14 @@ interface UsageByUserFiatSummary {
   endUserBillableUsdMicros: string;
 }
 
+function parseSafeBigInt(value: string | number | bigint, fallback = 0n): bigint {
+  try {
+    return BigInt(value);
+  } catch {
+    return fallback;
+  }
+}
+
 /** ISO bounds for the current calendar month in UTC (billing-friendly window). */
 export function getUtcCalendarMonthIsoBounds(now: Date = new Date()): {
   startDate: string;
@@ -104,13 +112,13 @@ function combinePipelineModels(
         ...existing,
         requestCount: existing.requestCount + (Number.isFinite(rowRequestCount) ? rowRequestCount : 0),
         networkFeeUsdMicros: (
-          BigInt(existing.networkFeeUsdMicros) + BigInt(rowNetworkFeeUsdMicros)
+          parseSafeBigInt(existing.networkFeeUsdMicros) + parseSafeBigInt(rowNetworkFeeUsdMicros)
         ).toString(),
         ownerChargeUsdMicros: (
-          BigInt(existing.ownerChargeUsdMicros) + BigInt(rowOwnerChargeUsdMicros)
+          parseSafeBigInt(existing.ownerChargeUsdMicros) + parseSafeBigInt(rowOwnerChargeUsdMicros)
         ).toString(),
         endUserBillableUsdMicros: (
-          BigInt(existing.endUserBillableUsdMicros) + BigInt(rowEndUserBillableUsdMicros)
+          parseSafeBigInt(existing.endUserBillableUsdMicros) + parseSafeBigInt(rowEndUserBillableUsdMicros)
         ).toString(),
       });
     }

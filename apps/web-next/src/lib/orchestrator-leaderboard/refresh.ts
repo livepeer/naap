@@ -49,7 +49,11 @@ const planCache = new Map<string, PlanCacheEntry>();
 function queryCapabilityName(capability: string): string {
   const trimmed = capability.trim();
   const slash = trimmed.lastIndexOf('/');
-  return slash >= 0 ? trimmed.slice(slash + 1).trim() : trimmed;
+  const name = slash >= 0 ? trimmed.slice(slash + 1).trim() : trimmed;
+  if (!name) {
+    throw new Error(`Invalid capability "${capability}": empty query name after extraction`);
+  }
+  return name;
 }
 
 function isFresh(entry: PlanCacheEntry): boolean {

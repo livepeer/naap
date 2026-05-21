@@ -283,7 +283,7 @@ async function pickOrchestrators(
   );
   if (!res.ok) throw new Error(`leaderboard ${res.status}`);
   const env = await res.json();
-  const rows = env.data.data.capabilities[capability] ?? [];
+  const rows = env.data.capabilities[capability] ?? [];
   return rows.map((r: { orchUri: string }) => r.orchUri);
 }
 ```
@@ -406,7 +406,7 @@ async function getResults(planId: string) {
   const res = await fetch(`${BASE}/plans/${planId}/results`, { headers: authHeader });
   const env = await res.json();
   if (!res.ok || !env.success) throw new Error(env.error?.message ?? `results ${res.status}`);
-  return env.data.data as {
+  return env.data as {
     planId: string;
     refreshedAt: string;
     capabilities: Record<string, Array<{ orchUri: string; gpuName: string; slaScore?: number }>>;
@@ -448,7 +448,7 @@ Key takeaways from this example:
 - **`upsertPlan()`** is the safe re-run pattern. `POST /plans` rejects duplicate
   `billingPlanId`s with `400`, so check the list first and `PUT` if it exists.
 - **`billingPlanId` is immutable** — strip it from update payloads.
-- **`results.data.data.capabilities[<cap>]`** is the per-capability ranked
+- **`results.data.capabilities[<cap>]`** is the per-capability ranked
   array; `.orchUri` is what your caller / signer dials.
 - **Honor `meta.refreshIntervalMs`** and the response `Cache-Control: max-age=10`
   when deciding how often to re-poll.
@@ -567,7 +567,7 @@ echo "Plan id: $PLAN_ID"
 # 3. Pull executed results — the URLs your SDK will hit
 curl -s -H "Authorization: Bearer $NAAP_API_KEY" \
   "$NAAP_API_URL/api/v1/orchestrator-leaderboard/plans/$PLAN_ID/results" \
-  | jq '.data.data.capabilities["streamdiffusion-sdxl"][].orchUri'
+  | jq '.data.capabilities["streamdiffusion-sdxl"][].orchUri'
 ```
 
 ---

@@ -20,7 +20,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const timeframe = request.nextUrl.searchParams.get('timeframe');
   const perfDaysRaw = request.nextUrl.searchParams.get('perfDays');
   const perfParsed = perfDaysRaw != null ? parseInt(perfDaysRaw, 10) : NaN;
-  const perfDays = Number.isFinite(perfParsed) ? perfParsed : 7;
+  const perfDays =
+    Number.isFinite(perfParsed) &&
+    perfParsed >= 1 &&
+    perfParsed <= 30 &&
+    perfParsed === Math.floor(perfParsed)
+      ? perfParsed
+      : 7;
   const hours = normalizeTimeframeHours(timeframe ?? undefined);
   const cacheKey = `pymthouse-sla-summary:${hours}:${perfDays}`;
 

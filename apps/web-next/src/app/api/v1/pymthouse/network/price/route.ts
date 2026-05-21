@@ -20,7 +20,7 @@ export async function GET(): Promise<NextResponse> {
     const { data: result, cache } = await bffStaleWhileRevalidate(
       'pymthouse-network-price',
       () => buildNetworkPricePayload(),
-      'pymthouse-network-price'
+      'pymthouse-network-price:route'
     );
     const res = NextResponse.json(result);
     res.headers.set('Cache-Control', dashboardRouteCacheControl(TTL.PRICING));

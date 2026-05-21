@@ -40,11 +40,13 @@ function readScopeWhere(scope: PlanScope) {
 /**
  * Build a where clause that matches ONLY the caller's own plans (for mutations).
  */
-function writeScopeWhere(scope: PlanScope) {
+function writeScopeWhere(
+  scope: PlanScope,
+): Record<string, string> | { OR: Record<string, string>[] } | null {
   const conditions: Record<string, string>[] = [];
   if (scope.teamId) conditions.push({ teamId: scope.teamId });
   if (scope.ownerUserId) conditions.push({ ownerUserId: scope.ownerUserId });
-  if (conditions.length === 0) return {};
+  if (conditions.length === 0) return null;
   if (conditions.length === 1) return conditions[0];
   return { OR: conditions };
 }
@@ -157,9 +159,12 @@ export async function updatePlan(
   if (!existing) return null;
   if (existing.visibility === 'public' && !scope.isAdmin) return 'forbidden';
 
+  const scopeWhere = writeScopeWhere(scope);
+  if (!scopeWhere) return 'forbidden';
+
   const mutationWhere = existing.visibility === 'public'
     ? { id }
-    : { id, ...writeScopeWhere(scope) };
+    : { id, ...scopeWhere };
 
   const result = await prisma.discoveryPlan.updateMany({
     where: mutationWhere,
@@ -190,9 +195,12 @@ export async function deletePlan(
   if (!existing) return false;
   if (existing.visibility === 'public' && !scope.isAdmin) return 'forbidden';
 
+  const scopeWhere = writeScopeWhere(scope);
+  if (!scopeWhere) return 'forbidden';
+
   const mutationWhere = existing.visibility === 'public'
     ? { id }
-    : { id, ...writeScopeWhere(scope) };
+    : { id, ...scopeWhere };
 
   const result = await prisma.discoveryPlan.deleteMany({
     where: mutationWhere,

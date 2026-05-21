@@ -218,7 +218,7 @@ export function parseCapabilityToPipelineModel(cap: string): {
   const trimmed = cap.trim();
   const i = trimmed.lastIndexOf('/');
   if (i <= 0) {
-    return { pipeline: '*', modelId: trimmed };
+    return { pipeline: '', modelId: trimmed };
   }
   return { pipeline: trimmed.slice(0, i), modelId: trimmed.slice(i + 1) };
 }
@@ -232,16 +232,41 @@ function capabilityRuleMatches(
   const rM = modelId.trim();
   const eP = rule.pipeline.trim();
   const eM = rule.modelId.trim();
-  const pipelineOk = rP === '*' || eP === '*' || eP === rP;
+  const pipelineOk = rP === '*' || eP === '*' || (eP !== '' && eP === rP);
   const modelOk = rM === '*' || eM === '*' || eM === rM;
   return pipelineOk && modelOk;
+}
+
+/**
+ * Opt-in fail-open when manifest is missing or empty. Narrow scope: set only for
+ * controlled environments (e.g. local dev). Emits a high-severity audit log when used.
+ */
+export function isMissingManifestFailOpenEnabled(): boolean {
+  const raw = process.env.PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN?.trim();
+  return raw === '1' || raw?.toLowerCase() === 'true';
+}
+
+function manifestUrlForAudit(): string | undefined {
+  const base = getPymthouseApiV1Base();
+  const publicId =
+    process.env.PYMTHOUSE_PUBLIC_CLIENT_ID?.trim() || process.env.PMTHOUSE_CLIENT_ID?.trim();
+  if (!base || !publicId) return undefined;
+  return `${base}/apps/${encodeURIComponent(publicId)}/manifest`;
+}
+
+function logMissingManifestFailOpen(context: {
+  manifestUrl?: string;
+  manifestId?: string;
+}): void {
+  console.error('[pymthouse-manifest] AUDIT: missing or empty manifest fail-open enabled', context);
 }
 
 /**
  * Discovery allow check against PymtHouse resolved manifest.
  *
  * When `capabilities` is non-empty (normal case), only rows in that resolved allowlist pass.
- * Excluded rows always deny. Empty/unavailable manifest fails open for integrator safety.
+ * Excluded rows always deny. Missing or empty manifest denies by default; set
+ * `PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN=1` to restore legacy fail-open (audited).
  */
 export function isPipelineModelInManifest(
   manifest: PymthouseManifestResponse | null,
@@ -249,7 +274,16 @@ export function isPipelineModelInManifest(
   modelId: string,
 ): boolean {
   if (!manifest?.capabilities?.length) {
-    return true;
+    if (isMissingManifestFailOpenEnabled()) {
+      const publicId =
+        process.env.PYMTHOUSE_PUBLIC_CLIENT_ID?.trim() || process.env.PMTHOUSE_CLIENT_ID?.trim();
+      logMissingManifestFailOpen({
+        manifestUrl: manifestUrlForAudit(),
+        manifestId: publicId,
+      });
+      return true;
+    }
+    return false;
   }
   for (const ex of manifest.excludedCapabilities ?? []) {
     if (capabilityRuleMatches(ex, pipeline, modelId)) {

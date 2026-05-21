@@ -4,6 +4,8 @@ Official Builder API contract: [PymtHouse `docs/builder-api.md`](https://github.
 
 Server-to-server calls use the published SDK [`@pymthouse/builder-api`](https://github.com/eliteprox/pymthouse-builder-api) (wrapped in [apps/web-next/src/lib/pymthouse-client.ts](apps/web-next/src/lib/pymthouse-client.ts) with `import "server-only"` so M2M secrets never ship to the browser).
 
+**Dependency pin:** NaaP pins `@pymthouse/builder-api` at **exact `0.0.7`** in [apps/web-next/package.json](../apps/web-next/package.json). npm has no stable 1.x release yet (latest published is 0.0.7). Treat this as a pre-release SDK: review the [pymthouse-builder-api](https://github.com/eliteprox/pymthouse-builder-api) changelog before bumping, run `npm install` at the repo root, and re-verify billing/OIDC routes after any upgrade.
+
 ## Plan-builder JSON (PymtHouse → NaaP)
 
 Stable responses use `schemaVersion: "1.0"`.
@@ -24,7 +26,7 @@ NaaP does not mirror the billing marketplace. Use `PYMTHOUSE_MARKETPLACE_URL`, o
 
 NaaP uses `@pymthouse/builder-api` (`PmtHouseClient`) to upsert app users and mint **short-lived user-scoped JWTs** (`scope: sign:job`, TTL ~15 min) — no browser popup, no redirect URI, no machine-token step.
 
-```
+```text
 NaaP server                                              PymtHouse
     │                                                         │
     ├─ POST /api/v1/apps/{clientId}/users ─────────────────────►│  M2M client (SDK: Basic auth on Builder routes)
@@ -80,7 +82,7 @@ This keeps token auth explicit: the signer remains a PymtHouse-issued billing se
 
 ### Network Price discovery allowlist (PymtHouse → NaaP)
 
-For billing provider **`pymthouse`**, NaaP periodically syncs **`GET {PYMTHOUSE_ISSUER_URL without /oidc}/apps/{publicClientId}/manifest`** with the same **M2M Basic** credentials as other Builder routes. The JSON **`capabilities`** array is the resolved discoverable set (live catalog minus exclusions stored on the app’s **Network Price** default plan). **`manifestVersion`** is used for cache busting when present. An empty **`capabilities`** list means **no restriction** (fail-open), matching the Builder API contract.
+For billing provider **`pymthouse`**, NaaP periodically syncs **`GET {PYMTHOUSE_ISSUER_URL without /oidc}/apps/{publicClientId}/manifest`** with the same **M2M Basic** credentials as other Builder routes. The JSON **`capabilities`** array is the resolved discoverable set (live catalog minus exclusions stored on the app’s **Network Price** default plan). **`manifestVersion`** is used for cache busting when present. A missing or empty manifest **denies discovery by default**; set **`PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN=1`** only in controlled environments to restore legacy fail-open behavior (high-severity audit log).
 
 NaaP intersects python-gateway discovery and orchestrator-leaderboard evaluation against that snapshot (`syncPymthouseManifestSnapshot` in `apps/web-next/src/lib/pymthouse-manifest.ts`). Minimal app metadata is available via **`GET …/apps/{publicClientId}`** (M2M). Legacy per-plan policy rows for the UI still come from **`GET …/apps/{id}/plans`**.
 

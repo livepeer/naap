@@ -257,8 +257,8 @@ test.describe('Global Dataset & Plan Integration', () => {
     });
 
     expect(resp.success).toBe(true);
-    expect(resp.data.data.plan.name).toBe('Test Plan');
-    expect(resp.data.data.plan.description).toBe('A test plan');
-    expect(resp.data.data.capabilities.noop).toHaveLength(1);
+    expect(resp.data.plan.name).toBe('Test Plan');
+    expect(resp.data.plan.description).toBe('A test plan');
+    expect(resp.data.capabilities.noop).toHaveLength(1);
   });
 });

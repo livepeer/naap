@@ -9,6 +9,7 @@
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
+import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';
 import { success } from '@/lib/api/response';
@@ -24,16 +25,37 @@ ORDER BY capability_name
 FORMAT JSON`;
 
 function isCronAuth(request: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
   const auth = request.headers.get('authorization');
-  return Boolean(process.env.CRON_SECRET) && auth === `Bearer ${process.env.CRON_SECRET}`;
+  if (!auth) return false;
+  const expected = `Bearer ${secret}`;
+  const authBuf = Buffer.from(auth, 'utf8');
+  const expectedBuf = Buffer.from(expected, 'utf8');
+  if (authBuf.length !== expectedBuf.length) return false;
+  return timingSafeEqual(authBuf, expectedBuf);
+}
+
+function sanitizeCapabilityRows(rows: unknown[]): Array<{ capability_name: string }> {
+  const out: Array<{ capability_name: string }> = [];
+  for (const row of rows) {
+    if (row === null || typeof row !== 'object') continue;
+    if (!Object.prototype.hasOwnProperty.call(row, 'capability_name')) continue;
+    const name = (row as { capability_name: unknown }).capability_name;
+    if (typeof name !== 'string') continue;
+    const trimmed = name.trim();
+    if (!trimmed) continue;
+    out.push({ capability_name: trimmed });
+  }
+  return out;
 }
 
 function parseCapabilityRows(json: unknown): Array<{ capability_name: string }> {
-  if (Array.isArray(json)) return json as Array<{ capability_name: string }>;
+  if (Array.isArray(json)) return sanitizeCapabilityRows(json);
   const data = (json as { data?: unknown }).data;
-  if (Array.isArray(data)) return data as Array<{ capability_name: string }>;
+  if (Array.isArray(data)) return sanitizeCapabilityRows(data);
   const nested = (data as { data?: unknown } | undefined)?.data;
-  if (Array.isArray(nested)) return nested as Array<{ capability_name: string }>;
+  if (Array.isArray(nested)) return sanitizeCapabilityRows(nested);
   return [];
 }
 
@@ -54,8 +76,10 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
 
   const headers: Record<string, string> = {
     'Content-Type': 'text/plain',
-    'Authorization': `Bearer ${authToken}`,
   };
+  if (authToken) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
 
   const incomingCookie = request.headers.get('cookie');
   if (incomingCookie) {

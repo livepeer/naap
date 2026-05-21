@@ -43,9 +43,9 @@ function sortValue(row: DashboardOrchestrator, sortBy: NonNullable<DiscoveryPoli
     case 'avail':
       return row.gpuCount;
     case 'latency':
-      return row.knownSessions;
     case 'price':
-      return row.successRatio;
+      // DashboardOrchestrator has no per-row latency/price; fall back to slaScore
+      return row.slaScore ?? -1;
     default:
       return row.slaScore ?? -1;
   }
@@ -65,7 +65,7 @@ export function applyDiscoveryPolicyToOrchestrators(
   let out = rows.filter((row) => passesFilters(row, policy));
 
   if (policy.sortBy) {
-    const dir = policy.sortBy === 'price' || policy.sortBy === 'latency' ? 1 : -1;
+    const dir = -1;
     out = [...out].sort((a, b) => dir * (sortValue(a, policy.sortBy!) - sortValue(b, policy.sortBy!)));
   }
 
@@ -85,7 +85,8 @@ export interface OrchestratorDiscoveryOpts {
 /**
  * When `pipeline` and `modelId` are set, optionally intersects with the PymtHouse Builder
  * discovery allowlist (M2M). If the pair is not on the allowlist when restrictions exist,
- * returns no rows. If the allowlist is empty or unreachable, does not restrict (fail-open).
+ * returns no rows. Missing or empty manifest denies by default unless
+ * `PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN=1` is set (audited).
  * Applies `userDiscoveryPolicy` only (no merged PymtHouse SLA envelope from legacy plans).
  */
 export async function applyPymthouseDiscoveryToOrchestrators(
@@ -99,10 +100,8 @@ export async function applyPymthouseDiscoveryToOrchestrators(
   }
 
   const manifest = getPymthouseManifestSnapshot().data;
-  if (manifest?.capabilities?.length) {
-    if (!isPipelineModelInManifest(manifest, pipeline, modelId)) {
-      return [];
-    }
+  if (!isPipelineModelInManifest(manifest, pipeline, modelId)) {
+    return [];
   }
 
   const merged = opts.userDiscoveryPolicy ?? null;

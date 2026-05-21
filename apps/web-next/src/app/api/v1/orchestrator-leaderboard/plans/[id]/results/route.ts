@@ -73,7 +73,7 @@ export async function GET(
       },
     };
 
-    const response = success({ data: withPlanMeta });
+    const response = success(withPlanMeta);
     response.headers.set('Cache-Control', 'private, max-age=10');
     response.headers.set('X-Cache-Age', String(results.meta.cacheAgeMs));
     response.headers.set('X-Refresh-Interval', String(results.meta.refreshIntervalMs));

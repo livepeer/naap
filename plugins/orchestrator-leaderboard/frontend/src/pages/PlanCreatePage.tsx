@@ -32,8 +32,10 @@ export const PlanCreatePage: React.FC = () => {
     !meta?.manifestAvailable;
 
   const generatedBillingPlanId = useMemo(() => {
-    const base = slugify(name || 'new-discovery-plan');
-    return `${billingProviderSlug}-${base}`;
+    const trimmedName = name.trim();
+    const slug = slugify(trimmedName || 'new-discovery-plan');
+    const uniqueSuffix = trimmedName ? '' : `-${Date.now()}`;
+    return `${billingProviderSlug}-${slug}${uniqueSuffix}`;
   }, [billingProviderSlug, name]);
 
   const availableCapabilities = useMemo(
@@ -182,7 +184,7 @@ export const PlanCreatePage: React.FC = () => {
             )}
             {manifestUnavailable && (
               <p className="text-[11px] text-accent-amber mt-1">
-                PymtHouse manifest is currently unavailable; capability filtering may be fail-open.
+                PymtHouse manifest is currently unavailable; capability filtering is restricted until the manifest syncs.
               </p>
             )}
           </div>

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   extractDeviceApprovalTupleFromTargetLink,
+  getExpectedPymthouseIssuer,
   tryParseDeviceApprovalCookie,
   encodeDeviceApprovalCookiePayload,
+  validatePymthouseDeviceInitiateQuery,
 } from './pymthouse-device-initiate';
 
 describe('pymthouse-device-initiate', () => {
@@ -20,6 +22,24 @@ describe('pymthouse-device-initiate', () => {
     process.env.PMTHOUSE_BASE_URL = prevBase;
     process.env.PYMTHOUSE_ISSUER_URL = prevIss;
     process.env.PYMTHOUSE_PUBLIC_CLIENT_ID = prevClient;
+  });
+
+  it('getExpectedPymthouseIssuer returns null for malformed issuer URL', () => {
+    process.env.PYMTHOUSE_ISSUER_URL = 'not a valid url:%%%';
+    expect(getExpectedPymthouseIssuer()).toBeNull();
+  });
+
+  it('validatePymthouseDeviceInitiateQuery fails when issuer env is malformed', () => {
+    process.env.PYMTHOUSE_ISSUER_URL = 'not a valid url:%%%';
+    const target = new URL('http://localhost:3001/oidc/device');
+    target.searchParams.set('user_code', 'ABCD-EFGH');
+    target.searchParams.set('client_id', 'app_testpublic123');
+    const r = validatePymthouseDeviceInitiateQuery(
+      'http://localhost:3001/api/v1/oidc',
+      target.href,
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe('server_not_configured');
   });
 
   it('extractDeviceApprovalTupleFromTargetLink parses user_code and client_id', () => {

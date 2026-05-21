@@ -52,7 +52,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   const user = await validateSession(token);
-  if (!user || !user.roles.includes('system:admin')) {
+  if (!user) {
+    return NextResponse.json(
+      { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } },
+      { status: 401 },
+    );
+  }
+  if (!user.roles.includes('system:admin')) {
     return NextResponse.json(
       { success: false, error: { code: 'FORBIDDEN', message: 'Admin permission required' } },
       { status: 403 },
@@ -132,7 +138,13 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   }
 
   const user = await validateSession(token);
-  if (!user || !user.roles.includes('system:admin')) {
+  if (!user) {
+    return NextResponse.json(
+      { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } },
+      { status: 401 },
+    );
+  }
+  if (!user.roles.includes('system:admin')) {
     return NextResponse.json(
       { success: false, error: { code: 'FORBIDDEN', message: 'Admin permission required' } },
       { status: 403 },

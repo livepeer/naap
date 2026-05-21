@@ -260,7 +260,7 @@ export const PlanDetailPage: React.FC = () => {
           )}
           {manifestUnavailable && (
             <p className="text-[11px] text-accent-amber mt-1">
-              PymtHouse manifest is currently unavailable; capability filtering may be fail-open.
+              PymtHouse manifest is currently unavailable; capability filtering is restricted until the manifest syncs.
             </p>
           )}
         </div>

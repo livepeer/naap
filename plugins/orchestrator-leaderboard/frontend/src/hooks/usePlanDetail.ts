@@ -36,6 +36,11 @@ export function usePlanDetail(planId: string): UsePlanDetailResult {
   const [resultsKey, setResultsKey] = useState(0);
   const flashTimer = useRef<ReturnType<typeof setTimeout>>();
 
+  useEffect(() => () => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = undefined;
+  }, []);
+
   const setDraft = useCallback((updates: Partial<PlanUpdatePayload>) => {
     setDraftState((prev) => ({ ...prev, ...updates }));
     setDirty(true);

@@ -764,7 +764,12 @@ app.get('/api/v1/developer/keys/:id', async (req, res) => {
           computePymthouseExpiry(key.createdAt).getTime() <= Date.now();
         const alreadyExpired = key.status === 'EXPIRED';
         if (expiredByAge || alreadyExpired) {
-          await prisma.devApiKey.delete({ where: { id: key.id } });
+          if (expiredByAge) {
+            await prisma.devApiKey.update({
+              where: { id: key.id },
+              data: { status: 'EXPIRED' },
+            });
+          }
           return res.status(404).json({ error: 'API key not found' });
         }
       }

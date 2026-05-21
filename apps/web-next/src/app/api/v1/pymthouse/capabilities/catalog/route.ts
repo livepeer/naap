@@ -17,7 +17,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const correlation_id = newCorrelationId();
   const limitParam = request.nextUrl.searchParams.get('limit');
   const parsed = limitParam != null ? parseInt(limitParam, 10) : NaN;
-  const networkModelsLimit = Number.isFinite(parsed) ? parsed : 200;
+  const networkModelsLimit =
+    Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 500) : 200;
 
   try {
     const cacheKey = `pymthouse-capabilities-catalog:${networkModelsLimit}`;

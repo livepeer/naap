@@ -101,8 +101,12 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
     try {
       await createPlan(input, scope);
       created++;
-    } catch {
-      // skip duplicates (race or constraint)
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (code === 'P2002' || /duplicate|unique/i.test(msg)) continue;
+      console.error('[plans/seed] createPlan failed', { billingPlanId: input.billingPlanId, err });
+      throw err;
     }
   }
 

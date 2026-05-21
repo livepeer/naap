@@ -117,7 +117,13 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
   if (Date.now() >= new Date(session.expiresAt).getTime()) {
     await prisma.billingProviderOAuthSession
       .updateMany({ where: { loginSessionId: session.loginSessionId, status: 'pending' }, data: { status: 'expired' } })
-      .catch(() => null);
+      .catch((err) => {
+        console.error(
+          `[billing-auth:${providerSlug}] Failed to expire pending sessions during callback`,
+          { loginSessionId: session.loginSessionId, err },
+        );
+        return null;
+      });
     return htmlResponse('Session Expired', 'The login session has expired or was already used. Please try again from NaaP.', true);
   }
 
@@ -151,7 +157,13 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
         where: { loginSessionId: session.loginSessionId },
         data: { status: 'failed' },
       })
-      .catch(() => null);
+      .catch((dbErr) => {
+        console.error(
+          `[billing-auth:${providerSlug}] Failed to mark billingProviderOAuthSession as failed`,
+          { loginSessionId: session.loginSessionId, err: dbErr },
+        );
+        return null;
+      });
     return htmlResponse('Authentication Failed', err instanceof Error ? err.message : 'Failed to authenticate with Daydream.', true);
   }
 }
