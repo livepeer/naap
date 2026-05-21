@@ -5,6 +5,7 @@
 
 import { Resend } from 'resend';
 import { appUrl as APP_URL } from '@/lib/env';
+import { reportError } from '@/lib/monitoring';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const EMAIL_FROM =
@@ -18,33 +19,56 @@ function getResendClient(): Resend | null {
 }
 
 /**
- * Validate email configuration at startup.
- * Logs warnings for missing or sandbox-only config in production.
+ * Pure check of email configuration. Safe to call repeatedly (e.g. from
+ * `/api/health`) — never logs. Use {@link logEmailConfigWarnings} once at
+ * boot to surface warnings.
  */
 export function validateEmailConfig(): { configured: boolean; warnings: string[] } {
   const warnings: string[] = [];
-  const isProduction = process.env.NODE_ENV === 'production';
 
   if (!RESEND_API_KEY) {
-    const msg = '[EMAIL] RESEND_API_KEY is not set — email sending is disabled';
-    warnings.push(msg);
-    if (isProduction) console.error(msg);
+    warnings.push('[EMAIL] RESEND_API_KEY is not set — email sending is disabled');
   }
 
   if (EMAIL_FROM.includes('@resend.dev')) {
-    const msg =
+    warnings.push(
       '[EMAIL] EMAIL_FROM uses sandbox domain (resend.dev). ' +
-      'In production, set EMAIL_FROM to an address on a verified custom domain.';
-    warnings.push(msg);
-    if (isProduction) console.warn(msg);
+        'In production, set EMAIL_FROM to an address on a verified custom domain.'
+    );
   }
 
   return { configured: !!RESEND_API_KEY && !EMAIL_FROM.includes('@resend.dev'), warnings };
 }
 
-// Run validation on module load (logs once per cold start)
+/**
+ * Emit configured/missing warnings to the logger. Called once per cold start
+ * to surface boot-time misconfiguration; production-critical misses are
+ * additionally forwarded to alerting via `reportError`.
+ */
+export function logEmailConfigWarnings(): void {
+  const { configured, warnings } = validateEmailConfig();
+  if (warnings.length === 0) return;
+
+  const isProductionLike =
+    process.env.VERCEL_ENV === 'production' || process.env.DEPLOY_ENV === 'production';
+
+  for (const msg of warnings) {
+    if (isProductionLike) console.error(msg);
+    else console.warn(msg);
+  }
+
+  if (isProductionLike && !configured) {
+    reportError(new Error('Email service misconfigured at boot'), {
+      area: 'auth.email.boot',
+      tags: { kind: 'missing_config' },
+      extra: { warnings },
+    });
+  }
+}
+
+// Run validation once on module load so misconfiguration is loud on cold start.
 if (typeof process !== 'undefined') {
-  validateEmailConfig();
+  logEmailConfigWarnings();
 }
 
 function escapeHtml(str: string): string {
@@ -203,7 +227,10 @@ export async function sendVerificationEmail(
 
   if (!client) {
     if (process.env.NODE_ENV === 'production') {
-      console.error('[EMAIL] RESEND_API_KEY is not configured — verification email not sent');
+      reportError(new Error('RESEND_API_KEY is not configured'), {
+        area: 'auth.email.verification',
+        tags: { kind: 'missing_config' },
+      });
     } else {
       console.log('[EMAIL] (no RESEND_API_KEY) Verification URL:', verifyUrl);
     }
@@ -222,7 +249,10 @@ export async function sendVerificationEmail(
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[EMAIL] Failed to send verification:', message);
+    reportError(err, {
+      area: 'auth.email.verification',
+      tags: { kind: 'send_failure' },
+    });
     return { success: false, error: message };
   }
 }
@@ -238,7 +268,10 @@ export async function sendPasswordResetEmail(
 
   if (!client) {
     if (process.env.NODE_ENV === 'production') {
-      console.error('[EMAIL] RESEND_API_KEY is not configured — password reset email not sent');
+      reportError(new Error('RESEND_API_KEY is not configured'), {
+        area: 'auth.email.password-reset',
+        tags: { kind: 'missing_config' },
+      });
     } else {
       console.log('[EMAIL] (no RESEND_API_KEY) Reset URL:', resetUrl);
     }
@@ -257,7 +290,10 @@ export async function sendPasswordResetEmail(
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[EMAIL] Failed to send password reset:', message);
+    reportError(err, {
+      area: 'auth.email.password-reset',
+      tags: { kind: 'send_failure' },
+    });
     return { success: false, error: message };
   }
 }
