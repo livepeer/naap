@@ -76,6 +76,11 @@ async function getCache(): Promise<typeof import('@naap/cache') | null> {
 /**
  * Try to acquire a cooldown slot for (purpose, email).
  *
+ * Atomicity: when Redis is available we use a single `SET key value NX PX ttl`
+ * round-trip — Redis returns `OK` only if the key didn't already exist, so
+ * concurrent acquirers see exactly one winner. Falls back to a process-local
+ * Map (single-threaded Node — atomic within a tick) when Redis is absent.
+ *
  * @returns `true` if the slot was acquired (caller should proceed with the
  *          send), `false` if the recipient is still within their cooldown.
  */
@@ -87,19 +92,18 @@ export async function tryAcquireCooldown(
   if (!email) return false;
   if (ttlMs <= 0) return true;
 
-  const key = buildKey(purpose, email);
+  const key = `${PREFIX}:${buildKey(purpose, email)}`;
   const now = Date.now();
-  const ttlSeconds = Math.max(1, Math.ceil(ttlMs / 1000));
 
   const cache = await getCache();
   if (cache) {
     try {
-      const existing = await cache.cacheGet<number>(key, { prefix: PREFIX });
-      if (typeof existing === 'number' && now - existing < ttlMs) {
-        return false;
+      const redis = cache.getRedis();
+      if (redis && cache.isRedisConnected()) {
+        // SET key value NX PX ttlMs → 'OK' on acquire, null if key exists.
+        const result = await redis.set(key, String(now), 'PX', ttlMs, 'NX');
+        return result === 'OK';
       }
-      await cache.cacheSet<number>(key, now, { prefix: PREFIX, ttl: ttlSeconds });
-      return true;
     } catch {
       // Fall through to in-memory if Redis errors out
     }

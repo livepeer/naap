@@ -12,6 +12,18 @@ import { test, expect } from '@playwright/test';
  * production / preview deployments. Skipped locally (no email config
  * expected on developer machines).
  */
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
+
+function isLocalBaseURL(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const hostname = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return LOCAL_HOSTNAMES.has(hostname);
+  } catch {
+    return false;
+  }
+}
+
 test.describe('Auth email config smoke @pre-release', () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
@@ -21,7 +33,7 @@ test.describe('Auth email config smoke @pre-release', () => {
   }) => {
     test.skip(!baseURL, 'baseURL required');
     test.skip(
-      !!baseURL && baseURL.includes('localhost'),
+      isLocalBaseURL(baseURL),
       'local dev expected to lack Resend config; skipping email config assertion',
     );
 
@@ -52,7 +64,7 @@ test.describe('Auth email config smoke @pre-release', () => {
   test('register endpoint accepts a fresh signup attempt', async ({ request, baseURL }) => {
     test.skip(!baseURL, 'baseURL required');
     test.skip(
-      !!baseURL && baseURL.includes('localhost'),
+      isLocalBaseURL(baseURL),
       'register requires DB + email; skipping for local dev',
     );
 
@@ -78,7 +90,7 @@ test.describe('Auth email config smoke @pre-release', () => {
   test('resend-verification endpoint is callable without 5xx', async ({ request, baseURL }) => {
     test.skip(!baseURL, 'baseURL required');
     test.skip(
-      !!baseURL && baseURL.includes('localhost'),
+      isLocalBaseURL(baseURL),
       'requires deployed env with Resend configured',
     );
 

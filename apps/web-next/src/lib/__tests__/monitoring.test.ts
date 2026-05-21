@@ -7,15 +7,23 @@ import { reportError, __resetMonitoringForTests } from '@/lib/monitoring';
 
 describe('reportError', () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+  let originalSentryDsn: string | undefined;
 
   beforeEach(() => {
     __resetMonitoringForTests();
+    originalSentryDsn = process.env.SENTRY_DSN;
     delete process.env.SENTRY_DSN;
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
+    if (originalSentryDsn === undefined) {
+      delete process.env.SENTRY_DSN;
+    } else {
+      process.env.SENTRY_DSN = originalSentryDsn;
+    }
     consoleErrorSpy.mockRestore();
+    __resetMonitoringForTests();
   });
 
   it('emits a structured [ALERT] log line with required fields', () => {

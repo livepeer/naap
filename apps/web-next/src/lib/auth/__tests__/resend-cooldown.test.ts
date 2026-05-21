@@ -1,8 +1,8 @@
 /**
  * Tests for src/lib/auth/resend-cooldown.ts — Redis-backed resend cooldown.
  *
- * Tests cover the in-memory fallback path (no REDIS_URL); Redis-backed
- * behavior is covered by integration tests in apps/web-next/tests.
+ * Memory-fallback paths run when Redis is unavailable; Redis paths exercised
+ * via a mocked getRedis() so we don't require a running server.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,96 +11,120 @@ import {
   __clearCooldownMemoryForTests,
 } from '@/lib/auth/resend-cooldown';
 
+const mockRedisSet = vi.fn();
+const mockGetRedis = vi.fn();
+const mockIsRedisConnected = vi.fn();
+
 vi.mock('@naap/cache', () => ({
+  getRedis: () => mockGetRedis(),
+  isRedisConnected: () => mockIsRedisConnected(),
+  // Kept for any other callers; not used by the cooldown helper anymore.
   cacheGet: vi.fn(async () => null),
   cacheSet: vi.fn(async () => undefined),
 }));
 
-describe('tryAcquireCooldown (memory fallback)', () => {
-  beforeEach(async () => {
+describe('tryAcquireCooldown', () => {
+  beforeEach(() => {
     __clearCooldownMemoryForTests();
-    const cache = await import('@naap/cache');
-    (cache.cacheGet as ReturnType<typeof vi.fn>).mockReset();
-    (cache.cacheSet as ReturnType<typeof vi.fn>).mockReset();
+    mockRedisSet.mockReset();
+    mockGetRedis.mockReset();
+    mockIsRedisConnected.mockReset();
   });
 
-  it('acquires on first call, rejects within TTL', async () => {
-    const cache = await import('@naap/cache');
-    (cache.cacheGet as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('no redis'));
-
-    const first = await tryAcquireCooldown('user@example.com', {
-      purpose: 'verification',
-      ttlMs: 60_000,
+  describe('memory fallback (no Redis)', () => {
+    beforeEach(() => {
+      mockGetRedis.mockReturnValue(null);
+      mockIsRedisConnected.mockReturnValue(false);
     });
-    expect(first).toBe(true);
 
-    const second = await tryAcquireCooldown('user@example.com', {
-      purpose: 'verification',
-      ttlMs: 60_000,
-    });
-    expect(second).toBe(false);
-  });
-
-  it('is case- and whitespace-insensitive for email', async () => {
-    const cache = await import('@naap/cache');
-    (cache.cacheGet as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('no redis'));
-
-    expect(
-      await tryAcquireCooldown('User@Example.com', {
+    it('acquires on first call, rejects within TTL', async () => {
+      const first = await tryAcquireCooldown('user@example.com', {
         purpose: 'verification',
         ttlMs: 60_000,
-      })
-    ).toBe(true);
-    expect(
-      await tryAcquireCooldown(' user@example.com ', {
+      });
+      expect(first).toBe(true);
+
+      const second = await tryAcquireCooldown('user@example.com', {
         purpose: 'verification',
         ttlMs: 60_000,
-      })
-    ).toBe(false);
-  });
-
-  it('separates cooldowns by purpose', async () => {
-    const cache = await import('@naap/cache');
-    (cache.cacheGet as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('no redis'));
-
-    expect(
-      await tryAcquireCooldown('a@b.com', { purpose: 'verification', ttlMs: 60_000 })
-    ).toBe(true);
-    expect(
-      await tryAcquireCooldown('a@b.com', { purpose: 'password-reset', ttlMs: 60_000 })
-    ).toBe(true);
-  });
-
-  it('returns false for empty email', async () => {
-    expect(
-      await tryAcquireCooldown('', { purpose: 'verification' })
-    ).toBe(false);
-  });
-
-  it('uses Redis path when cache returns a recent timestamp', async () => {
-    const cache = await import('@naap/cache');
-    (cache.cacheGet as ReturnType<typeof vi.fn>).mockResolvedValue(Date.now());
-
-    const acquired = await tryAcquireCooldown('redis-user@example.com', {
-      purpose: 'verification',
-      ttlMs: 60_000,
+      });
+      expect(second).toBe(false);
     });
-    expect(acquired).toBe(false);
-    expect(cache.cacheSet).not.toHaveBeenCalled();
+
+    it('is case- and whitespace-insensitive for email', async () => {
+      expect(
+        await tryAcquireCooldown('User@Example.com', {
+          purpose: 'verification',
+          ttlMs: 60_000,
+        })
+      ).toBe(true);
+      expect(
+        await tryAcquireCooldown(' user@example.com ', {
+          purpose: 'verification',
+          ttlMs: 60_000,
+        })
+      ).toBe(false);
+    });
+
+    it('separates cooldowns by purpose', async () => {
+      expect(
+        await tryAcquireCooldown('a@b.com', { purpose: 'verification', ttlMs: 60_000 })
+      ).toBe(true);
+      expect(
+        await tryAcquireCooldown('a@b.com', { purpose: 'password-reset', ttlMs: 60_000 })
+      ).toBe(true);
+    });
+
+    it('returns false for empty email', async () => {
+      expect(
+        await tryAcquireCooldown('', { purpose: 'verification' })
+      ).toBe(false);
+    });
   });
 
-  it('writes via Redis when cache reports no prior cooldown', async () => {
-    const cache = await import('@naap/cache');
-    (cache.cacheGet as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-    (cache.cacheSet as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
-
-    const acquired = await tryAcquireCooldown('fresh-user@example.com', {
-      purpose: 'verification',
-      ttlMs: 60_000,
+  describe('redis path (atomic SET NX PX)', () => {
+    beforeEach(() => {
+      mockGetRedis.mockReturnValue({ set: mockRedisSet });
+      mockIsRedisConnected.mockReturnValue(true);
     });
-    expect(acquired).toBe(true);
-    expect(cache.cacheSet).toHaveBeenCalledOnce();
-    const callArgs = (cache.cacheSet as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(callArgs[2]).toMatchObject({ prefix: 'auth:resend-cooldown', ttl: 60 });
+
+    it('returns true when Redis SET NX returns OK (key acquired)', async () => {
+      mockRedisSet.mockResolvedValue('OK');
+      const acquired = await tryAcquireCooldown('fresh@example.com', {
+        purpose: 'verification',
+        ttlMs: 60_000,
+      });
+      expect(acquired).toBe(true);
+      expect(mockRedisSet).toHaveBeenCalledOnce();
+      const [key, value, mode1, ttl, mode2] = mockRedisSet.mock.calls[0];
+      expect(key).toMatch(/^auth:resend-cooldown:verification:[a-f0-9]{64}$/);
+      expect(typeof value).toBe('string');
+      expect(mode1).toBe('PX');
+      expect(ttl).toBe(60_000);
+      expect(mode2).toBe('NX');
+    });
+
+    it('returns false when Redis SET NX returns null (key already held)', async () => {
+      mockRedisSet.mockResolvedValue(null);
+      const acquired = await tryAcquireCooldown('held@example.com', {
+        purpose: 'verification',
+        ttlMs: 60_000,
+      });
+      expect(acquired).toBe(false);
+    });
+
+    it('falls back to memory when Redis throws', async () => {
+      mockRedisSet.mockRejectedValue(new Error('redis exploded'));
+      const first = await tryAcquireCooldown('falls-back@example.com', {
+        purpose: 'verification',
+        ttlMs: 60_000,
+      });
+      const second = await tryAcquireCooldown('falls-back@example.com', {
+        purpose: 'verification',
+        ttlMs: 60_000,
+      });
+      expect(first).toBe(true);
+      expect(second).toBe(false);
+    });
   });
 });
