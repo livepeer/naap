@@ -32,8 +32,6 @@ export function resolveClickhouseGatewayQueryUrl(requestUrl?: string): string {
   return new URL(CLICKHOUSE_GW_PATH, origin).toString();
 }
 
-const CLICKHOUSE_GW_PATH = '/api/v1/gw/clickhouse-query/query';
-
 const CLICKHOUSE_TIMEOUT_MS = 15_000;
 
 function getEnv(name: string): string {
@@ -120,21 +118,6 @@ export function buildOrchestratorClickhouseFetchParams(
   }
 
   return { url: target.url, headers };
-}
-
-/**
- * Base URL for server-side calls to the gateway ClickHouse proxy.
- * Prefer the incoming request origin so dev servers on non-3000 ports and
- * preview deployments hit the same app instance (NEXT_PUBLIC_APP_URL alone
- * often stays localhost:3000 from .env while the dev server runs elsewhere).
- */
-export function resolveClickhouseGatewayQueryUrl(requestUrl?: string): string {
-  const origin =
-    (requestUrl ? new URL(requestUrl).origin : undefined) ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined) ||
-    'http://localhost:3000';
-  return new URL(CLICKHOUSE_GW_PATH, origin).toString();
 }
 
 const LEADERBOARD_SQL_TEMPLATE = `SELECT

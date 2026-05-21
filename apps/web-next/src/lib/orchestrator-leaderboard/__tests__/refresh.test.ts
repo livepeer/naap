@@ -26,7 +26,12 @@ vi.mock('../global-dataset', () => ({
   ]),
 }));
 
-import { evaluateAndCache, clearPlanCache, getCachedPlanResults } from '../refresh';
+import {
+  evaluateAndCache,
+  clearPlanCache,
+  getCachedPlanResults,
+  invalidatePlanCache,
+} from '../refresh';
 import { getRowsForCapability } from '../global-dataset';
 
 const mockPlan: DiscoveryPlan = {
