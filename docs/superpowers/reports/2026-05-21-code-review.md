@@ -688,7 +688,132 @@ Of **39 page-equivalent surfaces reviewed** (17 dashboard shell + 22 plugin fron
 
 ## Stream A.5 — Prisma schema + existing tests
 
-(populated in Task A.5)
+> Reviewed: `packages/database/prisma/schema.prisma` (2,775 lines, ~120 models) and `tests/e2e/` (51 spec files, 10,541 LOC). Cross-references prior findings index §1 (158/158 tests baseline), §4 (uncovered areas), §6 (test inventory) and code-review §A.2 (money-field/cross-tenant findings).
+
+### Schema findings
+
+#### Money/numeric correctness
+
+- [polish] schema.prisma:1614 — `AbFinancialSnapshot.runwayMonths Float` — derived metric in cash flow; `Float` is fine for display but document rounding to avoid drift when compared across snapshots (e.g. `5.499999` vs `5.5`). Either reduce to `Decimal(5,2)` or round at write time.
+- [polish] schema.prisma:1840 — `AbMileageEntry.miles Float` — mileage can lose precision (e.g. odometer-derived 12345.67). The pattern across the industry is `Decimal(10,2)`. Same risk for `quantity Float` on `AbInvoiceLine:1931` and `budgetHours Float` on `AbProject:1982`. Money columns are `Int cents` (good) but the multiplied quantities are `Float`, so `quantity * rateCents` rounding behavior should be tested.
+- [polish] schema.prisma:2144 — `AbSalesTaxCollected.rate Float` — tax rate `Float` risks 6.5 vs 6.499999 issues; should be `Decimal(7,5)` or stored as basis-points `Int`.
+- [polish] schema.prisma:1898 — `AbInvoice.fxRate Float` and schema.prisma:2572 `AbFxRate.rate Float` — FX rates are typically stored to 6 decimals; `Float` is acceptable for cache but `Decimal(18,6)` would prevent off-by-one-penny drift on booked amounts. Not blocking but worth noting given multi-currency complexity.
+
+(Note: `grep -nE "Float" schema.prisma` returned 27 hits — all are confidence scores, metrics, ratings, or non-monetary ratios except those flagged above. No raw money column is `Float`. Stream A.2's finding "no `Float` money columns" is confirmed.)
+
+#### Tenant scoping (multi-tenant integrity)
+
+- [blocker] schema.prisma:1514 — `AbJournalLine` has NO `tenantId` field — relies on join to `AbJournalEntry.tenantId`. Combined with cross-tenant `findFirst({id})` bugs identified in Stream A.2, a malicious or buggy query against `AbJournalLine` directly cannot be tenant-filtered without a join. Add `tenantId String` + `@@index([tenantId])` and backfill from parent entry; this is a defense-in-depth measure consistent with all other models.
+- [blocker] schema.prisma:1686 — `AbExpenseSplit` has NO `tenantId` — same risk as above; FK is via `expenseId` only.
+- [blocker] schema.prisma:1926 — `AbInvoiceLine` has NO `tenantId` — same risk as above; FK is via `invoiceId` only.
+- [launch] schema.prisma:1604 — `AbFinancialSnapshot` exists with `tenantId + snapshotDate` index but lacks `@@unique([tenantId, snapshotDate])` — duplicate snapshots for the same calendar day are silently allowed (no idempotency). Cron-replay safety relies on caller dedup.
+- [launch] schema.prisma:2549 — `AbLearningEvent` indexes `(tenantId, agentId, createdAt)` but has no `@@unique` on (tenantId, eventType, sourceId) or similar — if a learning pipeline retries, the same learning event can be recorded twice and skew confidence math.
+- [launch] schema.prisma:2680 — `AbWebhookDeadLetter.tenantId String?` — nullable tenantId is documented as intentional (unresolved chats), BUT the only index is `(resolvedAt, createdAt)` — no `(tenantId)` index, so per-tenant DLQ replay scans the whole table.
+
+#### Enums vs free-form strings (typo-proof)
+
+- [launch] schema.prisma:1481 — `AbAccount.accountType String` — comment says "asset | liability | equity | revenue | expense" but it is a free-form string. Add an enum `AbAccountType`. A typo here corrupts trial-balance math.
+- [launch] schema.prisma:1501 — `AbJournalEntry.sourceType String` — same issue; should be enum (`expense | invoice | payment | manual | adjustment`).
+- [launch] schema.prisma:1670 — `AbExpense.status String` ("confirmed | pending_review | rejected") and `:1671 source String` (8 documented values) — both string. Without an enum, a code-level rename (e.g. `pending_review` → `needs_review`) silently breaks `@@index([tenantId, status])` filtering. Add enums `AbExpenseStatus`, `AbExpenseSource`.
+- [launch] schema.prisma:1903 — `AbInvoice.status String` ("draft | sent | viewed | paid | overdue | void") — state machine, must be enum. Same for `AbEstimate.status` (:1964), `AbPayment.method` (:1945), `AbTaxFiling.status` (:2179).
+- [launch] schema.prisma:1417 — `AbTenantConfig.jurisdiction String` defaults to `"us"` — should be enum `Jurisdiction { US CA UK AU }` to prevent typos like `"USA"` or `"u.s."` breaking jurisdiction packs.
+- [launch] schema.prisma:1471 — `AbConvThread.status String` ("active | closed | archived") + `:2475 closeReason String?` (4 values) — state machine, must be enum.
+- [launch] schema.prisma:1792 — `AbBankTransaction.matchStatus String` ("pending | matched | exception | ignored") — must be enum given matching logic is non-trivial.
+
+(Community plugin uses proper enums — `CommunityPostStatus`, `CommunityVoteTarget`, etc. Agentbook plugins do not follow this pattern.)
+
+#### Foreign-key cascade policies (silent default = Restrict in Prisma)
+
+- [launch] schema.prisma:1519 — `AbJournalLine.account` relation to `AbAccount` has no explicit `onDelete`. Default is `Restrict`. If an account is "deleted" (it currently has no `deletedAt`, see below), the journal lines block the delete silently. Be explicit (`Restrict`) so future maintainers see the intent.
+- [launch] schema.prisma:1654 — `AbExpense.vendor` to `AbVendor` — no `onDelete`. Deleting a vendor row will fail to remove if expenses exist; given vendors have soft-delete, the implicit `Restrict` is probably correct but should be explicit.
+- [launch] schema.prisma:1888 / :1961 / :2022 / :1943 — `AbInvoice.client`, `AbEstimate.client`, `AbCreditNote.invoice`, `AbPayment.invoice` — none have explicit `onDelete`. Critical financial relations; spell out the policy.
+- [launch] schema.prisma:1998 — `AbTimeEntry.project AbProject?` — no `onDelete`. Likely should be `SetNull` (don't lose billable hours when project archived) but currently `Restrict` blocks deletes.
+- [launch] schema.prisma:2741 — `BillSubscription.plan` to `BillPlan` — no `onDelete`. Plans have soft-archive (`isActive`), so `Restrict` is right, but be explicit.
+
+#### Soft delete consistency
+
+- [launch] schema.prisma:1476 — `AbAccount` has no `deletedAt`. Other financial entities (`AbExpense:1673`, `AbVendor:1707`, `AbBudget:1810`, `AbMileageEntry:1848`, `AbInvoice:1911`, `AbClient:1872`) have soft-delete per PR 26. Accounts can't be deleted cleanly without breaking historical journal lines — either add `deletedAt` + `isActive` flag (it has `isActive Boolean @default(true)` but never set when deleting) or document hard-delete-with-restrict policy.
+- [launch] schema.prisma:1496 — `AbJournalEntry` has no `deletedAt`. Per double-entry ledger immutability (per `production-readiness.md`), this is probably intentional — entries should be reversed via offsetting entries, not deleted. Document this in the model header to prevent future devs from adding it.
+- [polish] schema.prisma:1939 — `AbPayment` and `:2018 AbCreditNote` and `:2080 AbQuarterlyPayment` have no `deletedAt`. Same rationale (immutability) but undocumented.
+- [polish] schema.prisma:1735 — `AbRecurringRule`, `:1820 AbStripeWebhookEvent`, `:1957 AbEstimate`, `:2035 AbRecurringInvoice` — no `deletedAt`. Inconsistent with peer models; pick a policy and document.
+
+#### Audit columns
+
+- [launch] schema.prisma:1496 — `AbJournalEntry` has `createdAt` but no `updatedAt`. Since immutable, this is fine; but contrast with `AbConversation:1625` and `AbEvent:1544` which also lack `updatedAt`. Document the "append-only" intent.
+- [polish] schema.prisma:1939 — `AbPayment` has only `createdAt` (no `updatedAt`). If a payment can be voided or amended, missing `updatedAt` makes audit hard. Add it or document immutability.
+
+#### Unique constraints / idempotency
+
+- [launch] schema.prisma:1496 — `AbJournalEntry` indexes by `(tenantId, sourceType)` but has no `@@unique([tenantId, sourceType, sourceId])`. The `sourceId` is the only natural-key linking journal entries back to source documents (expense, invoice, payment). A duplicate run of "post journal entry for expense X" can silently create two journal entries for the same expense — and break trial-balance reconciliation. Bank-sync, cron retries, and webhook replays make this a real risk. **Strong recommendation: add `@@unique([tenantId, sourceType, sourceId])` (nullable allowed).**
+- [launch] schema.prisma:1647 — `AbExpense` has no idempotency key. Per spec §6.1, the comment on `AbBankTransaction.idempotencyKey @unique` (:1793) shows the pattern; expenses created via Telegram/OCR/import need the same safety. Add `externalId String? @unique` or compose with source.
+- [launch] schema.prisma:1819 — `AbStripeWebhookEvent.stripeEventId @unique` — good. But `AbWebhookDeadLetter:2680` does NOT have `@unique` on any natural key; replay can duplicate.
+- [polish] schema.prisma:2080 — `AbQuarterlyPayment` has `@@unique([tenantId, year, quarter, jurisdiction])` — good. But `AbTaxEstimate:2062` is only indexed by `(tenantId, period)`, NOT unique — multiple estimates per period accumulate forever; cron "recalculate quarterly estimate" creates a new row each run.
+
+#### Index coverage (hot queries)
+
+- [polish] schema.prisma:1939 — `AbPayment` indexes `(tenantId, date)` and `(invoiceId)` but no `(stripePaymentId)` index — Stripe webhook lookup by `stripePaymentId` does a table scan.
+- [polish] schema.prisma:2255 — `AbCalendarEvent` indexes by `(tenantId, date)` and `(tenantId, status)` but cron "find events due in N days" probably wants `(date, status)` (global, not per-tenant).
+- [polish] schema.prisma:2410 — `AbAgentSkillBinding` has `@@index([tenantId, agentId])` but no `(tenantId, skillName)` — skill manifest matching at chat-time runs once per turn; could benefit.
+- [polish] schema.prisma:2549 — `AbLearningEvent` indexed only by `(tenantId, agentId, createdAt)` — confidence-decay queries probably need `(tenantId, skillName)`.
+
+#### Other notes
+
+- [polish] schema.prisma:1655 — `AbExpense.categoryId String?` is a soft reference to `AbAccount.id` but has no `@relation`. Same for `:1689 AbExpenseSplit.categoryId`, `:1723 AbPattern.categoryId`, `:1805 AbBudget.categoryId`. Documented in comments but no enforced FK — a category can be deleted (assuming `AbAccount` ever gains delete) leaving dangling references. Cross-schema relations are awkward in Prisma multi-schema, but consider a foreign-key DB constraint via raw migration.
+- [polish] schema.prisma:1413 — `AbTenantConfig.userId` is treated as the tenantId everywhere else. The `@@unique` on `userId` means one tenant = one user. Multi-user-per-tenant (teams) is unsupported. This is by design but worth flagging as a long-term scaling limit.
+
+### Test inventory
+
+- **Total spec files:** 51 (`find tests/e2e -name "*.spec.ts" | wc -l` returns 51). Prior baseline mentions "158/158 across 21 test suites" — the delta is partly because (a) some of the 21 "suites" group multiple spec files together, (b) recent specs (e.g. `agent-soft-delete`, `agent-tax-package`, `agent-idempotency`) were added after the 2026-05-20 baseline, and (c) **14 duplicate `*.spec 2.ts` files inflate the count** (see below).
+- **Total LOC:** 10,541 across `*.spec.ts`.
+- **Duplicate spec files: 8** — all in `tests/e2e/nightly/`:
+  - `phase1-auth.spec 2.ts`
+  - `phase2-dashboard.spec 2.ts`
+  - `phase3-expenses.spec 2.ts`
+  - `phase4-invoicing.spec 2.ts`
+  - `phase5-tax-reports.spec 2.ts`
+  - `phase6-telegram-bot.spec 2.ts`
+  - `phase7-cron-and-cache.spec 2.ts`
+  - `playwright.config 2.ts`
+  - Plus `junit 2.xml` stale report artifact.
+  - **Diff with original (e.g. phase1-auth):** the `2.ts` versions are *stale* — they still reference `/dashboard` and a UI logout button, while the canonical `.ts` versions reference `/agentbook` and a programmatic logout. macOS finder-copy artifacts (the `" 2"` suffix is the macOS duplicate-name pattern).
+- **Skills without e2e coverage: 11 of 65** (17% gap):
+  - `scan-document` — PDF scanning (gap G-OLD-003 still open)
+  - `expense-breakdown` — chart category breakdown
+  - `edit-expense` — modify amount/category/vendor/date/description
+  - `split-expense` — business/personal split (`AbExpenseSplit` table)
+  - `create-credit-note` — `AbCreditNote` model exists, no e2e
+  - `manage_receipt_request` — note the underscore vs hyphen naming inconsistency vs other skills
+  - `tax-filing-field` — granular field-level updates on filing
+  - `tax-slip-scan` — OCR for tax slips (T4/W-2)
+  - `telegram-setup` — Telegram bot config skill
+  - `telegram-status` — bot health/connection status
+  - `void-invoice` — `AbInvoice.status='void'` transition; complete absence of E2E despite invoice state machine relying on it
+  - `ca-schedule-1-review` — Canadian Schedule 1 review (CA jurisdiction gap G-OLD-013)
+- **Weak tests (status-only, no DB read-back): ~5-8 specs.** Top offenders by `expect(*.status).toBe(...)` count:
+  - `agent-cpa.spec.ts` (8 status assertions)
+  - `phase12-ai-native-moat.spec.ts` (7) — 480 LOC of API surface verification, light on business outcome checks
+  - `phase11-competitive-gaps.spec.ts` (7) — 556 LOC, mostly verifies `res.ok()` and shape, not e.g. ledger balance invariant after action
+  - `expense-gaps.spec.ts` (6) — relies on previously-seeded data (`MAYA = '2e2348b6-...'`), no DB cleanup; coupling makes runs order-dependent
+  - `agent-deductions.spec.ts` (5)
+  - `agentbook.spec.ts` (4) — smoke-level
+
+### Test findings (specific)
+
+- [launch] tests/e2e/nightly/phase1-auth.spec 2.ts (and 7 sibling files) — 8 duplicate `*.spec 2.ts` files plus `playwright.config 2.ts` shipped from macOS finder copies. Playwright will discover and execute these alongside the canonical files, **doubling the count of "passing tests"** in CI and exercising stale code paths (e.g. phase1 2.ts still hits `/dashboard` which 404s on current shell). Delete all 9 `* 2.*` files.
+- [launch] tests/e2e:missing — skills `scan-document`, `expense-breakdown`, `edit-expense`, `split-expense`, `create-credit-note`, `manage_receipt_request`, `tax-filing-field`, `tax-slip-scan`, `telegram-setup`, `telegram-status`, `void-invoice`, `ca-schedule-1-review` have no e2e coverage — add specs in Stream B prioritizing **void-invoice** (state machine corner case), **edit-expense** + **split-expense** (touch ledger), and **scan-document** (P1 gap G-OLD-003).
+- [launch] tests/e2e/expense-gaps.spec.ts:4 — hardcoded `MAYA = '2e2348b6-a64c-44ad-907e-4ac120ff06f2'` tenant id with no fixture cleanup. Tests run `describe.serial` and accumulate rows in Maya's tenant on every run; rerunning the suite changes the assertion baseline (e.g. `length >= 1` instead of `length === 1`). Compare with `agent-soft-delete.spec.ts:23` which uses `TENANT = e2e-pr26-soft-delete-${Date.now()}` + `afterAll deleteMany` — that pattern is the right model.
+- [launch] tests/e2e/agent-batch-receipts.spec.ts:80 — `test.fixme('4 photos in quick succession → ONE summary, not 4 prompts')` left in place without a tracking issue or expected-fix-by date. The batch-receipts skill is a key proactive UX feature.
+- [polish] tests/e2e/bank-plaid.spec.ts:20 — `test.skip(true, 'Matcher unit-tested in vitest; OAuth round-trip is manual via sandbox.')` — entire file disabled. Given G-OLD-012 (live Plaid not wired) is still open per prior findings, this is the most important Plaid e2e and it doesn't run. Consider an integration spec that exercises the sandbox sync at least once per CI.
+- [polish] tests/e2e/agent-multicurrency.spec.ts:102 — `test.skip('createInvoiceDraft on EUR persists originalCurrency + booked USD amount')` — multi-currency was advertised as shipped in `phase11-competitive-gaps.spec.ts` (GAP B10), but the canonical e2e test for the draft is skipped. Inconsistent.
+- [polish] tests/e2e/agent-tax-package.spec.ts:142,175,194 — 4 `test.skip(!serverReachable, ...)` gates. If the dev server is down in CI, the whole suite silently passes with no signal. Tests should fail loudly when their preconditions aren't met (set up via `webServer` in `playwright.config.ts`).
+- [polish] tests/e2e/phase11-competitive-gaps.spec.ts:18 — `describe.serial` chains 30+ tests through shared mutable state (`let clientId; let invoiceId; let invoiceNumber`). A single failure cascades — the file then reports many cascading failures hiding the root cause. Split into independent `test.describe` blocks or use fixtures.
+- [polish] tests/e2e/agentbook.spec.ts — 4 `expect(*.status).toBe(200)` assertions and no follow-up DB read-back. A 200 on `/agentbook-core/journal/post` only proves the endpoint replied; the trial-balance invariant should be asserted afterwards.
+- [polish] tests/e2e — no spec exercises tenant isolation comprehensively beyond a single test (per prior-findings §A.5 / G-OLD-016). RLS commented out + no enum on `accountType` + `findFirst({id})` patterns = systemic cross-tenant risk; new isolation spec should join Stream B.
+- [nit] tests/e2e/nightly/ vs tests/e2e/gtm/ — two parallel directory conventions exist (`nightly` Phase-numbered + `gtm` fixture-based). Document the difference in `tests/e2e/README.md` (currently only `gtm/README.md` exists).
+
+### Summary
+
+**Schema: 28 findings (3 blockers, 20 launch, 5 polish). Tests: 11 findings (4 launch, 6 polish, 1 nit). Critical:** Three line-item tables (`AbJournalLine`, `AbExpenseSplit`, `AbInvoiceLine`) have no `tenantId` column — combined with Stream A.2's `findFirst({id})` cross-tenant bugs, this is the highest-priority schema-level defense-in-depth gap. Test side: 8 duplicate `*.spec 2.ts` files in `nightly/` ship stale assertions and likely double-execute in CI, and 11 of 65 skills (including `void-invoice` and `edit-expense`) have zero e2e coverage.
 
 ## Stream B — Test Results
 
