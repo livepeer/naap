@@ -53,21 +53,27 @@ function listPlansWhere(
   scope: PlanScope,
   billingProviderSlug?: string | null,
 ): Prisma.DiscoveryPlanWhereInput {
-  const base = scopeWhere(scope) as Prisma.DiscoveryPlanWhereInput;
-  const slug = billingProviderSlug?.trim();
-  if (!slug) {
+  const base = readScopeWhere(scope) as Prisma.DiscoveryPlanWhereInput;
+  const slugPart = billingProviderWhere(billingProviderSlug);
+  if (!slugPart) {
     return base;
   }
+  return { AND: [base, slugPart] };
+}
 
-  const slugPart: Prisma.DiscoveryPlanWhereInput =
+function billingProviderWhere(
+  billingProviderSlug?: string | null,
+): Prisma.DiscoveryPlanWhereInput | null {
+  const slug = billingProviderSlug?.trim();
+  if (!slug) {
+    return null;
+  }
+
+  return (
     slug === 'pymthouse'
       ? { OR: [{ billingProviderSlug: 'pymthouse' }, { billingProviderSlug: null }] }
-      : { billingProviderSlug: slug };
-
-  if (!base || Object.keys(base).length === 0) {
-    return slugPart;
-  }
-  return { AND: [base, slugPart] };
+      : { billingProviderSlug: slug }
+  );
 }
 
 function toPlan(row: Record<string, unknown>): DiscoveryPlan {
@@ -99,7 +105,7 @@ export async function createPlan(
   const row = await prisma.discoveryPlan.create({
     data: {
       billingPlanId: input.billingPlanId,
-      billingProviderSlug: input.billingProviderSlug,
+      billingProviderSlug: input.billingProviderSlug ?? 'pymthouse',
       name: input.name,
       description: input.description ?? undefined,
       visibility: 'personal',
@@ -121,7 +127,7 @@ export async function listPlans(
   billingProviderSlug?: string | null,
 ): Promise<DiscoveryPlan[]> {
   const rows = await prisma.discoveryPlan.findMany({
-    where: readScopeWhere(scope),
+    where: listPlansWhere(scope, billingProviderSlug),
     orderBy: { createdAt: 'desc' },
   });
   return rows.map((r) => toPlan(r as unknown as Record<string, unknown>));
@@ -130,9 +136,11 @@ export async function listPlans(
 export async function getPlan(
   id: string,
   scope: PlanScope,
+  billingProviderSlug?: string | null,
 ): Promise<DiscoveryPlan | null> {
+  const where = listPlansWhere(scope, billingProviderSlug);
   const row = await prisma.discoveryPlan.findFirst({
-    where: { id, ...readScopeWhere(scope) },
+    where: { AND: [{ id }, where] },
   });
   return row ? toPlan(row as unknown as Record<string, unknown>) : null;
 }

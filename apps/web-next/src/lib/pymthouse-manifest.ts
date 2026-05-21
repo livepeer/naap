@@ -238,8 +238,10 @@ function capabilityRuleMatches(
 }
 
 /**
- * Discovery allow check: excluded rows deny; explicit capability rows allow; anything
- * else (including future network capabilities not yet in the catalog) is allowed.
+ * Discovery allow check against PymtHouse resolved manifest.
+ *
+ * When `capabilities` is non-empty (normal case), only rows in that resolved allowlist pass.
+ * Excluded rows always deny. Empty/unavailable manifest fails open for integrator safety.
  */
 export function isPipelineModelInManifest(
   manifest: PymthouseManifestResponse | null,
@@ -259,7 +261,7 @@ export function isPipelineModelInManifest(
       return true;
     }
   }
-  return true;
+  return false;
 }
 
 export function isLeaderboardCapabilityAllowed(

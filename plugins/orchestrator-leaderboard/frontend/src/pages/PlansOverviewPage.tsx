@@ -51,6 +51,13 @@ export const PlansOverviewPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate('/plans/new')}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue/20 hover:bg-accent-blue/30 text-accent-blue text-xs font-medium rounded-lg border border-accent-blue/30 transition-colors"
+          >
+            <Plus size={12} />
+            New Plan
+          </button>
           {isAdmin && (
             <button
               onClick={seed}
@@ -134,13 +141,22 @@ export const PlansOverviewPage: React.FC = () => {
             Discovery plans let you pre-configure orchestrator selection criteria and expose them as webhook endpoints for your signer.
           </p>
           {isAdmin ? (
-            <button
-              onClick={seed}
-              disabled={seeding}
-              className="px-4 py-2 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-sm font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
-            >
-              {seeding ? 'Seeding...' : 'Seed Demo Data to Get Started'}
-            </button>
+            <div className="flex items-center justify-center gap-2">
+              <button
+                onClick={() => navigate('/plans/new')}
+                className="flex items-center gap-1.5 px-4 py-2 bg-accent-blue/20 hover:bg-accent-blue/30 text-accent-blue text-sm font-medium rounded-lg border border-accent-blue/30 transition-colors"
+              >
+                <Plus size={14} />
+                Create Plan
+              </button>
+              <button
+                onClick={seed}
+                disabled={seeding}
+                className="px-4 py-2 bg-accent-amber/20 hover:bg-accent-amber/30 text-accent-amber text-sm font-medium rounded-lg border border-accent-amber/30 transition-colors disabled:opacity-50"
+              >
+                {seeding ? 'Seeding...' : 'Seed Demo Data'}
+              </button>
+            </div>
           ) : (
             <button
               onClick={() => navigate('/plans/new')}

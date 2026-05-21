@@ -118,6 +118,7 @@ async function main() {
       await prisma.discoveryPlan.create({
         data: {
           billingPlanId,
+          billingProviderSlug: 'pymthouse',
           name: tpl.name,
           description: tpl.description,
           visibility: 'public',

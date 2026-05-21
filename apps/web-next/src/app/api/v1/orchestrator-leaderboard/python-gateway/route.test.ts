@@ -13,12 +13,19 @@ vi.mock('@/lib/orchestrator-leaderboard/discovery-order', () => ({
   tieredShuffleDiscoveryAddresses: (addresses: string[]) => [...addresses],
 }));
 
+vi.mock('@/lib/orchestrator-leaderboard/provider-restrictions', () => ({
+  isCapabilityAllowedForProvider: vi.fn().mockReturnValue(true),
+  normalizeBillingProviderSlug: vi.fn((slug?: string | null) => slug?.trim().toLowerCase() || null),
+}));
+
 import { authorize } from '@/lib/gateway/authorize';
 import { fetchLeaderboard } from '@/lib/orchestrator-leaderboard/query';
+import { isCapabilityAllowedForProvider } from '@/lib/orchestrator-leaderboard/provider-restrictions';
 
 describe('GET /api/v1/orchestrator-leaderboard/python-gateway', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (isCapabilityAllowedForProvider as ReturnType<typeof vi.fn>).mockReturnValue(true);
     (authorize as ReturnType<typeof vi.fn>).mockResolvedValue({
       authenticated: true,
       teamId: 'personal:user-1',
@@ -34,6 +41,22 @@ describe('GET /api/v1/orchestrator-leaderboard/python-gateway', () => {
       fromCache: true,
       cachedAt: Date.now(),
     });
+  });
+
+  it('skips disallowed capabilities when billing provider restrictions deny them', async () => {
+    (isCapabilityAllowedForProvider as ReturnType<typeof vi.fn>).mockReturnValue(false);
+
+    const { GET } = await import('./route');
+    const req = new NextRequest(
+      'http://localhost/api/v1/orchestrator-leaderboard/python-gateway?caps=live-video-to-video/streamdiffusion-sdxl&billingProvider=pymthouse',
+      { headers: { Authorization: 'Bearer gw_test' } },
+    );
+
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    expect(fetchLeaderboard).not.toHaveBeenCalled();
+    expect(await res.json()).toEqual([]);
   });
 
   it('uses the model suffix from python-gateway caps and returns a bare address array', async () => {

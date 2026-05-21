@@ -24,27 +24,28 @@ describe('pymthouse-manifest', () => {
     expect(isPipelineModelInManifest(null, 'a', 'b')).toBe(true);
   });
 
-  it('wildcard model matches any model in pipeline', () => {
+  it('wildcard model matches any model in allowed pipeline only', () => {
     const manifest = { capabilities: [{ pipeline: 'llm', modelId: '*' }] };
     expect(isPipelineModelInManifest(manifest, 'llm', 'gpt-4')).toBe(true);
-    expect(isPipelineModelInManifest(manifest, 'video', 'gpt-4')).toBe(true);
+    expect(isPipelineModelInManifest(manifest, 'video', 'gpt-4')).toBe(false);
   });
 
-  it('filterPlanCapabilitiesForManifest drops excluded caps only', () => {
+  it('filterPlanCapabilitiesForManifest keeps only resolved allowlist entries', () => {
     const manifest = {
       capabilities: [{ pipeline: 'llm', modelId: 'm1' }],
       excludedCapabilities: [{ pipeline: 'video', modelId: 'x' }],
     };
     expect(
       filterPlanCapabilitiesForManifest(['llm/m1', 'video/x', 'other/y'], manifest),
-    ).toEqual(['llm/m1', 'other/y']);
+    ).toEqual(['llm/m1']);
   });
 
-  it('isLeaderboardCapabilityAllowed uses raw path', () => {
+  it('isLeaderboardCapabilityAllowed uses resolved allowlist', () => {
     const manifest = { capabilities: [{ pipeline: 'p', modelId: 'm' }] };
     expect(isLeaderboardCapabilityAllowed(manifest, 'p/m')).toBe(true);
+    // Legacy bare model: no slash → pipeline '*' matches any allowlist row with same modelId
     expect(isLeaderboardCapabilityAllowed(manifest, 'm')).toBe(true);
-    expect(isLeaderboardCapabilityAllowed(manifest, 'other/m')).toBe(true);
+    expect(isLeaderboardCapabilityAllowed(manifest, 'other/m')).toBe(false);
   });
 
   it('isPipelineModelInManifest respects excludedCapabilities', () => {
@@ -53,7 +54,30 @@ describe('pymthouse-manifest', () => {
       excludedCapabilities: [{ pipeline: 'pipe-a', modelId: 'm1' }],
     };
     expect(isPipelineModelInManifest(manifest, 'pipe-a', 'm1')).toBe(false);
-    expect(isPipelineModelInManifest(manifest, 'future-pipe', 'new-model')).toBe(true);
+    expect(isPipelineModelInManifest(manifest, 'future-pipe', 'new-model')).toBe(false);
+  });
+
+  it('matches PymtHouse resolved manifest with pipeline wildcard exclusions', () => {
+    const manifest = {
+      capabilities: [{ pipeline: 'live-video-to-video', modelId: 'streamdiffusion-sdturbo' }],
+      excludedCapabilities: [
+        { pipeline: 'audio-to-text', modelId: '*' },
+        { pipeline: 'image-to-image', modelId: '*' },
+        { pipeline: 'live-video-to-video', modelId: 'streamdiffusion' },
+      ],
+    };
+    expect(
+      isLeaderboardCapabilityAllowed(manifest, 'live-video-to-video/streamdiffusion-sdturbo'),
+    ).toBe(true);
+    expect(isLeaderboardCapabilityAllowed(manifest, 'audio-to-text/openai/whisper-large-v3')).toBe(
+      false,
+    );
+    expect(isLeaderboardCapabilityAllowed(manifest, 'image-to-image/timbrooks/instruct-pix2pix')).toBe(
+      false,
+    );
+    expect(isLeaderboardCapabilityAllowed(manifest, 'live-video-to-video/streamdiffusion')).toBe(
+      false,
+    );
   });
 
   it('computeManifestRevision changes when excludedCapabilities change', () => {

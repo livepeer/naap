@@ -93,7 +93,7 @@ export interface CacheEntry<T> {
 // Discovery Plans — Zod schemas
 // ---------------------------------------------------------------------------
 
-const CAPABILITY_RE = /^[a-zA-Z0-9_-]+$/;
+const CAPABILITY_RE = /^[a-zA-Z0-9_/-]+$/;
 
 export const FiltersSchema = z.object({
   gpuRamGbMin: z.number().min(0).optional(),
@@ -101,13 +101,13 @@ export const FiltersSchema = z.object({
   priceMax: z.number().min(0).optional(),
   maxAvgLatencyMs: z.number().min(0).optional(),
   maxSwapRatio: z.number().min(0).max(1).optional(),
-}).strict().optional();
+}).strict().nullish();
 
 export const SLAWeightsSchema = z.object({
   latency: z.number().min(0).max(1).optional(),
   swapRate: z.number().min(0).max(1).optional(),
   price: z.number().min(0).max(1).optional(),
-}).strict().optional();
+}).strict().nullish();
 
 export const PLAN_SORT_OPTIONS = [
   'slaScore', 'latency', 'price', 'swapRate', 'avail',
@@ -117,20 +117,25 @@ export type PlanSortBy = (typeof PLAN_SORT_OPTIONS)[number];
 
 export const CreatePlanSchema = z.object({
   billingPlanId: z.string().min(1).max(255),
-  billingProviderSlug: BillingProviderSlugSchema.optional().default('pymthouse'),
+  billingProviderSlug: BillingProviderSlugSchema.default('pymthouse'),
   name: z.string().min(1).max(255),
   description: z.string().max(1000).optional(),
   capabilities: z.array(z.string().regex(CAPABILITY_RE).max(128)).min(1).max(50),
   topN: z.number().int().min(1).max(1000).default(10),
   slaWeights: SLAWeightsSchema,
-  slaMinScore: z.number().min(0).max(1).optional(),
-  sortBy: z.enum(PLAN_SORT_OPTIONS).optional(),
+  slaMinScore: z.number().min(0).max(1).nullish(),
+  sortBy: z.enum(PLAN_SORT_OPTIONS).nullish(),
   filters: FiltersSchema,
 });
 
 export type CreatePlanInput = z.infer<typeof CreatePlanSchema>;
 
-export const UpdatePlanSchema = CreatePlanSchema.partial().omit({ billingPlanId: true });
+export const UpdatePlanSchema = CreatePlanSchema
+  .omit({ billingPlanId: true })
+  .partial()
+  .extend({
+    billingProviderSlug: BillingProviderSlugSchema.optional(),
+  });
 
 export type UpdatePlanInput = z.infer<typeof UpdatePlanSchema>;
 

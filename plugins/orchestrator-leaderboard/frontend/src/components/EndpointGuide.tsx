@@ -4,15 +4,22 @@ import { Copy, Check, ChevronDown, ChevronUp, Terminal, Link } from 'lucide-reac
 interface EndpointGuideProps {
   planId: string;
   compact?: boolean;
+  /** When true, instructions and curl example start collapsed (detail page). */
+  collapsibleSetup?: boolean;
 }
 
 function getBaseUrl() {
   return typeof window !== 'undefined' ? window.location.origin : '';
 }
 
-export const EndpointGuide: React.FC<EndpointGuideProps> = ({ planId, compact = false }) => {
+export const EndpointGuide: React.FC<EndpointGuideProps> = ({
+  planId,
+  compact = false,
+  collapsibleSetup = false,
+}) => {
   const [copied, setCopied] = useState(false);
-  const [expanded, setExpanded] = useState(!compact);
+  const setupCollapsible = compact || collapsibleSetup;
+  const [setupExpanded, setSetupExpanded] = useState(!setupCollapsible);
 
   const baseUrl = getBaseUrl();
   const endpoint = `${baseUrl}/api/v1/orchestrator-leaderboard/plans/${planId}/results`;
@@ -28,8 +35,10 @@ export const EndpointGuide: React.FC<EndpointGuideProps> = ({ planId, compact = 
     } catch { /* fallback ignored */ }
   };
 
+  const embedded = collapsibleSetup && !compact;
+
   return (
-    <div className={compact ? '' : 'glass-card p-4'} onClick={(e) => e.stopPropagation()}>
+    <div className={compact || embedded ? '' : 'glass-card p-4'} onClick={(e) => e.stopPropagation()}>
       {/* Endpoint URL */}
       <div className="flex items-center gap-2 mb-2">
         <Link size={12} className="text-text-muted shrink-0" />
@@ -50,21 +59,20 @@ export const EndpointGuide: React.FC<EndpointGuideProps> = ({ planId, compact = 
         </button>
       </div>
 
-      {/* Toggle for compact mode */}
-      {compact && (
+      {setupCollapsible && (
         <button
-          onClick={() => setExpanded(!expanded)}
+          type="button"
+          onClick={() => setSetupExpanded(!setupExpanded)}
           className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text-primary mt-2 transition-colors"
         >
           <Terminal size={10} />
-          Webhook Setup
-          {expanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+          {compact ? 'Webhook Setup' : 'Setup instructions & example'}
+          {setupExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
         </button>
       )}
 
-      {/* Expanded guide */}
-      {expanded && (
-        <div className={compact ? 'mt-2' : 'mt-4'}>
+      {setupExpanded && (
+        <div className={setupCollapsible ? 'mt-2' : 'mt-4'}>
           <div className="space-y-2 text-[11px] text-text-secondary">
             <div className="flex gap-2">
               <span className="shrink-0 w-4 h-4 rounded-full bg-accent-blue/20 text-accent-blue text-[10px] font-bold flex items-center justify-center">1</span>

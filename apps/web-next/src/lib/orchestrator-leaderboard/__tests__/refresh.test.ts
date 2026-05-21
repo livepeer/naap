@@ -105,6 +105,21 @@ describe('evaluateAndCache', () => {
     expect(Object.keys(results.capabilities)).toEqual(['cap-a', 'cap-b']);
   });
 
+  it('queries dataset by model suffix for pipeline/model capabilities', async () => {
+    const mockedGetRows = vi.mocked(getRowsForCapability);
+    mockedGetRows.mockClear();
+
+    const pathPlan: DiscoveryPlan = {
+      ...mockPlan,
+      id: 'plan-path-cap',
+      capabilities: ['live-video-to-video/streamdiffusion-sdxl'],
+    };
+
+    const results = await evaluateAndCache(pathPlan, 'test-token');
+    expect(mockedGetRows).toHaveBeenCalledWith('streamdiffusion-sdxl');
+    expect(results.capabilities['live-video-to-video/streamdiffusion-sdxl']).toBeDefined();
+  });
+
   it('invalidatePlanCache removes all composite-key entries for a plan id', async () => {
     const planA: DiscoveryPlan = { ...mockPlan, id: 'plan-x', capabilities: ['c1'] };
     const planB: DiscoveryPlan = { ...mockPlan, id: 'plan-x', capabilities: ['c2'] };

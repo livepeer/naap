@@ -15,9 +15,9 @@ import { getAuthToken } from '@/lib/api/response';
 import { fetchLeaderboard } from '@/lib/orchestrator-leaderboard/query';
 import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
 import {
-  getPymthouseManifestSnapshot,
-  isLeaderboardCapabilityAllowed,
-} from '@/lib/pymthouse-manifest';
+  isCapabilityAllowedForProvider,
+  normalizeBillingProviderSlug,
+} from '@/lib/orchestrator-leaderboard/provider-restrictions';
 
 const DEFAULT_CAPABILITY = 'noop';
 const DEFAULT_TOP_N = 100;
@@ -72,11 +72,9 @@ export async function GET(request: NextRequest): Promise<Response> {
   }
 
   const url = new URL(request.url);
-  const billingProvider = url.searchParams.get('billingProvider')?.trim().toLowerCase() ?? '';
-  const allowlist =
-    billingProvider === 'pymthouse'
-      ? getPymthouseManifestSnapshot().data
-      : null;
+  const billingProvider = normalizeBillingProviderSlug(
+    url.searchParams.get('billingProviderSlug') ?? url.searchParams.get('billingProvider'),
+  );
 
   const capabilityPairs = resolveCapabilityPairs(url);
   const topN = resolveTopN(url);
@@ -89,7 +87,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     let fromCache = true;
 
     for (const { raw, leaderboardCap } of capabilityPairs) {
-      if (allowlist?.capabilities?.length && !isLeaderboardCapabilityAllowed(allowlist, raw)) {
+      if (!isCapabilityAllowedForProvider(raw, billingProvider)) {
         continue;
       }
       const result = await fetchLeaderboard(

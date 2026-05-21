@@ -16,15 +16,27 @@ import { getAuthToken } from '@/lib/api/response';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
 import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
-import {
-  getPymthouseManifestSnapshot,
-  filterPlanCapabilitiesForManifest,
-} from '@/lib/pymthouse-manifest';
+import { resolvePlanCapabilitiesForProvider } from '@/lib/orchestrator-leaderboard/provider-restrictions';
+import { BillingProviderSlugSchema } from '@/lib/orchestrator-leaderboard/types';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 function scopeFromAuth(auth: { teamId: string; callerId: string }) {
   return { teamId: auth.teamId, ownerUserId: auth.callerId };
+}
+
+function parseBillingProviderSlugParam(
+  request: NextRequest,
+): { value: string | null; error: string | null } {
+  const raw = request.nextUrl.searchParams.get('billingProviderSlug');
+  if (!raw) {
+    return { value: null, error: null };
+  }
+  const parsed = BillingProviderSlugSchema.safeParse(raw.trim().toLowerCase());
+  if (!parsed.success) {
+    return { value: null, error: 'Invalid billingProviderSlug' };
+  }
+  return { value: parsed.data, error: null };
 }
 
 export async function GET(
@@ -39,8 +51,16 @@ export async function GET(
     });
   }
 
+  const parsedSlug = parseBillingProviderSlugParam(request);
+  if (parsedSlug.error) {
+    return new NextResponse(parsedSlug.error, {
+      status: 400,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+
   const { id } = await context.params;
-  const plan = await getPlan(id, scopeFromAuth(auth));
+  const plan = await getPlan(id, scopeFromAuth(auth), parsedSlug.value);
   if (!plan) {
     return new NextResponse('Not found', {
       status: 404,
@@ -57,11 +77,7 @@ export async function GET(
 
   const authToken = getAuthToken(request) || '';
 
-  const manifest =
-    plan.billingProviderSlug === 'pymthouse'
-      ? getPymthouseManifestSnapshot().data
-      : null;
-  const allowedCaps = filterPlanCapabilitiesForManifest(plan.capabilities, manifest);
+  const allowedCaps = resolvePlanCapabilitiesForProvider(plan);
   if (allowedCaps.length === 0) {
     return NextResponse.json([], {
       headers: {

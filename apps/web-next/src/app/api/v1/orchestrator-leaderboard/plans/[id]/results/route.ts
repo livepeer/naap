@@ -14,11 +14,26 @@ import { success, errors } from '@/lib/api/response';
 import { getAuthToken } from '@/lib/api/response';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
+import { BillingProviderSlugSchema } from '@/lib/orchestrator-leaderboard/types';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 function scopeFromAuth(auth: { teamId: string; callerId: string }) {
   return { teamId: auth.teamId, ownerUserId: auth.callerId };
+}
+
+function parseBillingProviderSlugParam(
+  request: NextRequest,
+): { value: string | null; error: string | null } {
+  const raw = request.nextUrl.searchParams.get('billingProviderSlug');
+  if (!raw) {
+    return { value: null, error: null };
+  }
+  const parsed = BillingProviderSlugSchema.safeParse(raw.trim().toLowerCase());
+  if (!parsed.success) {
+    return { value: null, error: 'Invalid billingProviderSlug' };
+  }
+  return { value: parsed.data, error: null };
 }
 
 export async function GET(
@@ -27,9 +42,11 @@ export async function GET(
 ): Promise<NextResponse | Response> {
   const auth = await authorize(request);
   if (!auth) return errors.unauthorized('Missing or invalid authentication');
+  const parsedSlug = parseBillingProviderSlugParam(request);
+  if (parsedSlug.error) return errors.badRequest(parsedSlug.error);
 
   const { id } = await context.params;
-  const plan = await getPlan(id, scopeFromAuth(auth));
+  const plan = await getPlan(id, scopeFromAuth(auth), parsedSlug.value);
   if (!plan) return errors.notFound('Plan not found');
 
   if (!plan.enabled) {

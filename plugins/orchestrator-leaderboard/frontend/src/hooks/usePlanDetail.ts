@@ -59,11 +59,12 @@ export function usePlanDetail(planId: string): UsePlanDetailResult {
           return;
         }
         setDraftState({
+          capabilities: found.capabilities,
           topN: found.topN,
-          slaWeights: found.slaWeights,
-          slaMinScore: found.slaMinScore,
-          sortBy: found.sortBy,
-          filters: found.filters,
+          slaWeights: found.slaWeights ?? undefined,
+          slaMinScore: found.slaMinScore ?? undefined,
+          sortBy: found.sortBy ?? undefined,
+          filters: found.filters ?? undefined,
           billingProviderSlug: found.billingProviderSlug ?? 'pymthouse',
         });
         setDirty(false);
@@ -105,7 +106,10 @@ export function usePlanDetail(planId: string): UsePlanDetailResult {
     setSaving(true);
     setError(null);
     try {
-      const updated = await apiUpdatePlan(plan.id, draft);
+      const payload: PlanUpdatePayload = { ...draft };
+      if (payload.filters === null) delete payload.filters;
+      if (payload.slaWeights === null) delete payload.slaWeights;
+      const updated = await apiUpdatePlan(plan.id, payload);
       setPlan(updated);
       setDirty(false);
       setSavedFlash(true);
