@@ -23,6 +23,23 @@ import {
   parseUsageDateParam,
 } from '@/lib/pymthouse-usage-helpers';
 
+function stripCryptoUnitFields(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => stripCryptoUnitFields(entry));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  const output: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (/(wei|eth|gwei)/i.test(key)) {
+      continue;
+    }
+    output[key] = stripCryptoUnitFields(entry);
+  }
+  return output;
+}
+
 function noStore(res: NextResponse): NextResponse {
   res.headers.set('Cache-Control', 'no-store');
   return res;
@@ -121,7 +138,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           sessionUser.id,
           usagePipelineModels,
         );
-        return noStore(success(body));
+        return noStore(success(stripCryptoUnitFields(body)));
       } catch (e) {
         return noStore(mapUpstreamUsageFailure(e));
       }
@@ -150,7 +167,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         groupBy,
         userId,
       });
-      return noStore(success(usage));
+      return noStore(success(stripCryptoUnitFields(usage)));
     } catch (e) {
       return noStore(mapUpstreamUsageFailure(e));
     }

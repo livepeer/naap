@@ -25,7 +25,6 @@ ChevronUp,
 } from 'lucide-react';
 import { Card, Badge, Modal, Tooltip } from '@naap/ui';
 import type { NetworkModel } from '@naap/plugin-sdk';
-import { formatFeeWeiStringToEthDisplay } from '@naap/utils';
 import { getPymthouseSignerBaseUrl } from '../lib/pymthouse-signer-base-url';
 
 const PIPELINE_COLOR: Record<string, string> = {
@@ -219,18 +218,32 @@ interface PymthouseUsageMePayload {
   currentUser: {
     externalUserId: string;
     requestCount: number;
-    feeWei: string;
+    currency: string;
+    networkFeeUsdMicros: string;
+    ownerChargeUsdMicros: string;
+    endUserBillableUsdMicros: string;
     pipelineModels: Array<{
       pipeline: string;
       modelId: string;
       requestCount: number;
-      networkFeeWei: string;
+      currency: string;
       networkFeeUsdMicros: string;
       ownerChargeUsdMicros: string;
       endUserBillableUsdMicros: string;
-      networkFeeEth?: string;
     }>;
   };
+}
+
+function formatUsdMicros(microsRaw: string | number | bigint): string {
+  try {
+    const micros = BigInt(typeof microsRaw === 'string' ? microsRaw : String(microsRaw));
+    const whole = micros / 1_000_000n;
+    const frac = micros % 1_000_000n;
+    const fracText = frac.toString().padStart(6, '0').replace(/0+$/, '');
+    return fracText.length > 0 ? `$${whole.toString()}.${fracText}` : `$${whole.toString()}`;
+  } catch {
+    return '$0';
+  }
 }
 
 async function fetchCsrfToken(): Promise<string> {
@@ -316,9 +329,7 @@ const DOCS_BILLING_PROVIDERS: DocsBillingProvider[] = [
     authNote: (
       <>
         Pass the signer session token from the API Keys tab as a Bearer token in the{' '}
-        <code className="text-slate-300">Authorization</code> header.{' '}
-        Tokens are generated through a short-lived authorization exchange and expire after about 90 days;
-        create a new key from this tab when needed.
+        <code className="text-slate-300">Authorization</code> header. Create a new key from this tab when needed.
       </>
     ),
   },
@@ -340,6 +351,54 @@ const DOCS_BILLING_PROVIDERS: DocsBillingProvider[] = [
 ];
 
 const PYTHON_GATEWAY_DISCOVERY_BILLING_SLUGS = new Set(['pymthouse', 'daydream']);
+
+type UsagePeriodPreset = '1d' | '7d' | '30d' | 'mtd' | 'last_month';
+
+const USAGE_PERIOD_PRESETS: { id: UsagePeriodPreset; label: string }[] = [
+  { id: '1d', label: '1d' },
+  { id: '7d', label: '7d' },
+  { id: '30d', label: '30d' },
+  { id: 'mtd', label: 'MTD' },
+  { id: 'last_month', label: 'Last month' },
+];
+
+function computeUsagePeriodDates(preset: UsagePeriodPreset): {
+  start: Date;
+  end: Date;
+  rangeLabel: string;
+} {
+  const now = new Date();
+  const fmtShort = (d: Date) =>
+    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+  if (preset === '1d') {
+    const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    return { start, end: now, rangeLabel: `${fmtShort(start)} – ${fmtShort(now)}` };
+  }
+  if (preset === '7d') {
+    const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return { start, end: now, rangeLabel: `${fmtShort(start)} – ${fmtShort(now)}` };
+  }
+  if (preset === '30d') {
+    const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return { start, end: now, rangeLabel: `${fmtShort(start)} – ${fmtShort(now)}` };
+  }
+  if (preset === 'last_month') {
+    const y = now.getUTCFullYear();
+    const m = now.getUTCMonth();
+    const start = new Date(Date.UTC(y, m - 1, 1));
+    const end = new Date(Date.UTC(y, m, 0, 23, 59, 59, 999));
+    return { start, end, rangeLabel: `${fmtShort(start)} – ${fmtShort(end)}` };
+  }
+  // mtd
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const start = new Date(Date.UTC(y, m, 1));
+  return { start, end: now, rangeLabel: `${fmtShort(start)} – ${fmtShort(now)}` };
+}
+
+/** Usage tab pill order — Daydream first, then PymtHouse (no default bias toward either). */
+const USAGE_PANEL_PROVIDER_SLUGS: readonly string[] = ['pymthouse', 'daydream'];
 
 function billingProviderSupportsPythonGatewayDiscovery(slug: string | undefined): boolean {
   return !!slug && PYTHON_GATEWAY_DISCOVERY_BILLING_SLUGS.has(slug);
@@ -448,8 +507,9 @@ export const DeveloperView: React.FC = () => {
   const [usagePayload, setUsagePayload] = useState<PymthouseUsageMePayload | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
-  /** Billing provider slug for Usage tab (defaults to PymtHouse when present in catalog). */
+  /** Billing provider slug for Usage tab (pill tabs: Daydream / PymtHouse). */
   const [usageBillingProviderSlug, setUsageBillingProviderSlug] = useState('');
+  const [usagePeriodPreset, setUsagePeriodPreset] = useState<UsagePeriodPreset>('mtd');
   /** Selected billing provider for the Docs tab. */
   const [docsBillingProviderId, setDocsBillingProviderId] = useState<string>(DOCS_BILLING_PROVIDERS[0].id);
 
@@ -489,6 +549,14 @@ export const DeveloperView: React.FC = () => {
     () => billingProviders?.find((provider) => provider.id === selectedBillingProviderId) || null,
     [billingProviders, selectedBillingProviderId]
   );
+
+  const usagePanelProviders = useMemo<BillingProviderInfo[]>(() => {
+    if (!billingProviders?.length) return [];
+    const bySlug = new Map(billingProviders.map((p: BillingProviderInfo) => [p.slug, p]));
+    return USAGE_PANEL_PROVIDER_SLUGS.map((slug: string) => bySlug.get(slug)).filter(
+      (p): p is BillingProviderInfo => p != null,
+    );
+  }, [billingProviders]);
 
   useEffect(() => {
     if (!showCreateModal || !billingProviderSupportsPythonGatewayDiscovery(selectedBillingProvider?.slug)) {
@@ -737,23 +805,18 @@ result = [...result].sort((a, b) => {
   }, [activeTab, loadBillingProviders]);
 
   useEffect(() => {
-    if (billingProviders === null || billingProviders.length === 0) return;
+    if (usagePanelProviders.length === 0) return;
     setUsageBillingProviderSlug((prev) => {
-      if (prev && billingProviders.some((p) => p.slug === prev)) return prev;
-      const pym = billingProviders.find((p) => p.slug === 'pymthouse');
-      return pym?.slug ?? billingProviders[0].slug;
+      if (prev && usagePanelProviders.some((p) => p.slug === prev)) return prev;
+      return usagePanelProviders[0].slug;
     });
-  }, [billingProviders]);
+  }, [usagePanelProviders]);
 
-  const loadPymthouseUsage = useCallback(async () => {
+  const loadPymthouseUsage = useCallback(async (preset: UsagePeriodPreset = 'mtd') => {
     setUsageLoading(true);
     setUsageError(null);
     try {
-      const now = new Date();
-      const y = now.getUTCFullYear();
-      const m = now.getUTCMonth();
-      const start = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
-      const end = new Date(Date.UTC(y, m + 1, 0, 23, 59, 59, 999));
+      const { start, end } = computeUsagePeriodDates(preset);
       const params = new URLSearchParams({
         scope: 'me',
         startDate: start.toISOString(),
@@ -787,7 +850,13 @@ result = [...result].sort((a, b) => {
         currentUser: {
           externalUserId: cu.externalUserId,
           requestCount: cu.requestCount,
-          feeWei: cu.feeWei,
+          currency: typeof cu.currency === 'string' ? cu.currency : 'USD',
+          networkFeeUsdMicros:
+            typeof cu.networkFeeUsdMicros === 'string' ? cu.networkFeeUsdMicros : '0',
+          ownerChargeUsdMicros:
+            typeof cu.ownerChargeUsdMicros === 'string' ? cu.ownerChargeUsdMicros : '0',
+          endUserBillableUsdMicros:
+            typeof cu.endUserBillableUsdMicros === 'string' ? cu.endUserBillableUsdMicros : '0',
           pipelineModels: Array.isArray(cu.pipelineModels) ? cu.pipelineModels : [],
         },
       };
@@ -808,8 +877,8 @@ result = [...result].sort((a, b) => {
       setUsageError(null);
       return;
     }
-    void loadPymthouseUsage();
-  }, [activeTab, usageBillingProviderSlug, loadPymthouseUsage]);
+    void loadPymthouseUsage(usagePeriodPreset);
+  }, [activeTab, usageBillingProviderSlug, usagePeriodPreset, loadPymthouseUsage]);
 
   const loadModalData = useCallback(async () => {
     setModalDataLoading(true);
@@ -927,6 +996,11 @@ result = [...result].sort((a, b) => {
       const startData = (await startRes.json().catch(() => ({}))) as {
         error?: { message?: string } | string;
         message?: string;
+        data?: { access_token?: string; login_session_id?: string; poll_after_ms?: number; expires_in?: number };
+        access_token?: string;
+        login_session_id?: string;
+        poll_after_ms?: number;
+        expires_in?: number;
       };
       if (!startRes.ok) {
         const apiError = startData.error;
@@ -1557,66 +1631,93 @@ result = [...result].sort((a, b) => {
           {activeTab === 'usage' && (
             <div className="space-y-3">
               <Card>
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                {/* ── Header row: title + provider pills ── */}
+                <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex items-start gap-3 min-w-0">
                     <BarChart3 size={16} className="text-accent-blue shrink-0 mt-0.5" />
-                    <div className="min-w-0">
+                    <div>
                       <h3 className="text-sm font-semibold text-text-primary">Usage</h3>
                       <p className="text-xs text-text-secondary mt-0.5">
-                        This month (UTC). Metrics reflect signed requests attributed to your account for the
-                        selected billing provider.
+                        Signed requests attributed to your account for the selected billing provider.
                       </p>
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 shrink-0 lg:justify-end">
-                    {billingProvidersError ? (
-                      <button
-                        type="button"
-                        onClick={() => void loadBillingProviders()}
-                        className="text-xs px-3 py-1.5 rounded-md border border-white/15 bg-bg-tertiary text-text-primary hover:border-accent-blue/50 transition-colors"
-                      >
-                        Retry providers
-                      </button>
-                    ) : (
-                      <>
-                        <label htmlFor="usage-billing-provider" className="text-xs text-text-secondary whitespace-nowrap">
-                          Provider
-                        </label>
-                        <select
-                          id="usage-billing-provider"
-                          value={usageBillingProviderSlug}
-                          onChange={(e) => setUsageBillingProviderSlug(e.target.value)}
-                          disabled={!billingProviders?.length}
-                          className={`${selectClassName} w-auto min-w-[11rem] max-w-[20rem] text-xs py-1.5`}
-                        >
-                          {!billingProviders?.length ? (
-                            <option value="">Loading…</option>
-                          ) : (
-                            billingProviders.map((bp) => (
-                              <option key={bp.id} value={bp.slug}>
-                                {bp.displayName}
-                              </option>
-                            ))
-                          )}
-                        </select>
-                        {usageBillingProviderSlug === 'pymthouse' && (
-                          <button
-                            type="button"
-                            onClick={() => void loadPymthouseUsage()}
-                            className="text-xs text-text-secondary hover:text-accent-blue transition-colors shrink-0 px-1"
-                          >
-                            Refresh
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
+                  {billingProvidersError ? (
+                    <button
+                      type="button"
+                      onClick={() => void loadBillingProviders()}
+                      className="text-xs px-3 py-1.5 rounded-md border border-white/15 bg-bg-tertiary text-text-primary hover:border-accent-blue/50 transition-colors shrink-0"
+                    >
+                      Retry providers
+                    </button>
+                  ) : (
+                    <div className="flex flex-wrap gap-2 shrink-0" role="tablist" aria-label="Billing provider">
+                      {usagePanelProviders.length === 0 ? (
+                        <span className="text-xs text-text-secondary px-1">Loading…</span>
+                      ) : (
+                        usagePanelProviders.map((bp) => {
+                          const selected = usageBillingProviderSlug === bp.slug;
+                          return (
+                            <button
+                              key={bp.id}
+                              type="button"
+                              role="tab"
+                              aria-selected={selected}
+                              onClick={() => setUsageBillingProviderSlug(bp.slug)}
+                              className={`px-4 py-2 rounded-full text-sm font-medium border transition-colors ${
+                                selected
+                                  ? 'bg-accent-blue/15 border-accent-blue text-text-primary'
+                                  : 'bg-bg-tertiary border-white/10 text-text-secondary hover:border-white/25 hover:text-text-primary'
+                              }`}
+                            >
+                              {bp.displayName}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {usageBillingProviderSlug === 'pymthouse' ? (
                   <>
+                    {/* ── Period selector row ── */}
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <div className="flex items-center gap-1 p-0.5 rounded-lg bg-black/30 border border-white/10">
+                        {USAGE_PERIOD_PRESETS.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => {
+                              setUsagePeriodPreset(p.id);
+                              void loadPymthouseUsage(p.id);
+                            }}
+                            className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                              usagePeriodPreset === p.id
+                                ? 'bg-accent-blue text-white shadow-sm'
+                                : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
+                            }`}
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                      {usagePayload && (
+                        <span className="text-xs text-text-secondary font-mono">
+                          {computeUsagePeriodDates(usagePeriodPreset).rangeLabel}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void loadPymthouseUsage(usagePeriodPreset)}
+                        className="ml-auto text-xs text-text-secondary hover:text-accent-blue transition-colors px-1"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+
                     {usageLoading ? (
-                      <div className="flex items-center justify-center gap-3 py-8 mt-4">
+                      <div className="flex items-center justify-center gap-3 py-10 mt-4">
                         <Loader2 size={16} className="animate-spin text-text-secondary" />
                         <span className="text-sm text-text-secondary">Loading usage…</span>
                       </div>
@@ -1628,7 +1729,7 @@ result = [...result].sort((a, b) => {
                           <p className="text-text-secondary mt-1">{usageError}</p>
                           <button
                             type="button"
-                            onClick={() => void loadPymthouseUsage()}
+                            onClick={() => void loadPymthouseUsage(usagePeriodPreset)}
                             className="text-accent-blue hover:underline mt-2 text-xs"
                           >
                             Retry
@@ -1636,66 +1737,75 @@ result = [...result].sort((a, b) => {
                         </div>
                       </div>
                     ) : usagePayload ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                        <div className="p-4 rounded-lg border bg-bg-tertiary/50 border-white/10">
-                          <p className="text-xs uppercase tracking-wide text-text-secondary mb-1">Requests</p>
-                          <p className="text-2xl font-mono text-text-primary">
-                            {usagePayload.currentUser.requestCount.toLocaleString()}
-                          </p>
-                        </div>
-                        <div className="p-4 rounded-lg border bg-bg-tertiary/50 border-white/10">
-                          <p className="text-xs uppercase tracking-wide text-text-secondary mb-1">Fees (wei raw)</p>
-                          <p className="text-sm font-mono text-text-primary break-all">{usagePayload.currentUser.feeWei}</p>
-                          <p className="text-xs text-text-secondary mt-2">
-                            ≈ {formatFeeWeiStringToEthDisplay(usagePayload.currentUser.feeWei)} ETH
-                          </p>
-                        </div>
-                        <div className="sm:col-span-2 text-xs text-text-secondary font-mono">
-                          <span className="text-text-secondary">Period: </span>
-                          {usagePayload.period?.start ?? '—'} → {usagePayload.period?.end ?? '—'}
-                        </div>
-                        <div className="sm:col-span-2 mt-2">
-                          <p className="text-xs uppercase tracking-wide text-text-secondary mb-2">
-                            By pipeline &amp; model
-                          </p>
-                          {usagePayload.currentUser.pipelineModels.length > 0 ? (
-                            <ul className="space-y-2 text-sm">
-                              {usagePayload.currentUser.pipelineModels.map((row) => (
-                                <li
-                                  key={`${row.pipeline}:${row.modelId}`}
-                                  className="p-3 rounded-lg border border-white/10 bg-bg-tertiary/30 font-mono"
-                                >
-                                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-text-primary">
-                                    <span>
-                                      <span className="text-text-secondary">Pipeline</span>{' '}
-                                      {row.pipeline}
-                                    </span>
-                                    <span>
-                                      <span className="text-text-secondary">Model</span> {row.modelId}
-                                    </span>
-                                    <span>
-                                      <span className="text-text-secondary">Requests</span>{' '}
-                                      {row.requestCount.toLocaleString()}
-                                    </span>
-                                  </div>
-                                  <div className="mt-2 text-xs text-text-secondary break-all">
-                                    Network fee (wei): {row.networkFeeWei}
-                                    <span className="block mt-1">
-                                      ≈ {formatFeeWeiStringToEthDisplay(row.networkFeeWei)} ETH
-                                    </span>
-                                  </div>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="text-xs text-text-secondary">
-                              No pipeline/model breakdown for this period.
+                      <>
+                        {/* ── Stats cards ── */}
+                        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="p-4 rounded-lg border bg-bg-tertiary/50 border-white/10">
+                            <p className="text-xs text-text-secondary mb-1">Total requests</p>
+                            <p className="text-2xl font-semibold text-text-primary tabular-nums">
+                              {usagePayload.currentUser.requestCount.toLocaleString()}
                             </p>
-                          )}
+                          </div>
+                          <div className="p-4 rounded-lg border bg-bg-tertiary/50 border-white/10">
+                            <p className="text-xs text-text-secondary mb-1">Credit Usage</p>
+                            <p className="text-2xl font-semibold text-text-primary tabular-nums">
+                              {formatUsdMicros(usagePayload.currentUser.networkFeeUsdMicros)}
+                            </p>
+                            <p className="text-xs text-text-secondary mt-0.5">{usagePayload.currentUser.currency}</p>
+                          </div>
+                          <div className="p-4 rounded-lg border bg-bg-tertiary/50 border-white/10">
+                            <p className="text-xs text-text-secondary mb-1">Models used</p>
+                            <p className="text-2xl font-semibold text-text-primary tabular-nums">
+                              {usagePayload.currentUser.pipelineModels.length}
+                            </p>
+                          </div>
                         </div>
-                      </div>
+
+                        {/* ── Pipeline / model table ── */}
+                        {usagePayload.currentUser.pipelineModels.length > 0 ? (
+                          <div className="mt-5 overflow-x-auto">
+                            <table className="w-full text-sm border-collapse">
+                              <thead>
+                                <tr className="border-b border-white/8">
+                                  <th className="py-2 pr-4 text-left text-xs font-medium text-text-secondary uppercase tracking-wide whitespace-nowrap">Pipeline</th>
+                                  <th className="py-2 pr-4 text-left text-xs font-medium text-text-secondary uppercase tracking-wide whitespace-nowrap">Model</th>
+                                  <th className="py-2 pr-4 text-right text-xs font-medium text-text-secondary uppercase tracking-wide whitespace-nowrap">Requests</th>
+                                  <th className="py-2 text-right text-xs font-medium text-text-secondary uppercase tracking-wide whitespace-nowrap">Usage (USD)</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {[...usagePayload.currentUser.pipelineModels]
+                                  .sort((a, b) => b.requestCount - a.requestCount)
+                                  .map((row) => (
+                                    <tr
+                                      key={`${row.pipeline}:${row.modelId}`}
+                                      className="border-b border-white/5 hover:bg-white/3 transition-colors"
+                                    >
+                                      <td className="py-2.5 pr-4 text-text-secondary font-mono text-xs whitespace-nowrap">
+                                        {row.pipeline}
+                                      </td>
+                                      <td className="py-2.5 pr-4 text-text-primary font-mono text-xs max-w-[18rem] truncate">
+                                        {row.modelId}
+                                      </td>
+                                      <td className="py-2.5 pr-4 text-right font-mono text-xs text-text-primary tabular-nums whitespace-nowrap">
+                                        {row.requestCount.toLocaleString()}
+                                      </td>
+                                      <td className="py-2.5 text-right font-mono text-xs text-text-primary tabular-nums whitespace-nowrap">
+                                        {formatUsdMicros(row.networkFeeUsdMicros)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-text-secondary mt-4">
+                            No pipeline/model breakdown for this period.
+                          </p>
+                        )}
+                      </>
                     ) : (
-                      <div className="text-center py-6 mt-4 text-text-secondary">
+                      <div className="text-center py-10 mt-4 text-text-secondary">
                         <BarChart3 size={24} className="mx-auto mb-3 opacity-30" />
                         <p className="text-sm">No usage data for this period.</p>
                       </div>
@@ -1705,7 +1815,7 @@ result = [...result].sort((a, b) => {
                   <p className="text-sm text-text-secondary mt-4">
                     Usage metrics for{' '}
                     <span className="text-text-primary font-medium">
-                      {billingProviders?.find((p) => p.slug === usageBillingProviderSlug)?.displayName ??
+                      {usagePanelProviders.find((p) => p.slug === usageBillingProviderSlug)?.displayName ??
                         usageBillingProviderSlug}
                     </span>{' '}
                     are not shown here yet. Use the billing provider&apos;s tools for account usage.
@@ -1714,7 +1824,7 @@ result = [...result].sort((a, b) => {
                   <p className="text-sm text-text-secondary mt-4">
                     Unable to load billing providers. Use &quot;Retry providers&quot; above to try again.
                   </p>
-                ) : billingProviders !== null && billingProviders.length === 0 ? (
+                ) : billingProviders !== null && usagePanelProviders.length === 0 ? (
                   <p className="text-sm text-text-secondary mt-4">No billing providers available.</p>
                 ) : (
                   <p className="text-sm text-text-secondary mt-4">Loading billing providers…</p>
@@ -2015,12 +2125,6 @@ result = [...result].sort((a, b) => {
                     );
                   })}
                 </div>
-              )}
-              {selectedBillingProvider?.slug === 'pymthouse' && (
-                <p className="text-xs text-amber-300 mt-2">
-                  PymtHouse keys are scoped signer session tokens. They are generated through a short-lived user
-                  authorization exchange and expire after about 90 days.
-                </p>
               )}
             </div>
             {billingProviderSupportsPythonGatewayDiscovery(selectedBillingProvider?.slug) && (

@@ -63,7 +63,7 @@ describe('GET /api/v1/billing/pymthouse/usage', () => {
               pipeline: 'transcode',
               modelId: 'model-a',
               requestCount: 2,
-              networkFeeWei: '20',
+              currency: 'USD',
               networkFeeUsdMicros: '0',
               ownerChargeUsdMicros: '0',
               endUserBillableUsdMicros: '0',
@@ -79,6 +79,10 @@ describe('GET /api/v1/billing/pymthouse/usage', () => {
             externalUserId: 'user-naap-1',
             requestCount: 3,
             feeWei: '42',
+            currency: 'USD',
+            networkFeeUsdMicros: '12345',
+            ownerChargeUsdMicros: '13000',
+            endUserBillableUsdMicros: '14000',
           },
         ],
       };
@@ -114,13 +118,14 @@ describe('GET /api/v1/billing/pymthouse/usage', () => {
     expect(json.success).toBe(true);
     expect(json.data.currentUser.externalUserId).toBe('user-naap-1');
     expect(json.data.currentUser.requestCount).toBe(3);
-    expect(json.data.currentUser.feeWei).toBe('42');
+    expect(json.data.currentUser.currency).toBe('USD');
+    expect(json.data.currentUser.networkFeeUsdMicros).toBe('12345');
     expect(json.data.currentUser.pipelineModels).toEqual([
       {
         pipeline: 'transcode',
         modelId: 'model-a',
         requestCount: 2,
-        networkFeeWei: '20',
+        currency: 'USD',
         networkFeeUsdMicros: '0',
         ownerChargeUsdMicros: '0',
         endUserBillableUsdMicros: '0',

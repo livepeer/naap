@@ -25,8 +25,26 @@ describe('pymthouse-usage-helpers', () => {
         period: { start: null, end: null },
         totals: { requestCount: 0, totalFeeWei: '0' },
         byUser: [
-          { endUserId: 'a', externalUserId: 'x', requestCount: 1, feeWei: '1' },
-          { endUserId: 'b', externalUserId: 'y', requestCount: 2, feeWei: '2' },
+          {
+            endUserId: 'a',
+            externalUserId: 'x',
+            requestCount: 1,
+            feeWei: '1',
+            currency: 'USD',
+            networkFeeUsdMicros: '1000000',
+            ownerChargeUsdMicros: '1100000',
+            endUserBillableUsdMicros: '1200000',
+          },
+          {
+            endUserId: 'b',
+            externalUserId: 'y',
+            requestCount: 2,
+            feeWei: '2',
+            currency: 'USD',
+            networkFeeUsdMicros: '2000000',
+            ownerChargeUsdMicros: '2200000',
+            endUserBillableUsdMicros: '2300000',
+          },
         ],
       },
       'y',
@@ -34,7 +52,10 @@ describe('pymthouse-usage-helpers', () => {
     expect(body.currentUser).toMatchObject({
       externalUserId: 'y',
       requestCount: 2,
-      feeWei: '2',
+      currency: 'USD',
+      networkFeeUsdMicros: '2000000',
+      ownerChargeUsdMicros: '2200000',
+      endUserBillableUsdMicros: '2300000',
     });
     expect(body.currentUser.pipelineModels).toEqual([]);
   });
@@ -46,9 +67,36 @@ describe('pymthouse-usage-helpers', () => {
         period: { start: null, end: null },
         totals: { requestCount: 0, totalFeeWei: '0' },
         byUser: [
-          { endUserId: 'app-user-id', externalUserId: 'naap-user-id', requestCount: 19, feeWei: '1123447749974' },
-          { endUserId: 'end-user-id', externalUserId: 'naap-user-id', requestCount: 43, feeWei: '2540996510612' },
-          { endUserId: 'naap-user-id', externalUserId: 'naap-user-id', requestCount: 10, feeWei: '591680839970' },
+          {
+            endUserId: 'app-user-id',
+            externalUserId: 'naap-user-id',
+            requestCount: 19,
+            feeWei: '1123447749974',
+            currency: 'USD',
+            networkFeeUsdMicros: '1900000',
+            ownerChargeUsdMicros: '2000000',
+            endUserBillableUsdMicros: '2100000',
+          },
+          {
+            endUserId: 'end-user-id',
+            externalUserId: 'naap-user-id',
+            requestCount: 43,
+            feeWei: '2540996510612',
+            currency: 'USD',
+            networkFeeUsdMicros: '4300000',
+            ownerChargeUsdMicros: '4400000',
+            endUserBillableUsdMicros: '4500000',
+          },
+          {
+            endUserId: 'naap-user-id',
+            externalUserId: 'naap-user-id',
+            requestCount: 10,
+            feeWei: '591680839970',
+            currency: 'USD',
+            networkFeeUsdMicros: '1000000',
+            ownerChargeUsdMicros: '1200000',
+            endUserBillableUsdMicros: '1300000',
+          },
         ],
       },
       'naap-user-id',
@@ -56,7 +104,10 @@ describe('pymthouse-usage-helpers', () => {
     expect(body.currentUser).toMatchObject({
       externalUserId: 'naap-user-id',
       requestCount: 72,
-      feeWei: '4256125100556',
+      currency: 'USD',
+      networkFeeUsdMicros: '7200000',
+      ownerChargeUsdMicros: '7600000',
+      endUserBillableUsdMicros: '7900000',
     });
     expect(body.currentUser.pipelineModels).toEqual([]);
   });
@@ -72,7 +123,7 @@ describe('pymthouse-usage-helpers', () => {
       'missing-user',
     );
     expect(body.currentUser.requestCount).toBe(0);
-    expect(body.currentUser.feeWei).toBe('0');
+    expect(body.currentUser.networkFeeUsdMicros).toBe('0');
     expect(body.currentUser.pipelineModels).toEqual([]);
   });
 
@@ -82,7 +133,18 @@ describe('pymthouse-usage-helpers', () => {
         clientId: 'app',
         period: { start: 'a', end: 'b' },
         totals: { requestCount: 1, totalFeeWei: '10' },
-        byUser: [{ endUserId: 'u', externalUserId: 'me', requestCount: 1, feeWei: '10' }],
+        byUser: [
+          {
+            endUserId: 'u',
+            externalUserId: 'me',
+            requestCount: 1,
+            feeWei: '10',
+            currency: 'USD',
+            networkFeeUsdMicros: '100',
+            ownerChargeUsdMicros: '110',
+            endUserBillableUsdMicros: '120',
+          },
+        ],
       },
       'me',
       {
@@ -94,7 +156,7 @@ describe('pymthouse-usage-helpers', () => {
             pipeline: 'z',
             modelId: 'm1',
             requestCount: 2,
-            networkFeeWei: '20',
+            currency: 'USD',
             networkFeeUsdMicros: '0',
             ownerChargeUsdMicros: '0',
             endUserBillableUsdMicros: '0',
@@ -103,7 +165,7 @@ describe('pymthouse-usage-helpers', () => {
             pipeline: 'a',
             modelId: 'm2',
             requestCount: 1,
-            networkFeeWei: '10',
+            currency: 'USD',
             networkFeeUsdMicros: '0',
             ownerChargeUsdMicros: '0',
             endUserBillableUsdMicros: '0',
@@ -125,10 +187,10 @@ describe('pymthouse-usage-helpers', () => {
           period: { start: null, end: null },
           totals: { requestCount: 0, totalFeeWei: '0' },
           byUser: [
-            { endUserId: 'app-user-id', externalUserId: 'me', requestCount: 1, feeWei: '1' },
-            { endUserId: 'end-user-id', externalUserId: 'me', requestCount: 2, feeWei: '2' },
-            { endUserId: 'other-id', externalUserId: 'other', requestCount: 3, feeWei: '3' },
-            { endUserId: 'unknown', externalUserId: 'me', requestCount: 4, feeWei: '4' },
+            { endUserId: 'app-user-id', externalUserId: 'me', requestCount: 1, feeWei: '1', currency: 'USD', networkFeeUsdMicros: '0', ownerChargeUsdMicros: '0', endUserBillableUsdMicros: '0' },
+            { endUserId: 'end-user-id', externalUserId: 'me', requestCount: 2, feeWei: '2', currency: 'USD', networkFeeUsdMicros: '0', ownerChargeUsdMicros: '0', endUserBillableUsdMicros: '0' },
+            { endUserId: 'other-id', externalUserId: 'other', requestCount: 3, feeWei: '3', currency: 'USD', networkFeeUsdMicros: '0', ownerChargeUsdMicros: '0', endUserBillableUsdMicros: '0' },
+            { endUserId: 'unknown', externalUserId: 'me', requestCount: 4, feeWei: '4', currency: 'USD', networkFeeUsdMicros: '0', ownerChargeUsdMicros: '0', endUserBillableUsdMicros: '0' },
           ],
         },
         'me',
@@ -142,7 +204,18 @@ describe('pymthouse-usage-helpers', () => {
         clientId: 'app',
         period: { start: 'a', end: 'b' },
         totals: { requestCount: 2, totalFeeWei: '30' },
-        byUser: [{ endUserId: 'u', externalUserId: 'me', requestCount: 2, feeWei: '30' }],
+        byUser: [
+          {
+            endUserId: 'u',
+            externalUserId: 'me',
+            requestCount: 2,
+            feeWei: '30',
+            currency: 'USD',
+            networkFeeUsdMicros: '300',
+            ownerChargeUsdMicros: '330',
+            endUserBillableUsdMicros: '360',
+          },
+        ],
       },
       'me',
       [
@@ -155,7 +228,7 @@ describe('pymthouse-usage-helpers', () => {
               pipeline: 'p',
               modelId: 'm',
               requestCount: 1,
-              networkFeeWei: '10',
+              currency: 'USD',
               networkFeeUsdMicros: '100',
               ownerChargeUsdMicros: '110',
               endUserBillableUsdMicros: '120',
@@ -171,7 +244,7 @@ describe('pymthouse-usage-helpers', () => {
               pipeline: 'p',
               modelId: 'm',
               requestCount: 2,
-              networkFeeWei: '20',
+              currency: 'USD',
               networkFeeUsdMicros: '200',
               ownerChargeUsdMicros: '220',
               endUserBillableUsdMicros: '240',
@@ -185,7 +258,7 @@ describe('pymthouse-usage-helpers', () => {
         pipeline: 'p',
         modelId: 'm',
         requestCount: 3,
-        networkFeeWei: '30',
+        currency: 'USD',
         networkFeeUsdMicros: '300',
         ownerChargeUsdMicros: '330',
         endUserBillableUsdMicros: '360',
