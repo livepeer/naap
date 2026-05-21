@@ -223,6 +223,24 @@ export function parseCapabilityToPipelineModel(cap: string): {
   return { pipeline: trimmed.slice(0, i), modelId: trimmed.slice(i + 1) };
 }
 
+function capabilityRuleMatches(
+  rule: PymthouseManifestCapability,
+  pipeline: string,
+  modelId: string,
+): boolean {
+  const rP = pipeline.trim();
+  const rM = modelId.trim();
+  const eP = rule.pipeline.trim();
+  const eM = rule.modelId.trim();
+  const pipelineOk = rP === '*' || eP === '*' || eP === rP;
+  const modelOk = rM === '*' || eM === '*' || eM === rM;
+  return pipelineOk && modelOk;
+}
+
+/**
+ * Discovery allow check: excluded rows deny; explicit capability rows allow; anything
+ * else (including future network capabilities not yet in the catalog) is allowed.
+ */
 export function isPipelineModelInManifest(
   manifest: PymthouseManifestResponse | null,
   pipeline: string,
@@ -231,20 +249,17 @@ export function isPipelineModelInManifest(
   if (!manifest?.capabilities?.length) {
     return true;
   }
-  const rP = pipeline.trim();
-  const rM = modelId.trim();
+  for (const ex of manifest.excludedCapabilities ?? []) {
+    if (capabilityRuleMatches(ex, pipeline, modelId)) {
+      return false;
+    }
+  }
   for (const e of manifest.capabilities) {
-    const eP = e.pipeline.trim();
-    const eM = e.modelId.trim();
-    const pipelineOk =
-      rP === '*' || eP === '*' || eP === rP;
-    const modelOk =
-      rM === '*' || eM === '*' || eM === rM;
-    if (pipelineOk && modelOk) {
+    if (capabilityRuleMatches(e, pipeline, modelId)) {
       return true;
     }
   }
-  return false;
+  return true;
 }
 
 export function isLeaderboardCapabilityAllowed(

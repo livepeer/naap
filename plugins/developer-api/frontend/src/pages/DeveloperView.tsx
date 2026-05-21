@@ -924,13 +924,25 @@ result = [...result].sort((a, b) => {
         credentials: 'include',
         body: JSON.stringify({}),
       });
+      const startData = (await startRes.json().catch(() => ({}))) as {
+        error?: { message?: string } | string;
+        message?: string;
+      };
       if (!startRes.ok) {
-        setCreateError('Failed to start authentication with billing provider.');
+        const apiError = startData.error;
+        const detail =
+          (typeof apiError === 'object' && apiError?.message) ||
+          (typeof apiError === 'string' ? apiError : undefined) ||
+          startData.message;
+        setCreateError(
+          detail
+            ? `Failed to start authentication with billing provider: ${detail}`
+            : 'Failed to start authentication with billing provider.',
+        );
         setCreateStep('form');
         setCreating(false);
         return;
       }
-      const startData = await startRes.json();
       const directAccessToken = startData.data?.access_token || startData.access_token;
       const loginSessionId = startData.data?.login_session_id || startData.login_session_id;
 
@@ -1953,8 +1965,10 @@ result = [...result].sort((a, b) => {
               <label className="block text-xs font-medium text-text-primary mb-1.5">Billing Provider</label>
               <p className="text-xs text-text-secondary mb-2">
                 {selectedBillingProvider?.slug === 'pymthouse'
-                  ? 'PymtHouse uses a server-to-server link. There is no browser redirect or interactive sign-in.'
-                  : 'You will be redirected to authenticate with the selected provider.'}
+                  ? 'Server-to-server link; no browser sign-in.'
+                  : selectedBillingProvider
+                    ? 'You will authenticate with this provider when you create the key.'
+                    : 'Choose where usage and billing are managed.'}
               </p>
               {modalDataLoading ? (
                 <div className="flex items-center gap-3 p-4 bg-bg-tertiary border border-white/10 rounded-lg">
@@ -1978,13 +1992,29 @@ result = [...result].sort((a, b) => {
                   </div>
                 </div>
               ) : (
-                <select value={selectedBillingProviderId}
-                  onChange={(e) => setSelectedBillingProviderId(e.target.value)} className={selectClassName}>
-                  <option value="">Select a billing provider...</option>
-                  {billingProviders.map(bp => (
-                    <option key={bp.id} value={bp.id}>{bp.displayName}</option>
-                  ))}
-                </select>
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Billing provider">
+                  {billingProviders.map((bp) => {
+                    const selected = selectedBillingProviderId === bp.id;
+                    return (
+                      <button
+                        key={bp.id}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => {
+                          setSelectedBillingProviderId(bp.id);
+                          setSelectedDiscoveryPlanId('');
+                        }}
+                        className={`px-4 py-2 rounded-full text-sm font-medium border transition-colors ${
+                          selected
+                            ? 'bg-accent-blue/15 border-accent-blue text-text-primary'
+                            : 'bg-bg-tertiary border-white/10 text-text-secondary hover:border-white/25 hover:text-text-primary'
+                        }`}
+                      >
+                        {bp.displayName}
+                      </button>
+                    );
+                  })}
+                </div>
               )}
               {selectedBillingProvider?.slug === 'pymthouse' && (
                 <p className="text-xs text-amber-300 mt-2">

@@ -27,21 +27,33 @@ describe('pymthouse-manifest', () => {
   it('wildcard model matches any model in pipeline', () => {
     const manifest = { capabilities: [{ pipeline: 'llm', modelId: '*' }] };
     expect(isPipelineModelInManifest(manifest, 'llm', 'gpt-4')).toBe(true);
-    expect(isPipelineModelInManifest(manifest, 'video', 'gpt-4')).toBe(false);
+    expect(isPipelineModelInManifest(manifest, 'video', 'gpt-4')).toBe(true);
   });
 
-  it('filterPlanCapabilitiesForManifest drops disallowed caps', () => {
-    const manifest = { capabilities: [{ pipeline: 'llm', modelId: 'm1' }] };
+  it('filterPlanCapabilitiesForManifest drops excluded caps only', () => {
+    const manifest = {
+      capabilities: [{ pipeline: 'llm', modelId: 'm1' }],
+      excludedCapabilities: [{ pipeline: 'video', modelId: 'x' }],
+    };
     expect(
-      filterPlanCapabilitiesForManifest(['llm/m1', 'video/x'], manifest),
-    ).toEqual(['llm/m1']);
+      filterPlanCapabilitiesForManifest(['llm/m1', 'video/x', 'other/y'], manifest),
+    ).toEqual(['llm/m1', 'other/y']);
   });
 
   it('isLeaderboardCapabilityAllowed uses raw path', () => {
     const manifest = { capabilities: [{ pipeline: 'p', modelId: 'm' }] };
     expect(isLeaderboardCapabilityAllowed(manifest, 'p/m')).toBe(true);
     expect(isLeaderboardCapabilityAllowed(manifest, 'm')).toBe(true);
-    expect(isLeaderboardCapabilityAllowed(manifest, 'other/m')).toBe(false);
+    expect(isLeaderboardCapabilityAllowed(manifest, 'other/m')).toBe(true);
+  });
+
+  it('isPipelineModelInManifest respects excludedCapabilities', () => {
+    const manifest = {
+      capabilities: [{ pipeline: 'pipe-a', modelId: 'm1' }],
+      excludedCapabilities: [{ pipeline: 'pipe-a', modelId: 'm1' }],
+    };
+    expect(isPipelineModelInManifest(manifest, 'pipe-a', 'm1')).toBe(false);
+    expect(isPipelineModelInManifest(manifest, 'future-pipe', 'new-model')).toBe(true);
   });
 
   it('computeManifestRevision changes when excludedCapabilities change', () => {

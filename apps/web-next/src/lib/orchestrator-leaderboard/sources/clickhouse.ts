@@ -5,7 +5,7 @@
  * gateway proxy) behind the SourceAdapter interface. Returns per-capability orchestrator rows with
  * GPU info, latency, swap-ratio, availability, and price.
  *
- * Supports two modes:
+ * Supports direct CLICKHOUSE_* env credentials when configured, otherwise:
  *   - Gateway mode (default): routes through /api/v1/gw/clickhouse-query/*
  *   - Internal mode (ctx.internal): resolves connector secrets via Prisma
  *     and calls ClickHouse upstream directly (for cron jobs).
@@ -13,7 +13,11 @@
 
 import type { SourceAdapter, FetchCtx, SourceFetchResult, NormalizedOrch } from './types';
 import type { ClickHouseLeaderboardRow, ClickHouseJSONResponse } from '../types';
-import { resolveClickhouseGatewayQueryUrl, buildLeaderboardSQL } from '../query';
+import {
+  buildLeaderboardSQL,
+  resolveClickhouseGatewayQueryUrl,
+  resolveClickhouseQueryTarget,
+} from '../query';
 import { resolveConnectorAuth } from './internal-resolve';
 
 const MAX_QUERY_ROWS = 1000;
@@ -32,6 +36,15 @@ const FALLBACK_CAPABILITIES = [
   'streamdiffusion-sdxl-v2v',
 ];
 
+function parseCapabilityRows(json: unknown): Array<{ capability_name: string }> {
+  if (Array.isArray(json)) return json as Array<{ capability_name: string }>;
+  const data = (json as { data?: unknown }).data;
+  if (Array.isArray(data)) return data as Array<{ capability_name: string }>;
+  const nested = (data as { data?: unknown } | undefined)?.data;
+  if (Array.isArray(nested)) return nested as Array<{ capability_name: string }>;
+  return [];
+}
+
 function buildGatewayHeaders(ctx: FetchCtx): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'text/plain',
@@ -44,6 +57,14 @@ function buildGatewayHeaders(ctx: FetchCtx): Record<string, string> {
 }
 
 async function resolveUrlAndHeaders(ctx: FetchCtx): Promise<{ url: string; headers: Record<string, string> }> {
+  const target = resolveClickhouseQueryTarget(ctx.requestUrl);
+  if (target.mode === 'direct') {
+    return {
+      url: target.url,
+      headers: target.headers,
+    };
+  }
+
   if (ctx.internal) {
     const auth = await resolveConnectorAuth('clickhouse-query');
     if (!auth) throw new Error('clickhouse-query connector not found or not published');
@@ -69,8 +90,7 @@ async function fetchCapabilities(ctx: FetchCtx): Promise<string[]> {
     });
     if (!res.ok) throw new Error(`ClickHouse query failed (${res.status})`);
     const json = await res.json();
-    const chData = (json.data ?? json) as { data?: Array<{ capability_name: string }> };
-    return (chData.data ?? []).map((row: { capability_name: string }) => row.capability_name);
+    return parseCapabilityRows(json).map((row) => row.capability_name);
   } catch {
     return FALLBACK_CAPABILITIES;
   }

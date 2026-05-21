@@ -28,6 +28,15 @@ function isCronAuth(request: NextRequest): boolean {
   return Boolean(process.env.CRON_SECRET) && auth === `Bearer ${process.env.CRON_SECRET}`;
 }
 
+function parseCapabilityRows(json: unknown): Array<{ capability_name: string }> {
+  if (Array.isArray(json)) return json as Array<{ capability_name: string }>;
+  const data = (json as { data?: unknown }).data;
+  if (Array.isArray(data)) return data as Array<{ capability_name: string }>;
+  const nested = (data as { data?: unknown } | undefined)?.data;
+  if (Array.isArray(nested)) return nested as Array<{ capability_name: string }>;
+  return [];
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse | Response> {
   const cronAuthed = isCronAuth(request);
   if (!cronAuthed) {
@@ -70,8 +79,7 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
 
     if (res.ok) {
       const json = await res.json();
-      const chData = (json.data ?? json) as { data?: Array<{ capability_name: string }> };
-      chCapabilities = (chData.data ?? []).map((row: { capability_name: string }) => row.capability_name);
+      chCapabilities = parseCapabilityRows(json).map((row) => row.capability_name);
     }
   } catch {
     // ClickHouse unavailable — proceed with DB capabilities only
