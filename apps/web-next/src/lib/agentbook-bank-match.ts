@@ -122,12 +122,14 @@ export async function applyInvoiceMatch(
         lines: {
           create: [
             {
+              tenantId, // G-009
               accountId: cashAccount.id,
               debitCents: paymentAmount,
               creditCents: 0,
               description: `Cash received - Invoice ${invoice.number}`,
             },
             {
+              tenantId, // G-009
               accountId: arAccount.id,
               debitCents: 0,
               creditCents: paymentAmount,

@@ -55,8 +55,8 @@ export async function POST(
             verified: true,
             lines: {
               create: [
-                { accountId: finalCategoryId, debitCents: finalAmount, creditCents: 0, description: finalDescription || 'Expense' },
-                { accountId: cashAccount.id, debitCents: 0, creditCents: finalAmount, description: 'Payment' },
+                { tenantId, accountId: finalCategoryId, debitCents: finalAmount, creditCents: 0, description: finalDescription || 'Expense' }, // G-009
+                { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: finalAmount, description: 'Payment' }, // G-009
               ],
             },
           },

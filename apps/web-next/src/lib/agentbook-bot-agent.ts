@@ -1450,8 +1450,8 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
                 verified: true,
                 lines: {
                   create: [
-                    { accountId: ctx.active.categoryId, debitCents: ctx.active.amountCents, creditCents: 0, description: ctx.active.description || 'Expense' },
-                    { accountId: cash.id, debitCents: 0, creditCents: ctx.active.amountCents, description: 'Payment' },
+                    { tenantId: ctx.tenantId, accountId: ctx.active.categoryId, debitCents: ctx.active.amountCents, creditCents: 0, description: ctx.active.description || 'Expense' }, // G-009
+                    { tenantId: ctx.tenantId, accountId: cash.id, debitCents: 0, creditCents: ctx.active.amountCents, description: 'Payment' }, // G-009
                   ],
                 },
               },
@@ -1535,6 +1535,7 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
                   verified: true,
                   lines: {
                     create: original.lines.map((l) => ({
+                      tenantId: ctx.tenantId, // G-009
                       accountId: l.accountId,
                       // swap debit and credit to reverse the original entry
                       debitCents: l.creditCents,
@@ -1622,6 +1623,7 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
                   verified: true,
                   lines: {
                     create: original.lines.map((l) => ({
+                      tenantId: ctx.tenantId, // G-009
                       accountId: l.accountId,
                       debitCents: l.creditCents,
                       creditCents: l.debitCents,
@@ -1645,8 +1647,8 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
                   verified: true,
                   lines: {
                     create: [
-                      { accountId: ctx.active.categoryId, debitCents: newAmount, creditCents: 0, description: ctx.active.description || 'Expense' },
-                      { accountId: cash.id, debitCents: 0, creditCents: newAmount, description: 'Payment' },
+                      { tenantId: ctx.tenantId, accountId: ctx.active.categoryId, debitCents: newAmount, creditCents: 0, description: ctx.active.description || 'Expense' }, // G-009
+                      { tenantId: ctx.tenantId, accountId: cash.id, debitCents: 0, creditCents: newAmount, description: 'Payment' }, // G-009
                     ],
                   },
                 },
@@ -2238,12 +2240,14 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
                 lines: {
                   create: [
                     {
+                      tenantId: ctx.tenantId, // G-009
                       accountId: accounts.vehicleAccountId,
                       debitCents: deductibleAmountCents,
                       creditCents: 0,
                       description: `Mileage @ ${rate.ratePerUnitCents}¢/${rate.unit}`,
                     },
                     {
+                      tenantId: ctx.tenantId, // G-009
                       accountId: accounts.equityAccountId,
                       debitCents: 0,
                       creditCents: deductibleAmountCents,

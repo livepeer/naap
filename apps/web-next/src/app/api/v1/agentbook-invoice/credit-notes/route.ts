@@ -96,8 +96,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           verified: true,
           lines: {
             create: [
-              { accountId: revenueAccount.id, debitCents: amountCents, creditCents: 0, description: `Revenue reversal - ${cnNumber}` },
-              { accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR reduction - ${cnNumber}` },
+              { tenantId, accountId: revenueAccount.id, debitCents: amountCents, creditCents: 0, description: `Revenue reversal - ${cnNumber}` }, // G-009
+              { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR reduction - ${cnNumber}` }, // G-009
             ],
           },
         },

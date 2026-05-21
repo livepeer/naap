@@ -80,8 +80,8 @@ test.describe.serial('Mileage — entry + ledger', () => {
           verified: true,
           lines: {
             create: [
-              { accountId: vehicle.id, debitCents: deductibleAmountCents, creditCents: 0 },
-              { accountId: equity.id, debitCents: 0, creditCents: deductibleAmountCents },
+              { tenantId: TENANT, accountId: vehicle.id, debitCents: deductibleAmountCents, creditCents: 0 }, // G-009
+              { tenantId: TENANT, accountId: equity.id, debitCents: 0, creditCents: deductibleAmountCents }, // G-009
             ],
           },
         },
@@ -162,6 +162,7 @@ test.describe.serial('Mileage — entry + ledger', () => {
           verified: true,
           lines: {
             create: original!.lines.map((l) => ({
+              tenantId: TENANT, // G-009
               accountId: l.accountId,
               debitCents: l.creditCents,
               creditCents: l.debitCents,

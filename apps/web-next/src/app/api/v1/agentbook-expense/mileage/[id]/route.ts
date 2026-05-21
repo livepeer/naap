@@ -98,6 +98,7 @@ export async function DELETE(
               verified: true,
               lines: {
                 create: original.lines.map((l) => ({
+                  tenantId, // G-009
                   accountId: l.accountId,
                   debitCents: l.creditCents,
                   creditCents: l.debitCents,

@@ -54,12 +54,14 @@ export async function POST(
     }
 
     const splitRecords = await db.$transaction(async (tx) => {
-      await tx.abExpenseSplit.deleteMany({ where: { expenseId: expense.id } });
+      // G-009: AbExpenseSplit now carries tenantId — scope deletes too.
+      await tx.abExpenseSplit.deleteMany({ where: { tenantId, expenseId: expense.id } });
 
       const records: Awaited<ReturnType<typeof tx.abExpenseSplit.create>>[] = [];
       for (const sp of splits) {
         const record = await tx.abExpenseSplit.create({
           data: {
+            tenantId, // G-009
             expenseId: expense.id,
             categoryId: sp.categoryId || expense.categoryId,
             amountCents: sp.amountCents || 0,

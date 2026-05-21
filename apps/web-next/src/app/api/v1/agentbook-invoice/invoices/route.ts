@@ -103,6 +103,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const lineItems = lines.map((l) => ({
+      tenantId, // G-009
       description: l.description || '',
       quantity: l.quantity || 1,
       rateCents: l.rateCents,
@@ -149,8 +150,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             verified: true,
             lines: {
               create: [
-                { accountId: arAccount.id, debitCents: totalAmountCents, creditCents: 0, description: `AR - Invoice ${invoiceNumber}` },
-                { accountId: revenueAccount.id, debitCents: 0, creditCents: totalAmountCents, description: `Revenue - Invoice ${invoiceNumber}` },
+                { tenantId, accountId: arAccount.id, debitCents: totalAmountCents, creditCents: 0, description: `AR - Invoice ${invoiceNumber}` }, // G-009
+                { tenantId, accountId: revenueAccount.id, debitCents: 0, creditCents: totalAmountCents, description: `Revenue - Invoice ${invoiceNumber}` }, // G-009
               ],
             },
           },

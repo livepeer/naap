@@ -40,6 +40,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
 
       const lines = (item.templateLines as any[]).map((l: any) => ({
+        tenantId: item.tenantId, // G-009
         description: l.description,
         quantity: l.quantity || 1,
         rateCents: l.rateCents,
@@ -62,8 +63,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             sourceType: 'invoice', verified: true,
             lines: {
               create: [
-                { accountId: arAccount.id, debitCents: item.totalCents, creditCents: 0, description: `AR - ${invoiceNumber}` },
-                { accountId: revenueAccount.id, debitCents: 0, creditCents: item.totalCents, description: `Revenue - ${invoiceNumber}` },
+                { tenantId: item.tenantId, accountId: arAccount.id, debitCents: item.totalCents, creditCents: 0, description: `AR - ${invoiceNumber}` }, // G-009
+                { tenantId: item.tenantId, accountId: revenueAccount.id, debitCents: 0, creditCents: item.totalCents, description: `Revenue - ${invoiceNumber}` }, // G-009
               ],
             },
           },

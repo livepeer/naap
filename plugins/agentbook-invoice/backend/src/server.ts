@@ -253,6 +253,7 @@ app.post('/api/v1/agentbook-invoice/invoices', async (req: Request, res: Respons
 
     // Calculate total from lines
     const lineItems = lines.map((l: any) => ({
+      tenantId, // G-009
       description: l.description,
       quantity: l.quantity || 1,
       rateCents: l.rateCents,
@@ -303,12 +304,14 @@ app.post('/api/v1/agentbook-invoice/invoices', async (req: Request, res: Respons
           lines: {
             create: [
               {
+                tenantId, // G-009
                 accountId: arAccount.id,
                 debitCents: totalAmountCents,
                 creditCents: 0,
                 description: `AR - Invoice ${invoiceNumber}`,
               },
               {
+                tenantId, // G-009
                 accountId: revenueAccount.id,
                 debitCents: 0,
                 creditCents: totalAmountCents,
@@ -574,12 +577,14 @@ app.post('/invoices/:id/void', async (req: Request, res: Response) => {
           lines: {
             create: [
               {
+                tenantId, // G-009
                 accountId: arAccount.id,
                 debitCents: 0,
                 creditCents: invoice.amountCents,
                 description: `Reverse AR - Invoice ${invoice.number}`,
               },
               {
+                tenantId, // G-009
                 accountId: revenueAccount.id,
                 debitCents: invoice.amountCents,
                 creditCents: 0,
@@ -690,18 +695,21 @@ app.post('/api/v1/agentbook-invoice/payments', async (req: Request, res: Respons
       // Create journal entry: debit Cash (net of fees), credit AR
       // If fees: debit Fees Expense, credit Cash (for the fee portion)
       const journalLines: Array<{
+        tenantId: string;
         accountId: string;
         debitCents: number;
         creditCents: number;
         description: string;
       }> = [
         {
+          tenantId, // G-009
           accountId: cashAccount.id,
           debitCents: amountCents,
           creditCents: 0,
           description: `Cash received - Invoice ${invoice.number}`,
         },
         {
+          tenantId, // G-009
           accountId: arAccount.id,
           debitCents: 0,
           creditCents: amountCents,
@@ -713,12 +721,14 @@ app.post('/api/v1/agentbook-invoice/payments', async (req: Request, res: Respons
       if (fees > 0 && feesAccount) {
         journalLines.push(
           {
+            tenantId, // G-009
             accountId: feesAccount.id,
             debitCents: fees,
             creditCents: 0,
             description: `Payment processing fees - Invoice ${invoice.number}`,
           },
           {
+            tenantId, // G-009
             accountId: cashAccount.id,
             debitCents: 0,
             creditCents: fees,
@@ -1032,12 +1042,14 @@ app.post('/estimates/:id/convert', async (req: Request, res: Response) => {
           lines: {
             create: [
               {
+                tenantId, // G-009
                 accountId: arAccount.id,
                 debitCents: estimate.amountCents,
                 creditCents: 0,
                 description: `AR - Invoice ${invoiceNumber}`,
               },
               {
+                tenantId, // G-009
                 accountId: revenueAccount.id,
                 debitCents: 0,
                 creditCents: estimate.amountCents,
@@ -1062,6 +1074,7 @@ app.post('/estimates/:id/convert', async (req: Request, res: Response) => {
           lines: {
             create: [
               {
+                tenantId, // G-009
                 description: estimate.description,
                 quantity: 1,
                 rateCents: estimate.amountCents,
@@ -1703,8 +1716,8 @@ app.post('/api/v1/agentbook-invoice/credit-notes', async (req: Request, res: Res
           sourceType: 'credit_note', verified: true,
           lines: {
             create: [
-              { accountId: revenueAccount.id, debitCents: amountCents, creditCents: 0, description: `Revenue reversal - ${cnNumber}` },
-              { accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR reduction - ${cnNumber}` },
+              { tenantId, accountId: revenueAccount.id, debitCents: amountCents, creditCents: 0, description: `Revenue reversal - ${cnNumber}` }, // G-009
+              { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR reduction - ${cnNumber}` }, // G-009
             ],
           },
         },
@@ -1865,6 +1878,7 @@ app.post('/api/v1/agentbook-invoice/recurring-invoices/generate', async (req: Re
       const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
 
       const lines = (item.templateLines as any[]).map((l: any) => ({
+        tenantId, // G-009
         description: l.description,
         quantity: l.quantity || 1,
         rateCents: l.rateCents,
@@ -1885,8 +1899,8 @@ app.post('/api/v1/agentbook-invoice/recurring-invoices/generate', async (req: Re
             sourceType: 'invoice', verified: true,
             lines: {
               create: [
-                { accountId: arAccount.id, debitCents: item.totalCents, creditCents: 0, description: `AR - ${invoiceNumber}` },
-                { accountId: revenueAccount.id, debitCents: 0, creditCents: item.totalCents, description: `Revenue - ${invoiceNumber}` },
+                { tenantId, accountId: arAccount.id, debitCents: item.totalCents, creditCents: 0, description: `AR - ${invoiceNumber}` }, // G-009
+                { tenantId, accountId: revenueAccount.id, debitCents: 0, creditCents: item.totalCents, description: `Revenue - ${invoiceNumber}` }, // G-009
               ],
             },
           },

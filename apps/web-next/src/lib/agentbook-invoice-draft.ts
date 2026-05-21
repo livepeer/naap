@@ -77,6 +77,7 @@ export async function createInvoiceDraft(input: CreateDraftInput): Promise<Creat
   const quotedCurrency = input.parsed.currencyHint || tenantCurrency;
 
   const quotedLineItems = input.parsed.lines.map((l) => ({
+    tenantId: input.tenantId, // G-009
     description: l.description || '',
     quantity: l.quantity || 1,
     rateCents: l.rateCents,

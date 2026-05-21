@@ -130,12 +130,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             lines: {
               create: [
                 {
+                  tenantId, // G-009
                   accountId: accounts.vehicleAccountId,
                   debitCents: deductibleAmountCents,
                   creditCents: 0,
                   description: `Mileage @ ${rate.ratePerUnitCents}¢/${rate.unit}`,
                 },
                 {
+                  tenantId, // G-009
                   accountId: accounts.equityAccountId,
                   debitCents: 0,
                   creditCents: deductibleAmountCents,

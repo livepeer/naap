@@ -64,8 +64,8 @@ export async function POST(
           verified: true,
           lines: {
             create: [
-              { accountId: arAccount.id, debitCents: 0, creditCents: invoice.amountCents, description: `Reverse AR - Invoice ${invoice.number}` },
-              { accountId: revenueAccount.id, debitCents: invoice.amountCents, creditCents: 0, description: `Reverse Revenue - Invoice ${invoice.number}` },
+              { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: invoice.amountCents, description: `Reverse AR - Invoice ${invoice.number}` }, // G-009
+              { tenantId, accountId: revenueAccount.id, debitCents: invoice.amountCents, creditCents: 0, description: `Reverse Revenue - Invoice ${invoice.number}` }, // G-009
             ],
           },
         },

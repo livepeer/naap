@@ -123,8 +123,8 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
               sourceId: invoice.id,
               lines: {
                 create: [
-                  { accountId: cashAccount.id, debitCents: amountCents, creditCents: 0 },
-                  { accountId: arAccount.id, debitCents: 0, creditCents: amountCents },
+                  { tenantId, accountId: cashAccount.id, debitCents: amountCents, creditCents: 0 }, // G-009
+                  { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: amountCents }, // G-009
                 ],
               },
             },

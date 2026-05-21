@@ -441,6 +441,7 @@ app.post('/api/v1/agentbook-core/journal-entries', async (req, res) => {
           verified: true,
           lines: {
             create: lines.map((l: any) => ({
+              tenantId, // G-009
               accountId: l.accountId,
               debitCents: l.debitCents || 0,
               creditCents: l.creditCents || 0,

@@ -85,8 +85,8 @@ export async function resetE2eUser(): Promise<ResetResult> {
       memo: 'Opening balance',
       sourceType: 'manual',
       lines: { create: [
-        { accountId: cashAccount.id,   debitCents: 500000, creditCents: 0 },
-        { accountId: equityAccount.id, debitCents: 0,      creditCents: 500000 },
+        { tenantId, accountId: cashAccount.id,   debitCents: 500000, creditCents: 0 }, // G-009
+        { tenantId, accountId: equityAccount.id, debitCents: 0,      creditCents: 500000 }, // G-009
       ] },
     },
   });

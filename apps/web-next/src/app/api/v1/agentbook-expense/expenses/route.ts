@@ -106,8 +106,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               verified: true,
               lines: {
                 create: [
-                  { accountId: resolvedCategoryId, debitCents: amountCents, creditCents: 0, description: description || vendor || 'Expense' },
-                  { accountId: cashAccount.id, debitCents: 0, creditCents: amountCents, description: `Payment: ${vendor || 'Expense'}` },
+                  { tenantId, accountId: resolvedCategoryId, debitCents: amountCents, creditCents: 0, description: description || vendor || 'Expense' }, // G-009
+                  { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: amountCents, description: `Payment: ${vendor || 'Expense'}` }, // G-009
                 ],
               },
             },

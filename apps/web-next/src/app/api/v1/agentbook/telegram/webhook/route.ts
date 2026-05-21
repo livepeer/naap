@@ -2979,7 +2979,7 @@ function getBot(): Bot {
             // lands in PR 2.
             let prompt: string;
             if (field === 'amount') {
-              const lineCount = await db.abInvoiceLine.count({ where: { invoiceId: parsedEdit.draftId } });
+              const lineCount = await db.abInvoiceLine.count({ where: { tenantId, invoiceId: parsedEdit.draftId } });
               prompt = lineCount > 1
                 ? "What's the new total? (e.g. <code>$5500</code>)\n\n<i>Note: this rebalances each line proportionally. Per-line edit ships in the next release.</i>"
                 : "What's the new total? (e.g. <code>$5500</code>)";
@@ -3022,7 +3022,7 @@ function getBot(): Bot {
             }
             // Distribute across existing lines proportionally; if a single
             // line, just replace its rate.
-            const lines = await db.abInvoiceLine.findMany({ where: { invoiceId: draft.id } });
+            const lines = await db.abInvoiceLine.findMany({ where: { tenantId, invoiceId: draft.id } });
             await db.$transaction(async (tx) => {
               if (lines.length === 1) {
                 await tx.abInvoiceLine.update({
@@ -3790,8 +3790,8 @@ function getBot(): Bot {
                   verified: true,
                   lines: {
                     create: [
-                      { accountId: exp.categoryId, debitCents: exp.amountCents, creditCents: 0, description: exp.description || 'Expense' },
-                      { accountId: cashAccount.id, debitCents: 0, creditCents: exp.amountCents, description: 'Payment' },
+                      { tenantId, accountId: exp.categoryId, debitCents: exp.amountCents, creditCents: 0, description: exp.description || 'Expense' }, // G-009
+                      { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: exp.amountCents, description: 'Payment' }, // G-009
                     ],
                   },
                 },
@@ -4195,8 +4195,8 @@ function getBot(): Bot {
                 verified: true,
                 lines: {
                   create: [
-                    { accountId: expense.categoryId, debitCents: expense.amountCents, creditCents: 0, description: expense.description || 'Expense' },
-                    { accountId: cashAccount.id, debitCents: 0, creditCents: expense.amountCents, description: 'Payment' },
+                    { tenantId, accountId: expense.categoryId, debitCents: expense.amountCents, creditCents: 0, description: expense.description || 'Expense' }, // G-009
+                    { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: expense.amountCents, description: 'Payment' }, // G-009
                   ],
                 },
               },
@@ -4911,8 +4911,8 @@ function getBot(): Bot {
                 verified: true,
                 lines: {
                   create: [
-                    { accountId: arAccount.id, debitCents: inv.amountCents, creditCents: 0, description: `AR - Invoice ${inv.number}` },
-                    { accountId: revenueAccount.id, debitCents: 0, creditCents: inv.amountCents, description: `Revenue - Invoice ${inv.number}` },
+                    { tenantId, accountId: arAccount.id, debitCents: inv.amountCents, creditCents: 0, description: `AR - Invoice ${inv.number}` }, // G-009
+                    { tenantId, accountId: revenueAccount.id, debitCents: 0, creditCents: inv.amountCents, description: `Revenue - Invoice ${inv.number}` }, // G-009
                   ],
                 },
               },
@@ -5039,7 +5039,7 @@ function getBot(): Bot {
           return;
         }
         await db.$transaction([
-          db.abInvoiceLine.deleteMany({ where: { invoiceId: draftId } }),
+          db.abInvoiceLine.deleteMany({ where: { tenantId, invoiceId: draftId } }),
           db.abInvoice.delete({ where: { id: draftId } }),
         ]);
         await db.abUserMemory.deleteMany({
@@ -5551,8 +5551,8 @@ function getBot(): Bot {
                 verified: true,
                 lines: {
                   create: [
-                    { accountId: expense.categoryId, debitCents: expense.amountCents, creditCents: 0, description: expense.description || 'Expense' },
-                    { accountId: cashAccount.id, debitCents: 0, creditCents: expense.amountCents, description: 'Payment' },
+                    { tenantId, accountId: expense.categoryId, debitCents: expense.amountCents, creditCents: 0, description: expense.description || 'Expense' }, // G-009
+                    { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: expense.amountCents, description: 'Payment' }, // G-009
                   ],
                 },
               },

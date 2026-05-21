@@ -113,6 +113,7 @@ export async function updateMileageEntry(
             verified: true,
             lines: {
               create: original.lines.map((l) => ({
+                tenantId, // G-009
                 accountId: l.accountId,
                 debitCents: l.creditCents,
                 creditCents: l.debitCents,
@@ -148,12 +149,14 @@ export async function updateMileageEntry(
               lines: {
                 create: [
                   {
+                    tenantId, // G-009
                     accountId: vehicleAcctId,
                     debitCents: newDeductibleCents,
                     creditCents: 0,
                     description: `Mileage @ ${ratePerUnitCents}¢/${existing.unit}`,
                   },
                   {
+                    tenantId, // G-009
                     accountId: equityAcctId,
                     debitCents: 0,
                     creditCents: newDeductibleCents,

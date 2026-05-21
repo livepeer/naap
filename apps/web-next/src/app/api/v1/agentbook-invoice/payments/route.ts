@@ -82,18 +82,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const payment = await db.$transaction(async (tx) => {
       const journalLines: Array<{
+        tenantId: string;
         accountId: string;
         debitCents: number;
         creditCents: number;
         description: string;
       }> = [
-        { accountId: cashAccount.id, debitCents: amountCents, creditCents: 0, description: `Cash received - Invoice ${invoice.number}` },
-        { accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR payment - Invoice ${invoice.number}` },
+        { tenantId, accountId: cashAccount.id, debitCents: amountCents, creditCents: 0, description: `Cash received - Invoice ${invoice.number}` }, // G-009
+        { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR payment - Invoice ${invoice.number}` }, // G-009
       ];
       if (fees > 0 && feesAccount) {
         journalLines.push(
-          { accountId: feesAccount.id, debitCents: fees, creditCents: 0, description: `Payment processing fees - Invoice ${invoice.number}` },
-          { accountId: cashAccount.id, debitCents: 0, creditCents: fees, description: `Fees deducted from cash - Invoice ${invoice.number}` },
+          { tenantId, accountId: feesAccount.id, debitCents: fees, creditCents: 0, description: `Payment processing fees - Invoice ${invoice.number}` }, // G-009
+          { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: fees, description: `Fees deducted from cash - Invoice ${invoice.number}` }, // G-009
         );
       }
 

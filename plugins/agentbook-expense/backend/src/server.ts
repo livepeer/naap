@@ -157,8 +157,8 @@ app.post('/api/v1/agentbook-expense/expenses', async (req, res) => {
               sourceType: 'expense', verified: true,
               lines: {
                 create: [
-                  { accountId: resolvedCategoryId, debitCents: amountCents, creditCents: 0, description: description || vendor || 'Expense' },
-                  { accountId: cashAccount.id, debitCents: 0, creditCents: amountCents, description: `Payment: ${vendor || 'Expense'}` },
+                  { tenantId, accountId: resolvedCategoryId, debitCents: amountCents, creditCents: 0, description: description || vendor || 'Expense' },
+                  { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: amountCents, description: `Payment: ${vendor || 'Expense'}` },
                 ],
               },
             },
@@ -288,9 +288,8 @@ app.get('/api/v1/agentbook-expense/expenses/:id', async (req, res) => {
       if (cat) { categoryName = cat.name; categoryCode = cat.code; }
     }
 
-    // Get splits if any
-    // safe: AbExpenseSplit has no tenantId field (G-009 backfill pending); parent expense already verified tenant-scoped above.
-    const splits = await db.abExpenseSplit.findMany({ where: { expenseId: expense.id } });
+    // Get splits if any (G-009: line tables now carry tenantId — filter directly)
+    const splits = await db.abExpenseSplit.findMany({ where: { tenantId, expenseId: expense.id } });
 
     res.json({ success: true, data: { ...expense, vendorName: (expense as any).vendor?.name, categoryName, categoryCode, splits } });
   } catch (err) {
@@ -1141,6 +1140,7 @@ app.post('/api/v1/agentbook-expense/expenses/:id/split', async (req, res) => {
       for (const sp of splits) {
         const record = await tx.abExpenseSplit.create({
           data: {
+            tenantId, // G-009
             expenseId: expense.id,
             categoryId: sp.categoryId || expense.categoryId,
             amountCents: sp.amountCents,
@@ -1176,12 +1176,11 @@ app.post('/api/v1/agentbook-expense/expenses/:id/split', async (req, res) => {
 app.get('/api/v1/agentbook-expense/expenses/:id/splits', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
-    // Verify expense belongs to caller's tenant before exposing splits (AbExpenseSplit has no tenantId — G-009 backfill pending).
+    // G-009: AbExpenseSplit now carries tenantId — filter directly.
     const expense = await db.abExpense.findFirst({ where: { id: req.params.id, tenantId }, select: { id: true } });
     if (!expense) return res.status(404).json({ success: false, error: 'Expense not found' });
-    // safe: AbExpenseSplit has no tenantId field (G-009); parent expense verified tenant-scoped above.
     const splits = await db.abExpenseSplit.findMany({
-      where: { expenseId: expense.id },
+      where: { tenantId, expenseId: expense.id },
       orderBy: { createdAt: 'asc' },
     });
     res.json({ success: true, data: splits });
@@ -1965,8 +1964,8 @@ app.post('/api/v1/agentbook-expense/expenses/:id/confirm', async (req, res) => {
             sourceType: 'expense', sourceId: expense.id, verified: true,
             lines: {
               create: [
-                { accountId: finalCategoryId, debitCents: finalAmount, creditCents: 0, description: description || expense.description || 'Expense' },
-                { accountId: cashAccount.id, debitCents: 0, creditCents: finalAmount, description: 'Payment' },
+                { tenantId, accountId: finalCategoryId, debitCents: finalAmount, creditCents: 0, description: description || expense.description || 'Expense' },
+                { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: finalAmount, description: 'Payment' },
               ],
             },
           },

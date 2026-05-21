@@ -1513,6 +1513,7 @@ model AbJournalEntry {
 
 model AbJournalLine {
   id          String         @id @default(uuid())
+  tenantId    String // G-009: denormalized from parent AbJournalEntry for direct tenant-filtered queries
   entryId     String
   entry       AbJournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
   accountId   String
@@ -1521,6 +1522,7 @@ model AbJournalLine {
   creditCents Int            @default(0)
   description String?
 
+  @@index([tenantId])
   @@index([entryId])
   @@index([accountId])
   @@schema("plugin_agentbook_core")
@@ -1685,6 +1687,7 @@ model AbExpense {
 
 model AbExpenseSplit {
   id          String   @id @default(uuid())
+  tenantId    String // G-009: denormalized from parent AbExpense for direct tenant-filtered queries
   expenseId   String
   categoryId  String? // AbAccount.id — the category for this split portion
   amountCents Int
@@ -1692,6 +1695,7 @@ model AbExpenseSplit {
   description String?
   createdAt   DateTime @default(now())
 
+  @@index([tenantId])
   @@index([expenseId])
   @@schema("plugin_agentbook_expense")
 }
@@ -1925,6 +1929,7 @@ model AbInvoice {
 
 model AbInvoiceLine {
   id          String    @id @default(uuid())
+  tenantId    String // G-009: denormalized from parent AbInvoice for direct tenant-filtered queries
   invoiceId   String
   invoice     AbInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   description String
@@ -1932,6 +1937,7 @@ model AbInvoiceLine {
   rateCents   Int
   amountCents Int
 
+  @@index([tenantId])
   @@index([invoiceId])
   @@schema("plugin_agentbook_invoice")
 }
