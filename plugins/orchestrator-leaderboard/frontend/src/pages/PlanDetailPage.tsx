@@ -178,7 +178,7 @@ export const PlanDetailPage: React.FC = () => {
             <option value="daydream">daydream (no allowlist)</option>
           </select>
           <p className="text-[10px] text-text-muted mt-1">
-            PymtHouse plans intersect the Builder <code className="text-text-secondary">GET …/discovery-allowlist</code> resolved
+            PymtHouse plans intersect the Builder <code className="text-text-secondary">GET …/manifest</code> resolved
             set; Daydream does not.
           </p>
         </div>

@@ -17,11 +17,11 @@ import { evaluatePlan } from './ranking';
 import { listEnabledPlans } from './plans';
 import { getRowsForCapability } from './global-dataset';
 import {
-  filterPlanCapabilitiesForAllowlist,
+  filterPlanCapabilitiesForManifest,
   fingerprintCapabilityList,
-  getPymthouseDiscoveryAllowlistSnapshot,
-  syncPymthouseDiscoveryAllowlistSnapshot,
-} from '@/lib/pymthouse-discovery-allowlist';
+  getPymthouseManifestSnapshot,
+  syncPymthouseManifestSnapshot,
+} from '@/lib/pymthouse-manifest';
 
 const REFRESH_INTERVAL_MS = Number(process.env.LEADERBOARD_REFRESH_INTERVAL_MS) || 60_000;
 const CACHE_TTL_MS = REFRESH_INTERVAL_MS * 2;
@@ -33,7 +33,7 @@ export function buildPlanEvaluationCacheKey(plan: DiscoveryPlan): string {
   const slug = plan.billingProviderSlug ?? 'null';
   const rev =
     plan.billingProviderSlug === 'pymthouse'
-      ? getPymthouseDiscoveryAllowlistSnapshot().revision
+      ? getPymthouseManifestSnapshot().revision
       : 'na';
   const capFp = fingerprintCapabilityList(plan.capabilities);
   return `${plan.id}${PLAN_CACHE_KEY_SEP}${slug}${PLAN_CACHE_KEY_SEP}${rev}${PLAN_CACHE_KEY_SEP}${capFp}`;
@@ -141,8 +141,8 @@ export async function refreshAllPlans(
   requestUrl?: string,
   cookieHeader?: string | null,
 ): Promise<{ refreshed: number; failed: number }> {
-  await syncPymthouseDiscoveryAllowlistSnapshot();
-  const allowlistSnap = getPymthouseDiscoveryAllowlistSnapshot();
+  await syncPymthouseManifestSnapshot();
+  const manifestSnap = getPymthouseManifestSnapshot();
   const plans = await listEnabledPlans();
   let refreshed = 0;
   let failed = 0;
@@ -153,9 +153,9 @@ export async function refreshAllPlans(
         plan.billingProviderSlug === 'pymthouse'
           ? {
               ...plan,
-              capabilities: filterPlanCapabilitiesForAllowlist(
+              capabilities: filterPlanCapabilitiesForManifest(
                 plan.capabilities,
-                allowlistSnap.data,
+                manifestSnap.data,
               ),
             }
           : plan;

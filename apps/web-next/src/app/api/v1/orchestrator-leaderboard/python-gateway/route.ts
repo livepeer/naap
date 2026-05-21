@@ -15,9 +15,9 @@ import { getAuthToken } from '@/lib/api/response';
 import { fetchLeaderboard } from '@/lib/orchestrator-leaderboard/query';
 import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
 import {
-  getPymthouseDiscoveryAllowlistSnapshot,
+  getPymthouseManifestSnapshot,
   isLeaderboardCapabilityAllowed,
-} from '@/lib/pymthouse-discovery-allowlist';
+} from '@/lib/pymthouse-manifest';
 
 const DEFAULT_CAPABILITY = 'noop';
 const DEFAULT_TOP_N = 100;
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   const billingProvider = url.searchParams.get('billingProvider')?.trim().toLowerCase() ?? '';
   const allowlist =
     billingProvider === 'pymthouse'
-      ? getPymthouseDiscoveryAllowlistSnapshot().data
+      ? getPymthouseManifestSnapshot().data
       : null;
 
   const capabilityPairs = resolveCapabilityPairs(url);

@@ -2007,7 +2007,7 @@ result = [...result].sort((a, b) => {
                         <>
                           Pick a saved PymtHouse discovery plan, or leave blank for default discovery. Results are intersected
                           with your app&apos;s Network Price allowlist (
-                          <code className="text-slate-300">GET …/discovery-allowlist</code>
+                          <code className="text-slate-300">GET …/manifest</code>
                           ); capabilities outside that list return no orchestrators. Discovery uses a new{' '}
                           <code className="text-slate-300">gw_…</code> gateway key; the signer still uses your billing provider
                           secret above.

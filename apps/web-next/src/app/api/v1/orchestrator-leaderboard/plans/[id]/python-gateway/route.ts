@@ -17,9 +17,9 @@ import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
 import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
 import {
-  getPymthouseDiscoveryAllowlistSnapshot,
-  filterPlanCapabilitiesForAllowlist,
-} from '@/lib/pymthouse-discovery-allowlist';
+  getPymthouseManifestSnapshot,
+  filterPlanCapabilitiesForManifest,
+} from '@/lib/pymthouse-manifest';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -57,16 +57,16 @@ export async function GET(
 
   const authToken = getAuthToken(request) || '';
 
-  const allowlist =
+  const manifest =
     plan.billingProviderSlug === 'pymthouse'
-      ? getPymthouseDiscoveryAllowlistSnapshot().data
+      ? getPymthouseManifestSnapshot().data
       : null;
-  const allowedCaps = filterPlanCapabilitiesForAllowlist(plan.capabilities, allowlist);
+  const allowedCaps = filterPlanCapabilitiesForManifest(plan.capabilities, manifest);
   if (allowedCaps.length === 0) {
     return NextResponse.json([], {
       headers: {
         'Cache-Control': 'private, max-age=10',
-        'X-Discovery-Allowlist': 'empty',
+        'X-Pymthouse-Manifest': 'empty',
       },
     });
   }

@@ -8,9 +8,9 @@ import {
 } from '@/lib/orchestrators-discovery-policy';
 import { mergeDiscoveryPolicies } from '@/lib/pymthouse-discovery-plans';
 import {
-  resetPymthouseDiscoveryAllowlistCacheForTests,
-  syncPymthouseDiscoveryAllowlistSnapshot,
-} from '@/lib/pymthouse-discovery-allowlist';
+  resetPymthouseManifestCacheForTests,
+  syncPymthouseManifestSnapshot,
+} from '@/lib/pymthouse-manifest';
 import type { DashboardOrchestrator } from '@naap/plugin-sdk';
 
 const baseRow = (over: Partial<DashboardOrchestrator>): DashboardOrchestrator => ({
@@ -33,7 +33,7 @@ describe('orchestrators-discovery-policy', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
-    resetPymthouseDiscoveryAllowlistCacheForTests();
+    resetPymthouseManifestCacheForTests();
   });
 
   it('applyDiscoveryPolicyToOrchestrators enforces slaMinScore without filters', () => {
@@ -82,7 +82,7 @@ describe('orchestrators-discovery-policy', () => {
         } as Response),
       ),
     );
-    await syncPymthouseDiscoveryAllowlistSnapshot();
+    await syncPymthouseManifestSnapshot();
     const rows = [baseRow({ address: '0xa' })];
     const out = await applyPymthouseDiscoveryToOrchestrators(rows, {
       pipeline: 'llm',
@@ -105,7 +105,7 @@ describe('orchestrators-discovery-policy', () => {
         } as Response),
       ),
     );
-    await syncPymthouseDiscoveryAllowlistSnapshot();
+    await syncPymthouseManifestSnapshot();
     const rows = [
       baseRow({ address: '0xa', slaScore: 60 }),
       baseRow({ address: '0xb', slaScore: 90 }),
@@ -133,7 +133,7 @@ describe('orchestrators-discovery-policy', () => {
         } as Response),
       ),
     );
-    await syncPymthouseDiscoveryAllowlistSnapshot();
+    await syncPymthouseManifestSnapshot();
     const rows = [baseRow({ address: '0xa' }), baseRow({ address: '0xb' })];
     const out = await applyPymthouseDiscoveryToOrchestrators(rows, {
       pipeline: 'llm',

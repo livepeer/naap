@@ -80,9 +80,9 @@ This keeps token auth explicit: the signer remains a PymtHouse-issued billing se
 
 ### Network Price discovery allowlist (PymtHouse → NaaP)
 
-For billing provider **`pymthouse`**, NaaP periodically syncs **`GET {PYMTHOUSE_ISSUER_URL without /oidc}/apps/{publicClientId}/discovery-allowlist`** with the same **M2M Basic** credentials as other Builder routes. The JSON **`capabilities`** array is the resolved discoverable set (live catalog minus exclusions stored on the app’s **Network Price** default plan). An empty **`capabilities`** list means **no restriction** (fail-open), matching the Builder API contract.
+For billing provider **`pymthouse`**, NaaP periodically syncs **`GET {PYMTHOUSE_ISSUER_URL without /oidc}/apps/{publicClientId}/manifest`** with the same **M2M Basic** credentials as other Builder routes. The JSON **`capabilities`** array is the resolved discoverable set (live catalog minus exclusions stored on the app’s **Network Price** default plan). **`manifestVersion`** is used for cache busting when present. An empty **`capabilities`** list means **no restriction** (fail-open), matching the Builder API contract.
 
-NaaP intersects python-gateway discovery and orchestrator-leaderboard evaluation against that snapshot (`syncPymthouseDiscoveryAllowlistSnapshot` in `apps/web-next/src/lib/pymthouse-discovery-allowlist.ts`). Legacy per-plan policy rows for the UI still come from **`GET …/apps/{id}/plans`** (the deprecated **`/plans/discovery`** redirect is no longer required for server-side reads).
+NaaP intersects python-gateway discovery and orchestrator-leaderboard evaluation against that snapshot (`syncPymthouseManifestSnapshot` in `apps/web-next/src/lib/pymthouse-manifest.ts`). Minimal app metadata is available via **`GET …/apps/{publicClientId}`** (M2M). Legacy per-plan policy rows for the UI still come from **`GET …/apps/{id}/plans`**.
 
 ### Usage API (BFF)
 

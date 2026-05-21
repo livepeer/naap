@@ -1,8 +1,8 @@
 /**
- * PymtHouse Builder discovery allowlist (pipeline + modelId).
+ * PymtHouse Builder app network capability manifest (pipeline + modelId).
  *
  * A process-wide snapshot is refreshed on the same cadence as leaderboard data
- * (`refreshGlobalDataset`, plans cron, and dataset cron skip still refreshes allowlist).
+ * (`refreshGlobalDataset`, plans cron, and dataset cron skip still refreshes manifest).
  * Request handlers read the snapshot synchronously (no per-request HTTP to PymtHouse).
  */
 
@@ -10,49 +10,51 @@ import { createHash } from 'node:crypto';
 
 const TRAILING_SLASH = /\/+$/;
 
-export interface PymthouseDiscoveryAllowlistCapability {
+export interface PymthouseManifestCapability {
   pipeline: string;
   modelId: string;
 }
 
-export interface PymthouseDiscoveryAllowlistResponse {
+export interface PymthouseManifestResponse {
   /** Resolved discoverable `(pipeline, modelId)` pairs (catalog minus Network Price exclusions). */
-  capabilities: PymthouseDiscoveryAllowlistCapability[];
-  /** Raw exclusions from the Network Price plan (same contract as Builder `PUT`). */
-  excludedCapabilities?: PymthouseDiscoveryAllowlistCapability[];
+  capabilities: PymthouseManifestCapability[];
+  /** Raw exclusions from the Network Price plan (same contract as Builder `PUT /manifest`). */
+  excludedCapabilities?: PymthouseManifestCapability[];
+  /** Server-computed revision; used for cache busting when present. */
+  manifestVersion?: string;
 }
 
-interface GlobalAllowlistSnapshot {
-  data: PymthouseDiscoveryAllowlistResponse | null;
+interface GlobalManifestSnapshot {
+  data: PymthouseManifestResponse | null;
   revision: string;
   updatedAt: number;
 }
 
-let globalSnapshot: GlobalAllowlistSnapshot = {
+let globalSnapshot: GlobalManifestSnapshot = {
   data: null,
   revision: 'none',
   updatedAt: 0,
 };
 
 /** Legacy 45s cache — superseded by snapshot; kept for tests resetting the same shape. */
-let cache: { at: number; data: PymthouseDiscoveryAllowlistResponse | null; ttlMs: number } = {
+let cache: { at: number; data: PymthouseManifestResponse | null; ttlMs: number } = {
   at: 0,
   data: null,
   ttlMs: 45_000,
 };
 
-export function resetPymthouseDiscoveryAllowlistCacheForTests(): void {
+export function resetPymthouseManifestCacheForTests(): void {
   cache = { at: 0, data: null, ttlMs: 45_000 };
   globalSnapshot = { data: null, revision: 'none', updatedAt: 0 };
 }
 
 /** Test helper: inject snapshot without HTTP. */
-export function seedPymthouseDiscoveryAllowlistForTests(
-  data: PymthouseDiscoveryAllowlistResponse | null,
+export function seedPymthouseManifestForTests(
+  data: PymthouseManifestResponse | null,
 ): void {
   globalSnapshot = {
     data,
-    revision: computeAllowlistRevision(data),
+    revision: computeManifestRevision(data),
     updatedAt: Date.now(),
   };
   cache = { at: Date.now(), data, ttlMs: cache.ttlMs };
@@ -65,15 +67,15 @@ export function getPymthouseApiV1Base(): string | null {
   return noTrail.replace(/\/oidc\/?$/i, '');
 }
 
-function sortedCaps(caps: PymthouseDiscoveryAllowlistCapability[]): PymthouseDiscoveryAllowlistCapability[] {
+function sortedCaps(caps: PymthouseManifestCapability[]): PymthouseManifestCapability[] {
   return [...caps].sort((a, b) => {
     const p = a.pipeline.localeCompare(b.pipeline);
     return p !== 0 ? p : a.modelId.localeCompare(b.modelId);
   });
 }
 
-export function computeAllowlistRevision(
-  data: PymthouseDiscoveryAllowlistResponse | null,
+export function computeManifestRevision(
+  data: Pick<PymthouseManifestResponse, 'capabilities' | 'excludedCapabilities'> | null,
 ): string {
   if (data == null) {
     return 'unavailable';
@@ -99,8 +101,8 @@ export function fingerprintCapabilityList(capabilities: string[]): string {
 /**
  * In-memory snapshot (refreshed by cron / global dataset job). Safe to read synchronously on requests.
  */
-export function getPymthouseDiscoveryAllowlistSnapshot(): {
-  data: PymthouseDiscoveryAllowlistResponse | null;
+export function getPymthouseManifestSnapshot(): {
+  data: PymthouseManifestResponse | null;
   revision: string;
 } {
   return { data: globalSnapshot.data, revision: globalSnapshot.revision };
@@ -110,9 +112,9 @@ export function getPymthouseDiscoveryAllowlistSnapshot(): {
  * HTTP fetch from PymtHouse; updates process-wide snapshot. Call from refresh pipelines only
  * (or tests with mocked fetch).
  *
- * @returns whether the allowlist revision changed vs the previous snapshot (for cache busting).
+ * @returns whether the manifest revision changed vs the previous snapshot (for cache busting).
  */
-export async function syncPymthouseDiscoveryAllowlistSnapshot(opts?: {
+export async function syncPymthouseManifestSnapshot(opts?: {
   signal?: AbortSignal;
 }): Promise<{ revision: string; revisionChanged: boolean }> {
   const base = getPymthouseApiV1Base();
@@ -138,8 +140,8 @@ export async function syncPymthouseDiscoveryAllowlistSnapshot(opts?: {
   }
 
   const basic = Buffer.from(`${m2mId}:${m2mSecret}`, 'utf8').toString('base64');
-  const url = `${base}/apps/${encodeURIComponent(publicId)}/discovery-allowlist`;
-  let body: PymthouseDiscoveryAllowlistResponse | null = null;
+  const url = `${base}/apps/${encodeURIComponent(publicId)}/manifest`;
+  let body: PymthouseManifestResponse | null = null;
   try {
     const res = await fetch(url, {
       method: 'GET',
@@ -152,7 +154,7 @@ export async function syncPymthouseDiscoveryAllowlistSnapshot(opts?: {
       const capsRaw = json.capabilities;
       const capabilities = Array.isArray(capsRaw)
         ? capsRaw.filter(
-            (c): c is PymthouseDiscoveryAllowlistCapability =>
+            (c): c is PymthouseManifestCapability =>
               !!c &&
               typeof c === 'object' &&
               typeof (c as { pipeline?: unknown }).pipeline === 'string' &&
@@ -162,20 +164,25 @@ export async function syncPymthouseDiscoveryAllowlistSnapshot(opts?: {
       const exclRaw = json.excludedCapabilities;
       const excludedCapabilities = Array.isArray(exclRaw)
         ? exclRaw.filter(
-            (c): c is PymthouseDiscoveryAllowlistCapability =>
+            (c): c is PymthouseManifestCapability =>
               !!c &&
               typeof c === 'object' &&
               typeof (c as { pipeline?: unknown }).pipeline === 'string' &&
               typeof (c as { modelId?: unknown }).modelId === 'string',
           )
         : [];
-      body = { capabilities, excludedCapabilities };
+      const manifestVersion =
+        typeof json.manifestVersion === 'string' && json.manifestVersion.trim()
+          ? json.manifestVersion.trim()
+          : undefined;
+      body = { capabilities, excludedCapabilities, manifestVersion };
     }
   } catch {
     body = null;
   }
 
-  const revision = computeAllowlistRevision(body);
+  const revision =
+    body?.manifestVersion ?? computeManifestRevision(body);
   globalSnapshot = {
     data: body,
     revision,
@@ -187,22 +194,22 @@ export async function syncPymthouseDiscoveryAllowlistSnapshot(opts?: {
 }
 
 /**
- * Read allowlist for request-time logic (intersection, dashboard). Uses snapshot only — no HTTP.
+ * Read manifest for request-time logic (intersection, dashboard). Uses snapshot only — no HTTP.
  * For `skipCache: true` (tests), runs a network sync first.
  */
-export async function fetchPymthouseDiscoveryAllowlist(opts?: {
+export async function fetchPymthouseManifest(opts?: {
   skipCache?: boolean;
   signal?: AbortSignal;
-}): Promise<PymthouseDiscoveryAllowlistResponse | null> {
+}): Promise<PymthouseManifestResponse | null> {
   if (opts?.skipCache) {
-    await syncPymthouseDiscoveryAllowlistSnapshot({ signal: opts.signal });
+    await syncPymthouseManifestSnapshot({ signal: opts.signal });
   }
-  return getPymthouseDiscoveryAllowlistSnapshot().data;
+  return getPymthouseManifestSnapshot().data;
 }
 
 /**
  * Split leaderboard capability string (e.g. `live-video-to-video/streamdiffusion-sdxl`)
- * into pipeline + model for allowlist matching.
+ * into pipeline + model for manifest matching.
  */
 export function parseCapabilityToPipelineModel(cap: string): {
   pipeline: string;
@@ -216,17 +223,17 @@ export function parseCapabilityToPipelineModel(cap: string): {
   return { pipeline: trimmed.slice(0, i), modelId: trimmed.slice(i + 1) };
 }
 
-export function isPipelineModelInAllowlist(
-  allowlist: PymthouseDiscoveryAllowlistResponse | null,
+export function isPipelineModelInManifest(
+  manifest: PymthouseManifestResponse | null,
   pipeline: string,
   modelId: string,
 ): boolean {
-  if (!allowlist?.capabilities?.length) {
+  if (!manifest?.capabilities?.length) {
     return true;
   }
   const rP = pipeline.trim();
   const rM = modelId.trim();
-  for (const e of allowlist.capabilities) {
+  for (const e of manifest.capabilities) {
     const eP = e.pipeline.trim();
     const eM = e.modelId.trim();
     const pipelineOk =
@@ -241,16 +248,16 @@ export function isPipelineModelInAllowlist(
 }
 
 export function isLeaderboardCapabilityAllowed(
-  allowlist: PymthouseDiscoveryAllowlistResponse | null,
+  manifest: PymthouseManifestResponse | null,
   capability: string,
 ): boolean {
   const { pipeline, modelId } = parseCapabilityToPipelineModel(capability);
-  return isPipelineModelInAllowlist(allowlist, pipeline, modelId);
+  return isPipelineModelInManifest(manifest, pipeline, modelId);
 }
 
-export function filterPlanCapabilitiesForAllowlist(
+export function filterPlanCapabilitiesForManifest(
   capabilities: string[],
-  allowlist: PymthouseDiscoveryAllowlistResponse | null,
+  manifest: PymthouseManifestResponse | null,
 ): string[] {
-  return capabilities.filter((c) => isLeaderboardCapabilityAllowed(allowlist, c));
+  return capabilities.filter((c) => isLeaderboardCapabilityAllowed(manifest, c));
 }

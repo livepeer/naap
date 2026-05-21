@@ -114,7 +114,7 @@ export function mapPymthousePlansResponse(raw: unknown): PymthouseDiscoveryPlans
 }
 
 /**
- * GET `/api/v1/apps/{publicClientId}/plans` using M2M Basic auth (canonical; replaces deprecated `/plans/discovery`).
+ * GET `/api/v1/apps/{publicClientId}/plans` using M2M Basic auth. Pipeline/model caps use `/manifest`.
  * Returns null if env incomplete or request fails.
  */
 export async function fetchPymthouseDiscoveryPlans(opts?: {

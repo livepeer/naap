@@ -7,9 +7,9 @@ import type { DashboardOrchestrator } from '@naap/plugin-sdk';
 
 import type { DiscoveryPolicy } from '@/lib/pymthouse-discovery-plans';
 import {
-  getPymthouseDiscoveryAllowlistSnapshot,
-  isPipelineModelInAllowlist,
-} from '@/lib/pymthouse-discovery-allowlist';
+  getPymthouseManifestSnapshot,
+  isPipelineModelInManifest,
+} from '@/lib/pymthouse-manifest';
 
 function swapRatioFromNoSwapPct(noSwapRatio: number | null | undefined): number | null {
   if (noSwapRatio === null || noSwapRatio === undefined) return null;
@@ -98,9 +98,9 @@ export async function applyPymthouseDiscoveryToOrchestrators(
     return rows;
   }
 
-  const allowlist = getPymthouseDiscoveryAllowlistSnapshot().data;
-  if (allowlist?.capabilities?.length) {
-    if (!isPipelineModelInAllowlist(allowlist, pipeline, modelId)) {
+  const manifest = getPymthouseManifestSnapshot().data;
+  if (manifest?.capabilities?.length) {
+    if (!isPipelineModelInManifest(manifest, pipeline, modelId)) {
       return [];
     }
   }
