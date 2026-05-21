@@ -1,21 +1,27 @@
 /**
  * Admin LLM provider configs — list + create.
+ *
+ * Gated by requireAdmin (role 'admin'/'system:admin' OR ADMIN_EMAILS allowlist).
+ * apiKey is always redacted on read (last 4 chars only).
  */
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { requireAdmin, redactApiKey } from '@/lib/admin-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<Response> {
+  const guard = await requireAdmin(request);
+  if ('response' in guard) return guard.response;
+
   try {
-    await resolveAgentbookTenant(request);
     const configs = await db.abLLMProviderConfig.findMany({ orderBy: { createdAt: 'asc' } });
-    return NextResponse.json({ success: true, data: configs });
+    const redacted = configs.map((c) => ({ ...c, apiKey: redactApiKey(c.apiKey) }));
+    return NextResponse.json({ success: true, data: redacted });
   } catch (err) {
     console.error('[agentbook-core/admin/llm-configs GET] failed:', err);
     return NextResponse.json(
@@ -37,9 +43,11 @@ interface CreateBody {
   isDefault?: boolean;
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest): Promise<Response> {
+  const guard = await requireAdmin(request);
+  if ('response' in guard) return guard.response;
+
   try {
-    await resolveAgentbookTenant(request);
     const body = (await request.json().catch(() => ({}))) as CreateBody;
     const { name, provider, apiKey, baseUrl, modelFast, modelStandard, modelPremium, modelVision, isDefault } = body;
     if (!name || !provider || !apiKey) {
@@ -66,7 +74,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         isDefault: isDefault || false,
       },
     });
-    return NextResponse.json({ success: true, data: config }, { status: 201 });
+    // Redact apiKey on the create confirmation echo too.
+    return NextResponse.json(
+      { success: true, data: { ...config, apiKey: redactApiKey(config.apiKey) } },
+      { status: 201 },
+    );
   } catch (err) {
     console.error('[agentbook-core/admin/llm-configs POST] failed:', err);
     return NextResponse.json(

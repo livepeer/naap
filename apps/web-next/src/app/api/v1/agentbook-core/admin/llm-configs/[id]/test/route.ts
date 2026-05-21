@@ -1,11 +1,14 @@
 /**
  * Test an LLM provider config end-to-end (Gemini ping).
+ *
+ * Gated by requireAdmin. The full apiKey is used internally to call Gemini,
+ * but is never echoed in the response.
  */
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { requireAdmin } from '@/lib/admin-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,9 +17,11 @@ export const maxDuration = 30;
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse> {
+): Promise<Response> {
+  const guard = await requireAdmin(request);
+  if ('response' in guard) return guard.response;
+
   try {
-    await resolveAgentbookTenant(request);
     const { id } = await params;
     const config = await db.abLLMProviderConfig.findUnique({ where: { id } });
     if (!config) {
