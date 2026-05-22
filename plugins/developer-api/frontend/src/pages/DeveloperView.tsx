@@ -291,9 +291,9 @@ function delayWithAbort(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 const tabs = [
-  { id: 'models' as TabId, label: 'Models', icon: <Box size={14} /> },
   { id: 'api-keys' as TabId, label: 'API Keys', icon: <Key size={14} /> },
   { id: 'usage' as TabId, label: 'Usage & Billing', icon: <BarChart3 size={14} /> },
+  { id: 'models' as TabId, label: 'Models', icon: <Box size={14} /> },
   { id: 'docs' as TabId, label: 'Docs', icon: <BookOpen size={14} /> },
 ];
 
