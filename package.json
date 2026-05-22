@@ -58,7 +58,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.4.27",
-    "next": "15.5.15",
+    "next": "15.5.18",
     "nx": "^22.6.5",
     "postcss": "^8.4.49",
     "prettier": "~3.8.1",
