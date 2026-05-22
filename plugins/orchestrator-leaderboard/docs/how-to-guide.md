@@ -636,8 +636,9 @@ For a deep dive on how sources work, see
   [`../examples/client-test.sh`](../examples/client-test.sh).
 - Dashboard UI: `/orchestrator-leaderboard` in the NaaP shell — useful for
   visually validating plans you create via API.
-- Demo plans: `POST /plans/seed` creates 4 ready-made plans for the caller
-  (idempotent), great for first-run demos.
+- Default plans: four public templates are seeded on Vercel production/preview
+  deploy via `bin/seed-discovery-plans.ts` (idempotent). Run the same script
+  locally when developing against an empty database.
 
 If you find a gap in the spec (missing response code, undocumented field,
 unclear error), open an issue against

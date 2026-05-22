@@ -18,7 +18,10 @@ import {
   syncPymthouseManifestSnapshot,
 } from '@/lib/pymthouse-manifest';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
-import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
+import {
+  evaluateAndCache,
+  invalidatePlanCache,
+} from '@/lib/orchestrator-leaderboard/refresh';
 import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
 import { resolvePlanCapabilitiesForProvider } from '@/lib/orchestrator-leaderboard/provider-restrictions';
 import { BillingProviderSlugSchema } from '@/lib/orchestrator-leaderboard/types';
@@ -82,9 +85,13 @@ export async function GET(
   const authToken = getAuthToken(request) || '';
 
   if (plan.billingProviderSlug === 'pymthouse') {
-    const { revision } = getPymthouseManifestSnapshot();
-    if (revision === 'none' || revision === 'unavailable') {
+    const revisionBefore = getPymthouseManifestSnapshot().revision;
+    if (revisionBefore === 'none' || revisionBefore === 'unavailable') {
       await syncPymthouseManifestSnapshot();
+      const revisionAfter = getPymthouseManifestSnapshot().revision;
+      if (revisionBefore !== revisionAfter) {
+        invalidatePlanCache(plan.id);
+      }
     }
   }
 
