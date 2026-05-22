@@ -45,6 +45,19 @@
       "timeout": 30000
     },
     {
+      "name": "orchestrator-leaderboard",
+      "description": "Top-N ranked orchestrators by latency, stability, and price for a given capability",
+      "method": "POST",
+      "path": "/orchestrator-leaderboard",
+      "upstreamPath": "/",
+      "upstreamContentType": "text/plain",
+      "bodyTransform": "passthrough",
+      "bodyBlacklist": ["DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE", "TRUNCATE"],
+      "bodyPattern": "^\\s*[Ss][Ee][Ll][Ee][Cc][Tt]\\b",
+      "timeout": 15000,
+      "cacheTtl": 5
+    },
+    {
       "name": "ping",
       "description": "ClickHouse health check",
       "method": "GET",

@@ -20,6 +20,9 @@ const ITERATIONS = 100000;
 function getMasterKey(): string {
   const masterKey = process.env.ENCRYPTION_MASTER_KEY || process.env.SECRET_KEY;
   if (!masterKey) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('ENCRYPTION_MASTER_KEY or SECRET_KEY is required in production');
+    }
     console.warn('WARNING: No encryption master key set. Using default for development.');
     return 'naap-dev-master-key-change-in-production';
   }

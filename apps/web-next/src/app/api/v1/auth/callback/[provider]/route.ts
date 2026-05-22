@@ -67,6 +67,10 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     return response;
   } catch (err) {
     console.error('OAuth callback error:', err);
+    const typedErr = err as Error & { code?: string };
+    if (typedErr.code === 'ACCOUNT_SUSPENDED') {
+      return NextResponse.redirect(new URL('/login?error=account_suspended', request.url));
+    }
     const message = err instanceof Error ? encodeURIComponent(err.message) : 'oauth_failed';
     return NextResponse.redirect(new URL(`/login?error=${message}`, request.url));
   }
@@ -123,6 +127,20 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     return response;
   } catch (err) {
     console.error('OAuth callback error:', err);
+    const typedErr = err as Error & { code?: string; reason?: string | null };
+    if (typedErr.code === 'ACCOUNT_SUSPENDED') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'ACCOUNT_SUSPENDED',
+            message: 'Your account has been suspended. Please contact an administrator.',
+            details: typedErr.reason ? { reason: typedErr.reason } : undefined,
+          },
+        },
+        { status: 403 }
+      );
+    }
     const message = err instanceof Error ? err.message : 'OAuth authentication failed';
     return NextResponse.json(
       { success: false, error: { code: 'OAUTH_FAILED', message } },

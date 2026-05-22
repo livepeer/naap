@@ -13,7 +13,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useShell, useEvents } from '@/contexts/shell-context';
-import { getCsrfToken } from '@/lib/api/csrf';
+import { getCsrfToken } from '@/lib/api/csrf-client';
 import { Button, Input, Select, Textarea, Modal } from '@naap/ui';
 import {
   Search,

@@ -1,0 +1,263 @@
+import { test, expect, type Page } from '@playwright/test';
+
+const FIXTURE_CAPABILITIES = {
+  success: true,
+  data: { capabilities: ['noop', 'streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v'] },
+};
+
+const FIXTURE_RANK = {
+  success: true,
+  data: [
+    { orchUri: 'https://orch-1.test', gpuName: 'RTX 4090', gpuGb: 24, avail: 3, totalCap: 4, pricePerUnit: 100, bestLatMs: 50, avgLatMs: 80, swapRatio: 0.05, avgAvail: 3.2 },
+    { orchUri: 'https://orch-2.test', gpuName: 'A100', gpuGb: 80, avail: 1, totalCap: 2, pricePerUnit: 500, bestLatMs: 200, avgLatMs: 350, swapRatio: 0.3, avgAvail: 1.5 },
+    { orchUri: 'https://orch-3.test', gpuName: 'RTX 3090', gpuGb: 24, avail: 2, totalCap: 2, pricePerUnit: 80, bestLatMs: null, avgLatMs: null, swapRatio: null, avgAvail: 2.0 },
+  ],
+};
+
+const FIXTURE_RANK_WITH_SLA = {
+  success: true,
+  data: [
+    { orchUri: 'https://orch-1.test', gpuName: 'RTX 4090', gpuGb: 24, avail: 3, totalCap: 4, pricePerUnit: 100, bestLatMs: 50, avgLatMs: 80, swapRatio: 0.05, avgAvail: 3.2, slaScore: 0.95 },
+    { orchUri: 'https://orch-3.test', gpuName: 'RTX 3090', gpuGb: 24, avail: 2, totalCap: 2, pricePerUnit: 80, bestLatMs: null, avgLatMs: null, swapRatio: null, avgAvail: 2.0, slaScore: 0.65 },
+    { orchUri: 'https://orch-2.test', gpuName: 'A100', gpuGb: 80, avail: 1, totalCap: 2, pricePerUnit: 500, bestLatMs: 200, avgLatMs: 350, swapRatio: 0.3, avgAvail: 1.5, slaScore: 0.3 },
+  ],
+};
+
+async function stubAPIs(page: Page) {
+  await page.route('**/api/v1/orchestrator-leaderboard/filters', (route) => {
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_CAPABILITIES) });
+  });
+
+  await page.route('**/api/v1/orchestrator-leaderboard/rank', async (route) => {
+    const request = route.request();
+    const postData = request.postDataJSON() ?? {};
+
+    const response = postData.slaWeights ? FIXTURE_RANK_WITH_SLA : FIXTURE_RANK;
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(response),
+      headers: {
+        'X-Cache': 'MISS',
+        'X-Cache-Age': '0',
+        'X-Data-Freshness': new Date().toISOString(),
+        'Cache-Control': 'private, max-age=10',
+      },
+    });
+  });
+}
+
+test.describe('Orchestrator Leaderboard Page', () => {
+  test.beforeEach(async ({ page }) => {
+    await stubAPIs(page);
+  });
+
+  test('loads capabilities dropdown and renders table on selection', async ({ page }) => {
+    await page.goto('/orchestrator-leaderboard');
+
+    const select = page.locator('select').first();
+    await expect(select).toBeVisible();
+
+    const options = await select.locator('option').allTextContents();
+    expect(options).toContain('streamdiffusion-sdxl');
+    expect(options).toContain('noop');
+
+    await select.selectOption('streamdiffusion-sdxl');
+
+    await expect(page.locator('table')).toBeVisible();
+
+    const rows = page.locator('tbody tr');
+    await expect(rows).toHaveCount(3);
+  });
+
+  test('renders all expected table columns', async ({ page }) => {
+    await page.goto('/orchestrator-leaderboard');
+    await page.locator('select').first().selectOption('noop');
+
+    await expect(page.locator('table')).toBeVisible();
+
+    const headers = await page.locator('thead th').allTextContents();
+    expect(headers).toContain('Orchestrator URL');
+    expect(headers).toContain('GPU');
+    expect(headers).toContain('GPU RAM');
+    expect(headers).toContain('Capacity');
+    expect(headers).toContain('Price/Unit');
+    expect(headers).toContain('Best Lat (ms)');
+    expect(headers).toContain('Avg Lat (ms)');
+    expect(headers).toContain('Swap Ratio');
+    expect(headers).toContain('Avg Avail');
+  });
+
+  test('sends correct capability and topN in POST body', async ({ page }) => {
+    let capturedBody: any = null;
+    await page.route('**/api/v1/orchestrator-leaderboard/rank', async (route) => {
+      capturedBody = JSON.parse(route.request().postData() || '{}');
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_RANK) });
+    });
+
+    await page.goto('/orchestrator-leaderboard');
+    await Promise.all([
+      page.waitForResponse('**/api/v1/orchestrator-leaderboard/rank'),
+      page.locator('select').first().selectOption('streamdiffusion-sdxl'),
+    ]);
+    expect(capturedBody?.capability).toBe('streamdiffusion-sdxl');
+    expect(capturedBody?.topN).toBe(10);
+  });
+
+  test('SLA toggle adds slaWeights and shows SLA Score column', async ({ page }) => {
+    let capturedBody: any = null;
+    await page.route('**/api/v1/orchestrator-leaderboard/rank', async (route) => {
+      capturedBody = JSON.parse(route.request().postData() || '{}');
+      const response = capturedBody.slaWeights ? FIXTURE_RANK_WITH_SLA : FIXTURE_RANK;
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(response) });
+    });
+
+    await page.goto('/orchestrator-leaderboard');
+    await page.locator('select').first().selectOption('noop');
+    await expect(page.locator('table')).toBeVisible();
+
+    const headers1 = await page.locator('thead th').allTextContents();
+    expect(headers1).not.toContain('SLA Score');
+
+    await Promise.all([
+      page.waitForResponse('**/api/v1/orchestrator-leaderboard/rank'),
+      page.getByText('SLA Ranking OFF').click(),
+    ]);
+    expect(capturedBody?.slaWeights).toBeDefined();
+
+    const headers2 = await page.locator('thead th').allTextContents();
+    expect(headers2).toContain('SLA Score');
+  });
+
+  test('shows empty state message when no results', async ({ page }) => {
+    await page.route('**/api/v1/orchestrator-leaderboard/rank', (route) => {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: [] }) });
+    });
+
+    await page.goto('/orchestrator-leaderboard');
+    await page.locator('select').first().selectOption('noop');
+
+    await expect(page.getByText('No orchestrators found')).toBeVisible();
+  });
+
+  test('auto-refresh triggers multiple API calls', async ({ page }) => {
+    let callCount = 0;
+    await page.route('**/api/v1/orchestrator-leaderboard/rank', (route) => {
+      callCount++;
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_RANK) });
+    });
+
+    await page.goto('/orchestrator-leaderboard');
+    await page.locator('select').first().selectOption('noop');
+    await page.waitForTimeout(500);
+
+    const initialCount = callCount;
+    await page.getByText('Auto-refresh (5s)').click();
+
+    await page.waitForTimeout(6000);
+    expect(callCount).toBeGreaterThan(initialCount);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dataset config API stubs (verifies no crash with admin panel present)
+// ---------------------------------------------------------------------------
+
+test.describe('Global Dataset & Plan Integration', () => {
+  test.beforeEach(async ({ page }) => {
+    await stubAPIs(page);
+
+    await page.route('**/api/v1/orchestrator-leaderboard/dataset/config', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            refreshIntervalHours: 1,
+            lastRefreshedAt: new Date().toISOString(),
+            lastRefreshedBy: 'cron',
+            updatedAt: new Date().toISOString(),
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/v1/orchestrator-leaderboard/plans', (route) => {
+      if (route.request().method() === 'GET') {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            data: {
+              plans: [
+                {
+                  id: 'plan-1',
+                  billingPlanId: 'bp-1',
+                  name: 'Test Plan',
+                  description: 'A test plan',
+                  capabilities: ['noop'],
+                  topN: 5,
+                  slaWeights: null,
+                  slaMinScore: null,
+                  sortBy: null,
+                  filters: null,
+                  enabled: true,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                },
+              ],
+            },
+          }),
+        });
+      } else {
+        route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' });
+      }
+    });
+
+    await page.route('**/api/v1/orchestrator-leaderboard/plans/plan-1/results', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            data: {
+              planId: 'plan-1',
+              refreshedAt: new Date().toISOString(),
+              capabilities: {
+                noop: [FIXTURE_RANK.data[0]],
+              },
+              plan: { name: 'Test Plan', description: 'A test plan', capabilities: ['noop'], topN: 5 },
+              meta: { totalOrchestrators: 1, refreshIntervalMs: 60000, cacheAgeMs: 0 },
+            },
+          },
+        }),
+      });
+    });
+  });
+
+  test('page loads without errors when dataset config endpoint is present', async ({ page }) => {
+    await page.goto('/orchestrator-leaderboard');
+    await expect(page.locator('select').first()).toBeVisible();
+  });
+
+  test('plan results contain plan metadata', async ({ page }) => {
+    await page.goto('/orchestrator-leaderboard');
+    await page.locator('select').first().selectOption('noop');
+    await expect(page.locator('table')).toBeVisible();
+
+    const resp = await page.evaluate(async () => {
+      const r = await fetch('/api/v1/orchestrator-leaderboard/plans/plan-1/results', {
+        credentials: 'include',
+      });
+      return r.json();
+    });
+
+    expect(resp.success).toBe(true);
+    expect(resp.data.data.plan.name).toBe('Test Plan');
+    expect(resp.data.data.plan.description).toBe('A test plan');
+    expect(resp.data.data.capabilities.noop).toHaveLength(1);
+  });
+});

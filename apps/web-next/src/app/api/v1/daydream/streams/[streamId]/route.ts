@@ -10,6 +10,7 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import { decryptField, encryptField } from '@naap/crypto';
 
 const DAYDREAM_API = 'https://api.daydream.live';
 
@@ -26,17 +27,19 @@ async function getUserApiKey(userId: string): Promise<string> {
       where: { userId: 'default-user' },
     });
     if (defaultSettings?.apiKey) {
+      const plainKey = decryptField(defaultSettings.apiKey, `DaydreamSettings:default-user:apiKey`);
+      const reEncrypted = encryptField(plainKey, `DaydreamSettings:${userId}:apiKey`);
       settings = await prisma.daydreamSettings.upsert({
         where: { userId },
         update: {
-          apiKey: defaultSettings.apiKey,
+          apiKey: reEncrypted,
           defaultPrompt: defaultSettings.defaultPrompt,
           defaultSeed: defaultSettings.defaultSeed,
           negativePrompt: defaultSettings.negativePrompt,
         },
         create: {
           userId,
-          apiKey: defaultSettings.apiKey,
+          apiKey: reEncrypted,
           defaultPrompt: defaultSettings.defaultPrompt || 'superman',
           defaultSeed: defaultSettings.defaultSeed || 42,
           negativePrompt: defaultSettings.negativePrompt || 'blurry, low quality, flat, 2d',
@@ -49,7 +52,7 @@ async function getUserApiKey(userId: string): Promise<string> {
     throw new Error('No Daydream API key configured. Go to Settings to add your API key.');
   }
 
-  return settings.apiKey;
+  return decryptField(settings.apiKey, `DaydreamSettings:${userId}:apiKey`);
 }
 
 // GET — Get stream status from Daydream.live API
@@ -102,7 +105,7 @@ export async function PATCH(
       return errors.unauthorized('No auth token provided');
     }
 
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) {
       return csrfError;
     }
@@ -168,7 +171,7 @@ export async function DELETE(
       return errors.unauthorized('No auth token provided');
     }
 
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) {
       return csrfError;
     }

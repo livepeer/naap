@@ -34,6 +34,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         avatarUrl: true,
         address: true,
         emailVerified: true,
+        suspendedAt: true,
+        suspendedReason: true,
         createdAt: true,
         roles: {
           select: {
@@ -53,7 +55,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Transform the data to include roles as an array of strings
     const users = usersData.map(user => ({
       id: user.id,
       email: user.email,
@@ -62,8 +63,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       walletAddress: user.address,
       roles: user.roles.map(ur => ur.role.name),
       emailVerified: !!user.emailVerified,
+      suspended: !!user.suspendedAt,
+      suspendedAt: user.suspendedAt,
+      suspendedReason: user.suspendedReason,
       createdAt: user.createdAt,
-      lastLoginAt: null, // Not tracked in this schema
+      lastLoginAt: null,
       _count: user._count,
     }));
 
