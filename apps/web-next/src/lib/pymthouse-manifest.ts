@@ -16,9 +16,9 @@ export interface PymthouseManifestCapability {
 }
 
 export interface PymthouseManifestResponse {
-  /** Resolved discoverable `(pipeline, modelId)` pairs (catalog minus Network Price exclusions). */
+  /** PymtHouse-local resolved set. NaaP treats this as informational, not a complete allowlist. */
   capabilities: PymthouseManifestCapability[];
-  /** Raw exclusions from the Network Price plan (same contract as Builder `PUT /manifest`). */
+  /** Raw exclusions from the Network Price plan. NaaP denies these and allows everything else. */
   excludedCapabilities?: PymthouseManifestCapability[];
   /** Server-computed revision; used for cache busting when present. */
   manifestVersion?: string;
@@ -27,14 +27,125 @@ export interface PymthouseManifestResponse {
 interface GlobalManifestSnapshot {
   data: PymthouseManifestResponse | null;
   revision: string;
+  /** PymtHouse `ETag` from last GET/HEAD (used for conditional HEAD probes). */
+  etag: string | null;
   updatedAt: number;
 }
 
 let globalSnapshot: GlobalManifestSnapshot = {
   data: null,
   revision: 'none',
+  etag: null,
   updatedAt: 0,
 };
+
+/** Response `Cache-Control` for orchestrator-leaderboard discovery routes. */
+export const DISCOVERY_RESPONSE_CACHE_CONTROL = 'private, no-store, must-revalidate';
+
+interface PymthouseManifestCredentials {
+  base: string;
+  publicId: string;
+  m2mId: string;
+  m2mSecret: string;
+  basic: string;
+  url: string;
+}
+
+function getPymthouseManifestCredentials(): PymthouseManifestCredentials | null {
+  const base = getPymthouseApiV1Base();
+  const publicId =
+    process.env.PYMTHOUSE_PUBLIC_CLIENT_ID?.trim() || process.env.PMTHOUSE_CLIENT_ID?.trim();
+  const m2mId =
+    process.env.PYMTHOUSE_M2M_CLIENT_ID?.trim() || process.env.PMTHOUSE_M2M_CLIENT_ID?.trim();
+  const m2mSecret =
+    process.env.PYMTHOUSE_M2M_CLIENT_SECRET?.trim() || process.env.PMTHOUSE_M2M_CLIENT_SECRET?.trim();
+  if (!base || !publicId || !m2mId || !m2mSecret) {
+    return null;
+  }
+  const basic = Buffer.from(`${m2mId}:${m2mSecret}`, 'utf8').toString('base64');
+  return {
+    base,
+    publicId,
+    m2mId,
+    m2mSecret,
+    basic,
+    url: `${base}/apps/${encodeURIComponent(publicId)}/manifest`,
+  };
+}
+
+function parseManifestJson(json: Record<string, unknown>): PymthouseManifestResponse {
+  const capsRaw = json.capabilities;
+  const capabilities = Array.isArray(capsRaw)
+    ? capsRaw.filter(
+        (c): c is PymthouseManifestCapability =>
+          !!c &&
+          typeof c === 'object' &&
+          typeof (c as { pipeline?: unknown }).pipeline === 'string' &&
+          typeof (c as { modelId?: unknown }).modelId === 'string',
+      )
+    : [];
+  const exclRaw = json.excludedCapabilities;
+  const excludedCapabilities = Array.isArray(exclRaw)
+    ? exclRaw.filter(
+        (c): c is PymthouseManifestCapability =>
+          !!c &&
+          typeof c === 'object' &&
+          typeof (c as { pipeline?: unknown }).pipeline === 'string' &&
+          typeof (c as { modelId?: unknown }).modelId === 'string',
+      )
+    : [];
+  const manifestVersion =
+    typeof json.manifestVersion === 'string' && json.manifestVersion.trim()
+      ? json.manifestVersion.trim()
+      : undefined;
+  return { capabilities, excludedCapabilities, manifestVersion };
+}
+
+function applyManifestSnapshot(
+  body: PymthouseManifestResponse | null,
+  etag: string | null,
+): { revision: string; revisionChanged: boolean } {
+  const prevRevision = globalSnapshot.revision;
+  const revision = body?.manifestVersion ?? computeManifestRevision(body);
+  globalSnapshot = {
+    data: body,
+    revision,
+    etag,
+    updatedAt: Date.now(),
+  };
+  cache = { at: Date.now(), data: body, ttlMs: cache.ttlMs };
+  return { revision, revisionChanged: revision !== prevRevision };
+}
+
+async function probeManifestUnchanged(
+  creds: PymthouseManifestCredentials,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (!globalSnapshot.etag) {
+    return false;
+  }
+  try {
+    const res = await fetch(creds.url, {
+      method: 'HEAD',
+      headers: {
+        Authorization: `Basic ${creds.basic}`,
+        'If-None-Match': globalSnapshot.etag,
+      },
+      signal,
+      cache: 'no-store',
+    });
+    if (res.status === 304) {
+      return true;
+    }
+    const nextEtag = res.headers.get('etag')?.trim();
+    if (res.ok && nextEtag && nextEtag === globalSnapshot.etag) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
 
 /** Legacy 45s cache — superseded by snapshot; kept for tests resetting the same shape. */
 let cache: { at: number; data: PymthouseManifestResponse | null; ttlMs: number } = {
@@ -45,16 +156,19 @@ let cache: { at: number; data: PymthouseManifestResponse | null; ttlMs: number }
 
 export function resetPymthouseManifestCacheForTests(): void {
   cache = { at: 0, data: null, ttlMs: 45_000 };
-  globalSnapshot = { data: null, revision: 'none', updatedAt: 0 };
+  globalSnapshot = { data: null, revision: 'none', etag: null, updatedAt: 0 };
 }
 
 /** Test helper: inject snapshot without HTTP. */
 export function seedPymthouseManifestForTests(
   data: PymthouseManifestResponse | null,
+  opts?: { etag?: string | null },
 ): void {
+  const revision = data?.manifestVersion ?? computeManifestRevision(data);
   globalSnapshot = {
     data,
-    revision: computeManifestRevision(data),
+    revision,
+    etag: opts?.etag ?? null,
     updatedAt: Date.now(),
   };
   cache = { at: Date.now(), data, ttlMs: cache.ttlMs };
@@ -70,7 +184,7 @@ export function getPymthouseApiV1Base(): string | null {
 function sortedCaps(caps: PymthouseManifestCapability[]): PymthouseManifestCapability[] {
   return [...caps].sort((a, b) => {
     const p = a.pipeline.localeCompare(b.pipeline);
-    return p !== 0 ? p : a.modelId.localeCompare(b.modelId);
+    return p === 0 ? a.modelId.localeCompare(b.modelId) : p;
   });
 }
 
@@ -93,7 +207,7 @@ export function computeManifestRevision(
 
 export function fingerprintCapabilityList(capabilities: string[]): string {
   return createHash('sha256')
-    .update([...capabilities].sort().join('|'))
+    .update([...capabilities].sort((a, b) => a.localeCompare(b)).join('|'))
     .digest('hex')
     .slice(0, 16);
 }
@@ -117,80 +231,52 @@ export function getPymthouseManifestSnapshot(): {
 export async function syncPymthouseManifestSnapshot(opts?: {
   signal?: AbortSignal;
 }): Promise<{ revision: string; revisionChanged: boolean }> {
-  const base = getPymthouseApiV1Base();
-  const publicId =
-    process.env.PYMTHOUSE_PUBLIC_CLIENT_ID?.trim() || process.env.PMTHOUSE_CLIENT_ID?.trim();
-  const m2mId =
-    process.env.PYMTHOUSE_M2M_CLIENT_ID?.trim() || process.env.PMTHOUSE_M2M_CLIENT_ID?.trim();
-  const m2mSecret =
-    process.env.PYMTHOUSE_M2M_CLIENT_SECRET?.trim() || process.env.PMTHOUSE_M2M_CLIENT_SECRET?.trim();
+  const creds = getPymthouseManifestCredentials();
 
-  const prevRevision = globalSnapshot.revision;
-
-  if (!base || !publicId || !m2mId || !m2mSecret) {
-    globalSnapshot = {
-      data: null,
-      revision: 'unavailable',
-      updatedAt: Date.now(),
-    };
-    return {
-      revision: globalSnapshot.revision,
-      revisionChanged: prevRevision !== globalSnapshot.revision,
-    };
+  if (!creds) {
+    const unavailable = applyManifestSnapshot(null, null);
+    return { revision: 'unavailable', revisionChanged: unavailable.revisionChanged };
   }
 
-  const basic = Buffer.from(`${m2mId}:${m2mSecret}`, 'utf8').toString('base64');
-  const url = `${base}/apps/${encodeURIComponent(publicId)}/manifest`;
+  if (globalSnapshot.data != null && (await probeManifestUnchanged(creds, opts?.signal))) {
+    return { revision: globalSnapshot.revision, revisionChanged: false };
+  }
+
+  const url = creds.url;
   let body: PymthouseManifestResponse | null = null;
+  let etag: string | null = null;
   try {
     const res = await fetch(url, {
       method: 'GET',
-      headers: { Authorization: `Basic ${basic}` },
+      headers: { Authorization: `Basic ${creds.basic}` },
       signal: opts?.signal,
       cache: 'no-store',
     });
+    etag = res.headers.get('etag')?.trim() || null;
     if (res.ok) {
       const json = (await res.json()) as Record<string, unknown>;
-      const capsRaw = json.capabilities;
-      const capabilities = Array.isArray(capsRaw)
-        ? capsRaw.filter(
-            (c): c is PymthouseManifestCapability =>
-              !!c &&
-              typeof c === 'object' &&
-              typeof (c as { pipeline?: unknown }).pipeline === 'string' &&
-              typeof (c as { modelId?: unknown }).modelId === 'string',
-          )
-        : [];
-      const exclRaw = json.excludedCapabilities;
-      const excludedCapabilities = Array.isArray(exclRaw)
-        ? exclRaw.filter(
-            (c): c is PymthouseManifestCapability =>
-              !!c &&
-              typeof c === 'object' &&
-              typeof (c as { pipeline?: unknown }).pipeline === 'string' &&
-              typeof (c as { modelId?: unknown }).modelId === 'string',
-          )
-        : [];
-      const manifestVersion =
-        typeof json.manifestVersion === 'string' && json.manifestVersion.trim()
-          ? json.manifestVersion.trim()
-          : undefined;
-      body = { capabilities, excludedCapabilities, manifestVersion };
+      body = parseManifestJson(json);
     }
   } catch {
     body = null;
+    etag = null;
   }
 
-  const revision =
-    body?.manifestVersion ?? computeManifestRevision(body);
-  globalSnapshot = {
-    data: body,
-    revision,
-    updatedAt: Date.now(),
-  };
-  cache = { at: Date.now(), data: body, ttlMs: cache.ttlMs };
+  return applyManifestSnapshot(body, etag);
+}
 
-  return { revision, revisionChanged: revision !== prevRevision };
+/**
+ * Lightweight manifest freshness check for discovery handlers (HEAD + conditional GET).
+ */
+export async function ensurePymthouseManifestFresh(opts?: {
+  signal?: AbortSignal;
+  onRevisionChanged?: () => void;
+}): Promise<{ revision: string; revisionChanged: boolean }> {
+  const result = await syncPymthouseManifestSnapshot(opts);
+  if (result.revisionChanged) {
+    opts?.onRevisionChanged?.();
+  }
+  return result;
 }
 
 /**
@@ -237,6 +323,25 @@ function capabilityRuleMatches(
   return pipelineOk && modelOk;
 }
 
+function capabilityRuleMatchesCapability(
+  rule: PymthouseManifestCapability,
+  capability: string,
+): boolean {
+  const normalizedCapability = capability.trim();
+  const pipeline = rule.pipeline.trim();
+  const modelId = rule.modelId.trim();
+  if (!normalizedCapability || !pipeline || !modelId) {
+    return false;
+  }
+  if (pipeline === '*') {
+    return modelId === '*' || normalizedCapability.endsWith(`/${modelId}`);
+  }
+  if (modelId === '*') {
+    return normalizedCapability === pipeline || normalizedCapability.startsWith(`${pipeline}/`);
+  }
+  return normalizedCapability === `${pipeline}/${modelId}`;
+}
+
 /**
  * Opt-in fail-open when manifest is missing or empty. Narrow scope: set only for
  * controlled environments (e.g. local dev). Emits a high-severity audit log when used.
@@ -262,18 +367,20 @@ function logMissingManifestFailOpen(context: {
 }
 
 /**
- * Discovery allow check against PymtHouse resolved manifest.
+ * Discovery allow check against PymtHouse exclusions.
  *
- * When `capabilities` is non-empty (normal case), only rows in that resolved allowlist pass.
- * Excluded rows always deny. Missing or empty manifest denies by default; set
- * `PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN=1` to restore legacy fail-open (audited).
+ * PymtHouse's catalog can be smaller than NaaP's catalog, so `capabilities` is
+ * informational. The Network Discovery plan is a denylist: explicitly excluded
+ * rows deny and every other NaaP capability is allowed. A missing manifest still
+ * denies by default; set `PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN=1` only in
+ * controlled environments to restore fail-open behavior (audited).
  */
 export function isPipelineModelInManifest(
   manifest: PymthouseManifestResponse | null,
   pipeline: string,
   modelId: string,
 ): boolean {
-  if (!manifest?.capabilities?.length) {
+  if (!manifest) {
     if (isMissingManifestFailOpenEnabled()) {
       const publicId =
         process.env.PYMTHOUSE_PUBLIC_CLIENT_ID?.trim() || process.env.PMTHOUSE_CLIENT_ID?.trim();
@@ -285,25 +392,28 @@ export function isPipelineModelInManifest(
     }
     return false;
   }
+
   for (const ex of manifest.excludedCapabilities ?? []) {
     if (capabilityRuleMatches(ex, pipeline, modelId)) {
       return false;
     }
   }
-  for (const e of manifest.capabilities) {
-    if (capabilityRuleMatches(e, pipeline, modelId)) {
-      return true;
-    }
-  }
-  return false;
+  return true;
 }
 
 export function isLeaderboardCapabilityAllowed(
   manifest: PymthouseManifestResponse | null,
   capability: string,
 ): boolean {
-  const { pipeline, modelId } = parseCapabilityToPipelineModel(capability);
-  return isPipelineModelInManifest(manifest, pipeline, modelId);
+  if (!manifest) {
+    return isPipelineModelInManifest(manifest, '', capability);
+  }
+  for (const ex of manifest.excludedCapabilities ?? []) {
+    if (capabilityRuleMatchesCapability(ex, capability)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function filterPlanCapabilitiesForManifest(

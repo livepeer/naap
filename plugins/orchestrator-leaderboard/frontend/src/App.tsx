@@ -37,7 +37,7 @@ const AppRoutes: React.FC = () => (
 );
 
 export const OrchestratorLeaderboardApp: React.FC = () => (
-  <div className="h-full w-full min-h-[600px]">
+  <div className="h-full w-full min-h-[600px] text-text-primary antialiased">
     {resolveBasename() ? (
       <BrowserRouter basename={ROUTE_BASE}>
         <AppRoutes />

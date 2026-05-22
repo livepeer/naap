@@ -8,7 +8,11 @@ import {
 import { usePlanDetail } from '../hooks/usePlanDetail';
 import { useCapabilityCatalog } from '../hooks/useCapabilityCatalog';
 import { CapabilityGroupPicker } from '../components/CapabilityGroupPicker';
+import { CapabilityTag } from '../components/CapabilityTag';
 import { EndpointGuide } from '../components/EndpointGuide';
+import { FormLabel } from '../components/FormLabel';
+import { SectionLabel } from '../components/SectionLabel';
+import { StyledCheckbox } from '../components/StyledCheckbox';
 import type { SLAWeights, LeaderboardFilters, PlanSortBy, OrchestratorRow } from '../lib/api';
 
 const TOP_N_OPTIONS = [5, 10, 20, 50];
@@ -34,44 +38,89 @@ export const PlanDetailPage: React.FC = () => {
     plan?.billingProviderSlug ??
     'pymthouse'
   ) as 'pymthouse' | 'daydream';
+  const selectedCapabilities = React.useMemo(
+    () => draft.capabilities ?? plan?.capabilities ?? [],
+    [draft.capabilities, plan?.capabilities],
+  );
   const {
     pipelines: capabilityPipelines,
     loading: capabilityLoading,
     meta: capabilityMeta,
-  } = useCapabilityCatalog(effectiveBillingProvider);
-  const pymthouseConfigured = capabilityMeta?.pymthouseConfigured ?? true;
+    manifestMeta: capabilityManifestMeta,
+    manifestFilteredCapabilities,
+  } = useCapabilityCatalog(effectiveBillingProvider, selectedCapabilities);
+  const manifestAwareMeta = capabilityManifestMeta ?? capabilityMeta;
+  const pymthouseConfigured = manifestAwareMeta?.pymthouseConfigured ?? true;
+  const capabilityCatalogReady = !capabilityLoading && capabilityMeta !== null;
   const manifestUnavailable =
+    manifestAwareMeta !== null &&
     effectiveBillingProvider === 'pymthouse' &&
-    !!capabilityMeta?.manifestChecked &&
-    !capabilityMeta?.manifestAvailable;
+    manifestAwareMeta.manifestChecked &&
+    !manifestAwareMeta.manifestAvailable;
 
   const availableCapabilitySet = React.useMemo(
     () => new Set(capabilityPipelines.flatMap((pipeline) => pipeline.models.map((model) => model.capability))),
     [capabilityPipelines],
   );
-  const selectedCapabilities = draft.capabilities ?? plan?.capabilities ?? [];
-  const outOfScopeCapabilities = selectedCapabilities.filter((cap) => {
+
+  const isCapabilityInCatalog = React.useCallback((cap: string) => {
     if (availableCapabilitySet.has(cap)) {
-      return false;
-    }
-    if (cap.includes('/')) {
       return true;
     }
-    for (const allowed of availableCapabilitySet) {
-      if (allowed.endsWith(`/${cap}`)) {
-        return false;
+    if (!cap.includes('/')) {
+      for (const allowed of availableCapabilitySet) {
+        if (allowed.endsWith(`/${cap}`)) {
+          return true;
+        }
       }
     }
-    return true;
-  });
+    return false;
+  }, [availableCapabilitySet]);
+
+  const manifestSelectedCapabilities = manifestFilteredCapabilities ?? selectedCapabilities;
+
+  const effectiveSelectedCapabilities = React.useMemo(() => {
+    if (!capabilityCatalogReady) {
+      return manifestSelectedCapabilities;
+    }
+    return manifestSelectedCapabilities.filter(isCapabilityInCatalog);
+  }, [capabilityCatalogReady, isCapabilityInCatalog, manifestSelectedCapabilities]);
+
+  React.useEffect(() => {
+    if (manifestFilteredCapabilities === null) {
+      return;
+    }
+    if (
+      manifestFilteredCapabilities.length === selectedCapabilities.length &&
+      manifestFilteredCapabilities.every((capability, index) => capability === selectedCapabilities[index])
+    ) {
+      return;
+    }
+    setDraft({ capabilities: manifestFilteredCapabilities });
+  }, [manifestFilteredCapabilities, selectedCapabilities, setDraft]);
+
+  React.useEffect(() => {
+    if (!capabilityCatalogReady) {
+      return;
+    }
+    if (effectiveSelectedCapabilities.length === selectedCapabilities.length) {
+      return;
+    }
+    setDraft({ capabilities: effectiveSelectedCapabilities });
+  }, [
+    capabilityCatalogReady,
+    effectiveSelectedCapabilities,
+    selectedCapabilities.length,
+    setDraft,
+  ]);
 
   const isCapabilitySelected = React.useCallback((capability: string) => {
-    if (selectedCapabilities.includes(capability)) {
+    if (effectiveSelectedCapabilities.includes(capability)) {
       return true;
     }
     const modelId = capability.slice(capability.lastIndexOf('/') + 1);
-    return selectedCapabilities.includes(modelId);
-  }, [selectedCapabilities]);
+    return effectiveSelectedCapabilities.includes(modelId);
+  }, [effectiveSelectedCapabilities]);
 
   const toggleCapability = (capability: string) => {
     const current = draft.capabilities ?? plan?.capabilities ?? [];
@@ -79,6 +128,19 @@ export const PlanDetailPage: React.FC = () => {
     const next = isCapabilitySelected(capability)
       ? current.filter((cap) => cap !== capability && cap !== modelId)
       : [...current.filter((cap) => cap !== modelId), capability];
+    setDraft({ capabilities: next });
+  };
+
+  const bulkToggleCapabilities = (capabilities: string[], select: boolean) => {
+    const current = draft.capabilities ?? plan?.capabilities ?? [];
+    let next: string[];
+    if (select) {
+      const toAdd = capabilities.filter((cap) => !current.includes(cap));
+      next = [...current, ...toAdd];
+    } else {
+      const removeSet = new Set(capabilities);
+      next = current.filter((cap) => !removeSet.has(cap));
+    }
     setDraft({ capabilities: next });
   };
 
@@ -126,7 +188,7 @@ export const PlanDetailPage: React.FC = () => {
 
   if (!plan) {
     return (
-      <div className="p-6 max-w-[1400px] mx-auto">
+      <div className="px-4 pb-6 pt-3 max-w-[1400px] mx-auto">
         <button onClick={() => navigate('/plans')} className="flex items-center gap-1 text-sm text-text-muted hover:text-text-primary mb-4 transition-colors">
           <ArrowLeft size={16} /> Back to Plans
         </button>
@@ -140,7 +202,7 @@ export const PlanDetailPage: React.FC = () => {
   }
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto space-y-5">
+    <div className="px-4 pb-6 pt-3 max-w-[1400px] mx-auto space-y-5">
       {/* Back + Header */}
       <button onClick={() => navigate('/plans')} className="flex items-center gap-1 text-sm text-text-muted hover:text-text-primary transition-colors">
         <ArrowLeft size={16} /> Back to Plans
@@ -154,17 +216,17 @@ export const PlanDetailPage: React.FC = () => {
                 <div className="flex items-center gap-3 flex-wrap">
                   <h1 className="text-2xl font-bold text-text-primary tracking-tight">{plan.name}</h1>
                   {plan.enabled ? (
-                    <span className="flex items-center gap-1 text-[11px] text-accent-emerald bg-accent-emerald/10 px-2 py-0.5 rounded-full">
+                    <span className="status-pill-emerald">
                       <Power size={10} /> Enabled
                     </span>
                   ) : (
-                    <span className="flex items-center gap-1 text-[11px] text-text-muted bg-bg-tertiary px-2 py-0.5 rounded-full">
+                    <CapabilityTag size="sm" className="gap-1">
                       <PowerOff size={10} /> Disabled
-                    </span>
+                    </CapabilityTag>
                   )}
                 </div>
-                <p className="text-[12px] text-text-muted font-mono mt-1 truncate">{plan.billingPlanId}</p>
-                <div className="flex items-center gap-4 text-[11px] text-text-muted mt-1 flex-wrap">
+                <p className="text-xs text-text-muted font-mono mt-1 truncate">{plan.billingPlanId}</p>
+                <div className="flex items-center gap-4 text-xs text-text-muted mt-1 flex-wrap">
                   <span className="flex items-center gap-1">
                     <Clock size={10} /> Created {new Date(plan.createdAt).toLocaleDateString()}
                   </span>
@@ -173,12 +235,10 @@ export const PlanDetailPage: React.FC = () => {
               </div>
               <div className="flex items-center gap-2 shrink-0 xl:hidden">
                 {dirty && (
-                  <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-accent-amber/15 text-accent-amber border border-accent-amber/30">
-                    Unsaved changes
-                  </span>
+                  <span className="status-pill-amber">Unsaved changes</span>
                 )}
                 {savedFlash && (
-                  <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-accent-emerald/15 text-accent-emerald border border-accent-emerald/30 flex items-center gap-1">
+                  <span className="status-pill-emerald">
                     <Check size={10} /> Saved
                   </span>
                 )}
@@ -195,21 +255,17 @@ export const PlanDetailPage: React.FC = () => {
           </div>
 
           <div className="min-w-0 xl:border-l xl:border-[var(--border-color)] xl:pl-6">
-            <span className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">
-              Endpoint & Integration
-            </span>
-            <EndpointGuide planId={plan.id} collapsibleSetup />
+            <SectionLabel className="mb-3">Endpoint &amp; Integration</SectionLabel>
+            <EndpointGuide planId={plan.id} />
           </div>
         </div>
 
         <div className="hidden xl:flex items-center justify-end gap-2 mt-4 pt-4 border-t border-[var(--border-color)]">
           {dirty && (
-            <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-accent-amber/15 text-accent-amber border border-accent-amber/30">
-              Unsaved changes
-            </span>
+            <span className="status-pill-amber">Unsaved changes</span>
           )}
           {savedFlash && (
-            <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-accent-emerald/15 text-accent-emerald border border-accent-emerald/30 flex items-center gap-1">
+            <span className="status-pill-emerald">
               <Check size={10} /> Results updated
             </span>
           )}
@@ -232,67 +288,61 @@ export const PlanDetailPage: React.FC = () => {
       )}
 
       {/* Capabilities */}
-      <div className="glass-card p-4">
-        <div className="mb-3">
-          <label className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">
-            Provider scope
-          </label>
-          <label className="flex items-start gap-2 w-full max-w-md px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-sm text-text-secondary">
-            <input
-              type="checkbox"
-              checked={effectiveBillingProvider === 'pymthouse'}
-              disabled={!pymthouseConfigured}
-              onChange={(e) =>
-                setDraft({
-                  billingProviderSlug: e.target.checked ? 'pymthouse' : 'daydream',
-                })
-              }
-              className="mt-0.5"
-            />
-            <span>
-              Use PymtHouse allowlist filtering
-            </span>
-          </label>
-          {!pymthouseConfigured && (
-            <p className="text-[11px] text-accent-amber mt-1">
-              PymtHouse credentials are not configured in NaaP; showing unfiltered capability catalog.
-            </p>
-          )}
-          {manifestUnavailable && (
-            <p className="text-[11px] text-accent-amber mt-1">
-              PymtHouse manifest is currently unavailable; capability filtering is restricted until the manifest syncs.
-            </p>
-          )}
-        </div>
+      <div className="glass-card p-4 space-y-3">
+        <SectionLabel className="mb-0">
+          {`Capabilities (${effectiveSelectedCapabilities.length} selected)`}
+        </SectionLabel>
+
         <CapabilityGroupPicker
           title="Capabilities"
+          showSectionHeader={false}
           pipelines={capabilityPipelines}
           loading={capabilityLoading}
-          selectedCapabilities={selectedCapabilities}
+          selectedCapabilities={effectiveSelectedCapabilities}
           isSelected={isCapabilitySelected}
           onToggle={toggleCapability}
+          onBulkToggle={bulkToggleCapabilities}
+          toolbarEnd={
+            <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer shrink-0">
+              <StyledCheckbox
+                checked={effectiveBillingProvider === 'pymthouse'}
+                disabled={!pymthouseConfigured}
+                aria-label="Use PymtHouse allowlist filtering"
+                onChange={(isChecked) =>
+                  setDraft({
+                    billingProviderSlug: isChecked ? 'pymthouse' : 'daydream',
+                  })
+                }
+              />
+              <span>Use PymtHouse allowlist filtering</span>
+            </label>
+          }
         />
-        {outOfScopeCapabilities.length > 0 && (
-          <p className="text-[11px] text-accent-amber mt-2">
-            {outOfScopeCapabilities.length} selected{' '}
-            {outOfScopeCapabilities.length === 1 ? 'capability is' : 'capabilities are'} outside this
-            provider scope and will be filtered from discovery responses.
+        {!pymthouseConfigured && (
+          <p className="text-[11px] text-accent-amber">
+            PymtHouse credentials are not configured in NaaP; showing unfiltered capability catalog.
+          </p>
+        )}
+        {manifestUnavailable && (
+          <p className="text-[11px] text-accent-amber">
+            PymtHouse manifest is currently unavailable; capability filtering is restricted until the manifest syncs.
           </p>
         )}
       </div>
 
       {/* Interactive Configuration Panel */}
       <div className="glass-card p-5 space-y-5">
-        <div className="flex items-center gap-2">
-          <SlidersHorizontal size={14} className="text-accent-blue" />
-          <span className="text-xs font-semibold text-accent-blue uppercase tracking-wider">Configuration</span>
-          <span className="text-[10px] text-text-muted ml-2">Edit to see how results change</span>
-        </div>
+        <SectionLabel
+          icon={SlidersHorizontal}
+          trailing={<span className="text-xs text-text-muted">Edit to see how results change</span>}
+        >
+          Configuration
+        </SectionLabel>
 
         {/* Top N + Sort By row */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">Top N</label>
+            <FormLabel>Top N</FormLabel>
             <div className="flex items-center gap-1 bg-bg-secondary border border-[var(--border-color)] rounded-lg p-1">
               {TOP_N_OPTIONS.map((n) => (
                 <button
@@ -308,7 +358,7 @@ export const PlanDetailPage: React.FC = () => {
             </div>
           </div>
           <div>
-            <label className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">Sort By</label>
+            <FormLabel>Sort By</FormLabel>
             <select
               value={draft.sortBy ?? 'slaScore'}
               onChange={(e) => setDraft({ sortBy: e.target.value as PlanSortBy })}
@@ -353,11 +403,13 @@ export const PlanDetailPage: React.FC = () => {
 
         {/* SLA Weights */}
         <div>
-          <div className="flex items-center gap-2 mb-3">
-            <Gauge size={14} className="text-accent-emerald" />
-            <span className="text-xs font-semibold text-accent-emerald uppercase tracking-wider">SLA Weights</span>
-            <span className="text-[10px] text-text-muted ml-2">Auto-normalize to 100%</span>
-          </div>
+          <SectionLabel
+            icon={Gauge}
+            className="mb-3"
+            trailing={<span className="text-xs text-text-muted">Auto-normalize to 100%</span>}
+          >
+            SLA Weights
+          </SectionLabel>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <WeightSlider label="Latency" value={(draft.slaWeights?.latency) ?? 0.4}
               onChange={(v) => handleWeightChange('latency', v)} color="blue" />
@@ -461,9 +513,13 @@ const ResultsSection: React.FC<{ results: import('../lib/api').PlanResults | nul
               onClick={() => setCollapsed((p) => ({ ...p, [capability]: !isCollapsed }))}
               className="w-full px-4 py-3 border-b border-[var(--border-color)] flex items-center justify-between hover:bg-bg-secondary transition-colors"
             >
-              <span className="text-xs font-medium text-text-secondary">
-                <span className="text-accent-blue">{capability}</span>
-                {' '}&mdash; {rows.length} orchestrator{rows.length !== 1 ? 's' : ''}
+              <span className="flex items-center gap-2 text-xs font-medium text-text-secondary">
+                <CapabilityTag size="sm" title={capability}>
+                  {capability}
+                </CapabilityTag>
+                <span>
+                  &mdash; {rows.length} orchestrator{rows.length !== 1 ? 's' : ''}
+                </span>
               </span>
               {isCollapsed ? <ChevronDown size={14} className="text-text-muted" /> : <ChevronUp size={14} className="text-text-muted" />}
             </button>
@@ -598,7 +654,7 @@ const FilterInput: React.FC<{
   const id = useId();
   return (
     <div className="min-w-[130px]">
-      <label htmlFor={id} className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">{label}</label>
+      <FormLabel htmlFor={id}>{label}</FormLabel>
       <input
         id={id}
         {...inputProps}

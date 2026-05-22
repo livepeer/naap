@@ -18,6 +18,10 @@ import {
   isCapabilityAllowedForProvider,
   normalizeBillingProviderSlug,
 } from '@/lib/orchestrator-leaderboard/provider-restrictions';
+import {
+  DISCOVERY_RESPONSE_CACHE_CONTROL,
+  ensurePymthouseManifestFresh,
+} from '@/lib/pymthouse-manifest';
 
 const DEFAULT_CAPABILITY = 'noop';
 const DEFAULT_TOP_N = 100;
@@ -80,6 +84,10 @@ export async function GET(request: NextRequest): Promise<Response> {
   const topN = resolveTopN(url);
   const authToken = getAuthToken(request) || '';
 
+  if (billingProvider === 'pymthouse') {
+    await ensurePymthouseManifestFresh();
+  }
+
   try {
     const ordered: string[] = [];
     const seen = new Set<string>();
@@ -121,7 +129,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
     return NextResponse.json(out, {
       headers: {
-        'Cache-Control': 'private, max-age=10',
+        'Cache-Control': DISCOVERY_RESPONSE_CACHE_CONTROL,
         'X-Cache': fromCache ? 'HIT' : 'MISS',
         'X-Cache-Age': String(cacheAgeMs),
         'X-Discovery-Mode': 'default',

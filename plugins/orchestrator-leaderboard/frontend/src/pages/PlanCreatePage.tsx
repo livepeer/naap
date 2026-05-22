@@ -4,6 +4,9 @@ import { ArrowLeft, Loader2, Plus } from 'lucide-react';
 import { createPlan } from '../lib/api';
 import { useCapabilityCatalog } from '../hooks/useCapabilityCatalog';
 import { CapabilityGroupPicker } from '../components/CapabilityGroupPicker';
+import { FormLabel } from '../components/FormLabel';
+import { SectionLabel } from '../components/SectionLabel';
+import { StyledCheckbox } from '../components/StyledCheckbox';
 
 type BillingProviderSlug = 'pymthouse' | 'daydream';
 
@@ -26,10 +29,12 @@ export const PlanCreatePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const { pipelines, loading, error: catalogError, meta } = useCapabilityCatalog(billingProviderSlug);
   const pymthouseConfigured = meta?.pymthouseConfigured ?? true;
+  const capabilityCatalogReady = !loading && meta !== null;
   const manifestUnavailable =
+    capabilityCatalogReady &&
     billingProviderSlug === 'pymthouse' &&
-    !!meta?.manifestChecked &&
-    !meta?.manifestAvailable;
+    meta.manifestChecked &&
+    !meta.manifestAvailable;
 
   const generatedBillingPlanId = useMemo(() => {
     const trimmedName = name.trim();
@@ -43,14 +48,19 @@ export const PlanCreatePage: React.FC = () => {
     [pipelines],
   );
 
-  const effectiveSelectedCaps = useMemo(
-    () => selectedCaps.filter((cap) => availableCapabilities.has(cap)),
-    [availableCapabilities, selectedCaps],
-  );
+  const effectiveSelectedCaps = useMemo(() => {
+    if (!capabilityCatalogReady) {
+      return selectedCaps;
+    }
+    return selectedCaps.filter((cap) => availableCapabilities.has(cap));
+  }, [availableCapabilities, capabilityCatalogReady, selectedCaps]);
 
   React.useEffect(() => {
+    if (!capabilityCatalogReady) {
+      return;
+    }
     setSelectedCaps((prev) => prev.filter((cap) => availableCapabilities.has(cap)));
-  }, [availableCapabilities]);
+  }, [availableCapabilities, capabilityCatalogReady]);
 
   React.useEffect(() => {
     if (!pymthouseConfigured && billingProviderSlug === 'pymthouse') {
@@ -64,6 +74,17 @@ export const PlanCreatePage: React.FC = () => {
         ? prev.filter((cap) => cap !== capability)
         : [...prev, capability],
     );
+  }
+
+  function bulkToggleCapabilities(capabilities: string[], select: boolean) {
+    setSelectedCaps((prev) => {
+      if (select) {
+        const toAdd = capabilities.filter((cap) => !prev.includes(cap));
+        return [...prev, ...toAdd];
+      }
+      const removeSet = new Set(capabilities);
+      return prev.filter((cap) => !removeSet.has(cap));
+    });
   }
 
   async function onCreate(): Promise<void> {
@@ -95,7 +116,7 @@ export const PlanCreatePage: React.FC = () => {
   }
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto space-y-5">
+    <div className="px-4 pb-6 pt-3 max-w-[1400px] mx-auto space-y-5">
       <button
         onClick={() => navigate('/plans')}
         className="flex items-center gap-1 text-sm text-text-muted hover:text-text-primary transition-colors"
@@ -105,8 +126,8 @@ export const PlanCreatePage: React.FC = () => {
 
       <div className="glass-card p-5 space-y-5">
         <div>
-          <h1 className="text-xl font-bold text-text-primary">Create Discovery Plan</h1>
-          <p className="text-sm text-text-muted mt-1">
+          <h1 className="text-2xl font-bold text-text-primary tracking-tight">Create Discovery Plan</h1>
+          <p className="text-sm text-text-muted mt-0.5">
             Plan settings and results are scoped to capabilities allowed by the selected billing provider.
           </p>
         </div>
@@ -119,9 +140,7 @@ export const PlanCreatePage: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">
-              Name
-            </label>
+            <FormLabel>Name</FormLabel>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -134,9 +153,7 @@ export const PlanCreatePage: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">
-              Billing plan ID
-            </label>
+            <FormLabel>Billing plan ID</FormLabel>
             <input
               value={generatedBillingPlanId}
               readOnly
@@ -144,9 +161,7 @@ export const PlanCreatePage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">
-              Top N
-            </label>
+            <FormLabel>Top N</FormLabel>
             <input
               type="number"
               min={1}
@@ -164,38 +179,45 @@ export const PlanCreatePage: React.FC = () => {
               {catalogError}
             </div>
           )}
-          <div className="mb-3">
-            <label className="flex items-start gap-2 px-3 py-2 bg-bg-secondary border border-[var(--border-color)] rounded-lg text-sm text-text-secondary">
-              <input
-                type="checkbox"
-                checked={billingProviderSlug === 'pymthouse'}
-                disabled={!pymthouseConfigured}
-                onChange={(e) => setBillingProviderSlug(e.target.checked ? 'pymthouse' : 'daydream')}
-                className="mt-0.5"
-              />
-              <span>
-                Use PymtHouse allowlist filtering
-              </span>
-            </label>
+          <div className="glass-card p-4 space-y-3">
+            <SectionLabel className="mb-0">
+              {`Allowed capabilities (${effectiveSelectedCaps.length} selected)`}
+            </SectionLabel>
+
+            <CapabilityGroupPicker
+              title="Allowed capabilities"
+              showSectionHeader={false}
+              pipelines={pipelines}
+              loading={loading}
+              selectedCapabilities={effectiveSelectedCaps}
+              isSelected={(capability) => effectiveSelectedCaps.includes(capability)}
+              onToggle={toggleCapability}
+              onBulkToggle={bulkToggleCapabilities}
+              toolbarEnd={
+                <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer shrink-0">
+                  <StyledCheckbox
+                    checked={billingProviderSlug === 'pymthouse'}
+                    disabled={!pymthouseConfigured}
+                    aria-label="Use PymtHouse allowlist filtering"
+                    onChange={(isChecked) =>
+                      setBillingProviderSlug(isChecked ? 'pymthouse' : 'daydream')
+                    }
+                  />
+                  <span>Use PymtHouse allowlist filtering</span>
+                </label>
+              }
+            />
             {!pymthouseConfigured && (
-              <p className="text-[11px] text-accent-amber mt-1">
+              <p className="text-[11px] text-accent-amber">
                 PymtHouse credentials are not configured in NaaP; showing unfiltered capability catalog.
               </p>
             )}
             {manifestUnavailable && (
-              <p className="text-[11px] text-accent-amber mt-1">
+              <p className="text-[11px] text-accent-amber">
                 PymtHouse manifest is currently unavailable; capability filtering is restricted until the manifest syncs.
               </p>
             )}
           </div>
-          <CapabilityGroupPicker
-            title="Allowed capabilities"
-            pipelines={pipelines}
-            loading={loading}
-            selectedCapabilities={effectiveSelectedCaps}
-            isSelected={(capability) => effectiveSelectedCaps.includes(capability)}
-            onToggle={toggleCapability}
-          />
         </div>
 
         <div className="flex items-center justify-end">

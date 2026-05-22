@@ -13,9 +13,10 @@ import { success, errors } from '@/lib/api/response';
 import { getDashboardPipelineCatalog } from '@/lib/facade';
 import { isCapabilityAllowedForProvider, normalizeBillingProviderSlug } from '@/lib/orchestrator-leaderboard/provider-restrictions';
 import {
+  DISCOVERY_RESPONSE_CACHE_CONTROL,
+  ensurePymthouseManifestFresh,
   getPymthouseApiV1Base,
   getPymthouseManifestSnapshot,
-  syncPymthouseManifestSnapshot,
 } from '@/lib/pymthouse-manifest';
 
 interface CapabilityCatalogModel {
@@ -39,6 +40,8 @@ export async function GET(request: NextRequest): Promise<Response> {
   const requestedBillingProviderSlug = normalizeBillingProviderSlug(
     request.nextUrl.searchParams.get('billingProviderSlug'),
   ) ?? 'pymthouse';
+  const manifestOnly = request.nextUrl.searchParams.get('manifestOnly') === '1';
+  const capabilitiesToValidate = request.nextUrl.searchParams.getAll('capability');
   let billingProviderSlug = requestedBillingProviderSlug;
 
   const publicId =
@@ -59,14 +62,31 @@ export async function GET(request: NextRequest): Promise<Response> {
   if (requestedBillingProviderSlug === 'pymthouse') {
     manifestChecked = true;
     if (pymthouseConfigured) {
-      await syncPymthouseManifestSnapshot();
+      await ensurePymthouseManifestFresh();
       manifestAvailable = getPymthouseManifestSnapshot().data != null;
     } else {
       billingProviderSlug = 'daydream';
     }
   }
 
-  const catalog = await getDashboardPipelineCatalog();
+  if (manifestOnly) {
+    const response = success({
+      requestedBillingProviderSlug,
+      billingProviderSlug,
+      pymthouseConfigured,
+      manifestChecked,
+      manifestAvailable,
+      pipelines: [],
+      capabilities: [],
+      filteredCapabilities: capabilitiesToValidate.filter((capability) =>
+        isCapabilityAllowedForProvider(capability, billingProviderSlug),
+      ),
+    });
+    response.headers.set('Cache-Control', DISCOVERY_RESPONSE_CACHE_CONTROL);
+    return response;
+  }
+
+  const catalog = await getDashboardPipelineCatalog({ bypassCache: true });
   const pipelines: CapabilityCatalogPipeline[] = [];
 
   for (const pipeline of catalog) {
@@ -96,7 +116,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   pipelines.sort((a, b) => a.name.localeCompare(b.name));
 
-  return success({
+  const response = success({
     requestedBillingProviderSlug,
     billingProviderSlug,
     pymthouseConfigured,
@@ -105,4 +125,6 @@ export async function GET(request: NextRequest): Promise<Response> {
     pipelines,
     capabilities: pipelines.flatMap((p) => p.models.map((m) => m.capability)),
   });
+  response.headers.set('Cache-Control', DISCOVERY_RESPONSE_CACHE_CONTROL);
+  return response;
 }

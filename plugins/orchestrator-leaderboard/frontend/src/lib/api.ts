@@ -267,6 +267,8 @@ export interface CapabilityCatalogResponse {
   manifestChecked: boolean;
   manifestAvailable: boolean;
   pipelines: CapabilityCatalogPipeline[];
+  capabilities?: string[];
+  filteredCapabilities?: string[];
 }
 
 export async function fetchCapabilityCatalog(
@@ -277,6 +279,34 @@ export async function fetchCapabilityCatalog(
     headers: buildHeaders(false),
     credentials: 'include',
     signal: AbortSignal.timeout(15_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<CapabilityCatalogResponse> = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+  return json.data;
+}
+
+export async function fetchCapabilityCatalogManifest(
+  billingProviderSlug: 'pymthouse' | 'daydream',
+  capabilities: string[],
+): Promise<CapabilityCatalogResponse> {
+  const q = new URLSearchParams({
+    billingProviderSlug,
+    manifestOnly: '1',
+  });
+  for (const capability of capabilities) {
+    q.append('capability', capability);
+  }
+
+  const res = await fetch(`${BASE_URL}/capability-catalog?${q}`, {
+    headers: buildHeaders(false),
+    credentials: 'include',
+    signal: AbortSignal.timeout(5_000),
   });
 
   if (!res.ok) {

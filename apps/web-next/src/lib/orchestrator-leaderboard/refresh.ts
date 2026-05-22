@@ -17,10 +17,11 @@ import { evaluatePlan } from './ranking';
 import { listEnabledPlans } from './plans';
 import { getRowsForCapability } from './global-dataset';
 import {
+  ensurePymthouseManifestFresh,
   fingerprintCapabilityList,
-  syncPymthouseManifestSnapshot,
 } from '@/lib/pymthouse-manifest';
 import {
+  normalizeBillingProviderSlug,
   providerRestrictionRevision,
   resolvePlanCapabilitiesForProvider,
 } from './provider-restrictions';
@@ -107,7 +108,17 @@ export async function evaluateAndCache(
   requestUrl?: string,
   cookieHeader?: string | null,
 ): Promise<PlanResults> {
-  const cacheKey = buildPlanEvaluationCacheKey(plan);
+  if (normalizeBillingProviderSlug(plan.billingProviderSlug) === 'pymthouse') {
+    await ensurePymthouseManifestFresh({
+      onRevisionChanged: () => invalidatePlanCache(plan.id),
+    });
+  }
+
+  const planForEval: DiscoveryPlan = {
+    ...plan,
+    capabilities: resolvePlanCapabilitiesForProvider(plan),
+  };
+  const cacheKey = buildPlanEvaluationCacheKey(planForEval);
   const entry = planCache.get(cacheKey);
 
   if (entry && isFresh(entry)) {
@@ -118,7 +129,7 @@ export async function evaluateAndCache(
   }
 
   if (entry && isValid(entry)) {
-    refreshSingle(plan).catch((err) => {
+    refreshSingle(planForEval).catch((err) => {
       console.error(`[leaderboard] Background refresh failed for plan ${plan.id}:`, err);
     });
     return {
@@ -127,7 +138,7 @@ export async function evaluateAndCache(
     };
   }
 
-  return refreshSingle(plan);
+  return refreshSingle(planForEval);
 }
 
 async function refreshSingle(plan: DiscoveryPlan): Promise<PlanResults> {
@@ -150,7 +161,7 @@ export async function refreshAllPlans(
   requestUrl?: string,
   cookieHeader?: string | null,
 ): Promise<{ refreshed: number; failed: number }> {
-  await syncPymthouseManifestSnapshot();
+  await ensurePymthouseManifestFresh({ onRevisionChanged: clearPlanCache });
   const plans = await listEnabledPlans();
   let refreshed = 0;
   let failed = 0;

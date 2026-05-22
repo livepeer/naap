@@ -14,6 +14,7 @@ import { success, errors } from '@/lib/api/response';
 import { getAuthToken } from '@/lib/api/response';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
+import { DISCOVERY_RESPONSE_CACHE_CONTROL } from '@/lib/pymthouse-manifest';
 import { BillingProviderSlugSchema } from '@/lib/orchestrator-leaderboard/types';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -74,7 +75,7 @@ export async function GET(
     };
 
     const response = success(withPlanMeta);
-    response.headers.set('Cache-Control', 'private, max-age=10');
+    response.headers.set('Cache-Control', DISCOVERY_RESPONSE_CACHE_CONTROL);
     response.headers.set('X-Cache-Age', String(results.meta.cacheAgeMs));
     response.headers.set('X-Refresh-Interval', String(results.meta.refreshIntervalMs));
     return response;

@@ -82,9 +82,11 @@ export async function getDashboardPipelines(opts: {
   return resolvePipelines({ limit: opts.limit, timeframe: opts.timeframe });
 }
 
-export async function getDashboardPipelineCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
+export async function getDashboardPipelineCatalog(opts?: {
+  bypassCache?: boolean;
+}): Promise<DashboardPipelineCatalogEntry[]> {
   if (USE_STUBS) return stubs.pipelineCatalog;
-  return resolvePipelineCatalog();
+  return resolvePipelineCatalog(opts);
 }
 
 export async function getDashboardOrchestrators(opts: {

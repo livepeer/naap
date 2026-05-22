@@ -1,5 +1,5 @@
 /**
- * Applies PymtHouse app-level discovery allowlist to dashboard orchestrator rows.
+ * Applies PymtHouse app-level discovery exclusions to dashboard orchestrator rows.
  * Used when `pipeline` + `model_id` query params scope the request.
  */
 
@@ -83,10 +83,10 @@ export interface OrchestratorDiscoveryOpts {
 }
 
 /**
- * When `pipeline` and `modelId` are set, optionally intersects with the PymtHouse Builder
- * discovery allowlist (M2M). If the pair is not on the allowlist when restrictions exist,
- * returns no rows. Missing or empty manifest denies by default unless
- * `PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN=1` is set (audited).
+ * When `pipeline` and `modelId` are set, applies the PymtHouse Builder Network
+ * Discovery denylist (M2M). Explicit exclusions return no rows; everything else
+ * in the NaaP catalog remains discoverable. Missing manifest denies by default
+ * unless `PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN=1` is set (audited).
  * Applies `userDiscoveryPolicy` only (no merged PymtHouse SLA envelope from legacy plans).
  */
 export async function applyPymthouseDiscoveryToOrchestrators(

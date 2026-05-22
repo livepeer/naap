@@ -33,14 +33,14 @@ describe('provider-restrictions', () => {
     expect(providerRestrictionRevision('daydream')).toBe('na');
   });
 
-  it('filters capabilities by provider restrictions', () => {
+  it('filters capabilities by provider exclusion rules', () => {
     seedPymthouseManifestForTests({
       capabilities: [{ pipeline: 'video', modelId: 'model-a' }],
       excludedCapabilities: [{ pipeline: 'video', modelId: 'model-b' }],
     });
 
-    const caps = ['video/model-a', 'video/model-b'];
-    expect(filterCapabilitiesForProvider(caps, 'pymthouse')).toEqual(['video/model-a']);
+    const caps = ['video/model-a', 'video/model-b', 'future/model-c'];
+    expect(filterCapabilitiesForProvider(caps, 'pymthouse')).toEqual(['video/model-a', 'future/model-c']);
     expect(filterCapabilitiesForProvider(caps, 'daydream')).toEqual(caps);
   });
 
@@ -52,8 +52,8 @@ describe('provider-restrictions', () => {
 
     expect(resolvePlanCapabilitiesForProvider({
       billingProviderSlug: 'pymthouse',
-      capabilities: ['video/model-a', 'video/model-z'],
-    } as const)).toEqual(['video/model-a']);
+      capabilities: ['video/model-a', 'video/model-z', 'future/model-c'],
+    } as const)).toEqual(['video/model-a', 'future/model-c']);
   });
 
   it('checks capability allow decision via provider semantics', () => {
@@ -64,6 +64,7 @@ describe('provider-restrictions', () => {
 
     expect(isCapabilityAllowedForProvider('video/model-a', 'pymthouse')).toBe(true);
     expect(isCapabilityAllowedForProvider('video/model-b', 'pymthouse')).toBe(false);
+    expect(isCapabilityAllowedForProvider('future/model-c', 'pymthouse')).toBe(true);
     expect(isCapabilityAllowedForProvider('video/model-b', 'daydream')).toBe(true);
   });
 });

@@ -13,15 +13,9 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { authorize } from '@/lib/gateway/authorize';
 import { getAuthToken } from '@/lib/api/response';
-import {
-  getPymthouseManifestSnapshot,
-  syncPymthouseManifestSnapshot,
-} from '@/lib/pymthouse-manifest';
+import { DISCOVERY_RESPONSE_CACHE_CONTROL } from '@/lib/pymthouse-manifest';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
-import {
-  evaluateAndCache,
-  invalidatePlanCache,
-} from '@/lib/orchestrator-leaderboard/refresh';
+import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
 import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
 import { resolvePlanCapabilitiesForProvider } from '@/lib/orchestrator-leaderboard/provider-restrictions';
 import { BillingProviderSlugSchema } from '@/lib/orchestrator-leaderboard/types';
@@ -84,22 +78,11 @@ export async function GET(
 
   const authToken = getAuthToken(request) || '';
 
-  if (plan.billingProviderSlug === 'pymthouse') {
-    const revisionBefore = getPymthouseManifestSnapshot().revision;
-    if (revisionBefore === 'none' || revisionBefore === 'unavailable') {
-      await syncPymthouseManifestSnapshot();
-      const revisionAfter = getPymthouseManifestSnapshot().revision;
-      if (revisionBefore !== revisionAfter) {
-        invalidatePlanCache(plan.id);
-      }
-    }
-  }
-
   const allowedCaps = resolvePlanCapabilitiesForProvider(plan);
   if (allowedCaps.length === 0) {
     return NextResponse.json([], {
       headers: {
-        'Cache-Control': 'private, max-age=10',
+        'Cache-Control': DISCOVERY_RESPONSE_CACHE_CONTROL,
         'X-Pymthouse-Manifest': 'empty',
       },
     });
@@ -135,7 +118,7 @@ export async function GET(
 
     return NextResponse.json(randomized, {
       headers: {
-        'Cache-Control': 'private, max-age=10',
+        'Cache-Control': DISCOVERY_RESPONSE_CACHE_CONTROL,
         'X-Cache-Age': String(results.meta.cacheAgeMs),
         'X-Refresh-Interval': String(results.meta.refreshIntervalMs),
       },

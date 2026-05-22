@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useId } from 'react';
+import { SectionLabel } from '../components/SectionLabel';
+import { CapabilityTag } from '../components/CapabilityTag';
 import {
-  Trophy, Activity, Gauge, Zap, RefreshCw, ChevronDown, ChevronUp,
+  Activity, Gauge, RefreshCw, ChevronDown, ChevronUp,
   SlidersHorizontal, Timer, TrendingUp, AlertCircle, Search, Loader2, Radio,
 } from 'lucide-react';
 import { useCapabilities } from '../hooks/useCapabilities';
@@ -63,64 +65,45 @@ export const LeaderboardPage: React.FC = () => {
   const stats = useMemo(() => computeStats(data), [data]);
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto space-y-5">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-accent-emerald/10 text-accent-emerald rounded-xl">
-            <Trophy size={22} />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-text-primary tracking-tight">
-              Orchestrator Leaderboard
-            </h1>
-            <p className="text-sm text-text-muted mt-0.5">
-              Real-time rankings by latency, stability &amp; price
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setAutoRefresh(!autoRefresh)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              autoRefresh
-                ? 'bg-accent-emerald/15 text-accent-emerald border border-accent-emerald/30'
-                : 'bg-bg-secondary text-text-secondary border border-[var(--border-color)] hover:border-white/20'
-            }`}
-          >
-            <Radio size={12} className={autoRefresh ? 'animate-pulse' : ''} />
-            {autoRefresh ? 'Live' : 'Auto-refresh'}
-          </button>
-          <button
-            onClick={refresh}
-            disabled={!capability || loading}
-            className="flex items-center gap-1.5 px-4 py-1.5 bg-accent-emerald hover:bg-accent-emerald/90 disabled:bg-bg-tertiary disabled:text-text-disabled text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
-        </div>
+    <div className="px-4 pb-6 pt-3 max-w-[1400px] mx-auto space-y-5">
+      <div className="flex items-center justify-end gap-2">
+        <button
+          onClick={() => setAutoRefresh(!autoRefresh)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            autoRefresh
+              ? 'bg-accent-emerald/15 text-accent-emerald border border-accent-emerald/30'
+              : 'bg-bg-secondary text-text-secondary border border-[var(--border-color)] hover:border-white/20'
+          }`}
+        >
+          <Radio size={12} className={autoRefresh ? 'animate-pulse' : ''} />
+          {autoRefresh ? 'Live' : 'Auto-refresh'}
+        </button>
+        <button
+          onClick={refresh}
+          disabled={!capability || loading}
+          className="flex items-center gap-1.5 px-4 py-1.5 bg-accent-emerald hover:bg-accent-emerald/90 disabled:bg-bg-tertiary disabled:text-text-disabled text-white text-sm font-medium rounded-lg transition-colors"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          Refresh
+        </button>
       </div>
 
       {/* Capability Selector (pills) */}
       <div className="glass-card p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Zap size={14} className="text-text-muted" />
-          <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-            Capability
-          </span>
-          {capsLoading && <Loader2 size={12} className="animate-spin text-text-disabled" />}
-        </div>
+        <SectionLabel
+          trailing={capsLoading ? <Loader2 size={12} className="animate-spin text-text-disabled" /> : undefined}
+        >
+          Capability
+        </SectionLabel>
         <div className="flex flex-wrap gap-2">
           {capabilities.map((c) => (
-            <button
+            <CapabilityTag
               key={c}
+              active={c === capability}
               onClick={() => setCapability(c === capability ? '' : c)}
-              className={`pill-btn ${c === capability ? 'pill-btn-active' : 'pill-btn-inactive'}`}
             >
               {c}
-            </button>
+            </CapabilityTag>
           ))}
           {!capsLoading && capabilities.length === 0 && (
             <span className={`text-xs ${capsError ? 'text-accent-rose' : 'text-text-disabled'}`}>

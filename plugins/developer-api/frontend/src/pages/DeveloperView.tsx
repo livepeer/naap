@@ -98,14 +98,16 @@ const TAB_FROM_SEGMENT: Record<string, TabId> = {
   'api-keys': 'api-keys',
 };
 
+const DEFAULT_TAB: TabId = 'api-keys';
+
 function resolveTabFromPath(pathname: string): TabId {
   const parts = pathname.split('/').filter(Boolean);
   const maybeRoot = parts[0];
   const maybeTab = parts[1];
   if (maybeRoot !== 'developer') {
-    return 'models';
+    return DEFAULT_TAB;
   }
-  return TAB_FROM_SEGMENT[maybeTab ?? ''] ?? 'models';
+  return TAB_FROM_SEGMENT[maybeTab ?? ''] ?? DEFAULT_TAB;
 }
 
 function getPathForTab(tab: TabId): string {

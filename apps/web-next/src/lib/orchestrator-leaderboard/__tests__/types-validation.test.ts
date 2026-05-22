@@ -36,6 +36,19 @@ describe('CreatePlanSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  it('accepts capabilities with dots, colons, and multi-segment paths', () => {
+    const result = CreatePlanSchema.safeParse({
+      ...validInput,
+      capabilities: [
+        'openai-chat-completions/gemma3:4b',
+        'openai-chat-completions/minimax-m2.7',
+        'text-to-image/black-forest-labs/FLUX.1-dev',
+        'llm/meta-llama/Meta-Llama-3.1-8B-Instruct',
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
   it('rejects invalid capability pattern', () => {
     const result = CreatePlanSchema.safeParse({
       ...validInput,

@@ -93,7 +93,7 @@ export interface CacheEntry<T> {
 // Discovery Plans — Zod schemas
 // ---------------------------------------------------------------------------
 
-const CAPABILITY_RE = /^[a-zA-Z0-9_/-]+$/;
+const CAPABILITY_RE = /^[a-zA-Z0-9_.:\-/]+$/;
 
 export const FiltersSchema = z.object({
   gpuRamGbMin: z.number().min(0).optional(),

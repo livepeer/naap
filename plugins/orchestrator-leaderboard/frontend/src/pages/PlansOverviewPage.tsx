@@ -4,6 +4,8 @@ import {
   Map, Layers, Activity, Users, Loader2, AlertCircle,
   ChevronRight, Clock, Power, PowerOff, Plus,
 } from 'lucide-react';
+import { CapabilityTag } from '../components/CapabilityTag';
+import { SectionLabel } from '../components/SectionLabel';
 import { usePlans } from '../hooks/usePlans';
 import { EndpointGuide } from '../components/EndpointGuide';
 
@@ -23,46 +25,27 @@ export const PlansOverviewPage: React.FC = () => {
   }, [plans]);
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto space-y-5">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-accent-blue/10 text-accent-blue rounded-xl">
-            <Map size={22} />
-          </div>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-text-primary tracking-tight">
-                Discovery Plans
-              </h1>
-              {!loading && (
-                <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-bg-tertiary text-text-muted">
-                  {stats.totalPlans} plan{stats.totalPlans !== 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-text-muted mt-0.5">
-              Pre-configured orchestrator selection for signer webhooks
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => navigate('/plans/new')}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue/20 hover:bg-accent-blue/30 text-accent-blue text-xs font-medium rounded-lg border border-accent-blue/30 transition-colors"
-          >
-            <Plus size={12} />
-            New Plan
-          </button>
-          <button
-            onClick={refresh}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-secondary hover:bg-bg-tertiary text-text-secondary text-xs font-medium rounded-lg border border-[var(--border-color)] transition-colors"
-          >
-            <Activity size={12} />
-            Refresh
-          </button>
-        </div>
+    <div className="px-4 pb-6 pt-3 max-w-[1400px] mx-auto space-y-5">
+      <div className="flex items-center justify-end gap-2">
+        {!loading && (
+          <span className="mr-auto px-2 py-0.5 text-[11px] font-medium rounded-full bg-bg-tertiary text-text-muted">
+            {stats.totalPlans} plan{stats.totalPlans !== 1 ? 's' : ''}
+          </span>
+        )}
+        <button
+          onClick={() => navigate('/plans/new')}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue/20 hover:bg-accent-blue/30 text-accent-blue text-xs font-medium rounded-lg border border-accent-blue/30 transition-colors"
+        >
+          <Plus size={12} />
+          New Plan
+        </button>
+        <button
+          onClick={refresh}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-secondary hover:bg-bg-tertiary text-text-secondary text-xs font-medium rounded-lg border border-[var(--border-color)] transition-colors"
+        >
+          <Activity size={12} />
+          Refresh
+        </button>
       </div>
 
       {/* Error */}
@@ -164,7 +147,7 @@ export const PlansOverviewPage: React.FC = () => {
                       <PowerOff size={12} className="text-text-disabled shrink-0" />
                     )}
                   </div>
-                  <p className="text-[11px] text-text-muted font-mono truncate mt-0.5">
+                  <p className="text-xs text-text-muted font-mono truncate mt-0.5">
                     {plan.billingPlanId}
                   </p>
                 </div>
@@ -172,16 +155,17 @@ export const PlansOverviewPage: React.FC = () => {
               </div>
 
               {/* Capabilities */}
-              <div className="flex flex-wrap gap-1.5 mb-3">
+              <SectionLabel className="mb-2">Capability</SectionLabel>
+              <div className="flex flex-wrap gap-2 mb-3">
                 {plan.capabilities.map((c) => (
-                  <span key={c} className="pill-btn pill-btn-inactive text-[10px] px-2 py-0.5 cursor-default">
+                  <CapabilityTag key={c} size="sm">
                     {c}
-                  </span>
+                  </CapabilityTag>
                 ))}
               </div>
 
               {/* Metrics Row */}
-              <div className="flex items-center gap-3 text-[11px] text-text-muted mb-3">
+              <div className="flex items-center gap-3 text-xs text-text-muted mb-3">
                 <span>Top {plan.topN}</span>
                 <span className="text-text-disabled">|</span>
                 {plan.slaMinScore != null && (
@@ -208,7 +192,7 @@ export const PlansOverviewPage: React.FC = () => {
               </div>
 
               {/* Owner & Timestamp */}
-              <div className="flex items-center gap-3 text-[10px] text-text-muted mb-3">
+              <div className="flex items-center gap-3 text-xs text-text-muted mb-3">
                 {plan.ownerUserId && (
                   <span className="truncate max-w-[120px]" title={plan.ownerUserId}>
                     Owner: {plan.ownerUserId.slice(0, 8)}...
@@ -227,7 +211,7 @@ export const PlansOverviewPage: React.FC = () => {
 
               {/* Endpoint Guide */}
               <div className="border-t border-[var(--border-color)] pt-3">
-                <EndpointGuide planId={plan.id} compact />
+                <EndpointGuide planId={plan.id} />
               </div>
             </div>
           ))}

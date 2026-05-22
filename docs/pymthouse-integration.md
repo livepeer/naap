@@ -82,9 +82,9 @@ This keeps token auth explicit: the signer remains a PymtHouse-issued billing se
 
 ### Network Price discovery allowlist (PymtHouse → NaaP)
 
-For billing provider **`pymthouse`**, NaaP periodically syncs **`GET {PYMTHOUSE_ISSUER_URL without /oidc}/apps/{publicClientId}/manifest`** with the same **M2M Basic** credentials as other Builder routes. The JSON **`capabilities`** array is the resolved discoverable set (live catalog minus exclusions stored on the app’s **Network Price** default plan). **`manifestVersion`** is used for cache busting when present. A missing or empty manifest **denies discovery by default**; set **`PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN=1`** only in controlled environments to restore legacy fail-open behavior (high-severity audit log).
+For billing provider **`pymthouse`**, NaaP periodically syncs **`GET {PYMTHOUSE_ISSUER_URL without /oidc}/apps/{publicClientId}/manifest`** with the same **M2M Basic** credentials as other Builder routes. The manifest’s **`excludedCapabilities`** array is authoritative: NaaP denies explicitly excluded pipeline/model rules and allows every other NaaP catalog capability. The JSON **`capabilities`** array is treated as an informational PymtHouse-local resolved set, not as a complete NaaP allowlist, because PymtHouse can know fewer capabilities than NaaP. **`manifestVersion`** is used for cache busting when present. A missing manifest **denies discovery by default**; set **`PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN=1`** only in controlled environments to restore legacy fail-open behavior (high-severity audit log).
 
-NaaP intersects python-gateway discovery and orchestrator-leaderboard evaluation against that snapshot (`syncPymthouseManifestSnapshot` in `apps/web-next/src/lib/pymthouse-manifest.ts`). Minimal app metadata is available via **`GET …/apps/{publicClientId}`** (M2M). Legacy per-plan policy rows for the UI still come from **`GET …/apps/{id}/plans`**.
+NaaP applies the synced denylist snapshot (`syncPymthouseManifestSnapshot` in `apps/web-next/src/lib/pymthouse-manifest.ts`) to python-gateway discovery and orchestrator-leaderboard evaluation. Minimal app metadata is available via **`GET …/apps/{publicClientId}`** (M2M). Legacy per-plan policy rows for the UI still come from **`GET …/apps/{id}/plans`**.
 
 ### Usage API (BFF)
 
