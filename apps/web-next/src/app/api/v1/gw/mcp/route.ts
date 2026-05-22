@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
       }
 
       const { connectorSlug, method, path } = resolved;
-      const selfOrigin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+      const { appUrl: selfOrigin } = await import('@/lib/env');
       const proxyPath = `/api/v1/gw/${encodeURIComponent(connectorSlug)}${path}`;
       let url = `${selfOrigin}${proxyPath}`;
 

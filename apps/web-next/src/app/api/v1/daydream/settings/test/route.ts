@@ -8,6 +8,7 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import { decryptField } from '@naap/crypto';
 
 const DAYDREAM_API = 'https://api.daydream.live';
 
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return errors.unauthorized('No auth token provided');
     }
 
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) {
       return csrfError;
     }
@@ -31,13 +32,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const body = await request.json();
     const { apiKey: testKey } = body;
 
-    // Use provided key or fallback to stored key
+    // Use provided key or fallback to stored (encrypted) key
     let apiKey = testKey;
     if (!apiKey) {
       const settings = await prisma.daydreamSettings.findUnique({
         where: { userId: user.id },
       });
-      apiKey = settings?.apiKey;
+      apiKey = settings?.apiKey
+        ? decryptField(settings.apiKey, `DaydreamSettings:${user.id}:apiKey`)
+        : undefined;
     }
 
     if (!apiKey) {

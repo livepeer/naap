@@ -14,8 +14,8 @@ import { validateCSRF } from '@/lib/api/csrf';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || '/tmp/plugin-uploads';
 const STATIC_DIR = process.env.STATIC_DIR || '/tmp/plugin-static';
-const PLUGIN_PUBLISHER_URL =
-  process.env.PLUGIN_PUBLISHER_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+import { appUrl } from '@/lib/env';
+const PLUGIN_PUBLISHER_URL = process.env.PLUGIN_PUBLISHER_URL || appUrl;
 
 export const runtime = 'nodejs';
 
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return errors.unauthorized('No auth token provided');
     }
 
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) {
       return csrfError;
     }

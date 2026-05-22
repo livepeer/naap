@@ -201,6 +201,7 @@ describe('buildUpstreamRequest', () => {
 
       const expected = `Basic ${Buffer.from('admin:secret').toString('base64')}`;
       expect(result.headers.get('Authorization')).toBe(expected);
+      expect(result.headers.get('Authorization')).not.toContain('gw_not_forwarded');
       expect(result.headers.get('Authorization')).not.toContain('consumer-style-token');
     });
 
@@ -310,6 +311,26 @@ describe('buildUpstreamRequest', () => {
       const result = buildUpstreamRequest(request, config, {}, null, '/query');
 
       expect(result.body).toBeUndefined();
+    });
+  });
+
+  describe('basic auth header handling', () => {
+    it('does not forward consumer Authorization header to upstream for basic auth', () => {
+      const config = makeConfig({
+        connector: {
+          authType: 'basic',
+          authConfig: { usernameRef: 'username', passwordRef: 'password' },
+        },
+      });
+      const secrets = { username: 'admin', password: 'secret' };
+      const request = new Request('https://example.com', {
+        headers: { Authorization: 'Bearer consumer-jwt-token' },
+      });
+      const result = buildUpstreamRequest(request, config, secrets, null, '/query');
+
+      expect(result.headers.get('Authorization')).toBe(
+        'Basic ' + btoa('admin:secret')
+      );
     });
   });
 });

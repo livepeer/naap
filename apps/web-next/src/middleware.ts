@@ -16,6 +16,7 @@ const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/publish': 'pluginPublisher',
   '/daydream': 'daydreamVideo',
   '/lightning-client': 'lightningClient',
+  '/orchestrator-leaderboard': 'orchestratorLeaderboard',
 };
 
 // CSP configuration for plugin pages

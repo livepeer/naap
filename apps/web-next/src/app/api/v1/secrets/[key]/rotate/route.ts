@@ -1,52 +1,68 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { validateSession } from '@/lib/api/auth';
+import { errors, getAuthToken } from '@/lib/api/response';
 import * as crypto from 'crypto';
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
-
-function encrypt(text: string): { encryptedValue: string; iv: string } {
-  const iv = crypto.randomBytes(16);
-  const key = Buffer.from(ENCRYPTION_KEY.slice(0, 32).padEnd(32, '0'));
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  
-  const authTag = cipher.getAuthTag();
-  
-  return {
-    encryptedValue: encrypted + ':' + authTag.toString('hex'),
-    iv: iv.toString('hex'),
-  };
+async function requireAdmin(request: NextRequest) {
+  const token = getAuthToken(request);
+  if (!token) return { error: errors.unauthorized('No auth token provided') };
+  const user = await validateSession(token);
+  if (!user) return { error: errors.unauthorized('Invalid or expired session') };
+  if (!user.roles.includes('system:admin')) return { error: errors.forbidden('Admin permission required') };
+  return { user };
 }
 
-// POST /api/v1/secrets/[key]/rotate - Rotate a secret's value
+function getEncryptionKey(): string {
+  const key = process.env.ENCRYPTION_KEY;
+  if (!key) {
+    throw new Error('ENCRYPTION_KEY environment variable is required.');
+  }
+  return key;
+}
+
+function encrypt(text: string): { encryptedValue: string; iv: string } {
+  const masterKey = getEncryptionKey();
+  const salt = crypto.randomBytes(32);
+  const iv = crypto.randomBytes(16);
+  const derivedKey = crypto.scryptSync(masterKey, salt, 32, { N: 16384, r: 8, p: 1 });
+
+  const cipher = crypto.createCipheriv('aes-256-gcm', derivedKey, iv);
+  const ct = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  const encryptedValue = `v1:gcm:scrypt:${salt.toString('hex')}:${iv.toString('hex')}:${ct.toString('hex')}:${tag.toString('hex')}`;
+  return { encryptedValue, iv: iv.toString('hex') };
+}
+
+// POST /api/v1/secrets/[key]/rotate - Rotate a secret's value (admin only)
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
   try {
-    const { key } = await params;
-    const body = await request.json();
-    const { newValue } = body;
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
 
-    if (!newValue) {
-      return NextResponse.json(
-        { error: 'New value is required' },
-        { status: 400 }
-      );
+    const { key } = await params;
+
+    let body: { newValue?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+
+    if (!body.newValue || typeof body.newValue !== 'string') {
+      return NextResponse.json({ error: 'newValue (string) is required' }, { status: 400 });
     }
 
     const secret = await prisma.secretVault.findUnique({ where: { key } });
     if (!secret) {
-      return NextResponse.json(
-        { error: 'Secret not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Secret not found' }, { status: 404 });
     }
 
-    // Encrypt the new value
-    const { encryptedValue, iv } = encrypt(newValue);
+    const { encryptedValue, iv } = encrypt(body.newValue);
 
     const updated = await prisma.secretVault.update({
       where: { key },
@@ -71,9 +87,6 @@ export async function POST(
     });
   } catch (error) {
     console.error('Error rotating secret:', error);
-    return NextResponse.json(
-      { error: 'Failed to rotate secret' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to rotate secret' }, { status: 500 });
   }
 }

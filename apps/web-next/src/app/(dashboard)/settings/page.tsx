@@ -6,7 +6,7 @@ import { Reorder } from 'framer-motion';
 import { useAuth } from '@/contexts/auth-context';
 import { useShell, useEvents } from '@/contexts/shell-context';
 import { usePlugins } from '@/contexts/plugin-context';
-import { getCsrfToken } from '@/lib/api/csrf';
+import { getCsrfToken } from '@/lib/api/csrf-client';
 import {
   User, Bell, Palette, Shield, LogOut, Save, Globe,
   Eye, EyeOff, Pin, GripVertical, Trash2, Settings as SettingsIcon,

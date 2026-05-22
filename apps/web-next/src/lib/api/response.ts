@@ -114,6 +114,11 @@ export const errors = {
       lockedUntil: lockedUntil.toISOString()
     }),
 
+  accountSuspended: (reason?: string | null) =>
+    error('ACCOUNT_SUSPENDED', 'Your account has been suspended. Please contact an administrator.', 403, {
+      ...(reason ? { reason } : {}),
+    }),
+
   internal: (message: string = 'Internal server error') =>
     error('INTERNAL_ERROR', message, 500),
 

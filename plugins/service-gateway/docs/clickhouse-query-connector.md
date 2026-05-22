@@ -13,9 +13,10 @@ Connect NaaP to any ClickHouse instance via its [HTTP query interface](https://c
 Verify your instance is reachable:
 
 ```bash
-curl --user 'default:YOUR_PASSWORD' \
+curl --user 'default' \
   --data-binary 'SELECT 1' \
   https://your-instance.clickhouse.cloud:8443
+# curl will prompt for the password interactively
 ```
 
 You should get `1` back.

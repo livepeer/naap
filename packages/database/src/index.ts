@@ -61,13 +61,12 @@ function getConnectionUrl(): string {
     return '';
   }
 
-  // Log which env var was resolved (mask the value for security)
   const source = process.env.DATABASE_URL
     ? 'DATABASE_URL'
     : process.env.POSTGRES_PRISMA_URL
     ? 'POSTGRES_PRISMA_URL'
     : 'POSTGRES_URL';
-  console.log(`[database] Using ${source} (${baseUrl.substring(0, 30)}...)`);
+  console.log(`[database] Using ${source}`);
 
   // If URL already has query params, don't modify
   if (baseUrl.includes('?')) {

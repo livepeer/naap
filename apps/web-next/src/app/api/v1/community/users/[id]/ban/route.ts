@@ -25,7 +25,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       return errors.unauthorized('No auth token provided');
     }
 
-    const csrfError = validateCSRF(request, token);
+    const csrfError = validateCSRF(request, { shadowMode: true });
     if (csrfError) {
       return csrfError;
     }

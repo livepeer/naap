@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api", "plugin_service_gateway"]
+  schemas   = ["public", "plugin_community", "plugin_wallet", "plugin_dashboard", "plugin_daydream", "plugin_gateway", "plugin_capacity", "plugin_developer_api", "plugin_service_gateway", "plugin_orchestrator_leaderboard"]
 }
 
 // ============================================
@@ -32,17 +32,21 @@ datasource db {
 // ============================================
 
 model User {
-  id            String    @id @default(uuid())
-  email         String?   @unique
-  passwordHash  String?
-  emailVerified DateTime?
-  address       String?   @unique // Wallet address for Web3 auth
-  displayName   String?
-  avatarUrl     String?
-  bio           String?
-  lockedUntil   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                    String    @id @default(uuid())
+  email                 String?   @unique
+  passwordHash          String?
+  emailVerified         DateTime?
+  address               String?   @unique // Wallet address for Web3 auth
+  displayName           String?
+  avatarUrl             String?
+  bio                   String?
+  lockedUntil           DateTime?
+  suspendedAt           DateTime?
+  suspendedReason       String?
+  sessionVersion        Int       @default(0)
+  passwordResetRequired Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   // Core relations
   config            UserConfig?
@@ -116,16 +120,19 @@ model UserConfig {
 }
 
 model Session {
-  id         String   @id @default(uuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token      String   @unique
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  lastUsedAt DateTime @default(now())
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token             String   @unique
+  tokenHash         String?  @unique
+  expiresAt         DateTime
+  versionAtCreation Int      @default(0)
+  createdAt         DateTime @default(now())
+  lastUsedAt        DateTime @default(now())
 
   @@index([userId])
   @@index([token])
+  @@index([tokenHash])
   @@index([expiresAt])
   @@schema("public")
 }
@@ -134,6 +141,7 @@ model PasswordResetToken {
   id        String    @id @default(uuid())
   userId    String
   token     String    @unique
+  tokenHash String?   @unique
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
@@ -149,6 +157,7 @@ model EmailVerificationToken {
   userId    String
   email     String
   token     String    @unique
+  tokenHash String?   @unique
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
@@ -2226,4 +2235,103 @@ model ConnectorCapabilityRanking {
   @@unique([connectorId, category, modelName])
   @@index([category, qualityRank])
   @@schema("plugin_service_gateway")
+}
+
+// ============================================
+// ORCHESTRATOR LEADERBOARD — DISCOVERY PLANS
+// ============================================
+
+/// A persistent, parameterized discovery query whose results are auto-refreshed
+/// and served from cache. External consumers (signers, SDKs) create plans via
+/// the REST API and poll /plans/:id/results for ranked orchestrator lists.
+model DiscoveryPlan {
+  id              String   @id @default(cuid())
+  billingPlanId   String   @unique
+  name            String
+  description     String?
+  visibility      String   @default("personal") // "personal" | "team" | "public"
+  teamId          String?
+  ownerUserId     String?
+  capabilities    String[]
+  topN            Int      @default(10)
+  slaWeights      Json?
+  slaMinScore     Float?
+  sortBy          String?
+  filters         Json?
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([teamId, enabled])
+  @@index([ownerUserId, enabled])
+  @@index([visibility, enabled])
+  @@schema("plugin_orchestrator_leaderboard")
+}
+
+/// Singleton config row for the orchestrator-leaderboard plugin.
+/// Stores admin-configurable refresh interval and last-refresh metadata.
+model LeaderboardConfig {
+  id                    String    @id @default("singleton")
+  refreshIntervalHours  Int       @default(1)
+  membershipStrategy    String    @default("union")
+  lastRefreshedAt       DateTime?
+  lastRefreshedBy       String?
+  knownCapabilities     String[]  @default([])
+  updatedAt             DateTime  @updatedAt
+
+  @@schema("plugin_orchestrator_leaderboard")
+}
+
+/// Configurable data source for the orchestrator-leaderboard refresh pipeline.
+/// Admin can enable/disable each source and reorder priority (lower = higher).
+model LeaderboardSource {
+  kind      String   @id
+  enabled   Boolean  @default(true)
+  priority  Int
+  config    Json?
+  updatedAt DateTime @updatedAt
+
+  @@schema("plugin_orchestrator_leaderboard")
+}
+
+/// Durable audit log written after every global dataset refresh. Records
+/// per-source fetch stats, field-level conflict resolutions, and dropped rows.
+model LeaderboardRefreshAudit {
+  id                 String   @id @default(cuid())
+  refreshedAt        DateTime @default(now())
+  refreshedBy        String
+  durationMs         Int
+  membershipSource   String
+  totalOrchestrators Int
+  totalCapabilities  Int
+  perSource          Json
+  conflicts          Json
+  dropped            Json
+  warnings           String[]
+
+  @@index([refreshedAt])
+  @@schema("plugin_orchestrator_leaderboard")
+}
+
+/// Persisted global dataset row — one entry per (capability, orchestrator).
+/// Written in bulk during the hourly cron refresh; read by /rank, /filters,
+/// and plan evaluation. Replaces the in-memory-only global dataset cache.
+model LeaderboardDatasetRow {
+  id           String   @id @default(cuid())
+  capability   String
+  orchUri      String
+  gpuName      String   @default("")
+  gpuGb        Float    @default(0)
+  avail        Float    @default(0)
+  totalCap     Float    @default(0)
+  pricePerUnit Float    @default(0)
+  bestLatMs    Float?
+  avgLatMs     Float?
+  swapRatio    Float?
+  avgAvail     Float?
+  refreshedAt  DateTime @default(now())
+
+  @@unique([capability, orchUri])
+  @@index([capability])
+  @@schema("plugin_orchestrator_leaderboard")
 }

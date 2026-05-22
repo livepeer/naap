@@ -168,7 +168,7 @@ Reference table for all Service Gateway connectors, their transform configuratio
 - **Endpoints**: 6 (clusters, topics, records, consumer groups)
 - **Upstream docs**: https://docs.confluent.io/cloud/current/api.html
 
-### 19. ClickHouse Query API (`clickhouse-query`)
+### 18. ClickHouse Query API (`clickhouse-query`)
 
 - **Upstream**: ClickHouse HTTP interface (e.g. `https://xxxx.clickhouse.cloud:8443`)
 - **Auth**: Basic auth (username/password)

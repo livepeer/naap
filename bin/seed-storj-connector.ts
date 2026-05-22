@@ -20,7 +20,11 @@ import { encrypt } from '../apps/web-next/src/lib/gateway/encryption.js';
 
 const SHELL_URL = process.env.SHELL_URL || 'http://localhost:3000';
 const AUTH_EMAIL = process.env.AUTH_EMAIL || 'admin@livepeer.org';
-const AUTH_PASSWORD = process.env.AUTH_PASSWORD || 'livepeer';
+const AUTH_PASSWORD = process.env.AUTH_PASSWORD;
+if (!AUTH_PASSWORD) {
+  console.error('AUTH_PASSWORD env var is required. See apps/web-next/.env.local.example');
+  process.exit(1);
+}
 
 interface S3EndpointDef {
   name: string;

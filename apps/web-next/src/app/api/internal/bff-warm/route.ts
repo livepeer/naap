@@ -26,9 +26,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, { status: 401 });
   }
 
+  const { appUrl: _appUrl } = await import('@/lib/env');
   const base =
     process.env.BFF_WARM_ORIGIN ??
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://127.0.0.1:3000');
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : _appUrl);
 
   const end = new Date();
   const start = new Date(end.getTime() - 24 * 3600 * 1000);
@@ -49,6 +50,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     `${base}/api/v1/network/capacity`,
   ];
 
+  const authedTargets = [
+    `${base}/api/v1/orchestrator-leaderboard/filters`,
+  ];
+
+  const cronSecret = process.env.CRON_SECRET;
+
   const results: { url: string; ok: boolean; status: number }[] = [];
   for (const url of targets) {
     try {
@@ -56,6 +63,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       results.push({ url, ok: r.ok, status: r.status });
     } catch {
       results.push({ url, ok: false, status: 0 });
+    }
+  }
+
+  if (cronSecret) {
+    for (const url of authedTargets) {
+      try {
+        const r = await fetch(url, {
+          cache: 'no-store',
+          headers: { Authorization: `Bearer ${cronSecret}` },
+        });
+        results.push({ url, ok: r.ok, status: r.status });
+      } catch {
+        results.push({ url, ok: false, status: 0 });
+      }
     }
   }
 

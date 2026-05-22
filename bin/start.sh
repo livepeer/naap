@@ -485,6 +485,7 @@ PLUGIN_SCHEMAS=(
   "plugin_dashboard"
   "plugin_daydream"
   "plugin_service_gateway"
+  "plugin_orchestrator_leaderboard"
 )
 
 get_all_plugins() {
@@ -1534,6 +1535,13 @@ PLUGIN_SERVER_URL=http://localhost:$PLUGIN_SERVER_PORT
 WEOF
     ((created++)) || true
     log_debug "Created $web_env"
+  fi
+
+  # Keep NEXT_PUBLIC_APP_URL aligned with SHELL_PORT on every start so
+  # switching ports (e.g. SHELL_PORT=3030) doesn't leave a stale URL.
+  if grep -q '^NEXT_PUBLIC_APP_URL=' "$web_env" 2>/dev/null; then
+    sed -i.bak "s|^NEXT_PUBLIC_APP_URL=.*|NEXT_PUBLIC_APP_URL=http://localhost:$SHELL_PORT|" "$web_env"
+    rm -f "$web_env.bak"
   fi
 
   [ $created -gt 0 ] && log_success "Created $created missing .env file(s)" || log_success "All .env files present"

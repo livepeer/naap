@@ -27,6 +27,7 @@ const nextConfig = {
     '@naap/config',
     '@naap/plugin-sdk',
     '@naap/cache',
+    '@naap/crypto',
   ],
 
   // Image optimization
@@ -98,7 +99,6 @@ const nextConfig = {
   async headers() {
     const allowedOrigins = [
       process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-      'http://localhost:3000', // Legacy shell
       'https://naap.dev',
       'https://*.vercel.app',
     ].filter(Boolean);
