@@ -45,7 +45,7 @@
     "lucide-react": "^0.575.0",
     "mime-types": "^3.0.2",
     "postal-mime": "2.7.3",
-    "next": "^15.5.15",
+    "next": "^15.5.18",
     "next-mdx-remote": "^6.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
