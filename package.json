@@ -22,6 +22,7 @@
     "e2e:plugin-publisher:cleanup": "npx tsx bin/cleanup-published-examples.ts",
     "db:setup": "./bin/db-setup.sh",
     "db:seed": "./bin/db-seed.sh",
+    "seed:discovery-plans": "npx tsx bin/seed-discovery-plans.ts",
     "db:reset": "./bin/db-reset.sh",
     "db:migrate": "./bin/db-migrate.sh",
     "db:cleanup-moved-plugins": "npx tsx bin/cleanup-moved-plugins.ts",
