@@ -13,6 +13,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { authorize } from '@/lib/gateway/authorize';
 import { getAuthToken } from '@/lib/api/response';
+import {
+  getPymthouseManifestSnapshot,
+  syncPymthouseManifestSnapshot,
+} from '@/lib/pymthouse-manifest';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
 import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
@@ -76,6 +80,13 @@ export async function GET(
   }
 
   const authToken = getAuthToken(request) || '';
+
+  if (plan.billingProviderSlug === 'pymthouse') {
+    const { revision } = getPymthouseManifestSnapshot();
+    if (revision === 'none' || revision === 'unavailable') {
+      await syncPymthouseManifestSnapshot();
+    }
+  }
 
   const allowedCaps = resolvePlanCapabilitiesForProvider(plan);
   if (allowedCaps.length === 0) {

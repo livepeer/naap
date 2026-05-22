@@ -120,6 +120,12 @@ export function refreshGlobalDatasetOnStartup(): Promise<{
 
     const ageMs = stats.refreshedAt ? Date.now() - stats.refreshedAt : Infinity;
     if (stats.populated && ageMs < intervalMs) {
+      // Dataset rows persist in Postgres, but the PymtHouse manifest snapshot is
+      // in-memory only — always sync it on startup even when skipping dataset refresh.
+      const { revisionChanged } = await syncPymthouseManifestSnapshot();
+      if (revisionChanged) {
+        clearPlanCache();
+      }
       return {
         refreshed: false,
         capabilities: stats.capabilityCount,
