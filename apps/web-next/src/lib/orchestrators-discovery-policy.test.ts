@@ -111,6 +111,7 @@ describe('orchestrators-discovery-policy', () => {
       vi.fn(async () =>
         Promise.resolve({
           ok: true,
+          headers: new Headers(),
           json: async () => ({ capabilities: [{ pipeline: 'llm', modelId: 'm1' }] }),
         } as Response),
       ),

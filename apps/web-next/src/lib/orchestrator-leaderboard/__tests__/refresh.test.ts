@@ -37,9 +37,10 @@ import { getRowsForCapability } from '../global-dataset';
 const mockPlan: DiscoveryPlan = {
   id: 'plan-1',
   billingPlanId: 'bp-1',
-  billingProviderSlug: 'pymthouse',
+  billingProviderSlug: null,
   name: 'Test Plan',
   description: null,
+  visibility: 'personal',
   teamId: 'team-1',
   ownerUserId: 'user-1',
   capabilities: ['image-to-image'],
